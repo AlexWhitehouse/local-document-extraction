@@ -1,0 +1,34 @@
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+.dev.vars
+
+# Cloudflare local state
+.wrangler/
+
+# Editor settings
+.idea/
+.vscode/
+
+# Local agent metadata
+.agents/
