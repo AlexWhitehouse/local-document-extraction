@@ -1,7 +1,7 @@
 import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
 import { validateExtractRequest } from "../lib/validation";
-import type { Env, Tenant, QueueJobMessage } from "../lib/types";
+import type { Env, QueueJobMessage, Workspace } from "../lib/types";
 
 const EXT_BY_MIME: Record<string, string> = {
   "image/png": "png",
@@ -10,17 +10,17 @@ const EXT_BY_MIME: Record<string, string> = {
   "application/pdf": "pdf"
 };
 
-export async function createExtractionJob(request: Request, env: Env, tenant: Tenant): Promise<Response> {
-  const maxImageBytes = tenant.max_image_bytes || Number(env.MAX_IMAGE_BYTES || 10 * 1024 * 1024);
+export async function createExtractionJob(request: Request, env: Env, workspace: Workspace): Promise<Response> {
+  const maxImageBytes = workspace.max_image_bytes || Number(env.MAX_IMAGE_BYTES || 10 * 1024 * 1024);
   const { templateId, source } = await validateExtractRequest(request, maxImageBytes);
 
   const template = await env.DB
     .prepare(
       `SELECT id, current_version, status, deleted_at
        FROM templates
-       WHERE id = ? AND tenant_id = ?`
+       WHERE id = ? AND workspace_id = ?`
     )
-    .bind(templateId, tenant.id)
+    .bind(templateId, workspace.id)
     .first<{ id: string; current_version: number; status: string; deleted_at: string | null }>();
 
   if (!template || template.deleted_at || template.status !== "active") {
@@ -44,7 +44,7 @@ export async function createExtractionJob(request: Request, env: Env, tenant: Te
 
   const jobId = newId("job");
   const ext = EXT_BY_MIME[source.type] || "bin";
-  const objectKey = `tenants/${tenant.id}/jobs/${jobId}/source.${ext}`;
+  const objectKey = `workspaces/${workspace.id}/jobs/${jobId}/source.${ext}`;
   const imageName = source.name?.trim() ? source.name.trim() : null;
   const now = nowIso();
 
@@ -59,11 +59,11 @@ export async function createExtractionJob(request: Request, env: Env, tenant: Te
     env.DB
       .prepare(
         `INSERT INTO jobs (
-          id, tenant_id, template_id, template_version, status,
+          id, workspace_id, template_id, template_version, status,
           image_r2_key, image_mime_type, image_name, created_at, updated_at
         ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`
       )
-      .bind(jobId, tenant.id, templateId, version, objectKey, source.type, imageName, now, now)
+      .bind(jobId, workspace.id, templateId, version, objectKey, source.type, imageName, now, now)
   ];
 
   try {
@@ -75,7 +75,7 @@ export async function createExtractionJob(request: Request, env: Env, tenant: Te
 
   const message: QueueJobMessage = {
     job_id: jobId,
-    tenant_id: tenant.id,
+    workspace_id: workspace.id,
     template_id: templateId,
     template_version: version,
     image_r2_key: objectKey,

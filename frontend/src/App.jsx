@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createRuntimeAuthClient } from "./lib/authClient";
 
 const DEFAULT_FIELDS = [
   {
@@ -153,14 +154,16 @@ const EMPTY_FIELD = {
 };
 
 const SIDEBAR_ITEMS = [
-  { id: "workspace", label: "Workspace" },
-  { id: "templates", label: "Templates" },
-  { id: "documents", label: "Documents" },
+  { id: "workspace", label: "Workspaces", icon: "WS" },
+  { id: "templates", label: "Templates", icon: "TP" },
+  { id: "documents", label: "Documents", icon: "DC" },
 ];
 
 const WORKSPACE_STORAGE_KEY = "imageextraction.workspace.v1";
-const DEFAULT_TENANT_ID = "tenant_local_default";
-const DEFAULT_TENANT_NAME = "Local Dev Tenant";
+const DEFAULT_WORKSPACE_ID = "workspace_local_default";
+const DEFAULT_WORKSPACE_NAME = "Local Workspace";
+const NEW_WORKSPACE_NAME = "New Workspace";
+const DRAFT_TEMPLATE_NAV_ID = "__draft_template__";
 
 function loadPersistedWorkspace() {
   if (typeof window === "undefined") {
@@ -179,22 +182,44 @@ function loadPersistedWorkspace() {
   }
 }
 
-function generateApiKey() {
-  return `key_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
-}
-
 export function App() {
   const initialWorkspaceRef = useRef(loadPersistedWorkspace());
   const initialWorkspace = initialWorkspaceRef.current || {};
 
   const [apiBase, setApiBase] = useState(initialWorkspace.apiBase || "/v1");
-  const [tenantName, setTenantName] = useState(
-    initialWorkspace.tenantName || DEFAULT_TENANT_NAME,
+  const authClient = useMemo(() => createRuntimeAuthClient(apiBase), [apiBase]);
+  const {
+    data: session,
+    isPending: isSessionPending,
+    refetch: refetchSession,
+  } = authClient.useSession();
+
+  const [authMode, setAuthMode] = useState("signin");
+  const [authName, setAuthName] = useState(initialWorkspace.authName || "");
+  const [authEmail, setAuthEmail] = useState(initialWorkspace.authEmail || "");
+  const [authPassword, setAuthPassword] = useState("");
+
+  const [workspaceName, setWorkspaceName] = useState(
+    initialWorkspace.workspaceName || DEFAULT_WORKSPACE_NAME,
   );
-  const [tenantId, setTenantId] = useState(
-    initialWorkspace.tenantId || DEFAULT_TENANT_ID,
+  const [workspaceId, setWorkspaceId] = useState(
+    initialWorkspace.workspaceId || DEFAULT_WORKSPACE_ID,
   );
   const [apiKey, setApiKey] = useState(initialWorkspace.apiKey || "");
+  const [apiKeysByWorkspace, setApiKeysByWorkspace] = useState(() => {
+    const stored =
+      initialWorkspace.apiKeysByWorkspace &&
+      typeof initialWorkspace.apiKeysByWorkspace === "object"
+        ? { ...initialWorkspace.apiKeysByWorkspace }
+        : {};
+
+    const initialWorkspaceId = initialWorkspace.workspaceId;
+    if (initialWorkspaceId && initialWorkspace.apiKey) {
+      stored[initialWorkspaceId] = initialWorkspace.apiKey;
+    }
+
+    return stored;
+  });
 
   const [templates, setTemplates] = useState(
     Array.isArray(initialWorkspace.templates) ? initialWorkspace.templates : [],
@@ -218,12 +243,17 @@ export function App() {
   const [lastJobId, setLastJobId] = useState(initialWorkspace.lastJobId || "");
 
   const [busy, setBusy] = useState(false);
-  const [logLines, setLogLines] = useState([]);
+  const [, setLogLines] = useState([]);
   const [latestResponse, setLatestResponse] = useState(null);
 
   const [activePage, setActivePage] = useState("workspace");
-  const [showDevConsole, setShowDevConsole] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
+  const [profileDraftName, setProfileDraftName] = useState("");
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
   const [uploadFile, setUploadFile] = useState(null);
   const [queuedJobs, setQueuedJobs] = useState({});
@@ -236,10 +266,36 @@ export function App() {
   const [selectedDocumentId, setSelectedDocumentId] = useState(
     initialWorkspace.selectedDocumentId || "",
   );
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [documentSearch, setDocumentSearch] = useState("");
+  const [workspaceSearch, setWorkspaceSearch] = useState("");
+  const [showDraftTemplateNav, setShowDraftTemplateNav] = useState(false);
+  const [userWorkspaces, setUserWorkspaces] = useState(
+    Array.isArray(initialWorkspace.userWorkspaces)
+      ? initialWorkspace.userWorkspaces
+      : [],
+  );
+  const [workspaceUsers, setWorkspaceUsers] = useState([]);
+  const [workspaceUserActionTarget, setWorkspaceUserActionTarget] =
+    useState(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("member");
 
   const previewUrlsRef = useRef(new Set());
+  const profilePanelRef = useRef(null);
 
+  const hasSession = Boolean(session?.user?.id);
+  const sessionUserId = String(session?.user?.id || "").trim();
+  const sessionUserName = String(session?.user?.name || "").trim();
+  const sessionUserEmail = String(session?.user?.email || "").trim();
+  const currentProfileName = (profileName.trim() || sessionUserName).trim();
+  const currentProfileEmail = (profileEmail.trim() || sessionUserEmail).trim();
+  const displayProfileName = currentProfileName || "Unnamed User";
+  const displayProfileEmail = currentProfileEmail || "No email";
+  const profileIsDirty = profileDraftName.trim() !== currentProfileName;
   const hasApiKey = Boolean(apiKey.trim());
+  const hasWorkspaceContext = Boolean(workspaceId.trim());
+  const hasApiAccess = hasApiKey || (hasSession && hasWorkspaceContext);
   const baseUrl = useMemo(() => apiBase.replace(/\/+$/, ""), [apiBase]);
   const isEditingTemplate = Boolean(updateTemplateId.trim());
 
@@ -280,6 +336,160 @@ export function App() {
     );
   }, [documents, selectedDocumentId]);
 
+  const selectedDocumentTemplateName = useMemo(() => {
+    if (!selectedDocument?.template_id) {
+      return "Unknown template";
+    }
+
+    const templateId = String(selectedDocument.template_id || "").trim();
+    const match = templates.find(
+      (template) => String(template.id || "").trim() === templateId,
+    );
+    const templateName = String(match?.name || "").trim();
+    return templateName || templateId;
+  }, [selectedDocument, templates]);
+
+  const filteredTemplates = useMemo(() => {
+    const query = templateSearch.trim().toLowerCase();
+    if (!query) {
+      return templates;
+    }
+
+    return templates.filter((template) => {
+      const name = String(template.name || "").toLowerCase();
+      const id = String(template.id || "").toLowerCase();
+      const description = String(template.description || "").toLowerCase();
+      return (
+        name.includes(query) ||
+        id.includes(query) ||
+        description.includes(query)
+      );
+    });
+  }, [templateSearch, templates]);
+
+  const filteredDocuments = useMemo(() => {
+    const query = documentSearch.trim().toLowerCase();
+
+    return documents.filter((job) => {
+      if (!query) {
+        return true;
+      }
+
+      const imageName = String(job.image_name || "").toLowerCase();
+      const jobId = String(job.job_id || "").toLowerCase();
+      const templateId = String(job.template_id || "").toLowerCase();
+      return (
+        imageName.includes(query) ||
+        jobId.includes(query) ||
+        templateId.includes(query)
+      );
+    });
+  }, [documentSearch, documents]);
+
+  const contextTemplates = useMemo(() => {
+    const hasDraft = showDraftTemplateNav && activePage === "templates";
+    const draftItem = hasDraft
+      ? [{ id: DRAFT_TEMPLATE_NAV_ID, name: "New Template", is_draft: true }]
+      : [];
+    return [...draftItem, ...filteredTemplates];
+  }, [activePage, filteredTemplates, showDraftTemplateNav]);
+
+  const availableWorkspaces = useMemo(() => {
+    if (userWorkspaces.length > 0) {
+      return userWorkspaces.map((workspace) => ({
+        id: String(workspace.id || ""),
+        name: String(workspace.name || "Untitled Workspace"),
+        api_base: apiBase || "/v1",
+        connected: true,
+      }));
+    }
+
+    return [
+      {
+        id: workspaceId || DEFAULT_WORKSPACE_ID,
+        name: workspaceName || DEFAULT_WORKSPACE_NAME,
+        api_base: apiBase || "/v1",
+        connected: hasApiAccess,
+      },
+    ];
+  }, [apiBase, hasApiAccess, workspaceId, workspaceName, userWorkspaces]);
+
+  const filteredWorkspaces = useMemo(() => {
+    const query = workspaceSearch.trim().toLowerCase();
+    if (!query) {
+      return availableWorkspaces;
+    }
+
+    return availableWorkspaces.filter((workspace) => {
+      const id = String(workspace.id || "").toLowerCase();
+      const name = String(workspace.name || "").toLowerCase();
+      return id.includes(query) || name.includes(query);
+    });
+  }, [availableWorkspaces, workspaceSearch]);
+
+  const documentStatusMetrics = useMemo(() => {
+    const metrics = {
+      queued: 0,
+      processing: 0,
+      completed: 0,
+      failed: 0,
+      retryable_failed: 0,
+    };
+
+    for (const job of documents) {
+      if (Object.prototype.hasOwnProperty.call(metrics, job.status)) {
+        metrics[job.status] += 1;
+      }
+    }
+
+    return metrics;
+  }, [documents]);
+
+  const completionRate = useMemo(() => {
+    if (!documents.length) {
+      return 0;
+    }
+    return Math.round(
+      (documentStatusMetrics.completed / documents.length) * 100,
+    );
+  }, [documentStatusMetrics.completed, documents.length]);
+
+  const selectedWorkspaceName = useMemo(() => {
+    const match = availableWorkspaces.find(
+      (workspace) => String(workspace.id || "") === workspaceId,
+    );
+    return String(match?.name || "");
+  }, [availableWorkspaces, workspaceId]);
+
+  const activeWorkspaceName =
+    selectedWorkspaceName.trim() ||
+    workspaceName.trim() ||
+    DEFAULT_WORKSPACE_NAME;
+
+  const currentWorkspaceRole = useMemo(() => {
+    const match = userWorkspaces.find(
+      (workspace) => String(workspace.id || "") === workspaceId,
+    );
+    return String(match?.role || "")
+      .trim()
+      .toLowerCase();
+  }, [userWorkspaces, workspaceId]);
+  const canManageWorkspaceUsers =
+    currentWorkspaceRole === "owner" || currentWorkspaceRole === "admin";
+  const workspaceUserActionOptions = useMemo(() => {
+    if (!workspaceUserActionTarget) {
+      return [];
+    }
+    return getWorkspaceUserActions(
+      currentWorkspaceRole,
+      String(workspaceUserActionTarget.role || ""),
+    );
+  }, [currentWorkspaceRole, workspaceUserActionTarget]);
+
+  const isWorkspaceNameDirty =
+    Boolean(workspaceId.trim()) &&
+    workspaceName.trim() !== selectedWorkspaceName.trim();
+
   useEffect(() => {
     return () => {
       for (const url of previewUrlsRef.current) {
@@ -296,27 +506,78 @@ export function App() {
 
     const payload = {
       apiBase,
-      tenantName,
-      tenantId,
+      authName,
+      authEmail,
+      workspaceName,
+      workspaceId,
       apiKey,
+      apiKeysByWorkspace,
       templates,
       extractTemplateId,
       lastJobId,
       jobHistory,
       selectedDocumentId,
+      userWorkspaces,
     };
     window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(payload));
   }, [
     apiBase,
-    tenantName,
-    tenantId,
+    authName,
+    authEmail,
+    workspaceName,
+    workspaceId,
     apiKey,
+    apiKeysByWorkspace,
     templates,
     extractTemplateId,
     lastJobId,
     jobHistory,
     selectedDocumentId,
+    userWorkspaces,
   ]);
+
+  useEffect(() => {
+    if (!hasSession) {
+      setIsProfileMenuOpen(false);
+      return;
+    }
+
+    setProfileName(sessionUserName);
+    setProfileEmail(sessionUserEmail);
+  }, [hasSession, sessionUserEmail, sessionUserName]);
+
+  useEffect(() => {
+    if (isProfileMenuOpen) {
+      return;
+    }
+    setProfileDraftName(currentProfileName);
+  }, [currentProfileName, isProfileMenuOpen]);
+
+  useEffect(() => {
+    if (!isProfileMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event) {
+      if (profilePanelRef.current?.contains(event.target)) {
+        return;
+      }
+      setIsProfileMenuOpen(false);
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setIsProfileMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isProfileMenuOpen]);
 
   function addLog(message) {
     const time = new Date().toLocaleTimeString();
@@ -327,19 +588,33 @@ export function App() {
     return `${baseUrl}${path}`;
   }
 
-  async function request(path, options = {}, authRequired = true) {
+  async function request(
+    path,
+    options = {},
+    authRequired = true,
+    workspaceRequired = true,
+  ) {
     const headers = new Headers(options.headers || {});
 
     if (authRequired) {
-      if (!hasApiKey) {
-        throw new Error("API key is required");
+      if (hasApiKey) {
+        headers.set("Authorization", `Bearer ${apiKey.trim()}`);
+      } else if (hasSession) {
+        if (workspaceRequired) {
+          if (!workspaceId.trim()) {
+            throw new Error("Workspace ID is required");
+          }
+          headers.set("x-workspace-id", workspaceId.trim());
+        }
+      } else {
+        throw new Error("Sign in or provide an API key");
       }
-      headers.set("Authorization", `Bearer ${apiKey.trim()}`);
     }
 
     const response = await fetch(endpoint(path), {
       ...options,
       headers,
+      credentials: "include",
     });
 
     if (response.status === 204) {
@@ -393,7 +668,11 @@ export function App() {
           null,
         queued_at:
           queuedMeta?.queued_at || existing?.queued_at || job.queued_at || null,
-        updated_at: new Date().toISOString(),
+        updated_at:
+          job.updated_at ||
+          existing?.updated_at ||
+          queuedMeta?.queued_at ||
+          null,
       };
       const next = [
         normalized,
@@ -420,110 +699,425 @@ export function App() {
     }
   }
 
-  async function rotateTenantApiKey(nextApiKey, targetTenantId = tenantId) {
+  async function rotateWorkspaceApiKey(targetWorkspaceId = workspaceId) {
     const data = await request(
-      `/dev/tenants/${encodeURIComponent(targetTenantId)}/api-key`,
+      `/workspaces/${encodeURIComponent(targetWorkspaceId)}/api-key`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: nextApiKey }),
       },
+      true,
       false,
     );
 
-    setTenantId(data.tenant_id || targetTenantId);
-    setApiKey(data.api_key || nextApiKey);
-    addLog(`API key rotated for tenant: ${data.tenant_id || targetTenantId}`);
+    setWorkspaceId(data.workspace_id || targetWorkspaceId);
+    setApiKey(data.api_key || "");
+    if (data.workspace_id && data.api_key) {
+      setApiKeysByWorkspace((prev) => ({
+        ...prev,
+        [String(data.workspace_id)]: String(data.api_key),
+      }));
+    }
+    addLog(
+      `API key rotated for workspace: ${data.workspace_id || targetWorkspaceId}`,
+    );
     return data;
   }
 
-  async function createTenant(options = {}) {
-    const targetTenantId = options.tenantId || tenantId || DEFAULT_TENANT_ID;
-    const targetApiKey = options.apiKey || apiKey || generateApiKey();
+  async function createWorkspace(options = {}) {
     const silent = Boolean(options.silent);
+    const nameForCreate = NEW_WORKSPACE_NAME;
 
     setBusy(true);
     try {
       if (!silent) {
-        addLog("Ensuring dev tenant...");
+        addLog("Creating workspace...");
       }
       const data = await request(
-        "/tenants",
+        "/workspaces",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tenant_id: targetTenantId,
-            api_key: targetApiKey,
-            name: tenantName || DEFAULT_TENANT_NAME,
+            name: nameForCreate,
           }),
         },
+        true,
         false,
       );
-      setTenantId(data.tenant_id || targetTenantId);
-      setApiKey(data.api_key || targetApiKey);
+      setWorkspaceId(data.workspace_id || "");
+      setWorkspaceName(data.name || NEW_WORKSPACE_NAME);
+      setApiKey(data.api_key || "");
+      if (data.workspace_id && data.api_key) {
+        setApiKeysByWorkspace((prev) => ({
+          ...prev,
+          [String(data.workspace_id)]: String(data.api_key),
+        }));
+      }
       if (!silent) {
-        addLog(`Tenant ready: ${data.tenant_id || targetTenantId}`);
+        addLog(`Workspace created: ${data.workspace_id || "unknown"}`);
       }
+      await listWorkspaces();
     } catch (error) {
-      if (error.code === "tenant_conflict") {
-        try {
-          await rotateTenantApiKey(targetApiKey, targetTenantId);
-        } catch (rotateError) {
-          addLog(`Create tenant failed: ${rotateError.message}`);
-        }
-      } else {
-        addLog(`Create tenant failed: ${error.message}`);
-      }
+      addLog(`Create workspace failed: ${error.message}`);
     } finally {
       setBusy(false);
     }
   }
 
   async function refreshApiKey() {
-    const targetTenantId = tenantId || DEFAULT_TENANT_ID;
-    const nextApiKey = generateApiKey();
+    if (!workspaceId.trim()) {
+      addLog("Refresh API key failed: select or create a workspace first");
+      return;
+    }
+
+    const targetWorkspaceId = workspaceId || DEFAULT_WORKSPACE_ID;
 
     setBusy(true);
     try {
-      await rotateTenantApiKey(nextApiKey, targetTenantId);
+      await rotateWorkspaceApiKey(targetWorkspaceId);
     } catch (error) {
-      if (error.code === "not_found") {
-        await createTenant({ tenantId: targetTenantId, apiKey: nextApiKey });
-      } else {
-        addLog(`Refresh API key failed: ${error.message}`);
-      }
+      addLog(`Refresh API key failed: ${error.message}`);
     } finally {
       setBusy(false);
     }
   }
 
-  useEffect(() => {
-    if (apiKey.trim()) {
+  async function listWorkspaces() {
+    if (!hasSession) {
       return;
     }
 
-    const nextTenantId = tenantId || DEFAULT_TENANT_ID;
-    const nextApiKey = generateApiKey();
-
-    setTenantId(nextTenantId);
-    if (!tenantName.trim()) {
-      setTenantName(DEFAULT_TENANT_NAME);
+    try {
+      const data = await request("/workspaces", { method: "GET" }, true, false);
+      const workspaces = Array.isArray(data?.workspaces) ? data.workspaces : [];
+      setUserWorkspaces(workspaces);
+      if (!workspaceId && workspaces[0]?.id) {
+        const nextWorkspaceId = String(workspaces[0].id);
+        setWorkspaceId(nextWorkspaceId);
+        setWorkspaceName(String(workspaces[0].name || DEFAULT_WORKSPACE_NAME));
+        setApiKey(String(apiKeysByWorkspace[nextWorkspaceId] || ""));
+      }
+      return workspaces;
+    } catch (error) {
+      addLog(`List workspaces failed: ${error.message}`);
+      return [];
     }
-    void createTenant({
-      tenantId: nextTenantId,
-      apiKey: nextApiKey,
-      silent: true,
-    });
-  }, []);
+  }
+
+  async function listWorkspaceUsers(targetWorkspaceId = workspaceId) {
+    const normalizedWorkspaceId = String(targetWorkspaceId || "").trim();
+    if (!hasSession || !normalizedWorkspaceId) {
+      setWorkspaceUsers([]);
+      return;
+    }
+
+    try {
+      const data = await request(
+        `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/users`,
+        { method: "GET" },
+        true,
+        false,
+      );
+      setWorkspaceUsers(Array.isArray(data?.users) ? data.users : []);
+    } catch (error) {
+      setWorkspaceUsers([]);
+      addLog(`List workspace users failed: ${error.message}`);
+    }
+  }
+
+  async function applyWorkspaceUserAction(targetUserId, action) {
+    const targetWorkspaceId = String(workspaceId || "").trim();
+    const targetId = String(targetUserId || "").trim();
+    if (!targetWorkspaceId || !targetId) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await request(
+        `/workspaces/${encodeURIComponent(targetWorkspaceId)}/users/${encodeURIComponent(targetId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        },
+        true,
+        false,
+      );
+      await listWorkspaces();
+      await listWorkspaceUsers(targetWorkspaceId);
+      addLog(`User updated (${action.replace(/_/g, " ")})`);
+    } catch (error) {
+      addLog(`User update failed: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function inviteUser() {
+    if (!workspaceId.trim()) {
+      addLog("Invite failed: select a workspace first");
+      return;
+    }
+    if (!inviteEmail.trim()) {
+      addLog("Invite failed: email is required");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await request(
+        `/workspaces/${encodeURIComponent(workspaceId.trim())}/invitations`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+        },
+      );
+      addLog(`Invitation sent to ${inviteEmail.trim()}`);
+      setInviteEmail("");
+    } catch (error) {
+      addLog(`Invite failed: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveWorkspaceChanges() {
+    if (!workspaceId.trim()) {
+      addLog("Save changes failed: select a workspace first");
+      return;
+    }
+    if (!isWorkspaceNameDirty) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await request(`/workspaces/${encodeURIComponent(workspaceId.trim())}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: workspaceName.trim() }),
+      });
+      await listWorkspaces();
+      addLog(`Workspace renamed to ${workspaceName.trim()}`);
+    } catch (error) {
+      addLog(`Save changes failed: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteWorkspace() {
+    if (!workspaceId.trim()) {
+      addLog("Delete workspace failed: select a workspace first");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete workspace ${workspaceId.trim()}? This action cannot be undone.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await request(`/workspaces/${encodeURIComponent(workspaceId.trim())}`, {
+        method: "DELETE",
+      });
+      setWorkspaceId("");
+      setWorkspaceName("");
+      setApiKey("");
+      setApiKeysByWorkspace((prev) => {
+        const next = { ...prev };
+        delete next[workspaceId.trim()];
+        return next;
+      });
+      const workspaces = await listWorkspaces();
+      if (Array.isArray(workspaces) && workspaces.length > 0) {
+        const nextWorkspaceId = String(workspaces[0].id || "");
+        setWorkspaceId(nextWorkspaceId);
+        setWorkspaceName(String(workspaces[0].name || DEFAULT_WORKSPACE_NAME));
+        setApiKey(String(apiKeysByWorkspace[nextWorkspaceId] || ""));
+      }
+      addLog("Workspace deleted");
+    } catch (error) {
+      addLog(`Delete workspace failed: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signIn() {
+    if (!authEmail.trim() || !authPassword.trim()) {
+      addLog("Sign in failed: email and password are required");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const result = await authClient.signIn.email({
+        email: authEmail.trim(),
+        password: authPassword,
+      });
+      if (result.error) {
+        throw new Error(result.error.message || "Sign in failed");
+      }
+      setAuthPassword("");
+      await refetchSession();
+      addLog(`Signed in as ${authEmail.trim()}`);
+    } catch (error) {
+      addLog(`Sign in failed: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signUp() {
+    if (!authName.trim() || !authEmail.trim() || !authPassword.trim()) {
+      addLog("Sign up failed: name, email, and password are required");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const result = await authClient.signUp.email({
+        name: authName.trim(),
+        email: authEmail.trim(),
+        password: authPassword,
+      });
+      if (result.error) {
+        throw new Error(result.error.message || "Sign up failed");
+      }
+      setAuthPassword("");
+      await refetchSession();
+      addLog(`Account created for ${authEmail.trim()}`);
+    } catch (error) {
+      addLog(`Sign up failed: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signInWithGoogle() {
+    setBusy(true);
+    try {
+      const result = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: window.location.origin,
+      });
+      if (result?.error) {
+        throw new Error(result.error.message || "Google sign in failed");
+      }
+    } catch (error) {
+      addLog(`Google sign in failed: ${error.message}`);
+      setBusy(false);
+    }
+  }
+
+  async function signOut() {
+    setBusy(true);
+    try {
+      await authClient.signOut();
+      setApiKey("");
+      setApiKeysByWorkspace({});
+      setWorkspaceId("");
+      setTemplates([]);
+      setJobHistory([]);
+      setWorkspaceUsers([]);
+      await refetchSession();
+      addLog("Signed out");
+    } catch (error) {
+      addLog(`Sign out failed: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadProfile() {
+    if (!hasSession) {
+      return;
+    }
+
+    try {
+      const data = await request("/profile", { method: "GET" }, true, false);
+      const nextName = String(data?.name || "").trim();
+      const nextEmail = String(data?.email || "").trim();
+      setProfileName(nextName);
+      setProfileEmail(nextEmail);
+      setAuthName(nextName);
+      setAuthEmail(nextEmail);
+    } catch (error) {
+      addLog(`Load profile failed: ${error.message}`);
+    }
+  }
+
+  async function saveProfile() {
+    const name = profileDraftName.trim();
+    const email = currentProfileEmail.toLowerCase();
+
+    if (!name) {
+      addLog("Profile update failed: name is required");
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      const data = await request(
+        "/profile",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email }),
+        },
+        true,
+        false,
+      );
+      const nextName = String(data?.name || name);
+      const nextEmail = String(data?.email || email);
+      setProfileName(nextName);
+      setProfileEmail(nextEmail);
+      setAuthName(nextName);
+      setAuthEmail(nextEmail);
+      await refetchSession();
+      addLog("Profile updated");
+      setIsProfileMenuOpen(false);
+    } catch (error) {
+      addLog(`Profile update failed: ${error.message}`);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
 
   useEffect(() => {
-    if (!apiKey.trim()) {
+    if (!hasApiAccess) {
+      setJobHistory([]);
+      setQueuedJobs({});
       return;
     }
 
     void listTemplates();
-  }, [apiKey]);
+    void listJobs();
+  }, [hasApiAccess, workspaceId, apiKey]);
+
+  useEffect(() => {
+    if (!hasSession) {
+      return;
+    }
+
+    void listWorkspaces();
+    void loadProfile();
+  }, [hasSession]);
+
+  useEffect(() => {
+    if (!hasSession || !workspaceId.trim()) {
+      setWorkspaceUsers([]);
+      return;
+    }
+
+    void listWorkspaceUsers(workspaceId.trim());
+  }, [hasSession, workspaceId]);
 
   async function listTemplates() {
     setBusy(true);
@@ -542,6 +1136,49 @@ export function App() {
     }
   }
 
+  async function listJobs() {
+    try {
+      const data = await request("/jobs", { method: "GET" });
+      const list = Array.isArray(data?.jobs) ? data.jobs : [];
+      setJobHistory(list);
+      if (!selectedDocumentId && list[0]?.job_id) {
+        setSelectedDocumentId(String(list[0].job_id));
+      }
+      addLog(`Loaded ${list.length} documents`);
+    } catch (error) {
+      addLog(`List documents failed: ${error.message}`);
+    }
+  }
+
+  async function loadJobDetails(jobId, { silent = true } = {}) {
+    const normalizedJobId = String(jobId || "").trim();
+    if (!normalizedJobId) {
+      return;
+    }
+
+    try {
+      const data = await request(
+        `/jobs/${encodeURIComponent(normalizedJobId)}`,
+        {
+          method: "GET",
+        },
+      );
+      upsertJobHistory(data);
+    } catch (error) {
+      if (!silent) {
+        addLog(`Load job details failed: ${error.message}`);
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!hasApiAccess || !selectedDocumentId.trim()) {
+      return;
+    }
+
+    void loadJobDetails(selectedDocumentId, { silent: true });
+  }, [hasApiAccess, selectedDocumentId]);
+
   async function createTemplate() {
     setBusy(true);
     try {
@@ -558,6 +1195,7 @@ export function App() {
       addLog(`Template created: ${data.template_id}`);
       setUpdateTemplateId(data.template_id);
       setExtractTemplateId(data.template_id);
+      setShowDraftTemplateNav(false);
       await listTemplates();
     } catch (error) {
       addLog(`Create template failed: ${error.message}`);
@@ -621,8 +1259,11 @@ export function App() {
     }
   }
 
-  async function loadTemplateForEditing() {
-    if (!updateTemplateId.trim()) {
+  async function loadTemplateForEditing(templateIdOverride = "") {
+    const targetTemplateId = String(
+      templateIdOverride || updateTemplateId,
+    ).trim();
+    if (!targetTemplateId) {
       addLog("Load template failed: template ID is required");
       return;
     }
@@ -630,9 +1271,11 @@ export function App() {
     setBusy(true);
     try {
       const template = await request(
-        `/templates/${encodeURIComponent(updateTemplateId.trim())}`,
+        `/templates/${encodeURIComponent(targetTemplateId)}`,
         { method: "GET" },
       );
+      setShowDraftTemplateNav(false);
+      setUpdateTemplateId(targetTemplateId);
       setTemplateName(template.name || "");
       setTemplateDescription(template.description || "");
       setTemplateFields(
@@ -640,8 +1283,8 @@ export function App() {
           ? template.fields.map(hydrateFieldFromTemplate)
           : [EMPTY_FIELD],
       );
-      setExtractTemplateId(updateTemplateId.trim());
-      addLog(`Loaded template ${updateTemplateId.trim()} for editing`);
+      setExtractTemplateId(targetTemplateId);
+      addLog(`Loaded template ${targetTemplateId} for editing`);
     } catch (error) {
       addLog(`Load template failed: ${error.message}`);
     } finally {
@@ -650,6 +1293,7 @@ export function App() {
   }
 
   function startNewTemplateDraft() {
+    setShowDraftTemplateNav(true);
     setUpdateTemplateId("");
     setTemplateName("Prescription Template");
     setTemplateDescription(
@@ -657,6 +1301,18 @@ export function App() {
     );
     setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
     addLog("Switched to new template draft");
+  }
+
+  function handleSidebarNavigation(pageId) {
+    setActivePage(pageId);
+    if (pageId !== "templates") {
+      return;
+    }
+
+    const latestTemplateId = String(templates[0]?.id || "").trim();
+    if (latestTemplateId) {
+      void loadTemplateForEditing(latestTemplateId);
+    }
   }
 
   function openUploadModal() {
@@ -818,43 +1474,6 @@ export function App() {
     }
   }
 
-  async function resetEnvironment() {
-    setBusy(true);
-    try {
-      await request(
-        "/dev/reset",
-        {
-          method: "POST",
-        },
-        false,
-      );
-
-      const nextTenantId = DEFAULT_TENANT_ID;
-      const nextApiKey = generateApiKey();
-      setTenantId(nextTenantId);
-      setApiKey(nextApiKey);
-      setTenantName(DEFAULT_TENANT_NAME);
-      setTemplates([]);
-      setUpdateTemplateId("");
-      setExtractTemplateId("");
-      setLastJobId("");
-      setLatestResponse(null);
-      setQueuedJobs({});
-      setJobHistory([]);
-      setSelectedDocumentId("");
-      addLog("Dev environment reset complete");
-      await createTenant({
-        tenantId: nextTenantId,
-        apiKey: nextApiKey,
-        silent: true,
-      });
-    } catch (error) {
-      addLog(`Reset failed: ${error.message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function pollJobUntilFinished(jobId) {
     for (let attempt = 1; attempt <= 30; attempt += 1) {
       const data = await request(`/jobs/${encodeURIComponent(jobId)}`, {
@@ -870,219 +1489,204 @@ export function App() {
     throw new Error("Timed out waiting for job completion");
   }
 
-  if (showDevConsole) {
+  function removeDocumentFromState(targetDocumentId, imagePreviewUrl) {
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+      previewUrlsRef.current.delete(imagePreviewUrl);
+    }
+
+    setJobHistory((prev) =>
+      prev.filter((job) => String(job.job_id || "") !== targetDocumentId),
+    );
+    setQueuedJobs((prev) => {
+      const next = { ...prev };
+      delete next[targetDocumentId];
+      return next;
+    });
+
+    if (lastJobId === targetDocumentId) {
+      setLastJobId("");
+    }
+    if (selectedDocumentId === targetDocumentId) {
+      setSelectedDocumentId("");
+    }
+    if (latestResponse?.job_id === targetDocumentId) {
+      setLatestResponse(null);
+    }
+  }
+
+  async function deleteSelectedDocument() {
+    if (!selectedDocument?.job_id) {
+      addLog("Delete document failed: select a document first");
+      return;
+    }
+    if (isDeletingDocument) {
+      return;
+    }
+
+    const targetDocumentId = String(selectedDocument.job_id);
+    if (
+      !window.confirm(
+        `Delete document ${targetDocumentId}? This will permanently remove it from the workspace.`,
+      )
+    ) {
+      return;
+    }
+
+    setIsDeletingDocument(true);
+    try {
+      await request(`/jobs/${encodeURIComponent(targetDocumentId)}`, {
+        method: "DELETE",
+      });
+      removeDocumentFromState(
+        targetDocumentId,
+        selectedDocument.image_preview_url,
+      );
+      addLog(`Deleted document ${targetDocumentId}`);
+    } catch (error) {
+      if (Number(error?.status) === 404) {
+        removeDocumentFromState(
+          targetDocumentId,
+          selectedDocument.image_preview_url,
+        );
+        addLog(`Document ${targetDocumentId} was already removed`);
+        return;
+      }
+      addLog(`Delete document failed: ${error.message}`);
+    } finally {
+      setIsDeletingDocument(false);
+    }
+  }
+
+  if (isSessionPending) {
+    return null;
+  }
+
+  if (!hasSession) {
     return (
-      <div className="page-shell">
-        <header className="hero">
-          <h1>Data Extraction Dev Console</h1>
-          <p>Legacy one-page UI kept for low-level API testing.</p>
-          <div className="actions">
-            <button type="button" onClick={() => setShowDevConsole(false)}>
-              Back to Workflow App
-            </button>
-          </div>
-        </header>
-
-        <section className="panel">
-          <h2>API Config</h2>
-          <div className="row">
-            <label>
-              API base
-              <input
-                value={apiBase}
-                onChange={(event) => setApiBase(event.target.value)}
-                placeholder="/v1"
-              />
-            </label>
-          </div>
-          <div className="row two-up">
-            <label>
-              Tenant name
-              <input
-                value={tenantName}
-                onChange={(event) => setTenantName(event.target.value)}
-              />
-            </label>
-            <label>
-              API key
-              <input
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="Bearer token"
-              />
-            </label>
-          </div>
-          <div className="actions">
-            <button disabled={busy} onClick={refreshApiKey}>
-              Refresh API Key
-            </button>
-            <button
-              className="danger"
-              disabled={busy}
-              onClick={resetEnvironment}
-            >
-              Reset Dev Data
-            </button>
-          </div>
-          <p className="muted">Tenant ID: {tenantId || "not set"}</p>
-        </section>
-
-        <section className="panel">
-          <h2>Templates</h2>
-          <div className="row two-up">
-            <label>
-              Name
-              <input
-                value={templateName}
-                onChange={(event) => setTemplateName(event.target.value)}
-              />
-            </label>
-            <label>
-              Description
-              <input
-                value={templateDescription}
-                onChange={(event) => setTemplateDescription(event.target.value)}
-              />
-            </label>
-          </div>
-          <FieldEditor
-            fields={templateFields}
-            onChange={setTemplateFields}
-            title="Fields"
-            subtitle="Add, edit, and remove fields. The form is converted to JSON in the API request."
-          />
-          <div className="actions">
-            <button disabled={busy || !hasApiKey} onClick={createTemplate}>
-              Create Template
-            </button>
-            <button disabled={busy || !hasApiKey} onClick={listTemplates}>
-              Refresh Templates
-            </button>
-          </div>
-
-          <div className="row three-up">
-            <label>
-              Template
-              <select
-                value={updateTemplateId}
-                onChange={(event) => setUpdateTemplateId(event.target.value)}
-              >
-                <option value="">Select template</option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name} ({template.id})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              New name (optional)
-              <input
-                value={updateName}
-                onChange={(event) => setUpdateName(event.target.value)}
-              />
-            </label>
-            <label>
-              New description (optional)
-              <input
-                value={updateDescription}
-                onChange={(event) => setUpdateDescription(event.target.value)}
-              />
-            </label>
-          </div>
-          <div className="actions compact">
-            <button
-              type="button"
-              disabled={busy || !hasApiKey}
-              onClick={loadTemplateForEditing}
-            >
-              Load Template Fields
-            </button>
-            <label className="checkbox-inline">
-              <input
-                type="checkbox"
-                checked={includeUpdateFields}
-                onChange={(event) =>
-                  setIncludeUpdateFields(event.target.checked)
-                }
-              />
-              Update fields
-            </label>
-          </div>
-          {includeUpdateFields ? (
-            <FieldEditor
-              fields={updateFields}
-              onChange={setUpdateFields}
-              title="New Fields"
-              subtitle="When enabled, these fields replace the current template version."
-            />
-          ) : (
-            <p className="muted">
-              Field update disabled. Existing fields stay unchanged.
+      <div className="auth-shell">
+        <section className="auth-card">
+          <div className="auth-header">
+            <p className="eyebrow">Data Extraction</p>
+            <h1>Studio</h1>
+            <p>
+              {authMode === "signin"
+                ? "Welcome back. Sign in to continue working in your workspace."
+                : "Create your account to start extracting structured data from documents."}
             </p>
-          )}
-          <div className="actions">
-            <button disabled={busy || !hasApiKey} onClick={updateTemplate}>
-              Update Template
-            </button>
-            <button
-              className="danger"
-              disabled={busy || !hasApiKey}
-              onClick={deleteTemplate}
+          </div>
+
+          <div className="status-strip auth-status-strip">
+            <span className="status-chip good">Secure auth</span>
+            <span className="status-chip">Workspace-ready</span>
+          </div>
+
+          <section className="panel auth-panel">
+            <h2>{authMode === "signin" ? "Sign in" : "Create account"}</h2>
+            <p className="muted">
+              Sign in first, then create or select a workspace.
+            </p>
+            <div
+              className={
+                authMode === "signup"
+                  ? "row two-up auth-form-grid"
+                  : "row auth-form-grid"
+              }
             >
-              Delete Template
-            </button>
-          </div>
-
-          <p className="muted">
-            {templates.length
-              ? `${templates.length} templates loaded`
-              : "No templates loaded yet"}
-          </p>
-        </section>
-
-        <section className="panel">
-          <h2>Extraction</h2>
-          <div className="row two-up">
-            <label>
-              Template ID
-              <input
-                value={extractTemplateId}
-                onChange={(event) => setExtractTemplateId(event.target.value)}
-              />
-            </label>
-            <label>
-              Document file
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp,application/pdf"
-                onChange={(event) =>
-                  setImageFile(event.target.files?.[0] || null)
-                }
-              />
-            </label>
-          </div>
-          <div className="actions">
-            <button disabled={busy || !hasApiKey} onClick={runExtract}>
-              Upload + Run Extract
-            </button>
-            <button disabled={busy || !hasApiKey} onClick={pollLatestJob}>
-              Poll Last Job
-            </button>
-          </div>
-          <p className="muted">Last job ID: {lastJobId || "none"}</p>
-        </section>
-
-        <section className="panel">
-          <h2>Latest Response</h2>
-          <LatestResponseCard response={latestResponse} />
-        </section>
-
-        <section className="panel">
-          <h2>Log</h2>
-          <pre className="log-block">
-            {logLines.length ? logLines.join("\n") : "No activity yet"}
-          </pre>
+              {authMode === "signup" ? (
+                <label>
+                  Name
+                  <input
+                    value={authName}
+                    onChange={(event) => setAuthName(event.target.value)}
+                    placeholder="Jane Doe"
+                  />
+                </label>
+              ) : null}
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(event) => setAuthEmail(event.target.value)}
+                  placeholder="jane@example.com"
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                  placeholder="At least 8 characters"
+                />
+              </label>
+            </div>
+            {authMode === "signin" ? (
+              <>
+                <button
+                  type="button"
+                  className="auth-primary-action"
+                  disabled={busy}
+                  onClick={signIn}
+                >
+                  Sign In
+                </button>
+                <div className="auth-divider" aria-hidden="true">
+                  <span>or continue with</span>
+                </div>
+                <button
+                  type="button"
+                  className="secondary auth-provider-action"
+                  disabled={busy}
+                  onClick={signInWithGoogle}
+                >
+                  Sign in with Google
+                </button>
+                <p className="auth-switch-copy">
+                  Don&apos;t have an account?{" "}
+                  <a
+                    href="#"
+                    className="auth-switch-link"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      if (!busy) {
+                        setAuthMode("signup");
+                      }
+                    }}
+                  >
+                    Sign Up
+                  </a>
+                </p>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="auth-primary-action"
+                  disabled={busy}
+                  onClick={signUp}
+                >
+                  Create Account
+                </button>
+                <p className="auth-switch-copy">
+                  Already have an account?{" "}
+                  <a
+                    href="#"
+                    className="auth-switch-link"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      if (!busy) {
+                        setAuthMode("signin");
+                      }
+                    }}
+                  >
+                    Sign In
+                  </a>
+                </p>
+              </>
+            )}
+          </section>
         </section>
       </div>
     );
@@ -1104,9 +1708,21 @@ export function App() {
               className={
                 item.id === activePage ? "sidebar-link active" : "sidebar-link"
               }
-              onClick={() => setActivePage(item.id)}
+              onClick={() => handleSidebarNavigation(item.id)}
             >
-              {item.label}
+              <span className="sidebar-link-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+              <span>{item.label}</span>
+              <span className="sidebar-link-count">
+                {item.id === "templates"
+                  ? templates.length
+                  : item.id === "documents"
+                    ? documents.length
+                    : item.id === "workspace"
+                      ? availableWorkspaces.length
+                      : ""}
+              </span>
             </button>
           ))}
         </nav>
@@ -1114,7 +1730,7 @@ export function App() {
         <button
           type="button"
           className="sidebar-upload-button"
-          disabled={busy || !hasApiKey}
+          disabled={busy || !hasApiAccess}
           onClick={openUploadModal}
         >
           Upload Document
@@ -1123,21 +1739,317 @@ export function App() {
         <div className="sidebar-spacer" aria-hidden="true" />
 
         <div className="sidebar-footer">
-          <button type="button" onClick={() => setShowDevConsole(true)}>
-            Open Dev Console
-          </button>
+          <div className="sidebar-profile" ref={profilePanelRef}>
+            <button
+              type="button"
+              className="sidebar-profile-trigger"
+              onClick={() =>
+                setIsProfileMenuOpen((currentOpen) => !currentOpen)
+              }
+            >
+              <span className="sidebar-profile-avatar" aria-hidden="true">
+                {profileInitials(displayProfileName, displayProfileEmail)}
+              </span>
+              <span className="sidebar-profile-meta">
+                <strong>{displayProfileName}</strong>
+                <span>{displayProfileEmail}</span>
+              </span>
+            </button>
+
+            {isProfileMenuOpen ? (
+              <div className="sidebar-profile-popout">
+                <label>
+                  Name
+                  <input
+                    value={profileDraftName}
+                    onChange={(event) =>
+                      setProfileDraftName(event.target.value)
+                    }
+                    placeholder="Jane Doe"
+                  />
+                </label>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={isSavingProfile || !profileIsDirty}
+                    onClick={saveProfile}
+                  >
+                    {isSavingProfile ? "Saving..." : "Save Profile"}
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={busy || isSavingProfile}
+                    onClick={signOut}
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </aside>
+
+      <aside className="context-sidebar">
+        <div className="context-head">
+          <p className="eyebrow">Control Center</p>
+          <h2>
+            {activePage === "documents"
+              ? "Jobs"
+              : activePage === "templates"
+                ? "Templates"
+                : "Workspaces"}
+          </h2>
+        </div>
+
+        {activePage === "documents" ? (
+          <>
+            <label>
+              Search Jobs
+              <input
+                value={documentSearch}
+                onChange={(event) => setDocumentSearch(event.target.value)}
+                placeholder="Job ID or file"
+              />
+            </label>
+            <div className="context-list">
+              {filteredDocuments.slice(0, 12).map((job) => (
+                <button
+                  type="button"
+                  key={`context-${job.job_id}`}
+                  className={
+                    selectedDocument?.job_id === job.job_id
+                      ? "context-item active"
+                      : "context-item"
+                  }
+                  onClick={() => setSelectedDocumentId(job.job_id)}
+                >
+                  <strong>
+                    {job.image_name ||
+                      defaultUploadedName(job.source_mime_type)}
+                  </strong>
+                  <span>{job.job_id}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : activePage === "templates" ? (
+          <>
+            <label>
+              Search Templates
+              <input
+                value={templateSearch}
+                onChange={(event) => setTemplateSearch(event.target.value)}
+                placeholder="Template name or ID"
+              />
+            </label>
+            <div className="context-list">
+              {contextTemplates.slice(0, 12).map((template) => (
+                <button
+                  type="button"
+                  key={`context-${template.id}`}
+                  className={
+                    template.is_draft
+                      ? !isEditingTemplate
+                        ? "context-item active"
+                        : "context-item"
+                      : updateTemplateId === template.id
+                        ? "context-item active"
+                        : "context-item"
+                  }
+                  onClick={() => {
+                    if (template.is_draft) {
+                      startNewTemplateDraft();
+                    } else {
+                      setActivePage("templates");
+                      loadTemplateForEditing(template.id);
+                    }
+                  }}
+                >
+                  <strong>
+                    {template.is_draft
+                      ? "New Template Draft"
+                      : template.name || "Untitled template"}
+                  </strong>
+                  <span>{template.is_draft ? "Unsaved" : template.id}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <label>
+              Search Workspaces
+              <input
+                value={workspaceSearch}
+                onChange={(event) => setWorkspaceSearch(event.target.value)}
+                placeholder="Workspace name or ID"
+              />
+            </label>
+            <div className="context-list">
+              {filteredWorkspaces.map((workspace) => (
+                <button
+                  type="button"
+                  key={`workspace-${workspace.id}`}
+                  className={
+                    workspace.id === (workspaceId || DEFAULT_WORKSPACE_ID)
+                      ? "context-item context-item-workspace active"
+                      : "context-item context-item-workspace"
+                  }
+                  onClick={() => {
+                    setWorkspaceId(workspace.id);
+                    setWorkspaceName(workspace.name);
+                    setApiKey(
+                      String(apiKeysByWorkspace[String(workspace.id)] || ""),
+                    );
+                    addLog(`Switched workspace context to ${workspace.id}`);
+                  }}
+                >
+                  <strong>{workspace.name}</strong>
+                  <span>{workspace.id}</span>
+                  <span>
+                    {workspace.connected ? "Connected" : "No API key"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div className="context-foot">
+          {activePage === "documents" ? (
+            <>
+              <span className="status-chip">
+                Queued {documentStatusMetrics.queued}
+              </span>
+              <span className="status-chip good">
+                Completed {documentStatusMetrics.completed}
+              </span>
+            </>
+          ) : activePage === "templates" ? (
+            <>
+              <span className="status-chip">Templates {templates.length}</span>
+              <span className="status-chip good">
+                {isEditingTemplate ? "Editing" : "Draft"}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="status-chip">
+                Workspaces {availableWorkspaces.length}
+              </span>
+              <span className={`status-chip ${hasApiAccess ? "good" : "warn"}`}>
+                API {hasApiAccess ? "Ready" : "Missing"}
+              </span>
+            </>
+          )}
         </div>
       </aside>
 
       <main className="main-content">
+        <section className="workspace-toolbar" aria-label="Workspace toolbar">
+          <div className="workspace-toolbar-meta">
+            <span className="status-chip">Workspace {activeWorkspaceName}</span>
+            <span className={`status-chip ${hasApiAccess ? "good" : "warn"}`}>
+              API {hasApiAccess ? "Ready" : "Missing Access"}
+            </span>
+            <span className="status-chip">Jobs {documents.length}</span>
+          </div>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy || (activePage === "documents" && !hasApiAccess)}
+              onClick={
+                activePage === "templates"
+                  ? startNewTemplateDraft
+                  : activePage === "workspace"
+                    ? createWorkspace
+                    : openUploadModal
+              }
+            >
+              {activePage === "templates"
+                ? "Create Template"
+                : activePage === "workspace"
+                  ? "Create Workspace"
+                  : "Upload Document"}
+            </button>
+            {activePage === "workspace" ? (
+              <button
+                type="button"
+                className="danger"
+                disabled={busy || !workspaceId.trim()}
+                onClick={deleteWorkspace}
+              >
+                Delete Workspace
+              </button>
+            ) : activePage === "templates" ? (
+              <button
+                type="button"
+                className="danger"
+                disabled={busy || !hasApiAccess || !updateTemplateId.trim()}
+                onClick={deleteTemplate}
+              >
+                Delete Template
+              </button>
+            ) : activePage === "documents" ? (
+              <button
+                type="button"
+                className="danger"
+                disabled={
+                  busy || isDeletingDocument || !selectedDocument?.job_id
+                }
+                onClick={deleteSelectedDocument}
+              >
+                {isDeletingDocument ? "Deleting..." : "Delete Document"}
+              </button>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="kpi-grid" aria-label="Operational metrics">
+          <article className="kpi-card">
+            <p className="kpi-label">Templates</p>
+            <p className="kpi-value">{templates.length}</p>
+            <p className="kpi-meta">Active extraction schemas</p>
+          </article>
+          <article className="kpi-card">
+            <p className="kpi-label">Documents</p>
+            <p className="kpi-value">{documents.length}</p>
+            <p className="kpi-meta">Queued and completed jobs</p>
+          </article>
+          <article className="kpi-card">
+            <p className="kpi-label">Completion</p>
+            <p className="kpi-value">{completionRate}%</p>
+            <p className="kpi-meta">Successful jobs ratio</p>
+            <div
+              className="kpi-progress"
+              role="img"
+              aria-label={`Completion rate ${completionRate}%`}
+            >
+              <span style={{ width: `${completionRate}%` }} />
+            </div>
+          </article>
+          <article className="kpi-card">
+            <p className="kpi-label">Failures</p>
+            <p className="kpi-value">
+              {documentStatusMetrics.failed +
+                documentStatusMetrics.retryable_failed}
+            </p>
+            <p className="kpi-meta">Includes retryable failures</p>
+          </article>
+        </section>
+
         {activePage === "workspace" ? (
           <>
             <header className="page-header">
               <p className="eyebrow">Workspace</p>
               <h2>Environment and Access</h2>
               <p>
-                Manage API connection details, tenant credentials, and workspace
-                state from one place.
+                Manage API connection details, workspace credentials, and
+                workspace state from one place.
               </p>
             </header>
 
@@ -1145,79 +2057,138 @@ export function App() {
               <article className="workspace-card">
                 <div className="workspace-head">
                   <h2>Connection Settings</h2>
-                  <p>Configure your local API endpoint and tenant details.</p>
+                  <p>Manage workspace details and rotate API credentials.</p>
                 </div>
-                <div className="row two-up">
+                <div className="row two-up workspace-name-row">
                   <label>
-                    API base
+                    Workspace name
                     <input
-                      value={apiBase}
-                      onChange={(event) => setApiBase(event.target.value)}
-                      placeholder="/v1"
+                      value={workspaceName}
+                      onChange={(event) => setWorkspaceName(event.target.value)}
                     />
                   </label>
-                  <label>
-                    Tenant name
-                    <input
-                      value={tenantName}
-                      onChange={(event) => setTenantName(event.target.value)}
-                    />
-                  </label>
+                  <button
+                    type="button"
+                    className="secondary workspace-inline-action"
+                    disabled={busy || !isWorkspaceNameDirty}
+                    onClick={saveWorkspaceChanges}
+                  >
+                    Save Changes
+                  </button>
                 </div>
                 <label>
                   API key
-                  <input
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    placeholder="Bearer token"
-                  />
+                  <div className="row two-up workspace-key-row">
+                    <input
+                      value={apiKey}
+                      readOnly
+                      placeholder="Rotate to generate key_ + 32 chars"
+                    />
+                    <button
+                      type="button"
+                      className="workspace-inline-action"
+                      disabled={busy}
+                      onClick={refreshApiKey}
+                    >
+                      Refresh API Key
+                    </button>
+                  </div>
                 </label>
-                <div className="actions">
-                  <button type="button" disabled={busy} onClick={refreshApiKey}>
-                    Refresh API Key
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy || !hasApiKey}
-                    onClick={listTemplates}
-                  >
-                    Refresh Templates
-                  </button>
-                </div>
               </article>
 
               <article className="workspace-card">
                 <div className="workspace-head">
-                  <h2>Workspace Status</h2>
-                  <p>Quick health indicators for your current session.</p>
+                  <h2>Invite Users</h2>
+                  <p>Invite teammates to join this workspace.</p>
                 </div>
-                <div className="status-strip">
-                  <span
-                    className={`status-chip ${hasApiKey ? "good" : "warn"}`}
-                  >
-                    API {hasApiKey ? "ready" : "required"}
-                  </span>
-                  <span className="status-chip">
-                    Templates {templates.length}
-                  </span>
-                  <span className="status-chip">
-                    Documents {documents.length}
-                  </span>
+                <div className="row two-up">
+                  <label>
+                    Invite email
+                    <input
+                      value={inviteEmail}
+                      onChange={(event) => setInviteEmail(event.target.value)}
+                      placeholder="teammate@example.com"
+                    />
+                  </label>
+                  <label>
+                    Invite role
+                    <select
+                      value={inviteRole}
+                      onChange={(event) => setInviteRole(event.target.value)}
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </label>
                 </div>
-                <p className="muted">
-                  Tenant ID: {tenantId || DEFAULT_TENANT_ID}
-                </p>
                 <div className="actions">
                   <button
                     type="button"
-                    className="danger"
-                    disabled={busy}
-                    onClick={resetEnvironment}
+                    className="secondary"
+                    disabled={busy || !workspaceId.trim()}
+                    onClick={inviteUser}
                   >
-                    Reset Dev Data
+                    Invite User
                   </button>
                 </div>
+              </article>
+            </section>
+
+            <section className="content-grid workspace-users-grid">
+              <article className="workspace-card">
+                <div className="workspace-head">
+                  <h2>Workspace Users</h2>
+                  <p>Current members and their roles.</p>
+                </div>
+                {workspaceUsers.length ? (
+                  <div className="table-scroll workspace-users-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Email</th>
+                          <th>Role</th>
+                          <th>Joined</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {workspaceUsers.map((user) => (
+                          <tr key={String(user.user_id || user.email || "")}>
+                            <td>{String(user.name || "-")}</td>
+                            <td>{String(user.email || "-")}</td>
+                            <td>
+                              <span className="role-badge">
+                                {formatRoleLabel(user.role)}
+                              </span>
+                            </td>
+                            <td>{formatJoinedAt(user.created_at)}</td>
+                            <td>
+                              {canManageWorkspaceUsers &&
+                              String(user.user_id || "").trim() !==
+                                sessionUserId ? (
+                                <button
+                                  type="button"
+                                  className="icon-action-button"
+                                  aria-label="Edit user"
+                                  onClick={() =>
+                                    setWorkspaceUserActionTarget(user)
+                                  }
+                                >
+                                  ✎
+                                </button>
+                              ) : (
+                                <span className="muted">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="muted">No workspace users found.</p>
+                )}
               </article>
             </section>
           </>
@@ -1229,8 +2200,7 @@ export function App() {
               <p className="eyebrow">Templates</p>
               <h2>Template Builder</h2>
               <p>
-                Build reusable extraction schemas and update existing templates
-                with live field editing.
+                Build reusable extraction schemas and update existing templates.
               </p>
             </header>
 
@@ -1240,56 +2210,7 @@ export function App() {
                   <h2>
                     {isEditingTemplate ? "Edit Template" : "Create Template"}
                   </h2>
-                  <p>
-                    {isEditingTemplate
-                      ? "Loaded template is now editable below."
-                      : "Start a new extraction schema or load one to edit."}
-                  </p>
                 </div>
-
-                <div className="row two-up">
-                  <label>
-                    Load existing template
-                    <select
-                      value={updateTemplateId}
-                      onChange={(event) =>
-                        setUpdateTemplateId(event.target.value)
-                      }
-                    >
-                      <option value="">Start new template</option>
-                      {templates.map((template) => (
-                        <option key={template.id} value={template.id}>
-                          {template.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="template-mode-actions">
-                    <p className="muted">
-                      {isEditingTemplate
-                        ? `Editing ${updateTemplateId}`
-                        : "No template loaded"}
-                    </p>
-                    <div className="actions compact">
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy || !hasApiKey || !updateTemplateId}
-                        onClick={loadTemplateForEditing}
-                      >
-                        Load Selected
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={startNewTemplateDraft}
-                      >
-                        New Template
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
                 <div className="row two-up">
                   <label>
                     Name
@@ -1317,23 +2238,13 @@ export function App() {
                 <div className="actions">
                   <button
                     type="button"
-                    disabled={busy || !hasApiKey}
+                    disabled={busy || !hasApiAccess}
                     onClick={
                       isEditingTemplate ? updateTemplate : createTemplate
                     }
                   >
                     {isEditingTemplate ? "Save Changes" : "Save New Template"}
                   </button>
-                  {isEditingTemplate ? (
-                    <button
-                      type="button"
-                      className="danger"
-                      disabled={busy || !hasApiKey}
-                      onClick={deleteTemplate}
-                    >
-                      Delete Template
-                    </button>
-                  ) : null}
                 </div>
               </article>
             </section>
@@ -1352,58 +2263,25 @@ export function App() {
             </header>
 
             <section className="content-grid documents-grid">
-              <article className="workspace-card document-list-panel">
+              <article className="workspace-card job-status-panel">
                 <div className="workspace-head">
-                  <h2>Uploaded Documents</h2>
-                  <p>All queued and completed uploads appear here.</p>
+                  <h2>Job Status</h2>
+                  <p>Track the selected extraction stage in real time.</p>
                 </div>
-                {!documents.length ? (
-                  <p className="muted">No documents uploaded yet.</p>
-                ) : (
-                  <div className="job-list document-list-scroll">
-                    {documents.map((job) => (
-                      <button
-                        type="button"
-                        key={job.job_id}
-                        className={
-                          selectedDocument?.job_id === job.job_id
-                            ? "job-item active"
-                            : "job-item"
-                        }
-                        onClick={() => setSelectedDocumentId(job.job_id)}
-                      >
-                        <div>
-                          <strong>
-                            {job.image_name ||
-                              defaultUploadedName(job.source_mime_type)}
-                          </strong>
-                          <p>{job.job_id}</p>
-                        </div>
-                        <span
-                          className={`status-pill ${statusTone(job.status)}`}
-                        >
-                          {job.status}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </article>
-
-              <article className="workspace-card activity-log-panel">
-                <div className="workspace-head">
-                  <h2>Activity Log</h2>
-                  <p>Recent API activity and workflow actions.</p>
-                </div>
-                <pre className="log-block">
-                  {logLines.length ? logLines.join("\n") : "No activity yet"}
-                </pre>
+                <JobStatusTracker job={selectedDocument} />
               </article>
 
               <article className="workspace-card result-view">
-                <div className="workspace-head">
-                  <h2>Document Details</h2>
-                  <p>Review extraction output for the selected upload.</p>
+                <div className="workspace-head result-view-head">
+                  <div>
+                    <h2>Document Details</h2>
+                    <p>Review extraction output for the selected upload.</p>
+                  </div>
+                  {selectedDocument ? (
+                    <span className="status-chip good template-name-badge">
+                      {selectedDocumentTemplateName}
+                    </span>
+                  ) : null}
                 </div>
                 {selectedDocument ? (
                   <ResultViewer job={selectedDocument} />
@@ -1415,6 +2293,61 @@ export function App() {
           </>
         ) : null}
       </main>
+
+      {workspaceUserActionTarget ? (
+        <div
+          className="modal-backdrop"
+          onClick={() => setWorkspaceUserActionTarget(null)}
+        >
+          <div
+            className="modal-card workspace-user-action-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Manage workspace user"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="workspace-head">
+              <h2>Manage User</h2>
+              <p>
+                {String(workspaceUserActionTarget.name || "Unknown User")} -{" "}
+                {formatRoleLabel(workspaceUserActionTarget.role)}
+              </p>
+            </div>
+            {workspaceUserActionOptions.length ? (
+              <div className="workspace-user-action-list">
+                {workspaceUserActionOptions.map((action) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className={action === "remove_user" ? "danger" : "ghost"}
+                    disabled={busy}
+                    onClick={() => {
+                      void applyWorkspaceUserAction(
+                        workspaceUserActionTarget.user_id,
+                        action,
+                      );
+                      setWorkspaceUserActionTarget(null);
+                    }}
+                  >
+                    {workspaceUserActionLabel(action)}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">No actions available for this user.</p>
+            )}
+            <div className="actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setWorkspaceUserActionTarget(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showUploadModal ? (
         <div className="modal-backdrop" onClick={closeUploadModal}>
@@ -1465,7 +2398,7 @@ export function App() {
               </button>
               <button
                 type="button"
-                disabled={busy || !hasApiKey}
+                disabled={busy || !hasApiAccess}
                 onClick={uploadFromModal}
               >
                 Upload and Open Documents
@@ -1484,6 +2417,60 @@ function statusTone(status) {
   return "pending";
 }
 
+function formatJoinedAt(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "-";
+  }
+
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) {
+    return raw;
+  }
+
+  return new Date(timestamp).toLocaleDateString();
+}
+
+function formatRoleLabel(value) {
+  const role = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!role) {
+    return "-";
+  }
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+function getWorkspaceUserActions(currentRole, targetRole) {
+  const actor = String(currentRole || "")
+    .trim()
+    .toLowerCase();
+  const target = String(targetRole || "")
+    .trim()
+    .toLowerCase();
+
+  if (actor === "admin") {
+    return target === "member" ? ["remove_user"] : [];
+  }
+  if (actor === "owner") {
+    return ["remove_user", "make_admin", "make_owner"];
+  }
+  return [];
+}
+
+function workspaceUserActionLabel(action) {
+  if (action === "remove_user") {
+    return "Remove User";
+  }
+  if (action === "make_admin") {
+    return "Make Admin";
+  }
+  if (action === "make_owner") {
+    return "Make Owner";
+  }
+  return "Action";
+}
+
 function defaultUploadedName(sourceMimeType) {
   if (
     typeof sourceMimeType === "string" &&
@@ -1495,6 +2482,38 @@ function defaultUploadedName(sourceMimeType) {
     return "Uploaded document";
   }
   return "Uploaded file";
+}
+
+function JobStatusTracker({ job }) {
+  if (!job) {
+    return <p className="muted">Select an uploaded document.</p>;
+  }
+
+  const isFailure =
+    job.status === "failed" || job.status === "retryable_failed";
+  const isCompleted = job.status === "completed";
+  const isProcessing = job.status === "processing";
+  const statusLabel = isFailure
+    ? "This extraction finished with a failure status."
+    : isCompleted
+      ? "This extraction completed successfully."
+      : isProcessing
+        ? "The job is processing"
+        : "The job is queued";
+  const isTerminal = isCompleted || isFailure;
+
+  return (
+    <div className="job-status-stack">
+      <div
+        className={`job-status-skeleton ${
+          isTerminal ? "is-terminal" : "is-processing"
+        } ${isFailure ? "is-failed" : ""}`}
+      >
+        <span className="job-status-spinner" aria-hidden="true" />
+        <p>{statusLabel}</p>
+      </div>
+    </div>
+  );
 }
 
 function ResultViewer({ job }) {
@@ -1520,20 +2539,6 @@ function ResultViewer({ job }) {
 
   return (
     <div className="result-stack">
-      <div className="job-summary">
-        <div>
-          <p>
-            <strong>Job:</strong> {job.job_id}
-          </p>
-          <p>
-            <strong>Status:</strong> {job.status}
-          </p>
-          <p>
-            <strong>Template:</strong> {job.template_id || "unknown"}
-          </p>
-        </div>
-      </div>
-
       {job.status !== "completed" ? (
         <p className="muted">
           This job is not completed yet. Poll again shortly.
@@ -1768,9 +2773,26 @@ function FieldEditor({ fields, onChange, title, subtitle }) {
   function updateObjectColumn(index, columnIndex, key, value) {
     updateObjectSchema(index, (schema) => ({
       ...schema,
-      columns: schema.columns.map((column, i) =>
-        i === columnIndex ? { ...column, [key]: value } : column,
-      ),
+      columns: schema.columns.map((column, i) => {
+        if (i !== columnIndex) {
+          return column;
+        }
+
+        if (key === "heading") {
+          const sanitizedHeading = normalizeFieldName(value);
+          return {
+            ...column,
+            heading: sanitizedHeading,
+            key: toFieldId(sanitizedHeading),
+          };
+        }
+
+        if (key === "key") {
+          return column;
+        }
+
+        return { ...column, [key]: value };
+      }),
     }));
   }
 
@@ -2061,15 +3083,8 @@ function FieldEditor({ fields, onChange, title, subtitle }) {
                               Key
                               <input
                                 value={column.key}
-                                onChange={(event) =>
-                                  updateObjectColumn(
-                                    activeFieldIndex,
-                                    columnIndex,
-                                    "key",
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder="line_total"
+                                readOnly
+                                placeholder="auto_generated_from_heading"
                               />
                             </label>
                             <label>
@@ -2194,14 +3209,15 @@ function LatestResponseCard({ response }) {
     ? response.templates.length
     : null;
   const hasJob = Boolean(response.job_id);
-  const hasTenant = Boolean(response.tenant_id);
+  const workspaceId = response.workspace_id;
+  const hasWorkspace = Boolean(workspaceId);
 
   return (
     <div className="response-card">
       <div className="response-badges">
         {hasJob ? <span className="status-chip good">Job response</span> : null}
-        {hasTenant ? (
-          <span className="status-chip good">Tenant response</span>
+        {hasWorkspace ? (
+          <span className="status-chip good">Workspace response</span>
         ) : null}
         {templateCount !== null ? (
           <span className="status-chip">Templates {templateCount}</span>
@@ -2223,9 +3239,9 @@ function LatestResponseCard({ response }) {
           <strong>Template:</strong> {response.template_id}
         </p>
       ) : null}
-      {response.tenant_id ? (
+      {workspaceId ? (
         <p>
-          <strong>Tenant:</strong> {response.tenant_id}
+          <strong>Workspace:</strong> {workspaceId}
         </p>
       ) : null}
 
@@ -2344,8 +3360,10 @@ function toFieldId(name) {
 function normalizeObjectSchema(schema) {
   const rawColumns = Array.isArray(schema?.columns) ? schema.columns : [];
   const columns = rawColumns.map((column) => ({
-    key: String(column?.key || ""),
-    heading: String(column?.heading || ""),
+    heading: normalizeFieldName(String(column?.heading || "")),
+    key:
+      toFieldId(String(column?.heading || "")) ||
+      String(column?.key || "").trim(),
     data_type: OBJECT_SCHEMA_DATA_TYPES.includes(
       String(column?.data_type || ""),
     )
@@ -2502,6 +3520,20 @@ function tryParseJson(value) {
   } catch {
     return null;
   }
+}
+
+function profileInitials(name, email) {
+  const source = String(name || "").trim() || String(email || "").trim();
+  if (!source) {
+    return "U";
+  }
+
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
+  }
+
+  return source.slice(0, 2).toUpperCase();
 }
 
 function sleep(ms) {

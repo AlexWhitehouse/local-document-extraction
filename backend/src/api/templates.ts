@@ -1,9 +1,9 @@
 import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
 import { parseJsonBody, validateTemplatePayload } from "../lib/validation";
-import type { FieldDefinition, Tenant } from "../lib/types";
+import type { FieldDefinition, Workspace } from "../lib/types";
 
-export async function createTemplate(request: Request, db: D1Database, tenant: Tenant): Promise<Response> {
+export async function createTemplate(request: Request, db: D1Database, workspace: Workspace): Promise<Response> {
   const payload = validateTemplatePayload(parseJsonBody(await request.text()));
 
   const templateId = newId("tpl");
@@ -13,10 +13,10 @@ export async function createTemplate(request: Request, db: D1Database, tenant: T
   await db.batch([
     db
       .prepare(
-        `INSERT INTO templates (id, tenant_id, name, description, status, current_version, created_at, updated_at, deleted_at)
+        `INSERT INTO templates (id, workspace_id, name, description, status, current_version, created_at, updated_at, deleted_at)
          VALUES (?, ?, ?, ?, 'active', 1, ?, ?, NULL)`
       )
-      .bind(templateId, tenant.id, payload.name, payload.description || null, now, now),
+      .bind(templateId, workspace.id, payload.name, payload.description || null, now, now),
     ...fieldInsertStatements(db, templateId, 1, fields)
   ]);
 
@@ -27,28 +27,28 @@ export async function createTemplate(request: Request, db: D1Database, tenant: T
   }, 201);
 }
 
-export async function listTemplates(db: D1Database, tenant: Tenant): Promise<Response> {
+export async function listTemplates(db: D1Database, workspace: Workspace): Promise<Response> {
   const result = await db
     .prepare(
       `SELECT id, name, description, status, current_version, created_at, updated_at
        FROM templates
-       WHERE tenant_id = ? AND deleted_at IS NULL
+       WHERE workspace_id = ? AND deleted_at IS NULL
        ORDER BY created_at DESC`
     )
-    .bind(tenant.id)
+    .bind(workspace.id)
     .all<Record<string, unknown>>();
 
   return json({ templates: result.results });
 }
 
-export async function getTemplate(db: D1Database, tenant: Tenant, id: string): Promise<Response> {
+export async function getTemplate(db: D1Database, workspace: Workspace, id: string): Promise<Response> {
   const template = await db
     .prepare(
       `SELECT id, name, description, status, current_version, created_at, updated_at
        FROM templates
-       WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL`
+       WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
     )
-    .bind(id, tenant.id)
+    .bind(id, workspace.id)
     .first<Record<string, unknown>>();
 
   if (!template) {
@@ -78,12 +78,12 @@ export async function getTemplate(db: D1Database, tenant: Tenant, id: string): P
 export async function updateTemplate(
   request: Request,
   db: D1Database,
-  tenant: Tenant,
+  workspace: Workspace,
   id: string
 ): Promise<Response> {
   const existing = await db
-    .prepare("SELECT id, name, description, current_version FROM templates WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL")
-    .bind(id, tenant.id)
+    .prepare("SELECT id, name, description, current_version FROM templates WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL")
+    .bind(id, workspace.id)
     .first<{ id: string; name: string; description: string | null; current_version: number }>();
 
   if (!existing) {
@@ -99,7 +99,7 @@ export async function updateTemplate(
       .prepare(
         `UPDATE templates
          SET name = ?, description = ?, current_version = ?, updated_at = ?
-         WHERE id = ? AND tenant_id = ?`
+         WHERE id = ? AND workspace_id = ?`
       )
       .bind(
         patch.name ?? existing.name,
@@ -107,7 +107,7 @@ export async function updateTemplate(
         nextVersion,
         now,
         id,
-        tenant.id
+        workspace.id
       )
   ];
 
@@ -124,15 +124,15 @@ export async function updateTemplate(
   });
 }
 
-export async function deleteTemplate(db: D1Database, tenant: Tenant, id: string): Promise<Response> {
+export async function deleteTemplate(db: D1Database, workspace: Workspace, id: string): Promise<Response> {
   const now = nowIso();
   const result = await db
     .prepare(
       `UPDATE templates
        SET status = 'deleted', deleted_at = ?, updated_at = ?
-       WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL`
+       WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
     )
-    .bind(now, now, id, tenant.id)
+    .bind(now, now, id, workspace.id)
     .run();
 
   if ((result.meta.changes || 0) === 0) {

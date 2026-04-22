@@ -4,8 +4,11 @@ Template-driven asynchronous document extraction API.
 
 ## Included in this MVP
 
-- API key auth (tenant lookup in D1)
-- Template CRUD with tenant ownership checks
+- Better Auth user accounts (email/password)
+- Workspace membership model (owner/admin/member)
+- Workspace API key auth (for non-frontend API clients)
+- Workspace invitations (invite + accept)
+- Template CRUD with workspace ownership checks
 - `POST /v1/extract` with required `template_id` (multipart image/PDF upload)
 - Queue-based async processing
 - AI Gateway call to OpenAI-compatible chat completions endpoint
@@ -42,31 +45,84 @@ wrangler queues create imageextraction-jobs
 npm run db:migrate:local
 ```
 
-5. Seed one tenant with a hashed API key.
+5. Configure secrets using Wrangler (`wrangler secret put ...`) or your deployment environment.
 
-Generate SHA-256 for your API key value and insert tenant:
-
-```bash
-wrangler d1 execute imageextraction-db --local --command "INSERT INTO tenants (id, api_key_hash, name, created_at, max_image_bytes) VALUES ('tenant_demo', '<sha256>', 'Demo Tenant', datetime('now'), 10485760);"
-```
-
-6. Configure local secrets:
+## Local runtime (Wrangler)
 
 ```bash
-cp .dev.vars.example .dev.vars
-```
-
-## Local development (Wrangler)
-
-```bash
-npm run dev
+npm run start
 ```
 
 This starts the Worker locally with D1/R2/Queue bindings via Wrangler.
 
+## Production deploy (`extract.t3m.uk`)
+
+The Worker is configured for a Cloudflare custom domain route:
+
+- `extract.t3m.uk` (`custom_domain: true`)
+- static frontend assets served from `../frontend/dist`
+
+Deploy steps:
+
+1. Authenticate and confirm account:
+
+```bash
+wrangler login
+wrangler whoami
+```
+
+2. Set required Worker secrets (production values):
+
+```bash
+wrangler secret put BETTER_AUTH_SECRET
+wrangler secret put GOOGLE_CLIENT_SECRET
+```
+
+`GOOGLE_CLIENT_SECRET` is only required if Google sign-in is enabled.
+
+3. Apply D1 migrations to remote:
+
+```bash
+npm run db:migrate:remote
+```
+
+4. Build frontend and deploy Worker from `backend`:
+
+```bash
+npm run deploy:prod
+```
+
+5. In Cloudflare Dashboard, verify the Worker route/custom domain shows `extract.t3m.uk` and is active.
+
+Notes:
+
+- The DNS zone `t3m.uk` must be in the same Cloudflare account as this Worker.
+- If `extract.t3m.uk` already has an existing DNS record, remove/replace it before attaching as a Worker custom domain.
+- Add `https://extract.t3m.uk/api/auth/callback/google` to your Google OAuth redirect URIs if Google login is enabled.
+
 ## API quickstart
 
-Use `Authorization: Bearer <api-key>` for all endpoints except health.
+Auth routes:
+
+- `POST/GET /api/auth/*` (Better Auth handler)
+
+App routes use either:
+
+- Better Auth session cookie + `x-workspace-id` header, or
+- `Authorization: Bearer <workspace-api-key>` for API clients.
+
+Workspace management routes (session required):
+
+- `GET /v1/workspaces`
+- `POST /v1/workspaces`
+- `PATCH /v1/workspaces/:id`
+- `DELETE /v1/workspaces/:id`
+- `POST /v1/workspaces/:id/api-key`
+- `POST /v1/workspaces/:id/invitations`
+- `GET /v1/invitations`
+- `POST /v1/invitations/:id/accept`
+
+Core extraction routes:
 
 - `POST /v1/templates`
 - `GET /v1/templates`
@@ -76,9 +132,7 @@ Use `Authorization: Bearer <api-key>` for all endpoints except health.
 - `POST /v1/extract` (`multipart/form-data` with `template_id`, one file field as `image`/`file`/`document`, optional JSON `options`)
 - `GET /v1/jobs/:id`
 
-## Local dev helpers
+## Profile routes (session required)
 
-These routes are intended for local testing only:
-
-- `POST /v1/dev/tenants` creates a tenant and returns a usable API key
-- `POST /v1/dev/reset` clears D1 data and deletes all objects in the image bucket
+- `GET /v1/profile`
+- `PATCH /v1/profile`

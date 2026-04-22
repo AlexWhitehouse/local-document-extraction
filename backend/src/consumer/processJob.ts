@@ -5,11 +5,11 @@ import { normalizeModelResults, RetryableError, runExtraction } from "./aiGatewa
 export async function processJob(message: QueueJobMessage, env: Env): Promise<void> {
   const job = await env.DB
     .prepare(
-      `SELECT id, status, template_id, template_version, image_r2_key, image_mime_type
-       FROM jobs
-       WHERE id = ? AND tenant_id = ?`
-    )
-    .bind(message.job_id, message.tenant_id)
+       `SELECT id, status, template_id, template_version, image_r2_key, image_mime_type
+        FROM jobs
+        WHERE id = ? AND workspace_id = ?`
+     )
+    .bind(message.job_id, message.workspace_id)
     .first<{
       id: string;
       status: string;
@@ -64,7 +64,7 @@ export async function processJob(message: QueueJobMessage, env: Env): Promise<vo
   if (!object) {
     console.error("Job failed: source file missing from R2", {
       job_id: message.job_id,
-      tenant_id: message.tenant_id,
+       workspace_id: message.workspace_id,
       image_r2_key: job.image_r2_key,
     });
     await markFailed(env, message.job_id, "missing_image", "Source image is missing from R2");
@@ -131,7 +131,7 @@ export async function processJob(message: QueueJobMessage, env: Env): Promise<vo
     if (error instanceof RetryableError) {
       console.error("Job retryable failure", {
         job_id: message.job_id,
-        tenant_id: message.tenant_id,
+        workspace_id: message.workspace_id,
         error: error.message,
       });
       await markRetryableFailed(env, message.job_id, "ai_gateway_error", error.message);
@@ -140,7 +140,7 @@ export async function processJob(message: QueueJobMessage, env: Env): Promise<vo
 
     console.error("Job non-retryable failure", {
       job_id: message.job_id,
-      tenant_id: message.tenant_id,
+      workspace_id: message.workspace_id,
       error: errorMessage(error),
     });
     await markFailed(env, message.job_id, "processing_error", errorMessage(error));

@@ -12,6 +12,11 @@ const ALLOWED_DATA_TYPES: ReadonlySet<DataType> = new Set([
 ]);
 
 const ALLOWED_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
+const OBJECT_GUIDANCE_START = "[[OBJECT_TABLE_GUIDANCE]]";
+const OBJECT_GUIDANCE_END = "[[/OBJECT_TABLE_GUIDANCE]]";
+const OBJECT_SCHEMA_START = "[[OBJECT_SCHEMA]]";
+const OBJECT_SCHEMA_END = "[[/OBJECT_SCHEMA]]";
+const OBJECT_SCHEMA_DATA_TYPES: ReadonlySet<DataType> = new Set(["string", "number", "boolean", "date"]);
 
 type TemplateInput = {
   name?: unknown;
@@ -87,6 +92,12 @@ export function validateTemplatePayload(input: TemplateInput, allowPartial = fal
       if (typeof dataType !== "string" || !ALLOWED_DATA_TYPES.has(dataType as DataType)) {
         throw new HttpError(400, "invalid_fields", `Field ${index + 1} has unsupported data_type`);
       }
+
+      const normalizedDescription =
+        dataType === "object" || dataType === "array<object>"
+          ? normalizeObjectMetadataInDescription(description, index, dataType)
+          : description;
+
       if (ids.has(id)) {
         throw new HttpError(400, "invalid_fields", `Duplicate field id: ${id}`);
       }
@@ -100,7 +111,7 @@ export function validateTemplatePayload(input: TemplateInput, allowPartial = fal
       return {
         id,
         name,
-        description,
+        description: normalizedDescription,
         data_type: dataType as DataType,
         required
       };
@@ -130,6 +141,194 @@ function normalizeFieldName(value: unknown): string {
 
 function toFieldId(name: string): string {
   return normalizeFieldName(name).toLowerCase().replace(/\s+/g, "_");
+}
+
+function normalizeObjectMetadataInDescription(
+  description: string,
+  fieldIndex: number,
+  fieldDataType: "object" | "array<object>"
+): string {
+  const { baseDescription, objectSchema } = extractObjectMetadata(description);
+
+  if (!objectSchema) {
+    return baseDescription;
+  }
+
+  if (objectSchema.columns.length === 0) {
+    throw new HttpError(
+      400,
+      "invalid_fields",
+      `Field ${fieldIndex + 1}: object fields require at least one table column`
+    );
+  }
+
+  if (objectSchema.data_type && objectSchema.data_type !== fieldDataType) {
+    throw new HttpError(
+      400,
+      "invalid_fields",
+      `Field ${fieldIndex + 1}: object schema data_type must match field data_type`
+    );
+  }
+
+  const normalizedColumns = objectSchema.columns.map((column, columnIndex) => {
+    const heading = normalizeFieldName(column.heading);
+    const rawHeading = String(column.heading || "").trim();
+    const dataType = String(column.data_type || "").trim();
+    const normalizedKey = toFieldId(heading);
+    const descriptionText = String(column.description || "").trim();
+
+    if (!rawHeading) {
+      throw new HttpError(
+        400,
+        "invalid_fields",
+        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading is required`
+      );
+    }
+    if (!heading) {
+      throw new HttpError(
+        400,
+        "invalid_fields",
+        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading must include letters or numbers`
+      );
+    }
+    if (heading !== rawHeading) {
+      throw new HttpError(
+        400,
+        "invalid_fields",
+        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading contains unsupported characters`
+      );
+    }
+    if (!normalizedKey) {
+      throw new HttpError(
+        400,
+        "invalid_fields",
+        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: key must include letters or numbers`
+      );
+    }
+    if (!OBJECT_SCHEMA_DATA_TYPES.has(dataType as DataType)) {
+      throw new HttpError(
+        400,
+        "invalid_fields",
+        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: unsupported column type`
+      );
+    }
+
+    return {
+      key: normalizedKey,
+      heading,
+      data_type: dataType,
+      description: descriptionText
+    };
+  });
+
+  const seenKeys = new Set<string>();
+  for (const [columnIndex, column] of normalizedColumns.entries()) {
+    if (seenKeys.has(column.key)) {
+      throw new HttpError(
+        400,
+        "invalid_fields",
+        `Field ${fieldIndex + 1}: duplicate object column key "${column.key}"`
+      );
+    }
+    seenKeys.add(column.key);
+
+    if (!column.description) {
+      throw new HttpError(
+        400,
+        "invalid_fields",
+        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: description is required`
+      );
+    }
+  }
+
+  return appendObjectMetadata(baseDescription, normalizedColumns, fieldDataType);
+}
+
+function appendObjectMetadata(
+  baseDescription: string,
+  columns: Array<{ key: string; heading: string; data_type: string; description: string }>,
+  dataType: string
+): string {
+  const schema = {
+    mode: "table",
+    data_type: dataType,
+    columns
+  };
+
+  const compactColumns = columns.map((column) => ({
+    key: column.key,
+    heading: column.heading,
+    type: column.data_type
+  }));
+
+  const guidance = [
+    "Return this field in table form with `columns` and `rows`.",
+    "Use `columns` as the heading list in order.",
+    "Use `rows` as objects that include every column key.",
+    "If a row value is missing, set the value to null.",
+    "Preserve row order from the source document.",
+    `Expected columns: ${JSON.stringify(compactColumns)}`
+  ].join(" ");
+
+  return [
+    baseDescription,
+    "",
+    OBJECT_GUIDANCE_START,
+    guidance,
+    OBJECT_GUIDANCE_END,
+    "",
+    OBJECT_SCHEMA_START,
+    JSON.stringify(schema),
+    OBJECT_SCHEMA_END
+  ].join("\n");
+}
+
+function extractObjectMetadata(description: string): {
+  baseDescription: string;
+  objectSchema: {
+    mode: string;
+    data_type: string;
+    columns: Array<{ key: string; heading: string; data_type: string; description: string }>;
+  } | null;
+} {
+  const schemaPattern = /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/;
+  const guidancePattern = /\[\[OBJECT_TABLE_GUIDANCE\]\][\s\S]*?\[\[\/OBJECT_TABLE_GUIDANCE\]\]\s*/g;
+
+  const schemaMatch = description.match(schemaPattern);
+  let objectSchema: {
+    mode: string;
+    data_type: string;
+    columns: Array<{ key: string; heading: string; data_type: string; description: string }>;
+  } | null = null;
+
+  if (schemaMatch?.[1]) {
+    try {
+      const parsed = JSON.parse(schemaMatch[1]) as Record<string, unknown>;
+      const rawColumns = Array.isArray(parsed.columns) ? parsed.columns : [];
+      objectSchema = {
+        mode: "table",
+        data_type: String(parsed.data_type || ""),
+        columns: rawColumns.map((column) => {
+          const value = (column || {}) as Record<string, unknown>;
+          return {
+            key: String(value.key || ""),
+            heading: String(value.heading || ""),
+            data_type: String(value.data_type || ""),
+            description: String(value.description || "")
+          };
+        })
+      };
+    } catch {
+      objectSchema = null;
+    }
+  }
+
+  const baseDescription = description.replace(schemaPattern, "").replace(guidancePattern, "").trim();
+
+  return {
+    baseDescription,
+    objectSchema
+  };
 }
 
 export async function validateExtractRequest(

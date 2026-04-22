@@ -17,7 +17,7 @@ export type FieldDefinition = {
 
 export type Template = {
   id: string;
-  tenant_id: string;
+  workspace_id: string;
   name: string;
   description: string | null;
   status: "active" | "archived" | "deleted";
@@ -73,25 +73,29 @@ export type WorkersAiBinding = {
 
 export type QueueJobMessage = {
   job_id: string;
-  tenant_id: string;
+  workspace_id: string;
   template_id: string;
   template_version: number;
   image_r2_key: string;
   enqueued_at: string;
 };
 
-export type Tenant = {
+export type Workspace = {
   id: string;
   api_key_hash: string;
   name: string | null;
   created_at: string;
+  created_by_user_id: string | null;
   rate_limit_per_minute: number | null;
   max_templates: number | null;
   max_fields_per_template: number | null;
   max_image_bytes: number | null;
 };
 
+export type WorkspaceMembershipRole = "owner" | "admin" | "member";
+
 export interface Env {
+  ASSETS: Fetcher;
   DB: D1Database;
   IMAGES_BUCKET: R2Bucket;
   JOBS_QUEUE: Queue<QueueJobMessage>;
@@ -100,6 +104,11 @@ export interface Env {
   AI_GATEWAY_ID: string;
   AI_GATEWAY_PROVIDER?: string;
   AI_GATEWAY_TOKEN?: string;
+  BETTER_AUTH_SECRET?: string;
+  BETTER_AUTH_URL?: string;
+  BETTER_AUTH_TRUSTED_ORIGINS?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   AI_MODEL?: string;

@@ -1,9 +1,22 @@
-import { createDevTenant, resetDevData, rotateDevTenantApiKey } from "./api/dev";
 import { createExtractionJob } from "./api/extract";
-import { getJob } from "./api/jobs";
+import { deleteJob, getJob, listJobs } from "./api/jobs";
+import { getProfileForUser, updateProfileForUser } from "./api/profile";
+import {
+  acceptInvitation,
+  createWorkspaceForUser,
+  deleteWorkspaceForUser,
+  inviteUserToWorkspace,
+  listInvitationsForUser,
+  listWorkspaceUsersForUser,
+  listWorkspacesForUser,
+  rotateWorkspaceApiKeyForUser,
+  updateWorkspaceUserRoleForUser,
+  updateWorkspaceForUser
+} from "./api/workspaces";
 import { createTemplate, deleteTemplate, getTemplate, listTemplates, updateTemplate } from "./api/templates";
 import { processJob } from "./consumer/processJob";
-import { authenticate } from "./lib/auth";
+import { authenticate, requireSession } from "./lib/auth";
+import { createAuth } from "./lib/betterAuth";
 import { HttpError, json, toHttpError } from "./lib/http";
 import type { Env, QueueJobMessage } from "./lib/types";
 
@@ -41,37 +54,121 @@ export default {
 async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
 
+  if (url.pathname.startsWith("/api/auth")) {
+    const auth = createAuth(env, request);
+    return auth.handler(request);
+  }
+
   if (request.method === "GET" && url.pathname === "/v1/health") {
     return json({ ok: true, service: "imageextraction-api" });
   }
 
-  if (request.method === "POST" && url.pathname === "/v1/tenants") {
-    return createDevTenant(request, env.DB);
+  if (request.method === "POST" && url.pathname === "/v1/workspaces") {
+    const session = await requireSession(request, env);
+    return createWorkspaceForUser(request, env, session.id);
   }
 
-  if (request.method === "POST" && url.pathname === "/v1/dev/tenants") {
-    return createDevTenant(request, env.DB);
+  if (request.method === "GET" && url.pathname === "/v1/workspaces") {
+    const session = await requireSession(request, env);
+    return listWorkspacesForUser(env, session.id);
   }
 
-  if (request.method === "POST" && url.pathname === "/v1/dev/reset") {
-    return resetDevData(env);
+  if (request.method === "GET" && url.pathname === "/v1/invitations") {
+    const session = await requireSession(request, env);
+    return listInvitationsForUser(env, session.email);
   }
 
-  if (request.method === "POST" && url.pathname.startsWith("/v1/dev/tenants/") && url.pathname.endsWith("/api-key")) {
-    const tenantId = decodeURIComponent(url.pathname.split("/")[4] || "");
-    if (!tenantId) {
-      throw new HttpError(404, "not_found", "Tenant not found");
+  if (request.method === "GET" && url.pathname === "/v1/profile") {
+    const session = await requireSession(request, env);
+    return getProfileForUser(env, session.id);
+  }
+
+  if (request.method === "PATCH" && url.pathname === "/v1/profile") {
+    const session = await requireSession(request, env);
+    return updateProfileForUser(request, env, session.id);
+  }
+
+  if (request.method === "POST" && url.pathname.startsWith("/v1/invitations/") && url.pathname.endsWith("/accept")) {
+    const session = await requireSession(request, env);
+    const invitationId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!invitationId) {
+      throw new HttpError(404, "not_found", "Invitation not found");
     }
-    return rotateDevTenantApiKey(request, env.DB, tenantId);
+    return acceptInvitation(env, invitationId, session.id, session.email);
   }
 
-  const tenant = await authenticate(request, env.DB);
+  if (request.method === "POST" && url.pathname.startsWith("/v1/workspaces/") && url.pathname.endsWith("/invitations")) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return inviteUserToWorkspace(request, env, workspaceId, session.id);
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/v1/workspaces/") && url.pathname.endsWith("/users")) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return listWorkspaceUsersForUser(env, workspaceId, session.id);
+  }
+
+  if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/users\/[^/]+$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const parts = url.pathname.split("/");
+    const workspaceId = decodeURIComponent(parts[3] || "");
+    const targetUserId = decodeURIComponent(parts[5] || "");
+    if (!workspaceId || !targetUserId) {
+      throw new HttpError(404, "not_found", "Workspace user not found");
+    }
+    return updateWorkspaceUserRoleForUser(request, env, workspaceId, session.id, targetUserId);
+  }
+
+  if (request.method === "POST" && url.pathname.startsWith("/v1/workspaces/") && url.pathname.endsWith("/api-key")) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return rotateWorkspaceApiKeyForUser(request, env, workspaceId, session.id);
+  }
+
+  if (request.method === "PATCH" && url.pathname.startsWith("/v1/workspaces/")) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return updateWorkspaceForUser(request, env, workspaceId, session.id);
+  }
+
+  if (request.method === "DELETE" && url.pathname.startsWith("/v1/workspaces/")) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return deleteWorkspaceForUser(env, workspaceId, session.id);
+  }
+
+  if ((request.method === "GET" || request.method === "HEAD") && !url.pathname.startsWith("/v1")) {
+    return env.ASSETS.fetch(request);
+  }
+
+  const authContext = await authenticate(request, env);
+  const workspace = authContext.workspace;
+
+  if (request.method === "GET" && url.pathname === "/v1/jobs") {
+    return listJobs(env.DB, workspace);
+  }
 
   if (request.method === "POST" && url.pathname === "/v1/templates") {
-    return createTemplate(request, env.DB, tenant);
+    return createTemplate(request, env.DB, workspace);
   }
   if (request.method === "GET" && url.pathname === "/v1/templates") {
-    return listTemplates(env.DB, tenant);
+    return listTemplates(env.DB, workspace);
   }
 
   if (url.pathname.startsWith("/v1/templates/")) {
@@ -81,26 +178,31 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }
 
     if (request.method === "GET") {
-      return getTemplate(env.DB, tenant, templateId);
+      return getTemplate(env.DB, workspace, templateId);
     }
     if (request.method === "PATCH") {
-      return updateTemplate(request, env.DB, tenant, templateId);
+      return updateTemplate(request, env.DB, workspace, templateId);
     }
     if (request.method === "DELETE") {
-      return deleteTemplate(env.DB, tenant, templateId);
+      return deleteTemplate(env.DB, workspace, templateId);
     }
   }
 
   if (request.method === "POST" && url.pathname === "/v1/extract") {
-    return createExtractionJob(request, env, tenant);
+    return createExtractionJob(request, env, workspace);
   }
 
-  if (request.method === "GET" && url.pathname.startsWith("/v1/jobs/")) {
+  if ((request.method === "GET" || request.method === "DELETE") && url.pathname.startsWith("/v1/jobs/")) {
     const jobId = decodeURIComponent(url.pathname.split("/")[3] || "");
     if (!jobId) {
       throw new HttpError(404, "not_found", "Job not found");
     }
-    return getJob(env.DB, tenant, jobId);
+
+    if (request.method === "GET") {
+      return getJob(env.DB, workspace, jobId);
+    }
+
+    return deleteJob(env, workspace, jobId);
   }
 
   throw new HttpError(404, "not_found", "Route not found");
