@@ -107,44 +107,6 @@ const EMPTY_OBJECT_COLUMN = {
   data_type: "string",
   description: "",
 };
-const INVOICE_LINES_PRESET_COLUMNS = [
-  {
-    key: "line_number",
-    heading: "Line Number",
-    data_type: "number",
-    description: "Invoice line position",
-  },
-  {
-    key: "description",
-    heading: "Description",
-    data_type: "string",
-    description: "Line item description",
-  },
-  {
-    key: "quantity",
-    heading: "Quantity",
-    data_type: "number",
-    description: "Quantity for the line item",
-  },
-  {
-    key: "unit_price",
-    heading: "Unit Price",
-    data_type: "number",
-    description: "Price per single unit",
-  },
-  {
-    key: "tax_rate",
-    heading: "Tax Rate",
-    data_type: "number",
-    description: "Tax rate as decimal (for example, 0.2)",
-  },
-  {
-    key: "line_total",
-    heading: "Line Total",
-    data_type: "number",
-    description: "Final line total including tax",
-  },
-];
 const EMPTY_FIELD = {
   id: "",
   name: "",
@@ -1186,7 +1148,8 @@ export function App() {
       return;
     }
 
-    if (selectedDocument?.status !== "processing") {
+    const liveStatus = String(selectedDocument?.status || "").toLowerCase();
+    if (liveStatus !== "queued" && liveStatus !== "processing") {
       return;
     }
 
@@ -2947,17 +2910,7 @@ function getDocumentSortTimestamp(job) {
     return 0;
   }
 
-  const status = String(job.status || "").toLowerCase();
-  const isInFlight = status === "queued" || status === "processing";
-  const primary = isInFlight
-    ? job.queued_at || job.created_at || job.updated_at || ""
-    : job.updated_at ||
-      job.completed_at ||
-      job.queued_at ||
-      job.created_at ||
-      "";
-
-  return Date.parse(primary) || 0;
+  return Date.parse(job.created_at || job.queued_at || "") || 0;
 }
 
 function fileDedupKey(name, size, lastModified) {
@@ -3058,7 +3011,10 @@ function FieldEditor({ fields, onChange, title, subtitle }) {
         }
 
         if (key === "heading") {
-          const sanitizedHeading = normalizeFieldName(value);
+          const sanitizedHeading = sanitizeFieldName(value).replace(
+            /\s+/g,
+            " ",
+          );
           return {
             ...column,
             heading: sanitizedHeading,
@@ -3097,13 +3053,6 @@ function FieldEditor({ fields, onChange, title, subtitle }) {
         columns: nextColumns,
       };
     });
-  }
-
-  function applyInvoiceLinesPreset(index) {
-    updateObjectSchema(index, (schema) => ({
-      ...schema,
-      columns: INVOICE_LINES_PRESET_COLUMNS.map((column) => ({ ...column })),
-    }));
   }
 
   function removeField(index) {
@@ -3335,14 +3284,6 @@ function FieldEditor({ fields, onChange, title, subtitle }) {
                       >
                         Add Column
                       </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          applyInvoiceLinesPreset(activeFieldIndex)
-                        }
-                      >
-                        Apply Invoice Preset
-                      </button>
                     </div>
                   </div>
                   {!objectColumns.length ? (
@@ -3359,15 +3300,7 @@ function FieldEditor({ fields, onChange, title, subtitle }) {
                           </p>
                           <div className="row object-columns-grid">
                             <label>
-                              Key
-                              <input
-                                value={column.key}
-                                readOnly
-                                placeholder="auto_generated_from_heading"
-                              />
-                            </label>
-                            <label>
-                              Heading
+                              Column Name
                               <input
                                 value={column.heading}
                                 onChange={(event) =>
@@ -3379,6 +3312,14 @@ function FieldEditor({ fields, onChange, title, subtitle }) {
                                   )
                                 }
                                 placeholder="Line Total"
+                              />
+                            </label>
+                            <label>
+                              Column ID
+                              <input
+                                value={column.key}
+                                readOnly
+                                placeholder="auto_generated_from_name"
                               />
                             </label>
                             <label>
@@ -3639,7 +3580,10 @@ function toFieldId(name) {
 function normalizeObjectSchema(schema) {
   const rawColumns = Array.isArray(schema?.columns) ? schema.columns : [];
   const columns = rawColumns.map((column) => ({
-    heading: normalizeFieldName(String(column?.heading || "")),
+    heading: sanitizeFieldName(String(column?.heading || "")).replace(
+      /\s+/g,
+      " ",
+    ),
     key:
       toFieldId(String(column?.heading || "")) ||
       String(column?.key || "").trim(),
