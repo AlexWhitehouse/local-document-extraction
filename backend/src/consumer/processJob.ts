@@ -113,7 +113,7 @@ export async function processJob(message: QueueJobMessage, env: Env): Promise<vo
                model_name = ?, ai_gateway_route = ?, prompt_version = 'v1', schema_version = 'v1'
            WHERE id = ?`
         )
-        .bind(now, now, env.AI_MODEL || "google/gemini-3-flash", env.AI_GATEWAY_ROUTE || "default", message.job_id)
+        .bind(now, now, "google/gemini-3-flash", env.AI_GATEWAY_ROUTE || "default", message.job_id)
     );
 
     await env.DB.batch(writes);

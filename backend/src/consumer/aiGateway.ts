@@ -22,7 +22,7 @@ export async function runExtraction(
   sourceBytes: ArrayBuffer,
   sourceMimeType: string,
 ): Promise<ModelFieldResult[]> {
-  const model = env.AI_MODEL || "google/gemini-3-flash";
+  const model = "google/gemini-3-flash";
   const gatewayId = env.AI_GATEWAY_ID || "default";
   const prompt = buildPrompt(fields, sourceMimeType, model);
   const systemPrompt =
@@ -309,13 +309,9 @@ async function runViaGateway(
   input: Record<string, unknown>,
 ): Promise<unknown> {
   try {
-    return await env.AI.run(
-      model,
-      input,
-      {
-        gateway: { id: gatewayId },
-      },
-    );
+    return await env.AI.run(model, input, {
+      gateway: { id: gatewayId },
+    });
   } catch (error) {
     throw new RetryableError(`AI.run failed: ${errorToMessage(error)}`);
   }

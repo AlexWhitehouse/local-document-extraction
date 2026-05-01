@@ -68,6 +68,14 @@ export type WorkersAiBinding = {
     inputs: Record<string, unknown>,
     options?: Record<string, unknown>
   ) => Promise<unknown>;
+  gateway: (gatewayId: string) => {
+    run: (data: {
+      provider: string;
+      endpoint: string;
+      headers: Record<string, unknown>;
+      query: unknown;
+    }) => Promise<Response>;
+  };
   toMarkdown: ToMarkdown;
 };
 

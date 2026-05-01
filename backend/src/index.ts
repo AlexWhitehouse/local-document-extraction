@@ -39,15 +39,17 @@ export default {
   },
 
   async queue(batch: MessageBatch<QueueJobMessage>, env: Env): Promise<void> {
-    for (const msg of batch.messages) {
-      try {
-        await processJob(msg.body, env);
-        msg.ack();
-      } catch (error) {
-        console.error("Queue processing failed", error);
-        msg.retry();
-      }
-    }
+    await Promise.all(
+      batch.messages.map(async (msg) => {
+        try {
+          await processJob(msg.body, env);
+          msg.ack();
+        } catch (error) {
+          console.error("Queue processing failed", error);
+          msg.retry();
+        }
+      }),
+    );
   }
 } satisfies ExportedHandler<Env, QueueJobMessage>;
 

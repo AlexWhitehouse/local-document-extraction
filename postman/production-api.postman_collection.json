@@ -1,0 +1,200 @@
+{
+  "info": {
+    "name": "Image Extraction Production API",
+    "description": "Production Postman collection for the image extraction API.\n\nPrerequisites:\n1) Set collection variables: api_key, template_id, and optionally workspace_id\n2) Use a valid PNG/JPEG/WEBP/PDF file for upload\n\nAuth for all /v1 extraction endpoints uses Bearer API key.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://extract.t3m.uk"
+    },
+    {
+      "key": "api_key",
+      "value": ""
+    },
+    {
+      "key": "workspace_id",
+      "value": ""
+    },
+    {
+      "key": "template_id",
+      "value": ""
+    },
+    {
+      "key": "job_id",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1) Initiate Document Upload",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_key}}",
+            "type": "text"
+          },
+          {
+            "key": "x-workspace-id",
+            "value": "{{workspace_id}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "template_id",
+              "value": "{{template_id}}",
+              "type": "text"
+            },
+            {
+              "key": "image",
+              "type": "file",
+              "src": ""
+            },
+            {
+              "key": "options",
+              "value": "{\"include_confidence\": true, \"include_evidence\": true}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/v1/extract",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "extract"
+          ]
+        },
+        "description": "Uploads a document and queues an extraction job.\n\nExpected: HTTP 202 with { job_id, status: \"queued\" }."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 202', function () {",
+              "  pm.response.to.have.status(202);",
+              "});",
+              "",
+              "var json = pm.response.json();",
+              "if (json && json.job_id) {",
+              "  pm.collectionVariables.set('job_id', json.job_id);",
+              "}",
+              "pm.test('job_id is returned', function () {",
+              "  pm.expect(json.job_id).to.be.a('string').and.not.empty;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2) Check Job Status",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_key}}",
+            "type": "text"
+          },
+          {
+            "key": "x-workspace-id",
+            "value": "{{workspace_id}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/jobs/{{job_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "jobs",
+            "{{job_id}}"
+          ]
+        },
+        "description": "Checks current status for a job id.\n\nPoll until status becomes completed, failed, or retryable_failed."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var json = pm.response.json();",
+              "if (json && json.status) {",
+              "  pm.collectionVariables.set('job_status', json.status);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3) Return Job Results",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_key}}",
+            "type": "text"
+          },
+          {
+            "key": "x-workspace-id",
+            "value": "{{workspace_id}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/jobs/{{job_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "jobs",
+            "{{job_id}}"
+          ]
+        },
+        "description": "Returns extracted field results when the job is completed.\n\nIf status is not completed yet, this endpoint returns job metadata without results."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var json = pm.response.json();",
+              "pm.test('Job should be completed for full results', function () {",
+              "  pm.expect(json.status).to.equal('completed');",
+              "});",
+              "pm.test('Results array exists', function () {",
+              "  pm.expect(json.results).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

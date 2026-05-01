@@ -185,7 +185,7 @@ button.danger:hover:not(:disabled) {
   position: sticky;
   top: 12px;
   align-self: start;
-  min-height: calc(100vh - 24px);
+  height: calc(100vh - 24px);
   border-radius: var(--sidebar-radius) 0 0 var(--sidebar-radius);
   border: 1px solid var(--line-0);
   border-right: 0;
@@ -200,7 +200,7 @@ button.danger:hover:not(:disabled) {
   position: sticky;
   top: 12px;
   align-self: start;
-  min-height: calc(100vh - 24px);
+  height: calc(100vh - 24px);
   border-top: 1px solid var(--line-0);
   border-bottom: 1px solid var(--line-0);
   border-left: 1px solid var(--line-0);
@@ -210,6 +210,7 @@ button.danger:hover:not(:disabled) {
   display: grid;
   gap: 10px;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .context-head h2 {
@@ -222,8 +223,10 @@ button.danger:hover:not(:disabled) {
   display: grid;
   gap: 6px;
   align-content: start;
+  min-height: 0;
   max-height: 100%;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 2px;
 }
 
@@ -1543,6 +1546,107 @@ details summary {
 .modal-card {
   width: min(640px, 100%);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+.upload-input-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.upload-dropzone {
+  margin-top: 2px;
+  width: 100%;
+  min-height: 120px;
+  border-radius: 12px;
+  border: 1px dashed var(--line-2);
+  background: linear-gradient(180deg, rgba(14, 22, 33, 0.9), rgba(11, 18, 28, 0.9));
+  color: var(--text-1);
+  display: grid;
+  gap: 6px;
+  place-items: center;
+  text-align: center;
+  padding: 14px;
+}
+
+.upload-dropzone:hover:not(:disabled) {
+  transform: none;
+  border-color: rgba(80, 146, 214, 0.62);
+  background: linear-gradient(180deg, rgba(18, 29, 43, 0.92), rgba(14, 25, 38, 0.9));
+  box-shadow: inset 0 0 0 1px rgba(120, 180, 235, 0.16);
+}
+
+.upload-dropzone strong {
+  font-size: 0.86rem;
+  color: var(--text-0);
+}
+
+.upload-dropzone span {
+  font-size: 0.78rem;
+  color: var(--text-2);
+}
+
+.upload-dropzone em {
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--accent-strong);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-dropzone.is-active {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(14, 35, 40, 0.72), rgba(11, 30, 35, 0.68));
+  box-shadow: 0 0 0 3px rgba(25, 193, 180, 0.14);
+}
+
+.upload-file-list {
+  margin-top: 10px;
+  max-height: 220px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.upload-file-row {
+  border: 1px solid var(--line-1);
+  border-radius: 10px;
+  background: rgba(10, 16, 25, 0.8);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.upload-file-name {
+  color: var(--text-1);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-file-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.upload-file-actions button {
+  height: 30px;
+  padding: 0 10px;
+}
+
+.upload-file-error {
+  margin: 0;
 }
 
 @media (max-width: 1260px) {

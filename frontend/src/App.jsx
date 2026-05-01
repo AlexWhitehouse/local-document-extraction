@@ -255,7 +255,8 @@ export function App() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
-  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadFiles, setUploadFiles] = useState([]);
+  const [isUploadDragActive, setIsUploadDragActive] = useState(false);
   const [queuedJobs, setQueuedJobs] = useState({});
   const [jobHistory, setJobHistory] = useState(
     Array.isArray(initialWorkspace.jobHistory)
@@ -283,6 +284,7 @@ export function App() {
 
   const previewUrlsRef = useRef(new Set());
   const profilePanelRef = useRef(null);
+  const uploadInputRef = useRef(null);
 
   const hasSession = Boolean(session?.user?.id);
   const sessionUserId = String(session?.user?.id || "").trim();
@@ -317,8 +319,8 @@ export function App() {
       }));
 
     return [...jobHistory, ...queuedOnly].sort((a, b) => {
-      const left = Date.parse(b.updated_at || b.queued_at || "") || 0;
-      const right = Date.parse(a.updated_at || a.queued_at || "") || 0;
+      const left = getDocumentSortTimestamp(b);
+      const right = getDocumentSortTimestamp(a);
       return left - right;
     });
   }, [extractTemplateId, jobHistory, queuedJobs]);
@@ -679,8 +681,8 @@ export function App() {
         ...prev.filter((entry) => entry.job_id !== job.job_id),
       ];
       next.sort((a, b) => {
-        const left = Date.parse(b.updated_at || "") || 0;
-        const right = Date.parse(a.updated_at || "") || 0;
+        const left = getDocumentSortTimestamp(b);
+        const right = getDocumentSortTimestamp(a);
         return left - right;
       });
       return next;
@@ -1179,6 +1181,24 @@ export function App() {
     void loadJobDetails(selectedDocumentId, { silent: true });
   }, [hasApiAccess, selectedDocumentId]);
 
+  useEffect(() => {
+    if (!hasApiAccess || !selectedDocumentId.trim()) {
+      return;
+    }
+
+    if (selectedDocument?.status !== "processing") {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadJobDetails(selectedDocumentId, { silent: true });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasApiAccess, selectedDocumentId, selectedDocument?.status]);
+
   async function createTemplate() {
     setBusy(true);
     try {
@@ -1317,7 +1337,8 @@ export function App() {
 
   function openUploadModal() {
     setUploadTemplateId(extractTemplateId || templates[0]?.id || "");
-    setUploadFile(null);
+    setUploadFiles([]);
+    setIsUploadDragActive(false);
     setShowUploadModal(true);
   }
 
@@ -1325,7 +1346,65 @@ export function App() {
     if (busy) {
       return;
     }
+    setIsUploadDragActive(false);
     setShowUploadModal(false);
+  }
+
+  function handleUploadDragOver(event) {
+    event.preventDefault();
+    setIsUploadDragActive(true);
+  }
+
+  function handleUploadDragLeave(event) {
+    event.preventDefault();
+    setIsUploadDragActive(false);
+  }
+
+  function handleUploadDrop(event) {
+    event.preventDefault();
+    setIsUploadDragActive(false);
+    const droppedFiles = Array.from(event.dataTransfer?.files || []);
+    appendUploadFiles(droppedFiles);
+  }
+
+  function appendUploadFiles(nextFiles) {
+    const filtered = nextFiles.filter(Boolean);
+    if (!filtered.length) {
+      return;
+    }
+
+    setUploadFiles((prev) => {
+      const existingKeys = new Set(
+        prev.map((entry) =>
+          fileDedupKey(
+            entry.file.name,
+            entry.file.size,
+            entry.file.lastModified,
+          ),
+        ),
+      );
+      const additions = [];
+
+      for (const file of filtered) {
+        const key = fileDedupKey(file.name, file.size, file.lastModified);
+        if (existingKeys.has(key)) {
+          continue;
+        }
+        existingKeys.add(key);
+        additions.push({
+          id: `${key}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+          file,
+          queueStatus: "pending",
+          queueError: "",
+        });
+      }
+
+      return [...prev, ...additions];
+    });
+  }
+
+  function removeUploadFile(uploadId) {
+    setUploadFiles((prev) => prev.filter((entry) => entry.id !== uploadId));
   }
 
   async function uploadFromModal() {
@@ -1333,16 +1412,86 @@ export function App() {
       addLog("Upload failed: select a template");
       return;
     }
-    if (!uploadFile) {
-      addLog("Upload failed: choose a document file (image or PDF)");
+    if (!uploadFiles.length) {
+      addLog("Upload failed: choose one or more document files");
       return;
     }
 
-    setShowUploadModal(false);
     setExtractTemplateId(uploadTemplateId.trim());
-    setImageFile(uploadFile);
-    setActivePage("documents");
-    await runExtractWithInputs(uploadTemplateId.trim(), uploadFile);
+    setImageFile(uploadFiles[0].file);
+
+    setBusy(true);
+    try {
+      for (const entry of uploadFiles) {
+        setUploadFiles((prev) =>
+          prev.map((row) =>
+            row.id === entry.id
+              ? { ...row, queueStatus: "processing", queueError: "" }
+              : row,
+          ),
+        );
+
+        try {
+          await queueDocument(uploadTemplateId.trim(), entry.file);
+          setUploadFiles((prev) =>
+            prev.map((row) =>
+              row.id === entry.id ? { ...row, queueStatus: "success" } : row,
+            ),
+          );
+        } catch (error) {
+          setUploadFiles((prev) =>
+            prev.map((row) =>
+              row.id === entry.id
+                ? {
+                    ...row,
+                    queueStatus: "failed",
+                    queueError: error.message || "Queue failed",
+                  }
+                : row,
+            ),
+          );
+          addLog(`Queue failed for ${entry.file.name}: ${error.message}`);
+        }
+      }
+      setActivePage("documents");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function queueDocument(templateId, file) {
+    const imagePreviewUrl = file.type.startsWith("image/")
+      ? URL.createObjectURL(file)
+      : null;
+    if (imagePreviewUrl) {
+      previewUrlsRef.current.add(imagePreviewUrl);
+    }
+
+    const formData = new FormData();
+    formData.append("template_id", templateId.trim());
+    formData.append("image", file);
+    formData.append("options", JSON.stringify(DEFAULT_OPTIONS));
+
+    const queued = await request("/extract", {
+      method: "POST",
+      body: formData,
+    });
+
+    const jobId = queued.job_id;
+    setLastJobId(jobId);
+    setQueuedJobs((prev) => ({
+      ...prev,
+      [jobId]: {
+        queued_at: new Date().toISOString(),
+        image_name: file.name,
+        image_preview_url: imagePreviewUrl,
+        source_mime_type: file.type || null,
+        template_id: templateId.trim(),
+      },
+    }));
+    setSelectedDocumentId(jobId);
+    addLog(`Job queued: ${jobId} (${file.name})`);
+    return jobId;
   }
 
   async function runExtractWithInputs(templateId, file) {
@@ -1355,39 +1504,9 @@ export function App() {
       return;
     }
 
-    const imagePreviewUrl = file.type.startsWith("image/")
-      ? URL.createObjectURL(file)
-      : null;
-    if (imagePreviewUrl) {
-      previewUrlsRef.current.add(imagePreviewUrl);
-    }
-
     setBusy(true);
     try {
-      const formData = new FormData();
-      formData.append("template_id", templateId.trim());
-      formData.append("image", file);
-      formData.append("options", JSON.stringify(DEFAULT_OPTIONS));
-
-      const queued = await request("/extract", {
-        method: "POST",
-        body: formData,
-      });
-
-      const jobId = queued.job_id;
-      setLastJobId(jobId);
-      setQueuedJobs((prev) => ({
-        ...prev,
-        [jobId]: {
-          queued_at: new Date().toISOString(),
-          image_name: file.name,
-          image_preview_url: imagePreviewUrl,
-          source_mime_type: file.type || null,
-          template_id: templateId.trim(),
-        },
-      }));
-      setSelectedDocumentId(jobId);
-      addLog(`Job queued: ${jobId}`);
+      const jobId = await queueDocument(templateId, file);
 
       const finalJob = await pollJobUntilFinished(jobId);
       setLatestResponse(finalJob);
@@ -1542,6 +1661,13 @@ export function App() {
         targetDocumentId,
         selectedDocument.image_preview_url,
       );
+      const nextDocumentId =
+        documents.find((job) => String(job.job_id || "") !== targetDocumentId)
+          ?.job_id || "";
+      setSelectedDocumentId(nextDocumentId);
+      if (nextDocumentId) {
+        void loadJobDetails(nextDocumentId, { silent: true });
+      }
       addLog(`Deleted document ${targetDocumentId}`);
     } catch (error) {
       if (Number(error?.status) === 404) {
@@ -1549,6 +1675,13 @@ export function App() {
           targetDocumentId,
           selectedDocument.image_preview_url,
         );
+        const nextDocumentId =
+          documents.find((job) => String(job.job_id || "") !== targetDocumentId)
+            ?.job_id || "";
+        setSelectedDocumentId(nextDocumentId);
+        if (nextDocumentId) {
+          void loadJobDetails(nextDocumentId, { silent: true });
+        }
         addLog(`Document ${targetDocumentId} was already removed`);
         return;
       }
@@ -1815,7 +1948,7 @@ export function App() {
               />
             </label>
             <div className="context-list">
-              {filteredDocuments.slice(0, 12).map((job) => (
+              {filteredDocuments.map((job) => (
                 <button
                   type="button"
                   key={`context-${job.job_id}`}
@@ -2380,12 +2513,78 @@ export function App() {
               <label>
                 Document file
                 <input
+                  ref={uploadInputRef}
                   type="file"
                   accept="image/png,image/jpeg,image/webp,application/pdf"
-                  onChange={(event) =>
-                    setUploadFile(event.target.files?.[0] || null)
-                  }
+                  className="upload-input-hidden"
+                  multiple
+                  onChange={(event) => {
+                    appendUploadFiles(Array.from(event.target.files || []));
+                    event.target.value = "";
+                  }}
                 />
+                <button
+                  type="button"
+                  className={
+                    isUploadDragActive
+                      ? "upload-dropzone is-active"
+                      : "upload-dropzone"
+                  }
+                  onClick={() => uploadInputRef.current?.click()}
+                  onDragOver={handleUploadDragOver}
+                  onDragLeave={handleUploadDragLeave}
+                  onDrop={handleUploadDrop}
+                >
+                  <strong>Drag and drop files here</strong>
+                  <span>
+                    or click to browse multiple files (PNG, JPG, WEBP, PDF)
+                  </span>
+                  <em>
+                    {uploadFiles.length
+                      ? `${uploadFiles.length} file${uploadFiles.length === 1 ? "" : "s"} selected`
+                      : "No files selected"}
+                  </em>
+                </button>
+                {uploadFiles.length ? (
+                  <div className="upload-file-list" role="list">
+                    {uploadFiles.map((entry) => (
+                      <div
+                        className="upload-file-row"
+                        role="listitem"
+                        key={entry.id}
+                      >
+                        <span
+                          className="upload-file-name"
+                          title={entry.file.name}
+                        >
+                          {entry.file.name}
+                        </span>
+                        <div className="upload-file-actions">
+                          <span
+                            className={`status-pill ${queueStatusTone(entry.queueStatus)}`}
+                          >
+                            {entry.queueStatus}
+                          </span>
+                          {entry.queueStatus === "pending" ? (
+                            <button
+                              type="button"
+                              className="ghost"
+                              disabled={busy}
+                              onClick={() => removeUploadFile(entry.id)}
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+                        {entry.queueError ? (
+                          <p className="hint upload-file-error">
+                            {entry.queueError}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </label>
             </div>
             <div className="actions">
@@ -2596,6 +2795,58 @@ function renderAnswer(answer) {
     return <p className="muted">No value extracted.</p>;
   }
 
+  if (Array.isArray(answer)) {
+    if (!answer.length) {
+      return <p className="muted">No rows returned.</p>;
+    }
+
+    const allObjects = answer.every(
+      (item) => item && typeof item === "object" && !Array.isArray(item),
+    );
+
+    if (allObjects) {
+      const keys = Array.from(
+        new Set(answer.flatMap((row) => Object.keys(row))),
+      );
+
+      return (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                {keys.map((key) => (
+                  <th key={key}>{key}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {answer.map((row, rowIndex) => (
+                <tr key={`row-${rowIndex}`}>
+                  {keys.map((key) => (
+                    <td key={`${key}-${rowIndex}`}>
+                      {formatAnswerValue(row?.[key])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    return (
+      <div className="kv-list">
+        {answer.map((value, index) => (
+          <div className="kv-row" key={index}>
+            <span className="kv-key">{index}</span>
+            <span className="kv-value">{formatAnswerValue(value)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (isTableAnswer(answer)) {
     const columns = answer.columns.map((column, index) => {
       if (typeof column === "string") {
@@ -2683,6 +2934,34 @@ function confidenceTone(confidence) {
     return "pending";
   }
   return "bad";
+}
+
+function queueStatusTone(status) {
+  if (status === "success") return "good";
+  if (status === "failed") return "bad";
+  return "pending";
+}
+
+function getDocumentSortTimestamp(job) {
+  if (!job || typeof job !== "object") {
+    return 0;
+  }
+
+  const status = String(job.status || "").toLowerCase();
+  const isInFlight = status === "queued" || status === "processing";
+  const primary = isInFlight
+    ? job.queued_at || job.created_at || job.updated_at || ""
+    : job.updated_at ||
+      job.completed_at ||
+      job.queued_at ||
+      job.created_at ||
+      "";
+
+  return Date.parse(primary) || 0;
+}
+
+function fileDedupKey(name, size, lastModified) {
+  return `${name}::${size}::${lastModified}`;
 }
 
 function FieldEditor({ fields, onChange, title, subtitle }) {
