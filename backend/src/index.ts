@@ -166,7 +166,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   const workspace = authContext.workspace;
 
   if (request.method === "GET" && url.pathname === "/v1/jobs") {
-    return listJobs(env.DB, workspace);
+    return listJobs(request, env.DB, workspace);
   }
 
   if (request.method === "POST" && url.pathname === "/v1/templates") {

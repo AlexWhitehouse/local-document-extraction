@@ -226,12 +226,16 @@ export function App() {
       ? initialWorkspace.jobHistory
       : [],
   );
+  const [jobsNextCursor, setJobsNextCursor] = useState(null);
+  const [jobsHasMore, setJobsHasMore] = useState(false);
+  const [isLoadingMoreJobs, setIsLoadingMoreJobs] = useState(false);
   const [manualJobLookupId, setManualJobLookupId] = useState("");
   const [selectedDocumentId, setSelectedDocumentId] = useState(
     initialWorkspace.selectedDocumentId || "",
   );
   const [templateSearch, setTemplateSearch] = useState("");
   const [documentSearch, setDocumentSearch] = useState("");
+  const [debouncedDocumentSearch, setDebouncedDocumentSearch] = useState("");
   const [workspaceSearch, setWorkspaceSearch] = useState("");
   const [showDraftTemplateNav, setShowDraftTemplateNav] = useState(false);
   const [userWorkspaces, setUserWorkspaces] = useState(
@@ -265,6 +269,7 @@ export function App() {
   const isEditingTemplate = Boolean(updateTemplateId.trim());
 
   const documents = useMemo(() => {
+    const query = debouncedDocumentSearch.trim().toLowerCase();
     const historyIds = new Set(jobHistory.map((job) => job.job_id));
     const queuedOnly = Object.entries(queuedJobs)
       .filter(([jobId]) => !historyIds.has(jobId))
@@ -279,14 +284,23 @@ export function App() {
         queued_at: meta.queued_at || null,
         updated_at: meta.queued_at || null,
         results: [],
-      }));
+      }))
+      .filter((job) => {
+        if (!query) {
+          return true;
+        }
+
+        return [job.job_id, job.image_name, job.template_id, job.status]
+          .map((value) => String(value || "").toLowerCase())
+          .some((value) => value.includes(query));
+      });
 
     return [...jobHistory, ...queuedOnly].sort((a, b) => {
       const left = getDocumentSortTimestamp(b);
       const right = getDocumentSortTimestamp(a);
       return left - right;
     });
-  }, [extractTemplateId, jobHistory, queuedJobs]);
+  }, [debouncedDocumentSearch, extractTemplateId, jobHistory, queuedJobs]);
 
   const selectedDocument = useMemo(() => {
     if (!documents.length) {
@@ -331,25 +345,6 @@ export function App() {
       );
     });
   }, [templateSearch, templates]);
-
-  const filteredDocuments = useMemo(() => {
-    const query = documentSearch.trim().toLowerCase();
-
-    return documents.filter((job) => {
-      if (!query) {
-        return true;
-      }
-
-      const imageName = String(job.image_name || "").toLowerCase();
-      const jobId = String(job.job_id || "").toLowerCase();
-      const templateId = String(job.template_id || "").toLowerCase();
-      return (
-        imageName.includes(query) ||
-        jobId.includes(query) ||
-        templateId.includes(query)
-      );
-    });
-  }, [documentSearch, documents]);
 
   const contextTemplates = useMemo(() => {
     const hasDraft = showDraftTemplateNav && activePage === "templates";
@@ -774,8 +769,13 @@ export function App() {
       const data = await request("/workspaces", { method: "GET" }, true, false);
       const workspaces = Array.isArray(data?.workspaces) ? data.workspaces : [];
       setUserWorkspaces(workspaces);
-      if (!workspaceId && workspaces[0]?.id) {
-        const nextWorkspaceId = String(workspaces[0].id);
+      const normalizedWorkspaceId = String(workspaceId || "").trim();
+      const hasSelectedWorkspace = workspaces.some(
+        (workspace) => String(workspace?.id || "") === normalizedWorkspaceId,
+      );
+
+      if ((!normalizedWorkspaceId || !hasSelectedWorkspace) && workspaces[0]?.id) {
+        const nextWorkspaceId = String(workspaces[0].id || "");
         setWorkspaceId(nextWorkspaceId);
         setWorkspaceName(String(workspaces[0].name || DEFAULT_WORKSPACE_NAME));
         setApiKey(String(apiKeysByWorkspace[nextWorkspaceId] || ""));
@@ -1074,15 +1074,35 @@ export function App() {
   }
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedDocumentSearch(documentSearch.trim());
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [documentSearch]);
+
+  useEffect(() => {
     if (!hasApiAccess) {
+      setTemplates([]);
       setJobHistory([]);
       setQueuedJobs({});
+      setJobsNextCursor(null);
+      setJobsHasMore(false);
       return;
     }
 
     void listTemplates();
-    void listJobs();
   }, [hasApiAccess, workspaceId, apiKey]);
+
+  useEffect(() => {
+    if (!hasApiAccess) {
+      return;
+    }
+
+    void listJobs();
+  }, [debouncedDocumentSearch, hasApiAccess, workspaceId, apiKey]);
 
   useEffect(() => {
     if (!hasSession) {
@@ -1119,17 +1139,57 @@ export function App() {
     }
   }
 
-  async function listJobs() {
+  async function listJobs({ append = false } = {}) {
     try {
-      const data = await request("/jobs", { method: "GET" });
+      const params = new URLSearchParams();
+      const search = debouncedDocumentSearch.trim();
+      if (search) {
+        params.set("search", search);
+      }
+      if (append && jobsNextCursor) {
+        params.set("cursor", jobsNextCursor);
+      }
+
+      const query = params.toString();
+      const data = await request(query ? `/jobs?${query}` : "/jobs", { method: "GET" });
       const list = Array.isArray(data?.jobs) ? data.jobs : [];
-      setJobHistory(list);
+      setJobHistory((prev) => {
+        if (!append) {
+          return list;
+        }
+
+        const seen = new Set(prev.map((job) => String(job.job_id || "")));
+        const additions = list.filter((job) => {
+          const jobId = String(job.job_id || "");
+          if (!jobId || seen.has(jobId)) {
+            return false;
+          }
+          seen.add(jobId);
+          return true;
+        });
+        return [...prev, ...additions];
+      });
+      setJobsNextCursor(data?.next_cursor || null);
+      setJobsHasMore(Boolean(data?.has_more));
       if (!selectedDocumentId && list[0]?.job_id) {
         setSelectedDocumentId(String(list[0].job_id));
       }
-      addLog(`Loaded ${list.length} documents`);
+      addLog(`${append ? "Loaded" : "Loaded"} ${list.length} document${list.length === 1 ? "" : "s"}${search ? ` matching "${search}"` : ""}`);
     } catch (error) {
       addLog(`List documents failed: ${error.message}`);
+    }
+  }
+
+  async function loadMoreJobs() {
+    if (!jobsHasMore || !jobsNextCursor || isLoadingMoreJobs) {
+      return;
+    }
+
+    setIsLoadingMoreJobs(true);
+    try {
+      await listJobs({ append: true });
+    } finally {
+      setIsLoadingMoreJobs(false);
     }
   }
 
@@ -1962,7 +2022,7 @@ export function App() {
               />
             </label>
             <div className="context-list">
-              {filteredDocuments.map((job) => (
+              {documents.map((job) => (
                 <button
                   type="button"
                   key={`context-${job.job_id}`}
@@ -1980,6 +2040,30 @@ export function App() {
                   <span>{job.job_id}</span>
                 </button>
               ))}
+              {!documents.length ? (
+                <p className="muted">
+                  {debouncedDocumentSearch
+                    ? "No documents match this search."
+                    : "No documents uploaded yet."}
+                </p>
+              ) : null}
+              {jobsHasMore ? (
+                <button
+                  type="button"
+                  className="context-item"
+                  disabled={isLoadingMoreJobs}
+                  onClick={loadMoreJobs}
+                >
+                  <strong>
+                    {isLoadingMoreJobs ? "Loading..." : "Load More Documents"}
+                  </strong>
+                  <span>
+                    {debouncedDocumentSearch
+                      ? "Continue searching older jobs"
+                      : "Show older jobs"}
+                  </span>
+                </button>
+              ) : null}
             </div>
           </>
         ) : activePage === "templates" ? (

@@ -2,35 +2,72 @@ import { HttpError, json } from "../lib/http";
 import { nowIso } from "../lib/ids";
 import type { Env, Workspace } from "../lib/types";
 
-export async function listJobs(db: D1Database, workspace: Workspace): Promise<Response> {
+const DEFAULT_JOBS_LIMIT = 200;
+const MAX_JOBS_LIMIT = 200;
+
+type JobListCursor = {
+  sort: string;
+  id: string;
+};
+
+type JobListRow = {
+  id: string;
+  status: string;
+  template_id: string;
+  template_version: number;
+  image_name: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  current_attempt: number | null;
+  completed_attempt: number | null;
+  last_failed_attempt: number | null;
+  sort_at: string;
+};
+
+export async function listJobs(request: Request, db: D1Database, workspace: Workspace): Promise<Response> {
+  const url = new URL(request.url);
+  const limit = parseLimit(url.searchParams.get("limit"));
+  const search = normalizeSearch(url.searchParams.get("search"));
+  const cursor = parseCursor(url.searchParams.get("cursor"));
+
+  const filters = ["j.workspace_id = ?"];
+  const params: Array<string | number> = [workspace.id];
+
+  if (search) {
+    const pattern = `%${escapeLike(search)}%`;
+    filters.push(
+      `(j.id LIKE ? ESCAPE '\\' OR j.image_name LIKE ? ESCAPE '\\' OR j.template_id LIKE ? ESCAPE '\\' OR j.status LIKE ? ESCAPE '\\')`
+    );
+    params.push(pattern, pattern, pattern, pattern);
+  }
+
+  if (cursor) {
+    filters.push("(COALESCE(j.updated_at, j.created_at) < ? OR (COALESCE(j.updated_at, j.created_at) = ? AND j.id < ?))");
+    params.push(cursor.sort, cursor.sort, cursor.id);
+  }
+
   const rows = await db
     .prepare(
-      `SELECT id, status, template_id, template_version, image_name, error_code, error_message,
-              created_at, updated_at, completed_at, current_attempt, completed_attempt, last_failed_attempt
-       FROM jobs
-       WHERE workspace_id = ?
-       ORDER BY COALESCE(updated_at, created_at) DESC
-       LIMIT 200`
+      `SELECT j.id, j.status, j.template_id, j.template_version, j.image_name, j.error_code, j.error_message,
+              j.created_at, j.updated_at, j.completed_at, j.current_attempt, j.completed_attempt, j.last_failed_attempt,
+              COALESCE(j.updated_at, j.created_at) AS sort_at
+       FROM jobs j
+       WHERE ${filters.join(" AND ")}
+       ORDER BY COALESCE(j.updated_at, j.created_at) DESC, j.id DESC
+       LIMIT ?`
     )
-    .bind(workspace.id)
-    .all<{
-      id: string;
-      status: string;
-      template_id: string;
-      template_version: number;
-      image_name: string | null;
-      error_code: string | null;
-      error_message: string | null;
-      created_at: string;
-      updated_at: string;
-      completed_at: string | null;
-      current_attempt: number | null;
-      completed_attempt: number | null;
-      last_failed_attempt: number | null;
-    }>();
+    .bind(...params, limit + 1)
+    .all<JobListRow>();
+
+  const page = rows.results.slice(0, limit);
+  const last = page[page.length - 1] || null;
+  const hasMore = rows.results.length > limit;
 
   return json({
-    jobs: rows.results.map((row) => ({
+    jobs: page.map((row) => ({
       job_id: row.id,
       status: row.status,
       image_name: row.image_name,
@@ -45,8 +82,53 @@ export async function listJobs(db: D1Database, workspace: Workspace): Promise<Re
       completed_attempt: Number(row.completed_attempt || 0),
       last_failed_attempt: Number(row.last_failed_attempt || 0),
       results: []
-    }))
+    })),
+    next_cursor: hasMore && last ? encodeCursor({ sort: last.sort_at, id: last.id }) : null,
+    has_more: hasMore
   });
+}
+
+function parseLimit(value: string | null): number {
+  if (!value) {
+    return DEFAULT_JOBS_LIMIT;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new HttpError(400, "invalid_limit", "limit must be a positive integer");
+  }
+
+  return Math.min(parsed, MAX_JOBS_LIMIT);
+}
+
+function normalizeSearch(value: string | null): string {
+  return String(value || "").trim().slice(0, 120);
+}
+
+function parseCursor(value: string | null): JobListCursor | null {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const decoded = JSON.parse(atob(raw)) as Partial<JobListCursor>;
+    if (typeof decoded.sort === "string" && typeof decoded.id === "string" && decoded.sort && decoded.id) {
+      return { sort: decoded.sort, id: decoded.id };
+    }
+  } catch {
+    // fall through to typed API error
+  }
+
+  throw new HttpError(400, "invalid_cursor", "cursor is invalid");
+}
+
+function encodeCursor(cursor: JobListCursor): string {
+  return btoa(JSON.stringify(cursor));
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
 export async function getJob(db: D1Database, workspace: Workspace, id: string): Promise<Response> {
