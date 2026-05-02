@@ -27,7 +27,7 @@ export type Template = {
   deleted_at: string | null;
 };
 
-export type JobStatus = "queued" | "processing" | "completed" | "failed" | "retryable_failed";
+export type JobStatus = "queued" | "workflow_started" | "processing" | "completed" | "failed" | "retryable_failed";
 
 export type FieldResultStatus = "ok" | "not_found" | "invalid_type" | "unreadable" | "error";
 
@@ -81,11 +81,18 @@ export type WorkersAiBinding = {
 
 export type QueueJobMessage = {
   job_id: string;
+  attempt: number;
   workspace_id: string;
   template_id: string;
   template_version: number;
   image_r2_key: string;
   enqueued_at: string;
+};
+
+export type ImageWorkflowParams = {
+  job_id: string;
+  attempt: number;
+  workspace_id: string;
 };
 
 export type Workspace = {
@@ -107,6 +114,7 @@ export interface Env {
   DB: D1Database;
   IMAGES_BUCKET: R2Bucket;
   JOBS_QUEUE: Queue<QueueJobMessage>;
+  IMAGE_PROCESSING_WORKFLOW: Workflow<ImageWorkflowParams>;
   AI: WorkersAiBinding;
   AI_GATEWAY_ACCOUNT_ID: string;
   AI_GATEWAY_ID: string;

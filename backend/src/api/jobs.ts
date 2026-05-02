@@ -1,11 +1,12 @@
 import { HttpError, json } from "../lib/http";
+import { nowIso } from "../lib/ids";
 import type { Env, Workspace } from "../lib/types";
 
 export async function listJobs(db: D1Database, workspace: Workspace): Promise<Response> {
   const rows = await db
     .prepare(
       `SELECT id, status, template_id, template_version, image_name, error_code, error_message,
-              created_at, updated_at, completed_at
+              created_at, updated_at, completed_at, current_attempt, completed_attempt, last_failed_attempt
        FROM jobs
        WHERE workspace_id = ?
        ORDER BY COALESCE(updated_at, created_at) DESC
@@ -23,6 +24,9 @@ export async function listJobs(db: D1Database, workspace: Workspace): Promise<Re
       created_at: string;
       updated_at: string;
       completed_at: string | null;
+      current_attempt: number | null;
+      completed_attempt: number | null;
+      last_failed_attempt: number | null;
     }>();
 
   return json({
@@ -37,6 +41,9 @@ export async function listJobs(db: D1Database, workspace: Workspace): Promise<Re
       created_at: row.created_at,
       updated_at: row.updated_at,
       completed_at: row.completed_at,
+      current_attempt: Number(row.current_attempt || 0),
+      completed_attempt: Number(row.completed_attempt || 0),
+      last_failed_attempt: Number(row.last_failed_attempt || 0),
       results: []
     }))
   });
@@ -46,7 +53,7 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
   const job = await db
     .prepare(
       `SELECT id, status, template_id, template_version, image_name, error_code, error_message,
-              created_at, updated_at, completed_at
+              created_at, updated_at, completed_at, current_attempt, completed_attempt, last_failed_attempt
        FROM jobs
        WHERE id = ? AND workspace_id = ?`
     )
@@ -62,6 +69,9 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
       created_at: string;
       updated_at: string;
       completed_at: string | null;
+      current_attempt: number | null;
+      completed_attempt: number | null;
+      last_failed_attempt: number | null;
     }>();
 
   if (!job) {
@@ -79,7 +89,10 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
       error_message: job.error_message,
       created_at: job.created_at,
       updated_at: job.updated_at,
-      completed_at: job.completed_at
+      completed_at: job.completed_at,
+      current_attempt: Number(job.current_attempt || 0),
+      completed_attempt: Number(job.completed_attempt || 0),
+      last_failed_attempt: Number(job.last_failed_attempt || 0)
     });
   }
 
@@ -121,6 +134,9 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
     created_at: job.created_at,
     updated_at: job.updated_at,
     completed_at: job.completed_at,
+    current_attempt: Number(job.current_attempt || 0),
+    completed_attempt: Number(job.completed_attempt || 0),
+    last_failed_attempt: Number(job.last_failed_attempt || 0),
     results: resultRows.results.map((row) => ({
       field_id: row.field_id,
       name: row.name,
@@ -130,6 +146,75 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
       confidence: row.confidence,
       evidence: row.evidence_text
     }))
+  });
+}
+
+export async function retryJob(env: Env, workspace: Workspace, id: string): Promise<Response> {
+  const existing = await env.DB
+    .prepare(
+      `SELECT id, status, template_id, template_version, image_r2_key, current_attempt
+       FROM jobs
+       WHERE id = ? AND workspace_id = ?`,
+    )
+    .bind(id, workspace.id)
+    .first<{
+      id: string;
+      status: string;
+      template_id: string;
+      template_version: number;
+      image_r2_key: string | null;
+      current_attempt: number | null;
+    }>();
+
+  if (!existing) {
+    throw new HttpError(404, "not_found", "Job not found");
+  }
+
+  if (!existing.image_r2_key) {
+    throw new HttpError(400, "retry_not_allowed", "Cannot retry this job because source file was already removed");
+  }
+
+  if (!['failed', 'retryable_failed'].includes(existing.status)) {
+    throw new HttpError(409, "retry_not_allowed", `Job status '${existing.status}' cannot be retried`);
+  }
+
+  const nextAttempt = Number(existing.current_attempt || 0) + 1;
+  const now = nowIso();
+
+  const update = await env.DB
+    .prepare(
+      `UPDATE jobs
+       SET status = 'queued',
+           updated_at = ?,
+           completed_at = NULL,
+           error_code = NULL,
+           error_message = NULL
+       WHERE id = ? AND workspace_id = ? AND status IN ('failed', 'retryable_failed')`,
+    )
+    .bind(now, id, workspace.id)
+    .run();
+
+  if ((update.meta.changes || 0) === 0) {
+    throw new HttpError(409, "retry_not_allowed", "Job state changed before retry could start");
+  }
+
+  await env.JOBS_QUEUE.send(
+    {
+      job_id: id,
+      attempt: nextAttempt,
+      workspace_id: workspace.id,
+      template_id: existing.template_id,
+      template_version: Number(existing.template_version),
+      image_r2_key: existing.image_r2_key,
+      enqueued_at: now,
+    },
+    { contentType: "json" },
+  );
+
+  return json({
+    job_id: id,
+    status: "queued",
+    current_attempt: nextAttempt,
   });
 }
 

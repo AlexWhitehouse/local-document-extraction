@@ -75,6 +75,7 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
 
   const message: QueueJobMessage = {
     job_id: jobId,
+    attempt: 1,
     workspace_id: workspace.id,
     template_id: templateId,
     template_version: version,

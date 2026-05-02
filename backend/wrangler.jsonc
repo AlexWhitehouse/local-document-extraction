@@ -49,6 +49,13 @@
 			},
 		],
 	},
+	"workflows": [
+		{
+			"name": "image-processing-workflow",
+			"binding": "IMAGE_PROCESSING_WORKFLOW",
+			"class_name": "ImageProcessingWorkflow",
+		},
+	],
 	"ai": {
 		"binding": "AI",
 	},

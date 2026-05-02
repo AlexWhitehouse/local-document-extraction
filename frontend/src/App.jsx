@@ -216,6 +216,7 @@ export function App() {
   const [profileDraftName, setProfileDraftName] = useState("");
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
+  const [isRetryingDocument, setIsRetryingDocument] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
   const [uploadFiles, setUploadFiles] = useState([]);
   const [isUploadDragActive, setIsUploadDragActive] = useState(false);
@@ -637,6 +638,24 @@ export function App() {
           existing?.updated_at ||
           queuedMeta?.queued_at ||
           null,
+        current_attempt:
+          typeof job.current_attempt === "number"
+            ? job.current_attempt
+            : typeof existing?.current_attempt === "number"
+              ? existing.current_attempt
+              : 0,
+        completed_attempt:
+          typeof job.completed_attempt === "number"
+            ? job.completed_attempt
+            : typeof existing?.completed_attempt === "number"
+              ? existing.completed_attempt
+              : 0,
+        last_failed_attempt:
+          typeof job.last_failed_attempt === "number"
+            ? job.last_failed_attempt
+            : typeof existing?.last_failed_attempt === "number"
+              ? existing.last_failed_attempt
+              : 0,
       };
       const next = [
         normalized,
@@ -1654,6 +1673,38 @@ export function App() {
     }
   }
 
+  async function retrySelectedDocument() {
+    if (!selectedDocument?.job_id) {
+      addLog("Retry failed: select a document first");
+      return;
+    }
+    if (isRetryingDocument) {
+      return;
+    }
+
+    const currentStatus = String(selectedDocument.status || "").toLowerCase();
+    if (currentStatus !== "failed" && currentStatus !== "retryable_failed") {
+      addLog(`Retry skipped: document status is '${currentStatus || "unknown"}'`);
+      return;
+    }
+
+    const targetDocumentId = String(selectedDocument.job_id || "").trim();
+    setIsRetryingDocument(true);
+    try {
+      const data = await request(
+        `/jobs/${encodeURIComponent(targetDocumentId)}/retry`,
+        { method: "POST" },
+      );
+      upsertJobHistory(data);
+      setSelectedDocumentId(targetDocumentId);
+      addLog(`Retry queued for ${targetDocumentId} (attempt ${Number(data?.current_attempt || 0)})`);
+    } catch (error) {
+      addLog(`Retry failed: ${error.message}`);
+    } finally {
+      setIsRetryingDocument(false);
+    }
+  }
+
   if (isSessionPending) {
     return null;
   }
@@ -2091,16 +2142,33 @@ export function App() {
                 Delete Template
               </button>
             ) : activePage === "documents" ? (
-              <button
-                type="button"
-                className="danger"
-                disabled={
-                  busy || isDeletingDocument || !selectedDocument?.job_id
-                }
-                onClick={deleteSelectedDocument}
-              >
-                {isDeletingDocument ? "Deleting..." : "Delete Document"}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={
+                    busy ||
+                    isRetryingDocument ||
+                    !selectedDocument?.job_id ||
+                    !["failed", "retryable_failed"].includes(
+                      String(selectedDocument?.status || "").toLowerCase(),
+                    )
+                  }
+                  onClick={retrySelectedDocument}
+                >
+                  {isRetryingDocument ? "Retrying..." : "Retry Document"}
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={
+                    busy || isDeletingDocument || isRetryingDocument || !selectedDocument?.job_id
+                  }
+                  onClick={deleteSelectedDocument}
+                >
+                  {isDeletingDocument ? "Deleting..." : "Delete Document"}
+                </button>
+              </>
             ) : null}
           </div>
         </section>
@@ -2663,6 +2731,17 @@ function JobStatusTracker({ job }) {
         ? "The job is processing"
         : "The job is queued";
   const isTerminal = isCompleted || isFailure;
+  const currentAttempt = Number(job.current_attempt || 0);
+  const completedAttempt = Number(job.completed_attempt || 0);
+  const lastFailedAttempt = Number(job.last_failed_attempt || 0);
+  const attemptLabel =
+    currentAttempt > 0
+      ? `Current attempt: ${currentAttempt}`
+      : completedAttempt > 0
+        ? `Completed on attempt: ${completedAttempt}`
+        : lastFailedAttempt > 0
+          ? `Last failed attempt: ${lastFailedAttempt}`
+          : "Attempt: pending";
 
   return (
     <div className="job-status-stack">
@@ -2672,7 +2751,10 @@ function JobStatusTracker({ job }) {
         } ${isFailure ? "is-failed" : ""}`}
       >
         <span className="job-status-spinner" aria-hidden="true" />
-        <p>{statusLabel}</p>
+        <div>
+          <p>{statusLabel}</p>
+          <p className="hint">{attemptLabel}</p>
+        </div>
       </div>
     </div>
   );
