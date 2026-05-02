@@ -24,6 +24,17 @@ type TemplateInput = {
   fields?: unknown;
 };
 
+type ObjectColumnInput = {
+  heading: string;
+  data_type: string;
+  description: string;
+};
+
+type ObjectSchemaInput = {
+  data_type: string;
+  columns: ObjectColumnInput[];
+};
+
 export function parseJsonBody<T>(body: string): T {
   try {
     return JSON.parse(body) as T;
@@ -95,7 +106,7 @@ export function validateTemplatePayload(input: TemplateInput, allowPartial = fal
 
       const normalizedDescription =
         dataType === "object" || dataType === "array<object>"
-          ? normalizeObjectMetadataInDescription(description, index, dataType)
+          ? normalizeObjectMetadata(description, field.object_schema, index, dataType)
           : description;
 
       if (ids.has(id)) {
@@ -143,12 +154,15 @@ function toFieldId(name: string): string {
   return normalizeFieldName(name).toLowerCase().replace(/\s+/g, "_");
 }
 
-function normalizeObjectMetadataInDescription(
+function normalizeObjectMetadata(
   description: string,
+  schemaInput: unknown,
   fieldIndex: number,
   fieldDataType: "object" | "array<object>"
 ): string {
-  const { baseDescription, objectSchema } = extractObjectMetadata(description);
+  const { baseDescription, objectSchema: descriptionObjectSchema } = extractObjectMetadata(description);
+  const inputObjectSchema = normalizeObjectSchemaInput(schemaInput);
+  const objectSchema = inputObjectSchema || descriptionObjectSchema;
 
   if (!objectSchema) {
     return baseDescription;
@@ -244,6 +258,26 @@ function normalizeObjectMetadataInDescription(
   return appendObjectMetadata(baseDescription, normalizedColumns, fieldDataType);
 }
 
+function normalizeObjectSchemaInput(value: unknown): ObjectSchemaInput | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const schema = value as Record<string, unknown>;
+  const rawColumns = Array.isArray(schema.columns) ? schema.columns : [];
+  return {
+    data_type: String(schema.data_type || ""),
+    columns: rawColumns.map((column) => {
+      const item = (column || {}) as Record<string, unknown>;
+      return {
+        heading: String(item.heading || ""),
+        data_type: String(item.data_type || ""),
+        description: String(item.description || "")
+      };
+    })
+  };
+}
+
 function appendObjectMetadata(
   baseDescription: string,
   columns: Array<{ key: string; heading: string; data_type: string; description: string }>,
@@ -288,7 +322,7 @@ function extractObjectMetadata(description: string): {
   objectSchema: {
     mode: string;
     data_type: string;
-    columns: Array<{ key: string; heading: string; data_type: string; description: string }>;
+    columns: ObjectColumnInput[];
   } | null;
 } {
   const schemaPattern = /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/;
@@ -298,7 +332,7 @@ function extractObjectMetadata(description: string): {
   let objectSchema: {
     mode: string;
     data_type: string;
-    columns: Array<{ key: string; heading: string; data_type: string; description: string }>;
+    columns: ObjectColumnInput[];
   } | null = null;
 
   if (schemaMatch?.[1]) {
@@ -311,7 +345,6 @@ function extractObjectMetadata(description: string): {
         columns: rawColumns.map((column) => {
           const value = (column || {}) as Record<string, unknown>;
           return {
-            key: String(value.key || ""),
             heading: String(value.heading || ""),
             data_type: String(value.data_type || ""),
             description: String(value.description || "")

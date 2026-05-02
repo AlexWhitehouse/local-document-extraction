@@ -219,6 +219,10 @@ export function App() {
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
+  const [showTemplateJsonModal, setShowTemplateJsonModal] = useState(false);
+  const [templateJsonDraft, setTemplateJsonDraft] = useState("");
+  const [templateJsonError, setTemplateJsonError] = useState("");
+  const [templateJsonCopied, setTemplateJsonCopied] = useState(false);
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   const [isRetryingDocument, setIsRetryingDocument] = useState(false);
@@ -1321,6 +1325,124 @@ export function App() {
       await listTemplates();
     } catch (error) {
       addLog(`Update template failed: ${error.message}`);
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  }
+
+  function buildTemplateJsonPayloadFromEditor() {
+    return validateTemplateJsonPayload(
+      {
+        name: templateName,
+        description: templateDescription,
+        fields: templateFields,
+      },
+      { includeObjectSchema: true },
+    );
+  }
+
+  function openTemplateJsonModal() {
+    setTemplateJsonCopied(false);
+    try {
+      setTemplateJsonDraft(
+        JSON.stringify(buildTemplateJsonPayloadFromEditor(), null, 2),
+      );
+      setTemplateJsonError("");
+    } catch (error) {
+      setTemplateJsonDraft(
+        JSON.stringify(
+          {
+            name: templateName,
+            description: templateDescription,
+            fields: templateFields,
+          },
+          null,
+          2,
+        ),
+      );
+      setTemplateJsonError(error.message);
+    }
+    setShowTemplateJsonModal(true);
+  }
+
+  function closeTemplateJsonModal() {
+    if (isSavingTemplate) {
+      return;
+    }
+    setShowTemplateJsonModal(false);
+    setTemplateJsonError("");
+    setTemplateJsonCopied(false);
+  }
+
+  async function copyTemplateJson() {
+    try {
+      await navigator.clipboard.writeText(templateJsonDraft);
+      setTemplateJsonCopied(true);
+      window.setTimeout(() => setTemplateJsonCopied(false), 1600);
+    } catch (error) {
+      setTemplateJsonError(`Copy failed: ${error.message}`);
+    }
+  }
+
+  async function saveTemplateJsonDraft() {
+    if (isSavingTemplate) {
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(templateJsonDraft);
+    } catch {
+      setTemplateJsonError("Request body must be valid JSON");
+      return;
+    }
+
+    let payload;
+    try {
+      payload = validateTemplateJsonPayload(parsed);
+    } catch (error) {
+      setTemplateJsonError(error.message);
+      return;
+    }
+
+    const targetTemplateId = updateTemplateId.trim();
+    setIsSavingTemplate(true);
+    try {
+      const data = await request(
+        targetTemplateId
+          ? `/templates/${encodeURIComponent(targetTemplateId)}`
+          : "/templates",
+        {
+          method: targetTemplateId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      setTemplateName(payload.name);
+      setTemplateDescription(payload.description || "");
+      setTemplateFields(payload.fields.map(hydrateFieldFromTemplate));
+      setShowDraftTemplateNav(false);
+
+      if (data?.template_id) {
+        setUpdateTemplateId(data.template_id);
+        setExtractTemplateId(data.template_id);
+      }
+
+      addLog(
+        targetTemplateId
+          ? `Template updated: ${targetTemplateId}`
+          : `Template created: ${data.template_id}`,
+      );
+      setTemplateJsonDraft(JSON.stringify(payload, null, 2));
+      setTemplateJsonError("");
+      setShowTemplateJsonModal(false);
+      await listTemplates();
+    } catch (error) {
+      setTemplateJsonError(error.message);
+      addLog(
+        `${targetTemplateId ? "Update" : "Create"} template failed: ${error.message}`,
+      );
     } finally {
       setIsSavingTemplate(false);
     }
@@ -2528,6 +2650,14 @@ export function App() {
                 <div className="actions">
                   <button
                     type="button"
+                    className="secondary"
+                    disabled={isSavingTemplate || !hasApiAccess}
+                    onClick={openTemplateJsonModal}
+                  >
+                    Export / Import
+                  </button>
+                  <button
+                    type="button"
                     disabled={isSavingTemplate || !hasApiAccess}
                     onClick={
                       isEditingTemplate ? updateTemplate : createTemplate
@@ -2643,6 +2773,72 @@ export function App() {
                 onClick={() => setWorkspaceUserActionTarget(null)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showTemplateJsonModal ? (
+        <div className="modal-backdrop" onClick={closeTemplateJsonModal}>
+          <div
+            className="modal-card template-json-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Export or import template JSON"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="workspace-head template-json-modal-head">
+              <div>
+                <h2>Export / Import Template</h2>
+                <p>
+                  Edit the raw JSON payload used by the template API. Saving
+                  will validate it before updating the template.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="icon-action-button template-json-copy-button"
+                aria-label="Copy template JSON"
+                title={templateJsonCopied ? "Copied" : "Copy JSON"}
+                onClick={copyTemplateJson}
+              >
+                <CopyIcon />
+              </button>
+            </div>
+            <label className="template-json-label">
+              Template JSON
+              <textarea
+                className="template-json-textarea"
+                spellCheck="false"
+                value={templateJsonDraft}
+                onChange={(event) => {
+                  setTemplateJsonDraft(event.target.value);
+                  setTemplateJsonError("");
+                  setTemplateJsonCopied(false);
+                }}
+              />
+            </label>
+            {templateJsonError ? (
+              <p className="form-error">{templateJsonError}</p>
+            ) : templateJsonCopied ? (
+              <p className="hint">Copied JSON to clipboard.</p>
+            ) : null}
+            <div className="actions">
+              <button
+                type="button"
+                disabled={isSavingTemplate || !hasApiAccess}
+                onClick={saveTemplateJsonDraft}
+              >
+                {isSavingTemplate ? "Saving..." : "Save Template JSON"}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={isSavingTemplate}
+                onClick={closeTemplateJsonModal}
+              >
+                Cancel
               </button>
             </div>
           </div>
@@ -3700,7 +3896,7 @@ function LatestResponseCard({ response }) {
   );
 }
 
-function normalizeFields(fields) {
+function normalizeFields(fields, options = {}) {
   if (!Array.isArray(fields) || fields.length === 0) {
     throw new Error("Add at least one field");
   }
@@ -3709,14 +3905,19 @@ function normalizeFields(fields) {
   const names = new Set();
 
   return fields.map((field, index) => {
+    if (!field || typeof field !== "object" || Array.isArray(field)) {
+      throw new Error(`Field ${index + 1}: must be an object`);
+    }
+
     const name = normalizeFieldName(field.name);
     const id = toFieldId(name);
     const description = String(field.description || "").trim();
     const dataType = normalizeDataType(field.data_type);
     const required = Boolean(field.required);
-    const { baseDescription } = extractObjectMetadata(description);
+    const { baseDescription, objectSchema: descriptionObjectSchema } =
+      extractObjectMetadata(description);
     const objectSchema = isObjectLikeType(dataType)
-      ? normalizeObjectSchema(field.object_schema)
+      ? normalizeObjectSchema(field.object_schema || descriptionObjectSchema)
       : null;
 
     if (!name) {
@@ -3750,13 +3951,29 @@ function normalizeFields(fields) {
       ? appendObjectMetadata(baseDescription, objectColumns, dataType)
       : baseDescription;
 
-    return {
-      id,
+    const normalizedField = {
       name,
       description: finalDescription,
       data_type: dataType,
       required,
     };
+
+    if (options.includeFieldIds) {
+      normalizedField.id = id;
+    }
+
+    if (options.includeObjectSchema && objectColumns) {
+      normalizedField.object_schema = {
+        mode: "table",
+        columns: objectColumns.map(({ heading, data_type, description }) => ({
+          heading,
+          data_type,
+          description,
+        })),
+      };
+    }
+
+    return normalizedField;
   });
 }
 
@@ -3802,9 +4019,7 @@ function normalizeObjectSchema(schema) {
       /\s+/g,
       " ",
     ),
-    key:
-      toFieldId(String(column?.heading || "")) ||
-      String(column?.key || "").trim(),
+    key: toFieldId(String(column?.heading || "")),
     data_type: OBJECT_SCHEMA_DATA_TYPES.includes(
       String(column?.data_type || ""),
     )
@@ -3828,24 +4043,19 @@ function validateObjectColumns(columns, fieldIndex) {
 
   const keys = new Set();
   const normalized = columns.map((column, columnIndex) => {
-    const key = String(column.key || "").trim();
     const heading = String(column.heading || "").trim();
+    const key = toFieldId(heading);
     const description = String(column.description || "").trim();
     const dataType = String(column.data_type || "").trim();
 
-    if (!key) {
-      throw new Error(
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: key is required`,
-      );
-    }
-    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(key)) {
-      throw new Error(
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: key must be letters, numbers, and underscores`,
-      );
-    }
     if (!heading) {
       throw new Error(
         `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading is required`,
+      );
+    }
+    if (!key) {
+      throw new Error(
+        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading must include letters or numbers`,
       );
     }
     if (!OBJECT_SCHEMA_DATA_TYPES.includes(dataType)) {
@@ -3855,7 +4065,7 @@ function validateObjectColumns(columns, fieldIndex) {
     }
     if (keys.has(key)) {
       throw new Error(
-        `Field ${fieldIndex + 1}: duplicate object column key "${key}"`,
+        `Field ${fieldIndex + 1}: duplicate object column heading "${heading}"`,
       );
     }
 
@@ -3955,6 +4165,33 @@ function hydrateFieldFromTemplate(field) {
   };
 }
 
+function validateTemplateJsonPayload(input, options = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("Template JSON must be an object");
+  }
+
+  if (typeof input.name !== "string" || input.name.trim().length === 0) {
+    throw new Error("Template name is required");
+  }
+
+  if (
+    input.description !== undefined &&
+    input.description !== null &&
+    typeof input.description !== "string"
+  ) {
+    throw new Error("Template description must be a string");
+  }
+
+  return {
+    name: input.name.trim(),
+    description:
+      input.description === null
+        ? null
+        : String(input.description || "").trim(),
+    fields: normalizeFields(input.fields, options),
+  };
+}
+
 function tryParseJson(value) {
   try {
     return JSON.parse(value);
@@ -3975,6 +4212,25 @@ function profileInitials(name, email) {
   }
 
   return source.slice(0, 2).toUpperCase();
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="9" width="10" height="10" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
 }
 
 function sleep(ms) {

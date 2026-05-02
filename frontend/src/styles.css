@@ -890,17 +890,39 @@ button.danger:hover:not(:disabled) {
 }
 
 .template-item:hover,
-.job-item:hover,
-.field-nav-item:hover {
+.job-item:hover {
   background: var(--bg-3);
   border-color: var(--line-2);
 }
 
 .template-item.active,
-.job-item.active,
-.field-nav-item.active {
+.job-item.active {
   border-color: rgba(25, 193, 180, 0.5);
   background: linear-gradient(180deg, rgba(25, 193, 180, 0.13), rgba(11, 23, 31, 0.9));
+}
+
+.field-nav-item {
+  border-color: var(--line-0);
+  background: #0d141f;
+  gap: 4px;
+  padding: 8px;
+}
+
+.field-nav-item:hover:not(:disabled) {
+  transform: none;
+  background: #111a27;
+  border-color: var(--line-1);
+}
+
+.field-nav-item.active {
+  border-color: rgba(25, 193, 180, 0.5);
+  background: rgba(25, 193, 180, 0.12);
+}
+
+.field-nav-item.active:hover:not(:disabled) {
+  border-color: rgba(25, 193, 180, 0.56);
+  background: rgba(25, 193, 180, 0.18);
+  color: #e6fffb;
 }
 
 .template-item code,
@@ -1475,6 +1497,39 @@ td:last-child {
   background: rgba(79, 166, 255, 0.18);
 }
 
+.template-json-modal {
+  width: min(860px, 100%);
+}
+
+.template-json-modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.template-json-copy-button {
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.template-json-copy-button svg {
+  display: block;
+}
+
+.template-json-label {
+  margin-top: 12px;
+}
+
+.template-json-textarea {
+  min-height: min(58vh, 520px);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre;
+  overflow: auto;
+}
+
 .workspace-user-action-modal {
   width: min(420px, 100%);
 }
@@ -1511,6 +1566,12 @@ tbody tr:hover {
 
 .hint {
   color: var(--text-3);
+}
+
+.form-error {
+  margin: 8px 0 0;
+  color: #ffadc2;
+  font-size: 0.82rem;
 }
 
 .json-block,
