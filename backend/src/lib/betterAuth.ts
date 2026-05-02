@@ -19,7 +19,10 @@ function trustedOriginsFromEnv(env: Env): string[] {
 
 export function createAuth(env: Env, request: Request) {
   const baseURL = env.BETTER_AUTH_URL || new URL(request.url).origin;
-  const secret = env.BETTER_AUTH_SECRET || "local-secret-change-me-32-chars-min";
+  const secret = env.BETTER_AUTH_SECRET;
+  if (!secret) {
+    throw new Error("BETTER_AUTH_SECRET is required");
+  }
   const googleClientId = String(env.GOOGLE_CLIENT_ID || "").trim();
   const googleClientSecret = String(env.GOOGLE_CLIENT_SECRET || "").trim();
   const socialProviders =

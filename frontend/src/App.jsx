@@ -215,8 +215,14 @@ export function App() {
   const [profileEmail, setProfileEmail] = useState("");
   const [profileDraftName, setProfileDraftName] = useState("");
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
+  const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
+  const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   const [isRetryingDocument, setIsRetryingDocument] = useState(false);
+  const [loadingDocumentDetailsId, setLoadingDocumentDetailsId] = useState("");
   const [uploadTemplateId, setUploadTemplateId] = useState("");
   const [uploadFiles, setUploadFiles] = useState([]);
   const [isUploadDragActive, setIsUploadDragActive] = useState(false);
@@ -871,11 +877,14 @@ export function App() {
       addLog("Save changes failed: select a workspace first");
       return;
     }
+    if (isSavingWorkspace) {
+      return;
+    }
     if (!isWorkspaceNameDirty) {
       return;
     }
 
-    setBusy(true);
+    setIsSavingWorkspace(true);
     try {
       await request(`/workspaces/${encodeURIComponent(workspaceId.trim())}`, {
         method: "PATCH",
@@ -887,13 +896,16 @@ export function App() {
     } catch (error) {
       addLog(`Save changes failed: ${error.message}`);
     } finally {
-      setBusy(false);
+      setIsSavingWorkspace(false);
     }
   }
 
   async function deleteWorkspace() {
     if (!workspaceId.trim()) {
       addLog("Delete workspace failed: select a workspace first");
+      return;
+    }
+    if (isDeletingWorkspace) {
       return;
     }
 
@@ -904,7 +916,7 @@ export function App() {
       return;
     }
 
-    setBusy(true);
+    setIsDeletingWorkspace(true);
     try {
       await request(`/workspaces/${encodeURIComponent(workspaceId.trim())}`, {
         method: "DELETE",
@@ -928,7 +940,7 @@ export function App() {
     } catch (error) {
       addLog(`Delete workspace failed: ${error.message}`);
     } finally {
-      setBusy(false);
+      setIsDeletingWorkspace(false);
     }
   }
 
@@ -1123,7 +1135,6 @@ export function App() {
   }, [hasSession, workspaceId]);
 
   async function listTemplates() {
-    setBusy(true);
     try {
       const data = await request("/templates", { method: "GET" });
       const list = Array.isArray(data?.templates) ? data.templates : [];
@@ -1132,10 +1143,10 @@ export function App() {
         setExtractTemplateId(list[0].id);
       }
       addLog(`Loaded ${list.length} templates`);
+      return list;
     } catch (error) {
       addLog(`List templates failed: ${error.message}`);
-    } finally {
-      setBusy(false);
+      return [];
     }
   }
 
@@ -1193,10 +1204,14 @@ export function App() {
     }
   }
 
-  async function loadJobDetails(jobId, { silent = true } = {}) {
+  async function loadJobDetails(jobId, { silent = true, showLoading = false } = {}) {
     const normalizedJobId = String(jobId || "").trim();
     if (!normalizedJobId) {
       return;
+    }
+
+    if (showLoading) {
+      setLoadingDocumentDetailsId(normalizedJobId);
     }
 
     try {
@@ -1211,6 +1226,12 @@ export function App() {
       if (!silent) {
         addLog(`Load job details failed: ${error.message}`);
       }
+    } finally {
+      if (showLoading) {
+        setLoadingDocumentDetailsId((currentId) =>
+          currentId === normalizedJobId ? "" : currentId,
+        );
+      }
     }
   }
 
@@ -1219,7 +1240,7 @@ export function App() {
       return;
     }
 
-    void loadJobDetails(selectedDocumentId, { silent: true });
+    void loadJobDetails(selectedDocumentId, { silent: true, showLoading: true });
   }, [hasApiAccess, selectedDocumentId]);
 
   useEffect(() => {
@@ -1242,7 +1263,11 @@ export function App() {
   }, [hasApiAccess, selectedDocumentId, selectedDocument?.status]);
 
   async function createTemplate() {
-    setBusy(true);
+    if (isSavingTemplate) {
+      return;
+    }
+
+    setIsSavingTemplate(true);
     try {
       const fields = normalizeFields(templateFields);
       const data = await request("/templates", {
@@ -1262,7 +1287,7 @@ export function App() {
     } catch (error) {
       addLog(`Create template failed: ${error.message}`);
     } finally {
-      setBusy(false);
+      setIsSavingTemplate(false);
     }
   }
 
@@ -1271,10 +1296,13 @@ export function App() {
       addLog("Update template failed: template ID is required");
       return;
     }
+    if (isSavingTemplate) {
+      return;
+    }
 
     const fields = normalizeFields(templateFields);
 
-    setBusy(true);
+    setIsSavingTemplate(true);
     try {
       await request(
         `/templates/${encodeURIComponent(updateTemplateId.trim())}`,
@@ -1293,31 +1321,47 @@ export function App() {
     } catch (error) {
       addLog(`Update template failed: ${error.message}`);
     } finally {
-      setBusy(false);
+      setIsSavingTemplate(false);
     }
   }
 
   async function deleteTemplate() {
-    if (!updateTemplateId.trim()) {
+    const deletedTemplateId = updateTemplateId.trim();
+    if (!deletedTemplateId) {
       addLog("Delete template failed: template ID is required");
       return;
     }
+    if (isDeletingTemplate) {
+      return;
+    }
 
-    setBusy(true);
+    setIsDeletingTemplate(true);
     try {
-      await request(
-        `/templates/${encodeURIComponent(updateTemplateId.trim())}`,
-        {
-          method: "DELETE",
-        },
+      await request(`/templates/${encodeURIComponent(deletedTemplateId)}`, {
+        method: "DELETE",
+      });
+      addLog(`Template deleted: ${deletedTemplateId}`);
+      const remainingTemplates = await listTemplates();
+      const nextTemplate = remainingTemplates.find(
+        (template) => String(template.id || "").trim() !== deletedTemplateId,
       );
-      addLog(`Template deleted: ${updateTemplateId.trim()}`);
-      startNewTemplateDraft();
-      await listTemplates();
+
+      setShowDraftTemplateNav(false);
+      if (nextTemplate?.id) {
+        await loadTemplateForEditing(nextTemplate.id);
+      } else {
+        setUpdateTemplateId("");
+        setExtractTemplateId("");
+        setTemplateName("Prescription Template");
+        setTemplateDescription(
+          "Extract medication and prescription fields from a document image",
+        );
+        setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
+      }
     } catch (error) {
       addLog(`Delete template failed: ${error.message}`);
     } finally {
-      setBusy(false);
+      setIsDeletingTemplate(false);
     }
   }
 
@@ -1330,7 +1374,6 @@ export function App() {
       return;
     }
 
-    setBusy(true);
     try {
       const template = await request(
         `/templates/${encodeURIComponent(targetTemplateId)}`,
@@ -1349,8 +1392,6 @@ export function App() {
       addLog(`Loaded template ${targetTemplateId} for editing`);
     } catch (error) {
       addLog(`Load template failed: ${error.message}`);
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -1385,7 +1426,7 @@ export function App() {
   }
 
   function closeUploadModal() {
-    if (busy) {
+    if (isUploadingDocuments) {
       return;
     }
     setIsUploadDragActive(false);
@@ -1454,6 +1495,9 @@ export function App() {
       addLog("Upload failed: select a template");
       return;
     }
+    if (isUploadingDocuments) {
+      return;
+    }
     if (!uploadFiles.length) {
       addLog("Upload failed: choose one or more document files");
       return;
@@ -1462,7 +1506,7 @@ export function App() {
     setExtractTemplateId(uploadTemplateId.trim());
     setImageFile(uploadFiles[0].file);
 
-    setBusy(true);
+    setIsUploadingDocuments(true);
     try {
       for (const entry of uploadFiles) {
         setUploadFiles((prev) =>
@@ -1497,7 +1541,7 @@ export function App() {
       }
       setActivePage("documents");
     } finally {
-      setBusy(false);
+      setIsUploadingDocuments(false);
     }
   }
 
@@ -2192,7 +2236,7 @@ export function App() {
             <button
               type="button"
               className="secondary"
-              disabled={busy || (activePage === "documents" && !hasApiAccess)}
+              disabled={activePage === "documents" && !hasApiAccess}
               onClick={
                 activePage === "templates"
                   ? startNewTemplateDraft
@@ -2211,19 +2255,19 @@ export function App() {
               <button
                 type="button"
                 className="danger"
-                disabled={busy || !workspaceId.trim()}
+                disabled={isDeletingWorkspace || !workspaceId.trim()}
                 onClick={deleteWorkspace}
               >
-                Delete Workspace
+                {isDeletingWorkspace ? "Deleting..." : "Delete Workspace"}
               </button>
             ) : activePage === "templates" ? (
               <button
                 type="button"
                 className="danger"
-                disabled={busy || !hasApiAccess || !updateTemplateId.trim()}
+                disabled={isDeletingTemplate || !hasApiAccess || !updateTemplateId.trim()}
                 onClick={deleteTemplate}
               >
-                Delete Template
+                {isDeletingTemplate ? "Deleting..." : "Delete Template"}
               </button>
             ) : activePage === "documents" ? (
               <>
@@ -2231,7 +2275,6 @@ export function App() {
                   type="button"
                   className="secondary"
                   disabled={
-                    busy ||
                     isRetryingDocument ||
                     !selectedDocument?.job_id ||
                     !["failed", "retryable_failed"].includes(
@@ -2246,7 +2289,7 @@ export function App() {
                   type="button"
                   className="danger"
                   disabled={
-                    busy || isDeletingDocument || isRetryingDocument || !selectedDocument?.job_id
+                    isDeletingDocument || isRetryingDocument || !selectedDocument?.job_id
                   }
                   onClick={deleteSelectedDocument}
                 >
@@ -2318,10 +2361,10 @@ export function App() {
                   <button
                     type="button"
                     className="secondary workspace-inline-action"
-                    disabled={busy || !isWorkspaceNameDirty}
+                    disabled={isSavingWorkspace || !isWorkspaceNameDirty}
                     onClick={saveWorkspaceChanges}
                   >
-                    Save Changes
+                    {isSavingWorkspace ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
                 <label>
@@ -2486,12 +2529,16 @@ export function App() {
                 <div className="actions">
                   <button
                     type="button"
-                    disabled={busy || !hasApiAccess}
+                    disabled={isSavingTemplate || !hasApiAccess}
                     onClick={
                       isEditingTemplate ? updateTemplate : createTemplate
                     }
                   >
-                    {isEditingTemplate ? "Save Changes" : "Save New Template"}
+                    {isSavingTemplate
+                      ? "Saving..."
+                      : isEditingTemplate
+                        ? "Save Changes"
+                        : "Save New Template"}
                   </button>
                 </div>
               </article>
@@ -2532,7 +2579,13 @@ export function App() {
                   ) : null}
                 </div>
                 {selectedDocument ? (
-                  <ResultViewer job={selectedDocument} />
+                  <ResultViewer
+                    job={selectedDocument}
+                    isLoading={
+                      loadingDocumentDetailsId ===
+                      String(selectedDocument.job_id || "")
+                    }
+                  />
                 ) : (
                   <p className="muted">Select an uploaded document.</p>
                 )}
@@ -2684,7 +2737,7 @@ export function App() {
                             <button
                               type="button"
                               className="ghost"
-                              disabled={busy}
+                              disabled={isUploadingDocuments}
                               onClick={() => removeUploadFile(entry.id)}
                             >
                               Remove
@@ -2710,13 +2763,13 @@ export function App() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                disabled={busy || !hasApiAccess}
-                onClick={uploadFromModal}
-              >
-                Upload and Open Documents
-              </button>
+                <button
+                  type="button"
+                  disabled={isUploadingDocuments || !hasApiAccess}
+                  onClick={uploadFromModal}
+                >
+                {isUploadingDocuments ? "Uploading..." : "Upload and Open Documents"}
+                </button>
             </div>
           </div>
         </div>
@@ -2844,7 +2897,7 @@ function JobStatusTracker({ job }) {
   );
 }
 
-function ResultViewer({ job }) {
+function ResultViewer({ job, isLoading = false }) {
   const rows = useMemo(() => {
     if (!Array.isArray(job.results)) {
       return [];
@@ -2912,7 +2965,7 @@ function ResultViewer({ job }) {
             </article>
           ))}
         </div>
-      ) : (
+      ) : isLoading ? null : (
         <p className="muted">No result rows available yet.</p>
       )}
     </div>

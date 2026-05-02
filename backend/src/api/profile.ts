@@ -14,7 +14,6 @@ type UserRow = {
 
 type UpdateProfileBody = {
   name?: unknown;
-  email?: unknown;
 };
 
 export async function getProfileForUser(env: Env, userId: string): Promise<Response> {
@@ -27,33 +26,22 @@ export async function updateProfileForUser(request: Request, env: Env, userId: s
   const payload = parseJsonBody<UpdateProfileBody>(await request.text());
 
   const hasName = payload.name !== undefined;
-  const hasEmail = payload.email !== undefined;
-  if (!hasName && !hasEmail) {
-    throw new HttpError(400, "empty_patch", "PATCH body must include name or email");
+  if (!hasName) {
+    throw new HttpError(400, "empty_patch", "PATCH body must include name");
   }
 
-  const nextName = hasName ? normalizeName(payload.name) : existing.name;
-  const nextEmail = hasEmail ? normalizeEmail(payload.email) : existing.email;
+  const nextName = normalizeName(payload.name);
   const nextUpdatedAt = nowIso();
 
-  try {
-    await env.DB
-      .prepare("UPDATE user SET name = ?, email = ?, updatedAt = ? WHERE id = ?")
-      .bind(nextName, nextEmail, nextUpdatedAt, userId)
-      .run();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (message.includes("UNIQUE constraint failed: user.email")) {
-      throw new HttpError(409, "email_in_use", "Email is already in use");
-    }
-    throw error;
-  }
+  await env.DB
+    .prepare("UPDATE user SET name = ?, updatedAt = ? WHERE id = ?")
+    .bind(nextName, nextUpdatedAt, userId)
+    .run();
 
   return json(
     profileResponse({
       ...existing,
       name: nextName,
-      email: nextEmail,
       updatedAt: nextUpdatedAt
     })
   );
@@ -77,19 +65,6 @@ function normalizeName(value: unknown): string {
     throw new HttpError(400, "invalid_name", "name must be a non-empty string");
   }
   return value.trim();
-}
-
-function normalizeEmail(value: unknown): string {
-  if (typeof value !== "string") {
-    throw new HttpError(400, "invalid_email", "email must be a valid address");
-  }
-
-  const email = value.trim().toLowerCase();
-  if (!email || !email.includes("@")) {
-    throw new HttpError(400, "invalid_email", "email must be a valid address");
-  }
-
-  return email;
 }
 
 function profileResponse(user: UserRow) {

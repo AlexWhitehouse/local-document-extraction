@@ -5,7 +5,6 @@ import type { Env, WorkspaceMembershipRole } from "../lib/types";
 
 type CreateWorkspaceBody = {
   name?: unknown;
-  max_image_bytes?: unknown;
 };
 
 type UpdateWorkspaceBody = {
@@ -35,14 +34,6 @@ export async function createWorkspaceForUser(
     throw new HttpError(400, "invalid_name", "name must be a non-empty string");
   }
 
-  let maxImageBytes: number | null = null;
-  if (payload.max_image_bytes !== undefined && payload.max_image_bytes !== null) {
-    if (typeof payload.max_image_bytes !== "number" || !Number.isInteger(payload.max_image_bytes) || payload.max_image_bytes <= 0) {
-      throw new HttpError(400, "invalid_max_image_bytes", "max_image_bytes must be a positive integer");
-    }
-    maxImageBytes = payload.max_image_bytes;
-  }
-
   const workspaceId = newId("workspace");
   const apiKey = newId("key");
   const apiKeyHash = await sha256(apiKey);
@@ -52,10 +43,10 @@ export async function createWorkspaceForUser(
   await env.DB.batch([
     env.DB
       .prepare(
-        `INSERT INTO workspaces (id, api_key_hash, name, created_at, created_by_user_id, max_image_bytes)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO workspaces (id, api_key_hash, name, created_at, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?)`
       )
-      .bind(workspaceId, apiKeyHash, workspaceName, now, userId, maxImageBytes),
+      .bind(workspaceId, apiKeyHash, workspaceName, now, userId),
     env.DB
       .prepare(
         `INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
@@ -70,8 +61,7 @@ export async function createWorkspaceForUser(
       api_key: apiKey,
       name: workspaceName,
       role: "owner",
-      created_at: now,
-      max_image_bytes: maxImageBytes
+      created_at: now
     },
     201
   );
