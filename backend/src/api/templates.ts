@@ -1,7 +1,8 @@
 import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
+import { deleteTemplateCascade } from "../lib/cascadeDelete";
 import { parseJsonBody, validateTemplatePayload } from "../lib/validation";
-import type { FieldDefinition, Workspace } from "../lib/types";
+import type { Env, FieldDefinition, Workspace } from "../lib/types";
 
 export async function createTemplate(request: Request, db: D1Database, workspace: Workspace): Promise<Response> {
   const payload = validateTemplatePayload(parseJsonBody(await request.text()));
@@ -124,21 +125,8 @@ export async function updateTemplate(
   });
 }
 
-export async function deleteTemplate(db: D1Database, workspace: Workspace, id: string): Promise<Response> {
-  const now = nowIso();
-  const result = await db
-    .prepare(
-      `UPDATE templates
-       SET status = 'deleted', deleted_at = ?, updated_at = ?
-       WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
-    )
-    .bind(now, now, id, workspace.id)
-    .run();
-
-  if ((result.meta.changes || 0) === 0) {
-    throw new HttpError(404, "not_found", "Template not found");
-  }
-
+export async function deleteTemplate(env: Env, workspace: Workspace, id: string): Promise<Response> {
+  await deleteTemplateCascade(env, workspace, id);
   return new Response(null, { status: 204 });
 }
 

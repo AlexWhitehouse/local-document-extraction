@@ -1,5 +1,6 @@
 import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
+import { deleteWorkspaceCascade } from "../lib/cascadeDelete";
 import { parseJsonBody } from "../lib/validation";
 import type { Env, WorkspaceMembershipRole } from "../lib/types";
 
@@ -131,7 +132,7 @@ export async function deleteWorkspaceForUser(env: Env, workspaceId: string, user
     throw new HttpError(409, "last_workspace", "You cannot delete your only workspace");
   }
 
-  await env.DB.prepare("DELETE FROM workspaces WHERE id = ?").bind(workspaceId).run();
+  await deleteWorkspaceCascade(env, workspaceId);
   return json({ ok: true, workspace_id: workspaceId });
 }
 

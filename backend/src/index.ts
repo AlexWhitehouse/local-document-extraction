@@ -189,7 +189,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       return updateTemplate(request, env.DB, workspace, templateId);
     }
     if (request.method === "DELETE") {
-      return deleteTemplate(env.DB, workspace, templateId);
+      return deleteTemplate(env, workspace, templateId);
     }
   }
 

@@ -1,5 +1,6 @@
 import { HttpError, json } from "../lib/http";
 import { nowIso } from "../lib/ids";
+import { deleteJobCascade } from "../lib/cascadeDelete";
 import type { Env, Workspace } from "../lib/types";
 
 const DEFAULT_JOBS_LIMIT = 200;
@@ -301,29 +302,7 @@ export async function retryJob(env: Env, workspace: Workspace, id: string): Prom
 }
 
 export async function deleteJob(env: Env, workspace: Workspace, id: string): Promise<Response> {
-  const existing = await env.DB
-    .prepare(
-      `SELECT id, image_r2_key
-       FROM jobs
-       WHERE id = ? AND workspace_id = ?`
-    )
-    .bind(id, workspace.id)
-    .first<{ id: string; image_r2_key: string | null }>();
-
-  if (!existing) {
-    throw new HttpError(404, "not_found", "Job not found");
-  }
-
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM job_results WHERE job_id = ?").bind(id),
-    env.DB.prepare("DELETE FROM jobs WHERE id = ? AND workspace_id = ?").bind(id, workspace.id)
-  ]);
-
-  const imageKey = String(existing.image_r2_key || "").trim();
-  if (imageKey) {
-    await env.IMAGES_BUCKET.delete(imageKey);
-  }
-
+  await deleteJobCascade(env, workspace, id);
   return new Response(null, { status: 204 });
 }
 

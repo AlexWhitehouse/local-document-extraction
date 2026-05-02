@@ -362,11 +362,12 @@ export function App() {
 
   const availableWorkspaces = useMemo(() => {
     if (userWorkspaces.length > 0) {
+      const activeWorkspaceId = String(workspaceId || "");
       return userWorkspaces.map((workspace) => ({
         id: String(workspace.id || ""),
         name: String(workspace.name || "Untitled Workspace"),
         api_base: apiBase || "/v1",
-        connected: true,
+        connected: String(workspace.id || "") === activeWorkspaceId,
       }));
     }
 
@@ -2184,9 +2185,7 @@ export function App() {
                 >
                   <strong>{workspace.name}</strong>
                   <span>{workspace.id}</span>
-                  <span>
-                    {workspace.connected ? "Connected" : "No API key"}
-                  </span>
+                  {workspace.connected ? <span>Connected</span> : null}
                 </button>
               ))}
             </div>
