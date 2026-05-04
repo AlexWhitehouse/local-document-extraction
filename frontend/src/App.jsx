@@ -3043,7 +3043,7 @@ export function App() {
                   )}
                 </article>
 
-                {canManageWorkspaceUsers ? (
+                {canManageWorkspaceUsers & (workspaceInvitations.length > 0) ? (
                   <article className="workspace-card">
                     <div className="workspace-head">
                       <h2>Pending Invitations</h2>
