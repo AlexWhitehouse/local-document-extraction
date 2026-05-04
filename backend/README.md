@@ -119,6 +119,7 @@ Workspace management routes (session required):
 - `DELETE /v1/workspaces/:id`
 - `POST /v1/workspaces/:id/api-key`
 - `POST /v1/workspaces/:id/invitations`
+- `GET /v1/workspaces/:id/invitations`
 - `GET /v1/invitations`
 - `POST /v1/invitations/:id/accept`
 

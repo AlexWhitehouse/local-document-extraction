@@ -1,5 +1,6 @@
 import { HttpError } from "./http";
 import { createAuth } from "./betterAuth";
+import { authorizeWorkspaceForApiKey, authorizeWorkspaceForSession } from "./workspacePolicy";
 import type { Env, Workspace } from "./types";
 
 export type AuthContext = {
@@ -13,21 +14,6 @@ type SessionUser = {
   email: string;
   name: string;
 };
-
-function hex(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let out = "";
-  for (const byte of bytes) {
-    out += byte.toString(16).padStart(2, "0");
-  }
-  return out;
-}
-
-async function sha256(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return hex(digest);
-}
 
 export async function authenticate(request: Request, env: Env): Promise<AuthContext> {
   const apiKeyWorkspace = await authenticateViaApiKey(request, env.DB);
@@ -45,16 +31,7 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
     throw new HttpError(400, "missing_workspace", "Missing workspace context (x-workspace-id header)");
   }
 
-  const memberWorkspace = await env.DB
-    .prepare(
-      `SELECT t.*
-       FROM workspaces t
-       JOIN workspace_memberships m ON m.workspace_id = t.id
-       WHERE t.id = ? AND m.user_id = ?
-       LIMIT 1`
-    )
-    .bind(workspaceId, session.id)
-    .first<Workspace>();
+  const memberWorkspace = await authorizeWorkspaceForSession(env.DB, { workspaceId, userId: session.id });
 
   if (!memberWorkspace) {
     throw new HttpError(403, "forbidden", "You do not have access to this workspace");
@@ -99,11 +76,7 @@ async function authenticateViaApiKey(request: Request, db: D1Database): Promise<
     throw new HttpError(401, "unauthorized", "Missing API key");
   }
 
-  const apiKeyHash = await sha256(apiKey);
-  const workspace = await db
-    .prepare("SELECT * FROM workspaces WHERE api_key_hash = ? LIMIT 1")
-    .bind(apiKeyHash)
-    .first<Workspace>();
+  const workspace = await authorizeWorkspaceForApiKey(db, { apiKey });
 
   if (!workspace) {
     throw new HttpError(401, "unauthorized", "Invalid API key");

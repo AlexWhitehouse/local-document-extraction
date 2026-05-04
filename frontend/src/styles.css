@@ -274,6 +274,21 @@ button.danger:hover:not(:disabled) {
   background: rgba(25, 193, 180, 0.12);
 }
 
+.context-item-workspace.invited {
+  border-color: rgba(244, 184, 79, 0.58);
+  background: rgba(244, 184, 79, 0.08);
+}
+
+.context-item-workspace.invited.active,
+.context-item-workspace.invited:hover:not(:disabled) {
+  border-color: rgba(244, 184, 79, 0.72);
+  background: rgba(244, 184, 79, 0.14);
+}
+
+.context-item-workspace .workspace-invited-meta {
+  color: #ffdca1;
+}
+
 .context-item.active:hover:not(:disabled) {
   border-color: rgba(25, 193, 180, 0.56);
   background: rgba(25, 193, 180, 0.18);
@@ -735,6 +750,13 @@ button.danger:hover:not(:disabled) {
   color: var(--text-1);
 }
 
+.invitation-page-header {
+  border-color: rgba(244, 184, 79, 0.44);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(244, 184, 79, 0.16), transparent 34%),
+    linear-gradient(180deg, rgba(22, 18, 11, 0.98), rgba(12, 15, 22, 0.98));
+}
+
 .content-grid,
 .workflow-grid,
 .result-cards {
@@ -749,6 +771,10 @@ button.danger:hover:not(:disabled) {
 
 .workspace-users-grid {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.invitation-detail-grid {
+  grid-template-columns: minmax(0, 720px);
 }
 
 .workspace-users-table {
@@ -798,6 +824,68 @@ button.danger:hover:not(:disabled) {
   margin: 5px 0 0;
   font-size: 0.82rem;
   color: var(--text-2);
+}
+
+.invitation-detail-card {
+  border-color: rgba(244, 184, 79, 0.38);
+  background:
+    linear-gradient(180deg, rgba(18, 20, 26, 0.98), rgba(10, 15, 23, 0.98)),
+    linear-gradient(90deg, rgba(244, 184, 79, 0.18), transparent);
+}
+
+.invitation-detail-list {
+  margin: 16px 0 0;
+  display: grid;
+  gap: 8px;
+}
+
+.invitation-detail-list div {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid var(--line-0);
+  padding-bottom: 8px;
+}
+
+.invitation-detail-list dt,
+.invitation-detail-list dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.invitation-detail-list dt {
+  color: var(--text-3);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.invitation-detail-list dd {
+  color: var(--text-0);
+  overflow-wrap: anywhere;
+}
+
+.invitation-locked-panel {
+  margin-top: 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(244, 184, 79, 0.34);
+  background: rgba(244, 184, 79, 0.08);
+  padding: 12px;
+}
+
+.invitation-locked-panel strong {
+  color: #ffe2ad;
+}
+
+.invitation-locked-panel p {
+  margin: 5px 0 0;
+  color: var(--text-2);
+  font-size: 0.84rem;
+}
+
+.invitation-actions button:disabled {
+  opacity: 0.62;
 }
 
 .result-view-head {
@@ -1772,6 +1860,7 @@ details summary {
   .row.two-up,
   .row.three-up,
   .object-columns-grid,
+  .invitation-detail-list div,
   .workflow-hero,
   .hero,
   .workspace-toolbar {

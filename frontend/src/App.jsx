@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRuntimeAuthClient } from "./lib/authClient";
+import { getWorkspaceSelectionView } from "./lib/workspaceSelection";
 
 const DEFAULT_FIELDS = [
   {
@@ -253,9 +254,21 @@ export function App() {
       ? initialWorkspace.userWorkspaces
       : [],
   );
+  const [userWorkspaceInvitations, setUserWorkspaceInvitations] = useState(
+    Array.isArray(initialWorkspace.userWorkspaceInvitations)
+      ? initialWorkspace.userWorkspaceInvitations
+      : [],
+  );
+  const [selectedWorkspaceInvitationId, setSelectedWorkspaceInvitationId] =
+    useState("");
   const [workspaceUsers, setWorkspaceUsers] = useState([]);
+  const [workspaceInvitations, setWorkspaceInvitations] = useState([]);
   const [workspaceUserActionTarget, setWorkspaceUserActionTarget] =
     useState(null);
+  const [isAcceptingWorkspaceInvitation, setIsAcceptingWorkspaceInvitation] =
+    useState(false);
+  const [isDecliningWorkspaceInvitation, setIsDecliningWorkspaceInvitation] =
+    useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
 
@@ -365,14 +378,43 @@ export function App() {
   }, [activePage, filteredTemplates, showDraftTemplateNav]);
 
   const availableWorkspaces = useMemo(() => {
+    const activeWorkspaceId = String(workspaceId || "");
+    const acceptedEntries = userWorkspaces.map((workspace) => ({
+      id: String(workspace.id || ""),
+      name: String(workspace.name || "Untitled Workspace"),
+      api_base: apiBase || "/v1",
+      connected: String(workspace.id || "") === activeWorkspaceId,
+      type: "workspace",
+      role: String(workspace.role || ""),
+    }));
+    const invitedEntries = userWorkspaceInvitations.map((invitation) => ({
+      id: String(invitation.workspace_id || ""),
+      invitation_id: String(invitation.id || ""),
+      name: String(invitation.workspace_name || "Untitled Workspace"),
+      api_base: apiBase || "/v1",
+      connected: false,
+      type: "invitation",
+      role: String(invitation.role || ""),
+      email: String(invitation.email || ""),
+      inviter_name: String(invitation.inviter_name || ""),
+      inviter_email: String(invitation.inviter_email || ""),
+      inviter_display: String(invitation.inviter_display || ""),
+      updated_at: String(invitation.updated_at || invitation.created_at || ""),
+    }));
+
     if (userWorkspaces.length > 0) {
-      const activeWorkspaceId = String(workspaceId || "");
-      return userWorkspaces.map((workspace) => ({
-        id: String(workspace.id || ""),
-        name: String(workspace.name || "Untitled Workspace"),
-        api_base: apiBase || "/v1",
-        connected: String(workspace.id || "") === activeWorkspaceId,
-      }));
+      return [
+        ...acceptedEntries,
+        ...invitedEntries.sort((a, b) =>
+          b.updated_at.localeCompare(a.updated_at),
+        ),
+      ];
+    }
+
+    if (invitedEntries.length > 0) {
+      return invitedEntries.sort((a, b) =>
+        b.updated_at.localeCompare(a.updated_at),
+      );
     }
 
     return [
@@ -381,9 +423,18 @@ export function App() {
         name: workspaceName || DEFAULT_WORKSPACE_NAME,
         api_base: apiBase || "/v1",
         connected: hasApiAccess,
+        type: "workspace",
+        role: "",
       },
     ];
-  }, [apiBase, hasApiAccess, workspaceId, workspaceName, userWorkspaces]);
+  }, [
+    apiBase,
+    hasApiAccess,
+    workspaceId,
+    workspaceName,
+    userWorkspaceInvitations,
+    userWorkspaces,
+  ]);
 
   const filteredWorkspaces = useMemo(() => {
     const query = workspaceSearch.trim().toLowerCase();
@@ -392,9 +443,16 @@ export function App() {
     }
 
     return availableWorkspaces.filter((workspace) => {
-      const id = String(workspace.id || "").toLowerCase();
-      const name = String(workspace.name || "").toLowerCase();
-      return id.includes(query) || name.includes(query);
+      const searchable = [
+        workspace.id,
+        workspace.name,
+        workspace.inviter_name,
+        workspace.inviter_email,
+        workspace.inviter_display,
+        workspace.email,
+        workspace.role,
+      ].map((value) => String(value || "").toLowerCase());
+      return searchable.some((value) => value.includes(query));
     });
   }, [availableWorkspaces, workspaceSearch]);
 
@@ -447,6 +505,28 @@ export function App() {
   }, [userWorkspaces, workspaceId]);
   const canManageWorkspaceUsers =
     currentWorkspaceRole === "owner" || currentWorkspaceRole === "admin";
+  const workspaceSelectionView = useMemo(
+    () =>
+      getWorkspaceSelectionView({
+        workspaceId,
+        workspaceName: activeWorkspaceName,
+        hasApiAccess,
+        canManageWorkspaceUsers,
+        selectedWorkspaceInvitationId,
+        userWorkspaceInvitations,
+      }),
+    [
+      activeWorkspaceName,
+      canManageWorkspaceUsers,
+      hasApiAccess,
+      selectedWorkspaceInvitationId,
+      userWorkspaceInvitations,
+      workspaceId,
+    ],
+  );
+  const selectedWorkspaceInvitation = workspaceSelectionView.invitation;
+  const isWorkspaceInvitationSelected =
+    workspaceSelectionView.type === "invitation";
   const workspaceUserActionOptions = useMemo(() => {
     if (!workspaceUserActionTarget) {
       return [];
@@ -489,6 +569,7 @@ export function App() {
       jobHistory,
       selectedDocumentId,
       userWorkspaces,
+      userWorkspaceInvitations,
     };
     window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(payload));
   }, [
@@ -505,6 +586,7 @@ export function App() {
     jobHistory,
     selectedDocumentId,
     userWorkspaces,
+    userWorkspaceInvitations,
   ]);
 
   useEffect(() => {
@@ -777,19 +859,45 @@ export function App() {
     }
 
     try {
-      const data = await request("/workspaces", { method: "GET" }, true, false);
-      const workspaces = Array.isArray(data?.workspaces) ? data.workspaces : [];
+      const [workspaceData, invitationData] = await Promise.all([
+        request("/workspaces", { method: "GET" }, true, false),
+        request("/invitations", { method: "GET" }, true, false),
+      ]);
+      const workspaces = Array.isArray(workspaceData?.workspaces)
+        ? workspaceData.workspaces
+        : [];
+      const invitations = Array.isArray(invitationData?.invitations)
+        ? invitationData.invitations
+        : [];
       setUserWorkspaces(workspaces);
+      setUserWorkspaceInvitations(invitations);
       const normalizedWorkspaceId = String(workspaceId || "").trim();
       const hasSelectedWorkspace = workspaces.some(
         (workspace) => String(workspace?.id || "") === normalizedWorkspaceId,
       );
+      const normalizedInvitationId = String(
+        selectedWorkspaceInvitationId || "",
+      ).trim();
+      const hasSelectedInvitation = invitations.some(
+        (invitation) => String(invitation?.id || "") === normalizedInvitationId,
+      );
 
-      if ((!normalizedWorkspaceId || !hasSelectedWorkspace) && workspaces[0]?.id) {
+      if (
+        (!normalizedWorkspaceId || !hasSelectedWorkspace) &&
+        workspaces[0]?.id
+      ) {
         const nextWorkspaceId = String(workspaces[0].id || "");
         setWorkspaceId(nextWorkspaceId);
         setWorkspaceName(String(workspaces[0].name || DEFAULT_WORKSPACE_NAME));
         setApiKey(String(apiKeysByWorkspace[nextWorkspaceId] || ""));
+        setSelectedWorkspaceInvitationId("");
+      } else if (!workspaces.length && invitations[0]?.id) {
+        setWorkspaceId("");
+        setWorkspaceName(DEFAULT_WORKSPACE_NAME);
+        setApiKey("");
+        setSelectedWorkspaceInvitationId(String(invitations[0].id || ""));
+      } else if (normalizedInvitationId && !hasSelectedInvitation) {
+        setSelectedWorkspaceInvitationId("");
       }
       return workspaces;
     } catch (error) {
@@ -816,6 +924,29 @@ export function App() {
     } catch (error) {
       setWorkspaceUsers([]);
       addLog(`List workspace users failed: ${error.message}`);
+    }
+  }
+
+  async function listWorkspaceInvitations(targetWorkspaceId = workspaceId) {
+    const normalizedWorkspaceId = String(targetWorkspaceId || "").trim();
+    if (!hasSession || !normalizedWorkspaceId || !canManageWorkspaceUsers) {
+      setWorkspaceInvitations([]);
+      return;
+    }
+
+    try {
+      const data = await request(
+        `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/invitations`,
+        { method: "GET" },
+        true,
+        false,
+      );
+      setWorkspaceInvitations(
+        Array.isArray(data?.invitations) ? data.invitations : [],
+      );
+    } catch (error) {
+      setWorkspaceInvitations([]);
+      addLog(`List workspace invitations failed: ${error.message}`);
     }
   }
 
@@ -870,10 +1001,122 @@ export function App() {
       );
       addLog(`Invitation sent to ${inviteEmail.trim()}`);
       setInviteEmail("");
+      await listWorkspaceInvitations(workspaceId.trim());
     } catch (error) {
       addLog(`Invite failed: ${error.message}`);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function cancelWorkspaceInvitation(invitation) {
+    const targetWorkspaceId = String(workspaceId || "").trim();
+    const invitationId = String(invitation?.id || "").trim();
+    const invitationEmail = String(
+      invitation?.email || "this invitation",
+    ).trim();
+    if (!targetWorkspaceId || !invitationId) {
+      addLog("Cancel invitation failed: select a pending invitation first");
+      return;
+    }
+    if (!window.confirm(`Cancel pending invitation for ${invitationEmail}?`)) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await request(
+        `/workspaces/${encodeURIComponent(targetWorkspaceId)}/invitations/${encodeURIComponent(invitationId)}`,
+        { method: "DELETE" },
+        true,
+        false,
+      );
+      await listWorkspaceInvitations(targetWorkspaceId);
+      addLog(`Invitation cancelled for ${invitationEmail}`);
+    } catch (error) {
+      addLog(`Cancel invitation failed: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function acceptSelectedWorkspaceInvitation() {
+    const invitationId = String(selectedWorkspaceInvitation?.id || "").trim();
+    if (!invitationId) {
+      addLog("Accept invitation failed: select a pending invitation first");
+      return;
+    }
+    if (
+      String(selectedWorkspaceInvitation?.status || "").toLowerCase() !==
+      "pending"
+    ) {
+      addLog(
+        "Accept invitation failed: only pending invitations can be accepted",
+      );
+      return;
+    }
+
+    setIsAcceptingWorkspaceInvitation(true);
+    try {
+      const data = await request(
+        `/invitations/${encodeURIComponent(invitationId)}/accept`,
+        { method: "POST" },
+        true,
+        false,
+      );
+      const acceptedWorkspaceId = String(data?.workspace_id || "").trim();
+      if (acceptedWorkspaceId) {
+        setWorkspaceId(acceptedWorkspaceId);
+        setWorkspaceName(
+          selectedWorkspaceInvitation.workspaceName || DEFAULT_WORKSPACE_NAME,
+        );
+        setApiKey(String(apiKeysByWorkspace[acceptedWorkspaceId] || ""));
+      }
+      setSelectedWorkspaceInvitationId("");
+      await listWorkspaces();
+      addLog(
+        `Invitation accepted for workspace ${acceptedWorkspaceId || "unknown"}`,
+      );
+    } catch (error) {
+      addLog(`Accept invitation failed: ${error.message}`);
+    } finally {
+      setIsAcceptingWorkspaceInvitation(false);
+    }
+  }
+
+  async function declineSelectedWorkspaceInvitation() {
+    const invitationId = String(selectedWorkspaceInvitation?.id || "").trim();
+    if (!invitationId) {
+      addLog("Decline invitation failed: select a pending invitation first");
+      return;
+    }
+    if (
+      String(selectedWorkspaceInvitation?.status || "").toLowerCase() !==
+      "pending"
+    ) {
+      addLog(
+        "Decline invitation failed: only pending invitations can be declined",
+      );
+      return;
+    }
+
+    setIsDecliningWorkspaceInvitation(true);
+    try {
+      await request(
+        `/invitations/${encodeURIComponent(invitationId)}/decline`,
+        { method: "POST" },
+        true,
+        false,
+      );
+      setSelectedWorkspaceInvitationId("");
+      await listWorkspaces();
+      addLog(
+        `Invitation declined for ${selectedWorkspaceInvitation.workspaceName || "workspace"}`,
+      );
+    } catch (error) {
+      addLog(`Decline invitation failed: ${error.message}`);
+    } finally {
+      setIsDecliningWorkspaceInvitation(false);
     }
   }
 
@@ -1025,6 +1268,9 @@ export function App() {
       setWorkspaceId("");
       setTemplates([]);
       setJobHistory([]);
+      setUserWorkspaces([]);
+      setUserWorkspaceInvitations([]);
+      setSelectedWorkspaceInvitationId("");
       setWorkspaceUsers([]);
       await refetchSession();
       addLog("Signed out");
@@ -1133,11 +1379,13 @@ export function App() {
   useEffect(() => {
     if (!hasSession || !workspaceId.trim()) {
       setWorkspaceUsers([]);
+      setWorkspaceInvitations([]);
       return;
     }
 
     void listWorkspaceUsers(workspaceId.trim());
-  }, [hasSession, workspaceId]);
+    void listWorkspaceInvitations(workspaceId.trim());
+  }, [canManageWorkspaceUsers, hasSession, workspaceId]);
 
   async function listTemplates() {
     try {
@@ -1167,7 +1415,9 @@ export function App() {
       }
 
       const query = params.toString();
-      const data = await request(query ? `/jobs?${query}` : "/jobs", { method: "GET" });
+      const data = await request(query ? `/jobs?${query}` : "/jobs", {
+        method: "GET",
+      });
       const list = Array.isArray(data?.jobs) ? data.jobs : [];
       setJobHistory((prev) => {
         if (!append) {
@@ -1190,7 +1440,9 @@ export function App() {
       if (!selectedDocumentId && list[0]?.job_id) {
         setSelectedDocumentId(String(list[0].job_id));
       }
-      addLog(`${append ? "Loaded" : "Loaded"} ${list.length} document${list.length === 1 ? "" : "s"}${search ? ` matching "${search}"` : ""}`);
+      addLog(
+        `${append ? "Loaded" : "Loaded"} ${list.length} document${list.length === 1 ? "" : "s"}${search ? ` matching "${search}"` : ""}`,
+      );
     } catch (error) {
       addLog(`List documents failed: ${error.message}`);
     }
@@ -1209,7 +1461,10 @@ export function App() {
     }
   }
 
-  async function loadJobDetails(jobId, { silent = true, showLoading = false } = {}) {
+  async function loadJobDetails(
+    jobId,
+    { silent = true, showLoading = false } = {},
+  ) {
     const normalizedJobId = String(jobId || "").trim();
     if (!normalizedJobId) {
       return;
@@ -1245,7 +1500,10 @@ export function App() {
       return;
     }
 
-    void loadJobDetails(selectedDocumentId, { silent: true, showLoading: true });
+    void loadJobDetails(selectedDocumentId, {
+      silent: true,
+      showLoading: true,
+    });
   }, [hasApiAccess, selectedDocumentId]);
 
   useEffect(() => {
@@ -1911,7 +2169,9 @@ export function App() {
 
     const currentStatus = String(selectedDocument.status || "").toLowerCase();
     if (currentStatus !== "failed" && currentStatus !== "retryable_failed") {
-      addLog(`Retry skipped: document status is '${currentStatus || "unknown"}'`);
+      addLog(
+        `Retry skipped: document status is '${currentStatus || "unknown"}'`,
+      );
       return;
     }
 
@@ -1924,7 +2184,9 @@ export function App() {
       );
       upsertJobHistory(data);
       setSelectedDocumentId(targetDocumentId);
-      addLog(`Retry queued for ${targetDocumentId} (attempt ${Number(data?.current_attempt || 0)})`);
+      addLog(
+        `Retry queued for ${targetDocumentId} (attempt ${Number(data?.current_attempt || 0)})`,
+      );
     } catch (error) {
       addLog(`Retry failed: ${error.message}`);
     } finally {
@@ -2104,7 +2366,7 @@ export function App() {
         <button
           type="button"
           className="sidebar-upload-button"
-          disabled={busy || !hasApiAccess}
+          disabled={busy || !workspaceSelectionView.hasWorkspaceApiAccess}
           onClick={openUploadModal}
         >
           Upload Document
@@ -2290,13 +2552,38 @@ export function App() {
               {filteredWorkspaces.map((workspace) => (
                 <button
                   type="button"
-                  key={`workspace-${workspace.id}`}
-                  className={
-                    workspace.id === (workspaceId || DEFAULT_WORKSPACE_ID)
-                      ? "context-item context-item-workspace active"
-                      : "context-item context-item-workspace"
+                  key={
+                    workspace.type === "invitation"
+                      ? `workspace-invitation-${workspace.invitation_id}`
+                      : `workspace-${workspace.id}`
                   }
+                  className={[
+                    "context-item context-item-workspace",
+                    workspace.type === "invitation" ? "invited" : "",
+                    workspace.type === "invitation"
+                      ? workspace.invitation_id ===
+                        selectedWorkspaceInvitationId
+                        ? "active"
+                        : ""
+                      : workspace.id ===
+                            (workspaceId || DEFAULT_WORKSPACE_ID) &&
+                          !selectedWorkspaceInvitationId
+                        ? "active"
+                        : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   onClick={() => {
+                    if (workspace.type === "invitation") {
+                      setSelectedWorkspaceInvitationId(workspace.invitation_id);
+                      setActivePage("workspace");
+                      addLog(
+                        `Selected invitation for workspace ${workspace.id}`,
+                      );
+                      return;
+                    }
+
+                    setSelectedWorkspaceInvitationId("");
                     setWorkspaceId(workspace.id);
                     setWorkspaceName(workspace.name);
                     setApiKey(
@@ -2307,6 +2594,11 @@ export function App() {
                 >
                   <strong>{workspace.name}</strong>
                   <span>{workspace.id}</span>
+                  {workspace.type === "invitation" ? (
+                    <span className="workspace-invited-meta">
+                      Invited as {formatRoleLabel(workspace.role)}
+                    </span>
+                  ) : null}
                   {workspace.connected ? <span>Connected</span> : null}
                 </button>
               ))}
@@ -2336,8 +2628,18 @@ export function App() {
               <span className="status-chip">
                 Workspaces {availableWorkspaces.length}
               </span>
-              <span className={`status-chip ${hasApiAccess ? "good" : "warn"}`}>
-                API {hasApiAccess ? "Ready" : "Missing"}
+              <span
+                className={`status-chip ${
+                  workspaceSelectionView.hasWorkspaceApiAccess ? "good" : "warn"
+                }`}
+              >
+                {isWorkspaceInvitationSelected
+                  ? "Invitation Pending"
+                  : `API ${
+                      workspaceSelectionView.hasWorkspaceApiAccess
+                        ? "Ready"
+                        : "Missing"
+                    }`}
               </span>
             </>
           )}
@@ -2347,11 +2649,31 @@ export function App() {
       <main className="main-content">
         <section className="workspace-toolbar" aria-label="Workspace toolbar">
           <div className="workspace-toolbar-meta">
-            <span className="status-chip">Workspace {activeWorkspaceName}</span>
-            <span className={`status-chip ${hasApiAccess ? "good" : "warn"}`}>
-              API {hasApiAccess ? "Ready" : "Missing Access"}
+            <span className="status-chip">
+              Workspace {workspaceSelectionView.workspaceName}
             </span>
-            <span className="status-chip">Jobs {documents.length}</span>
+            {isWorkspaceInvitationSelected ? (
+              <>
+                <span className="status-chip warn">Invitation Pending</span>
+                <span className="status-chip warn">API Locked</span>
+              </>
+            ) : (
+              <>
+                <span
+                  className={`status-chip ${
+                    workspaceSelectionView.hasWorkspaceApiAccess
+                      ? "good"
+                      : "warn"
+                  }`}
+                >
+                  API{" "}
+                  {workspaceSelectionView.hasWorkspaceApiAccess
+                    ? "Ready"
+                    : "Missing Access"}
+                </span>
+                <span className="status-chip">Jobs {documents.length}</span>
+              </>
+            )}
           </div>
           <div className="actions compact">
             <button
@@ -2372,7 +2694,7 @@ export function App() {
                   ? "Create Workspace"
                   : "Upload Document"}
             </button>
-            {activePage === "workspace" ? (
+            {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
               <button
                 type="button"
                 className="danger"
@@ -2385,7 +2707,11 @@ export function App() {
               <button
                 type="button"
                 className="danger"
-                disabled={isDeletingTemplate || !hasApiAccess || !updateTemplateId.trim()}
+                disabled={
+                  isDeletingTemplate ||
+                  !hasApiAccess ||
+                  !updateTemplateId.trim()
+                }
                 onClick={deleteTemplate}
               >
                 {isDeletingTemplate ? "Deleting..." : "Delete Template"}
@@ -2410,7 +2736,9 @@ export function App() {
                   type="button"
                   className="danger"
                   disabled={
-                    isDeletingDocument || isRetryingDocument || !selectedDocument?.job_id
+                    isDeletingDocument ||
+                    isRetryingDocument ||
+                    !selectedDocument?.job_id
                   }
                   onClick={deleteSelectedDocument}
                 >
@@ -2421,189 +2749,373 @@ export function App() {
           </div>
         </section>
 
-        <section className="kpi-grid" aria-label="Operational metrics">
-          <article className="kpi-card">
-            <p className="kpi-label">Templates</p>
-            <p className="kpi-value">{templates.length}</p>
-            <p className="kpi-meta">Active extraction schemas</p>
-          </article>
-          <article className="kpi-card">
-            <p className="kpi-label">Documents</p>
-            <p className="kpi-value">{documents.length}</p>
-            <p className="kpi-meta">Queued and completed jobs</p>
-          </article>
-          <article className="kpi-card">
-            <p className="kpi-label">Completion</p>
-            <p className="kpi-value">{completionRate}%</p>
-            <p className="kpi-meta">Successful jobs ratio</p>
-            <div
-              className="kpi-progress"
-              role="img"
-              aria-label={`Completion rate ${completionRate}%`}
-            >
-              <span style={{ width: `${completionRate}%` }} />
-            </div>
-          </article>
-          <article className="kpi-card">
-            <p className="kpi-label">Failures</p>
-            <p className="kpi-value">
-              {documentStatusMetrics.failed +
-                documentStatusMetrics.retryable_failed}
-            </p>
-            <p className="kpi-meta">Includes retryable failures</p>
-          </article>
-        </section>
+        {!isWorkspaceInvitationSelected ? (
+          <section className="kpi-grid" aria-label="Operational metrics">
+            <article className="kpi-card">
+              <p className="kpi-label">Templates</p>
+              <p className="kpi-value">{templates.length}</p>
+              <p className="kpi-meta">Active extraction schemas</p>
+            </article>
+            <article className="kpi-card">
+              <p className="kpi-label">Documents</p>
+              <p className="kpi-value">{documents.length}</p>
+              <p className="kpi-meta">Queued and completed jobs</p>
+            </article>
+            <article className="kpi-card">
+              <p className="kpi-label">Completion</p>
+              <p className="kpi-value">{completionRate}%</p>
+              <p className="kpi-meta">Successful jobs ratio</p>
+              <div
+                className="kpi-progress"
+                role="img"
+                aria-label={`Completion rate ${completionRate}%`}
+              >
+                <span style={{ width: `${completionRate}%` }} />
+              </div>
+            </article>
+            <article className="kpi-card">
+              <p className="kpi-label">Failures</p>
+              <p className="kpi-value">
+                {documentStatusMetrics.failed +
+                  documentStatusMetrics.retryable_failed}
+              </p>
+              <p className="kpi-meta">Includes retryable failures</p>
+            </article>
+          </section>
+        ) : null}
 
         {activePage === "workspace" ? (
-          <>
-            <header className="page-header">
-              <p className="eyebrow">Workspace</p>
-              <h2>Environment and Access</h2>
-              <p>
-                Manage API connection details, workspace credentials, and
-                workspace state from one place.
-              </p>
-            </header>
+          isWorkspaceInvitationSelected && selectedWorkspaceInvitation ? (
+            <>
+              <header className="page-header invitation-page-header">
+                <p className="eyebrow">Workspace Invitation</p>
+                <h2>{selectedWorkspaceInvitation.workspaceName}</h2>
+                <p>
+                  This invitation is a pending offer. You do not have workspace
+                  access until you accept it.
+                </p>
+              </header>
 
-            <section className="content-grid workspace-page-grid">
-              <article className="workspace-card">
-                <div className="workspace-head">
-                  <h2>Connection Settings</h2>
-                  <p>Manage workspace details and rotate API credentials.</p>
-                </div>
-                <div className="row two-up workspace-name-row">
-                  <label>
-                    Workspace name
-                    <input
-                      value={workspaceName}
-                      onChange={(event) => setWorkspaceName(event.target.value)}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="secondary workspace-inline-action"
-                    disabled={isSavingWorkspace || !isWorkspaceNameDirty}
-                    onClick={saveWorkspaceChanges}
-                  >
-                    {isSavingWorkspace ? "Saving..." : "Save Changes"}
-                  </button>
-                </div>
-                <label>
-                  API key
-                  <div className="row two-up workspace-key-row">
-                    <input
-                      value={apiKey}
-                      readOnly
-                      placeholder="Rotate to generate key_ + 32 chars"
-                    />
+              <section className="content-grid invitation-detail-grid">
+                <article className="workspace-card invitation-detail-card">
+                  <div className="workspace-head">
+                    <h2>Pending Invitation</h2>
+                    <p>
+                      Review who invited you and what role you will receive
+                      before accepting or declining.
+                    </p>
+                  </div>
+
+                  <dl className="invitation-detail-list">
+                    <div>
+                      <dt>Workspace</dt>
+                      <dd>{selectedWorkspaceInvitation.workspaceName}</dd>
+                    </div>
+                    <div>
+                      <dt>Invited email</dt>
+                      <dd>{selectedWorkspaceInvitation.email || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Offered role</dt>
+                      <dd>
+                        <span className="role-badge">
+                          {formatRoleLabel(selectedWorkspaceInvitation.role)}
+                        </span>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Status</dt>
+                      <dd>
+                        {formatRoleLabel(selectedWorkspaceInvitation.status)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Inviter</dt>
+                      <dd>{selectedWorkspaceInvitation.inviter || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Invited</dt>
+                      <dd>
+                        {formatTimestamp(selectedWorkspaceInvitation.invitedAt)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Expires</dt>
+                      <dd>
+                        {formatTimestamp(selectedWorkspaceInvitation.expiresAt)}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className="invitation-locked-panel">
+                    <strong>No workspace access yet</strong>
+                    <p>
+                      Templates, documents, jobs, API keys, uploads, rename,
+                      deletion, and user management stay locked until this
+                      invitation is accepted.
+                    </p>
+                  </div>
+
+                  <div className="actions invitation-actions">
                     <button
                       type="button"
-                      className="workspace-inline-action"
-                      disabled={busy}
-                      onClick={refreshApiKey}
+                      disabled={
+                        isAcceptingWorkspaceInvitation ||
+                        isDecliningWorkspaceInvitation ||
+                        String(
+                          selectedWorkspaceInvitation.status || "",
+                        ).toLowerCase() !== "pending"
+                      }
+                      onClick={acceptSelectedWorkspaceInvitation}
                     >
-                      Refresh API Key
+                      {isAcceptingWorkspaceInvitation
+                        ? "Accepting..."
+                        : "Accept Invitation"}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={
+                        isAcceptingWorkspaceInvitation ||
+                        isDecliningWorkspaceInvitation ||
+                        String(
+                          selectedWorkspaceInvitation.status || "",
+                        ).toLowerCase() !== "pending"
+                      }
+                      onClick={declineSelectedWorkspaceInvitation}
+                    >
+                      {isDecliningWorkspaceInvitation
+                        ? "Declining..."
+                        : "Decline Invitation"}
                     </button>
                   </div>
-                </label>
-              </article>
+                </article>
+              </section>
+            </>
+          ) : (
+            <>
+              <header className="page-header">
+                <p className="eyebrow">Workspace</p>
+                <h2>Environment and Access</h2>
+                <p>
+                  Manage API connection details, workspace credentials, and
+                  workspace state from one place.
+                </p>
+              </header>
 
-              <article className="workspace-card">
-                <div className="workspace-head">
-                  <h2>Invite Users</h2>
-                  <p>Invite teammates to join this workspace.</p>
-                </div>
-                <div className="row two-up">
-                  <label>
-                    Invite email
-                    <input
-                      value={inviteEmail}
-                      onChange={(event) => setInviteEmail(event.target.value)}
-                      placeholder="teammate@example.com"
-                    />
-                  </label>
-                  <label>
-                    Invite role
-                    <select
-                      value={inviteRole}
-                      onChange={(event) => setInviteRole(event.target.value)}
-                    >
-                      <option value="member">Member</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy || !workspaceId.trim()}
-                    onClick={inviteUser}
-                  >
-                    Invite User
-                  </button>
-                </div>
-              </article>
-            </section>
-
-            <section className="content-grid workspace-users-grid">
-              <article className="workspace-card">
-                <div className="workspace-head">
-                  <h2>Workspace Users</h2>
-                  <p>Current members and their roles.</p>
-                </div>
-                {workspaceUsers.length ? (
-                  <div className="table-scroll workspace-users-table">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Email</th>
-                          <th>Role</th>
-                          <th>Joined</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {workspaceUsers.map((user) => (
-                          <tr key={String(user.user_id || user.email || "")}>
-                            <td>{String(user.name || "-")}</td>
-                            <td>{String(user.email || "-")}</td>
-                            <td>
-                              <span className="role-badge">
-                                {formatRoleLabel(user.role)}
-                              </span>
-                            </td>
-                            <td>{formatJoinedAt(user.created_at)}</td>
-                            <td>
-                              {canManageWorkspaceUsers &&
-                              String(user.user_id || "").trim() !==
-                                sessionUserId ? (
-                                <button
-                                  type="button"
-                                  className="icon-action-button"
-                                  aria-label="Edit user"
-                                  onClick={() =>
-                                    setWorkspaceUserActionTarget(user)
-                                  }
-                                >
-                                  ✎
-                                </button>
-                              ) : (
-                                <span className="muted">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              <section className="content-grid workspace-page-grid">
+                <article className="workspace-card">
+                  <div className="workspace-head">
+                    <h2>Connection Settings</h2>
+                    <p>Manage workspace details and rotate API credentials.</p>
                   </div>
-                ) : (
-                  <p className="muted">No workspace users found.</p>
-                )}
-              </article>
-            </section>
-          </>
+                  <div className="row two-up workspace-name-row">
+                    <label>
+                      Workspace name
+                      <input
+                        value={workspaceName}
+                        onChange={(event) =>
+                          setWorkspaceName(event.target.value)
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="secondary workspace-inline-action"
+                      disabled={isSavingWorkspace || !isWorkspaceNameDirty}
+                      onClick={saveWorkspaceChanges}
+                    >
+                      {isSavingWorkspace ? "Saving..." : "Save Changes"}
+                    </button>
+                  </div>
+                  <label>
+                    API key
+                    <div className="row two-up workspace-key-row">
+                      <input
+                        value={apiKey}
+                        readOnly
+                        placeholder="Rotate to generate key_ + 32 chars"
+                      />
+                      <button
+                        type="button"
+                        className="workspace-inline-action"
+                        disabled={busy}
+                        onClick={refreshApiKey}
+                      >
+                        Refresh API Key
+                      </button>
+                    </div>
+                  </label>
+                </article>
+
+                <article className="workspace-card">
+                  <div className="workspace-head">
+                    <h2>Invite Users</h2>
+                    <p>Invite teammates to join this workspace.</p>
+                  </div>
+                  <div className="row two-up">
+                    <label>
+                      Invite email
+                      <input
+                        value={inviteEmail}
+                        onChange={(event) => setInviteEmail(event.target.value)}
+                        placeholder="teammate@example.com"
+                      />
+                    </label>
+                    <label>
+                      Invite role
+                      <select
+                        value={inviteRole}
+                        onChange={(event) => setInviteRole(event.target.value)}
+                      >
+                        <option value="member">Member</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy || !workspaceId.trim()}
+                      onClick={inviteUser}
+                    >
+                      Invite User
+                    </button>
+                  </div>
+                </article>
+              </section>
+
+              <section className="content-grid workspace-users-grid">
+                <article className="workspace-card">
+                  <div className="workspace-head">
+                    <h2>Workspace Users</h2>
+                    <p>Current members and their roles.</p>
+                  </div>
+                  {workspaceUsers.length ? (
+                    <div className="table-scroll workspace-users-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Joined</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {workspaceUsers.map((user) => (
+                            <tr key={String(user.user_id || user.email || "")}>
+                              <td>{String(user.name || "-")}</td>
+                              <td>{String(user.email || "-")}</td>
+                              <td>
+                                <span className="role-badge">
+                                  {formatRoleLabel(user.role)}
+                                </span>
+                              </td>
+                              <td>{formatJoinedAt(user.created_at)}</td>
+                              <td>
+                                {canManageWorkspaceUsers &&
+                                String(user.user_id || "").trim() !==
+                                  sessionUserId ? (
+                                  <button
+                                    type="button"
+                                    className="icon-action-button"
+                                    aria-label="Edit user"
+                                    onClick={() =>
+                                      setWorkspaceUserActionTarget(user)
+                                    }
+                                  >
+                                    ✎
+                                  </button>
+                                ) : (
+                                  <span className="muted">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="muted">No workspace users found.</p>
+                  )}
+                </article>
+
+                {canManageWorkspaceUsers ? (
+                  <article className="workspace-card">
+                    <div className="workspace-head">
+                      <h2>Pending Invitations</h2>
+                      <p>
+                        Actionable workspace invitations that have not been
+                        accepted.
+                      </p>
+                    </div>
+                    {workspaceInvitations.length ? (
+                      <div className="table-scroll workspace-users-table">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Email</th>
+                              <th>Role</th>
+                              <th>Status</th>
+                              <th>Inviter</th>
+                              <th>Invited</th>
+                              <th>Expires</th>
+                              <th>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {workspaceInvitations.map((invitation) => (
+                              <tr
+                                key={String(
+                                  invitation.id || invitation.email || "",
+                                )}
+                              >
+                                <td>{String(invitation.email || "-")}</td>
+                                <td>
+                                  <span className="role-badge">
+                                    {formatRoleLabel(invitation.role)}
+                                  </span>
+                                </td>
+                                <td>{formatRoleLabel(invitation.status)}</td>
+                                <td>
+                                  {String(
+                                    invitation.inviter_display ||
+                                      invitation.inviter_name ||
+                                      invitation.inviter_email ||
+                                      "-",
+                                  )}
+                                </td>
+                                <td>{formatJoinedAt(invitation.created_at)}</td>
+                                <td>{formatJoinedAt(invitation.expires_at)}</td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    className="icon-action-button"
+                                    aria-label={`Cancel invitation for ${String(invitation.email || "invitee")}`}
+                                    disabled={busy}
+                                    onClick={() =>
+                                      cancelWorkspaceInvitation(invitation)
+                                    }
+                                  >
+                                    x
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="muted">No pending invitations found.</p>
+                    )}
+                  </article>
+                ) : null}
+              </section>
+            </>
+          )
         ) : null}
 
         {activePage === "templates" ? (
@@ -2958,13 +3470,15 @@ export function App() {
               >
                 Cancel
               </button>
-                <button
-                  type="button"
-                  disabled={isUploadingDocuments || !hasApiAccess}
-                  onClick={uploadFromModal}
-                >
-                {isUploadingDocuments ? "Uploading..." : "Upload and Open Documents"}
-                </button>
+              <button
+                type="button"
+                disabled={isUploadingDocuments || !hasApiAccess}
+                onClick={uploadFromModal}
+              >
+                {isUploadingDocuments
+                  ? "Uploading..."
+                  : "Upload and Open Documents"}
+              </button>
             </div>
           </div>
         </div>
@@ -2991,6 +3505,20 @@ function formatJoinedAt(value) {
   }
 
   return new Date(timestamp).toLocaleDateString();
+}
+
+function formatTimestamp(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "-";
+  }
+
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) {
+    return raw;
+  }
+
+  return new Date(timestamp).toLocaleString();
 }
 
 function formatRoleLabel(value) {

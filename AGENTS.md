@@ -27,3 +27,17 @@
 ## Safety / gotchas
 - Treat `backend/.dev.vars` as sensitive local secrets; never commit its contents.
 - No test or lint scripts are currently defined; do not invent them. Use focused checks (`backend` typecheck, frontend build, and/or manual endpoint verification) depending on the change.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked as local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The default canonical triage labels are used. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context layout: `CONTEXT-MAP.md` points to per-context `CONTEXT.md` files, with ADRs in root or context-specific `docs/adr/` directories. See `docs/agents/domain.md`.

@@ -4,10 +4,13 @@ import { ImageProcessingWorkflow } from "./consumer/imageProcessingWorkflow";
 import { getProfileForUser, updateProfileForUser } from "./api/profile";
 import {
   acceptInvitation,
+  cancelWorkspaceInvitationForUser,
   createWorkspaceForUser,
+  declineInvitation,
   deleteWorkspaceForUser,
   inviteUserToWorkspace,
   listInvitationsForUser,
+  listWorkspaceInvitationsForUser,
   listWorkspaceUsersForUser,
   listWorkspacesForUser,
   rotateWorkspaceApiKeyForUser,
@@ -102,6 +105,15 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     return acceptInvitation(env, invitationId, session.id, session.email);
   }
 
+  if (request.method === "POST" && url.pathname.startsWith("/v1/invitations/") && url.pathname.endsWith("/decline")) {
+    const session = await requireSession(request, env);
+    const invitationId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!invitationId) {
+      throw new HttpError(404, "not_found", "Invitation not found");
+    }
+    return declineInvitation(env, invitationId, session.email);
+  }
+
   if (request.method === "POST" && url.pathname.startsWith("/v1/workspaces/") && url.pathname.endsWith("/invitations")) {
     const session = await requireSession(request, env);
     const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
@@ -109,6 +121,26 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       throw new HttpError(404, "not_found", "Workspace not found");
     }
     return inviteUserToWorkspace(request, env, workspaceId, session.id);
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/v1/workspaces/") && url.pathname.endsWith("/invitations")) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return listWorkspaceInvitationsForUser(env, workspaceId, session.id);
+  }
+
+  if (request.method === "DELETE" && /^\/v1\/workspaces\/[^/]+\/invitations\/[^/]+$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const parts = url.pathname.split("/");
+    const workspaceId = decodeURIComponent(parts[3] || "");
+    const invitationId = decodeURIComponent(parts[5] || "");
+    if (!workspaceId || !invitationId) {
+      throw new HttpError(404, "not_found", "Invitation not found");
+    }
+    return cancelWorkspaceInvitationForUser(env, workspaceId, invitationId, session.id);
   }
 
   if (request.method === "GET" && url.pathname.startsWith("/v1/workspaces/") && url.pathname.endsWith("/users")) {
