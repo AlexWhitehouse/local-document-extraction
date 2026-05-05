@@ -162,6 +162,7 @@ const DEFAULT_WORKSPACE_ID = "workspace_local_default";
 const DEFAULT_WORKSPACE_NAME = "Local Workspace";
 const NEW_WORKSPACE_NAME = "New Workspace";
 const DRAFT_TEMPLATE_NAV_ID = "__draft_template__";
+const LIVE_DOCUMENT_STATUSES = new Set(["queued", "workflow_started", "processing"]);
 
 function loadPersistedWorkspace() {
   if (typeof window === "undefined") {
@@ -1813,7 +1814,7 @@ export function App() {
     }
 
     const liveStatus = String(selectedDocument?.status || "").toLowerCase();
-    if (liveStatus !== "queued" && liveStatus !== "processing") {
+    if (!LIVE_DOCUMENT_STATUSES.has(liveStatus)) {
       return;
     }
 
@@ -4058,7 +4059,7 @@ function JobStatusTracker({ job }) {
   const isFailure =
     job.status === "failed" || job.status === "retryable_failed";
   const isCompleted = job.status === "completed";
-  const isProcessing = job.status === "processing";
+  const isProcessing = LIVE_DOCUMENT_STATUSES.has(job.status);
   const statusLabel = isFailure
     ? "This extraction finished with a failure status."
     : isCompleted

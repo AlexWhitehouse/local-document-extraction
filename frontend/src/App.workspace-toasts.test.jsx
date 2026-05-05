@@ -942,6 +942,45 @@ describe("Workspace action toast feedback", () => {
     expect(screen.getByText("success")).toBeTruthy();
   });
 
+  it("keeps polling while a selected document is waiting for its workflow to start processing", async () => {
+    installLocalStorage({
+      workspaceId: "ws_1",
+      workspaceName: "Research Workspace",
+      apiKey: "imgx_live_existing_key",
+      apiKeysByWorkspace: {
+        ws_1: "imgx_live_existing_key",
+      },
+      selectedDocumentId: "job_workflow_started_1",
+      jobHistory: [
+        {
+          job_id: "job_workflow_started_1",
+          status: "workflow_started",
+          image_name: "invoice.pdf",
+          template_id: "tpl_document",
+          created_at: "2026-01-03T00:00:00.000Z",
+          updated_at: "2026-01-03T00:00:01.000Z",
+        },
+      ],
+      userWorkspaces: [
+        {
+          id: "ws_1",
+          name: "Research Workspace",
+          role: "owner",
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      userWorkspaceInvitations: [],
+    });
+    const intervalSpy = vi.spyOn(window, "setInterval").mockReturnValue(123);
+    vi.spyOn(window, "clearInterval").mockImplementation(() => {});
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+    });
+  });
+
   it("summarizes a mixed multi-file upload with one aggregate toast", async () => {
     const user = userEvent.setup();
     const template = { id: "tpl_document", name: "Invoice Template" };
