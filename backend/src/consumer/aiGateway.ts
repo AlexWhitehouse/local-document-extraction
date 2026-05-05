@@ -464,11 +464,10 @@ function normalizeByType(
     case "date": {
       if (typeof value !== "string")
         return { ok: false, value: null, normalized: null };
-      const date = new Date(value);
-      if (!Number.isFinite(date.getTime()))
+      const formatted = formatDateAnswer(value);
+      if (!formatted)
         return { ok: false, value: null, normalized: null };
-      const iso = date.toISOString();
-      return { ok: true, value: iso, normalized: iso };
+      return { ok: true, value: formatted, normalized: formatted };
     }
     case "object": {
       const ok =
@@ -509,6 +508,28 @@ function normalizeByType(
     default:
       return { ok: false, value: null, normalized: null };
   }
+}
+
+function formatDateAnswer(value: string): string | null {
+  const raw = value.trim();
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+    return raw;
+  }
+
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
+  if (dateOnly) {
+    return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+  }
+
+  const date = new Date(raw);
+  if (!Number.isFinite(date.getTime())) {
+    return null;
+  }
+
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 function extractRowsFromTableObject(value: unknown): Array<Record<string, unknown>> | null {
