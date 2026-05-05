@@ -7,6 +7,7 @@ import {
   createWorkspaceForUser as createWorkspaceForUserPolicy,
   declineWorkspaceInvitation as declineWorkspaceInvitationPolicy,
   inviteWorkspaceMember as inviteWorkspaceMemberPolicy,
+  leaveWorkspaceForUser as leaveWorkspaceForUserPolicy,
   listManageableWorkspaceInvitationsForUser as listManageableWorkspaceInvitationsForUserPolicy,
   listPendingWorkspaceInvitationsForEmail as listPendingWorkspaceInvitationsForEmailPolicy,
   listWorkspaceUsersForUser as listWorkspaceUsersForUserPolicy,
@@ -17,6 +18,7 @@ import {
   WorkspacePolicyError
 } from "../lib/workspacePolicy";
 import { parseJsonBody } from "../lib/validation";
+import { createStarterInvoiceTemplate } from "../lib/starterTemplateAdapter";
 import type { Env } from "../lib/types";
 
 type CreateWorkspaceBody = {
@@ -94,6 +96,14 @@ export async function deleteWorkspaceForUser(env: Env, workspaceId: string, user
 
   await deleteWorkspaceCascade(env, workspaceId);
   return json({ ok: true, workspace_id: workspaceId });
+}
+
+export async function leaveWorkspaceForUser(env: Env, workspaceId: string, userId: string, userName?: string | null): Promise<Response> {
+  try {
+    return json(await leaveWorkspaceForUserPolicy(env.DB, { workspaceId, userId, userName }, createStarterInvoiceTemplate(env.DB)));
+  } catch (error) {
+    mapWorkspacePolicyError(error);
+  }
 }
 
 export async function inviteUserToWorkspace(

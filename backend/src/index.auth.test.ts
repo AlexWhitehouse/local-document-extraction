@@ -78,4 +78,28 @@ describe("auth request handling", () => {
     await expect(response.json()).resolves.toEqual(body);
     expect(authHandlerMock).toHaveBeenCalledOnce();
   });
+
+  it("rejects Workspace API-key-authenticated leave requests as session-only actions", async () => {
+    createAuthMock.mockReturnValue({
+      api: {
+        getSession: vi.fn().mockResolvedValue(null),
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_123/leave", {
+        method: "POST",
+        headers: { authorization: "Bearer workspace-api-key" },
+      }),
+      createEnv(),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "unauthorized",
+        message: "Authentication required",
+      },
+    });
+  });
 });

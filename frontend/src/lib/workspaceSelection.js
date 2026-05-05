@@ -345,6 +345,127 @@ export function getCancelWorkspaceInvitationTransition({
   };
 }
 
+export function getWorkspacePrimaryAction({ workspaceRole }) {
+  const normalizedRole = String(workspaceRole || "").trim().toLowerCase();
+  if (normalizedRole === "owner") {
+    return { type: "delete", label: "Delete Workspace" };
+  }
+  if (normalizedRole === "admin" || normalizedRole === "member") {
+    return { type: "leave", label: "Leave Workspace" };
+  }
+  return { type: "none", label: "" };
+}
+
+export function getLeaveWorkspaceTransition({
+  workspaceId,
+  confirmed,
+  leaveResult,
+  leaveError,
+  refreshedUserWorkspaces,
+  apiKeysByWorkspace,
+}) {
+  const targetWorkspaceId = String(workspaceId || "").trim();
+  if (!targetWorkspaceId) {
+    return {
+      type: "guard",
+      reason: "missing_accepted_workspace_context",
+      request: null,
+      refresh: [],
+      nextWorkspaceContext: null,
+      removedApiKeyWorkspaceId: null,
+      requiresConfirmation: false,
+    };
+  }
+
+  if (leaveResult) {
+    const replacementWorkspaceId = String(
+      leaveResult?.replacement_workspace?.workspace_id || "",
+    ).trim();
+    const replacementApiKey = String(
+      leaveResult?.replacement_workspace?.api_key || "",
+    );
+    const remainingWorkspaces = Array.isArray(refreshedUserWorkspaces)
+      ? refreshedUserWorkspaces.filter(
+          (workspace) => String(workspace?.id || "") !== targetWorkspaceId,
+        )
+      : [];
+    const replacementWorkspace = replacementWorkspaceId
+      ? remainingWorkspaces.find(
+          (workspace) => String(workspace?.id || "") === replacementWorkspaceId,
+        )
+      : null;
+    const nextWorkspace =
+      replacementWorkspace ||
+      [...remainingWorkspaces].sort((a, b) =>
+        String(b?.created_at || "").localeCompare(String(a?.created_at || "")),
+      )[0];
+    const nextApiKeysByWorkspace = replacementWorkspaceId && replacementApiKey
+      ? { ...apiKeysByWorkspace, [replacementWorkspaceId]: replacementApiKey }
+      : apiKeysByWorkspace;
+    const transition = {
+      type: "success",
+      workspaceId: targetWorkspaceId,
+      request: null,
+      refresh: ["acceptedWorkspaces", "workspaceContext"],
+      nextWorkspaceContext: nextWorkspace
+        ? selectAcceptedWorkspaceContext({
+            workspace: nextWorkspace,
+            apiKeysByWorkspace: nextApiKeysByWorkspace,
+          })
+        : null,
+      removedApiKeyWorkspaceId: targetWorkspaceId,
+      requiresConfirmation: false,
+    };
+
+    if (replacementWorkspaceId && replacementApiKey) {
+      transition.storedApiKey = {
+        workspaceId: replacementWorkspaceId,
+        apiKey: replacementApiKey,
+      };
+    }
+
+    return transition;
+  }
+
+  if (leaveError) {
+    return {
+      type: "failure",
+      workspaceId: targetWorkspaceId,
+      request: null,
+      refresh: [],
+      nextWorkspaceContext: null,
+      removedApiKeyWorkspaceId: null,
+      requiresConfirmation: false,
+    };
+  }
+
+  if (!confirmed) {
+    return {
+      type: "confirmation_required",
+      workspaceId: targetWorkspaceId,
+      confirmationMessage: "Leave this workspace? You will lose access unless you are invited again.",
+      request: null,
+      refresh: [],
+      nextWorkspaceContext: null,
+      removedApiKeyWorkspaceId: null,
+      requiresConfirmation: true,
+    };
+  }
+
+  return {
+    type: "request",
+    workspaceId: targetWorkspaceId,
+    request: {
+      path: `/workspaces/${encodeURIComponent(targetWorkspaceId)}/leave`,
+      method: "POST",
+    },
+    refresh: [],
+    nextWorkspaceContext: null,
+    removedApiKeyWorkspaceId: null,
+    requiresConfirmation: false,
+  };
+}
+
 export function getWorkspaceMemberActionTransition({
   workspaceId,
   targetUserId,

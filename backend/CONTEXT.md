@@ -49,6 +49,8 @@ A workspace owner/admin should confirm before cancelling someone else's pending 
 
 A workspace invitation remains valid after inviter role changes unless it is cancelled or expires.
 
+A workspace invitation remains valid after its inviter leaves the workspace unless it is cancelled or expires.
+
 Deleting a workspace deletes its workspace invitations.
 
 Workspace invitation management shows actionable pending invitations, not accepted, cancelled, or expired invitation history.
@@ -81,6 +83,24 @@ Workspace invitations match the invitee by the account's current email address; 
 
 Users should normally always have at least one accepted workspace; if that invariant is broken and only invitations are available, select the latest-updated invitation.
 
+### Leave Workspace
+
+Leave Workspace is a self-service action where a non-owner workspace member removes only their own workspace membership.
+
+Leaving a workspace does not delete the workspace, its documents, invitations, API key, or other members.
+
+Leave Workspace is performed by a signed-in workspace member, not by a workspace API key.
+
+Workspace owners delete workspaces rather than leave them.
+
+If leaving would remove a user's last accepted workspace, a replacement personal workspace is created for that user.
+
+Replacement personal workspaces created by leaving use the same starter-template bootstrap as new-user workspaces.
+
+After leaving, the user moves into another accepted workspace context, preferring the replacement personal workspace when one was created.
+
+A workspace member should confirm before leaving a workspace.
+
 ## Relationships
 
 - A **Workspace invitation** may be displayed beside **Workspaces**, but it does not create a **Workspace** membership until accepted.
@@ -88,3 +108,9 @@ Users should normally always have at least one accepted workspace; if that invar
 - Current workspace members and pending **Workspace invitations** are separate access-management lists.
 - Accepting a **Workspace invitation** creates a workspace membership and moves the user into that workspace context.
 - Declining a **Workspace invitation** makes it non-actionable and removes it from the invitee's workspace list.
+- **Leave Workspace** removes a non-owner member's **Workspace** access without deleting the **Workspace**.
+- **Leave Workspace** creates a replacement personal **Workspace** when it removes the user's last accepted **Workspace**.
+
+## Flagged ambiguities
+
+- "group" was used to describe what a user leaves; resolved: the domain term is **Workspace**, and access is represented by **workspace membership**.

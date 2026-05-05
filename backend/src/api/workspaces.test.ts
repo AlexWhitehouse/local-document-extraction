@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cancelWorkspaceInvitationForUser, declineInvitation, deleteWorkspaceForUser } from "./workspaces";
+import { cancelWorkspaceInvitationForUser, declineInvitation, deleteWorkspaceForUser, leaveWorkspaceForUser } from "./workspaces";
 import { HttpError } from "../lib/http";
 import type { Env, Workspace } from "../lib/types";
 
@@ -48,6 +48,17 @@ function createEnvFixture(input: {
           bind(...params: unknown[]) {
             return {
               async run() {
+                if (sql.includes("DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?")) {
+                  const [workspaceId, userId] = params;
+                  const index = input.memberships.findIndex(
+                    (membership) => membership.workspace_id === workspaceId && membership.user_id === userId
+                  );
+                  if (index >= 0) {
+                    input.memberships.splice(index, 1);
+                  }
+                  return { success: true };
+                }
+
                 if (sql.includes("DELETE FROM workspace_memberships WHERE workspace_id = ?")) {
                   const [workspaceId] = params;
                   for (let index = input.memberships.length - 1; index >= 0; index -= 1) {
@@ -176,6 +187,65 @@ describe("Workspace routes", () => {
 
     await expect(response.json()).resolves.toEqual({ ok: true, invitation_id: "invite_123", status: "cancelled" });
     expect(invitations[0]?.status).toBe("cancelled");
+  });
+
+  it("returns a minimal response when a workspace admin leaves", async () => {
+    const workspace = createWorkspace({ id: "workspace_leave" });
+    const otherWorkspace = createWorkspace({ id: "workspace_keep" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_admin", role: "admin" },
+      { workspace_id: otherWorkspace.id, user_id: "user_admin", role: "member" }
+    ];
+    const env = createEnvFixture({ workspaces: [workspace, otherWorkspace], memberships });
+
+    const response = await leaveWorkspaceForUser(env, workspace.id, "user_admin");
+
+    await expect(response.json()).resolves.toEqual({ ok: true, workspace_id: workspace.id });
+    expect(memberships).toEqual([
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: otherWorkspace.id, user_id: "user_admin", role: "member" }
+    ]);
+  });
+
+  it("rejects owner leave attempts without changing the workspace", async () => {
+    const workspace = createWorkspace({ id: "workspace_leave", api_key_hash: "hash_keep" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ];
+    const env = createEnvFixture({ workspaces: [workspace], memberships });
+
+    await expect(leaveWorkspaceForUser(env, workspace.id, "user_owner")).rejects.toMatchObject({
+      status: 409,
+      code: "owner_transfer_required",
+      message: "Transfer ownership or delete the workspace before leaving"
+    } satisfies Partial<HttpError>);
+    expect(memberships).toEqual([
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ]);
+    expect(workspace.api_key_hash).toBe("hash_keep");
+  });
+
+  it("rejects non-member leave attempts without changing memberships", async () => {
+    const workspace = createWorkspace({ id: "workspace_leave", api_key_hash: "hash_keep" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ];
+    const env = createEnvFixture({ workspaces: [workspace], memberships });
+
+    await expect(leaveWorkspaceForUser(env, workspace.id, "user_outsider")).rejects.toMatchObject({
+      status: 403,
+      code: "forbidden",
+      message: "You are not a member of this workspace"
+    } satisfies Partial<HttpError>);
+    expect(memberships).toEqual([
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ]);
+    expect(workspace.api_key_hash).toBe("hash_keep");
   });
 
   it("returns a minimal response when an invitee declines a workspace invitation", async () => {

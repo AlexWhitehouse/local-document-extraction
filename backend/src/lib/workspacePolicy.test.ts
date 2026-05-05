@@ -9,6 +9,7 @@ import {
   declineWorkspaceInvitation,
   createWorkspaceForUser,
   inviteWorkspaceMember,
+  leaveWorkspaceForUser,
   listManageableWorkspaceInvitationsForUser,
   listWorkspaceUsersForUser,
   listPendingWorkspaceInvitationsForEmail,
@@ -18,6 +19,8 @@ import {
   WorkspacePolicyError,
   updateWorkspaceSettingsForUser
 } from "./workspacePolicy";
+import { listJobs } from "../api/jobs";
+import { listTemplates } from "../api/templates";
 import { createStarterInvoiceTemplate } from "./starterTemplateAdapter";
 import type { Workspace } from "./types";
 
@@ -69,6 +72,23 @@ type TemplateFieldFixture = {
   position: number;
 };
 
+type JobFixture = {
+  id: string;
+  workspace_id: string;
+  status: string;
+  template_id: string;
+  template_version: number;
+  image_name: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  current_attempt: number | null;
+  completed_attempt: number | null;
+  last_failed_attempt: number | null;
+};
+
 function createD1Fixture(input: {
   workspaces: Workspace[];
   memberships: WorkspaceMembershipFixture[];
@@ -76,8 +96,10 @@ function createD1Fixture(input: {
   invitations?: WorkspaceInvitationFixture[];
   templates?: TemplateFixture[];
   templateFields?: TemplateFieldFixture[];
+  jobs?: JobFixture[];
 }): D1Database {
   const invitations = input.invitations ?? [];
+  const jobs = input.jobs ?? [];
   const templateFields = input.templateFields ?? [];
   const templates = input.templates ?? [];
   const users = input.users ?? [];
@@ -465,6 +487,39 @@ function createD1Fixture(input: {
                     }
                     return (a.name ?? "").localeCompare(b.name ?? "") || a.email.localeCompare(b.email);
                   });
+
+                return { results } as T;
+              }
+
+              if (sql.includes("FROM templates") && sql.includes("WHERE workspace_id = ? AND deleted_at IS NULL")) {
+                const [workspaceId] = params;
+                const results = templates
+                  .filter((template) => template.workspace_id === workspaceId && template.status !== "deleted")
+                  .map((template) => ({
+                    id: template.id,
+                    name: template.name,
+                    description: template.description,
+                    status: template.status,
+                    current_version: template.current_version,
+                    created_at: template.created_at,
+                    updated_at: template.updated_at
+                  }))
+                  .sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+                return { results } as T;
+              }
+
+              if (sql.includes("FROM jobs j")) {
+                const [workspaceId] = params;
+                const limit = Number(params[params.length - 1]);
+                const results = jobs
+                  .filter((job) => job.workspace_id === workspaceId)
+                  .map((job) => ({
+                    ...job,
+                    sort_at: job.updated_at || job.created_at
+                  }))
+                  .sort((a, b) => b.sort_at.localeCompare(a.sort_at) || b.id.localeCompare(a.id))
+                  .slice(0, limit);
 
                 return { results } as T;
               }
@@ -1102,6 +1157,231 @@ describe("Workspace policy", () => {
     await expect(
       approveWorkspaceDeletionForUser(db, { workspaceId: workspace.id, userId: "user_outsider" })
     ).rejects.toMatchObject({ code: "forbidden", message: "You are not a member of this workspace" });
+  });
+
+  it("lets a workspace admin leave without deleting the workspace or other memberships", async () => {
+    const workspace = createWorkspaceFixture({ id: "workspace_leave" });
+    const otherWorkspace = createWorkspaceFixture({ id: "workspace_keep" });
+    const memberships: WorkspaceMembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_admin", role: "admin" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" },
+      { workspace_id: otherWorkspace.id, user_id: "user_admin", role: "member" }
+    ];
+    const db = createD1Fixture({ workspaces: [workspace, otherWorkspace], memberships });
+
+    await expect(leaveWorkspaceForUser(db, { workspaceId: workspace.id, userId: "user_admin" })).resolves.toEqual({
+      ok: true,
+      workspace_id: workspace.id
+    });
+
+    expect([workspace, otherWorkspace].map((candidate) => candidate.id)).toEqual(["workspace_leave", "workspace_keep"]);
+    expect(memberships).toEqual([
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" },
+      { workspace_id: otherWorkspace.id, user_id: "user_admin", role: "member" }
+    ]);
+  });
+
+  it("lets a workspace member leave while preserving their other workspace membership", async () => {
+    const workspace = createWorkspaceFixture({ id: "workspace_leave" });
+    const otherWorkspace = createWorkspaceFixture({ id: "workspace_keep" });
+    const memberships: WorkspaceMembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" },
+      { workspace_id: otherWorkspace.id, user_id: "user_member", role: "admin" }
+    ];
+    const db = createD1Fixture({ workspaces: [workspace, otherWorkspace], memberships });
+
+    await expect(leaveWorkspaceForUser(db, { workspaceId: workspace.id, userId: "user_member" })).resolves.toEqual({
+      ok: true,
+      workspace_id: workspace.id
+    });
+
+    expect(memberships).toEqual([
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: otherWorkspace.id, user_id: "user_member", role: "admin" }
+    ]);
+  });
+
+  it("lets remaining workspace members keep listing workspace templates and jobs after another member leaves", async () => {
+    const workspace = createWorkspaceFixture({ id: "workspace_leave" });
+    const otherWorkspace = createWorkspaceFixture({ id: "workspace_keep" });
+    const template: TemplateFixture = {
+      id: "tpl_invoice",
+      workspace_id: workspace.id,
+      name: "Invoice",
+      description: "Invoice fields",
+      status: "active",
+      current_version: 1,
+      created_at: "2026-05-04T00:00:00.000Z",
+      updated_at: "2026-05-04T00:00:00.000Z"
+    };
+    const job: JobFixture = {
+      id: "job_invoice",
+      workspace_id: workspace.id,
+      status: "completed",
+      template_id: template.id,
+      template_version: 1,
+      image_name: "invoice.png",
+      error_code: null,
+      error_message: null,
+      created_at: "2026-05-05T00:00:00.000Z",
+      updated_at: "2026-05-05T00:00:00.000Z",
+      completed_at: "2026-05-05T00:01:00.000Z",
+      current_attempt: 1,
+      completed_attempt: 1,
+      last_failed_attempt: null
+    };
+    const memberships: WorkspaceMembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" },
+      { workspace_id: otherWorkspace.id, user_id: "user_member", role: "member" }
+    ];
+    const db = createD1Fixture({ workspaces: [workspace, otherWorkspace], memberships, templates: [template], jobs: [job] });
+
+    await leaveWorkspaceForUser(db, { workspaceId: workspace.id, userId: "user_member" });
+    const remainingMemberWorkspace = await authorizeWorkspaceForSession(db, {
+      workspaceId: workspace.id,
+      userId: "user_owner"
+    });
+
+    expect(remainingMemberWorkspace).toEqual(workspace);
+    await expect(listTemplates(db, workspace).then((response) => response.json())).resolves.toEqual({
+      templates: [
+        {
+          id: template.id,
+          name: "Invoice",
+          description: "Invoice fields",
+          status: "active",
+          current_version: 1,
+          created_at: "2026-05-04T00:00:00.000Z",
+          updated_at: "2026-05-04T00:00:00.000Z"
+        }
+      ]
+    });
+    await expect(
+      listJobs(new Request("https://example.com/v1/jobs"), db, workspace).then((response) => response.json())
+    ).resolves.toEqual({
+      jobs: [
+        {
+          job_id: job.id,
+          status: "completed",
+          image_name: "invoice.png",
+          template_id: template.id,
+          template_version: 1,
+          error_code: null,
+          error_message: null,
+          created_at: "2026-05-05T00:00:00.000Z",
+          updated_at: "2026-05-05T00:00:00.000Z",
+          completed_at: "2026-05-05T00:01:00.000Z",
+          current_attempt: 1,
+          completed_attempt: 1,
+          last_failed_attempt: 0,
+          results: []
+        }
+      ],
+      next_cursor: null,
+      has_more: false
+    });
+  });
+
+  it("keeps pending workspace invitations and the workspace API key valid after the inviter leaves", async () => {
+    const apiKey = "key_workspace_leave";
+    const workspace = createWorkspaceFixture({ id: "workspace_leave", api_key_hash: await sha256(apiKey) });
+    const otherWorkspace = createWorkspaceFixture({ id: "workspace_keep" });
+    const invitations: WorkspaceInvitationFixture[] = [
+      {
+        id: "invite_from_leaver",
+        workspace_id: workspace.id,
+        email: "first@example.com",
+        role: "member",
+        status: "pending",
+        invited_by_user_id: "user_admin",
+        accepted_by_user_id: null,
+        created_at: "2026-05-04T00:00:00.000Z",
+        updated_at: "2026-05-04T00:00:00.000Z",
+        expires_at: "2999-05-11T00:00:00.000Z"
+      },
+      {
+        id: "invite_from_owner",
+        workspace_id: workspace.id,
+        email: "second@example.com",
+        role: "admin",
+        status: "pending",
+        invited_by_user_id: "user_owner",
+        accepted_by_user_id: null,
+        created_at: "2026-05-05T00:00:00.000Z",
+        updated_at: "2026-05-05T00:00:00.000Z",
+        expires_at: "2999-05-12T00:00:00.000Z"
+      }
+    ];
+    const memberships: WorkspaceMembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_admin", role: "admin" },
+      { workspace_id: otherWorkspace.id, user_id: "user_admin", role: "member" }
+    ];
+    const db = createD1Fixture({ workspaces: [workspace, otherWorkspace], memberships, invitations });
+
+    await leaveWorkspaceForUser(db, { workspaceId: workspace.id, userId: "user_admin" });
+
+    await expect(listManageableWorkspaceInvitationsForUser(db, { workspaceId: workspace.id, userId: "user_owner" })).resolves.toMatchObject([
+      { id: "invite_from_owner", status: "pending", inviter_user_id: "user_owner" },
+      { id: "invite_from_leaver", status: "pending", inviter_user_id: "user_admin" }
+    ]);
+    await expect(authorizeWorkspaceForApiKey(db, { apiKey })).resolves.toEqual(workspace);
+  });
+
+  it("creates a bootstrapped replacement Workspace when a non-owner leaves their last accepted Workspace", async () => {
+    const workspace = createWorkspaceFixture({ id: "workspace_leave" });
+    const workspaces = [workspace];
+    const memberships: WorkspaceMembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ];
+    const templates: TemplateFixture[] = [];
+    const templateFields: TemplateFieldFixture[] = [];
+    const db = createD1Fixture({ workspaces, memberships, templates, templateFields });
+
+    const result = await leaveWorkspaceForUser(
+      db,
+      { workspaceId: workspace.id, userId: "user_member", userName: "Mina Member" },
+      createStarterInvoiceTemplate(db)
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      workspace_id: workspace.id,
+      replacement_workspace: {
+        workspace_id: expect.stringMatching(/^workspace_/),
+        api_key: expect.stringMatching(/^key_/),
+        name: "Mina Member Workspace",
+        role: "owner",
+        created_at: expect.any(String)
+      }
+    });
+    const replacement = result.replacement_workspace;
+    expect(replacement).toBeDefined();
+    if (!replacement) {
+      throw new Error("Expected leave to return a replacement Workspace");
+    }
+
+    expect(workspaces.map((candidate) => candidate.id)).toEqual([workspace.id, replacement.workspace_id]);
+    expect(memberships).toEqual([
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      {
+        workspace_id: replacement.workspace_id,
+        user_id: "user_member",
+        role: "owner",
+        created_at: replacement.created_at
+      }
+    ]);
+    expect(templates).toEqual([
+      expect.objectContaining({ workspace_id: replacement.workspace_id, name: "Example Invoice" })
+    ]);
+    await expect(authorizeWorkspaceForApiKey(db, { apiKey: replacement.api_key })).resolves.toMatchObject({
+      id: replacement.workspace_id
+    });
   });
 
   it("invites a workspace member as an owner using a normalized email", async () => {

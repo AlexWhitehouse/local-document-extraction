@@ -5,6 +5,8 @@ import {
   getCancelWorkspaceInvitationTransition,
   getInviteWorkspaceInvitationTransition,
   getDeclineWorkspaceInvitationTransition,
+  getLeaveWorkspaceTransition,
+  getWorkspacePrimaryAction,
   getWorkspaceMemberActionTransition,
   getWorkspaceContextRefreshTransition,
   getWorkspaceContextDisplay,
@@ -14,6 +16,12 @@ import {
 } from "./workspaceSelection.js";
 
 describe("workspace context display", () => {
+  it("uses Delete Workspace for owners and Leave Workspace for non-owner accepted Workspaces", () => {
+    expect(getWorkspacePrimaryAction({ workspaceRole: "owner" })).toEqual({ type: "delete", label: "Delete Workspace" });
+    expect(getWorkspacePrimaryAction({ workspaceRole: "admin" })).toEqual({ type: "leave", label: "Leave Workspace" });
+    expect(getWorkspacePrimaryAction({ workspaceRole: "member" })).toEqual({ type: "leave", label: "Leave Workspace" });
+  });
+
   it("exposes Workspace user-management visibility for an owner Workspace context", () => {
     const display = getWorkspaceContextDisplay({
       apiBase: "/v1",
@@ -851,6 +859,100 @@ describe("Workspace member action transition", () => {
       request: null,
       refresh: [],
       nextWorkspaceContext: null,
+    });
+  });
+});
+
+describe("Leave Workspace transition", () => {
+  it("selects the most recently created remaining accepted Workspace after a successful leave", () => {
+    const transition = getLeaveWorkspaceTransition({
+      workspaceId: "workspace_left",
+      confirmed: true,
+      leaveResult: { ok: true, workspace_id: "workspace_left" },
+      refreshedUserWorkspaces: [
+        { id: "workspace_old", name: "Older Workspace", created_at: "2026-05-01T00:00:00.000Z", role: "member" },
+        { id: "workspace_new", name: "Newer Workspace", created_at: "2026-05-03T00:00:00.000Z", role: "admin" }
+      ],
+      apiKeysByWorkspace: {
+        workspace_left: "left-key",
+        workspace_old: "old-key",
+        workspace_new: "new-key"
+      }
+    });
+
+    expect(transition).toEqual({
+      type: "success",
+      workspaceId: "workspace_left",
+      request: null,
+      refresh: ["acceptedWorkspaces", "workspaceContext"],
+      nextWorkspaceContext: {
+        workspaceId: "workspace_new",
+        workspaceName: "Newer Workspace",
+        selectedWorkspaceInvitationId: "",
+        apiKey: "new-key"
+      },
+      removedApiKeyWorkspaceId: "workspace_left",
+      requiresConfirmation: false
+    });
+  });
+
+  it("selects the replacement Workspace and one-time API key after leaving the last accepted Workspace", () => {
+    const transition = getLeaveWorkspaceTransition({
+      workspaceId: "workspace_left",
+      confirmed: true,
+      leaveResult: {
+        ok: true,
+        workspace_id: "workspace_left",
+        replacement_workspace: {
+          workspace_id: "workspace_replacement",
+          name: "Mina Member Workspace",
+          api_key: "replacement-key",
+          role: "owner",
+          created_at: "2026-05-05T00:00:00.000Z"
+        }
+      },
+      refreshedUserWorkspaces: [
+        { id: "workspace_replacement", name: "Mina Member Workspace", created_at: "2026-05-05T00:00:00.000Z", role: "owner" }
+      ],
+      apiKeysByWorkspace: {
+        workspace_left: "left-key"
+      }
+    });
+
+    expect(transition).toEqual({
+      type: "success",
+      workspaceId: "workspace_left",
+      request: null,
+      refresh: ["acceptedWorkspaces", "workspaceContext"],
+      nextWorkspaceContext: {
+        workspaceId: "workspace_replacement",
+        workspaceName: "Mina Member Workspace",
+        selectedWorkspaceInvitationId: "",
+        apiKey: "replacement-key"
+      },
+      storedApiKey: {
+        workspaceId: "workspace_replacement",
+        apiKey: "replacement-key"
+      },
+      removedApiKeyWorkspaceId: "workspace_left",
+      requiresConfirmation: false
+    });
+  });
+
+  it("leaves Workspace context unchanged after a failed leave", () => {
+    const transition = getLeaveWorkspaceTransition({
+      workspaceId: "workspace_123",
+      leaveError: new Error("network failed")
+    });
+
+    expect(transition).toEqual({
+      type: "failure",
+      workspaceId: "workspace_123",
+      request: null,
+      refresh: [],
+      nextWorkspaceContext: null,
+      removedApiKeyWorkspaceId: null,
+      requiresConfirmation: false
     });
   });
 });

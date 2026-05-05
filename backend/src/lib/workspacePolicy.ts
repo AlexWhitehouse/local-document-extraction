@@ -96,6 +96,12 @@ export type CancelledWorkspaceInvitation = {
   status: "cancelled";
 };
 
+export type LeftWorkspace = {
+  ok: true;
+  workspace_id: string;
+  replacement_workspace?: CreatedWorkspace;
+};
+
 export class WorkspacePolicyError extends Error {
   constructor(
     public readonly code:
@@ -208,6 +214,49 @@ export async function listWorkspaceUsersForUser(
     .all<WorkspaceUserListing>();
 
   return users.results;
+}
+
+export async function leaveWorkspaceForUser(
+  db: D1Database,
+  input: { workspaceId: string; userId: string; userName?: string | null },
+  starterTemplateAdapter?: StarterTemplateAdapter
+): Promise<LeftWorkspace> {
+  const member = await db
+    .prepare(`SELECT role FROM workspace_memberships WHERE workspace_id = ? AND user_id = ? LIMIT 1`)
+    .bind(input.workspaceId, input.userId)
+    .first<{ role: WorkspaceMembershipRole }>();
+
+  if (!member) {
+    throw new WorkspacePolicyError("forbidden", "You are not a member of this workspace");
+  }
+  if (member.role === "owner") {
+    throw new WorkspacePolicyError("owner_transfer_required", "Transfer ownership or delete the workspace before leaving");
+  }
+
+  const workspaceCountRow = await db
+    .prepare("SELECT COUNT(*) AS count FROM workspace_memberships WHERE user_id = ?")
+    .bind(input.userId)
+    .first<{ count: number | string }>();
+  const isLastAcceptedWorkspace = Number(workspaceCountRow?.count || 0) <= 1;
+
+  await db
+    .prepare("DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?")
+    .bind(input.workspaceId, input.userId)
+    .run();
+
+  if (isLastAcceptedWorkspace && starterTemplateAdapter) {
+    const replacement = await bootstrapWorkspaceForNewUser(
+      db,
+      { userId: input.userId, userName: input.userName ?? null },
+      starterTemplateAdapter
+    );
+    if (replacement.created) {
+      const { created: _created, ...replacementWorkspace } = replacement;
+      return { ok: true, workspace_id: input.workspaceId, replacement_workspace: replacementWorkspace };
+    }
+  }
+
+  return { ok: true, workspace_id: input.workspaceId };
 }
 
 export async function updateWorkspaceUserRoleForUser(

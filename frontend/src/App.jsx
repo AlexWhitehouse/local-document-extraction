@@ -6,6 +6,8 @@ import {
   getCancelWorkspaceInvitationTransition,
   getDeclineWorkspaceInvitationTransition,
   getInviteWorkspaceInvitationTransition,
+  getLeaveWorkspaceTransition,
+  getWorkspacePrimaryAction,
   getWorkspaceMemberActionTransition,
   getWorkspaceContextRefreshTransition,
   getWorkspaceContextDisplay,
@@ -451,6 +453,14 @@ export function App() {
   const canManageWorkspaceInvitations = Boolean(
     workspaceUserManagement?.canManageWorkspaceInvitations,
   );
+  const selectedWorkspaceRole = String(
+    userWorkspaces.find(
+      (workspace) => String(workspace?.id || "") === String(workspaceId || ""),
+    )?.role || "",
+  );
+  const workspacePrimaryAction = getWorkspacePrimaryAction({
+    workspaceRole: selectedWorkspaceRole,
+  });
 
   function canShowWorkspaceUserAction(user) {
     const role = String(user?.role || "")
@@ -1285,6 +1295,73 @@ export function App() {
     } finally {
       setIsDeletingWorkspace(false);
     }
+  }
+
+  async function leaveWorkspace() {
+    const transition = getLeaveWorkspaceTransition({ workspaceId });
+    if (transition.reason === "missing_accepted_workspace_context") {
+      addLog("Leave workspace failed: select a workspace first");
+      return;
+    }
+    if (isDeletingWorkspace) {
+      return;
+    }
+
+    const confirmed = window.confirm(transition.confirmationMessage);
+    if (!confirmed) {
+      return;
+    }
+
+    const requestTransition = getLeaveWorkspaceTransition({
+      workspaceId,
+      confirmed: true,
+    });
+    setIsDeletingWorkspace(true);
+    try {
+      const data = await request(
+        requestTransition.request.path,
+        { method: requestTransition.request.method },
+        true,
+        false,
+      );
+      const leftWorkspaceId = requestTransition.workspaceId;
+      const workspaces = await listWorkspaces();
+      const successTransition = getLeaveWorkspaceTransition({
+        workspaceId: leftWorkspaceId,
+        leaveResult: data,
+        refreshedUserWorkspaces: workspaces,
+        apiKeysByWorkspace,
+      });
+      if (successTransition.removedApiKeyWorkspaceId || successTransition.storedApiKey) {
+        setApiKeysByWorkspace((prev) => {
+          const next = { ...prev };
+          if (successTransition.removedApiKeyWorkspaceId) {
+            delete next[successTransition.removedApiKeyWorkspaceId];
+          }
+          if (successTransition.storedApiKey) {
+            next[successTransition.storedApiKey.workspaceId] = successTransition.storedApiKey.apiKey;
+          }
+          return next;
+        });
+      }
+      if (successTransition.nextWorkspaceContext) {
+        applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
+      }
+      addLog("Workspace left");
+    } catch (error) {
+      getLeaveWorkspaceTransition({ workspaceId, leaveError: error });
+      addLog(`Leave workspace failed: ${error.message}`);
+    } finally {
+      setIsDeletingWorkspace(false);
+    }
+  }
+
+  function runWorkspacePrimaryAction() {
+    if (workspacePrimaryAction.type === "leave") {
+      leaveWorkspace();
+      return;
+    }
+    deleteWorkspace();
   }
 
   async function signIn() {
@@ -2439,11 +2516,11 @@ export function App() {
                   </label>
                 ) : null}
               </div>
-              {/* {hasSignUpPasswordMismatch ? (
+              {hasSignUpPasswordMismatch ? (
                 <p className="auth-password-mismatch">
                   Passwords do not match.
                 </p>
-              ) : null} */}
+              ) : null}
               {shouldShowAccountPasswordRequirements &&
               unmetAccountPasswordRequirements.length > 0 ? (
                 <ul className="auth-password-requirements">
@@ -2898,10 +2975,18 @@ export function App() {
                 <button
                   type="button"
                   className="danger"
-                  disabled={isDeletingWorkspace || !workspaceId.trim()}
-                  onClick={deleteWorkspace}
+                  disabled={
+                    isDeletingWorkspace ||
+                    !workspaceId.trim() ||
+                    workspacePrimaryAction.type === "none"
+                  }
+                  onClick={runWorkspacePrimaryAction}
                 >
-                  {isDeletingWorkspace ? "Deleting..." : "Delete Workspace"}
+                  {isDeletingWorkspace
+                    ? workspacePrimaryAction.type === "leave"
+                      ? "Leaving..."
+                      : "Deleting..."
+                    : workspacePrimaryAction.label || "Workspace Action"}
                 </button>
               ) : activePage === "templates" ? (
                 <button

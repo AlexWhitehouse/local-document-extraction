@@ -9,6 +9,7 @@ import {
   declineInvitation,
   deleteWorkspaceForUser,
   inviteUserToWorkspace,
+  leaveWorkspaceForUser,
   listInvitationsForUser,
   listWorkspaceInvitationsForUser,
   listWorkspaceUsersForUser,
@@ -172,6 +173,15 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       throw new HttpError(404, "not_found", "Workspace not found");
     }
     return rotateWorkspaceApiKeyForUser(request, env, workspaceId, session.id);
+  }
+
+  if (request.method === "POST" && url.pathname.startsWith("/v1/workspaces/") && url.pathname.endsWith("/leave")) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return leaveWorkspaceForUser(env, workspaceId, session.id, session.name);
   }
 
   if (request.method === "PATCH" && url.pathname.startsWith("/v1/workspaces/")) {
