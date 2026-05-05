@@ -44,7 +44,8 @@ export function createAuth(env: Env, request: Request) {
     secret,
     trustedOrigins: trustedOriginsFromEnv(env),
     emailAndPassword: {
-      enabled: true
+      enabled: true,
+      minPasswordLength: 8
     },
     ...(socialProviders ? { socialProviders } : {}),
     databaseHooks: {

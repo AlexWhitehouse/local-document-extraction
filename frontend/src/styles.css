@@ -573,6 +573,29 @@ button.danger:hover:not(:disabled) {
   margin-top: 8px;
 }
 
+.auth-password-requirements {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--text-2);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.auth-password-requirements li::marker {
+  color: #f2b366;
+}
+
+.auth-card input.auth-input-error:not([type="checkbox"]) {
+  border-color: rgba(209, 77, 104, 0.86);
+  box-shadow: 0 0 0 3px rgba(209, 77, 104, 0.18);
+}
+
+.auth-password-mismatch {
+  margin: 8px 0 0;
+  color: #ff8fa8;
+  font-size: 0.78rem;
+}
+
 .auth-divider {
   position: relative;
   margin-top: 16px;
@@ -1571,12 +1594,14 @@ td:last-child {
 .icon-action-button {
   width: 28px;
   height: 28px;
+  padding: 0;
   border-radius: 7px;
   border: 1px solid var(--line-1);
   background: #111a27;
   color: var(--text-1);
   display: inline-grid;
   place-items: center;
+  line-height: 1;
   cursor: pointer;
 }
 

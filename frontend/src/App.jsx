@@ -1,6 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Toaster, toast } from "sonner";
 import { createRuntimeAuthClient } from "./lib/authClient";
-import { getWorkspaceSelectionView } from "./lib/workspaceSelection";
+import {
+  getAcceptWorkspaceInvitationTransition,
+  getCancelWorkspaceInvitationTransition,
+  getDeclineWorkspaceInvitationTransition,
+  getInviteWorkspaceInvitationTransition,
+  getWorkspaceMemberActionTransition,
+  getWorkspaceContextRefreshTransition,
+  getWorkspaceContextDisplay,
+  selectPendingWorkspaceInvitationContext,
+  selectAcceptedWorkspaceContext,
+} from "./lib/workspaceSelection";
 
 const DEFAULT_FIELDS = [
   {
@@ -88,6 +99,27 @@ const DEFAULT_OPTIONS = {
   include_evidence: true,
 };
 
+const ACCOUNT_PASSWORD_REQUIREMENTS = [
+  { label: "At least 8 characters", test: (password) => password.length >= 8 },
+  { label: "One uppercase letter", test: (password) => /[A-Z]/.test(password) },
+  { label: "One number", test: (password) => /[0-9]/.test(password) },
+  {
+    label: "One special character",
+    test: (password) => /[^A-Za-z0-9]/.test(password),
+  },
+];
+
+function getSignUpErrorToastMessage(message) {
+  const normalized = String(message || "").toLowerCase();
+  if (normalized.includes("already") || normalized.includes("exists")) {
+    return "An account already exists for this email. Sign in instead.";
+  }
+  if (normalized.includes("invalid") && normalized.includes("email")) {
+    return "Enter a valid email address and try again.";
+  }
+  return "Account creation failed. Please try again.";
+}
+
 const DATA_TYPES = [
   "string",
   "number",
@@ -161,6 +193,9 @@ export function App() {
   const [authName, setAuthName] = useState(initialWorkspace.authName || "");
   const [authEmail, setAuthEmail] = useState(initialWorkspace.authEmail || "");
   const [authPassword, setAuthPassword] = useState("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
+  const [authPasswordTouched, setAuthPasswordTouched] = useState(false);
+  const [signUpSubmitAttempted, setSignUpSubmitAttempted] = useState(false);
 
   const [workspaceName, setWorkspaceName] = useState(
     initialWorkspace.workspaceName || DEFAULT_WORKSPACE_NAME,
@@ -290,6 +325,15 @@ export function App() {
   const hasApiAccess = hasApiKey || (hasSession && hasWorkspaceContext);
   const baseUrl = useMemo(() => apiBase.replace(/\/+$/, ""), [apiBase]);
   const isEditingTemplate = Boolean(updateTemplateId.trim());
+  const unmetAccountPasswordRequirements = ACCOUNT_PASSWORD_REQUIREMENTS.filter(
+    (requirement) => !requirement.test(authPassword),
+  );
+  const shouldShowAccountPasswordRequirements =
+    authMode === "signup" && (authPasswordTouched || signUpSubmitAttempted);
+  const hasSignUpPasswordMismatch =
+    authMode === "signup" &&
+    authConfirmPassword.length > 0 &&
+    authPassword !== authConfirmPassword;
 
   const documents = useMemo(() => {
     const query = debouncedDocumentSearch.trim().toLowerCase();
@@ -377,64 +421,49 @@ export function App() {
     return [...draftItem, ...filteredTemplates];
   }, [activePage, filteredTemplates, showDraftTemplateNav]);
 
-  const availableWorkspaces = useMemo(() => {
-    const activeWorkspaceId = String(workspaceId || "");
-    const acceptedEntries = userWorkspaces.map((workspace) => ({
-      id: String(workspace.id || ""),
-      name: String(workspace.name || "Untitled Workspace"),
-      api_base: apiBase || "/v1",
-      connected: String(workspace.id || "") === activeWorkspaceId,
-      type: "workspace",
-      role: String(workspace.role || ""),
-    }));
-    const invitedEntries = userWorkspaceInvitations.map((invitation) => ({
-      id: String(invitation.workspace_id || ""),
-      invitation_id: String(invitation.id || ""),
-      name: String(invitation.workspace_name || "Untitled Workspace"),
-      api_base: apiBase || "/v1",
-      connected: false,
-      type: "invitation",
-      role: String(invitation.role || ""),
-      email: String(invitation.email || ""),
-      inviter_name: String(invitation.inviter_name || ""),
-      inviter_email: String(invitation.inviter_email || ""),
-      inviter_display: String(invitation.inviter_display || ""),
-      updated_at: String(invitation.updated_at || invitation.created_at || ""),
-    }));
+  const workspaceContextDisplay = useMemo(
+    () =>
+      getWorkspaceContextDisplay({
+        apiBase,
+        hasApiAccess,
+        workspaceId,
+        workspaceName,
+        selectedWorkspaceInvitationId,
+        userWorkspaces,
+        userWorkspaceInvitations,
+      }),
+    [
+      apiBase,
+      hasApiAccess,
+      selectedWorkspaceInvitationId,
+      workspaceId,
+      workspaceName,
+      userWorkspaceInvitations,
+      userWorkspaces,
+    ],
+  );
+  const availableWorkspaces = workspaceContextDisplay.availableWorkspaces;
+  const workspaceUserManagement =
+    workspaceContextDisplay.workspaceSelectionView.userManagement;
+  const canListWorkspaceUsers = Boolean(
+    workspaceUserManagement?.canListWorkspaceUsers,
+  );
+  const canManageWorkspaceInvitations = Boolean(
+    workspaceUserManagement?.canManageWorkspaceInvitations,
+  );
 
-    if (userWorkspaces.length > 0) {
-      return [
-        ...acceptedEntries,
-        ...invitedEntries.sort((a, b) =>
-          b.updated_at.localeCompare(a.updated_at),
-        ),
-      ];
+  function canShowWorkspaceUserAction(user) {
+    const role = String(user?.role || "")
+      .trim()
+      .toLowerCase();
+    if (role === "owner") {
+      return Boolean(workspaceUserManagement?.canShowOwnerActions);
     }
-
-    if (invitedEntries.length > 0) {
-      return invitedEntries.sort((a, b) =>
-        b.updated_at.localeCompare(a.updated_at),
-      );
+    if (role === "admin") {
+      return Boolean(workspaceUserManagement?.canShowAdminActions);
     }
-
-    return [
-      {
-        id: workspaceId || DEFAULT_WORKSPACE_ID,
-        name: workspaceName || DEFAULT_WORKSPACE_NAME,
-        api_base: apiBase || "/v1",
-        connected: hasApiAccess,
-        type: "workspace",
-        role: "",
-      },
-    ];
-  }, [
-    apiBase,
-    hasApiAccess,
-    workspaceId,
-    workspaceName,
-    userWorkspaceInvitations,
-    userWorkspaces,
-  ]);
+    return Boolean(workspaceUserManagement?.canShowMemberActions);
+  }
 
   const filteredWorkspaces = useMemo(() => {
     const query = workspaceSearch.trim().toLowerCase();
@@ -483,47 +512,11 @@ export function App() {
     );
   }, [documentStatusMetrics.completed, documents.length]);
 
-  const selectedWorkspaceName = useMemo(() => {
-    const match = availableWorkspaces.find(
-      (workspace) => String(workspace.id || "") === workspaceId,
-    );
-    return String(match?.name || "");
-  }, [availableWorkspaces, workspaceId]);
-
-  const activeWorkspaceName =
-    selectedWorkspaceName.trim() ||
-    workspaceName.trim() ||
-    DEFAULT_WORKSPACE_NAME;
-
-  const currentWorkspaceRole = useMemo(() => {
-    const match = userWorkspaces.find(
-      (workspace) => String(workspace.id || "") === workspaceId,
-    );
-    return String(match?.role || "")
-      .trim()
-      .toLowerCase();
-  }, [userWorkspaces, workspaceId]);
-  const canManageWorkspaceUsers =
-    currentWorkspaceRole === "owner" || currentWorkspaceRole === "admin";
-  const workspaceSelectionView = useMemo(
-    () =>
-      getWorkspaceSelectionView({
-        workspaceId,
-        workspaceName: activeWorkspaceName,
-        hasApiAccess,
-        canManageWorkspaceUsers,
-        selectedWorkspaceInvitationId,
-        userWorkspaceInvitations,
-      }),
-    [
-      activeWorkspaceName,
-      canManageWorkspaceUsers,
-      hasApiAccess,
-      selectedWorkspaceInvitationId,
-      userWorkspaceInvitations,
-      workspaceId,
-    ],
-  );
+  const selectedWorkspaceName = workspaceContextDisplay.selectedWorkspaceName;
+  const activeWorkspaceName = workspaceContextDisplay.activeWorkspaceName;
+  const effectiveSelectedWorkspaceInvitationId =
+    workspaceContextDisplay.selectedWorkspaceInvitationId;
+  const workspaceSelectionView = workspaceContextDisplay.workspaceSelectionView;
   const selectedWorkspaceInvitation = workspaceSelectionView.invitation;
   const isWorkspaceInvitationSelected =
     workspaceSelectionView.type === "invitation";
@@ -532,14 +525,58 @@ export function App() {
       return [];
     }
     return getWorkspaceUserActions(
-      currentWorkspaceRole,
+      workspaceUserManagement,
       String(workspaceUserActionTarget.role || ""),
     );
-  }, [currentWorkspaceRole, workspaceUserActionTarget]);
+  }, [workspaceUserActionTarget, workspaceUserManagement]);
 
   const isWorkspaceNameDirty =
     Boolean(workspaceId.trim()) &&
     workspaceName.trim() !== selectedWorkspaceName.trim();
+
+  function applyAcceptedWorkspaceContext(workspace) {
+    const selection = selectAcceptedWorkspaceContext({
+      workspace,
+      apiKeysByWorkspace,
+    });
+    applyWorkspaceContextUpdate(selection);
+    return selection;
+  }
+
+  function applyWorkspaceContextUpdate(nextWorkspaceContext) {
+    if (!nextWorkspaceContext) {
+      return null;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(nextWorkspaceContext, "workspaceId")
+    ) {
+      setWorkspaceId(nextWorkspaceContext.workspaceId);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(
+        nextWorkspaceContext,
+        "workspaceName",
+      )
+    ) {
+      setWorkspaceName(nextWorkspaceContext.workspaceName);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(
+        nextWorkspaceContext,
+        "selectedWorkspaceInvitationId",
+      )
+    ) {
+      setSelectedWorkspaceInvitationId(
+        nextWorkspaceContext.selectedWorkspaceInvitationId,
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(nextWorkspaceContext, "apiKey")) {
+      setApiKey(nextWorkspaceContext.apiKey);
+    }
+
+    return nextWorkspaceContext;
+  }
 
   useEffect(() => {
     return () => {
@@ -871,34 +908,14 @@ export function App() {
         : [];
       setUserWorkspaces(workspaces);
       setUserWorkspaceInvitations(invitations);
-      const normalizedWorkspaceId = String(workspaceId || "").trim();
-      const hasSelectedWorkspace = workspaces.some(
-        (workspace) => String(workspace?.id || "") === normalizedWorkspaceId,
-      );
-      const normalizedInvitationId = String(
-        selectedWorkspaceInvitationId || "",
-      ).trim();
-      const hasSelectedInvitation = invitations.some(
-        (invitation) => String(invitation?.id || "") === normalizedInvitationId,
-      );
-
-      if (
-        (!normalizedWorkspaceId || !hasSelectedWorkspace) &&
-        workspaces[0]?.id
-      ) {
-        const nextWorkspaceId = String(workspaces[0].id || "");
-        setWorkspaceId(nextWorkspaceId);
-        setWorkspaceName(String(workspaces[0].name || DEFAULT_WORKSPACE_NAME));
-        setApiKey(String(apiKeysByWorkspace[nextWorkspaceId] || ""));
-        setSelectedWorkspaceInvitationId("");
-      } else if (!workspaces.length && invitations[0]?.id) {
-        setWorkspaceId("");
-        setWorkspaceName(DEFAULT_WORKSPACE_NAME);
-        setApiKey("");
-        setSelectedWorkspaceInvitationId(String(invitations[0].id || ""));
-      } else if (normalizedInvitationId && !hasSelectedInvitation) {
-        setSelectedWorkspaceInvitationId("");
-      }
+      const transition = getWorkspaceContextRefreshTransition({
+        workspaceId,
+        selectedWorkspaceInvitationId,
+        userWorkspaces: workspaces,
+        userWorkspaceInvitations: invitations,
+        apiKeysByWorkspace,
+      });
+      applyWorkspaceContextUpdate(transition.nextWorkspaceContext);
       return workspaces;
     } catch (error) {
       addLog(`List workspaces failed: ${error.message}`);
@@ -908,7 +925,7 @@ export function App() {
 
   async function listWorkspaceUsers(targetWorkspaceId = workspaceId) {
     const normalizedWorkspaceId = String(targetWorkspaceId || "").trim();
-    if (!hasSession || !normalizedWorkspaceId) {
+    if (!hasSession || !normalizedWorkspaceId || !canListWorkspaceUsers) {
       setWorkspaceUsers([]);
       return;
     }
@@ -929,7 +946,11 @@ export function App() {
 
   async function listWorkspaceInvitations(targetWorkspaceId = workspaceId) {
     const normalizedWorkspaceId = String(targetWorkspaceId || "").trim();
-    if (!hasSession || !normalizedWorkspaceId || !canManageWorkspaceUsers) {
+    if (
+      !hasSession ||
+      !normalizedWorkspaceId ||
+      !canManageWorkspaceInvitations
+    ) {
       setWorkspaceInvitations([]);
       return;
     }
@@ -951,28 +972,54 @@ export function App() {
   }
 
   async function applyWorkspaceUserAction(targetUserId, action) {
-    const targetWorkspaceId = String(workspaceId || "").trim();
-    const targetId = String(targetUserId || "").trim();
-    if (!targetWorkspaceId || !targetId) {
+    const transition = getWorkspaceMemberActionTransition({
+      workspaceId,
+      targetUserId,
+      action,
+    });
+    if (transition.reason === "missing_accepted_workspace_context") {
+      addLog("User update failed: select a workspace first");
+      return;
+    }
+    if (transition.reason === "missing_target_workspace_user") {
       return;
     }
 
     setBusy(true);
     try {
-      await request(
-        `/workspaces/${encodeURIComponent(targetWorkspaceId)}/users/${encodeURIComponent(targetId)}`,
+      const data = await request(
+        transition.request.path,
         {
-          method: "POST",
+          method: transition.request.method,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
+          body: JSON.stringify(transition.request.body),
         },
         true,
         false,
       );
-      await listWorkspaces();
-      await listWorkspaceUsers(targetWorkspaceId);
-      addLog(`User updated (${action.replace(/_/g, " ")})`);
+      const workspaces = await listWorkspaces();
+      const successTransition = getWorkspaceMemberActionTransition({
+        workspaceId,
+        targetUserId,
+        action,
+        actionResult: data || {},
+        refreshedUserWorkspaces: workspaces,
+        apiKeysByWorkspace,
+      });
+      if (successTransition.nextWorkspaceContext) {
+        applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
+      }
+      if (successTransition.refresh.includes("workspaceUsers")) {
+        await listWorkspaceUsers(successTransition.workspaceId);
+      }
+      addLog(`User updated (${successTransition.action.replace(/_/g, " ")})`);
     } catch (error) {
+      getWorkspaceMemberActionTransition({
+        workspaceId,
+        targetUserId,
+        action,
+        actionError: error,
+      });
       addLog(`User update failed: ${error.message}`);
     } finally {
       setBusy(false);
@@ -980,29 +1027,45 @@ export function App() {
   }
 
   async function inviteUser() {
-    if (!workspaceId.trim()) {
+    const transition = getInviteWorkspaceInvitationTransition({
+      workspaceId,
+      email: inviteEmail,
+      role: inviteRole,
+    });
+    if (transition.reason === "missing_accepted_workspace_context") {
       addLog("Invite failed: select a workspace first");
       return;
     }
-    if (!inviteEmail.trim()) {
+    if (transition.reason === "missing_invitation_email") {
       addLog("Invite failed: email is required");
       return;
     }
 
     setBusy(true);
     try {
-      await request(
-        `/workspaces/${encodeURIComponent(workspaceId.trim())}/invitations`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
-        },
-      );
-      addLog(`Invitation sent to ${inviteEmail.trim()}`);
+      const data = await request(transition.request.path, {
+        method: transition.request.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(transition.request.body),
+      });
+      const successTransition = getInviteWorkspaceInvitationTransition({
+        workspaceId,
+        email: inviteEmail,
+        role: inviteRole,
+        inviteResult: data || {},
+      });
+      addLog(`Invitation sent to ${successTransition.email}`);
       setInviteEmail("");
-      await listWorkspaceInvitations(workspaceId.trim());
+      if (successTransition.refresh.includes("pendingWorkspaceInvitations")) {
+        await listWorkspaceInvitations(successTransition.workspaceId);
+      }
     } catch (error) {
+      getInviteWorkspaceInvitationTransition({
+        workspaceId,
+        email: inviteEmail,
+        role: inviteRole,
+        inviteError: error,
+      });
       addLog(`Invite failed: ${error.message}`);
     } finally {
       setBusy(false);
@@ -1010,30 +1073,53 @@ export function App() {
   }
 
   async function cancelWorkspaceInvitation(invitation) {
-    const targetWorkspaceId = String(workspaceId || "").trim();
-    const invitationId = String(invitation?.id || "").trim();
-    const invitationEmail = String(
-      invitation?.email || "this invitation",
-    ).trim();
-    if (!targetWorkspaceId || !invitationId) {
+    const transition = getCancelWorkspaceInvitationTransition({
+      workspaceId,
+      invitation,
+    });
+    if (transition.reason === "missing_accepted_workspace_context") {
+      addLog("Cancel invitation failed: select a workspace first");
+      return;
+    }
+    if (transition.reason === "missing_pending_workspace_invitation") {
       addLog("Cancel invitation failed: select a pending invitation first");
       return;
     }
-    if (!window.confirm(`Cancel pending invitation for ${invitationEmail}?`)) {
+    if (
+      transition.requiresConfirmation &&
+      !window.confirm(transition.confirmationMessage)
+    ) {
       return;
     }
+    const requestTransition = getCancelWorkspaceInvitationTransition({
+      workspaceId,
+      invitation,
+      confirmed: true,
+    });
 
     setBusy(true);
     try {
-      await request(
-        `/workspaces/${encodeURIComponent(targetWorkspaceId)}/invitations/${encodeURIComponent(invitationId)}`,
-        { method: "DELETE" },
+      const data = await request(
+        requestTransition.request.path,
+        { method: requestTransition.request.method },
         true,
         false,
       );
-      await listWorkspaceInvitations(targetWorkspaceId);
-      addLog(`Invitation cancelled for ${invitationEmail}`);
+      const successTransition = getCancelWorkspaceInvitationTransition({
+        workspaceId,
+        invitation,
+        cancelResult: data || {},
+      });
+      if (successTransition.refresh.includes("pendingWorkspaceInvitations")) {
+        await listWorkspaceInvitations(successTransition.workspaceId);
+      }
+      addLog(`Invitation cancelled for ${successTransition.invitationEmail}`);
     } catch (error) {
+      getCancelWorkspaceInvitationTransition({
+        workspaceId,
+        invitation,
+        cancelError: error,
+      });
       addLog(`Cancel invitation failed: ${error.message}`);
     } finally {
       setBusy(false);
@@ -1041,15 +1127,14 @@ export function App() {
   }
 
   async function acceptSelectedWorkspaceInvitation() {
-    const invitationId = String(selectedWorkspaceInvitation?.id || "").trim();
-    if (!invitationId) {
+    const transition = getAcceptWorkspaceInvitationTransition({
+      selectedWorkspaceInvitation,
+    });
+    if (transition.reason === "missing_selected_workspace_invitation") {
       addLog("Accept invitation failed: select a pending invitation first");
       return;
     }
-    if (
-      String(selectedWorkspaceInvitation?.status || "").toLowerCase() !==
-      "pending"
-    ) {
+    if (transition.reason === "selected_workspace_invitation_not_pending") {
       addLog(
         "Accept invitation failed: only pending invitations can be accepted",
       );
@@ -1059,25 +1144,32 @@ export function App() {
     setIsAcceptingWorkspaceInvitation(true);
     try {
       const data = await request(
-        `/invitations/${encodeURIComponent(invitationId)}/accept`,
-        { method: "POST" },
+        transition.request.path,
+        { method: transition.request.method },
         true,
         false,
       );
-      const acceptedWorkspaceId = String(data?.workspace_id || "").trim();
-      if (acceptedWorkspaceId) {
-        setWorkspaceId(acceptedWorkspaceId);
-        setWorkspaceName(
-          selectedWorkspaceInvitation.workspaceName || DEFAULT_WORKSPACE_NAME,
-        );
-        setApiKey(String(apiKeysByWorkspace[acceptedWorkspaceId] || ""));
+      const workspaces = await listWorkspaces();
+      const successTransition = getAcceptWorkspaceInvitationTransition({
+        selectedWorkspaceInvitation,
+        acceptResult: data,
+        refreshedUserWorkspaces: workspaces,
+        apiKeysByWorkspace,
+      });
+      if (successTransition.nextWorkspaceContext) {
+        applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
       }
-      setSelectedWorkspaceInvitationId("");
-      await listWorkspaces();
       addLog(
-        `Invitation accepted for workspace ${acceptedWorkspaceId || "unknown"}`,
+        `Invitation accepted for workspace ${successTransition.acceptedWorkspaceId || "unknown"}`,
       );
     } catch (error) {
+      const failureTransition = getAcceptWorkspaceInvitationTransition({
+        selectedWorkspaceInvitation,
+        acceptError: error,
+      });
+      if (failureTransition.nextWorkspaceContext) {
+        applyWorkspaceContextUpdate(failureTransition.nextWorkspaceContext);
+      }
       addLog(`Accept invitation failed: ${error.message}`);
     } finally {
       setIsAcceptingWorkspaceInvitation(false);
@@ -1085,15 +1177,14 @@ export function App() {
   }
 
   async function declineSelectedWorkspaceInvitation() {
-    const invitationId = String(selectedWorkspaceInvitation?.id || "").trim();
-    if (!invitationId) {
+    const transition = getDeclineWorkspaceInvitationTransition({
+      selectedWorkspaceInvitation,
+    });
+    if (transition.reason === "missing_selected_workspace_invitation") {
       addLog("Decline invitation failed: select a pending invitation first");
       return;
     }
-    if (
-      String(selectedWorkspaceInvitation?.status || "").toLowerCase() !==
-      "pending"
-    ) {
+    if (transition.reason === "selected_workspace_invitation_not_pending") {
       addLog(
         "Decline invitation failed: only pending invitations can be declined",
       );
@@ -1103,17 +1194,27 @@ export function App() {
     setIsDecliningWorkspaceInvitation(true);
     try {
       await request(
-        `/invitations/${encodeURIComponent(invitationId)}/decline`,
-        { method: "POST" },
+        transition.request.path,
+        { method: transition.request.method },
         true,
         false,
       );
-      setSelectedWorkspaceInvitationId("");
+      const successTransition = getDeclineWorkspaceInvitationTransition({
+        selectedWorkspaceInvitation,
+        declineResult: {},
+      });
+      if (successTransition.nextWorkspaceContext) {
+        applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
+      }
       await listWorkspaces();
       addLog(
         `Invitation declined for ${selectedWorkspaceInvitation.workspaceName || "workspace"}`,
       );
     } catch (error) {
+      getDeclineWorkspaceInvitationTransition({
+        selectedWorkspaceInvitation,
+        declineError: error,
+      });
       addLog(`Decline invitation failed: ${error.message}`);
     } finally {
       setIsDecliningWorkspaceInvitation(false);
@@ -1177,13 +1278,7 @@ export function App() {
         delete next[workspaceId.trim()];
         return next;
       });
-      const workspaces = await listWorkspaces();
-      if (Array.isArray(workspaces) && workspaces.length > 0) {
-        const nextWorkspaceId = String(workspaces[0].id || "");
-        setWorkspaceId(nextWorkspaceId);
-        setWorkspaceName(String(workspaces[0].name || DEFAULT_WORKSPACE_NAME));
-        setApiKey(String(apiKeysByWorkspace[nextWorkspaceId] || ""));
-      }
+      await listWorkspaces();
       addLog("Workspace deleted");
     } catch (error) {
       addLog(`Delete workspace failed: ${error.message}`);
@@ -1195,6 +1290,7 @@ export function App() {
   async function signIn() {
     if (!authEmail.trim() || !authPassword.trim()) {
       addLog("Sign in failed: email and password are required");
+      toast.error("Email and password are required.");
       return;
     }
 
@@ -1212,14 +1308,46 @@ export function App() {
       addLog(`Signed in as ${authEmail.trim()}`);
     } catch (error) {
       addLog(`Sign in failed: ${error.message}`);
+      toast.error(
+        "Sign in failed. Check your email and password and try again.",
+      );
     } finally {
       setBusy(false);
     }
   }
 
   async function signUp() {
-    if (!authName.trim() || !authEmail.trim() || !authPassword.trim()) {
-      addLog("Sign up failed: name, email, and password are required");
+    setSignUpSubmitAttempted(true);
+    const missingSignUpFields = [];
+    if (!authName.trim()) missingSignUpFields.push("Name");
+    if (!authEmail.trim()) missingSignUpFields.push("email");
+    if (!authPassword.trim()) missingSignUpFields.push("password");
+    if (!authConfirmPassword.trim()) {
+      missingSignUpFields.push("confirm password");
+    }
+    if (missingSignUpFields.length > 0) {
+      const lastField = missingSignUpFields[missingSignUpFields.length - 1];
+      const leadingFields = missingSignUpFields.slice(0, -1);
+      const fieldList =
+        leadingFields.length === 0
+          ? lastField
+          : leadingFields.length === 1
+            ? `${leadingFields[0]} and ${lastField}`
+            : `${leadingFields.join(", ")}, and ${lastField}`;
+      const requiredVerb = missingSignUpFields.length === 1 ? "is" : "are";
+      const displayFieldList = fieldList[0].toUpperCase() + fieldList.slice(1);
+      addLog(`Sign up failed: ${fieldList} required`);
+      toast.error(`${displayFieldList} ${requiredVerb} required.`);
+      return;
+    }
+    if (unmetAccountPasswordRequirements.length > 0) {
+      addLog("Sign up failed: password does not meet complexity requirements");
+      toast.error("Password must meet all complexity requirements.");
+      return;
+    }
+    if (hasSignUpPasswordMismatch) {
+      addLog("Sign up failed: passwords do not match");
+      toast.error("Passwords do not match.");
       return;
     }
 
@@ -1234,10 +1362,12 @@ export function App() {
         throw new Error(result.error.message || "Sign up failed");
       }
       setAuthPassword("");
+      setAuthConfirmPassword("");
       await refetchSession();
       addLog(`Account created for ${authEmail.trim()}`);
     } catch (error) {
       addLog(`Sign up failed: ${error.message}`);
+      toast.error(getSignUpErrorToastMessage(error.message));
     } finally {
       setBusy(false);
     }
@@ -1255,8 +1385,26 @@ export function App() {
       }
     } catch (error) {
       addLog(`Google sign in failed: ${error.message}`);
+      toast.error("Google sign-in could not start. Please try again.");
       setBusy(false);
     }
+  }
+
+  async function submitAuthForm(event) {
+    event.preventDefault();
+    if (authMode === "signin") {
+      await signIn();
+      return;
+    }
+    await signUp();
+  }
+
+  function switchAuthMode(nextMode) {
+    setAuthMode(nextMode);
+    setAuthPassword("");
+    setAuthConfirmPassword("");
+    setAuthPasswordTouched(false);
+    setSignUpSubmitAttempted(false);
   }
 
   async function signOut() {
@@ -1385,7 +1533,12 @@ export function App() {
 
     void listWorkspaceUsers(workspaceId.trim());
     void listWorkspaceInvitations(workspaceId.trim());
-  }, [canManageWorkspaceUsers, hasSession, workspaceId]);
+  }, [
+    canListWorkspaceUsers,
+    canManageWorkspaceInvitations,
+    hasSession,
+    workspaceId,
+  ]);
 
   async function listTemplates() {
     try {
@@ -2200,465 +2353,479 @@ export function App() {
 
   if (!hasSession) {
     return (
-      <div className="auth-shell">
-        <section className="auth-card">
-          <div className="auth-header">
-            <p className="eyebrow">Data Extraction</p>
-            <h1>Studio</h1>
-            <p>
-              {authMode === "signin"
-                ? "Welcome back. Sign in to continue working in your workspace."
-                : "Create your account to start extracting structured data from documents."}
-            </p>
-          </div>
+      <>
+        <Toaster richColors />
+        <div className="auth-shell">
+          <section className="auth-card">
+            <div className="auth-header">
+              <p className="eyebrow">Data Extraction</p>
+              <h1>Studio</h1>
+              <p>
+                {authMode === "signin"
+                  ? "Welcome back. Sign in to continue working in your workspace."
+                  : "Create your account to start extracting structured data from documents."}
+              </p>
+            </div>
 
-          <div className="status-strip auth-status-strip">
-            <span className="status-chip good">Secure auth</span>
-            <span className="status-chip">Workspace-ready</span>
-          </div>
+            <div className="status-strip auth-status-strip">
+              <span className="status-chip good">Secure auth</span>
+              <span className="status-chip">Workspace-ready</span>
+            </div>
 
-          <section className="panel auth-panel">
-            <h2>{authMode === "signin" ? "Sign in" : "Create account"}</h2>
-            <p className="muted">
-              Sign in first, then create or select a workspace.
-            </p>
-            <div
-              className={
-                authMode === "signup"
-                  ? "row two-up auth-form-grid"
-                  : "row auth-form-grid"
-              }
-            >
-              {authMode === "signup" ? (
+            <form className="panel auth-panel" onSubmit={submitAuthForm}>
+              <h2>{authMode === "signin" ? "Sign in" : "Create account"}</h2>
+              <p className="muted">
+                Sign in first, then create or select a workspace.
+              </p>
+              <div
+                className={
+                  authMode === "signup"
+                    ? "row two-up auth-form-grid"
+                    : "row auth-form-grid"
+                }
+              >
+                {authMode === "signup" ? (
+                  <label>
+                    Name
+                    <input
+                      value={authName}
+                      onChange={(event) => setAuthName(event.target.value)}
+                      placeholder="Jane Doe"
+                    />
+                  </label>
+                ) : null}
                 <label>
-                  Name
+                  Email
                   <input
-                    value={authName}
-                    onChange={(event) => setAuthName(event.target.value)}
-                    placeholder="Jane Doe"
+                    type="email"
+                    value={authEmail}
+                    onChange={(event) => setAuthEmail(event.target.value)}
+                    placeholder="jane@example.com"
                   />
                 </label>
-              ) : null}
-              <label>
-                Email
-                <input
-                  type="email"
-                  value={authEmail}
-                  onChange={(event) => setAuthEmail(event.target.value)}
-                  placeholder="jane@example.com"
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  placeholder="At least 8 characters"
-                />
-              </label>
-            </div>
-            {authMode === "signin" ? (
-              <>
-                <button
-                  type="button"
-                  className="auth-primary-action"
-                  disabled={busy}
-                  onClick={signIn}
-                >
-                  Sign In
-                </button>
-                <div className="auth-divider" aria-hidden="true">
-                  <span>or continue with</span>
-                </div>
-                <button
-                  type="button"
-                  className="secondary auth-provider-action"
-                  disabled={busy}
-                  onClick={signInWithGoogle}
-                >
-                  Sign in with Google
-                </button>
-                <p className="auth-switch-copy">
-                  Don&apos;t have an account?{" "}
-                  <a
-                    href="#"
-                    className="auth-switch-link"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      if (!busy) {
-                        setAuthMode("signup");
+                <label>
+                  Password
+                  <input
+                    type="password"
+                    value={authPassword}
+                    aria-invalid={hasSignUpPasswordMismatch}
+                    className={
+                      hasSignUpPasswordMismatch ? "auth-input-error" : ""
+                    }
+                    onChange={(event) => {
+                      setAuthPassword(event.target.value);
+                      if (authMode === "signup") {
+                        setAuthPasswordTouched(true);
                       }
                     }}
-                  >
-                    Sign Up
-                  </a>
+                    placeholder="************"
+                  />
+                </label>
+                {authMode === "signup" ? (
+                  <label>
+                    Confirm Password
+                    <input
+                      type="password"
+                      value={authConfirmPassword}
+                      aria-invalid={hasSignUpPasswordMismatch}
+                      className={
+                        hasSignUpPasswordMismatch ? "auth-input-error" : ""
+                      }
+                      onChange={(event) =>
+                        setAuthConfirmPassword(event.target.value)
+                      }
+                      placeholder="Repeat password"
+                    />
+                  </label>
+                ) : null}
+              </div>
+              {/* {hasSignUpPasswordMismatch ? (
+                <p className="auth-password-mismatch">
+                  Passwords do not match.
                 </p>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="auth-primary-action"
-                  disabled={busy}
-                  onClick={signUp}
-                >
-                  Create Account
-                </button>
-                <p className="auth-switch-copy">
-                  Already have an account?{" "}
-                  <a
-                    href="#"
-                    className="auth-switch-link"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      if (!busy) {
-                        setAuthMode("signin");
-                      }
-                    }}
+              ) : null} */}
+              {shouldShowAccountPasswordRequirements &&
+              unmetAccountPasswordRequirements.length > 0 ? (
+                <ul className="auth-password-requirements">
+                  {unmetAccountPasswordRequirements.map((requirement) => (
+                    <li key={requirement.label}>{requirement.label}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {authMode === "signin" ? (
+                <>
+                  <button
+                    type="submit"
+                    className="auth-primary-action"
+                    disabled={busy}
                   >
                     Sign In
-                  </a>
-                </p>
-              </>
-            )}
+                  </button>
+                  <div className="auth-divider" aria-hidden="true">
+                    <span>or continue with</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary auth-provider-action"
+                    disabled={busy}
+                    onClick={signInWithGoogle}
+                  >
+                    Sign in with Google
+                  </button>
+                  <p className="auth-switch-copy">
+                    Don&apos;t have an account?{" "}
+                    <a
+                      href="#"
+                      className="auth-switch-link"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (!busy) {
+                          switchAuthMode("signup");
+                        }
+                      }}
+                    >
+                      Sign Up
+                    </a>
+                  </p>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="submit"
+                    className="auth-primary-action"
+                    disabled={busy}
+                  >
+                    Create Account
+                  </button>
+                  <p className="auth-switch-copy">
+                    Already have an account?{" "}
+                    <a
+                      href="#"
+                      className="auth-switch-link"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (!busy) {
+                          switchAuthMode("signin");
+                        }
+                      }}
+                    >
+                      Sign In
+                    </a>
+                  </p>
+                </>
+              )}
+            </form>
           </section>
-        </section>
-      </div>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="app-frame">
-      <aside className="left-sidebar">
-        <div className="sidebar-brand">
-          <p className="eyebrow">Data Extraction</p>
-          <h1>Studio</h1>
-        </div>
-
-        <nav className="sidebar-nav" aria-label="Main navigation">
-          {SIDEBAR_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={
-                item.id === activePage ? "sidebar-link active" : "sidebar-link"
-              }
-              onClick={() => handleSidebarNavigation(item.id)}
-            >
-              <span className="sidebar-link-icon" aria-hidden="true">
-                {item.icon}
-              </span>
-              <span>{item.label}</span>
-              <span className="sidebar-link-count">
-                {item.id === "templates"
-                  ? templates.length
-                  : item.id === "documents"
-                    ? documents.length
-                    : item.id === "workspace"
-                      ? availableWorkspaces.length
-                      : ""}
-              </span>
-            </button>
-          ))}
-        </nav>
-
-        <button
-          type="button"
-          className="sidebar-upload-button"
-          disabled={busy || !workspaceSelectionView.hasWorkspaceApiAccess}
-          onClick={openUploadModal}
-        >
-          Upload Document
-        </button>
-
-        <div className="sidebar-spacer" aria-hidden="true" />
-
-        <div className="sidebar-footer">
-          <div className="sidebar-profile" ref={profilePanelRef}>
-            <button
-              type="button"
-              className="sidebar-profile-trigger"
-              onClick={() =>
-                setIsProfileMenuOpen((currentOpen) => !currentOpen)
-              }
-            >
-              <span className="sidebar-profile-avatar" aria-hidden="true">
-                {profileInitials(displayProfileName, displayProfileEmail)}
-              </span>
-              <span className="sidebar-profile-meta">
-                <strong>{displayProfileName}</strong>
-                <span>{displayProfileEmail}</span>
-              </span>
-            </button>
-
-            {isProfileMenuOpen ? (
-              <div className="sidebar-profile-popout">
-                <label>
-                  Name
-                  <input
-                    value={profileDraftName}
-                    onChange={(event) =>
-                      setProfileDraftName(event.target.value)
-                    }
-                    placeholder="Jane Doe"
-                  />
-                </label>
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={isSavingProfile || !profileIsDirty}
-                    onClick={saveProfile}
-                  >
-                    {isSavingProfile ? "Saving..." : "Save Profile"}
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    disabled={busy || isSavingProfile}
-                    onClick={signOut}
-                  >
-                    Sign Out
-                  </button>
-                </div>
-              </div>
-            ) : null}
+    <>
+      <Toaster richColors />
+      <div className="app-frame">
+        <aside className="left-sidebar">
+          <div className="sidebar-brand">
+            <p className="eyebrow">Data Extraction</p>
+            <h1>Studio</h1>
           </div>
-        </div>
-      </aside>
 
-      <aside className="context-sidebar">
-        <div className="context-head">
-          <p className="eyebrow">Control Center</p>
-          <h2>
-            {activePage === "documents"
-              ? "Jobs"
-              : activePage === "templates"
-                ? "Templates"
-                : "Workspaces"}
-          </h2>
-        </div>
+          <nav className="sidebar-nav" aria-label="Main navigation">
+            {SIDEBAR_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={
+                  item.id === activePage
+                    ? "sidebar-link active"
+                    : "sidebar-link"
+                }
+                onClick={() => handleSidebarNavigation(item.id)}
+              >
+                <span className="sidebar-link-icon" aria-hidden="true">
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+                <span className="sidebar-link-count">
+                  {item.id === "templates"
+                    ? templates.length
+                    : item.id === "documents"
+                      ? documents.length
+                      : item.id === "workspace"
+                        ? availableWorkspaces.length
+                        : ""}
+                </span>
+              </button>
+            ))}
+          </nav>
 
-        {activePage === "documents" ? (
-          <>
-            <label>
-              Search Jobs
-              <input
-                value={documentSearch}
-                onChange={(event) => setDocumentSearch(event.target.value)}
-                placeholder="Job ID or file"
-              />
-            </label>
-            <div className="context-list">
-              {documents.map((job) => (
-                <button
-                  type="button"
-                  key={`context-${job.job_id}`}
-                  className={
-                    selectedDocument?.job_id === job.job_id
-                      ? "context-item active"
-                      : "context-item"
-                  }
-                  onClick={() => setSelectedDocumentId(job.job_id)}
-                >
-                  <strong>
-                    {job.image_name ||
-                      defaultUploadedName(job.source_mime_type)}
-                  </strong>
-                  <span>{job.job_id}</span>
-                </button>
-              ))}
-              {!documents.length ? (
-                <p className="muted">
-                  {debouncedDocumentSearch
-                    ? "No documents match this search."
-                    : "No documents uploaded yet."}
-                </p>
+          <button
+            type="button"
+            className="sidebar-upload-button"
+            disabled={busy || !workspaceSelectionView.hasWorkspaceApiAccess}
+            onClick={openUploadModal}
+          >
+            Upload Document
+          </button>
+
+          <div className="sidebar-spacer" aria-hidden="true" />
+
+          <div className="sidebar-footer">
+            <div className="sidebar-profile" ref={profilePanelRef}>
+              <button
+                type="button"
+                className="sidebar-profile-trigger"
+                onClick={() =>
+                  setIsProfileMenuOpen((currentOpen) => !currentOpen)
+                }
+              >
+                <span className="sidebar-profile-avatar" aria-hidden="true">
+                  {profileInitials(displayProfileName, displayProfileEmail)}
+                </span>
+                <span className="sidebar-profile-meta">
+                  <strong>{displayProfileName}</strong>
+                  <span>{displayProfileEmail}</span>
+                </span>
+              </button>
+
+              {isProfileMenuOpen ? (
+                <div className="sidebar-profile-popout">
+                  <label>
+                    Name
+                    <input
+                      value={profileDraftName}
+                      onChange={(event) =>
+                        setProfileDraftName(event.target.value)
+                      }
+                      placeholder="Jane Doe"
+                    />
+                  </label>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={isSavingProfile || !profileIsDirty}
+                      onClick={saveProfile}
+                    >
+                      {isSavingProfile ? "Saving..." : "Save Profile"}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={busy || isSavingProfile}
+                      onClick={signOut}
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
               ) : null}
-              {jobsHasMore ? (
-                <button
-                  type="button"
-                  className="context-item"
-                  disabled={isLoadingMoreJobs}
-                  onClick={loadMoreJobs}
-                >
-                  <strong>
-                    {isLoadingMoreJobs ? "Loading..." : "Load More Documents"}
-                  </strong>
-                  <span>
-                    {debouncedDocumentSearch
-                      ? "Continue searching older jobs"
-                      : "Show older jobs"}
-                  </span>
-                </button>
-              ) : null}
             </div>
-          </>
-        ) : activePage === "templates" ? (
-          <>
-            <label>
-              Search Templates
-              <input
-                value={templateSearch}
-                onChange={(event) => setTemplateSearch(event.target.value)}
-                placeholder="Template name or ID"
-              />
-            </label>
-            <div className="context-list">
-              {contextTemplates.slice(0, 12).map((template) => (
-                <button
-                  type="button"
-                  key={`context-${template.id}`}
-                  className={
-                    template.is_draft
-                      ? !isEditingTemplate
-                        ? "context-item active"
-                        : "context-item"
-                      : updateTemplateId === template.id
-                        ? "context-item active"
-                        : "context-item"
-                  }
-                  onClick={() => {
-                    if (template.is_draft) {
-                      startNewTemplateDraft();
-                    } else {
-                      setActivePage("templates");
-                      loadTemplateForEditing(template.id);
-                    }
-                  }}
-                >
-                  <strong>
-                    {template.is_draft
-                      ? "New Template Draft"
-                      : template.name || "Untitled template"}
-                  </strong>
-                  <span>{template.is_draft ? "Unsaved" : template.id}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <label>
-              Search Workspaces
-              <input
-                value={workspaceSearch}
-                onChange={(event) => setWorkspaceSearch(event.target.value)}
-                placeholder="Workspace name or ID"
-              />
-            </label>
-            <div className="context-list">
-              {filteredWorkspaces.map((workspace) => (
-                <button
-                  type="button"
-                  key={
-                    workspace.type === "invitation"
-                      ? `workspace-invitation-${workspace.invitation_id}`
-                      : `workspace-${workspace.id}`
-                  }
-                  className={[
-                    "context-item context-item-workspace",
-                    workspace.type === "invitation" ? "invited" : "",
-                    workspace.type === "invitation"
-                      ? workspace.invitation_id ===
-                        selectedWorkspaceInvitationId
-                        ? "active"
-                        : ""
-                      : workspace.id ===
-                            (workspaceId || DEFAULT_WORKSPACE_ID) &&
-                          !selectedWorkspaceInvitationId
-                        ? "active"
-                        : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onClick={() => {
-                    if (workspace.type === "invitation") {
-                      setSelectedWorkspaceInvitationId(workspace.invitation_id);
-                      setActivePage("workspace");
-                      addLog(
-                        `Selected invitation for workspace ${workspace.id}`,
-                      );
-                      return;
-                    }
+          </div>
+        </aside>
 
-                    setSelectedWorkspaceInvitationId("");
-                    setWorkspaceId(workspace.id);
-                    setWorkspaceName(workspace.name);
-                    setApiKey(
-                      String(apiKeysByWorkspace[String(workspace.id)] || ""),
-                    );
-                    addLog(`Switched workspace context to ${workspace.id}`);
-                  }}
-                >
-                  <strong>{workspace.name}</strong>
-                  <span>{workspace.id}</span>
-                  {workspace.type === "invitation" ? (
-                    <span className="workspace-invited-meta">
-                      Invited as {formatRoleLabel(workspace.role)}
-                    </span>
-                  ) : null}
-                  {workspace.connected ? <span>Connected</span> : null}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        <aside className="context-sidebar">
+          <div className="context-head">
+            <p className="eyebrow">Control Center</p>
+            <h2>
+              {activePage === "documents"
+                ? "Jobs"
+                : activePage === "templates"
+                  ? "Templates"
+                  : "Workspaces"}
+            </h2>
+          </div>
 
-        <div className="context-foot">
           {activePage === "documents" ? (
             <>
-              <span className="status-chip">
-                Queued {documentStatusMetrics.queued}
-              </span>
-              <span className="status-chip good">
-                Completed {documentStatusMetrics.completed}
-              </span>
+              <label>
+                Search Jobs
+                <input
+                  value={documentSearch}
+                  onChange={(event) => setDocumentSearch(event.target.value)}
+                  placeholder="Job ID or file"
+                />
+              </label>
+              <div className="context-list">
+                {documents.map((job) => (
+                  <button
+                    type="button"
+                    key={`context-${job.job_id}`}
+                    className={
+                      selectedDocument?.job_id === job.job_id
+                        ? "context-item active"
+                        : "context-item"
+                    }
+                    onClick={() => setSelectedDocumentId(job.job_id)}
+                  >
+                    <strong>
+                      {job.image_name ||
+                        defaultUploadedName(job.source_mime_type)}
+                    </strong>
+                    <span>{job.job_id}</span>
+                  </button>
+                ))}
+                {!documents.length ? (
+                  <p className="muted">
+                    {debouncedDocumentSearch
+                      ? "No documents match this search."
+                      : "No documents uploaded yet."}
+                  </p>
+                ) : null}
+                {jobsHasMore ? (
+                  <button
+                    type="button"
+                    className="context-item"
+                    disabled={isLoadingMoreJobs}
+                    onClick={loadMoreJobs}
+                  >
+                    <strong>
+                      {isLoadingMoreJobs ? "Loading..." : "Load More Documents"}
+                    </strong>
+                    <span>
+                      {debouncedDocumentSearch
+                        ? "Continue searching older jobs"
+                        : "Show older jobs"}
+                    </span>
+                  </button>
+                ) : null}
+              </div>
             </>
           ) : activePage === "templates" ? (
             <>
-              <span className="status-chip">Templates {templates.length}</span>
-              <span className="status-chip good">
-                {isEditingTemplate ? "Editing" : "Draft"}
-              </span>
+              <label>
+                Search Templates
+                <input
+                  value={templateSearch}
+                  onChange={(event) => setTemplateSearch(event.target.value)}
+                  placeholder="Template name or ID"
+                />
+              </label>
+              <div className="context-list">
+                {contextTemplates.slice(0, 12).map((template) => (
+                  <button
+                    type="button"
+                    key={`context-${template.id}`}
+                    className={
+                      template.is_draft
+                        ? !isEditingTemplate
+                          ? "context-item active"
+                          : "context-item"
+                        : updateTemplateId === template.id
+                          ? "context-item active"
+                          : "context-item"
+                    }
+                    onClick={() => {
+                      if (template.is_draft) {
+                        startNewTemplateDraft();
+                      } else {
+                        setActivePage("templates");
+                        loadTemplateForEditing(template.id);
+                      }
+                    }}
+                  >
+                    <strong>
+                      {template.is_draft
+                        ? "New Template Draft"
+                        : template.name || "Untitled template"}
+                    </strong>
+                    <span>{template.is_draft ? "Unsaved" : template.id}</span>
+                  </button>
+                ))}
+              </div>
             </>
           ) : (
             <>
-              <span className="status-chip">
-                Workspaces {availableWorkspaces.length}
-              </span>
-              <span
-                className={`status-chip ${
-                  workspaceSelectionView.hasWorkspaceApiAccess ? "good" : "warn"
-                }`}
-              >
-                {isWorkspaceInvitationSelected
-                  ? "Invitation Pending"
-                  : `API ${
-                      workspaceSelectionView.hasWorkspaceApiAccess
-                        ? "Ready"
-                        : "Missing"
-                    }`}
-              </span>
+              <label>
+                Search Workspaces
+                <input
+                  value={workspaceSearch}
+                  onChange={(event) => setWorkspaceSearch(event.target.value)}
+                  placeholder="Workspace name or ID"
+                />
+              </label>
+              <div className="context-list">
+                {filteredWorkspaces.map((workspace) => (
+                  <button
+                    type="button"
+                    key={
+                      workspace.type === "invitation"
+                        ? `workspace-invitation-${workspace.invitation_id}`
+                        : `workspace-${workspace.id}`
+                    }
+                    className={[
+                      "context-item context-item-workspace",
+                      workspace.type === "invitation" ? "invited" : "",
+                      workspace.type === "invitation"
+                        ? workspace.invitation_id ===
+                          effectiveSelectedWorkspaceInvitationId
+                          ? "active"
+                          : ""
+                        : workspace.id ===
+                              (workspaceId || DEFAULT_WORKSPACE_ID) &&
+                            !effectiveSelectedWorkspaceInvitationId
+                          ? "active"
+                          : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => {
+                      if (workspace.type === "invitation") {
+                        applyWorkspaceContextUpdate(
+                          selectPendingWorkspaceInvitationContext({
+                            invitation: { id: workspace.invitation_id },
+                          }),
+                        );
+                        setActivePage("workspace");
+                        addLog(
+                          `Selected invitation for workspace ${workspace.id}`,
+                        );
+                        return;
+                      }
+
+                      applyAcceptedWorkspaceContext(workspace);
+                      addLog(`Switched workspace context to ${workspace.id}`);
+                    }}
+                  >
+                    <strong>{workspace.name}</strong>
+                    <span>{workspace.id}</span>
+                    {workspace.type === "invitation" ? (
+                      <span className="workspace-invited-meta">
+                        Invited as {formatRoleLabel(workspace.role)}
+                      </span>
+                    ) : null}
+                    {workspace.connected ? <span>Connected</span> : null}
+                  </button>
+                ))}
+              </div>
             </>
           )}
-        </div>
-      </aside>
 
-      <main className="main-content">
-        <section className="workspace-toolbar" aria-label="Workspace toolbar">
-          <div className="workspace-toolbar-meta">
-            <span className="status-chip">
-              Workspace {workspaceSelectionView.workspaceName}
-            </span>
-            {isWorkspaceInvitationSelected ? (
+          <div className="context-foot">
+            {activePage === "documents" ? (
               <>
-                <span className="status-chip warn">Invitation Pending</span>
-                <span className="status-chip warn">API Locked</span>
+                <span className="status-chip">
+                  Queued {documentStatusMetrics.queued}
+                </span>
+                <span className="status-chip good">
+                  Completed {documentStatusMetrics.completed}
+                </span>
+              </>
+            ) : activePage === "templates" ? (
+              <>
+                <span className="status-chip">
+                  Templates {templates.length}
+                </span>
+                <span className="status-chip good">
+                  {isEditingTemplate ? "Editing" : "Draft"}
+                </span>
               </>
             ) : (
               <>
+                <span className="status-chip">
+                  Workspaces {availableWorkspaces.length}
+                </span>
                 <span
                   className={`status-chip ${
                     workspaceSelectionView.hasWorkspaceApiAccess
@@ -2666,442 +2833,417 @@ export function App() {
                       : "warn"
                   }`}
                 >
-                  API{" "}
-                  {workspaceSelectionView.hasWorkspaceApiAccess
-                    ? "Ready"
-                    : "Missing Access"}
+                  {isWorkspaceInvitationSelected
+                    ? "Invitation Pending"
+                    : `API ${
+                        workspaceSelectionView.hasWorkspaceApiAccess
+                          ? "Ready"
+                          : "Missing"
+                      }`}
                 </span>
-                <span className="status-chip">Jobs {documents.length}</span>
               </>
             )}
           </div>
-          <div className="actions compact">
-            <button
-              type="button"
-              className="secondary"
-              disabled={activePage === "documents" && !hasApiAccess}
-              onClick={
-                activePage === "templates"
-                  ? startNewTemplateDraft
-                  : activePage === "workspace"
-                    ? createWorkspace
-                    : openUploadModal
-              }
-            >
-              {activePage === "templates"
-                ? "Create Template"
-                : activePage === "workspace"
-                  ? "Create Workspace"
-                  : "Upload Document"}
-            </button>
-            {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
+        </aside>
+
+        <main className="main-content">
+          <section className="workspace-toolbar" aria-label="Workspace toolbar">
+            <div className="workspace-toolbar-meta">
+              <span className="status-chip">
+                Workspace {workspaceSelectionView.workspaceName}
+              </span>
+              {isWorkspaceInvitationSelected ? (
+                <>
+                  <span className="status-chip warn">Invitation Pending</span>
+                  <span className="status-chip warn">API Locked</span>
+                </>
+              ) : (
+                <>
+                  <span
+                    className={`status-chip ${
+                      workspaceSelectionView.hasWorkspaceApiAccess
+                        ? "good"
+                        : "warn"
+                    }`}
+                  >
+                    API{" "}
+                    {workspaceSelectionView.hasWorkspaceApiAccess
+                      ? "Ready"
+                      : "Missing Access"}
+                  </span>
+                  <span className="status-chip">Jobs {documents.length}</span>
+                </>
+              )}
+            </div>
+            <div className="actions compact">
               <button
                 type="button"
-                className="danger"
-                disabled={isDeletingWorkspace || !workspaceId.trim()}
-                onClick={deleteWorkspace}
-              >
-                {isDeletingWorkspace ? "Deleting..." : "Delete Workspace"}
-              </button>
-            ) : activePage === "templates" ? (
-              <button
-                type="button"
-                className="danger"
-                disabled={
-                  isDeletingTemplate ||
-                  !hasApiAccess ||
-                  !updateTemplateId.trim()
+                className="secondary"
+                disabled={activePage === "documents" && !hasApiAccess}
+                onClick={
+                  activePage === "templates"
+                    ? startNewTemplateDraft
+                    : activePage === "workspace"
+                      ? createWorkspace
+                      : openUploadModal
                 }
-                onClick={deleteTemplate}
               >
-                {isDeletingTemplate ? "Deleting..." : "Delete Template"}
+                {activePage === "templates"
+                  ? "Create Template"
+                  : activePage === "workspace"
+                    ? "Create Workspace"
+                    : "Upload Document"}
               </button>
-            ) : activePage === "documents" ? (
-              <>
+              {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
                 <button
                   type="button"
-                  className="secondary"
-                  disabled={
-                    isRetryingDocument ||
-                    !selectedDocument?.job_id ||
-                    !["failed", "retryable_failed"].includes(
-                      String(selectedDocument?.status || "").toLowerCase(),
-                    )
-                  }
-                  onClick={retrySelectedDocument}
+                  className="danger"
+                  disabled={isDeletingWorkspace || !workspaceId.trim()}
+                  onClick={deleteWorkspace}
                 >
-                  {isRetryingDocument ? "Retrying..." : "Retry Document"}
+                  {isDeletingWorkspace ? "Deleting..." : "Delete Workspace"}
                 </button>
+              ) : activePage === "templates" ? (
                 <button
                   type="button"
                   className="danger"
                   disabled={
-                    isDeletingDocument ||
-                    isRetryingDocument ||
-                    !selectedDocument?.job_id
+                    isDeletingTemplate ||
+                    !hasApiAccess ||
+                    !updateTemplateId.trim()
                   }
-                  onClick={deleteSelectedDocument}
+                  onClick={deleteTemplate}
                 >
-                  {isDeletingDocument ? "Deleting..." : "Delete Document"}
+                  {isDeletingTemplate ? "Deleting..." : "Delete Template"}
                 </button>
-              </>
-            ) : null}
-          </div>
-        </section>
-
-        {!isWorkspaceInvitationSelected ? (
-          <section className="kpi-grid" aria-label="Operational metrics">
-            <article className="kpi-card">
-              <p className="kpi-label">Templates</p>
-              <p className="kpi-value">{templates.length}</p>
-              <p className="kpi-meta">Active extraction schemas</p>
-            </article>
-            <article className="kpi-card">
-              <p className="kpi-label">Documents</p>
-              <p className="kpi-value">{documents.length}</p>
-              <p className="kpi-meta">Queued and completed jobs</p>
-            </article>
-            <article className="kpi-card">
-              <p className="kpi-label">Completion</p>
-              <p className="kpi-value">{completionRate}%</p>
-              <p className="kpi-meta">Successful jobs ratio</p>
-              <div
-                className="kpi-progress"
-                role="img"
-                aria-label={`Completion rate ${completionRate}%`}
-              >
-                <span style={{ width: `${completionRate}%` }} />
-              </div>
-            </article>
-            <article className="kpi-card">
-              <p className="kpi-label">Failures</p>
-              <p className="kpi-value">
-                {documentStatusMetrics.failed +
-                  documentStatusMetrics.retryable_failed}
-              </p>
-              <p className="kpi-meta">Includes retryable failures</p>
-            </article>
+              ) : activePage === "documents" ? (
+                <>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={
+                      isRetryingDocument ||
+                      !selectedDocument?.job_id ||
+                      !["failed", "retryable_failed"].includes(
+                        String(selectedDocument?.status || "").toLowerCase(),
+                      )
+                    }
+                    onClick={retrySelectedDocument}
+                  >
+                    {isRetryingDocument ? "Retrying..." : "Retry Document"}
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={
+                      isDeletingDocument ||
+                      isRetryingDocument ||
+                      !selectedDocument?.job_id
+                    }
+                    onClick={deleteSelectedDocument}
+                  >
+                    {isDeletingDocument ? "Deleting..." : "Delete Document"}
+                  </button>
+                </>
+              ) : null}
+            </div>
           </section>
-        ) : null}
 
-        {activePage === "workspace" ? (
-          isWorkspaceInvitationSelected && selectedWorkspaceInvitation ? (
-            <>
-              <header className="page-header invitation-page-header">
-                <p className="eyebrow">Workspace Invitation</p>
-                <h2>{selectedWorkspaceInvitation.workspaceName}</h2>
-                <p>
-                  This invitation is a pending offer. You do not have workspace
-                  access until you accept it.
+          {!isWorkspaceInvitationSelected ? (
+            <section className="kpi-grid" aria-label="Operational metrics">
+              <article className="kpi-card">
+                <p className="kpi-label">Templates</p>
+                <p className="kpi-value">{templates.length}</p>
+                <p className="kpi-meta">Active extraction schemas</p>
+              </article>
+              <article className="kpi-card">
+                <p className="kpi-label">Documents</p>
+                <p className="kpi-value">{documents.length}</p>
+                <p className="kpi-meta">Queued and completed jobs</p>
+              </article>
+              <article className="kpi-card">
+                <p className="kpi-label">Completion</p>
+                <p className="kpi-value">{completionRate}%</p>
+                <p className="kpi-meta">Successful jobs ratio</p>
+                <div
+                  className="kpi-progress"
+                  role="img"
+                  aria-label={`Completion rate ${completionRate}%`}
+                >
+                  <span style={{ width: `${completionRate}%` }} />
+                </div>
+              </article>
+              <article className="kpi-card">
+                <p className="kpi-label">Failures</p>
+                <p className="kpi-value">
+                  {documentStatusMetrics.failed +
+                    documentStatusMetrics.retryable_failed}
                 </p>
-              </header>
+                <p className="kpi-meta">Includes retryable failures</p>
+              </article>
+            </section>
+          ) : null}
 
-              <section className="content-grid invitation-detail-grid">
-                <article className="workspace-card invitation-detail-card">
-                  <div className="workspace-head">
-                    <h2>Pending Invitation</h2>
-                    <p>
-                      Review who invited you and what role you will receive
-                      before accepting or declining.
-                    </p>
-                  </div>
+          {activePage === "workspace" ? (
+            isWorkspaceInvitationSelected && selectedWorkspaceInvitation ? (
+              <>
+                <header className="page-header invitation-page-header">
+                  <p className="eyebrow">Workspace Invitation</p>
+                  <h2>{selectedWorkspaceInvitation.workspaceName}</h2>
+                  <p>
+                    This invitation is a pending offer. You do not have
+                    workspace access until you accept it.
+                  </p>
+                </header>
 
-                  <dl className="invitation-detail-list">
-                    <div>
-                      <dt>Workspace</dt>
-                      <dd>{selectedWorkspaceInvitation.workspaceName}</dd>
-                    </div>
-                    <div>
-                      <dt>Invited email</dt>
-                      <dd>{selectedWorkspaceInvitation.email || "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>Offered role</dt>
-                      <dd>
-                        <span className="role-badge">
-                          {formatRoleLabel(selectedWorkspaceInvitation.role)}
-                        </span>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Status</dt>
-                      <dd>
-                        {formatRoleLabel(selectedWorkspaceInvitation.status)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Inviter</dt>
-                      <dd>{selectedWorkspaceInvitation.inviter || "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>Invited</dt>
-                      <dd>
-                        {formatTimestamp(selectedWorkspaceInvitation.invitedAt)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Expires</dt>
-                      <dd>
-                        {formatTimestamp(selectedWorkspaceInvitation.expiresAt)}
-                      </dd>
-                    </div>
-                  </dl>
-
-                  <div className="invitation-locked-panel">
-                    <strong>No workspace access yet</strong>
-                    <p>
-                      Templates, documents, jobs, API keys, uploads, rename,
-                      deletion, and user management stay locked until this
-                      invitation is accepted.
-                    </p>
-                  </div>
-
-                  <div className="actions invitation-actions">
-                    <button
-                      type="button"
-                      disabled={
-                        isAcceptingWorkspaceInvitation ||
-                        isDecliningWorkspaceInvitation ||
-                        String(
-                          selectedWorkspaceInvitation.status || "",
-                        ).toLowerCase() !== "pending"
-                      }
-                      onClick={acceptSelectedWorkspaceInvitation}
-                    >
-                      {isAcceptingWorkspaceInvitation
-                        ? "Accepting..."
-                        : "Accept Invitation"}
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      disabled={
-                        isAcceptingWorkspaceInvitation ||
-                        isDecliningWorkspaceInvitation ||
-                        String(
-                          selectedWorkspaceInvitation.status || "",
-                        ).toLowerCase() !== "pending"
-                      }
-                      onClick={declineSelectedWorkspaceInvitation}
-                    >
-                      {isDecliningWorkspaceInvitation
-                        ? "Declining..."
-                        : "Decline Invitation"}
-                    </button>
-                  </div>
-                </article>
-              </section>
-            </>
-          ) : (
-            <>
-              <header className="page-header">
-                <p className="eyebrow">Workspace</p>
-                <h2>Environment and Access</h2>
-                <p>
-                  Manage API connection details, workspace credentials, and
-                  workspace state from one place.
-                </p>
-              </header>
-
-              <section className="content-grid workspace-page-grid">
-                <article className="workspace-card">
-                  <div className="workspace-head">
-                    <h2>Connection Settings</h2>
-                    <p>Manage workspace details and rotate API credentials.</p>
-                  </div>
-                  <div className="row two-up workspace-name-row">
-                    <label>
-                      Workspace name
-                      <input
-                        value={workspaceName}
-                        onChange={(event) =>
-                          setWorkspaceName(event.target.value)
-                        }
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="secondary workspace-inline-action"
-                      disabled={isSavingWorkspace || !isWorkspaceNameDirty}
-                      onClick={saveWorkspaceChanges}
-                    >
-                      {isSavingWorkspace ? "Saving..." : "Save Changes"}
-                    </button>
-                  </div>
-                  <label>
-                    API key
-                    <div className="row two-up workspace-key-row">
-                      <input
-                        value={apiKey}
-                        readOnly
-                        placeholder="Rotate to generate key_ + 32 chars"
-                      />
-                      <button
-                        type="button"
-                        className="workspace-inline-action"
-                        disabled={busy}
-                        onClick={refreshApiKey}
-                      >
-                        Refresh API Key
-                      </button>
-                    </div>
-                  </label>
-                </article>
-
-                <article className="workspace-card">
-                  <div className="workspace-head">
-                    <h2>Invite Users</h2>
-                    <p>Invite teammates to join this workspace.</p>
-                  </div>
-                  <div className="row two-up">
-                    <label>
-                      Invite email
-                      <input
-                        value={inviteEmail}
-                        onChange={(event) => setInviteEmail(event.target.value)}
-                        placeholder="teammate@example.com"
-                      />
-                    </label>
-                    <label>
-                      Invite role
-                      <select
-                        value={inviteRole}
-                        onChange={(event) => setInviteRole(event.target.value)}
-                      >
-                        <option value="member">Member</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy || !workspaceId.trim()}
-                      onClick={inviteUser}
-                    >
-                      Invite User
-                    </button>
-                  </div>
-                </article>
-              </section>
-
-              <section className="content-grid workspace-users-grid">
-                <article className="workspace-card">
-                  <div className="workspace-head">
-                    <h2>Workspace Users</h2>
-                    <p>Current members and their roles.</p>
-                  </div>
-                  {workspaceUsers.length ? (
-                    <div className="table-scroll workspace-users-table">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Role</th>
-                            <th>Joined</th>
-                            <th>Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {workspaceUsers.map((user) => (
-                            <tr key={String(user.user_id || user.email || "")}>
-                              <td>{String(user.name || "-")}</td>
-                              <td>{String(user.email || "-")}</td>
-                              <td>
-                                <span className="role-badge">
-                                  {formatRoleLabel(user.role)}
-                                </span>
-                              </td>
-                              <td>{formatJoinedAt(user.created_at)}</td>
-                              <td>
-                                {canManageWorkspaceUsers &&
-                                String(user.user_id || "").trim() !==
-                                  sessionUserId ? (
-                                  <button
-                                    type="button"
-                                    className="icon-action-button"
-                                    aria-label="Edit user"
-                                    onClick={() =>
-                                      setWorkspaceUserActionTarget(user)
-                                    }
-                                  >
-                                    ✎
-                                  </button>
-                                ) : (
-                                  <span className="muted">-</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="muted">No workspace users found.</p>
-                  )}
-                </article>
-
-                {canManageWorkspaceUsers & (workspaceInvitations.length > 0) ? (
-                  <article className="workspace-card">
+                <section className="content-grid invitation-detail-grid">
+                  <article className="workspace-card invitation-detail-card">
                     <div className="workspace-head">
-                      <h2>Pending Invitations</h2>
+                      <h2>Pending Invitation</h2>
                       <p>
-                        Actionable workspace invitations that have not been
-                        accepted.
+                        Review who invited you and what role you will receive
+                        before accepting or declining.
                       </p>
                     </div>
-                    {workspaceInvitations.length ? (
+
+                    <dl className="invitation-detail-list">
+                      <div>
+                        <dt>Workspace</dt>
+                        <dd>{selectedWorkspaceInvitation.workspaceName}</dd>
+                      </div>
+                      <div>
+                        <dt>Invited email</dt>
+                        <dd>{selectedWorkspaceInvitation.email || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Offered role</dt>
+                        <dd>
+                          <span className="role-badge">
+                            {formatRoleLabel(selectedWorkspaceInvitation.role)}
+                          </span>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Status</dt>
+                        <dd>
+                          {formatRoleLabel(selectedWorkspaceInvitation.status)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Inviter</dt>
+                        <dd>{selectedWorkspaceInvitation.inviter || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Invited</dt>
+                        <dd>
+                          {formatTimestamp(
+                            selectedWorkspaceInvitation.invitedAt,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Expires</dt>
+                        <dd>
+                          {formatTimestamp(
+                            selectedWorkspaceInvitation.expiresAt,
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div className="invitation-locked-panel">
+                      <strong>No workspace access yet</strong>
+                      <p>
+                        Templates, documents, jobs, API keys, uploads, rename,
+                        deletion, and user management stay locked until this
+                        invitation is accepted.
+                      </p>
+                    </div>
+
+                    <div className="actions invitation-actions">
+                      <button
+                        type="button"
+                        disabled={
+                          isAcceptingWorkspaceInvitation ||
+                          isDecliningWorkspaceInvitation ||
+                          String(
+                            selectedWorkspaceInvitation.status || "",
+                          ).toLowerCase() !== "pending"
+                        }
+                        onClick={acceptSelectedWorkspaceInvitation}
+                      >
+                        {isAcceptingWorkspaceInvitation
+                          ? "Accepting..."
+                          : "Accept Invitation"}
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={
+                          isAcceptingWorkspaceInvitation ||
+                          isDecliningWorkspaceInvitation ||
+                          String(
+                            selectedWorkspaceInvitation.status || "",
+                          ).toLowerCase() !== "pending"
+                        }
+                        onClick={declineSelectedWorkspaceInvitation}
+                      >
+                        {isDecliningWorkspaceInvitation
+                          ? "Declining..."
+                          : "Decline Invitation"}
+                      </button>
+                    </div>
+                  </article>
+                </section>
+              </>
+            ) : (
+              <>
+                <header className="page-header">
+                  <p className="eyebrow">Workspace</p>
+                  <h2>Environment and Access</h2>
+                  <p>
+                    Manage API connection details, workspace credentials, and
+                    workspace state from one place.
+                  </p>
+                </header>
+
+                <section className="content-grid workspace-page-grid">
+                  <article className="workspace-card">
+                    <div className="workspace-head">
+                      <h2>Connection Settings</h2>
+                      <p>
+                        Manage workspace details and rotate API credentials.
+                      </p>
+                    </div>
+                    <div className="row two-up workspace-name-row">
+                      <label>
+                        Workspace name
+                        <input
+                          value={workspaceName}
+                          onChange={(event) =>
+                            setWorkspaceName(event.target.value)
+                          }
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="secondary workspace-inline-action"
+                        disabled={isSavingWorkspace || !isWorkspaceNameDirty}
+                        onClick={saveWorkspaceChanges}
+                      >
+                        {isSavingWorkspace ? "Saving..." : "Save Changes"}
+                      </button>
+                    </div>
+                    <label>
+                      API key
+                      <div className="row two-up workspace-key-row">
+                        <input
+                          value={apiKey}
+                          readOnly
+                          placeholder="Rotate to generate key_ + 32 chars"
+                        />
+                        <button
+                          type="button"
+                          className="workspace-inline-action"
+                          disabled={busy}
+                          onClick={refreshApiKey}
+                        >
+                          Refresh API Key
+                        </button>
+                      </div>
+                    </label>
+                  </article>
+
+                  <article className="workspace-card">
+                    <div className="workspace-head">
+                      <h2>Invite Users</h2>
+                      <p>Invite teammates to join this workspace.</p>
+                    </div>
+                    <div className="row two-up">
+                      <label>
+                        Invite email
+                        <input
+                          value={inviteEmail}
+                          onChange={(event) =>
+                            setInviteEmail(event.target.value)
+                          }
+                          placeholder="teammate@example.com"
+                        />
+                      </label>
+                      <label>
+                        Invite role
+                        <select
+                          value={inviteRole}
+                          onChange={(event) =>
+                            setInviteRole(event.target.value)
+                          }
+                        >
+                          <option value="member">Member</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={busy || !workspaceId.trim()}
+                        onClick={inviteUser}
+                      >
+                        Invite User
+                      </button>
+                    </div>
+                  </article>
+                </section>
+
+                <section className="content-grid workspace-users-grid">
+                  <article className="workspace-card">
+                    <div className="workspace-head">
+                      <h2>Workspace Users</h2>
+                      <p>Current members and their roles.</p>
+                    </div>
+                    {workspaceUsers.length ? (
                       <div className="table-scroll workspace-users-table">
                         <table>
                           <thead>
                             <tr>
+                              <th>Name</th>
                               <th>Email</th>
                               <th>Role</th>
-                              <th>Status</th>
-                              <th>Inviter</th>
-                              <th>Invited</th>
-                              <th>Expires</th>
+                              <th>Joined</th>
                               <th>Action</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {workspaceInvitations.map((invitation) => (
+                            {workspaceUsers.map((user) => (
                               <tr
-                                key={String(
-                                  invitation.id || invitation.email || "",
-                                )}
+                                key={String(user.user_id || user.email || "")}
                               >
-                                <td>{String(invitation.email || "-")}</td>
+                                <td>{String(user.name || "-")}</td>
+                                <td>{String(user.email || "-")}</td>
                                 <td>
                                   <span className="role-badge">
-                                    {formatRoleLabel(invitation.role)}
+                                    {formatRoleLabel(user.role)}
                                   </span>
                                 </td>
-                                <td>{formatRoleLabel(invitation.status)}</td>
+                                <td>{formatJoinedAt(user.created_at)}</td>
                                 <td>
-                                  {String(
-                                    invitation.inviter_display ||
-                                      invitation.inviter_name ||
-                                      invitation.inviter_email ||
-                                      "-",
+                                  {canShowWorkspaceUserAction(user) &&
+                                  String(user.user_id || "").trim() !==
+                                    sessionUserId ? (
+                                    <button
+                                      type="button"
+                                      className="icon-action-button"
+                                      aria-label="Edit user"
+                                      onClick={() =>
+                                        setWorkspaceUserActionTarget(user)
+                                      }
+                                    >
+                                      ✎
+                                    </button>
+                                  ) : (
+                                    <span className="muted">-</span>
                                   )}
-                                </td>
-                                <td>{formatJoinedAt(invitation.created_at)}</td>
-                                <td>{formatJoinedAt(invitation.expires_at)}</td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    className="icon-action-button"
-                                    aria-label={`Cancel invitation for ${String(invitation.email || "invitee")}`}
-                                    disabled={busy}
-                                    onClick={() =>
-                                      cancelWorkspaceInvitation(invitation)
-                                    }
-                                  >
-                                    x
-                                  </button>
                                 </td>
                               </tr>
                             ))}
@@ -3109,381 +3251,462 @@ export function App() {
                         </table>
                       </div>
                     ) : (
-                      <p className="muted">No pending invitations found.</p>
+                      <p className="muted">No workspace users found.</p>
                     )}
                   </article>
-                ) : null}
+
+                  {canManageWorkspaceInvitations &&
+                  workspaceInvitations.length > 0 ? (
+                    <article className="workspace-card">
+                      <div className="workspace-head">
+                        <h2>Pending Invitations</h2>
+                        <p>
+                          Actionable workspace invitations that have not been
+                          accepted.
+                        </p>
+                      </div>
+                      {workspaceInvitations.length ? (
+                        <div className="table-scroll workspace-users-table">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Inviter</th>
+                                <th>Invited</th>
+                                <th>Expires</th>
+                                <th>Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {workspaceInvitations.map((invitation) => (
+                                <tr
+                                  key={String(
+                                    invitation.id || invitation.email || "",
+                                  )}
+                                >
+                                  <td>{String(invitation.email || "-")}</td>
+                                  <td>
+                                    <span className="role-badge">
+                                      {formatRoleLabel(invitation.role)}
+                                    </span>
+                                  </td>
+                                  <td>{formatRoleLabel(invitation.status)}</td>
+                                  <td>
+                                    {String(
+                                      invitation.inviter_display ||
+                                        invitation.inviter_name ||
+                                        invitation.inviter_email ||
+                                        "-",
+                                    )}
+                                  </td>
+                                  <td>
+                                    {formatJoinedAt(invitation.created_at)}
+                                  </td>
+                                  <td>
+                                    {formatJoinedAt(invitation.expires_at)}
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="icon-action-button"
+                                      aria-label={`Cancel invitation for ${String(invitation.email || "invitee")}`}
+                                      disabled={busy}
+                                      onClick={() =>
+                                        cancelWorkspaceInvitation(invitation)
+                                      }
+                                    >
+                                      x
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="muted">No pending invitations found.</p>
+                      )}
+                    </article>
+                  ) : null}
+                </section>
+              </>
+            )
+          ) : null}
+
+          {activePage === "templates" ? (
+            <>
+              <header className="page-header">
+                <p className="eyebrow">Templates</p>
+                <h2>Template Builder</h2>
+                <p>
+                  Build reusable extraction schemas and update existing
+                  templates.
+                </p>
+              </header>
+
+              <section className="content-grid templates-grid">
+                <article className="workspace-card create-template-panel">
+                  <div className="workspace-head">
+                    <h2>
+                      {isEditingTemplate ? "Edit Template" : "Create Template"}
+                    </h2>
+                  </div>
+                  <div className="row two-up">
+                    <label>
+                      Name
+                      <input
+                        value={templateName}
+                        onChange={(event) =>
+                          setTemplateName(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Description
+                      <input
+                        value={templateDescription}
+                        onChange={(event) =>
+                          setTemplateDescription(event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                  <FieldEditor
+                    fields={templateFields}
+                    onChange={setTemplateFields}
+                    title="Field Designer"
+                    subtitle="Move through fields quickly on the left and edit details on the right."
+                  />
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={isSavingTemplate || !hasApiAccess}
+                      onClick={openTemplateJsonModal}
+                    >
+                      Export / Import
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSavingTemplate || !hasApiAccess}
+                      onClick={
+                        isEditingTemplate ? updateTemplate : createTemplate
+                      }
+                    >
+                      {isSavingTemplate
+                        ? "Saving..."
+                        : isEditingTemplate
+                          ? "Save Changes"
+                          : "Save New Template"}
+                    </button>
+                  </div>
+                </article>
               </section>
             </>
-          )
-        ) : null}
+          ) : null}
 
-        {activePage === "templates" ? (
-          <>
-            <header className="page-header">
-              <p className="eyebrow">Templates</p>
-              <h2>Template Builder</h2>
-              <p>
-                Build reusable extraction schemas and update existing templates.
-              </p>
-            </header>
+          {activePage === "documents" ? (
+            <>
+              <header className="page-header">
+                <p className="eyebrow">Documents</p>
+                <h2>Upload and Review</h2>
+                <p>
+                  Inspect extraction jobs and review results from previously
+                  uploaded files.
+                </p>
+              </header>
 
-            <section className="content-grid templates-grid">
-              <article className="workspace-card create-template-panel">
-                <div className="workspace-head">
-                  <h2>
-                    {isEditingTemplate ? "Edit Template" : "Create Template"}
-                  </h2>
-                </div>
-                <div className="row two-up">
-                  <label>
-                    Name
-                    <input
-                      value={templateName}
-                      onChange={(event) => setTemplateName(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Description
-                    <input
-                      value={templateDescription}
-                      onChange={(event) =>
-                        setTemplateDescription(event.target.value)
-                      }
-                    />
-                  </label>
-                </div>
-                <FieldEditor
-                  fields={templateFields}
-                  onChange={setTemplateFields}
-                  title="Field Designer"
-                  subtitle="Move through fields quickly on the left and edit details on the right."
-                />
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={isSavingTemplate || !hasApiAccess}
-                    onClick={openTemplateJsonModal}
-                  >
-                    Export / Import
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isSavingTemplate || !hasApiAccess}
-                    onClick={
-                      isEditingTemplate ? updateTemplate : createTemplate
-                    }
-                  >
-                    {isSavingTemplate
-                      ? "Saving..."
-                      : isEditingTemplate
-                        ? "Save Changes"
-                        : "Save New Template"}
-                  </button>
-                </div>
-              </article>
-            </section>
-          </>
-        ) : null}
+              <section className="content-grid documents-grid">
+                <article className="workspace-card job-status-panel">
+                  <div className="workspace-head">
+                    <h2>Job Status</h2>
+                    <p>Track the selected extraction stage in real time.</p>
+                  </div>
+                  <JobStatusTracker job={selectedDocument} />
+                </article>
 
-        {activePage === "documents" ? (
-          <>
-            <header className="page-header">
-              <p className="eyebrow">Documents</p>
-              <h2>Upload and Review</h2>
-              <p>
-                Inspect extraction jobs and review results from previously
-                uploaded files.
-              </p>
-            </header>
-
-            <section className="content-grid documents-grid">
-              <article className="workspace-card job-status-panel">
-                <div className="workspace-head">
-                  <h2>Job Status</h2>
-                  <p>Track the selected extraction stage in real time.</p>
-                </div>
-                <JobStatusTracker job={selectedDocument} />
-              </article>
-
-              <article className="workspace-card result-view">
-                <div className="workspace-head result-view-head">
-                  <div>
-                    <h2>Document Details</h2>
-                    <p>Review extraction output for the selected upload.</p>
+                <article className="workspace-card result-view">
+                  <div className="workspace-head result-view-head">
+                    <div>
+                      <h2>Document Details</h2>
+                      <p>Review extraction output for the selected upload.</p>
+                    </div>
+                    {selectedDocument ? (
+                      <span className="status-chip good template-name-badge">
+                        {selectedDocumentTemplateName}
+                      </span>
+                    ) : null}
                   </div>
                   {selectedDocument ? (
-                    <span className="status-chip good template-name-badge">
-                      {selectedDocumentTemplateName}
-                    </span>
-                  ) : null}
-                </div>
-                {selectedDocument ? (
-                  <ResultViewer
-                    job={selectedDocument}
-                    isLoading={
-                      loadingDocumentDetailsId ===
-                      String(selectedDocument.job_id || "")
-                    }
-                  />
-                ) : (
-                  <p className="muted">Select an uploaded document.</p>
-                )}
-              </article>
-            </section>
-          </>
-        ) : null}
-      </main>
+                    <ResultViewer
+                      job={selectedDocument}
+                      isLoading={
+                        loadingDocumentDetailsId ===
+                        String(selectedDocument.job_id || "")
+                      }
+                    />
+                  ) : (
+                    <p className="muted">Select an uploaded document.</p>
+                  )}
+                </article>
+              </section>
+            </>
+          ) : null}
+        </main>
 
-      {workspaceUserActionTarget ? (
-        <div
-          className="modal-backdrop"
-          onClick={() => setWorkspaceUserActionTarget(null)}
-        >
+        {workspaceUserActionTarget ? (
           <div
-            className="modal-card workspace-user-action-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Manage workspace user"
-            onClick={(event) => event.stopPropagation()}
+            className="modal-backdrop"
+            onClick={() => setWorkspaceUserActionTarget(null)}
           >
-            <div className="workspace-head">
-              <h2>Manage User</h2>
-              <p>
-                {String(workspaceUserActionTarget.name || "Unknown User")} -{" "}
-                {formatRoleLabel(workspaceUserActionTarget.role)}
-              </p>
-            </div>
-            {workspaceUserActionOptions.length ? (
-              <div className="workspace-user-action-list">
-                {workspaceUserActionOptions.map((action) => (
-                  <button
-                    key={action}
-                    type="button"
-                    className={action === "remove_user" ? "danger" : "ghost"}
-                    disabled={busy}
-                    onClick={() => {
-                      void applyWorkspaceUserAction(
-                        workspaceUserActionTarget.user_id,
-                        action,
-                      );
-                      setWorkspaceUserActionTarget(null);
-                    }}
-                  >
-                    {workspaceUserActionLabel(action)}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">No actions available for this user.</p>
-            )}
-            <div className="actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setWorkspaceUserActionTarget(null)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showTemplateJsonModal ? (
-        <div className="modal-backdrop" onClick={closeTemplateJsonModal}>
-          <div
-            className="modal-card template-json-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Export or import template JSON"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="workspace-head template-json-modal-head">
-              <div>
-                <h2>Export / Import Template</h2>
+            <div
+              className="modal-card workspace-user-action-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Manage workspace user"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="workspace-head">
+                <h2>Manage User</h2>
                 <p>
-                  Edit the raw JSON payload used by the template API. Saving
-                  will validate it before updating the template.
+                  {String(workspaceUserActionTarget.name || "Unknown User")} -{" "}
+                  {formatRoleLabel(workspaceUserActionTarget.role)}
                 </p>
               </div>
-              <button
-                type="button"
-                className="icon-action-button template-json-copy-button"
-                aria-label="Copy template JSON"
-                title={templateJsonCopied ? "Copied" : "Copy JSON"}
-                onClick={copyTemplateJson}
-              >
-                <CopyIcon />
-              </button>
-            </div>
-            <label className="template-json-label">
-              Template JSON
-              <textarea
-                className="template-json-textarea"
-                spellCheck="false"
-                value={templateJsonDraft}
-                onChange={(event) => {
-                  setTemplateJsonDraft(event.target.value);
-                  setTemplateJsonError("");
-                  setTemplateJsonCopied(false);
-                }}
-              />
-            </label>
-            {templateJsonError ? (
-              <p className="form-error">{templateJsonError}</p>
-            ) : templateJsonCopied ? (
-              <p className="hint">Copied JSON to clipboard.</p>
-            ) : null}
-            <div className="actions">
-              <button
-                type="button"
-                disabled={isSavingTemplate || !hasApiAccess}
-                onClick={saveTemplateJsonDraft}
-              >
-                {isSavingTemplate ? "Saving..." : "Save Template JSON"}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={isSavingTemplate}
-                onClick={closeTemplateJsonModal}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showUploadModal ? (
-        <div className="modal-backdrop" onClick={closeUploadModal}>
-          <div
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Upload document"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="workspace-head">
-              <h2>Upload Document</h2>
-              <p>Select a template and file, then queue extraction.</p>
-            </div>
-            <div className="row">
-              <label>
-                Template
-                <select
-                  value={uploadTemplateId}
-                  onChange={(event) => setUploadTemplateId(event.target.value)}
-                >
-                  <option value="">Select template</option>
-                  {templates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name}
-                    </option>
+              {workspaceUserActionOptions.length ? (
+                <div className="workspace-user-action-list">
+                  {workspaceUserActionOptions.map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      className={action === "remove_user" ? "danger" : "ghost"}
+                      disabled={busy}
+                      onClick={() => {
+                        void applyWorkspaceUserAction(
+                          workspaceUserActionTarget.user_id,
+                          action,
+                        );
+                        setWorkspaceUserActionTarget(null);
+                      }}
+                    >
+                      {workspaceUserActionLabel(action)}
+                    </button>
                   ))}
-                </select>
-              </label>
-              <label>
-                Document file
-                <input
-                  ref={uploadInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,application/pdf"
-                  className="upload-input-hidden"
-                  multiple
-                  onChange={(event) => {
-                    appendUploadFiles(Array.from(event.target.files || []));
-                    event.target.value = "";
-                  }}
-                />
+                </div>
+              ) : (
+                <p className="muted">No actions available for this user.</p>
+              )}
+              <div className="actions">
                 <button
                   type="button"
-                  className={
-                    isUploadDragActive
-                      ? "upload-dropzone is-active"
-                      : "upload-dropzone"
-                  }
-                  onClick={() => uploadInputRef.current?.click()}
-                  onDragOver={handleUploadDragOver}
-                  onDragLeave={handleUploadDragLeave}
-                  onDrop={handleUploadDrop}
+                  className="secondary"
+                  onClick={() => setWorkspaceUserActionTarget(null)}
                 >
-                  <strong>Drag and drop files here</strong>
-                  <span>
-                    or click to browse multiple files (PNG, JPG, WEBP, PDF)
-                  </span>
-                  <em>
-                    {uploadFiles.length
-                      ? `${uploadFiles.length} file${uploadFiles.length === 1 ? "" : "s"} selected`
-                      : "No files selected"}
-                  </em>
+                  Close
                 </button>
-                {uploadFiles.length ? (
-                  <div className="upload-file-list" role="list">
-                    {uploadFiles.map((entry) => (
-                      <div
-                        className="upload-file-row"
-                        role="listitem"
-                        key={entry.id}
-                      >
-                        <span
-                          className="upload-file-name"
-                          title={entry.file.name}
-                        >
-                          {entry.file.name}
-                        </span>
-                        <div className="upload-file-actions">
-                          <span
-                            className={`status-pill ${queueStatusTone(entry.queueStatus)}`}
-                          >
-                            {entry.queueStatus}
-                          </span>
-                          {entry.queueStatus === "pending" ? (
-                            <button
-                              type="button"
-                              className="ghost"
-                              disabled={isUploadingDocuments}
-                              onClick={() => removeUploadFile(entry.id)}
-                            >
-                              Remove
-                            </button>
-                          ) : null}
-                        </div>
-                        {entry.queueError ? (
-                          <p className="hint upload-file-error">
-                            {entry.queueError}
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </label>
-            </div>
-            <div className="actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={closeUploadModal}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isUploadingDocuments || !hasApiAccess}
-                onClick={uploadFromModal}
-              >
-                {isUploadingDocuments
-                  ? "Uploading..."
-                  : "Upload and Open Documents"}
-              </button>
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+
+        {showTemplateJsonModal ? (
+          <div className="modal-backdrop" onClick={closeTemplateJsonModal}>
+            <div
+              className="modal-card template-json-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Export or import template JSON"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="workspace-head template-json-modal-head">
+                <div>
+                  <h2>Export / Import Template</h2>
+                  <p>
+                    Edit the raw JSON payload used by the template API. Saving
+                    will validate it before updating the template.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-action-button template-json-copy-button"
+                  aria-label="Copy template JSON"
+                  title={templateJsonCopied ? "Copied" : "Copy JSON"}
+                  onClick={copyTemplateJson}
+                >
+                  <CopyIcon />
+                </button>
+              </div>
+              <label className="template-json-label">
+                Template JSON
+                <textarea
+                  className="template-json-textarea"
+                  spellCheck="false"
+                  value={templateJsonDraft}
+                  onChange={(event) => {
+                    setTemplateJsonDraft(event.target.value);
+                    setTemplateJsonError("");
+                    setTemplateJsonCopied(false);
+                  }}
+                />
+              </label>
+              {templateJsonError ? (
+                <p className="form-error">{templateJsonError}</p>
+              ) : templateJsonCopied ? (
+                <p className="hint">Copied JSON to clipboard.</p>
+              ) : null}
+              <div className="actions">
+                <button
+                  type="button"
+                  disabled={isSavingTemplate || !hasApiAccess}
+                  onClick={saveTemplateJsonDraft}
+                >
+                  {isSavingTemplate ? "Saving..." : "Save Template JSON"}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={isSavingTemplate}
+                  onClick={closeTemplateJsonModal}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {showUploadModal ? (
+          <div className="modal-backdrop" onClick={closeUploadModal}>
+            <div
+              className="modal-card"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Upload document"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="workspace-head">
+                <h2>Upload Document</h2>
+                <p>Select a template and file, then queue extraction.</p>
+              </div>
+              <div className="row">
+                <label>
+                  Template
+                  <select
+                    value={uploadTemplateId}
+                    onChange={(event) =>
+                      setUploadTemplateId(event.target.value)
+                    }
+                  >
+                    <option value="">Select template</option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Document file
+                  <input
+                    ref={uploadInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,application/pdf"
+                    className="upload-input-hidden"
+                    multiple
+                    onChange={(event) => {
+                      appendUploadFiles(Array.from(event.target.files || []));
+                      event.target.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className={
+                      isUploadDragActive
+                        ? "upload-dropzone is-active"
+                        : "upload-dropzone"
+                    }
+                    onClick={() => uploadInputRef.current?.click()}
+                    onDragOver={handleUploadDragOver}
+                    onDragLeave={handleUploadDragLeave}
+                    onDrop={handleUploadDrop}
+                  >
+                    <strong>Drag and drop files here</strong>
+                    <span>
+                      or click to browse multiple files (PNG, JPG, WEBP, PDF)
+                    </span>
+                    <em>
+                      {uploadFiles.length
+                        ? `${uploadFiles.length} file${uploadFiles.length === 1 ? "" : "s"} selected`
+                        : "No files selected"}
+                    </em>
+                  </button>
+                  {uploadFiles.length ? (
+                    <div className="upload-file-list" role="list">
+                      {uploadFiles.map((entry) => (
+                        <div
+                          className="upload-file-row"
+                          role="listitem"
+                          key={entry.id}
+                        >
+                          <span
+                            className="upload-file-name"
+                            title={entry.file.name}
+                          >
+                            {entry.file.name}
+                          </span>
+                          <div className="upload-file-actions">
+                            <span
+                              className={`status-pill ${queueStatusTone(entry.queueStatus)}`}
+                            >
+                              {entry.queueStatus}
+                            </span>
+                            {entry.queueStatus === "pending" ? (
+                              <button
+                                type="button"
+                                className="ghost"
+                                disabled={isUploadingDocuments}
+                                onClick={() => removeUploadFile(entry.id)}
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+                          {entry.queueError ? (
+                            <p className="hint upload-file-error">
+                              {entry.queueError}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </label>
+              </div>
+              <div className="actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeUploadModal}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isUploadingDocuments || !hasApiAccess}
+                  onClick={uploadFromModal}
+                >
+                  {isUploadingDocuments
+                    ? "Uploading..."
+                    : "Upload and Open Documents"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </>
   );
 }
 
@@ -3531,19 +3754,24 @@ function formatRoleLabel(value) {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
-function getWorkspaceUserActions(currentRole, targetRole) {
-  const actor = String(currentRole || "")
-    .trim()
-    .toLowerCase();
+function getWorkspaceUserActions(userManagement, targetRole) {
   const target = String(targetRole || "")
     .trim()
     .toLowerCase();
 
-  if (actor === "admin") {
-    return target === "member" ? ["remove_user"] : [];
+  if (target === "owner") {
+    return userManagement?.canShowOwnerActions ? ["make_admin"] : [];
   }
-  if (actor === "owner") {
+  if (target === "admin") {
+    return userManagement?.canShowAdminActions
+      ? ["remove_user", "make_owner"]
+      : [];
+  }
+  if (target === "member" && userManagement?.canShowOwnerActions) {
     return ["remove_user", "make_admin", "make_owner"];
+  }
+  if (target === "member" && userManagement?.canShowMemberActions) {
+    return ["remove_user"];
   }
   return [];
 }

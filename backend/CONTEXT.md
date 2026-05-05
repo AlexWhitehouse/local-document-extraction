@@ -2,6 +2,12 @@
 
 ## Glossary
 
+### Account password policy
+
+The account password policy is the minimum strength rule for email/password account credentials.
+
+Account passwords must be at least 8 characters and include at least one ASCII uppercase letter (`A-Z`), one ASCII number (`0-9`), and one special character, where a special character is any non-alphanumeric character.
+
 ### Workspace policy
 
 The rules that decide what a workspace member may do inside a workspace. This includes role capabilities, invitation lifecycle, owner transfer, workspace deletion eligibility, and related membership decisions.
@@ -17,6 +23,14 @@ Tests for `Workspace policy` should exercise policy behaviour through durable D1
 ### Workspace
 
 A workspace is an environment a user can access only after they have a workspace membership.
+
+### Workspace context
+
+Workspace context is the currently selected workspace or pending workspace invitation that determines what the user can see and do.
+
+Accepted workspace context enables workspace API access when the user has a session or workspace API key.
+
+Pending workspace invitation context is locked: it shows invitation details and invitation actions, but it does not enable workspace API access until accepted.
 
 ### Workspace invitation
 

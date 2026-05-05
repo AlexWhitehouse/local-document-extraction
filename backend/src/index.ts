@@ -20,6 +20,7 @@ import {
 import { createTemplate, deleteTemplate, getTemplate, listTemplates, updateTemplate } from "./api/templates";
 import { processJob } from "./consumer/processJob";
 import { authenticate, requireSession } from "./lib/auth";
+import { evaluateAccountPasswordPolicy } from "./lib/accountPasswordPolicy";
 import { createAuth } from "./lib/betterAuth";
 import { HttpError, json, toHttpError } from "./lib/http";
 import type { Env, QueueJobMessage } from "./lib/types";
@@ -63,6 +64,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
 
   if (url.pathname.startsWith("/api/auth")) {
+    await enforceAccountPasswordPolicyForSignUp(request, url);
     const auth = createAuth(env, request);
     return auth.handler(request);
   }
@@ -251,4 +253,31 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   }
 
   throw new HttpError(404, "not_found", "Route not found");
+}
+
+async function enforceAccountPasswordPolicyForSignUp(
+  request: Request,
+  url: URL,
+): Promise<void> {
+  if (request.method !== "POST" || url.pathname !== "/api/auth/sign-up/email") {
+    return;
+  }
+
+  const body = await request.clone().json().catch(() => null);
+  const password =
+    body && typeof body === "object" && "password" in body
+      ? (body as { password?: unknown }).password
+      : null;
+
+  if (typeof password !== "string") {
+    return;
+  }
+
+  if (!evaluateAccountPasswordPolicy(password).valid) {
+    throw new HttpError(
+      400,
+      "password_policy_not_met",
+      "Password must meet all complexity requirements.",
+    );
+  }
 }
