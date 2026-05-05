@@ -36,7 +36,7 @@ Issues and PRDs are tracked as local markdown files under `.scratch/`. See `docs
 
 ### Triage labels
 
-The default canonical triage labels are used. See `docs/agents/triage-labels.md`.
+The default canonical triage labels are used, plus `completed`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

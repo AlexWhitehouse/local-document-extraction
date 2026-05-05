@@ -71,6 +71,10 @@ Only actionable pending workspace invitations should appear in an invitee's work
 Invitees accept or decline a workspace invitation from the invitation detail view, not directly from the workspace list.
 Invitees do not need a confirmation prompt when declining their own workspace invitation.
 
+### Workspace member action
+
+A workspace member action changes a member's workspace access or role; use this term instead of user status change.
+
 An invitee has no workspace API access before accepting a workspace invitation.
 Selecting an invited workspace does not make it the active workspace context until the invitation is accepted.
 A selected invited workspace shows a locked invitation state rather than API readiness or activity from another workspace.
@@ -108,9 +112,11 @@ A workspace member should confirm before leaving a workspace.
 - Current workspace members and pending **Workspace invitations** are separate access-management lists.
 - Accepting a **Workspace invitation** creates a workspace membership and moves the user into that workspace context.
 - Declining a **Workspace invitation** makes it non-actionable and removes it from the invitee's workspace list.
+- A **Workspace member action** may remove a member, make a member an admin, or transfer workspace ownership to a member.
 - **Leave Workspace** removes a non-owner member's **Workspace** access without deleting the **Workspace**.
 - **Leave Workspace** creates a replacement personal **Workspace** when it removes the user's last accepted **Workspace**.
 
 ## Flagged ambiguities
 
 - "group" was used to describe what a user leaves; resolved: the domain term is **Workspace**, and access is represented by **workspace membership**.
+- "user status" was used for workspace access management; resolved: the domain term is **Workspace member action**.

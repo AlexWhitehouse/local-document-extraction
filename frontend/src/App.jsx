@@ -14,6 +14,7 @@ import {
   selectPendingWorkspaceInvitationContext,
   selectAcceptedWorkspaceContext,
 } from "./lib/workspaceSelection";
+import { getActionToast, getDocumentUploadToast } from "./lib/toastNotifications";
 
 const DEFAULT_FIELDS = [
   {
@@ -229,6 +230,7 @@ export function App() {
     "Extract medication and prescription fields from a document image",
   );
   const [templateFields, setTemplateFields] = useState(DEFAULT_FIELDS);
+  const [loadedTemplateSnapshot, setLoadedTemplateSnapshot] = useState(null);
 
   const [updateTemplateId, setUpdateTemplateId] = useState("");
   const [updateName, setUpdateName] = useState("");
@@ -327,6 +329,17 @@ export function App() {
   const hasApiAccess = hasApiKey || (hasSession && hasWorkspaceContext);
   const baseUrl = useMemo(() => apiBase.replace(/\/+$/, ""), [apiBase]);
   const isEditingTemplate = Boolean(updateTemplateId.trim());
+  const templateDraftSnapshot = useMemo(() => {
+    try {
+      return serializeTemplatePayload(buildTemplateJsonPayloadFromEditor());
+    } catch {
+      return null;
+    }
+  }, [templateDescription, templateFields, templateName]);
+  const isEditedTemplateDirty =
+    !isEditingTemplate ||
+    !loadedTemplateSnapshot ||
+    templateDraftSnapshot !== loadedTemplateSnapshot;
   const unmetAccountPasswordRequirements = ACCOUNT_PASSWORD_REQUIREMENTS.filter(
     (requirement) => !requirement.test(authPassword),
   );
@@ -684,6 +697,15 @@ export function App() {
     setLogLines((prev) => [`[${time}] ${message}`, ...prev].slice(0, 80));
   }
 
+  function showActionToast(action, outcome, options) {
+    const notification = getActionToast(action, outcome, options);
+    toast[notification.severity](notification.message);
+  }
+
+  function showNotification(notification) {
+    toast[notification.severity](notification.message);
+  }
+
   function endpoint(path) {
     return `${baseUrl}${path}`;
   }
@@ -838,6 +860,7 @@ export function App() {
     addLog(
       `API key rotated for workspace: ${data.workspace_id || targetWorkspaceId}`,
     );
+    showActionToast("workspace.apiKey.rotate", "success", data);
     return data;
   }
 
@@ -873,10 +896,16 @@ export function App() {
       }
       if (!silent) {
         addLog(`Workspace created: ${data.workspace_id || "unknown"}`);
+        showActionToast("workspace.create", "success", {
+          targetName: data.name || nameForCreate,
+        });
       }
       await listWorkspaces();
     } catch (error) {
       addLog(`Create workspace failed: ${error.message}`);
+      if (!silent) {
+        showActionToast("workspace.create", "failure", { error });
+      }
     } finally {
       setBusy(false);
     }
@@ -895,6 +924,7 @@ export function App() {
       await rotateWorkspaceApiKey(targetWorkspaceId);
     } catch (error) {
       addLog(`Refresh API key failed: ${error.message}`);
+      showActionToast("workspace.apiKey.rotate", "failure", { error });
     } finally {
       setBusy(false);
     }
@@ -994,6 +1024,14 @@ export function App() {
     if (transition.reason === "missing_target_workspace_user") {
       return;
     }
+    const targetWorkspaceUser = workspaceUsers.find(
+      (user) => String(user?.user_id || "").trim() === String(targetUserId || "").trim(),
+    );
+    const targetDisplay =
+      String(targetWorkspaceUser?.name || "").trim() ||
+      String(targetWorkspaceUser?.email || "").trim() ||
+      String(targetUserId || "").trim();
+    const actionToast = getWorkspaceMemberActionToastAction(action);
 
     setBusy(true);
     try {
@@ -1022,6 +1060,7 @@ export function App() {
       if (successTransition.refresh.includes("workspaceUsers")) {
         await listWorkspaceUsers(successTransition.workspaceId);
       }
+      showActionToast(actionToast, "success", { targetName: targetDisplay });
       addLog(`User updated (${successTransition.action.replace(/_/g, " ")})`);
     } catch (error) {
       getWorkspaceMemberActionTransition({
@@ -1030,6 +1069,7 @@ export function App() {
         action,
         actionError: error,
       });
+      showActionToast(actionToast, "failure", { error });
       addLog(`User update failed: ${error.message}`);
     } finally {
       setBusy(false);
@@ -1047,6 +1087,9 @@ export function App() {
       return;
     }
     if (transition.reason === "missing_invitation_email") {
+      showActionToast("workspaceInvitation.create", "validation", {
+        reason: "email",
+      });
       addLog("Invite failed: email is required");
       return;
     }
@@ -1064,6 +1107,9 @@ export function App() {
         role: inviteRole,
         inviteResult: data || {},
       });
+      showActionToast("workspaceInvitation.create", "success", {
+        targetEmail: successTransition.email,
+      });
       addLog(`Invitation sent to ${successTransition.email}`);
       setInviteEmail("");
       if (successTransition.refresh.includes("pendingWorkspaceInvitations")) {
@@ -1076,6 +1122,7 @@ export function App() {
         role: inviteRole,
         inviteError: error,
       });
+      showActionToast("workspaceInvitation.create", "failure", { error });
       addLog(`Invite failed: ${error.message}`);
     } finally {
       setBusy(false);
@@ -1123,6 +1170,9 @@ export function App() {
       if (successTransition.refresh.includes("pendingWorkspaceInvitations")) {
         await listWorkspaceInvitations(successTransition.workspaceId);
       }
+      showActionToast("workspaceInvitation.cancel", "success", {
+        targetEmail: successTransition.invitationEmail,
+      });
       addLog(`Invitation cancelled for ${successTransition.invitationEmail}`);
     } catch (error) {
       getCancelWorkspaceInvitationTransition({
@@ -1130,6 +1180,7 @@ export function App() {
         invitation,
         cancelError: error,
       });
+      showActionToast("workspaceInvitation.cancel", "failure", { error });
       addLog(`Cancel invitation failed: ${error.message}`);
     } finally {
       setBusy(false);
@@ -1169,6 +1220,7 @@ export function App() {
       if (successTransition.nextWorkspaceContext) {
         applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
       }
+      showActionToast("workspaceInvitation.accept", "success");
       addLog(
         `Invitation accepted for workspace ${successTransition.acceptedWorkspaceId || "unknown"}`,
       );
@@ -1180,6 +1232,7 @@ export function App() {
       if (failureTransition.nextWorkspaceContext) {
         applyWorkspaceContextUpdate(failureTransition.nextWorkspaceContext);
       }
+      showActionToast("workspaceInvitation.accept", "failure", { error });
       addLog(`Accept invitation failed: ${error.message}`);
     } finally {
       setIsAcceptingWorkspaceInvitation(false);
@@ -1217,6 +1270,7 @@ export function App() {
         applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
       }
       await listWorkspaces();
+      showActionToast("workspaceInvitation.decline", "success");
       addLog(
         `Invitation declined for ${selectedWorkspaceInvitation.workspaceName || "workspace"}`,
       );
@@ -1225,6 +1279,7 @@ export function App() {
         selectedWorkspaceInvitation,
         declineError: error,
       });
+      showActionToast("workspaceInvitation.decline", "failure", { error });
       addLog(`Decline invitation failed: ${error.message}`);
     } finally {
       setIsDecliningWorkspaceInvitation(false);
@@ -1252,8 +1307,12 @@ export function App() {
       });
       await listWorkspaces();
       addLog(`Workspace renamed to ${workspaceName.trim()}`);
+      showActionToast("workspace.rename", "success", {
+        targetName: workspaceName.trim(),
+      });
     } catch (error) {
       addLog(`Save changes failed: ${error.message}`);
+      showActionToast("workspace.rename", "failure", { error });
     } finally {
       setIsSavingWorkspace(false);
     }
@@ -1290,8 +1349,10 @@ export function App() {
       });
       await listWorkspaces();
       addLog("Workspace deleted");
+      showActionToast("workspace.delete", "success");
     } catch (error) {
       addLog(`Delete workspace failed: ${error.message}`);
+      showActionToast("workspace.delete", "failure", { error });
     } finally {
       setIsDeletingWorkspace(false);
     }
@@ -1332,14 +1393,18 @@ export function App() {
         refreshedUserWorkspaces: workspaces,
         apiKeysByWorkspace,
       });
-      if (successTransition.removedApiKeyWorkspaceId || successTransition.storedApiKey) {
+      if (
+        successTransition.removedApiKeyWorkspaceId ||
+        successTransition.storedApiKey
+      ) {
         setApiKeysByWorkspace((prev) => {
           const next = { ...prev };
           if (successTransition.removedApiKeyWorkspaceId) {
             delete next[successTransition.removedApiKeyWorkspaceId];
           }
           if (successTransition.storedApiKey) {
-            next[successTransition.storedApiKey.workspaceId] = successTransition.storedApiKey.apiKey;
+            next[successTransition.storedApiKey.workspaceId] =
+              successTransition.storedApiKey.apiKey;
           }
           return next;
         });
@@ -1348,9 +1413,15 @@ export function App() {
         applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
       }
       addLog("Workspace left");
+      showActionToast("workspace.leave", "success", {
+        replacementPersonalWorkspaceCreated: Boolean(
+          successTransition.storedApiKey,
+        ),
+      });
     } catch (error) {
       getLeaveWorkspaceTransition({ workspaceId, leaveError: error });
       addLog(`Leave workspace failed: ${error.message}`);
+      showActionToast("workspace.leave", "failure", { error });
     } finally {
       setIsDeletingWorkspace(false);
     }
@@ -1760,25 +1831,38 @@ export function App() {
       return;
     }
 
+    let payload;
+    try {
+      payload = validateTemplateJsonPayload({
+        name: templateName,
+        description: templateDescription,
+        fields: templateFields,
+      });
+    } catch (error) {
+      addLog(`Create template failed: ${error.message}`);
+      showActionToast("template.save", "validation", { reason: "draft" });
+      return;
+    }
+
     setIsSavingTemplate(true);
     try {
-      const fields = normalizeFields(templateFields);
       const data = await request("/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: templateName,
-          description: templateDescription,
-          fields,
-        }),
+        body: JSON.stringify(payload),
       });
       addLog(`Template created: ${data.template_id}`);
       setUpdateTemplateId(data.template_id);
       setExtractTemplateId(data.template_id);
+      setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
       setShowDraftTemplateNav(false);
+      showActionToast("template.save", "success", {
+        targetName: data?.name || payload.name,
+      });
       await listTemplates();
     } catch (error) {
       addLog(`Create template failed: ${error.message}`);
+      showActionToast("template.save", "failure", { error });
     } finally {
       setIsSavingTemplate(false);
     }
@@ -1793,7 +1877,18 @@ export function App() {
       return;
     }
 
-    const fields = normalizeFields(templateFields);
+    let payload;
+    try {
+      payload = validateTemplateJsonPayload({
+        name: templateName,
+        description: templateDescription,
+        fields: templateFields,
+      });
+    } catch (error) {
+      addLog(`Update template failed: ${error.message}`);
+      showActionToast("template.save", "validation", { reason: "draft" });
+      return;
+    }
 
     setIsSavingTemplate(true);
     try {
@@ -1802,17 +1897,18 @@ export function App() {
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: templateName,
-            description: templateDescription,
-            fields,
-          }),
+          body: JSON.stringify(payload),
         },
       );
       addLog(`Template updated: ${updateTemplateId.trim()}`);
+      setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
+      showActionToast("template.save", "success", {
+        targetName: payload.name,
+      });
       await listTemplates();
     } catch (error) {
       addLog(`Update template failed: ${error.message}`);
+      showActionToast("template.save", "failure", { error });
     } finally {
       setIsSavingTemplate(false);
     }
@@ -1866,9 +1962,11 @@ export function App() {
     try {
       await navigator.clipboard.writeText(templateJsonDraft);
       setTemplateJsonCopied(true);
+      showActionToast("clipboard.copyTemplateJson", "success");
       window.setTimeout(() => setTemplateJsonCopied(false), 1600);
     } catch (error) {
       setTemplateJsonError(`Copy failed: ${error.message}`);
+      showActionToast("clipboard.copyTemplateJson", "failure", { error });
     }
   }
 
@@ -1882,6 +1980,7 @@ export function App() {
       parsed = JSON.parse(templateJsonDraft);
     } catch {
       setTemplateJsonError("Request body must be valid JSON");
+      showActionToast("template.save", "validation", { reason: "json" });
       return;
     }
 
@@ -1890,6 +1989,7 @@ export function App() {
       payload = validateTemplateJsonPayload(parsed);
     } catch (error) {
       setTemplateJsonError(error.message);
+      showActionToast("template.save", "validation", { reason: "json" });
       return;
     }
 
@@ -1910,6 +2010,7 @@ export function App() {
       setTemplateName(payload.name);
       setTemplateDescription(payload.description || "");
       setTemplateFields(payload.fields.map(hydrateFieldFromTemplate));
+      setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
       setShowDraftTemplateNav(false);
 
       if (data?.template_id) {
@@ -1925,12 +2026,16 @@ export function App() {
       setTemplateJsonDraft(JSON.stringify(payload, null, 2));
       setTemplateJsonError("");
       setShowTemplateJsonModal(false);
+      showActionToast("template.save", "success", {
+        targetName: payload.name,
+      });
       await listTemplates();
     } catch (error) {
       setTemplateJsonError(error.message);
       addLog(
         `${targetTemplateId ? "Update" : "Create"} template failed: ${error.message}`,
       );
+      showActionToast("template.save", "failure", { error });
     } finally {
       setIsSavingTemplate(false);
     }
@@ -1946,12 +2051,26 @@ export function App() {
       return;
     }
 
+    if (
+      !window.confirm(
+        `Delete template ${deletedTemplateId}? This action cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
     setIsDeletingTemplate(true);
     try {
+      const deletedTemplateName =
+        templates.find((template) => String(template.id || "") === deletedTemplateId)
+          ?.name || templateName;
       await request(`/templates/${encodeURIComponent(deletedTemplateId)}`, {
         method: "DELETE",
       });
       addLog(`Template deleted: ${deletedTemplateId}`);
+      showActionToast("template.delete", "success", {
+        targetName: deletedTemplateName,
+      });
       const remainingTemplates = await listTemplates();
       const nextTemplate = remainingTemplates.find(
         (template) => String(template.id || "").trim() !== deletedTemplateId,
@@ -1968,9 +2087,11 @@ export function App() {
           "Extract medication and prescription fields from a document image",
         );
         setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
+        setLoadedTemplateSnapshot(null);
       }
     } catch (error) {
       addLog(`Delete template failed: ${error.message}`);
+      showActionToast("template.delete", "failure", { error });
     } finally {
       setIsDeletingTemplate(false);
     }
@@ -1999,6 +2120,13 @@ export function App() {
           ? template.fields.map(hydrateFieldFromTemplate)
           : [EMPTY_FIELD],
       );
+      try {
+        setLoadedTemplateSnapshot(
+          serializeTemplatePayload(validateTemplateJsonPayload(template)),
+        );
+      } catch {
+        setLoadedTemplateSnapshot(null);
+      }
       setExtractTemplateId(targetTemplateId);
       addLog(`Loaded template ${targetTemplateId} for editing`);
     } catch (error) {
@@ -2014,6 +2142,7 @@ export function App() {
       "Extract medication and prescription fields from a document image",
     );
     setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
+    setLoadedTemplateSnapshot(null);
     addLog("Switched to new template draft");
   }
 
@@ -2104,6 +2233,7 @@ export function App() {
   async function uploadFromModal() {
     if (!uploadTemplateId.trim()) {
       addLog("Upload failed: select a template");
+      showActionToast("document.upload", "validation", { reason: "template" });
       return;
     }
     if (isUploadingDocuments) {
@@ -2111,6 +2241,7 @@ export function App() {
     }
     if (!uploadFiles.length) {
       addLog("Upload failed: choose one or more document files");
+      showActionToast("document.upload", "validation", { reason: "files" });
       return;
     }
 
@@ -2119,6 +2250,9 @@ export function App() {
 
     setIsUploadingDocuments(true);
     try {
+      let queuedCount = 0;
+      let failedCount = 0;
+
       for (const entry of uploadFiles) {
         setUploadFiles((prev) =>
           prev.map((row) =>
@@ -2130,12 +2264,14 @@ export function App() {
 
         try {
           await queueDocument(uploadTemplateId.trim(), entry.file);
+          queuedCount += 1;
           setUploadFiles((prev) =>
             prev.map((row) =>
               row.id === entry.id ? { ...row, queueStatus: "success" } : row,
             ),
           );
         } catch (error) {
+          failedCount += 1;
           setUploadFiles((prev) =>
             prev.map((row) =>
               row.id === entry.id
@@ -2150,6 +2286,9 @@ export function App() {
           addLog(`Queue failed for ${entry.file.name}: ${error.message}`);
         }
       }
+      showNotification(
+        getDocumentUploadToast({ queued: queuedCount, failed: failedCount }),
+      );
       setActivePage("documents");
     } finally {
       setIsUploadingDocuments(false);
@@ -2341,6 +2480,7 @@ export function App() {
     }
 
     const targetDocumentId = String(selectedDocument.job_id);
+    const targetDocumentName = selectedDocument.image_name || targetDocumentId;
     if (
       !window.confirm(
         `Delete document ${targetDocumentId}? This will permanently remove it from the workspace.`,
@@ -2366,6 +2506,9 @@ export function App() {
         void loadJobDetails(nextDocumentId, { silent: true });
       }
       addLog(`Deleted document ${targetDocumentId}`);
+      showActionToast("document.delete", "success", {
+        targetName: targetDocumentName,
+      });
     } catch (error) {
       if (Number(error?.status) === 404) {
         removeDocumentFromState(
@@ -2380,9 +2523,13 @@ export function App() {
           void loadJobDetails(nextDocumentId, { silent: true });
         }
         addLog(`Document ${targetDocumentId} was already removed`);
+        showActionToast("document.delete", "alreadyRemoved", {
+          targetName: targetDocumentName,
+        });
         return;
       }
       addLog(`Delete document failed: ${error.message}`);
+      showActionToast("document.delete", "failure");
     } finally {
       setIsDeletingDocument(false);
     }
@@ -2391,6 +2538,7 @@ export function App() {
   async function retrySelectedDocument() {
     if (!selectedDocument?.job_id) {
       addLog("Retry failed: select a document first");
+      showActionToast("document.retry", "validation", { reason: "document" });
       return;
     }
     if (isRetryingDocument) {
@@ -2402,6 +2550,7 @@ export function App() {
       addLog(
         `Retry skipped: document status is '${currentStatus || "unknown"}'`,
       );
+      showActionToast("document.retry", "validation", { reason: "status" });
       return;
     }
 
@@ -2417,8 +2566,10 @@ export function App() {
       addLog(
         `Retry queued for ${targetDocumentId} (attempt ${Number(data?.current_attempt || 0)})`,
       );
+      showActionToast("document.retry", "success");
     } catch (error) {
       addLog(`Retry failed: ${error.message}`);
+      showActionToast("document.retry", "failure");
     } finally {
       setIsRetryingDocument(false);
     }
@@ -3475,7 +3626,11 @@ export function App() {
                     </button>
                     <button
                       type="button"
-                      disabled={isSavingTemplate || !hasApiAccess}
+                      disabled={
+                        isSavingTemplate ||
+                        !hasApiAccess ||
+                        (isEditingTemplate && !isEditedTemplateDirty)
+                      }
                       onClick={
                         isEditingTemplate ? updateTemplate : createTemplate
                       }
@@ -3782,9 +3937,7 @@ export function App() {
                   disabled={isUploadingDocuments || !hasApiAccess}
                   onClick={uploadFromModal}
                 >
-                  {isUploadingDocuments
-                    ? "Uploading..."
-                    : "Upload and Open Documents"}
+                  {isUploadingDocuments ? "Uploading..." : "Upload Documents"}
                 </button>
               </div>
             </div>
@@ -3872,6 +4025,16 @@ function workspaceUserActionLabel(action) {
     return "Make Owner";
   }
   return "Action";
+}
+
+function getWorkspaceMemberActionToastAction(action) {
+  if (action === "make_admin") {
+    return "workspaceMember.makeAdmin";
+  }
+  if (action === "make_owner") {
+    return "workspaceMember.transferOwnership";
+  }
+  return "workspaceMember.remove";
 }
 
 function defaultUploadedName(sourceMimeType) {
@@ -5031,6 +5194,10 @@ function validateTemplateJsonPayload(input, options = {}) {
         : String(input.description || "").trim(),
     fields: normalizeFields(input.fields, options),
   };
+}
+
+function serializeTemplatePayload(payload) {
+  return JSON.stringify(validateTemplateJsonPayload(payload));
 }
 
 function tryParseJson(value) {
