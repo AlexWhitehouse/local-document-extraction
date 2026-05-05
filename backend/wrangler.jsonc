@@ -7,6 +7,15 @@
 		"nodejs_als"
 	],
 	"workers_dev": false,
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true,
+		},
+		"traces": {
+			"enabled": false,
+		},
+	},
 	"routes": [
 		{
 			"pattern": "extract.t3m.uk",

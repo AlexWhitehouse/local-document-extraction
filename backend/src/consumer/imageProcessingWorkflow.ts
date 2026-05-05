@@ -12,15 +12,6 @@ const DB_STEP_CONFIG = {
   timeout: "30 seconds",
 } as const;
 
-const R2_READ_STEP_CONFIG = {
-  retries: {
-    limit: 4,
-    delay: "5 seconds",
-    backoff: "exponential",
-  },
-  timeout: "2 minutes",
-} as const;
-
 const EXTRACT_PERSIST_STEP_CONFIG = {
   retries: {
     limit: 10,
@@ -57,19 +48,16 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
       DB_STEP_CONFIG,
       async () => this.loadTemplateFields(job.template_id, job.template_version),
     );
-    const source = await step.do("read source from r2", R2_READ_STEP_CONFIG, async () => {
-      const object = await this.env.IMAGES_BUCKET.get(job.image_r2_key);
-      if (!object) {
-        throw new Error("missing_image");
-      }
-      return await object.arrayBuffer();
-    });
-
     try {
       await step.do(
         "extract and persist",
         EXTRACT_PERSIST_STEP_CONFIG,
         async () => {
+          const object = await this.env.IMAGES_BUCKET.get(job.image_r2_key);
+          if (!object) {
+            throw new Error("missing_image");
+          }
+          const source = await object.arrayBuffer();
           const modelResults = await runExtraction(this.env, fields, source, job.image_mime_type);
           const normalized = normalizeModelResults(fields, modelResults);
           await this.persistResults(params.job_id, params.attempt, normalized);
