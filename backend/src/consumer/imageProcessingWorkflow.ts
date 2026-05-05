@@ -1,7 +1,15 @@
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import {
+  WorkflowEntrypoint,
+  type WorkflowEvent,
+  type WorkflowStep,
+} from "cloudflare:workers";
 import { nowIso } from "../lib/ids";
 import type { Env, FieldDefinition, ImageWorkflowParams } from "../lib/types";
-import { normalizeModelResults, RetryableError, runExtraction } from "./aiGateway";
+import {
+  normalizeModelResults,
+  RetryableError,
+  runExtraction,
+} from "./aiGateway";
 
 const DB_STEP_CONFIG = {
   retries: {
@@ -9,7 +17,7 @@ const DB_STEP_CONFIG = {
     delay: "2 seconds",
     backoff: "linear",
   },
-  timeout: "30 seconds",
+  timeout: "40 seconds",
 } as const;
 
 const EXTRACT_PERSIST_STEP_CONFIG = {
@@ -30,15 +38,25 @@ const CLEANUP_STEP_CONFIG = {
   timeout: "2 minutes",
 } as const;
 
-export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkflowParams> {
-  async run(event: WorkflowEvent<ImageWorkflowParams>, step: WorkflowStep): Promise<void> {
+export class ImageProcessingWorkflow extends WorkflowEntrypoint<
+  Env,
+  ImageWorkflowParams
+> {
+  async run(
+    event: WorkflowEvent<ImageWorkflowParams>,
+    step: WorkflowStep,
+  ): Promise<void> {
     const params = event.payload;
-    const job = await step.do("load job", DB_STEP_CONFIG, async () => this.loadJob(params.job_id, params.workspace_id));
+    const job = await step.do("load job", DB_STEP_CONFIG, async () =>
+      this.loadJob(params.job_id, params.workspace_id),
+    );
     if (!job) {
       return;
     }
 
-    const claimed = await step.do("claim job", DB_STEP_CONFIG, async () => this.claimJob(params.job_id, params.attempt));
+    const claimed = await step.do("claim job", DB_STEP_CONFIG, async () =>
+      this.claimJob(params.job_id, params.attempt),
+    );
     if (!claimed) {
       return;
     }
@@ -48,17 +66,30 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
         "extract and persist",
         EXTRACT_PERSIST_STEP_CONFIG,
         async () => {
-          const freshJob = await this.loadJob(params.job_id, params.workspace_id);
+          const freshJob = await this.loadJob(
+            params.job_id,
+            params.workspace_id,
+          );
           if (!freshJob) {
             throw new Error("missing_job");
           }
-          const fields = await this.loadTemplateFields(freshJob.template_id, freshJob.template_version);
-          const object = await this.env.IMAGES_BUCKET.get(freshJob.image_r2_key);
+          const fields = await this.loadTemplateFields(
+            freshJob.template_id,
+            freshJob.template_version,
+          );
+          const object = await this.env.IMAGES_BUCKET.get(
+            freshJob.image_r2_key,
+          );
           if (!object) {
             throw new Error("missing_image");
           }
           const source = await object.arrayBuffer();
-          const modelResults = await runExtraction(this.env, fields, source, freshJob.image_mime_type);
+          const modelResults = await runExtraction(
+            this.env,
+            fields,
+            source,
+            freshJob.image_mime_type,
+          );
           const normalized = normalizeModelResults(fields, modelResults);
           await this.persistResults(params.job_id, params.attempt, normalized);
           return { ok: true };
@@ -75,30 +106,39 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
     } catch (error) {
       if (error instanceof RetryableError) {
         await step.do("mark retryable failure", DB_STEP_CONFIG, async () =>
-          this.markRetryableFailed(params.job_id, params.attempt, "ai_gateway_error", error.message),
+          this.markRetryableFailed(
+            params.job_id,
+            params.attempt,
+            "ai_gateway_error",
+            error.message,
+          ),
         );
         throw error;
       }
 
       const code = errorCode(error);
       const message = failureMessage(code, error);
-      await step.do("mark failed", DB_STEP_CONFIG, async () => this.markFailed(params.job_id, params.attempt, code, message));
+      await step.do("mark failed", DB_STEP_CONFIG, async () =>
+        this.markFailed(params.job_id, params.attempt, code, message),
+      );
     }
   }
 
-  private async loadJob(jobId: string, workspaceId: string): Promise<{
+  private async loadJob(
+    jobId: string,
+    workspaceId: string,
+  ): Promise<{
     template_id: string;
     template_version: number;
     image_r2_key: string;
     image_mime_type: string;
   } | null> {
     return (
-      (await this.env.DB
-        .prepare(
-          `SELECT template_id, template_version, image_r2_key, image_mime_type
+      (await this.env.DB.prepare(
+        `SELECT template_id, template_version, image_r2_key, image_mime_type
            FROM jobs
            WHERE id = ? AND workspace_id = ?`,
-        )
+      )
         .bind(jobId, workspaceId)
         .first()) || null
     );
@@ -106,9 +146,8 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
 
   private async claimJob(jobId: string, attempt: number): Promise<boolean> {
     const now = nowIso();
-    const result = await this.env.DB
-      .prepare(
-        `UPDATE jobs
+    const result = await this.env.DB.prepare(
+      `UPDATE jobs
          SET status = 'processing',
              updated_at = ?,
              error_code = NULL,
@@ -116,21 +155,23 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
              workflow_started_at = ?,
              current_attempt = ?
          WHERE id = ? AND status IN ('queued', 'workflow_started') AND current_attempt < ?`,
-      )
+    )
       .bind(now, now, attempt, jobId, attempt)
       .run();
 
     return (result.meta.changes || 0) > 0;
   }
 
-  private async loadTemplateFields(templateId: string, version: number): Promise<FieldDefinition[]> {
-    const fieldsRows = await this.env.DB
-      .prepare(
-        `SELECT field_id, name, description, data_type, required
+  private async loadTemplateFields(
+    templateId: string,
+    version: number,
+  ): Promise<FieldDefinition[]> {
+    const fieldsRows = await this.env.DB.prepare(
+      `SELECT field_id, name, description, data_type, required
          FROM template_fields
          WHERE template_id = ? AND version = ?
          ORDER BY position ASC`,
-      )
+    )
       .bind(templateId, version)
       .all<{
         field_id: string;
@@ -163,9 +204,8 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
   ): Promise<void> {
     const now = nowIso();
     const writes: D1PreparedStatement[] = normalized.map((row) =>
-      this.env.DB
-        .prepare(
-          `INSERT INTO job_results (
+      this.env.DB.prepare(
+        `INSERT INTO job_results (
              job_id, field_id, status, answer_json, normalized_value, confidence, evidence_text, created_at, updated_at
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(job_id, field_id)
@@ -176,24 +216,22 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
              confidence = excluded.confidence,
              evidence_text = excluded.evidence_text,
              updated_at = excluded.updated_at`,
-        )
-        .bind(
-          jobId,
-          row.field_id,
-          row.status,
-          JSON.stringify(row.answer),
-          row.normalized_value,
-          row.confidence,
-          row.evidence,
-          now,
-          now,
-        ),
+      ).bind(
+        jobId,
+        row.field_id,
+        row.status,
+        JSON.stringify(row.answer),
+        row.normalized_value,
+        row.confidence,
+        row.evidence,
+        now,
+        now,
+      ),
     );
 
     writes.push(
-      this.env.DB
-        .prepare(
-          `UPDATE jobs
+      this.env.DB.prepare(
+        `UPDATE jobs
            SET status = 'completed',
                completed_at = ?,
                updated_at = ?,
@@ -203,8 +241,14 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
                schema_version = 'v1',
                completed_attempt = ?
            WHERE id = ?`,
-        )
-        .bind(now, now, "google/gemini-3-flash", this.env.AI_GATEWAY_ROUTE || "default", attempt, jobId),
+      ).bind(
+        now,
+        now,
+        "google/gemini-3-flash",
+        this.env.AI_GATEWAY_ROUTE || "default",
+        attempt,
+        jobId,
+      ),
     );
 
     await this.env.DB.batch(writes);
@@ -214,8 +258,9 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
     try {
       await this.env.IMAGES_BUCKET.delete(imageKey);
       const now = nowIso();
-      await this.env.DB
-        .prepare("UPDATE jobs SET image_deleted_at = ?, updated_at = ? WHERE id = ?")
+      await this.env.DB.prepare(
+        "UPDATE jobs SET image_deleted_at = ?, updated_at = ? WHERE id = ?",
+      )
         .bind(now, now, jobId)
         .run();
     } catch (cleanupError) {
@@ -223,20 +268,28 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
     }
   }
 
-  private async markFailed(jobId: string, attempt: number, code: string, message: string): Promise<void> {
-    await this.env.DB
-      .prepare(
-        "UPDATE jobs SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ? WHERE id = ?",
-      )
+  private async markFailed(
+    jobId: string,
+    attempt: number,
+    code: string,
+    message: string,
+  ): Promise<void> {
+    await this.env.DB.prepare(
+      "UPDATE jobs SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ? WHERE id = ?",
+    )
       .bind(code, message.slice(0, 2000), nowIso(), attempt, jobId)
       .run();
   }
 
-  private async markRetryableFailed(jobId: string, attempt: number, code: string, message: string): Promise<void> {
-    await this.env.DB
-      .prepare(
-        "UPDATE jobs SET status = 'retryable_failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ? WHERE id = ?",
-      )
+  private async markRetryableFailed(
+    jobId: string,
+    attempt: number,
+    code: string,
+    message: string,
+  ): Promise<void> {
+    await this.env.DB.prepare(
+      "UPDATE jobs SET status = 'retryable_failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ? WHERE id = ?",
+    )
       .bind(code, message.slice(0, 2000), nowIso(), attempt, jobId)
       .run();
   }
