@@ -66,6 +66,7 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
   };
   const results: Array<Record<string, unknown>> = [];
   const deletedKeys: string[] = [];
+  const requestedKeys: string[] = [];
 
   const env = {
     DB: {
@@ -161,7 +162,8 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
       },
     },
     IMAGES_BUCKET: {
-      async get() {
+      async get(key: string) {
+        requestedKeys.push(key);
         return options.hasSource
           ? { arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }
           : null;
@@ -173,18 +175,20 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
     AI_GATEWAY_ROUTE: "default",
   };
 
-  return { deletedKeys, env, job, results };
+  return { deletedKeys, env, job, requestedKeys, results };
 }
 
-function createStepRecorder() {
+function createStepRecorder(options: { beforeStep?: (name: string) => void } = {}) {
   const names: string[] = [];
   return {
     names,
     step: {
       async do(name: string, ...args: unknown[]) {
         names.push(name);
+        options.beforeStep?.(name);
         const callback = args.at(-1) as () => Promise<unknown>;
-        return await callback();
+        const result = await callback();
+        return structuredClone(result);
       },
     },
   };
@@ -205,10 +209,33 @@ describe("ImageProcessingWorkflow", () => {
       step as WorkflowStep,
     );
 
-    expect(names).toEqual(["load job", "claim job", "load template fields", "extract and persist", "cleanup source file"]);
+    expect(names).toEqual(["load job", "claim job", "extract and persist", "cleanup source file"]);
     expect(job.status).toBe("completed");
     expect(results).toHaveLength(1);
     expect(deletedKeys).toEqual([job.image_r2_key]);
+  });
+
+  it("reloads job state inside later workflow steps instead of capturing loaded job state", async () => {
+    const { deletedKeys, env, job, requestedKeys } = createWorkflowFixture({ hasSource: true });
+    const initialImageKey = job.image_r2_key;
+    const freshImageKey = "workspaces/workspace_test/jobs/job_test/fresh-source.pdf";
+    const { step } = createStepRecorder({
+      beforeStep(name) {
+        if (name === "extract and persist") {
+          job.image_r2_key = freshImageKey;
+        }
+      },
+    });
+    const workflow = new ImageProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
+
+    await workflow.run(
+      createWorkflowEvent({ job_id: job.id, workspace_id: job.workspace_id, attempt: 1 }),
+      step as WorkflowStep,
+    );
+
+    expect(requestedKeys).toEqual([freshImageKey]);
+    expect(deletedKeys).toEqual([freshImageKey]);
+    expect(deletedKeys).not.toContain(initialImageKey);
   });
 
   it("marks the job failed when the uploaded source is missing", async () => {

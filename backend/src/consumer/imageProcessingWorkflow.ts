@@ -43,28 +43,35 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
       return;
     }
 
-    const fields = await step.do(
-      "load template fields",
-      DB_STEP_CONFIG,
-      async () => this.loadTemplateFields(job.template_id, job.template_version),
-    );
     try {
       await step.do(
         "extract and persist",
         EXTRACT_PERSIST_STEP_CONFIG,
         async () => {
-          const object = await this.env.IMAGES_BUCKET.get(job.image_r2_key);
+          const freshJob = await this.loadJob(params.job_id, params.workspace_id);
+          if (!freshJob) {
+            throw new Error("missing_job");
+          }
+          const fields = await this.loadTemplateFields(freshJob.template_id, freshJob.template_version);
+          const object = await this.env.IMAGES_BUCKET.get(freshJob.image_r2_key);
           if (!object) {
             throw new Error("missing_image");
           }
           const source = await object.arrayBuffer();
-          const modelResults = await runExtraction(this.env, fields, source, job.image_mime_type);
+          const modelResults = await runExtraction(this.env, fields, source, freshJob.image_mime_type);
           const normalized = normalizeModelResults(fields, modelResults);
           await this.persistResults(params.job_id, params.attempt, normalized);
           return { ok: true };
         },
       );
-      await step.do("cleanup source file", CLEANUP_STEP_CONFIG, async () => this.cleanupSource(job.image_r2_key, params.job_id));
+      await step.do("cleanup source file", CLEANUP_STEP_CONFIG, async () => {
+        const freshJob = await this.loadJob(params.job_id, params.workspace_id);
+        if (!freshJob) {
+          return { skipped: true };
+        }
+        await this.cleanupSource(freshJob.image_r2_key, params.job_id);
+        return { ok: true };
+      });
     } catch (error) {
       if (error instanceof RetryableError) {
         await step.do("mark retryable failure", DB_STEP_CONFIG, async () =>
@@ -73,8 +80,8 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<Env, ImageWorkfl
         throw error;
       }
 
-      const code = errorMessage(error) === "missing_image" ? "missing_image" : "processing_error";
-      const message = code === "missing_image" ? "Source image is missing from R2" : errorMessage(error);
+      const code = errorCode(error);
+      const message = failureMessage(code, error);
       await step.do("mark failed", DB_STEP_CONFIG, async () => this.markFailed(params.job_id, params.attempt, code, message));
     }
   }
@@ -240,4 +247,24 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return "Unknown error";
+}
+
+function errorCode(error: unknown): string {
+  if (errorMessage(error) === "missing_image") {
+    return "missing_image";
+  }
+  if (errorMessage(error) === "missing_job") {
+    return "missing_job";
+  }
+  return "processing_error";
+}
+
+function failureMessage(code: string, error: unknown): string {
+  if (code === "missing_image") {
+    return "Source image is missing from R2";
+  }
+  if (code === "missing_job") {
+    return "Job is missing or no longer belongs to the workspace";
+  }
+  return errorMessage(error);
 }
