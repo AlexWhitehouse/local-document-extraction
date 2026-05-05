@@ -105,6 +105,50 @@ describe("Workspace action toast feedback", () => {
     );
   });
 
+  it("disables Workspace API key rotation for workspace members", () => {
+    installLocalStorage({
+      workspaceId: "ws_1",
+      workspaceName: "Research Workspace",
+      apiKey: "imgx_live_existing_key",
+      apiKeysByWorkspace: {
+        ws_1: "imgx_live_existing_key",
+      },
+      userWorkspaces: [
+        {
+          id: "ws_1",
+          name: "Research Workspace",
+          role: "member",
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      userWorkspaceInvitations: [],
+    });
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspaces: [
+              {
+                id: "ws_1",
+                name: "Research Workspace",
+                role: "member",
+                created_at: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "Refresh API Key" }).disabled).toBe(
+      true,
+    );
+  });
+
   it("confirms explicit Workspace creation", async () => {
     const user = userEvent.setup();
 

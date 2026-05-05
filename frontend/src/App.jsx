@@ -472,6 +472,9 @@ export function App() {
       (workspace) => String(workspace?.id || "") === String(workspaceId || ""),
     )?.role || "",
   );
+  const canRotateWorkspaceApiKey = ["owner", "admin"].includes(
+    selectedWorkspaceRole.trim().toLowerCase(),
+  );
   const workspacePrimaryAction = getWorkspacePrimaryAction({
     workspaceRole: selectedWorkspaceRole,
   });
@@ -3382,7 +3385,7 @@ export function App() {
                         <button
                           type="button"
                           className="workspace-inline-action"
-                          disabled={busy}
+                          disabled={busy || !canRotateWorkspaceApiKey}
                           onClick={refreshApiKey}
                         >
                           Refresh API Key
