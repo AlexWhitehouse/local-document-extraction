@@ -16,7 +16,6 @@ const successMessages = {
   "workspaceMember.remove": ({ target }) => `Removed ${target} from workspace`,
   "workspaceMember.makeAdmin": ({ target }) => `Made ${target} an admin`,
   "workspaceMember.transferOwnership": ({ target }) => `Workspace ownership transferred to ${target}`,
-  "document.retry": () => "Document retry queued",
   "document.delete": ({ target }) => withTarget("Document deleted", target),
   "clipboard.copyTemplateJson": () => "Template JSON copied",
 };
@@ -37,7 +36,6 @@ const failureMessages = {
   "workspaceMember.makeAdmin": "Workspace member action failed. Please try again.",
   "workspaceMember.transferOwnership": "Workspace member action failed. Please try again.",
   "document.upload": "Document could not be queued. Please try again.",
-  "document.retry": "Document retry could not be queued. Please try again.",
   "document.delete": "Document could not be deleted. Please try again.",
   "clipboard.copyTemplateJson": "Template JSON could not be copied. Please try again.",
 };
@@ -59,10 +57,6 @@ const validationMessages = {
   "document.upload": {
     template: "Choose a template before uploading documents.",
     files: "Choose at least one document to upload.",
-  },
-  "document.retry": {
-    document: "Choose a failed document before retrying.",
-    status: "Only failed documents can be retried.",
   },
   "clipboard.copyTemplateJson": {
     content: "No template JSON is available to copy.",

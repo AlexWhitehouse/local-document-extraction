@@ -27,7 +27,7 @@ export type Template = {
   deleted_at: string | null;
 };
 
-export type JobStatus = "queued" | "workflow_started" | "processing" | "completed" | "failed" | "retryable_failed";
+export type JobStatus = "queued" | "processing" | "completed" | "failed";
 
 export type FieldResultStatus = "ok" | "not_found" | "invalid_type" | "unreadable" | "error";
 

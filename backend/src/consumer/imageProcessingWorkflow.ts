@@ -3,9 +3,15 @@ import {
   type WorkflowEvent,
   type WorkflowStep,
 } from "cloudflare:workers";
+import {
+  claimExtractionJobForProcessing,
+  completeExtractionJob,
+  failExtractionJob,
+} from "../lib/extractionJobLifecycle";
 import { nowIso } from "../lib/ids";
 import type { Env, FieldDefinition, ImageWorkflowParams } from "../lib/types";
 import {
+  type NormalizedModelField,
   normalizeModelResults,
   RetryableError,
   runExtraction,
@@ -81,7 +87,7 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
             freshJob.image_r2_key,
           );
           if (!object) {
-            throw new Error("missing_image");
+            throw new Error("missing_source_file");
           }
           const source = await object.arrayBuffer();
           const modelResults = await runExtraction(
@@ -91,7 +97,7 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
             freshJob.image_mime_type,
           );
           const normalized = normalizeModelResults(fields, modelResults);
-          await this.persistResults(params.job_id, params.attempt, normalized);
+          await this.completeJob(params.job_id, params.attempt, normalized);
           return { ok: true };
         },
       );
@@ -105,14 +111,6 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
       });
     } catch (error) {
       if (error instanceof RetryableError) {
-        await step.do("mark retryable failure", DB_STEP_CONFIG, async () =>
-          this.markRetryableFailed(
-            params.job_id,
-            params.attempt,
-            "ai_gateway_error",
-            error.message,
-          ),
-        );
         throw error;
       }
 
@@ -145,21 +143,11 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
   }
 
   private async claimJob(jobId: string, attempt: number): Promise<boolean> {
-    const now = nowIso();
-    const result = await this.env.DB.prepare(
-      `UPDATE jobs
-         SET status = 'processing',
-             updated_at = ?,
-             error_code = NULL,
-             error_message = NULL,
-             workflow_started_at = ?,
-             current_attempt = ?
-         WHERE id = ? AND status IN ('queued', 'workflow_started') AND current_attempt < ?`,
-    )
-      .bind(now, now, attempt, jobId, attempt)
-      .run();
-
-    return (result.meta.changes || 0) > 0;
+    return claimExtractionJobForProcessing(this.env.DB, {
+      jobId,
+      attempt,
+      claimedAt: nowIso(),
+    });
   }
 
   private async loadTemplateFields(
@@ -190,68 +178,19 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
     }));
   }
 
-  private async persistResults(
+  private async completeJob(
     jobId: string,
     attempt: number,
-    normalized: Array<{
-      field_id: string;
-      status: string;
-      answer: unknown;
-      normalized_value: string | null;
-      confidence: number | null;
-      evidence: string | null;
-    }>,
+    normalized: NormalizedModelField[],
   ): Promise<void> {
-    const now = nowIso();
-    const writes: D1PreparedStatement[] = normalized.map((row) =>
-      this.env.DB.prepare(
-        `INSERT INTO job_results (
-             job_id, field_id, status, answer_json, normalized_value, confidence, evidence_text, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(job_id, field_id)
-           DO UPDATE SET
-             status = excluded.status,
-             answer_json = excluded.answer_json,
-             normalized_value = excluded.normalized_value,
-             confidence = excluded.confidence,
-             evidence_text = excluded.evidence_text,
-             updated_at = excluded.updated_at`,
-      ).bind(
-        jobId,
-        row.field_id,
-        row.status,
-        JSON.stringify(row.answer),
-        row.normalized_value,
-        row.confidence,
-        row.evidence,
-        now,
-        now,
-      ),
-    );
-
-    writes.push(
-      this.env.DB.prepare(
-        `UPDATE jobs
-           SET status = 'completed',
-               completed_at = ?,
-               updated_at = ?,
-               model_name = ?,
-               ai_gateway_route = ?,
-               prompt_version = 'v1',
-               schema_version = 'v1',
-               completed_attempt = ?
-           WHERE id = ?`,
-      ).bind(
-        now,
-        now,
-        "google/gemini-3-flash",
-        this.env.AI_GATEWAY_ROUTE || "default",
-        attempt,
-        jobId,
-      ),
-    );
-
-    await this.env.DB.batch(writes);
+    await completeExtractionJob(this.env.DB, {
+      jobId,
+      attempt,
+      completedAt: nowIso(),
+      modelName: "google/gemini-3-flash",
+      route: this.env.AI_GATEWAY_ROUTE || "default",
+      results: normalized,
+    });
   }
 
   private async cleanupSource(imageKey: string, jobId: string): Promise<void> {
@@ -274,25 +213,15 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
     code: string,
     message: string,
   ): Promise<void> {
-    await this.env.DB.prepare(
-      "UPDATE jobs SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ? WHERE id = ?",
-    )
-      .bind(code, message.slice(0, 2000), nowIso(), attempt, jobId)
-      .run();
+    await failExtractionJob(this.env.DB, {
+      jobId,
+      attempt,
+      failedAt: nowIso(),
+      errorCode: code,
+      errorMessage: message,
+    });
   }
 
-  private async markRetryableFailed(
-    jobId: string,
-    attempt: number,
-    code: string,
-    message: string,
-  ): Promise<void> {
-    await this.env.DB.prepare(
-      "UPDATE jobs SET status = 'retryable_failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ? WHERE id = ?",
-    )
-      .bind(code, message.slice(0, 2000), nowIso(), attempt, jobId)
-      .run();
-  }
 }
 
 function errorMessage(error: unknown): string {
@@ -303,8 +232,8 @@ function errorMessage(error: unknown): string {
 }
 
 function errorCode(error: unknown): string {
-  if (errorMessage(error) === "missing_image") {
-    return "missing_image";
+  if (errorMessage(error) === "missing_source_file") {
+    return "missing_source_file";
   }
   if (errorMessage(error) === "missing_job") {
     return "missing_job";
@@ -313,8 +242,8 @@ function errorCode(error: unknown): string {
 }
 
 function failureMessage(code: string, error: unknown): string {
-  if (code === "missing_image") {
-    return "Source image is missing from R2";
+  if (code === "missing_source_file") {
+    return "Source file is missing from storage";
   }
   if (code === "missing_job") {
     return "Job is missing or no longer belongs to the workspace";

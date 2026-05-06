@@ -1,5 +1,5 @@
 import { createExtractionJob } from "./api/extract";
-import { deleteJob, getJob, listJobs, retryJob } from "./api/jobs";
+import { deleteJob, getJob, listJobs } from "./api/jobs";
 import { ImageProcessingWorkflow } from "./consumer/imageProcessingWorkflow";
 import { getProfileForUser, updateProfileForUser } from "./api/profile";
 import {
@@ -252,14 +252,6 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }
 
     return deleteJob(env, workspace, jobId);
-  }
-
-  if (request.method === "POST" && url.pathname.startsWith("/v1/jobs/") && url.pathname.endsWith("/retry")) {
-    const jobId = decodeURIComponent(url.pathname.split("/")[3] || "");
-    if (!jobId) {
-      throw new HttpError(404, "not_found", "Job not found");
-    }
-    return retryJob(env, workspace, jobId);
   }
 
   throw new HttpError(404, "not_found", "Route not found");

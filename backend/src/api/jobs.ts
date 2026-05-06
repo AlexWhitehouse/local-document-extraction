@@ -1,10 +1,11 @@
 import { HttpError, json } from "../lib/http";
-import { nowIso } from "../lib/ids";
 import { deleteJobCascade } from "../lib/cascadeDelete";
 import type { Env, Workspace } from "../lib/types";
 
 const DEFAULT_JOBS_LIMIT = 200;
 const MAX_JOBS_LIMIT = 200;
+const DURABLE_JOB_STATUS_SQL = "'queued', 'processing', 'completed', 'failed'";
+const DURABLE_JOB_STATUSES = new Set(["queued", "processing", "completed", "failed"]);
 
 type JobListCursor = {
   sort: string;
@@ -34,7 +35,7 @@ export async function listJobs(request: Request, db: D1Database, workspace: Work
   const search = normalizeSearch(url.searchParams.get("search"));
   const cursor = parseCursor(url.searchParams.get("cursor"));
 
-  const filters = ["j.workspace_id = ?"];
+  const filters = ["j.workspace_id = ?", `j.status IN (${DURABLE_JOB_STATUS_SQL})`];
   const params: Array<string | number> = [workspace.id];
 
   if (search) {
@@ -63,7 +64,8 @@ export async function listJobs(request: Request, db: D1Database, workspace: Work
     .bind(...params, limit + 1)
     .all<JobListRow>();
 
-  const page = rows.results.slice(0, limit);
+  const durableRows = rows.results.filter((row) => DURABLE_JOB_STATUSES.has(row.status));
+  const page = durableRows.slice(0, limit);
   const last = page[page.length - 1] || null;
   const hasMore = rows.results.length > limit;
 
@@ -138,7 +140,7 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
       `SELECT id, status, template_id, template_version, image_name, error_code, error_message,
               created_at, updated_at, completed_at, current_attempt, completed_attempt, last_failed_attempt
        FROM jobs
-       WHERE id = ? AND workspace_id = ?`
+        WHERE id = ? AND workspace_id = ? AND status IN (${DURABLE_JOB_STATUS_SQL})`
     )
     .bind(id, workspace.id)
     .first<{
@@ -158,6 +160,10 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
     }>();
 
   if (!job) {
+    throw new HttpError(404, "not_found", "Job not found");
+  }
+
+  if (!DURABLE_JOB_STATUSES.has(job.status)) {
     throw new HttpError(404, "not_found", "Job not found");
   }
 
@@ -229,75 +235,6 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
       confidence: row.confidence,
       evidence: row.evidence_text
     }))
-  });
-}
-
-export async function retryJob(env: Env, workspace: Workspace, id: string): Promise<Response> {
-  const existing = await env.DB
-    .prepare(
-      `SELECT id, status, template_id, template_version, image_r2_key, current_attempt
-       FROM jobs
-       WHERE id = ? AND workspace_id = ?`,
-    )
-    .bind(id, workspace.id)
-    .first<{
-      id: string;
-      status: string;
-      template_id: string;
-      template_version: number;
-      image_r2_key: string | null;
-      current_attempt: number | null;
-    }>();
-
-  if (!existing) {
-    throw new HttpError(404, "not_found", "Job not found");
-  }
-
-  if (!existing.image_r2_key) {
-    throw new HttpError(400, "retry_not_allowed", "Cannot retry this job because source file was already removed");
-  }
-
-  if (!['failed', 'retryable_failed'].includes(existing.status)) {
-    throw new HttpError(409, "retry_not_allowed", `Job status '${existing.status}' cannot be retried`);
-  }
-
-  const nextAttempt = Number(existing.current_attempt || 0) + 1;
-  const now = nowIso();
-
-  const update = await env.DB
-    .prepare(
-      `UPDATE jobs
-       SET status = 'queued',
-           updated_at = ?,
-           completed_at = NULL,
-           error_code = NULL,
-           error_message = NULL
-       WHERE id = ? AND workspace_id = ? AND status IN ('failed', 'retryable_failed')`,
-    )
-    .bind(now, id, workspace.id)
-    .run();
-
-  if ((update.meta.changes || 0) === 0) {
-    throw new HttpError(409, "retry_not_allowed", "Job state changed before retry could start");
-  }
-
-  await env.JOBS_QUEUE.send(
-    {
-      job_id: id,
-      attempt: nextAttempt,
-      workspace_id: workspace.id,
-      template_id: existing.template_id,
-      template_version: Number(existing.template_version),
-      image_r2_key: existing.image_r2_key,
-      enqueued_at: now,
-    },
-    { contentType: "json" },
-  );
-
-  return json({
-    job_id: id,
-    status: "queued",
-    current_attempt: nextAttempt,
   });
 }
 

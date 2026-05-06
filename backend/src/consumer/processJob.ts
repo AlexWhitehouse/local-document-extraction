@@ -19,12 +19,11 @@ export async function processJob(message: QueueJobMessage, env: Env): Promise<vo
   const claim = await env.DB
     .prepare(
       `UPDATE jobs
-       SET status = 'workflow_started',
-           updated_at = ?,
+       SET updated_at = ?,
            error_code = NULL,
            error_message = NULL,
            workflow_instance_id = ?
-       WHERE id = ? AND status IN ('queued', 'retryable_failed', 'failed')`,
+         WHERE id = ? AND status IN ('queued', 'failed')`,
     )
     .bind(nowIso(), workflowInstanceId, message.job_id)
     .run();
@@ -48,14 +47,22 @@ export async function processJob(message: QueueJobMessage, env: Env): Promise<vo
       workspace_id: message.workspace_id,
       error: errorMessage(error),
     });
-    await markRetryableFailed(env, message.job_id, "workflow_start_error", errorMessage(error));
+    await restoreQueuedAfterWorkflowStartFailure(env, message.job_id, "workflow_start_error", errorMessage(error));
     throw error;
   }
 }
 
-async function markRetryableFailed(env: Env, jobId: string, code: string, message: string): Promise<void> {
+async function restoreQueuedAfterWorkflowStartFailure(env: Env, jobId: string, code: string, message: string): Promise<void> {
   await env.DB
-    .prepare("UPDATE jobs SET status = 'retryable_failed', error_code = ?, error_message = ?, updated_at = ? WHERE id = ?")
+    .prepare(
+      `UPDATE jobs
+       SET status = 'queued',
+           error_code = ?,
+           error_message = ?,
+           updated_at = ?,
+           workflow_instance_id = NULL
+        WHERE id = ? AND status = 'queued'`,
+    )
     .bind(code, message.slice(0, 2000), nowIso(), jobId)
     .run();
 }

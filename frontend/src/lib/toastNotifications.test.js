@@ -108,10 +108,6 @@ describe("app action toast notifications", () => {
       severity: "error",
       message: "Document could not be queued. Please try again.",
     });
-    expect(getActionToast("document.retry", "failure")).toEqual({
-      severity: "error",
-      message: "Document retry could not be queued. Please try again.",
-    });
     expect(getActionToast("document.delete", "failure")).toEqual({
       severity: "error",
       message: "Document could not be deleted. Please try again.",
@@ -188,10 +184,6 @@ describe("app action toast notifications", () => {
     ).toEqual({
       severity: "success",
       message: "Document already removed: invoice.pdf",
-    });
-    expect(getActionToast("document.retry", "success")).toEqual({
-      severity: "success",
-      message: "Document retry queued",
     });
     expect(getActionToast("clipboard.copyTemplateJson", "success")).toEqual({
       severity: "success",

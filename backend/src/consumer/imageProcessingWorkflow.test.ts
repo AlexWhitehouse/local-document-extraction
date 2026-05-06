@@ -35,6 +35,7 @@ vi.mock("./aiGateway", () => ({
 }));
 
 const { ImageProcessingWorkflow } = await import("./imageProcessingWorkflow");
+const aiGateway = await import("./aiGateway");
 
 type JobRow = {
   id: string;
@@ -48,6 +49,7 @@ type JobRow = {
   error_code: string | null;
   error_message: string | null;
   last_failed_attempt: number;
+  image_deleted_at: string | null;
 };
 
 function createWorkflowFixture(options: { hasSource: boolean }) {
@@ -56,17 +58,19 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
     workspace_id: "workspace_test",
     template_id: "template_test",
     template_version: 1,
-    status: "workflow_started",
+    status: "queued",
     image_r2_key: "workspaces/workspace_test/jobs/job_test/source.pdf",
     image_mime_type: "application/pdf",
     current_attempt: 0,
     error_code: null,
     error_message: null,
     last_failed_attempt: 0,
+    image_deleted_at: null,
   };
   const results: Array<Record<string, unknown>> = [];
   const deletedKeys: string[] = [];
   const requestedKeys: string[] = [];
+  const requestedTemplateVersions: number[] = [];
 
   const env = {
     DB: {
@@ -81,6 +85,14 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
               async first() {
                 if (sql.includes("FROM jobs")) {
                   const [jobId, workspaceId] = params;
+                  if (params.length === 1) {
+                    return job.id === jobId
+                      ? {
+                          status: job.status,
+                          current_attempt: job.current_attempt,
+                        }
+                      : null;
+                  }
                   if (job.id !== jobId || job.workspace_id !== workspaceId) {
                     return null;
                   }
@@ -96,6 +108,8 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
               },
               async all() {
                 if (sql.includes("FROM template_fields")) {
+                  const [_templateId, templateVersion] = params;
+                  requestedTemplateVersions.push(Number(templateVersion));
                   return {
                     results: [
                       {
@@ -114,7 +128,7 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
               async run() {
                 if (sql.includes("SET status = 'processing'")) {
                   const [_updatedAt, _workflowStartedAt, attempt, jobId, maxAttempt] = params;
-                  if (job.id === jobId && ["queued", "workflow_started"].includes(job.status) && job.current_attempt < Number(maxAttempt)) {
+                  if (job.id === jobId && job.status === "queued" && job.current_attempt < Number(maxAttempt)) {
                     job.status = "processing";
                     job.current_attempt = Number(attempt);
                     job.error_code = null;
@@ -140,6 +154,10 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
                 }
 
                 if (sql.includes("SET image_deleted_at")) {
+                  const [deletedAt, _updatedAt, jobId] = params;
+                  if (job.id === jobId) {
+                    job.image_deleted_at = String(deletedAt);
+                  }
                   return { meta: { changes: 1 } };
                 }
 
@@ -175,16 +193,13 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
     AI_GATEWAY_ROUTE: "default",
   };
 
-  return { deletedKeys, env, job, requestedKeys, results };
+  return { deletedKeys, env, job, requestedKeys, requestedTemplateVersions, results };
 }
 
-function createStepRecorder(options: { beforeStep?: (name: string) => void } = {}) {
-  const names: string[] = [];
+function createWorkflowStep(options: { beforeStep?: (name: string) => void } = {}) {
   return {
-    names,
     step: {
       async do(name: string, ...args: unknown[]) {
-        names.push(name);
         options.beforeStep?.(name);
         const callback = args.at(-1) as () => Promise<unknown>;
         const result = await callback();
@@ -201,7 +216,7 @@ describe("ImageProcessingWorkflow", () => {
 
   it("does not persist uploaded file bytes as workflow step output", async () => {
     const { deletedKeys, env, job, results } = createWorkflowFixture({ hasSource: true });
-    const { names, step } = createStepRecorder();
+    const { step } = createWorkflowStep();
     const workflow = new ImageProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
 
     await workflow.run(
@@ -209,17 +224,53 @@ describe("ImageProcessingWorkflow", () => {
       step as WorkflowStep,
     );
 
-    expect(names).toEqual(["load job", "claim job", "extract and persist", "cleanup source file"]);
     expect(job.status).toBe("completed");
     expect(results).toHaveLength(1);
     expect(deletedKeys).toEqual([job.image_r2_key]);
+    expect(job.image_deleted_at).toEqual(expect.any(String));
+  });
+
+  it("keeps completed Extraction results when Source file cleanup fails", async () => {
+    const { deletedKeys, env, job, results } = createWorkflowFixture({ hasSource: true });
+    const cleanupError = new Error("R2 delete unavailable");
+    env.IMAGES_BUCKET.delete = async (key: string) => {
+      deletedKeys.push(key);
+      throw cleanupError;
+    };
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { step } = createWorkflowStep();
+    const workflow = new ImageProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
+
+    try {
+      await workflow.run(
+        createWorkflowEvent({ job_id: job.id, workspace_id: job.workspace_id, attempt: 1 }),
+        step as WorkflowStep,
+      );
+
+      expect(job.status).toBe("completed");
+      expect(job.error_code).toBeNull();
+      expect(job.error_message).toBeNull();
+      expect(results).toEqual([
+        expect.objectContaining({
+          job_id: job.id,
+          field_id: "patient_name",
+          status: "ok",
+          answer_json: JSON.stringify("Ada Lovelace"),
+        }),
+      ]);
+      expect(deletedKeys).toEqual([job.image_r2_key]);
+      expect(job.image_deleted_at).toBeNull();
+      expect(consoleError).toHaveBeenCalledWith("R2 cleanup failed", cleanupError);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("reloads job state inside later workflow steps instead of capturing loaded job state", async () => {
     const { deletedKeys, env, job, requestedKeys } = createWorkflowFixture({ hasSource: true });
     const initialImageKey = job.image_r2_key;
     const freshImageKey = "workspaces/workspace_test/jobs/job_test/fresh-source.pdf";
-    const { step } = createStepRecorder({
+    const { step } = createWorkflowStep({
       beforeStep(name) {
         if (name === "extract and persist") {
           job.image_r2_key = freshImageKey;
@@ -238,9 +289,24 @@ describe("ImageProcessingWorkflow", () => {
     expect(deletedKeys).not.toContain(initialImageKey);
   });
 
-  it("marks the job failed when the uploaded source is missing", async () => {
+  it("interprets Extraction results against the submitted Template version", async () => {
+    const { env, job, requestedTemplateVersions } = createWorkflowFixture({ hasSource: true });
+    job.template_version = 3;
+    const { step } = createWorkflowStep();
+    const workflow = new ImageProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
+
+    await workflow.run(
+      createWorkflowEvent({ job_id: job.id, workspace_id: job.workspace_id, attempt: 1 }),
+      step as WorkflowStep,
+    );
+
+    expect(requestedTemplateVersions).toEqual([3]);
+    expect(job.status).toBe("completed");
+  });
+
+  it("marks the job failed when the Source file is missing", async () => {
     const { env, job } = createWorkflowFixture({ hasSource: false });
-    const { step } = createStepRecorder();
+    const { step } = createWorkflowStep();
     const workflow = new ImageProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
 
     await workflow.run(
@@ -249,9 +315,68 @@ describe("ImageProcessingWorkflow", () => {
     );
 
     expect(job.status).toBe("failed");
-    expect(job.error_code).toBe("missing_image");
-    expect(job.error_message).toBe("Source image is missing from R2");
+    expect(job.error_code).toBe("missing_source_file");
+    expect(job.error_message).toBe("Source file is missing from storage");
     expect(job.last_failed_attempt).toBe(1);
+  });
+
+  it("marks the job failed when permanent processing fails", async () => {
+    const { env, job } = createWorkflowFixture({ hasSource: true });
+    env.IMAGES_BUCKET.get = async (key: string) => {
+      return {
+        async arrayBuffer() {
+          throw new Error(`Cannot read ${key}`);
+        },
+      };
+    };
+    const { step } = createWorkflowStep();
+    const workflow = new ImageProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
+
+    await workflow.run(
+      createWorkflowEvent({ job_id: job.id, workspace_id: job.workspace_id, attempt: 1 }),
+      step as WorkflowStep,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error_code).toBe("processing_error");
+    expect(job.error_message).toContain("Cannot read");
+    expect(job.last_failed_attempt).toBe(1);
+  });
+
+  it("lets Cloudflare Workflow retry transient extraction failures without writing a retryable durable status", async () => {
+    const { env, job } = createWorkflowFixture({ hasSource: true });
+    vi.mocked(aiGateway.runExtraction).mockRejectedValueOnce(
+      new aiGateway.RetryableError("AI gateway rate limited"),
+    );
+    const { step } = createWorkflowStep();
+    const workflow = new ImageProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
+
+    await expect(
+      workflow.run(
+        createWorkflowEvent({ job_id: job.id, workspace_id: job.workspace_id, attempt: 1 }),
+        step as WorkflowStep,
+      ),
+    ).rejects.toThrow("AI gateway rate limited");
+
+    expect(job.status).toBe("processing");
+    expect(job.status).not.toBe("retryable_failed");
+    expect(job.error_code).toBeNull();
+    expect(job.error_message).toBeNull();
+  });
+
+  it("stops safely when the Extraction job record is missing", async () => {
+    const { env, job, requestedKeys, results } = createWorkflowFixture({ hasSource: true });
+    const { step } = createWorkflowStep();
+    const workflow = new ImageProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
+
+    await workflow.run(
+      createWorkflowEvent({ job_id: job.id, workspace_id: "missing_workspace", attempt: 1 }),
+      step as WorkflowStep,
+    );
+
+    expect(job.status).toBe("queued");
+    expect(requestedKeys).toEqual([]);
+    expect(results).toEqual([]);
   });
 });
 

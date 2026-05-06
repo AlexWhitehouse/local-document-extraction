@@ -68,6 +68,10 @@ _Avoid_: image object, R2 object, file blob
 The durable processing record created when a **Document** is submitted with a **Template**.
 _Avoid_: job, document, processing task
 
+**Extraction job lifecycle**:
+The durable state progression for an **Extraction job** from submission through Cloudflare Workflow processing, result persistence, completion, failure, and **Source file** cleanup.
+_Avoid_: job status helpers, queue state, workflow flag
+
 **Extraction result**:
 The completed output value for a **Template field** in an **Extraction job**.
 _Avoid_: answer row, model response, result item
@@ -118,7 +122,11 @@ _Avoid_: object marker parsing, nested field table
 - **Template object schema** defines expected columns, column order, data types, and extraction guidance for fields whose data type is `object` or `array<object>`.
 - **Template object schema** should be normalized, validated, encoded for model guidance, decoded for editing, and rendered through one domain module.
 - A **Source file** may be an image or PDF, but the product term for the submitted item is **Document**.
-- An **Extraction job** may be retried only when its status allows retry.
+- Cloudflare Workflow retry steps, not **Extraction job** status values, own retryability for transient processing failures.
+- Do not model retryability with a durable `retryable_failed` **Extraction job** status.
+- The durable **Extraction job lifecycle** states are `queued`, `processing`, `completed`, and `failed`.
+- Cloudflare Workflow instance details are implementation metadata, not durable **Extraction job lifecycle** states.
+- After Cloudflare Workflow receives an AI gateway response, **Extraction results** should be persisted and the **Extraction job** should be marked `completed`.
 - A **Template** must have at least one **Template field** before it can be used for extraction.
 - Changing **Template fields** creates a new **Template version**.
 - An **Extraction job** is interpreted against the **Template version** selected at submission time.
@@ -137,6 +145,7 @@ _Avoid_: object marker parsing, nested field table
 - A **Pending workspace invitation context** is locked until the **Workspace invitation** is accepted or declined.
 - A **Document** has exactly one **Source file** at submission time.
 - A **Document** submitted with a **Template** creates one **Extraction job**.
+- An **Extraction job lifecycle** is driven by Cloudflare Workflow after the **Extraction job** is queued.
 - A **Template** has one or more **Template fields**.
 - A **Template** has one or more **Template versions**.
 - A **Template field** may have a **Template object schema** when its data type is `object` or `array<object>`.

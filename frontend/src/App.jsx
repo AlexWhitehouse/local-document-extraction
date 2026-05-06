@@ -162,7 +162,7 @@ const DEFAULT_WORKSPACE_ID = "workspace_local_default";
 const DEFAULT_WORKSPACE_NAME = "Local Workspace";
 const NEW_WORKSPACE_NAME = "New Workspace";
 const DRAFT_TEMPLATE_NAV_ID = "__draft_template__";
-const LIVE_DOCUMENT_STATUSES = new Set(["queued", "workflow_started", "processing"]);
+const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
 function loadPersistedWorkspace() {
   if (typeof window === "undefined") {
@@ -266,7 +266,6 @@ export function App() {
   const [templateJsonCopied, setTemplateJsonCopied] = useState(false);
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
-  const [isRetryingDocument, setIsRetryingDocument] = useState(false);
   const [loadingDocumentDetailsId, setLoadingDocumentDetailsId] = useState("");
   const [uploadTemplateId, setUploadTemplateId] = useState("");
   const [uploadFiles, setUploadFiles] = useState([]);
@@ -518,7 +517,6 @@ export function App() {
       processing: 0,
       completed: 0,
       failed: 0,
-      retryable_failed: 0,
     };
 
     for (const job of documents) {
@@ -830,7 +828,7 @@ export function App() {
       return next;
     });
 
-    if (["completed", "failed", "retryable_failed"].includes(job.status)) {
+    if (["completed", "failed"].includes(job.status)) {
       setQueuedJobs((prev) => {
         if (!prev[job.job_id]) {
           return prev;
@@ -2351,10 +2349,7 @@ export function App() {
       const finalJob = await pollJobUntilFinished(jobId);
       setLatestResponse(finalJob);
       upsertJobHistory(finalJob);
-      if (
-        finalJob.status === "failed" ||
-        finalJob.status === "retryable_failed"
-      ) {
+      if (finalJob.status === "failed") {
         addLog(
           `Job finished with status: ${finalJob.status} (${finalJob.error_code || "unknown"}: ${finalJob.error_message || "no message"})`,
         );
@@ -2389,7 +2384,7 @@ export function App() {
       );
       setLatestResponse(data);
       upsertJobHistory(data);
-      if (data.status === "failed" || data.status === "retryable_failed") {
+      if (data.status === "failed") {
         addLog(
           `Polled job ${lastJobId.trim()}: ${data.status} (${data.error_code || "unknown"}: ${data.error_message || "no message"})`,
         );
@@ -2418,7 +2413,7 @@ export function App() {
         },
       );
       upsertJobHistory(data);
-      if (data.status === "failed" || data.status === "retryable_failed") {
+      if (data.status === "failed") {
         addLog(
           `Loaded job ${manualJobLookupId.trim()}: ${data.status} (${data.error_code || "unknown"}: ${data.error_message || "no message"})`,
         );
@@ -2439,7 +2434,7 @@ export function App() {
         method: "GET",
       });
       upsertJobHistory(data);
-      if (["completed", "failed", "retryable_failed"].includes(data.status)) {
+      if (["completed", "failed"].includes(data.status)) {
         return data;
       }
       addLog(`Polling job ${jobId} (${attempt}/30): ${data.status}`);
@@ -2536,46 +2531,6 @@ export function App() {
       showActionToast("document.delete", "failure");
     } finally {
       setIsDeletingDocument(false);
-    }
-  }
-
-  async function retrySelectedDocument() {
-    if (!selectedDocument?.job_id) {
-      addLog("Retry failed: select a document first");
-      showActionToast("document.retry", "validation", { reason: "document" });
-      return;
-    }
-    if (isRetryingDocument) {
-      return;
-    }
-
-    const currentStatus = String(selectedDocument.status || "").toLowerCase();
-    if (currentStatus !== "failed" && currentStatus !== "retryable_failed") {
-      addLog(
-        `Retry skipped: document status is '${currentStatus || "unknown"}'`,
-      );
-      showActionToast("document.retry", "validation", { reason: "status" });
-      return;
-    }
-
-    const targetDocumentId = String(selectedDocument.job_id || "").trim();
-    setIsRetryingDocument(true);
-    try {
-      const data = await request(
-        `/jobs/${encodeURIComponent(targetDocumentId)}/retry`,
-        { method: "POST" },
-      );
-      upsertJobHistory(data);
-      setSelectedDocumentId(targetDocumentId);
-      addLog(
-        `Retry queued for ${targetDocumentId} (attempt ${Number(data?.current_attempt || 0)})`,
-      );
-      showActionToast("document.retry", "success");
-    } catch (error) {
-      addLog(`Retry failed: ${error.message}`);
-      showActionToast("document.retry", "failure");
-    } finally {
-      setIsRetryingDocument(false);
     }
   }
 
@@ -3157,34 +3112,14 @@ export function App() {
                   {isDeletingTemplate ? "Deleting..." : "Delete Template"}
                 </button>
               ) : activePage === "documents" ? (
-                <>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={
-                      isRetryingDocument ||
-                      !selectedDocument?.job_id ||
-                      !["failed", "retryable_failed"].includes(
-                        String(selectedDocument?.status || "").toLowerCase(),
-                      )
-                    }
-                    onClick={retrySelectedDocument}
-                  >
-                    {isRetryingDocument ? "Retrying..." : "Retry Document"}
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    disabled={
-                      isDeletingDocument ||
-                      isRetryingDocument ||
-                      !selectedDocument?.job_id
-                    }
-                    onClick={deleteSelectedDocument}
-                  >
-                    {isDeletingDocument ? "Deleting..." : "Delete Document"}
-                  </button>
-                </>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={isDeletingDocument || !selectedDocument?.job_id}
+                  onClick={deleteSelectedDocument}
+                >
+                  {isDeletingDocument ? "Deleting..." : "Delete Document"}
+                </button>
               ) : null}
             </div>
           </section>
@@ -3215,11 +3150,8 @@ export function App() {
               </article>
               <article className="kpi-card">
                 <p className="kpi-label">Failures</p>
-                <p className="kpi-value">
-                  {documentStatusMetrics.failed +
-                    documentStatusMetrics.retryable_failed}
-                </p>
-                <p className="kpi-meta">Includes retryable failures</p>
+                <p className="kpi-value">{documentStatusMetrics.failed}</p>
+                <p className="kpi-meta">Terminal failed jobs</p>
               </article>
             </section>
           ) : null}
@@ -3954,7 +3886,7 @@ export function App() {
 
 function statusTone(status) {
   if (status === "completed") return "good";
-  if (status === "failed" || status === "retryable_failed") return "bad";
+  if (status === "failed") return "bad";
   return "pending";
 }
 
@@ -4059,8 +3991,7 @@ function JobStatusTracker({ job }) {
     return <p className="muted">Select an uploaded document.</p>;
   }
 
-  const isFailure =
-    job.status === "failed" || job.status === "retryable_failed";
+  const isFailure = job.status === "failed";
   const isCompleted = job.status === "completed";
   const isProcessing = LIVE_DOCUMENT_STATUSES.has(job.status);
   const statusLabel = isFailure

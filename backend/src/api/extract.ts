@@ -1,4 +1,5 @@
 import { HttpError, json } from "../lib/http";
+import { createQueuedExtractionJob } from "../lib/extractionJobLifecycle";
 import { newId, nowIso } from "../lib/ids";
 import { validateExtractRequest } from "../lib/validation";
 import type { Env, QueueJobMessage, Workspace } from "../lib/types";
@@ -55,19 +56,17 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
     }
   });
 
-  const statements: D1PreparedStatement[] = [
-    env.DB
-      .prepare(
-        `INSERT INTO jobs (
-          id, workspace_id, template_id, template_version, status,
-          image_r2_key, image_mime_type, image_name, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`
-      )
-      .bind(jobId, workspace.id, templateId, version, objectKey, source.type, imageName, now, now)
-  ];
-
   try {
-    await env.DB.batch(statements);
+    await createQueuedExtractionJob(env.DB, {
+      jobId,
+      workspaceId: workspace.id,
+      templateId,
+      templateVersion: version,
+      sourceFileKey: objectKey,
+      sourceMimeType: source.type,
+      sourceName: imageName,
+      submittedAt: now,
+    });
   } catch (error) {
     await env.IMAGES_BUCKET.delete(objectKey);
     throw error;
