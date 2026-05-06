@@ -1,122 +1,156 @@
 # Backend Context
 
-## Glossary
+The backend context covers durable product rules for authentication, workspace access, templates, document extraction, and background image processing. It defines business language used by API handlers, policies, and worker processing.
 
-### Account password policy
+## Language
 
-The account password policy is the minimum strength rule for email/password account credentials.
+**Account password policy**:
+The minimum strength rule for email/password account credentials.
+_Avoid_: password validation, sign-up password rule
 
-Account passwords must be at least 8 characters and include at least one ASCII uppercase letter (`A-Z`), one ASCII number (`0-9`), and one special character, where a special character is any non-alphanumeric character.
+**Workspace**:
+An environment a user can access only after they have a workspace membership.
+_Avoid_: group, account, tenant
 
-### Workspace policy
+**Workspace membership**:
+Accepted access that makes a user a member of a **Workspace** with a role.
+_Avoid_: user status, workspace user row
 
-The rules that decide what a workspace member may do inside a workspace. This includes role capabilities, invitation lifecycle, owner transfer, workspace deletion eligibility, and related membership decisions.
+**Workspace policy**:
+The rules that decide what a workspace member may do inside a **Workspace**.
+_Avoid_: role checks, permission helpers
 
-`Workspace policy` owns the D1 reads and writes needed to make those decisions durable; callers should not load membership rows and reimplement role checks themselves.
+**Workspace context**:
+The currently selected accepted **Workspace** or pending **Workspace invitation** that determines what the user can see and do.
+_Avoid_: selected workspace, active workspace state
 
-The first intended scope for `Workspace policy` includes role capabilities, invitations, owner transfer, deletion eligibility, workspace API key rotation, and new-user workspace bootstrap.
+**Accepted workspace context**:
+A **Workspace context** backed by **Workspace membership** that enables workspace API access when the user has a session or workspace API key.
+_Avoid_: connected workspace, unlocked workspace
 
-For new-user workspace bootstrap, `Workspace policy` owns orchestration. Starter template details should live behind a template Module once that Module exists, rather than being owned by `Workspace policy`.
+**Pending workspace invitation context**:
+A **Workspace context** backed by a pending **Workspace invitation** that shows invitation details and actions but does not enable workspace API access.
+_Avoid_: pending workspace, disabled workspace
 
-Tests for `Workspace policy` should exercise policy behaviour through durable D1 fixtures, covering owner/admin/member actions, invitations, owner transfer, deletion eligibility, workspace API key rotation, and bootstrap outcomes.
+**Workspace invitation**:
+A pending offer for an email address to join a **Workspace**.
+_Avoid_: invite, invited workspace, pending member
 
-### Workspace
+**Workspace invitation management**:
+The owner/admin view of actionable pending **Workspace invitations** sent from a **Workspace**.
+_Avoid_: invitation history, invite audit log
 
-A workspace is an environment a user can access only after they have a workspace membership.
+**Workspace invitation summary**:
+The displayed details for a pending **Workspace invitation**, including workspace, invited email, offered role, pending status, inviter identity, invited time, and expiry.
+_Avoid_: invitation row, invite card
 
-### Workspace context
+**Workspace member action**:
+An action that changes a member's workspace access or role.
+_Avoid_: user status change, member edit
 
-Workspace context is the currently selected workspace or pending workspace invitation that determines what the user can see and do.
+**Leave Workspace**:
+A self-service action where a non-owner workspace member removes only their own **Workspace membership**.
+_Avoid_: exit group, delete access
 
-Accepted workspace context enables workspace API access when the user has a session or workspace API key.
+**Replacement personal Workspace**:
+A newly created personal **Workspace** that preserves the expectation that a user has at least one accepted **Workspace** after **Leave Workspace**.
+_Avoid_: fallback workspace, default workspace
 
-Pending workspace invitation context is locked: it shows invitation details and invitation actions, but it does not enable workspace API access until accepted.
+**Document**:
+A user-provided file submitted for extraction.
+_Avoid_: image, upload, input file
 
-### Workspace invitation
+**Source file**:
+The original uploaded binary for a **Document**.
+_Avoid_: image object, R2 object, file blob
 
-A workspace invitation is a pending offer for an email address to join a workspace; it is not workspace access until accepted.
+**Extraction job**:
+The durable processing record created when a **Document** is submitted with a **Template**.
+_Avoid_: job, document, processing task
 
-Workspace invitations are in-app invitations; sending outbound email is outside the current invitation lifecycle.
+**Extraction result**:
+The completed output value for a **Template field** in an **Extraction job**.
+_Avoid_: answer row, model response, result item
 
-Use `cancelled` for a workspace invitation that ended without acceptance, including when the invitee declines it.
+**Template**:
+A reusable extraction schema selected when submitting **Documents**.
+_Avoid_: form, prompt, extraction config
 
-Invitee decline and owner/admin cancellation are separate actions with different authorization paths, but both make the invitation `cancelled`.
+**Template field**:
+An individual answer definition inside a **Template**.
+_Avoid_: field row, extraction key, output column
 
-Only workspace owners and admins may see pending invitations sent from a workspace.
+**Template version**:
+A specific revision of a **Template** used to interpret **Extraction job** results.
+_Avoid_: current template, schema snapshot
 
-Workspace owners and admins may cancel pending workspace invitations sent from that workspace.
-A workspace owner/admin should confirm before cancelling someone else's pending invitation.
+**Template object schema**:
+The table-shaped definition for an object-like **Template field**.
+_Avoid_: object marker parsing, nested field table
 
-A workspace invitation remains valid after inviter role changes unless it is cancelled or expires.
+## Rules
 
-A workspace invitation remains valid after its inviter leaves the workspace unless it is cancelled or expires.
-
-Deleting a workspace deletes its workspace invitations.
-
-Workspace invitation management shows actionable pending invitations, not accepted, cancelled, or expired invitation history.
-
-Workspace invitation management shows pending status and invitation expiry.
-
-Workspace invitation management shows who sent each invitation by inviter name when available, falling back to inviter email.
-Workspace invitation summaries include workspace, invited email, offered role, pending status, inviter identity, invited time, and expiry.
-
-Invitees should see who invited them by inviter name when available, falling back to inviter email.
-
-Invitees should see the role offered by a workspace invitation before accepting it.
-
-Invitees should see the invited email address on the workspace invitation detail view.
-
-Only actionable pending workspace invitations should appear in an invitee's workspace list; expired invitations are hidden from that list.
-
-Invitees accept or decline a workspace invitation from the invitation detail view, not directly from the workspace list.
-Invitees do not need a confirmation prompt when declining their own workspace invitation.
-
-### Workspace member action
-
-A workspace member action changes a member's workspace access or role; use this term instead of user status change.
-
-An invitee has no workspace API access before accepting a workspace invitation.
-Selecting an invited workspace does not make it the active workspace context until the invitation is accepted.
-A selected invited workspace shows a locked invitation state rather than API readiness or activity from another workspace.
-
-A current workspace member should not also have a pending workspace invitation for the same workspace.
-
-Accepting a workspace invitation must not overwrite an existing workspace membership or change its role.
-
-Workspace invitations match the invitee by the account's current email address; account email is not user-editable.
-
-Users should normally always have at least one accepted workspace; if that invariant is broken and only invitations are available, select the latest-updated invitation.
-
-### Leave Workspace
-
-Leave Workspace is a self-service action where a non-owner workspace member removes only their own workspace membership.
-
-Leaving a workspace does not delete the workspace, its documents, invitations, API key, or other members.
-
-Leave Workspace is performed by a signed-in workspace member, not by a workspace API key.
-
-Workspace owners delete workspaces rather than leave them.
-
-If leaving would remove a user's last accepted workspace, a replacement personal workspace is created for that user.
-
-Replacement personal workspaces created by leaving use the same starter-template bootstrap as new-user workspaces.
-
-After leaving, the user moves into another accepted workspace context, preferring the replacement personal workspace when one was created.
-
-A workspace member should confirm before leaving a workspace.
+- **Account password policy** requires at least 8 characters, one ASCII uppercase letter, one ASCII number, and one special character.
+- A **Workspace invitation** is not workspace access until accepted.
+- **Workspace invitations** are in-app invitations; outbound email is outside the current invitation lifecycle.
+- Use `cancelled` for a **Workspace invitation** that ended without acceptance, including when the invitee declines it.
+- Invitee decline and owner/admin cancellation are separate actions with different authorization paths, but both make the invitation `cancelled`.
+- Only workspace owners and admins may see or cancel pending **Workspace invitations** sent from a **Workspace**.
+- A workspace owner/admin should confirm before cancelling someone else's pending **Workspace invitation**.
+- A **Workspace invitation** remains valid after inviter role changes or inviter departure unless it is cancelled or expires.
+- Deleting a **Workspace** deletes its **Workspace invitations**.
+- **Workspace invitation management** shows actionable pending invitations, not accepted, cancelled, or expired invitation history.
+- Invitees should see inviter identity, offered role, invited email, invited time, and expiry before accepting a **Workspace invitation**.
+- Only actionable pending **Workspace invitations** should appear in an invitee's workspace list; expired invitations are hidden from that list.
+- Invitees accept or decline a **Workspace invitation** from the invitation detail view, not directly from the workspace list.
+- Invitees do not need a confirmation prompt when declining their own **Workspace invitation**.
+- A current workspace member should not also have a pending **Workspace invitation** for the same **Workspace**.
+- Accepting a **Workspace invitation** must not overwrite an existing **Workspace membership** or change its role.
+- **Workspace invitations** match the invitee by the account's current email address; account email is not user-editable.
+- Users should normally always have at least one accepted **Workspace**; if that invariant is broken and only invitations are available, select the latest-updated invitation.
+- **Leave Workspace** does not delete the **Workspace**, its documents, invitations, API key, or other members.
+- **Leave Workspace** is performed by a signed-in workspace member, not by a workspace API key.
+- Workspace owners delete workspaces rather than leave them.
+- If **Leave Workspace** would remove a user's last accepted **Workspace**, create a **Replacement personal Workspace** for that user.
+- A **Replacement personal Workspace** uses the same starter-template bootstrap as a new-user workspace.
+- After **Leave Workspace**, the user moves into another accepted **Workspace context**, preferring the **Replacement personal Workspace** when one was created.
+- A workspace member should confirm before leaving a **Workspace**.
+- **Template object schema** defines expected columns, column order, data types, and extraction guidance for fields whose data type is `object` or `array<object>`.
+- **Template object schema** should be normalized, validated, encoded for model guidance, decoded for editing, and rendered through one domain module.
+- A **Source file** may be an image or PDF, but the product term for the submitted item is **Document**.
+- An **Extraction job** may be retried only when its status allows retry.
+- A **Template** must have at least one **Template field** before it can be used for extraction.
+- Changing **Template fields** creates a new **Template version**.
+- An **Extraction job** is interpreted against the **Template version** selected at submission time.
+- An **Extraction result** may include confidence and evidence when requested.
 
 ## Relationships
 
-- A **Workspace invitation** may be displayed beside **Workspaces**, but it does not create a **Workspace** membership until accepted.
+- A **Workspace invitation** may be displayed beside **Workspaces**, but it does not create **Workspace membership** until accepted.
 - Accepted **Workspaces** appear before invited workspace entries; invited entries are ordered by latest update first.
 - Current workspace members and pending **Workspace invitations** are separate access-management lists.
-- Accepting a **Workspace invitation** creates a workspace membership and moves the user into that workspace context.
+- Accepting a **Workspace invitation** creates **Workspace membership** and moves the user into **Accepted workspace context**.
 - Declining a **Workspace invitation** makes it non-actionable and removes it from the invitee's workspace list.
 - A **Workspace member action** may remove a member, make a member an admin, or transfer workspace ownership to a member.
-- **Leave Workspace** removes a non-owner member's **Workspace** access without deleting the **Workspace**.
-- **Leave Workspace** creates a replacement personal **Workspace** when it removes the user's last accepted **Workspace**.
+- **Leave Workspace** removes a non-owner member's **Workspace membership** without deleting the **Workspace**.
+- **Leave Workspace** creates a **Replacement personal Workspace** when it removes the user's last accepted **Workspace**.
+- A **Pending workspace invitation context** is locked until the **Workspace invitation** is accepted or declined.
+- A **Document** has exactly one **Source file** at submission time.
+- A **Document** submitted with a **Template** creates one **Extraction job**.
+- A **Template** has one or more **Template fields**.
+- A **Template** has one or more **Template versions**.
+- A **Template field** may have a **Template object schema** when its data type is `object` or `array<object>`.
+- An **Extraction job** belongs to exactly one **Template version**.
+- A completed **Extraction job** has one **Extraction result** per extracted **Template field**.
 
-## Flagged ambiguities
+## Example Dialogue
 
-- "group" was used to describe what a user leaves; resolved: the domain term is **Workspace**, and access is represented by **workspace membership**.
+> **Dev:** "If a user selects an invited workspace, can we treat it as the active workspace for API calls?"
+> **Domain expert:** "No. It is a **Pending workspace invitation context** until accepted, so it can show invitation details but must not enable workspace API access."
+
+## Flagged Ambiguities
+
+- "group" was used to describe what a user leaves; resolved: the domain term is **Workspace**, and access is represented by **Workspace membership**.
 - "user status" was used for workspace access management; resolved: the domain term is **Workspace member action**.
+- "workspace state" can mean backend access, local persistence, or UI presentation; resolved: use **Workspace context** for backend access context and **Workspace selection view** for the frontend UI concept.
+- Backend code uses `image_*` names for stored uploads, but the resolved product term is **Document** because uploads can include PDFs as well as images; use **Source file** when referring to the original uploaded binary.
