@@ -57,7 +57,7 @@ export async function createQueuedExtractionJob(
     .prepare(
       `INSERT INTO jobs (
         id, workspace_id, template_id, template_version, status,
-        image_r2_key, image_mime_type, image_name, created_at, updated_at
+        source_file_key, source_mime_type, source_name, created_at, updated_at
       ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
     )
     .bind(

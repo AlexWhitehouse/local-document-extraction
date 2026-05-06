@@ -1,6 +1,6 @@
 import { createExtractionJob } from "./api/extract";
 import { deleteJob, getJob, listJobs } from "./api/jobs";
-import { ImageProcessingWorkflow } from "./consumer/imageProcessingWorkflow";
+import { DocumentProcessingWorkflow } from "./consumer/documentProcessingWorkflow";
 import { getProfileForUser, updateProfileForUser } from "./api/profile";
 import {
   acceptInvitation,
@@ -59,7 +59,7 @@ export default {
   }
 } satisfies ExportedHandler<Env, QueueJobMessage>;
 
-export { ImageProcessingWorkflow };
+export { DocumentProcessingWorkflow };
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -71,7 +71,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   }
 
   if (request.method === "GET" && url.pathname === "/v1/health") {
-    return json({ ok: true, service: "imageextraction-api" });
+    return json({ ok: true, service: "document-extraction-api" });
   }
 
   if (request.method === "POST" && url.pathname === "/v1/workspaces") {

@@ -7,7 +7,7 @@ export type WorkspaceListing = {
   id: string;
   name: string | null;
   created_at: string;
-  max_image_bytes: number | null;
+  max_source_file_bytes: number | null;
   role: "owner" | "admin" | "member";
 };
 
@@ -174,7 +174,7 @@ export async function listWorkspacesForUser(
 ): Promise<WorkspaceListing[]> {
   const result = await db
     .prepare(
-      `SELECT t.id, t.name, t.created_at, t.max_image_bytes, m.role
+      `SELECT t.id, t.name, t.created_at, t.max_source_file_bytes, m.role
        FROM workspace_memberships m
        JOIN workspaces t ON t.id = m.workspace_id
        WHERE m.user_id = ?

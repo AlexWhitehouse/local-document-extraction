@@ -26,7 +26,7 @@ function createWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     rate_limit_per_minute: null,
     max_templates: null,
     max_fields_per_template: null,
-    max_image_bytes: null,
+    max_source_file_bytes: null,
     ...overrides
   };
 }
@@ -35,8 +35,9 @@ function createEnvFixture(input: {
   workspaces: Workspace[];
   memberships: MembershipFixture[];
   invitations?: WorkspaceInvitationFixture[];
-  jobImageKeys?: string[];
-}): Env {
+  jobSourceFileKeys?: string[];
+}): Env & { deletedSourceFileKeys: string[] } {
+  const deletedSourceFileKeys: string[] = [];
   return {
     DB: {
       async batch(statements: D1PreparedStatement[]) {
@@ -126,8 +127,8 @@ function createEnvFixture(input: {
                 throw new Error(`Unhandled fixture SQL: ${sql}`);
               },
               async all<T>() {
-                if (sql.includes("SELECT image_r2_key") && sql.includes("FROM jobs")) {
-                  return { results: (input.jobImageKeys ?? []).map((image_r2_key) => ({ image_r2_key })) } as T;
+                if (sql.includes("SELECT source_file_key") && sql.includes("FROM jobs")) {
+                  return { results: (input.jobSourceFileKeys ?? []).map((source_file_key) => ({ source_file_key })) } as T;
                 }
 
                 throw new Error(`Unhandled fixture SQL: ${sql}`);
@@ -137,8 +138,9 @@ function createEnvFixture(input: {
         };
       }
     },
-    IMAGES_BUCKET: { delete: async () => undefined }
-  } as unknown as Env;
+    SOURCE_FILES_BUCKET: { delete: async (key: string) => { deletedSourceFileKeys.push(key); } },
+    deletedSourceFileKeys,
+  } as unknown as Env & { deletedSourceFileKeys: string[] };
 }
 
 describe("Workspace routes", () => {
@@ -156,6 +158,24 @@ describe("Workspace routes", () => {
     await expect(response.json()).resolves.toEqual({ ok: true, workspace_id: workspace.id });
     expect(env.DB.prepare).toBeDefined();
     expect(memberships).toEqual([{ workspace_id: otherWorkspace.id, user_id: "user_owner", role: "owner" }]);
+  });
+
+  it("deletes Workspace Source files through the Source file storage binding", async () => {
+    const workspace = createWorkspace();
+    const otherWorkspace = createWorkspace({ id: "workspace_keep" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: otherWorkspace.id, user_id: "user_owner", role: "owner" }
+    ];
+    const env = createEnvFixture({
+      workspaces: [workspace, otherWorkspace],
+      memberships,
+      jobSourceFileKeys: ["workspaces/workspace_delete/jobs/job_1/source.pdf"],
+    });
+
+    await deleteWorkspaceForUser(env, workspace.id, "user_owner");
+
+    expect(env.deletedSourceFileKeys).toEqual(["workspaces/workspace_delete/jobs/job_1/source.pdf"]);
   });
 
   it("preserves last-workspace HTTP semantics from policy rejection", async () => {

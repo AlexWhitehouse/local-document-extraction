@@ -6,12 +6,12 @@ Build a schema-driven document question answering API on Cloudflare using:
 
 - **Cloudflare Workers** for the public API and internal processing
 - **Cloudflare Queues** for asynchronous job processing
-- **Cloudflare R2** for temporary image storage
+- **Cloudflare R2** for temporary Source file storage
 - **Cloudflare D1** for job metadata, templates, processing status, and results
 - **Cloudflare AI Gateway** as the required AI egress and control plane
-- **OpenAI GPT-5.4 nano** behind Cloudflare AI Gateway for multimodal extraction from document images
+- **OpenAI GPT-5.4 nano** behind Cloudflare AI Gateway for multimodal extraction from Documents
 
-The API will accept an image plus a **template reference**. A template contains up to **50 field definitions**, where each field contains:
+The API will accept a Document plus a **template reference**. A template contains up to **50 field definitions**, where each field contains:
 
 - a stable `id`
 - a `name`
@@ -19,11 +19,11 @@ The API will accept an image plus a **template reference**. A template contains 
 - a `data_type`
 - optional flags such as `required`
 
-The extraction endpoint will only accept a **`template_id`**. Clients will **not** be allowed to submit ad hoc fields inline when uploading an image.
+The extraction endpoint will only accept a **`template_id`**. Clients will **not** be allowed to submit ad hoc fields inline when uploading a Document.
 
 The system will return answers for the fields defined in that template in structured JSON.
 
-A key requirement for this design is that the uploaded image is stored in **R2 only temporarily** and is **deleted after successful processing**.
+A key requirement for this design is that the Source file is stored in **R2 only temporarily** and is **deleted after successful processing**.
 
 ---
 
@@ -33,7 +33,7 @@ A key requirement for this design is that the uploaded image is stored in **R2 o
 
 1. Allow authenticated users to create reusable extraction templates.
 2. Allow authenticated users to list, read, update, delete, and use only templates they own.
-3. Accept a document image from a client.
+3. Accept a Document from a client.
 4. Require a `template_id` on extraction requests.
 5. Reject extraction requests that attempt to send raw field definitions directly.
 6. Support up to 50 fields per template.
@@ -50,8 +50,8 @@ A key requirement for this design is that the uploaded image is stored in **R2 o
 10. Return a `job_id` immediately after submission.
 11. Allow the client to poll for job status and final results.
 12. Use Cloudflare AI Gateway first, then route to OpenAI GPT-5.3 using BYOK.
-13. Use a single multimodal extraction pass per image.
-14. Delete the image from R2 once processing succeeds and the results have been stored.
+13. Use a single multimodal extraction pass per Document.
+14. Delete the Source file from R2 once processing succeeds and the results have been stored.
 
 ### Non-functional requirements
 
@@ -62,7 +62,7 @@ A key requirement for this design is that the uploaded image is stored in **R2 o
 5. Be observable and debuggable.
 6. Be cost-aware.
 7. Be resilient to malformed requests and partial extraction failures.
-8. Avoid keeping source images longer than necessary.
+8. Avoid keeping Source files longer than necessary.
 9. Centralize AI routing, logging, policy, and provider abstraction through AI Gateway.
 
 ---
@@ -73,7 +73,7 @@ This version of the system makes two major product changes.
 
 ### Change 1: Templates are mandatory
 
-The client must create a template first, then reference its `template_id` when posting an image.
+The client must create a template first, then reference its `template_id` when posting a Document.
 
 This means:
 
@@ -106,7 +106,7 @@ Public Worker API
   |-- template CRUD
   |-- validate extraction request
   |-- verify template ownership
-  |-- write image to R2
+  |-- write Source file to R2
   |-- write job + template snapshot to D1
   |-- push job message to Queue
   v
@@ -117,12 +117,12 @@ Queue Consumer Worker
   |
   |-- read job from D1
   |-- load template snapshot
-  |-- fetch image from R2
+  |-- fetch Source file from R2
   |-- build AI Gateway request
   |-- AI Gateway routes to OpenAI GPT-5.3 via BYOK
   |-- validate + normalize output
   |-- write results to D1
-  |-- delete image from R2 on success
+  |-- delete Source file from R2 on success
   |-- mark job complete
   v
 Client polls GET /v1/jobs/:id
@@ -143,10 +143,10 @@ This Worker is the ingress point for external clients.
 - enforce ownership boundaries
 - handle template CRUD
 - parse extraction request body
-- validate image metadata
+- validate Source file metadata
 - verify the referenced `template_id` exists and is owned by the caller
 - generate a unique `job_id`
-- write the source image to R2
+- write the Source file to R2
 - write job metadata into D1
 - snapshot the template version used by the job
 - publish a processing message to Cloudflare Queues
@@ -196,17 +196,17 @@ Basic health check.
 
 ## 2. Cloudflare R2
 
-R2 is used for **temporary object storage** for uploaded document images.
+R2 is used for **temporary object storage** for Source files.
 
 ### Why R2 is used
 
-- image binaries should not be stored in D1
+- Source file binaries should not be stored in D1
 - Workers can read/write R2 efficiently
-- enables async processing because the queue consumer can fetch the source image later
+- enables async processing because the queue consumer can fetch the Source file later
 
 ### Lifecycle requirement
 
-The image should be removed from R2 after successful processing.
+The Source file should be removed from R2 after successful processing.
 
 ### Suggested object key format
 
@@ -217,7 +217,7 @@ tenants/{tenant_id}/jobs/{job_id}/source.{ext}
 ### Retention policy
 
 - default behavior: delete immediately after successful processing
-- failed jobs: keep the image temporarily for retries and debugging
+- failed jobs: keep the Source file temporarily for retries and debugging
 - add a cleanup mechanism for abandoned or permanently failed jobs if needed
 
 ---
@@ -249,7 +249,7 @@ CREATE TABLE tenants (
   rate_limit_per_minute INTEGER,
   max_templates INTEGER,
   max_fields_per_template INTEGER,
-  max_image_bytes INTEGER
+  max_source_file_bytes INTEGER
 );
 ```
 
@@ -296,9 +296,9 @@ CREATE TABLE jobs (
   template_id TEXT NOT NULL,
   template_version INTEGER NOT NULL,
   status TEXT NOT NULL,
-  image_r2_key TEXT,
-  image_mime_type TEXT,
-  image_deleted_at TEXT,
+  source_file_r2_key TEXT,
+  source_file_mime_type TEXT,
+  source_file_deleted_at TEXT,
   model_name TEXT,
   ai_gateway_route TEXT,
   prompt_version TEXT,
@@ -382,7 +382,7 @@ Cloudflare Queue decouples request ingestion from model execution.
   "tenant_id": "tenant_001",
   "template_id": "tpl_invoice_v1",
   "template_version": 3,
-  "image_r2_key": "tenants/tenant_001/jobs/job_abc123/source.png",
+  "source_file_key": "tenants/tenant_001/jobs/job_abc123/source.png",
   "enqueued_at": "2026-04-14T12:00:00Z"
 }
 ```
@@ -405,13 +405,13 @@ This Worker consumes messages from the queue and performs extraction.
 2. load job record from D1
 3. ensure job is still processable
 4. load job template snapshot from D1
-5. fetch source image from R2
+5. fetch Source file from R2
 6. build the AI Gateway request and output schema
 7. call AI Gateway, which routes to OpenAI GPT-5.3 via BYOK
 8. validate returned JSON
 9. normalize values by type
 10. store results in D1
-11. delete image from R2 if all persistence steps succeed
+11. delete Source file from R2 if all persistence steps succeed
 12. mark job as `completed`
 
 ### Recommended status transitions
@@ -464,7 +464,7 @@ Make one multimodal request per job rather than one request per field.
 ### Why one request is better
 
 - lower latency than 50 separate calls
-- lower cost than repeated image processing
+- lower cost than repeated Source file processing
 - better cross-field consistency
 - easier to enforce a structured response contract
 
@@ -472,7 +472,7 @@ Make one multimodal request per job rather than one request per field.
 
 The model should be instructed to:
 
-- inspect the provided image
+- inspect the provided Document
 - answer only the requested fields from the selected template snapshot
 - follow the declared data type for each field
 - return `null` when the answer is absent or unreadable
@@ -633,11 +633,11 @@ Soft-deletes an owned template.
 
 ### Required behavior
 
-This endpoint must accept a `template_id` and image only.
+This endpoint must accept a `template_id` and a `document` multipart field only.
 
 ### Request
 
-Use `multipart/form-data` for image upload plus JSON metadata, or use JSON with a base64 image for smaller payloads.
+Use `multipart/form-data` for Document submission plus JSON metadata.
 
 Recommended logical payload:
 
@@ -658,7 +658,7 @@ Recommended logical payload:
 - template must belong to the authenticated tenant
 - template must not be deleted or archived for new use
 - request must not contain `fields`
-- image must satisfy MIME and size limits
+- Source file must satisfy MIME and size limits
 
 ### Immediate response
 
@@ -752,18 +752,18 @@ Recommended logical payload:
 
 ## Step 2. Client submits an extraction job
 
-1. Client sends image plus `template_id`.
+1. Client sends a Document plus `template_id`.
 2. Public Worker authenticates the request.
 3. Worker validates:
    - `template_id` exists
    - template belongs to caller
    - template is active
    - request does not include `fields`
-   - allowed image MIME type
-   - max image size
+   - supported Source file MIME type
+   - max Source file size
 4. Worker loads the template and current version.
 5. Worker generates `job_id`.
-6. Worker writes the image to R2.
+6. Worker writes the Source file to R2.
 7. Worker inserts the `jobs` row with status `queued`.
 8. Worker copies current template fields into `job_template_fields`.
 9. Worker publishes a queue message.
@@ -779,8 +779,8 @@ Recommended logical payload:
 ## Step 4. Consumer loads source data
 
 1. Consumer reads all `job_template_fields` rows.
-2. Consumer fetches the source image from R2.
-3. Consumer confirms the image exists and matches expectations.
+2. Consumer fetches the Source file from R2.
+3. Consumer confirms the Source file exists and matches expectations.
 
 ## Step 5. Consumer calls AI Gateway
 
@@ -810,13 +810,13 @@ Recommended logical payload:
    - `prompt_version`
    - `schema_version`
 
-## Step 8. Delete image from R2 after success
+## Step 8. Delete Source file from R2 after success
 
 This remains a required behavior.
 
 ### Deletion rule
 
-Delete the source image from R2 only after:
+Delete the Source file from R2 only after:
 
 - the AI response has been validated
 - all result rows have been written to D1 successfully
@@ -824,7 +824,7 @@ Delete the source image from R2 only after:
 
 ### Why deletion should happen after persistence
 
-If the image is deleted too early and a later write fails, the system may lose the ability to retry the job.
+If the Source file is deleted too early and a later write fails, the system may lose the ability to retry the job.
 
 ### Deletion sequence
 
@@ -833,7 +833,7 @@ Recommended order:
 1. persist results to D1
 2. mark job `completed`
 3. delete object from R2
-4. update `jobs.image_deleted_at`
+4. update `jobs.source_file_deleted_at`
 
 ### Important tradeoff
 
@@ -841,7 +841,7 @@ There is a small edge case where the job can be marked `completed` but the R2 de
 
 - keep the job `completed`
 - log the deletion failure
-- store a null `image_deleted_at`
+- store a null `source_file_deleted_at`
 - retry deletion later with a cleanup job or scheduled worker
 
 This prevents a successful extraction from being reported as failed just because cleanup failed.
@@ -896,7 +896,7 @@ The prompt should be deterministic and constrained.
 
 Use a strong system message such as:
 
-- You are extracting fields from a document image.
+- You are extracting fields from a Document.
 - Use only visible information from the document.
 - Do not guess or infer missing values.
 - If a field cannot be answered, return `status = not_found` and `answer = null`.
@@ -907,7 +907,7 @@ Use a strong system message such as:
 
 Pass:
 
-- the image
+- the Document Source file
 - the selected template field snapshot
 - optional extraction options
 
@@ -957,7 +957,7 @@ Examples:
 - template not found
 - template not owned by caller
 - template archived or deleted
-- image upload failure
+- Source file upload failure
 - D1 insertion failure
 - AI Gateway failure
 - provider failure
@@ -1037,11 +1037,11 @@ Per tenant, enforce:
 - max concurrent queued jobs
 - max templates
 - max fields per template
-- max image size
+- max Source file size
 
 ### Input controls
 
-- allow only expected image MIME types
+- allow only expected Source file MIME types
 - reject oversized payloads
 - cap description length to reduce prompt abuse
 - sanitize names and ids used in storage or logs
@@ -1226,7 +1226,7 @@ Build:
 - AI Gateway integration
 - routing through OpenAI GPT-5.3 via BYOK
 - result persistence
-- delete image from R2 on success
+- delete Source file from R2 on success
 
 Deliverable:
 A working end-to-end MVP.
@@ -1280,7 +1280,7 @@ Chosen because AI processing time is variable and queue-based execution is more 
 
 Chosen because binary files need a shared handoff point between the public Worker and consumer Worker.
 
-### Decision 5: Delete image only after successful persistence
+### Decision 5: Delete Source file only after successful persistence
 
 Chosen to protect retriability and avoid losing the source before results are safe.
 
@@ -1306,14 +1306,14 @@ Build first:
 2. template CRUD with ownership enforcement
 3. `POST /v1/extract` requiring `template_id`
 4. `GET /v1/jobs/:id`
-5. one image per job
+5. one Document Source file per job
 6. up to 50 fields per template
 7. one AI Gateway call per job
 8. AI Gateway route to OpenAI GPT-5.3 via BYOK
 9. D1 for tenants, templates, template versions, jobs, results
-10. R2 temporary image storage
+10. R2 temporary Source file storage
 11. Queue-based async processing
-12. delete image from R2 after successful processing
+12. delete Source file from R2 after successful processing
 
 ---
 
@@ -1323,9 +1323,9 @@ The recommended architecture is:
 
 - **Public Worker** manages template CRUD and extraction job creation
 - **Templates** are mandatory and owned per tenant
-- **R2** stores the image temporarily
+- **R2** stores the Source file temporarily
 - **D1** stores tenants, templates, template versions, jobs, and results
 - **Queue** decouples ingestion from AI processing
-- **Queue Consumer Worker** calls **Cloudflare AI Gateway**, which routes to **OpenAI GPT-5.3 via BYOK**, writes results, and deletes the source image from R2 after success
+- **Queue Consumer Worker** calls **Cloudflare AI Gateway**, which routes to **OpenAI GPT-5.3 via BYOK**, writes results, and deletes the Source file from R2 after success
 
 This architecture fits your updated requirement for a template-driven document question answering API and enforces that users may only create, see, update, delete, and use templates they own.

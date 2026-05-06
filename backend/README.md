@@ -1,4 +1,4 @@
-# imageextraction MVP (Cloudflare Workers)
+# Document Extraction API (Cloudflare Workers)
 
 Template-driven asynchronous document extraction API.
 
@@ -9,11 +9,11 @@ Template-driven asynchronous document extraction API.
 - Workspace API key auth (for non-frontend API clients)
 - Workspace invitations (invite + accept)
 - Template CRUD with workspace ownership checks
-- `POST /v1/extract` with required `template_id` (multipart image/PDF upload)
+- `POST /v1/extract` with required `template_id` and `document` multipart field
 - Queue-based async processing
 - AI Gateway call to OpenAI-compatible chat completions endpoint
 - Job polling via `GET /v1/jobs/:id`
-- Temporary R2 storage with delete-after-success behavior
+- Temporary Source file storage in R2 with delete-after-success behavior
 
 ## Prerequisites
 
@@ -29,15 +29,17 @@ Template-driven asynchronous document extraction API.
 npm install
 ```
 
-2. Create cloud resources:
+2. Confirm cloud resources:
 
 ```bash
-wrangler d1 create imageextraction-db
-wrangler r2 bucket create imageextraction-images
-wrangler queues create imageextraction-jobs
+wrangler d1 create document-extraction-db
+wrangler r2 bucket create document-extraction-source-files
+wrangler queues create document-extraction-jobs
 ```
 
-3. Copy IDs into `wrangler.jsonc` (`database_id`, account/gateway vars).
+The production D1 database `document-extraction-db` and R2 bucket `document-extraction-source-files` have already been provisioned. If you are creating a fresh environment, copy the D1 database ID into `wrangler.jsonc`.
+
+3. Provision or confirm the `document-extraction-jobs` queue and `document-processing-workflow` Workflow before deploying the renamed Worker service `document-extraction-api`.
 
 4. Apply local migration:
 
@@ -46,6 +48,12 @@ npm run db:migrate:local
 ```
 
 5. Configure secrets using Wrangler (`wrangler secret put ...`) or your deployment environment.
+
+Operator rollout notes:
+
+- The Worker uses the `SOURCE_FILES_BUCKET`, `EXTRACTION_JOBS_QUEUE`, and `DOCUMENT_PROCESSING_WORKFLOW` bindings in `wrangler.jsonc`.
+- Existing Source files must be copied from any old R2 bucket into `document-extraction-source-files` before traffic is switched if outstanding Extraction jobs still reference those object keys.
+- Deploy queue and Workflow renames in the same rollout as the Worker binding rename, then retire old Cloudflare resources after the queue is drained and no in-flight Workflow instances depend on them.
 
 ## Local runtime (Wrangler)
 
@@ -130,7 +138,7 @@ Core extraction routes:
 - `GET /v1/templates/:id`
 - `PATCH /v1/templates/:id`
 - `DELETE /v1/templates/:id`
-- `POST /v1/extract` (`multipart/form-data` with `template_id`, one file field as `image`/`file`/`document`, optional JSON `options`)
+- `POST /v1/extract` (`multipart/form-data` with `template_id`, required `document` field, optional JSON `options`)
 - `GET /v1/jobs/:id`
 
 ## Profile routes (session required)

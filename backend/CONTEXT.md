@@ -122,6 +122,15 @@ _Avoid_: object marker parsing, nested field table
 - **Template object schema** defines expected columns, column order, data types, and extraction guidance for fields whose data type is `object` or `array<object>`.
 - **Template object schema** should be normalized, validated, encoded for model guidance, decoded for editing, and rendered through one domain module.
 - A **Source file** may be an image or PDF, but the product term for the submitted item is **Document**.
+- Document submission must use the `document` multipart field; legacy `image` and generic `file` submission fields are not accepted or advertised.
+- Application-owned configuration, storage binding, and database names should use **Document** or **Source file** terminology rather than legacy `image` terminology.
+- Persisted extraction job source metadata should be named with **Source file** terminology and should not expose legacy `image` API response aliases.
+- Historical migration files remain immutable; legacy `image` schema names should be removed through forward migrations only.
+- Standard MIME types, generated files, and required platform API vocabulary may retain `image` where that word is part of the external standard or platform contract.
+- Use **Document** synonymously for supported source formats, including PNG, JPEG, WebP, and PDF, unless a standards-level MIME type must be named.
+- The background workflow that processes submitted **Documents** should be named `documentProcessingWorkflow` in application-owned code.
+- R2 storage for **Source files** should use non-legacy **Document** or **Source file** naming for both Worker bindings and physical bucket names.
+- The product/API label is **Document Extraction**, not legacy Image Extraction.
 - Cloudflare Workflow retry steps, not **Extraction job** status values, own retryability for transient processing failures.
 - Do not model retryability with a durable `retryable_failed` **Extraction job** status.
 - The durable **Extraction job lifecycle** states are `queued`, `processing`, `completed`, and `failed`.
@@ -162,4 +171,4 @@ _Avoid_: object marker parsing, nested field table
 - "group" was used to describe what a user leaves; resolved: the domain term is **Workspace**, and access is represented by **Workspace membership**.
 - "user status" was used for workspace access management; resolved: the domain term is **Workspace member action**.
 - "workspace state" can mean backend access, local persistence, or UI presentation; resolved: use **Workspace context** for backend access context and **Workspace selection view** for the frontend UI concept.
-- Backend code uses `image_*` names for stored uploads, but the resolved product term is **Document** because uploads can include PDFs as well as images; use **Source file** when referring to the original uploaded binary.
+- Legacy `image` terminology was used for earlier document submission, but the resolved product term is **Document** because source files can include PDFs as well as images; use **Source file** when referring to the original submitted binary.

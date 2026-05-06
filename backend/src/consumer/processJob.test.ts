@@ -62,7 +62,7 @@ function createProcessJobFixture() {
         };
       },
     },
-    IMAGE_PROCESSING_WORKFLOW: {
+    DOCUMENT_PROCESSING_WORKFLOW: {
       async create(): Promise<void> {
         throw new Error("Workflow service unavailable");
       },
@@ -75,13 +75,12 @@ function createProcessJobFixture() {
 describe("processJob", () => {
   it("starts the Cloudflare Workflow without exposing workflow metadata as a durable status", async () => {
     const { env, job, statusWrites } = createProcessJobFixture();
-    env.IMAGE_PROCESSING_WORKFLOW.create = async () => undefined;
+    env.DOCUMENT_PROCESSING_WORKFLOW.create = async () => undefined;
     const message: QueueJobMessage = {
       job_id: job.id,
       workspace_id: job.workspace_id,
       template_id: "template_test",
       template_version: 1,
-      image_r2_key: "workspaces/workspace_test/jobs/job_test/source.pdf",
       attempt: 1,
       enqueued_at: "2026-05-06T12:00:00.000Z",
     };
@@ -100,7 +99,6 @@ describe("processJob", () => {
       workspace_id: job.workspace_id,
       template_id: "template_test",
       template_version: 1,
-      image_r2_key: "workspaces/workspace_test/jobs/job_test/source.pdf",
       attempt: 1,
       enqueued_at: "2026-05-06T12:00:00.000Z",
     };

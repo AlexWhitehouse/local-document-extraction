@@ -958,6 +958,7 @@ describe("Workspace action toast feedback", () => {
   it("confirms a single document upload was queued", async () => {
     const user = userEvent.setup();
     const template = { id: "tpl_document", name: "Invoice Template" };
+    let extractFormData = null;
 
     globalThis.fetch.mockImplementation((input, options = {}) => {
       const url = String(input);
@@ -965,6 +966,7 @@ describe("Workspace action toast feedback", () => {
         return Promise.resolve(jsonResponse({ templates: [template] }));
       }
       if (url.endsWith("/extract") && options.method === "POST") {
+        extractFormData = options.body;
         return Promise.resolve(jsonResponse({ job_id: "job_upload_1" }));
       }
       return mockWorkspaceFetch(input, options);
@@ -983,7 +985,30 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("1 document queued");
     });
+    expect(extractFormData.get("document")).toBeInstanceOf(File);
+    expect(extractFormData.has("image")).toBe(false);
+    expect(extractFormData.has("file")).toBe(false);
     expect(screen.getByText("success")).toBeTruthy();
+  });
+
+  it("uses Source file language in document upload controls", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
+
+    expect(
+      screen.getByText(
+        "Select a template and source files, then queue Document extraction.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Source files")).toBeTruthy();
+    expect(screen.getByText("Drag and drop source files here")).toBeTruthy();
+    expect(screen.getByText("No Source files selected")).toBeTruthy();
+    expect(screen.queryByText("Document file")).toBeNull();
+    expect(screen.queryByText("Drag and drop files here")).toBeNull();
+    expect(screen.queryByText("No files selected")).toBeNull();
   });
 
   it("keeps polling while a selected document is processing", async () => {
@@ -999,7 +1024,7 @@ describe("Workspace action toast feedback", () => {
         {
           job_id: "job_processing_1",
           status: "processing",
-          image_name: "invoice.pdf",
+          source_name: "invoice.pdf",
           template_id: "tpl_document",
           created_at: "2026-01-03T00:00:00.000Z",
           updated_at: "2026-01-03T00:00:01.000Z",
@@ -1038,7 +1063,7 @@ describe("Workspace action toast feedback", () => {
         {
           job_id: "job_workflow_started_1",
           status: "workflow_started",
-          image_name: "invoice.pdf",
+          source_name: "invoice.pdf",
           template_id: "tpl_document",
           created_at: "2026-01-03T00:00:00.000Z",
           updated_at: "2026-01-03T00:00:01.000Z",
@@ -1065,7 +1090,7 @@ describe("Workspace action toast feedback", () => {
               {
                 job_id: "job_workflow_started_1",
                 status: "workflow_started",
-                image_name: "invoice.pdf",
+                source_name: "invoice.pdf",
                 template_id: "tpl_document",
                 created_at: "2026-01-03T00:00:00.000Z",
                 updated_at: "2026-01-03T00:00:01.000Z",
@@ -1080,7 +1105,7 @@ describe("Workspace action toast feedback", () => {
           jsonResponse({
             job_id: "job_workflow_started_1",
             status: "workflow_started",
-            image_name: "invoice.pdf",
+            source_name: "invoice.pdf",
             template_id: "tpl_document",
             created_at: "2026-01-03T00:00:00.000Z",
             updated_at: "2026-01-03T00:00:01.000Z",
@@ -1390,7 +1415,7 @@ function failedDocument(overrides = {}) {
   return {
     job_id: "job_failed_1",
     status: "failed",
-    image_name: "invoice.pdf",
+    source_name: "invoice.pdf",
     template_id: "tpl_document",
     current_attempt: 1,
     error_code: "extract_failed",

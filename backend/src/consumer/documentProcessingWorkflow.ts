@@ -9,7 +9,7 @@ import {
   failExtractionJob,
 } from "../lib/extractionJobLifecycle";
 import { nowIso } from "../lib/ids";
-import type { Env, FieldDefinition, ImageWorkflowParams } from "../lib/types";
+import type { Env, FieldDefinition, DocumentProcessingWorkflowParams } from "../lib/types";
 import {
   type NormalizedModelField,
   normalizeModelResults,
@@ -44,12 +44,12 @@ const CLEANUP_STEP_CONFIG = {
   timeout: "2 minutes",
 } as const;
 
-export class ImageProcessingWorkflow extends WorkflowEntrypoint<
+export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
   Env,
-  ImageWorkflowParams
+  DocumentProcessingWorkflowParams
 > {
   async run(
-    event: WorkflowEvent<ImageWorkflowParams>,
+    event: WorkflowEvent<DocumentProcessingWorkflowParams>,
     step: WorkflowStep,
   ): Promise<void> {
     const params = event.payload;
@@ -83,8 +83,8 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
             freshJob.template_id,
             freshJob.template_version,
           );
-          const object = await this.env.IMAGES_BUCKET.get(
-            freshJob.image_r2_key,
+          const object = await this.env.SOURCE_FILES_BUCKET.get(
+            freshJob.source_file_key,
           );
           if (!object) {
             throw new Error("missing_source_file");
@@ -94,7 +94,7 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
             this.env,
             fields,
             source,
-            freshJob.image_mime_type,
+            freshJob.source_mime_type,
           );
           const normalized = normalizeModelResults(fields, modelResults);
           await this.completeJob(params.job_id, params.attempt, normalized);
@@ -106,7 +106,7 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
         if (!freshJob) {
           return { skipped: true };
         }
-        await this.cleanupSource(freshJob.image_r2_key, params.job_id);
+        await this.cleanupSource(freshJob.source_file_key, params.job_id);
         return { ok: true };
       });
     } catch (error) {
@@ -128,12 +128,12 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
   ): Promise<{
     template_id: string;
     template_version: number;
-    image_r2_key: string;
-    image_mime_type: string;
+    source_file_key: string;
+    source_mime_type: string;
   } | null> {
     return (
       (await this.env.DB.prepare(
-        `SELECT template_id, template_version, image_r2_key, image_mime_type
+        `SELECT template_id, template_version, source_file_key, source_mime_type
            FROM jobs
            WHERE id = ? AND workspace_id = ?`,
       )
@@ -193,9 +193,9 @@ export class ImageProcessingWorkflow extends WorkflowEntrypoint<
     });
   }
 
-  private async cleanupSource(imageKey: string, jobId: string): Promise<void> {
+  private async cleanupSource(sourceFileKey: string, jobId: string): Promise<void> {
     try {
-      await this.env.IMAGES_BUCKET.delete(imageKey);
+      await this.env.SOURCE_FILES_BUCKET.delete(sourceFileKey);
       const now = nowIso();
       await this.env.DB.prepare(
         "UPDATE jobs SET image_deleted_at = ?, updated_at = ? WHERE id = ?",

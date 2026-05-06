@@ -17,7 +17,7 @@ type JobListRow = {
   status: string;
   template_id: string;
   template_version: number;
-  image_name: string | null;
+  source_name: string | null;
   error_code: string | null;
   error_message: string | null;
   created_at: string;
@@ -41,7 +41,7 @@ export async function listJobs(request: Request, db: D1Database, workspace: Work
   if (search) {
     const pattern = `%${escapeLike(search)}%`;
     filters.push(
-      `(j.id LIKE ? ESCAPE '\\' OR j.image_name LIKE ? ESCAPE '\\' OR j.template_id LIKE ? ESCAPE '\\' OR j.status LIKE ? ESCAPE '\\')`
+      `(j.id LIKE ? ESCAPE '\\' OR j.source_name LIKE ? ESCAPE '\\' OR j.template_id LIKE ? ESCAPE '\\' OR j.status LIKE ? ESCAPE '\\')`
     );
     params.push(pattern, pattern, pattern, pattern);
   }
@@ -53,7 +53,7 @@ export async function listJobs(request: Request, db: D1Database, workspace: Work
 
   const rows = await db
     .prepare(
-      `SELECT j.id, j.status, j.template_id, j.template_version, j.image_name, j.error_code, j.error_message,
+      `SELECT j.id, j.status, j.template_id, j.template_version, j.source_name, j.error_code, j.error_message,
               j.created_at, j.updated_at, j.completed_at, j.current_attempt, j.completed_attempt, j.last_failed_attempt,
               COALESCE(j.updated_at, j.created_at) AS sort_at
        FROM jobs j
@@ -73,7 +73,7 @@ export async function listJobs(request: Request, db: D1Database, workspace: Work
     jobs: page.map((row) => ({
       job_id: row.id,
       status: row.status,
-      image_name: row.image_name,
+      source_name: row.source_name,
       template_id: row.template_id,
       template_version: row.template_version,
       error_code: row.error_code,
@@ -137,7 +137,7 @@ function escapeLike(value: string): string {
 export async function getJob(db: D1Database, workspace: Workspace, id: string): Promise<Response> {
   const job = await db
     .prepare(
-      `SELECT id, status, template_id, template_version, image_name, error_code, error_message,
+      `SELECT id, status, template_id, template_version, source_name, error_code, error_message,
               created_at, updated_at, completed_at, current_attempt, completed_attempt, last_failed_attempt
        FROM jobs
         WHERE id = ? AND workspace_id = ? AND status IN (${DURABLE_JOB_STATUS_SQL})`
@@ -148,7 +148,7 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
       status: string;
       template_id: string;
       template_version: number;
-      image_name: string | null;
+      source_name: string | null;
       error_code: string | null;
       error_message: string | null;
       created_at: string;
@@ -171,7 +171,7 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
     return json({
       job_id: job.id,
       status: job.status,
-      image_name: job.image_name,
+      source_name: job.source_name,
       template_id: job.template_id,
       template_version: job.template_version,
       error_code: job.error_code,
@@ -217,7 +217,7 @@ export async function getJob(db: D1Database, workspace: Workspace, id: string): 
   return json({
     job_id: job.id,
     status: job.status,
-    image_name: job.image_name,
+    source_name: job.source_name,
     template_id: job.template_id,
     template_version: job.template_version,
     created_at: job.created_at,

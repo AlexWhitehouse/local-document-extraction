@@ -366,7 +366,7 @@ function extractObjectMetadata(description: string): {
 
 export async function validateExtractRequest(
   request: Request,
-  maxImageBytes: number
+  maxSourceFileBytes: number
 ): Promise<{ templateId: string; source: File; options: ExtractOptions }> {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) {
@@ -383,17 +383,17 @@ export async function validateExtractRequest(
     throw new HttpError(400, "invalid_template_id", "template_id is required");
   }
 
-  const sourcePart = form.get("image") ?? form.get("file") ?? form.get("document");
+  const sourcePart = form.get("document");
   if (!(sourcePart instanceof File)) {
-    throw new HttpError(400, "invalid_image", "image, file, or document is required");
+    throw new HttpError(400, "invalid_document", "document is required");
   }
 
   if (!ALLOWED_MIME_TYPES.has(sourcePart.type)) {
-    throw new HttpError(400, "invalid_image", `Unsupported file MIME type: ${sourcePart.type}`);
+    throw new HttpError(400, "invalid_document", `Unsupported Document MIME type: ${sourcePart.type}`);
   }
 
-  if (sourcePart.size > maxImageBytes) {
-    throw new HttpError(400, "image_too_large", `File exceeds max size of ${maxImageBytes} bytes`);
+  if (sourcePart.size > maxSourceFileBytes) {
+    throw new HttpError(400, "source_file_too_large", `Source file exceeds max size of ${maxSourceFileBytes} bytes`);
   }
 
   const optionsRaw = form.get("options");

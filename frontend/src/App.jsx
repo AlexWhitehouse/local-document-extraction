@@ -228,7 +228,7 @@ export function App() {
   );
   const [templateName, setTemplateName] = useState("Prescription Template");
   const [templateDescription, setTemplateDescription] = useState(
-    "Extract medication and prescription fields from a document image",
+    "Extract medication and prescription fields from a Document",
   );
   const [templateFields, setTemplateFields] = useState(DEFAULT_FIELDS);
   const [loadedTemplateSnapshot, setLoadedTemplateSnapshot] = useState(null);
@@ -359,9 +359,9 @@ export function App() {
         job_id: jobId,
         status: "queued",
         template_id: meta.template_id || extractTemplateId || "",
-        image_name:
-          meta.image_name || defaultUploadedName(meta.source_mime_type),
-        image_preview_url: meta.image_preview_url || null,
+        source_name:
+          meta.source_name || defaultUploadedName(meta.source_mime_type),
+        source_preview_url: meta.source_preview_url || null,
         source_mime_type: meta.source_mime_type || null,
         queued_at: meta.queued_at || null,
         updated_at: meta.queued_at || null,
@@ -372,7 +372,7 @@ export function App() {
           return true;
         }
 
-        return [job.job_id, job.image_name, job.template_id, job.status]
+        return [job.job_id, job.source_name, job.template_id, job.status]
           .map((value) => String(value || "").toLowerCase())
           .some((value) => value.includes(query));
       });
@@ -775,15 +775,15 @@ export function App() {
         prev.find((entry) => entry.job_id === job.job_id) || null;
       const normalized = {
         ...job,
-        image_name:
-          queuedMeta?.image_name ||
-          existing?.image_name ||
-          job.image_name ||
+        source_name:
+          queuedMeta?.source_name ||
+          existing?.source_name ||
+          job.source_name ||
           null,
-        image_preview_url:
-          queuedMeta?.image_preview_url ||
-          existing?.image_preview_url ||
-          job.image_preview_url ||
+        source_preview_url:
+          queuedMeta?.source_preview_url ||
+          existing?.source_preview_url ||
+          job.source_preview_url ||
           null,
         source_mime_type:
           queuedMeta?.source_mime_type ||
@@ -2086,7 +2086,7 @@ export function App() {
         setExtractTemplateId("");
         setTemplateName("Prescription Template");
         setTemplateDescription(
-          "Extract medication and prescription fields from a document image",
+          "Extract medication and prescription fields from a Document",
         );
         setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
         setLoadedTemplateSnapshot(null);
@@ -2141,7 +2141,7 @@ export function App() {
     setUpdateTemplateId("");
     setTemplateName("Prescription Template");
     setTemplateDescription(
-      "Extract medication and prescription fields from a document image",
+      "Extract medication and prescription fields from a Document",
     );
     setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
     setLoadedTemplateSnapshot(null);
@@ -2298,16 +2298,16 @@ export function App() {
   }
 
   async function queueDocument(templateId, file) {
-    const imagePreviewUrl = file.type.startsWith("image/")
+    const sourcePreviewUrl = file.type.startsWith("image/")
       ? URL.createObjectURL(file)
       : null;
-    if (imagePreviewUrl) {
-      previewUrlsRef.current.add(imagePreviewUrl);
+    if (sourcePreviewUrl) {
+      previewUrlsRef.current.add(sourcePreviewUrl);
     }
 
     const formData = new FormData();
     formData.append("template_id", templateId.trim());
-    formData.append("image", file);
+    formData.append("document", file);
     formData.append("options", JSON.stringify(DEFAULT_OPTIONS));
 
     const queued = await request("/extract", {
@@ -2321,8 +2321,8 @@ export function App() {
       ...prev,
       [jobId]: {
         queued_at: new Date().toISOString(),
-        image_name: file.name,
-        image_preview_url: imagePreviewUrl,
+        source_name: file.name,
+        source_preview_url: sourcePreviewUrl,
         source_mime_type: file.type || null,
         template_id: templateId.trim(),
       },
@@ -2338,7 +2338,9 @@ export function App() {
       return;
     }
     if (!file) {
-      addLog("Extract failed: choose a document file (image or PDF)");
+      addLog(
+        "Extract failed: choose a Document source file (PNG, JPEG, WebP, or PDF)",
+      );
       return;
     }
 
@@ -2443,10 +2445,10 @@ export function App() {
     throw new Error("Timed out waiting for job completion");
   }
 
-  function removeDocumentFromState(targetDocumentId, imagePreviewUrl) {
-    if (imagePreviewUrl) {
-      URL.revokeObjectURL(imagePreviewUrl);
-      previewUrlsRef.current.delete(imagePreviewUrl);
+  function removeDocumentFromState(targetDocumentId, sourcePreviewUrl) {
+    if (sourcePreviewUrl) {
+      URL.revokeObjectURL(sourcePreviewUrl);
+      previewUrlsRef.current.delete(sourcePreviewUrl);
     }
 
     setJobHistory((prev) =>
@@ -2479,7 +2481,7 @@ export function App() {
     }
 
     const targetDocumentId = String(selectedDocument.job_id);
-    const targetDocumentName = selectedDocument.image_name || targetDocumentId;
+    const targetDocumentName = selectedDocument.source_name || targetDocumentId;
     if (
       !window.confirm(
         `Delete document ${targetDocumentId}? This will permanently remove it from the workspace.`,
@@ -2495,7 +2497,7 @@ export function App() {
       });
       removeDocumentFromState(
         targetDocumentId,
-        selectedDocument.image_preview_url,
+        selectedDocument.source_preview_url,
       );
       const nextDocumentId =
         documents.find((job) => String(job.job_id || "") !== targetDocumentId)
@@ -2512,7 +2514,7 @@ export function App() {
       if (Number(error?.status) === 404) {
         removeDocumentFromState(
           targetDocumentId,
-          selectedDocument.image_preview_url,
+          selectedDocument.source_preview_url,
         );
         const nextDocumentId =
           documents.find((job) => String(job.job_id || "") !== targetDocumentId)
@@ -2545,7 +2547,7 @@ export function App() {
         <div className="auth-shell">
           <section className="auth-card">
             <div className="auth-header">
-              <p className="eyebrow">Data Extraction</p>
+              <p className="eyebrow">Document Extraction</p>
               <h1>Studio</h1>
               <p>
                 {authMode === "signin"
@@ -2714,7 +2716,7 @@ export function App() {
       <div className="app-frame">
         <aside className="left-sidebar">
           <div className="sidebar-brand">
-            <p className="eyebrow">Data Extraction</p>
+            <p className="eyebrow">Document Extraction</p>
             <h1>Studio</h1>
           </div>
 
@@ -2831,7 +2833,7 @@ export function App() {
                 <input
                   value={documentSearch}
                   onChange={(event) => setDocumentSearch(event.target.value)}
-                  placeholder="Job ID or file"
+                  placeholder="Job ID or Source file"
                 />
               </label>
               <div className="context-list">
@@ -2847,7 +2849,7 @@ export function App() {
                     onClick={() => setSelectedDocumentId(job.job_id)}
                   >
                     <strong>
-                      {job.image_name ||
+                      {job.source_name ||
                         defaultUploadedName(job.source_mime_type)}
                     </strong>
                     <span>{job.job_id}</span>
@@ -3764,7 +3766,10 @@ export function App() {
             >
               <div className="workspace-head">
                 <h2>Upload Document</h2>
-                <p>Select a template and file, then queue extraction.</p>
+                <p>
+                  Select a template and source files, then queue Document
+                  extraction.
+                </p>
               </div>
               <div className="row">
                 <label>
@@ -3784,7 +3789,7 @@ export function App() {
                   </select>
                 </label>
                 <label>
-                  Document file
+                  Source files
                   <input
                     ref={uploadInputRef}
                     type="file"
@@ -3808,14 +3813,14 @@ export function App() {
                     onDragLeave={handleUploadDragLeave}
                     onDrop={handleUploadDrop}
                   >
-                    <strong>Drag and drop files here</strong>
+                    <strong>Drag and drop source files here</strong>
                     <span>
-                      or click to browse multiple files (PNG, JPG, WEBP, PDF)
+                      or click to browse Documents (PNG, JPG, WEBP, PDF)
                     </span>
                     <em>
                       {uploadFiles.length
-                        ? `${uploadFiles.length} file${uploadFiles.length === 1 ? "" : "s"} selected`
-                        : "No files selected"}
+                        ? `${uploadFiles.length} Source file${uploadFiles.length === 1 ? "" : "s"} selected`
+                        : "No Source files selected"}
                     </em>
                   </button>
                   {uploadFiles.length ? (
@@ -3978,12 +3983,12 @@ function defaultUploadedName(sourceMimeType) {
     typeof sourceMimeType === "string" &&
     sourceMimeType.startsWith("image/")
   ) {
-    return "Uploaded image";
+    return "Uploaded Document";
   }
   if (sourceMimeType === "application/pdf") {
-    return "Uploaded document";
+    return "Uploaded Document";
   }
-  return "Uploaded file";
+  return "Uploaded Source file";
 }
 
 function JobStatusTracker({ job }) {

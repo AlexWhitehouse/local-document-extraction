@@ -85,11 +85,10 @@ export type QueueJobMessage = {
   workspace_id: string;
   template_id: string;
   template_version: number;
-  image_r2_key: string;
   enqueued_at: string;
 };
 
-export type ImageWorkflowParams = {
+export type DocumentProcessingWorkflowParams = {
   job_id: string;
   attempt: number;
   workspace_id: string;
@@ -104,7 +103,7 @@ export type Workspace = {
   rate_limit_per_minute: number | null;
   max_templates: number | null;
   max_fields_per_template: number | null;
-  max_image_bytes: number | null;
+  max_source_file_bytes: number | null;
 };
 
 export type WorkspaceMembershipRole = "owner" | "admin" | "member";
@@ -112,9 +111,9 @@ export type WorkspaceMembershipRole = "owner" | "admin" | "member";
 export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
-  IMAGES_BUCKET: R2Bucket;
-  JOBS_QUEUE: Queue<QueueJobMessage>;
-  IMAGE_PROCESSING_WORKFLOW: Workflow<ImageWorkflowParams>;
+  SOURCE_FILES_BUCKET: R2Bucket;
+  EXTRACTION_JOBS_QUEUE: Queue<QueueJobMessage>;
+  DOCUMENT_PROCESSING_WORKFLOW: Workflow<DocumentProcessingWorkflowParams>;
   AI: WorkersAiBinding;
   AI_GATEWAY_ACCOUNT_ID: string;
   AI_GATEWAY_ID: string;
@@ -129,5 +128,5 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   AI_MODEL?: string;
   AI_GATEWAY_ROUTE?: string;
-  MAX_IMAGE_BYTES?: string;
+  MAX_SOURCE_FILE_BYTES?: string;
 }

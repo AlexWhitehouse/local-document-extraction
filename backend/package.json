@@ -9,8 +9,8 @@
     "deploy": "wrangler deploy",
     "deploy:prod": "npm run build --prefix ../frontend && wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "db:migrate:local": "wrangler d1 migrations apply imageextraction-db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply imageextraction-db --remote"
+    "db:migrate:local": "wrangler d1 migrations apply document-extraction-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply document-extraction-db --remote"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

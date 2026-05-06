@@ -33,7 +33,7 @@ export async function processJob(message: QueueJobMessage, env: Env): Promise<vo
   }
 
   try {
-    await env.IMAGE_PROCESSING_WORKFLOW.create({
+    await env.DOCUMENT_PROCESSING_WORKFLOW.create({
       id: workflowInstanceId,
       params: {
         job_id: message.job_id,

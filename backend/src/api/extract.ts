@@ -12,8 +12,8 @@ const EXT_BY_MIME: Record<string, string> = {
 };
 
 export async function createExtractionJob(request: Request, env: Env, workspace: Workspace): Promise<Response> {
-  const maxImageBytes = workspace.max_image_bytes || Number(env.MAX_IMAGE_BYTES || 10 * 1024 * 1024);
-  const { templateId, source } = await validateExtractRequest(request, maxImageBytes);
+  const maxSourceFileBytes = workspace.max_source_file_bytes || Number(env.MAX_SOURCE_FILE_BYTES || 10 * 1024 * 1024);
+  const { templateId, source } = await validateExtractRequest(request, maxSourceFileBytes);
 
   const template = await env.DB
     .prepare(
@@ -46,11 +46,11 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
   const jobId = newId("job");
   const ext = EXT_BY_MIME[source.type] || "bin";
   const objectKey = `workspaces/${workspace.id}/jobs/${jobId}/source.${ext}`;
-  const imageName = source.name?.trim() ? source.name.trim() : null;
+  const sourceName = source.name?.trim() ? source.name.trim() : null;
   const now = nowIso();
 
   const sourceBytes = await source.arrayBuffer();
-  await env.IMAGES_BUCKET.put(objectKey, sourceBytes, {
+  await env.SOURCE_FILES_BUCKET.put(objectKey, sourceBytes, {
     httpMetadata: {
       contentType: source.type
     }
@@ -64,11 +64,11 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
       templateVersion: version,
       sourceFileKey: objectKey,
       sourceMimeType: source.type,
-      sourceName: imageName,
+      sourceName,
       submittedAt: now,
     });
   } catch (error) {
-    await env.IMAGES_BUCKET.delete(objectKey);
+    await env.SOURCE_FILES_BUCKET.delete(objectKey);
     throw error;
   }
 
@@ -78,17 +78,16 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
     workspace_id: workspace.id,
     template_id: templateId,
     template_version: version,
-    image_r2_key: objectKey,
     enqueued_at: now
   };
 
-  await env.JOBS_QUEUE.send(message, { contentType: "json" });
+  await env.EXTRACTION_JOBS_QUEUE.send(message, { contentType: "json" });
 
   return json(
     {
       job_id: jobId,
       status: "queued",
-      image_name: imageName,
+      source_name: sourceName,
       template_id: templateId,
       template_version: version
     },

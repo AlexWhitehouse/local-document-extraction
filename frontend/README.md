@@ -1,6 +1,6 @@
 # Frontend
 
-React UI for the extraction workspace experience.
+React UI for the Document Extraction workspace experience.
 
 ## Run
 
@@ -22,6 +22,6 @@ The frontend runs on `http://localhost:5173` and proxies `/v1/*` to `http://127.
 ## What it can do
 
 - Create/list/update/delete templates (`/v1/templates`)
-- Upload image and create extraction job (`POST /v1/extract`)
+- Upload a Document Source file and create an Extraction job (`POST /v1/extract`)
 - Poll latest job (`GET /v1/jobs/:id`)
 - View and update user profile (`GET/PATCH /v1/profile`)

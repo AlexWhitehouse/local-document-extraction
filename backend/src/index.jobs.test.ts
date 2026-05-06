@@ -34,7 +34,7 @@ describe("Extraction job routes", () => {
         rate_limit_per_minute: null,
         max_templates: null,
         max_fields_per_template: null,
-        max_image_bytes: null,
+        max_source_file_bytes: null,
       },
     });
   });
@@ -63,7 +63,7 @@ describe("Extraction job routes", () => {
       status,
       template_id: "template_test",
       template_version: 1,
-      image_name: `${status}.pdf`,
+      source_name: `${status}.pdf`,
       error_code: null,
       error_message: null,
       created_at: `2026-05-06T12:0${index}:00.000Z`,
@@ -85,8 +85,10 @@ describe("Extraction job routes", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { jobs: Array<{ status: string }> };
+    const body = (await response.json()) as { jobs: Array<Record<string, unknown> & { status: string }> };
     expect(body.jobs.map((job: { status: string }) => job.status)).toEqual(supportedLifecycleStates);
+    expect(body.jobs[0]).toMatchObject({ source_name: "queued.pdf" });
+    expect(body.jobs[0]).not.toHaveProperty("image_name");
   });
 
   it("does not expose an obsolete stored lifecycle state from Extraction job detail", async () => {
@@ -96,7 +98,7 @@ describe("Extraction job routes", () => {
         status: "workflow_started",
         template_id: "template_test",
         template_version: 1,
-        image_name: "invoice.pdf",
+        source_name: "invoice.pdf",
         error_code: null,
         error_message: null,
         created_at: "2026-05-06T12:00:00.000Z",
@@ -125,6 +127,42 @@ describe("Extraction job routes", () => {
     });
   });
 
+  it("finds Extraction jobs by Source file name", async () => {
+    const env = createJobsRouteEnv({
+      listRows: [
+        {
+          id: "job_invoice",
+          status: "completed",
+          template_id: "template_test",
+          template_version: 1,
+          source_name: "invoice.pdf",
+          error_code: null,
+          error_message: null,
+          created_at: "2026-05-06T12:00:00.000Z",
+          updated_at: "2026-05-06T12:02:00.000Z",
+          completed_at: "2026-05-06T12:02:00.000Z",
+          current_attempt: 1,
+          completed_attempt: 1,
+          last_failed_attempt: 0,
+          sort_at: "2026-05-06T12:02:00.000Z",
+        },
+      ],
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/jobs?search=invoice", {
+        method: "GET",
+        headers: { authorization: "Bearer workspace-api-key" },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      jobs: [{ job_id: "job_invoice", source_name: "invoice.pdf" }],
+    });
+  });
+
   it("returns Extraction results for completed Extraction job detail", async () => {
     const env = createJobsRouteEnv({
       detailJob: {
@@ -132,7 +170,7 @@ describe("Extraction job routes", () => {
         status: "completed",
         template_id: "template_test",
         template_version: 1,
-        image_name: "invoice.pdf",
+        source_name: "invoice.pdf",
         error_code: null,
         error_message: null,
         created_at: "2026-05-06T12:00:00.000Z",
@@ -164,9 +202,11 @@ describe("Extraction job routes", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
       job_id: "job_completed",
       status: "completed",
+      source_name: "invoice.pdf",
       results: [
         {
           field_id: "field_total",
@@ -179,6 +219,7 @@ describe("Extraction job routes", () => {
         },
       ],
     });
+    expect(body).not.toHaveProperty("image_name");
   });
 });
 

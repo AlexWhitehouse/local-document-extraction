@@ -69,6 +69,11 @@ _Avoid_: workspace session, cached workspace
 - An **Action toast** may report the outcome of actions on Workspaces, Templates, Documents, Workspace invitations, Workspace members, or clipboard content.
 - A **Document upload toast** is a specialized **Action toast** for document queueing outcomes.
 - A **Document** has one **Source file** selected in the browser before submission.
+- Document submission must use the `document` multipart field; legacy `image` and generic `file` submission fields are not accepted or advertised.
+- Extraction job API responses should expose **Source file** terminology and should not expose legacy `image` aliases.
+- Standard MIME types, generated files, and required platform API vocabulary may retain `image` where that word is part of the external standard or platform contract.
+- Use **Document** synonymously for supported source formats, including PNG, JPEG, WebP, and PDF, unless a standards-level MIME type must be named.
+- The product/API label is **Document Extraction**, not legacy Image Extraction.
 - A **Document** submitted with a **Template** creates one **Extraction job** in the document list.
 - A **Template** has one or more **Template fields** displayed and edited by the frontend.
 - An **Extraction job** shows results for the **Template version** used when the Document was submitted.
@@ -82,4 +87,4 @@ _Avoid_: workspace session, cached workspace
 ## Flagged Ambiguities
 
 - "workspace state" can mean backend access, local persistence, or UI presentation; resolved: use **Workspace selection view** for the UI concept and **Workspace context** for the backend-defined access context.
-- "image" appears in implementation names, but the resolved product term is **Document** because uploads can include PDFs as well as images; use **Source file** when referring to the original uploaded binary.
+- Legacy "image" terminology was used for earlier document submission, but the resolved product term is **Document** because source files can include PDFs as well as images; use **Source file** when referring to the original submitted binary.

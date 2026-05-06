@@ -181,7 +181,7 @@ async function convertPdfToMarkdown(sourceBytes: ArrayBuffer, sourceMimeType: st
 
   if (!hasMeaningfulMarkdownContent(conversion.data)) {
     throw new Error(
-      "PDF conversion returned little or no extractable text. This PDF may be scanned/image-only. Try an OCR-enabled PDF or upload page images.",
+      "PDF conversion returned little or no extractable text. This PDF may be scanned or raster-only. Try an OCR-enabled PDF or submit page Documents.",
     );
   }
 

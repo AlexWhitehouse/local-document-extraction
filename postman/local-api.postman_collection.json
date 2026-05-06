@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Image Extraction Local API",
-    "description": "Local Postman collection for the image extraction API.\n\nPrerequisites:\n1) Start backend locally: npm run start --prefix backend\n2) Set collection variables: api_key, template_id, and optionally workspace_id\n3) Use a valid PNG/JPEG/WEBP/PDF file for upload\n\nAuth for all /v1 extraction endpoints uses Bearer API key.",
+    "name": "Document Extraction Local API",
+    "description": "Local Postman collection for the Document Extraction API.\n\nPrerequisites:\n1) Start backend locally: npm run start --prefix backend\n2) Set collection variables: api_key, template_id, and optionally workspace_id\n3) Use a valid PNG/JPEG/WEBP/PDF Document for upload\n\nAuth for all /v1 extraction endpoints uses Bearer API key.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -50,7 +50,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Prescription Template\",\n  \"description\": \"Extract medication and prescription fields from a document image\",\n  \"fields\": [\n    {\n      \"name\": \"Patient Name\",\n      \"description\": \"Full name of the patient on the prescription\",\n      \"data_type\": \"string\",\n      \"required\": true\n    },\n    {\n      \"name\": \"Prescription Lines\",\n      \"description\": \"List each prescribed medication line when the document contains multiple medications\",\n      \"data_type\": \"array<object>\",\n      \"required\": false,\n      \"object_schema\": {\n        \"mode\": \"table\",\n        \"columns\": [\n          {\n            \"heading\": \"Medication Name\",\n            \"data_type\": \"string\",\n            \"description\": \"Medication listed on this line\"\n          },\n          {\n            \"heading\": \"Strength\",\n            \"data_type\": \"string\",\n            \"description\": \"Strength for this medication line\"\n          },\n          {\n            \"heading\": \"Dose Instructions\",\n            \"data_type\": \"string\",\n            \"description\": \"Dose and frequency instructions for this line\"\n          }\n        ]\n      }\n    }\n  ]\n}"
+          "raw": "{\n  \"name\": \"Prescription Template\",\n  \"description\": \"Extract medication and prescription fields from a Document\",\n  \"fields\": [\n    {\n      \"name\": \"Patient Name\",\n      \"description\": \"Full name of the patient on the prescription\",\n      \"data_type\": \"string\",\n      \"required\": true\n    },\n    {\n      \"name\": \"Prescription Lines\",\n      \"description\": \"List each prescribed medication line when the document contains multiple medications\",\n      \"data_type\": \"array<object>\",\n      \"required\": false,\n      \"object_schema\": {\n        \"mode\": \"table\",\n        \"columns\": [\n          {\n            \"heading\": \"Medication Name\",\n            \"data_type\": \"string\",\n            \"description\": \"Medication listed on this line\"\n          },\n          {\n            \"heading\": \"Strength\",\n            \"data_type\": \"string\",\n            \"description\": \"Strength for this medication line\"\n          },\n          {\n            \"heading\": \"Dose Instructions\",\n            \"data_type\": \"string\",\n            \"description\": \"Dose and frequency instructions for this line\"\n          }\n        ]\n      }\n    }\n  ]\n}"
         },
         "url": {
           "raw": "{{base_url}}/v1/templates",
@@ -168,7 +168,7 @@
               "type": "text"
             },
             {
-              "key": "image",
+              "key": "document",
               "type": "file",
               "src": ""
             },

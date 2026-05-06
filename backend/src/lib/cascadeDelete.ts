@@ -2,7 +2,7 @@ import { HttpError } from "./http";
 import type { Env, Workspace } from "./types";
 
 type R2KeyRow = {
-  image_r2_key: string | null;
+  source_file_key: string | null;
 };
 
 const R2_DELETE_CONCURRENCY = 25;
@@ -10,7 +10,7 @@ const R2_DELETE_CONCURRENCY = 25;
 export async function deleteJobCascade(env: Env, workspace: Workspace, jobId: string): Promise<void> {
   const existing = await env.DB
     .prepare(
-      `SELECT image_r2_key
+      `SELECT source_file_key
        FROM jobs
        WHERE id = ? AND workspace_id = ?`,
     )
@@ -26,7 +26,7 @@ export async function deleteJobCascade(env: Env, workspace: Workspace, jobId: st
     env.DB.prepare("DELETE FROM jobs WHERE id = ? AND workspace_id = ?").bind(jobId, workspace.id),
   ]);
 
-  await deleteR2Objects(env, [existing.image_r2_key]);
+  await deleteR2Objects(env, [existing.source_file_key]);
 }
 
 export async function deleteTemplateCascade(env: Env, workspace: Workspace, templateId: string): Promise<void> {
@@ -45,7 +45,7 @@ export async function deleteTemplateCascade(env: Env, workspace: Workspace, temp
 
   const r2Keys = await env.DB
     .prepare(
-      `SELECT image_r2_key
+      `SELECT source_file_key
        FROM jobs
        WHERE workspace_id = ? AND template_id = ?`,
     )
@@ -68,14 +68,14 @@ export async function deleteTemplateCascade(env: Env, workspace: Workspace, temp
 
   await deleteR2Objects(
     env,
-    r2Keys.results.map((row) => row.image_r2_key),
+    r2Keys.results.map((row) => row.source_file_key),
   );
 }
 
 export async function deleteWorkspaceCascade(env: Env, workspaceId: string): Promise<void> {
   const r2Keys = await env.DB
     .prepare(
-      `SELECT image_r2_key
+      `SELECT source_file_key
        FROM jobs
        WHERE workspace_id = ?`,
     )
@@ -108,7 +108,7 @@ export async function deleteWorkspaceCascade(env: Env, workspaceId: string): Pro
 
   await deleteR2Objects(
     env,
-    r2Keys.results.map((row) => row.image_r2_key),
+    r2Keys.results.map((row) => row.source_file_key),
   );
 }
 
@@ -119,6 +119,6 @@ async function deleteR2Objects(env: Env, keys: Array<string | null | undefined>)
 
   for (let index = 0; index < uniqueKeys.length; index += R2_DELETE_CONCURRENCY) {
     const chunk = uniqueKeys.slice(index, index + R2_DELETE_CONCURRENCY);
-    await Promise.all(chunk.map((key) => env.IMAGES_BUCKET.delete(key)));
+    await Promise.all(chunk.map((key) => env.SOURCE_FILES_BUCKET.delete(key)));
   }
 }

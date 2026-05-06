@@ -78,7 +78,7 @@ type JobFixture = {
   status: string;
   template_id: string;
   template_version: number;
-  image_name: string | null;
+  source_name: string | null;
   error_code: string | null;
   error_message: string | null;
   created_at: string;
@@ -125,7 +125,7 @@ function createD1Fixture(input: {
                   rate_limit_per_minute: null,
                   max_templates: null,
                   max_fields_per_template: null,
-                  max_image_bytes: null
+                  max_source_file_bytes: null
                 });
                 return { success: true };
               }
@@ -382,7 +382,7 @@ function createD1Fixture(input: {
                       id: workspace.id,
                       name: workspace.name,
                       created_at: workspace.created_at,
-                      max_image_bytes: workspace.max_image_bytes,
+                      max_source_file_bytes: workspace.max_source_file_bytes,
                       role: membership.role
                     };
                   })
@@ -543,7 +543,7 @@ function createWorkspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
     rate_limit_per_minute: null,
     max_templates: null,
     max_fields_per_template: null,
-    max_image_bytes: null,
+    max_source_file_bytes: null,
     ...overrides
   };
 }
@@ -559,7 +559,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
@@ -582,7 +582,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({ workspaces: [workspace], memberships: [] });
 
@@ -601,7 +601,7 @@ describe("Workspace policy", () => {
           rate_limit_per_minute: null,
           max_templates: null,
           max_fields_per_template: null,
-          max_image_bytes: 10
+          max_source_file_bytes: 10
         },
         {
           id: "workspace_new",
@@ -612,7 +612,7 @@ describe("Workspace policy", () => {
           rate_limit_per_minute: null,
           max_templates: null,
           max_fields_per_template: null,
-          max_image_bytes: 20
+          max_source_file_bytes: 20
         }
       ],
       memberships: [
@@ -627,14 +627,14 @@ describe("Workspace policy", () => {
         id: "workspace_new",
         name: "Research",
         created_at: "2026-05-04T00:00:00.000Z",
-        max_image_bytes: 20,
+        max_source_file_bytes: 20,
         role: "admin"
       },
       {
         id: "workspace_old",
         name: "Archive",
         created_at: "2026-05-03T00:00:00.000Z",
-        max_image_bytes: 10,
+        max_source_file_bytes: 10,
         role: "member"
       }
     ]);
@@ -650,7 +650,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
@@ -869,7 +869,7 @@ describe("Workspace policy", () => {
         id: created.workspace_id,
         name: "Research",
         created_at: created.created_at,
-        max_image_bytes: null,
+        max_source_file_bytes: null,
         role: "owner"
       }
     ]);
@@ -902,7 +902,7 @@ describe("Workspace policy", () => {
         id: created.workspace_id,
         name: "Alex Workspace",
         created_at: created.created_at,
-        max_image_bytes: null,
+        max_source_file_bytes: null,
         role: "owner"
       }
     ]);
@@ -973,7 +973,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
@@ -997,7 +997,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
@@ -1022,7 +1022,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
@@ -1052,7 +1052,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
@@ -1083,7 +1083,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
@@ -1223,7 +1223,7 @@ describe("Workspace policy", () => {
       status: "completed",
       template_id: template.id,
       template_version: 1,
-      image_name: "invoice.png",
+      source_name: "invoice.png",
       error_code: null,
       error_message: null,
       created_at: "2026-05-05T00:00:00.000Z",
@@ -1267,7 +1267,7 @@ describe("Workspace policy", () => {
         {
           job_id: job.id,
           status: "completed",
-          image_name: "invoice.png",
+          source_name: "invoice.png",
           template_id: template.id,
           template_version: 1,
           error_code: null,
@@ -1394,7 +1394,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const invitations: WorkspaceInvitationFixture[] = [];
     const db = createD1Fixture({
@@ -1440,7 +1440,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
@@ -1468,7 +1468,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const invitations: WorkspaceInvitationFixture[] = [];
     const db = createD1Fixture({
@@ -1498,7 +1498,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const invitations: WorkspaceInvitationFixture[] = [
       {
@@ -1568,7 +1568,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
@@ -1947,7 +1947,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const invitations: WorkspaceInvitationFixture[] = [
       {
@@ -1990,7 +1990,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const invitations: WorkspaceInvitationFixture[] = [
       {
@@ -2035,7 +2035,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const invitations: WorkspaceInvitationFixture[] = [
       {
@@ -2080,7 +2080,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const invitations: WorkspaceInvitationFixture[] = [
       {
@@ -2121,7 +2121,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const invitations: WorkspaceInvitationFixture[] = [
       {
@@ -2162,7 +2162,7 @@ describe("Workspace policy", () => {
       rate_limit_per_minute: null,
       max_templates: null,
       max_fields_per_template: null,
-      max_image_bytes: null
+      max_source_file_bytes: null
     };
     const db = createD1Fixture({
       workspaces: [workspace],
