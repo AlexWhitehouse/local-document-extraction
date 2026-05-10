@@ -3,6 +3,22 @@ import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 
 import type { Env, DocumentProcessingWorkflowParams } from "../lib/types";
 
+type UnsupportedExtractionConfig =
+  | "AI_GATEWAY_ACCOUNT_ID"
+  | "AI_GATEWAY_PROVIDER"
+  | "AI_GATEWAY_ROUTE"
+  | "AI_GATEWAY_TOKEN"
+  | "OPENAI_API_KEY"
+  | "ANTHROPIC_API_KEY";
+type EnvExcludesUnsupportedExtractionConfig = Extract<
+  UnsupportedExtractionConfig,
+  keyof Env
+> extends never
+  ? true
+  : never;
+
+const envExcludesUnsupportedExtractionConfig: EnvExcludesUnsupportedExtractionConfig = true;
+
 vi.mock("cloudflare:workers", () => ({
   WorkflowEntrypoint: class {
     env: unknown;
@@ -14,7 +30,19 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 vi.mock("./aiGateway", () => ({
+  getAiGatewayId: (env: Env) => env.AI_GATEWAY_ID || "default",
+  getExtractionModelName: (env: Env) => env.AI_MODEL || "google/gemini-3-flash",
   RetryableError: class RetryableError extends Error {},
+  runExtraction: vi.fn(async () => [
+    {
+      field_id: "patient_name",
+      status: "ok",
+      answer: "Ada Lovelace",
+    },
+  ]),
+}));
+
+vi.mock("./modelResultNormalizer", () => ({
   normalizeModelResults: vi.fn(() => [
     {
       field_id: "patient_name",
@@ -25,17 +53,11 @@ vi.mock("./aiGateway", () => ({
       evidence: null,
     },
   ]),
-  runExtraction: vi.fn(async () => [
-    {
-      field_id: "patient_name",
-      status: "ok",
-      answer: "Ada Lovelace",
-    },
-  ]),
 }));
 
 const { DocumentProcessingWorkflow } = await import("./documentProcessingWorkflow");
 const aiGateway = await import("./aiGateway");
+const modelResultNormalizer = await import("./modelResultNormalizer");
 
 type JobRow = {
   id: string;
@@ -68,6 +90,7 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
     image_deleted_at: null,
   };
   const results: Array<Record<string, unknown>> = [];
+  const completedMetadata: Array<{ modelName: string; route: string }> = [];
   const deletedKeys: string[] = [];
   const requestedKeys: string[] = [];
   const requestedTemplateVersions: number[] = [];
@@ -139,16 +162,25 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
                 }
 
                 if (sql.includes("INSERT INTO job_results")) {
-                  const [jobId, fieldId, status, answerJson, normalizedValue] = params;
-                  results.push({ job_id: jobId, field_id: fieldId, status, answer_json: answerJson, normalized_value: normalizedValue });
+                  const [jobId, fieldId, status, answerJson, normalizedValue, confidence, evidenceText] = params;
+                  results.push({
+                    job_id: jobId,
+                    field_id: fieldId,
+                    status,
+                    answer_json: answerJson,
+                    normalized_value: normalizedValue,
+                    confidence,
+                    evidence_text: evidenceText,
+                  });
                   return { meta: { changes: 1 } };
                 }
 
                 if (sql.includes("SET status = 'completed'")) {
-                  const [_completedAt, _updatedAt, _modelName, _route, attempt, jobId] = params;
+                  const [_completedAt, _updatedAt, modelName, route, attempt, jobId] = params;
                   if (job.id === jobId) {
                     job.status = "completed";
                     job.current_attempt = Number(attempt);
+                    completedMetadata.push({ modelName: String(modelName), route: String(route) });
                   }
                   return { meta: { changes: 1 } };
                 }
@@ -190,10 +222,10 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
         deletedKeys.push(key);
       },
     },
-    AI_GATEWAY_ROUTE: "default",
+    AI_GATEWAY_ID: "configured-gateway",
   };
 
-  return { deletedKeys, env, job, requestedKeys, requestedTemplateVersions, results };
+  return { completedMetadata, deletedKeys, env, job, requestedKeys, requestedTemplateVersions, results };
 }
 
 function createWorkflowStep(options: { beforeStep?: (name: string) => void } = {}) {
@@ -226,8 +258,68 @@ describe("DocumentProcessingWorkflow", () => {
 
     expect(job.status).toBe("completed");
     expect(results).toHaveLength(1);
+    expect(modelResultNormalizer.normalizeModelResults).toHaveBeenCalledWith(
+      [
+        {
+          id: "patient_name",
+          name: "Patient Name",
+          description: "Patient name",
+          data_type: "string",
+          required: true,
+        },
+      ],
+      [
+        {
+          field_id: "patient_name",
+          status: "ok",
+          answer: "Ada Lovelace",
+        },
+      ],
+    );
     expect(deletedKeys).toEqual([job.source_file_key]);
     expect(job.image_deleted_at).toEqual(expect.any(String));
+  });
+
+  it("persists normalized Extraction results with confidence and evidence", async () => {
+    const { env, job, results } = createWorkflowFixture({ hasSource: true });
+    vi.mocked(aiGateway.runExtraction).mockResolvedValueOnce([
+      {
+        field_id: "patient_name",
+        status: "ok",
+        answer: "Ada L.",
+        confidence: 0.51,
+        evidence: "Raw model evidence",
+      },
+    ]);
+    vi.mocked(modelResultNormalizer.normalizeModelResults).mockReturnValueOnce([
+      {
+        field_id: "patient_name",
+        status: "ok",
+        answer: "Ada Lovelace",
+        normalized_value: "Ada Lovelace",
+        confidence: 0.97,
+        evidence: "Patient: Ada Lovelace",
+      },
+    ]);
+    const { step } = createWorkflowStep();
+    const workflow = new DocumentProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
+
+    await workflow.run(
+      createWorkflowEvent({ job_id: job.id, workspace_id: job.workspace_id, attempt: 1 }),
+      step as WorkflowStep,
+    );
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        job_id: job.id,
+        field_id: "patient_name",
+        status: "ok",
+        answer_json: JSON.stringify("Ada Lovelace"),
+        normalized_value: "Ada Lovelace",
+        confidence: 0.97,
+        evidence_text: "Patient: Ada Lovelace",
+      }),
+    ]);
   });
 
   it("keeps completed Extraction results when Source file cleanup fails", async () => {
@@ -302,6 +394,22 @@ describe("DocumentProcessingWorkflow", () => {
 
     expect(requestedTemplateVersions).toEqual([3]);
     expect(job.status).toBe("completed");
+  });
+
+  it("persists the actual AI Gateway identifier used by extraction", async () => {
+    const { completedMetadata, env, job } = createWorkflowFixture({ hasSource: true });
+    env.AI_GATEWAY_ID = "actual-gateway";
+    const { step } = createWorkflowStep();
+    const workflow = new DocumentProcessingWorkflow({} as ExecutionContext<unknown>, env as unknown as Env);
+
+    await workflow.run(
+      createWorkflowEvent({ job_id: job.id, workspace_id: job.workspace_id, attempt: 1 }),
+      step as WorkflowStep,
+    );
+
+    expect(completedMetadata).toEqual([
+      { modelName: "google/gemini-3-flash", route: "actual-gateway" },
+    ]);
   });
 
   it("marks the job failed when the Source file is missing", async () => {

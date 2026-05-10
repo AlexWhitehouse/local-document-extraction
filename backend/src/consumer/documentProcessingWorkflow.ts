@@ -13,6 +13,10 @@ import type { Env, FieldDefinition, DocumentProcessingWorkflowParams } from "../
 import {
   type NormalizedModelField,
   normalizeModelResults,
+} from "./modelResultNormalizer";
+import {
+  getAiGatewayId,
+  getExtractionModelName,
   RetryableError,
   runExtraction,
 } from "./aiGateway";
@@ -187,8 +191,8 @@ export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
       jobId,
       attempt,
       completedAt: nowIso(),
-      modelName: "google/gemini-3-flash",
-      route: this.env.AI_GATEWAY_ROUTE || "default",
+      modelName: getExtractionModelName(this.env),
+      route: getAiGatewayId(this.env),
       results: normalized,
     });
   }

@@ -36,32 +36,6 @@ export type ExtractOptions = {
   include_evidence?: boolean;
 };
 
-export type MarkdownDocument = {
-  name: string;
-  blob: Blob;
-};
-
-export type MarkdownConversionResult = {
-  id: string;
-  name: string;
-  format: "markdown" | "error";
-  mimetype: string;
-  tokens?: number;
-  data?: string;
-  error?: string;
-};
-
-export type ToMarkdown = ((
-  files: MarkdownDocument | MarkdownDocument[],
-  conversionOptions?: Record<string, unknown>
-) => Promise<MarkdownConversionResult | MarkdownConversionResult[]>) & {
-  transform: (
-    files: MarkdownDocument | MarkdownDocument[],
-    conversionOptions?: Record<string, unknown>
-  ) => Promise<MarkdownConversionResult | MarkdownConversionResult[]>;
-  supported: () => Promise<Array<{ extension: string; mimeType: string }>>;
-};
-
 export type WorkersAiBinding = {
   run: (
     model: string,
@@ -76,7 +50,6 @@ export type WorkersAiBinding = {
       query: unknown;
     }) => Promise<Response>;
   };
-  toMarkdown: ToMarkdown;
 };
 
 export type QueueJobMessage = {
@@ -115,18 +88,12 @@ export interface Env {
   EXTRACTION_JOBS_QUEUE: Queue<QueueJobMessage>;
   DOCUMENT_PROCESSING_WORKFLOW: Workflow<DocumentProcessingWorkflowParams>;
   AI: WorkersAiBinding;
-  AI_GATEWAY_ACCOUNT_ID: string;
   AI_GATEWAY_ID: string;
-  AI_GATEWAY_PROVIDER?: string;
-  AI_GATEWAY_TOKEN?: string;
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL?: string;
   BETTER_AUTH_TRUSTED_ORIGINS?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
-  OPENAI_API_KEY?: string;
-  ANTHROPIC_API_KEY?: string;
   AI_MODEL?: string;
-  AI_GATEWAY_ROUTE?: string;
   MAX_SOURCE_FILE_BYTES?: string;
 }
