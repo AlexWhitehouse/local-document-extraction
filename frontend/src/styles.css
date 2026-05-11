@@ -1302,15 +1302,30 @@ button.danger:hover:not(:disabled) {
 }
 
 .workspace-key-field > input {
-  padding-right: 44px;
+  padding-right: 38px;
   width: 100%;
 }
 
 .workspace-key-copy-button {
   position: absolute;
-  right: 8px;
+  right: 9px;
   top: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   transform: translateY(-50%);
+}
+
+.workspace-key-copy-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(25, 193, 180, 0.42);
+  color: var(--text-0);
+  transform: translateY(-50%);
+}
+
+.workspace-key-copy-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .workspace-inline-action {

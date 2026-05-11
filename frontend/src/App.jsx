@@ -294,6 +294,8 @@ export function App() {
   const [selectedWorkspaceInvitationId, setSelectedWorkspaceInvitationId] =
     useState("");
   const [workspaceUsers, setWorkspaceUsers] = useState([]);
+  const [isLoadingWorkspaceUsers, setIsLoadingWorkspaceUsers] =
+    useState(false);
   const [workspaceInvitations, setWorkspaceInvitations] = useState([]);
   const [workspaceUserActionTarget, setWorkspaceUserActionTarget] =
     useState(null);
@@ -307,6 +309,7 @@ export function App() {
   const previewUrlsRef = useRef(new Set());
   const completedDocumentCacheRef = useRef(createCompletedDocumentCache());
   const isRecoveringForbiddenWorkspaceRef = useRef(false);
+  const workspaceUsersRequestRef = useRef(0);
   const profilePanelRef = useRef(null);
   const uploadInputRef = useRef(null);
 
@@ -582,7 +585,9 @@ export function App() {
     return selection;
   }
 
-  function clearWorkspaceScopedData() {
+  function clearWorkspaceScopedData({
+    isSwitchingAcceptedWorkspace = false,
+  } = {}) {
     setTemplates([]);
     setExtractTemplateId("");
     setJobHistory([]);
@@ -592,7 +597,9 @@ export function App() {
     setSelectedDocumentId("");
     setLastJobId("");
     setLatestResponse(null);
+    workspaceUsersRequestRef.current += 1;
     setWorkspaceUsers([]);
+    setIsLoadingWorkspaceUsers(isSwitchingAcceptedWorkspace);
     setWorkspaceInvitations([]);
   }
 
@@ -611,7 +618,18 @@ export function App() {
       if (String(workspaceId || "")) {
         completedDocumentCacheRef.current.clearAll();
       }
-      clearWorkspaceScopedData();
+      const nextSelectedWorkspaceInvitationId = Object.prototype.hasOwnProperty.call(
+        nextWorkspaceContext,
+        "selectedWorkspaceInvitationId",
+      )
+        ? String(nextWorkspaceContext.selectedWorkspaceInvitationId || "")
+        : selectedWorkspaceInvitationId;
+      clearWorkspaceScopedData({
+        isSwitchingAcceptedWorkspace:
+          hasSession &&
+          Boolean(String(nextWorkspaceId || "").trim()) &&
+          !String(nextSelectedWorkspaceInvitationId || "").trim(),
+      });
     }
 
     if (
@@ -964,7 +982,12 @@ export function App() {
           targetName: data.name || nameForCreate,
         });
       }
-      await listWorkspaces();
+      await listWorkspaces({
+        storedWorkspacePreference: {
+          workspaceId: data.workspace_id || "",
+          workspaceName: data.name || nameForCreate,
+        },
+      });
     } catch (error) {
       addLog(`Create workspace failed: ${error.message}`);
       if (!silent) {
@@ -1002,7 +1025,7 @@ export function App() {
     }
   }
 
-  async function listWorkspaces() {
+  async function listWorkspaces(options = {}) {
     if (!hasSession) {
       return;
     }
@@ -1021,9 +1044,11 @@ export function App() {
       setUserWorkspaces(workspaces);
       setUserWorkspaceInvitations(invitations);
       const resolution = resolveAcceptedWorkspaceContext({
-        storedWorkspacePreference: workspaceId.trim()
-          ? { workspaceId, workspaceName }
-          : initialWorkspaceRef.current,
+        storedWorkspacePreference:
+          options.storedWorkspacePreference ||
+          (workspaceId.trim()
+            ? { workspaceId, workspaceName }
+            : initialWorkspaceRef.current),
         userWorkspaces: workspaces,
         userWorkspaceInvitations: invitations,
       });
@@ -1065,11 +1090,15 @@ export function App() {
 
   async function listWorkspaceUsers(targetWorkspaceId = workspaceId) {
     const normalizedWorkspaceId = String(targetWorkspaceId || "").trim();
+    const requestId = workspaceUsersRequestRef.current + 1;
+    workspaceUsersRequestRef.current = requestId;
     if (!hasSession || !normalizedWorkspaceId || !canListWorkspaceUsers) {
       setWorkspaceUsers([]);
+      setIsLoadingWorkspaceUsers(false);
       return;
     }
 
+    setIsLoadingWorkspaceUsers(true);
     try {
       const data = await request(
         `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/users`,
@@ -1077,10 +1106,20 @@ export function App() {
         true,
         false,
       );
+      if (workspaceUsersRequestRef.current !== requestId) {
+        return;
+      }
       setWorkspaceUsers(Array.isArray(data?.users) ? data.users : []);
     } catch (error) {
+      if (workspaceUsersRequestRef.current !== requestId) {
+        return;
+      }
       setWorkspaceUsers([]);
       addLog(`List workspace users failed: ${error.message}`);
+    } finally {
+      if (workspaceUsersRequestRef.current === requestId) {
+        setIsLoadingWorkspaceUsers(false);
+      }
     }
   }
 
@@ -1645,6 +1684,7 @@ export function App() {
       setUserWorkspaceInvitations([]);
       setSelectedWorkspaceInvitationId("");
       setWorkspaceUsers([]);
+      setIsLoadingWorkspaceUsers(false);
       await refetchSession();
       addLog("Signed out");
     } catch (error) {
@@ -1754,6 +1794,7 @@ export function App() {
   useEffect(() => {
     if (!hasSession || !workspaceId.trim()) {
       setWorkspaceUsers([]);
+      setIsLoadingWorkspaceUsers(false);
       setWorkspaceInvitations([]);
       return;
     }
@@ -2256,6 +2297,10 @@ export function App() {
   }
 
   function openUploadModal() {
+    if (busy || !workspaceSelectionView.hasWorkspaceApiAccess) {
+      return;
+    }
+
     setUploadTemplateId(extractTemplateId || templates[0]?.id || "");
     setUploadFiles([]);
     setIsUploadDragActive(false);
@@ -2848,7 +2893,8 @@ export function App() {
           <button
             type="button"
             className="sidebar-upload-button"
-            disabled={busy || !workspaceSelectionView.hasWorkspaceApiAccess}
+            aria-disabled={busy || !workspaceSelectionView.hasWorkspaceApiAccess}
+            disabled={!workspaceSelectionView.hasWorkspaceApiAccess}
             onClick={openUploadModal}
           >
             Upload Document
@@ -3517,7 +3563,7 @@ export function App() {
                       <h2>Workspace Users</h2>
                       <p>Current members and their roles.</p>
                     </div>
-                    {workspaceUsers.length ? (
+                    {isLoadingWorkspaceUsers ? null : workspaceUsers.length ? (
                       <div className="table-scroll workspace-users-table">
                         <table>
                           <thead>

@@ -480,15 +480,41 @@ describe("Workspace action toast feedback", () => {
 
   it("confirms explicit Workspace creation", async () => {
     const user = userEvent.setup();
+    let created = false;
 
     globalThis.fetch.mockImplementation((input, options = {}) => {
       const url = String(input);
       if (url.endsWith("/workspaces") && options.method === "POST") {
+        created = true;
         return Promise.resolve(
           jsonResponse({
             workspace_id: "ws_2",
             name: "New Workspace",
             api_key: "imgx_live_new_workspace_key",
+          }),
+        );
+      }
+      if (url.endsWith("/workspaces") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspaces: [
+              {
+                id: "ws_1",
+                name: "Research Workspace",
+                role: "owner",
+                created_at: "2026-01-01T00:00:00.000Z",
+              },
+              ...(created
+                ? [
+                    {
+                      id: "ws_2",
+                      name: "New Workspace",
+                      role: "owner",
+                      created_at: "2026-01-02T00:00:00.000Z",
+                    },
+                  ]
+                : []),
+            ],
           }),
         );
       }
@@ -502,6 +528,11 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith(
         "Workspace created: New Workspace",
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /New Workspace/ }).className).toContain(
+        "active",
       );
     });
   });
@@ -812,6 +843,89 @@ describe("Workspace action toast feedback", () => {
     );
     await user.click(screen.getByRole("button", { name: /Documents/ }));
     expect(await screen.findByText("clinical.pdf")).toBeTruthy();
+  });
+
+  it("hides Workspace users placeholder while switching accepted Workspaces", async () => {
+    const user = userEvent.setup();
+    let resolveSecondWorkspaceUsers;
+    const secondWorkspaceUsers = new Promise((resolve) => {
+      resolveSecondWorkspaceUsers = resolve;
+    });
+
+    installLocalStorage({
+      workspaceId: "ws_1",
+      workspaceName: "Research Workspace",
+      userWorkspaces: [
+        {
+          id: "ws_1",
+          name: "Research Workspace",
+          role: "owner",
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "ws_2",
+          name: "Clinical Workspace",
+          role: "admin",
+          created_at: "2026-01-02T00:00:00.000Z",
+        },
+      ],
+      userWorkspaceInvitations: [],
+    });
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspaces: [
+              {
+                id: "ws_1",
+                name: "Research Workspace",
+                role: "owner",
+                created_at: "2026-01-01T00:00:00.000Z",
+              },
+              {
+                id: "ws_2",
+                name: "Clinical Workspace",
+                role: "admin",
+                created_at: "2026-01-02T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/workspaces/ws_1/users") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({ users: [workspaceMember()] }));
+      }
+      if (url.endsWith("/workspaces/ws_2/users") && (!options.method || options.method === "GET")) {
+        return secondWorkspaceUsers;
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Grace Hopper")).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Grace Hopper")).toBeNull();
+      expect(screen.queryByText("No workspace users found.")).toBeNull();
+      expect(screen.queryByText("Loading workspace users...")).toBeNull();
+    });
+
+    resolveSecondWorkspaceUsers(
+      jsonResponse({
+        users: [
+          workspaceMember({
+            user_id: "user_3",
+            name: "Katherine Johnson",
+            email: "katherine@example.com",
+          }),
+        ],
+      }),
+    );
+
+    expect(await screen.findByText("Katherine Johnson")).toBeTruthy();
   });
 
   it("does not send product requests with a synthetic fallback Workspace ID", async () => {
