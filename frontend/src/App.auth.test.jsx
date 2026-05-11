@@ -142,6 +142,51 @@ describe("auth sign-in feedback", () => {
     expect(toasters).toHaveLength(1);
     expect(toasters[0].dataset.richColors).toBe("true");
   });
+
+  it("does not initialize auth form values from Stored workspace preference", async () => {
+    window.localStorage.getItem.mockReturnValue(
+      JSON.stringify({
+        workspaceId: "ws_1",
+        workspaceName: "Research Workspace",
+        authName: "Ada Lovelace",
+        authEmail: "ada@example.com",
+      }),
+    );
+
+    render(<App />);
+
+    expect(screen.getByLabelText("Email").value).toBe("");
+
+    await userEvent.click(screen.getByRole("link", { name: "Sign Up" }));
+
+    expect(screen.getByLabelText("Name").value).toBe("");
+    expect(screen.getByLabelText("Email").value).toBe("");
+  });
+
+  it("ignores the legacy Image Extraction workspace storage key", () => {
+    const legacyValue = JSON.stringify({
+      workspaceId: "legacy_ws",
+      workspaceName: "Legacy Workspace",
+      authEmail: "legacy@example.com",
+    });
+    window.localStorage.getItem.mockImplementation((key) =>
+      key === "imageextraction.workspace.v1" ? legacyValue : null,
+    );
+
+    render(<App />);
+
+    expect(window.localStorage.getItem).toHaveBeenCalledWith(
+      "documentextraction.workspace.v1",
+    );
+    expect(window.localStorage.getItem).not.toHaveBeenCalledWith(
+      "imageextraction.workspace.v1",
+    );
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(
+      "documentextraction.workspace.v1",
+      legacyValue,
+    );
+    expect(screen.getByLabelText("Email").value).toBe("");
+  });
 });
 
 describe("auth sign-up password policy feedback", () => {

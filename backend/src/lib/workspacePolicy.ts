@@ -8,6 +8,7 @@ export type WorkspaceListing = {
   name: string | null;
   created_at: string;
   max_source_file_bytes: number | null;
+  has_api_key: boolean;
   role: "owner" | "admin" | "member";
 };
 
@@ -27,7 +28,7 @@ export type UpdatedWorkspaceUserRole =
 
 export type CreatedWorkspace = {
   workspace_id: string;
-  api_key: string;
+  has_api_key: boolean;
   name: string;
   role: "owner";
   created_at: string;
@@ -49,6 +50,7 @@ export type UpdatedWorkspaceSettings = {
 export type RotatedWorkspaceApiKey = {
   workspace_id: string;
   api_key: string;
+  has_api_key: boolean;
   rotated_at: string;
 };
 
@@ -174,16 +176,24 @@ export async function listWorkspacesForUser(
 ): Promise<WorkspaceListing[]> {
   const result = await db
     .prepare(
-      `SELECT t.id, t.name, t.created_at, t.max_source_file_bytes, m.role
+      `SELECT t.id,
+              t.name,
+              t.created_at,
+              t.max_source_file_bytes,
+              t.api_key_hash IS NOT NULL AS has_api_key,
+              m.role
        FROM workspace_memberships m
        JOIN workspaces t ON t.id = m.workspace_id
        WHERE m.user_id = ?
        ORDER BY t.created_at DESC`
     )
     .bind(input.userId)
-    .all<WorkspaceListing>();
+    .all<Omit<WorkspaceListing, "has_api_key"> & { has_api_key: boolean | number }>();
 
-  return result.results;
+  return result.results.map((workspace) => ({
+    ...workspace,
+    has_api_key: Boolean(workspace.has_api_key)
+  }));
 }
 
 export async function listWorkspaceUsersForUser(
@@ -342,8 +352,6 @@ export async function createWorkspaceForUser(
   input: { userId: string; name?: string }
 ): Promise<CreatedWorkspace> {
   const workspaceId = newId("workspace");
-  const apiKey = newId("key");
-  const apiKeyHash = await hashWorkspaceApiKey(apiKey);
   const now = nowIso();
   const workspaceName = input.name ?? workspaceId;
 
@@ -353,7 +361,7 @@ export async function createWorkspaceForUser(
         `INSERT INTO workspaces (id, api_key_hash, name, created_at, created_by_user_id)
          VALUES (?, ?, ?, ?, ?)`
       )
-      .bind(workspaceId, apiKeyHash, workspaceName, now, input.userId),
+      .bind(workspaceId, null, workspaceName, now, input.userId),
     db
       .prepare(
         `INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
@@ -364,7 +372,7 @@ export async function createWorkspaceForUser(
 
   return {
     workspace_id: workspaceId,
-    api_key: apiKey,
+    has_api_key: false,
     name: workspaceName,
     role: "owner",
     created_at: now
@@ -386,8 +394,6 @@ export async function bootstrapWorkspaceForNewUser(
   }
 
   const workspaceId = newId("workspace");
-  const apiKey = newId("key");
-  const apiKeyHash = await hashWorkspaceApiKey(apiKey);
   const now = nowIso();
   const workspaceName = `${(input.userName || "New").trim() || "New"} Workspace`;
 
@@ -397,7 +403,7 @@ export async function bootstrapWorkspaceForNewUser(
         `INSERT INTO workspaces (id, api_key_hash, name, created_at, created_by_user_id)
          VALUES (?, ?, ?, ?, ?)`
       )
-      .bind(workspaceId, apiKeyHash, workspaceName, now, input.userId),
+      .bind(workspaceId, null, workspaceName, now, input.userId),
     db
       .prepare(
         `INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
@@ -411,7 +417,7 @@ export async function bootstrapWorkspaceForNewUser(
   return {
     created: true,
     workspace_id: workspaceId,
-    api_key: apiKey,
+    has_api_key: false,
     name: workspaceName,
     role: "owner",
     created_at: now
@@ -456,6 +462,7 @@ export async function rotateWorkspaceApiKeyForUser(
   return {
     workspace_id: input.workspaceId,
     api_key: apiKey,
+    has_api_key: true,
     rotated_at: nowIso()
   };
 }

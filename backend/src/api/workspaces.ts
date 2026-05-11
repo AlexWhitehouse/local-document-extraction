@@ -13,6 +13,7 @@ import {
   listWorkspaceUsersForUser as listWorkspaceUsersForUserPolicy,
   listWorkspacesForUser as listWorkspacesForUserPolicy,
   rotateWorkspaceApiKeyForUser as rotateWorkspaceApiKeyForUserPolicy,
+  bootstrapWorkspaceForNewUser as bootstrapWorkspaceForNewUserPolicy,
   updateWorkspaceSettingsForUser as updateWorkspaceSettingsForUserPolicy,
   updateWorkspaceUserRoleForUser as updateWorkspaceUserRoleForUserPolicy,
   WorkspacePolicyError
@@ -63,8 +64,12 @@ export async function createWorkspaceForUser(
   return json(await createWorkspaceForUserPolicy(env.DB, { userId, name }), 201);
 }
 
-export async function listWorkspacesForUser(env: Env, userId: string): Promise<Response> {
-  const workspaces = await listWorkspacesForUserPolicy(env.DB, { userId });
+export async function listWorkspacesForUser(env: Env, userId: string, userName?: string | null): Promise<Response> {
+  let workspaces = await listWorkspacesForUserPolicy(env.DB, { userId });
+  if (workspaces.length === 0) {
+    await bootstrapWorkspaceForNewUserPolicy(env.DB, { userId, userName: userName ?? null }, createStarterInvoiceTemplate(env.DB));
+    workspaces = await listWorkspacesForUserPolicy(env.DB, { userId });
+  }
   return json({ workspaces });
 }
 

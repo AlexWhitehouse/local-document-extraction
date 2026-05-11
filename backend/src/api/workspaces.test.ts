@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { cancelWorkspaceInvitationForUser, declineInvitation, deleteWorkspaceForUser, leaveWorkspaceForUser } from "./workspaces";
+import {
+  cancelWorkspaceInvitationForUser,
+  createWorkspaceForUser,
+  declineInvitation,
+  deleteWorkspaceForUser,
+  leaveWorkspaceForUser,
+  listWorkspacesForUser,
+  rotateWorkspaceApiKeyForUser,
+  updateWorkspaceUserRoleForUser
+} from "./workspaces";
 import { HttpError } from "../lib/http";
 import type { Env, Workspace } from "../lib/types";
 
@@ -14,6 +23,48 @@ type WorkspaceInvitationFixture = {
   workspace_id: string;
   email: string;
   status: "pending" | "accepted" | "cancelled" | "expired";
+};
+
+type CreatedWorkspaceResponse = {
+  workspace_id: string;
+  has_api_key: boolean;
+  name: string;
+  role: "owner";
+  created_at: string;
+};
+
+type IssuedWorkspaceApiKeyResponse = {
+  workspace_id: string;
+  api_key: string;
+  has_api_key: boolean;
+  rotated_at: string;
+};
+
+type WorkspaceListingResponse = {
+  workspaces: Array<{
+    id: string;
+    name: string | null;
+    created_at: string;
+    max_source_file_bytes: number | null;
+    has_api_key: boolean;
+    role: "owner" | "admin" | "member";
+  }>;
+};
+
+type LeftWorkspaceResponse = {
+  ok: true;
+  workspace_id: string;
+  replacement_workspace?: CreatedWorkspaceResponse;
+};
+
+type TemplateFixture = {
+  workspace_id: string;
+  name: string;
+};
+
+type TemplateFieldFixture = {
+  field_id: string;
+  name: string;
 };
 
 function createWorkspace(overrides: Partial<Workspace> = {}): Workspace {
@@ -36,8 +87,10 @@ function createEnvFixture(input: {
   memberships: MembershipFixture[];
   invitations?: WorkspaceInvitationFixture[];
   jobSourceFileKeys?: string[];
-}): Env & { deletedSourceFileKeys: string[] } {
+}): Env & { deletedSourceFileKeys: string[]; createdTemplates: TemplateFixture[]; createdTemplateFields: TemplateFieldFixture[] } {
   const deletedSourceFileKeys: string[] = [];
+  const createdTemplates: TemplateFixture[] = [];
+  const createdTemplateFields: TemplateFieldFixture[] = [];
   return {
     DB: {
       async batch(statements: D1PreparedStatement[]) {
@@ -49,6 +102,59 @@ function createEnvFixture(input: {
           bind(...params: unknown[]) {
             return {
               async run() {
+                if (sql.includes("INSERT INTO workspaces")) {
+                  const [id, apiKeyHash, name, createdAt, createdByUserId] = params;
+                  input.workspaces.push({
+                    id: String(id),
+                    api_key_hash: typeof apiKeyHash === "string" ? apiKeyHash : null,
+                    name: String(name),
+                    created_at: String(createdAt),
+                    created_by_user_id: String(createdByUserId),
+                    rate_limit_per_minute: null,
+                    max_templates: null,
+                    max_fields_per_template: null,
+                    max_source_file_bytes: null
+                  });
+                  return { success: true };
+                }
+
+                if (sql.includes("INSERT INTO workspace_memberships")) {
+                  const [workspaceId, userId] = params;
+                  const createdAt = params[params.length - 1];
+                  input.memberships.push({
+                    workspace_id: String(workspaceId),
+                    user_id: String(userId),
+                    role: "owner"
+                  });
+                  expect(createdAt).toEqual(expect.any(String));
+                  return { success: true };
+                }
+
+                if (sql.includes("INSERT INTO templates")) {
+                  const [, workspaceId, name] = params;
+                  createdTemplates.push({ workspace_id: String(workspaceId), name: String(name) });
+                  return { success: true };
+                }
+
+                if (sql.includes("INSERT INTO template_fields")) {
+                  const match = sql.match(/VALUES \(\?, 1, '([^']+)', '([^']+)'/);
+                  if (!match) {
+                    throw new Error(`Unhandled template field SQL: ${sql}`);
+                  }
+                  const [, fieldId, name] = match;
+                  createdTemplateFields.push({ field_id: fieldId, name });
+                  return { success: true };
+                }
+
+                if (sql.includes("UPDATE workspaces SET api_key_hash = ? WHERE id = ?")) {
+                  const [apiKeyHash, workspaceId] = params;
+                  const workspace = input.workspaces.find((candidate) => candidate.id === workspaceId);
+                  if (workspace) {
+                    workspace.api_key_hash = String(apiKeyHash);
+                  }
+                  return { success: true };
+                }
+
                 if (sql.includes("DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?")) {
                   const [workspaceId, userId] = params;
                   const index = input.memberships.findIndex(
@@ -104,6 +210,12 @@ function createEnvFixture(input: {
                   return (membership ? { role: membership.role } : null) as T | null;
                 }
 
+                if (sql.includes("SELECT workspace_id FROM workspace_memberships WHERE user_id = ? LIMIT 1")) {
+                  const [userId] = params;
+                  const membership = input.memberships.find((candidate) => candidate.user_id === userId);
+                  return (membership ? { workspace_id: membership.workspace_id } : null) as T | null;
+                }
+
                 if (sql.includes("SELECT COUNT(*) AS count FROM workspace_memberships WHERE user_id = ?")) {
                   const [userId] = params;
                   const count = input.memberships.filter((membership) => membership.user_id === userId).length;
@@ -127,6 +239,30 @@ function createEnvFixture(input: {
                 throw new Error(`Unhandled fixture SQL: ${sql}`);
               },
               async all<T>() {
+                if (sql.includes("JOIN workspaces") && sql.includes("ORDER BY t.created_at DESC")) {
+                  const [userId] = params;
+                  return {
+                    results: input.memberships
+                      .filter((membership) => membership.user_id === userId)
+                      .map((membership) => {
+                        const workspace = input.workspaces.find((candidate) => candidate.id === membership.workspace_id);
+                        if (!workspace) {
+                          return null;
+                        }
+                        return {
+                          id: workspace.id,
+                          name: workspace.name,
+                          created_at: workspace.created_at,
+                          max_source_file_bytes: workspace.max_source_file_bytes,
+                          has_api_key: workspace.api_key_hash !== null,
+                          role: membership.role
+                        };
+                      })
+                      .filter((workspace) => workspace !== null)
+                      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+                  } as T;
+                }
+
                 if (sql.includes("SELECT source_file_key") && sql.includes("FROM jobs")) {
                   return { results: (input.jobSourceFileKeys ?? []).map((source_file_key) => ({ source_file_key })) } as T;
                 }
@@ -140,10 +276,182 @@ function createEnvFixture(input: {
     },
     SOURCE_FILES_BUCKET: { delete: async (key: string) => { deletedSourceFileKeys.push(key); } },
     deletedSourceFileKeys,
-  } as unknown as Env & { deletedSourceFileKeys: string[] };
+    createdTemplates,
+    createdTemplateFields,
+  } as unknown as Env & { deletedSourceFileKeys: string[]; createdTemplates: TemplateFixture[]; createdTemplateFields: TemplateFieldFixture[] };
 }
 
 describe("Workspace routes", () => {
+  it("repairs a signed-in user's zero accepted Workspace state when listing Workspaces", async () => {
+    const env = createEnvFixture({ workspaces: [], memberships: [] });
+
+    const response = await listWorkspacesForUser(env, "user_new", "Alex");
+    const body = await response.json<WorkspaceListingResponse>();
+
+    expect(body).toEqual({
+      workspaces: [
+        {
+          id: expect.stringMatching(/^workspace_/),
+          name: "Alex Workspace",
+          created_at: expect.any(String),
+          max_source_file_bytes: null,
+          has_api_key: false,
+          role: "owner"
+        }
+      ]
+    });
+    expect(body.workspaces[0]).not.toHaveProperty("api_key");
+    expect(env.createdTemplates).toEqual([{ workspace_id: body.workspaces[0].id, name: "Example Invoice" }]);
+    expect(env.createdTemplateFields).toEqual([
+      expect.objectContaining({ field_id: "invoice_number", name: "Invoice Number" }),
+      expect.objectContaining({ field_id: "invoice_date", name: "Invoice Date" }),
+      expect.objectContaining({ field_id: "vendor_name", name: "Vendor Name" }),
+      expect.objectContaining({ field_id: "total_amount", name: "Total Amount" }),
+      expect.objectContaining({ field_id: "currency", name: "Currency" })
+    ]);
+  });
+
+  it("repairs a signed-in user's accepted Workspace state when they only have pending Workspace invitations", async () => {
+    const invitedWorkspace = createWorkspace({ id: "workspace_invited", name: "Invited Workspace" });
+    const env = createEnvFixture({
+      workspaces: [invitedWorkspace],
+      memberships: [{ workspace_id: invitedWorkspace.id, user_id: "user_owner", role: "owner" }],
+      invitations: [{ id: "invite_123", workspace_id: invitedWorkspace.id, email: "alex@example.com", status: "pending" }]
+    });
+
+    const response = await listWorkspacesForUser(env, "user_invited", "Alex");
+    const body = await response.json<WorkspaceListingResponse>();
+
+    expect(body.workspaces).toEqual([
+      expect.objectContaining({
+        id: expect.stringMatching(/^workspace_/),
+        name: "Alex Workspace",
+        has_api_key: false,
+        role: "owner"
+      })
+    ]);
+    expect(body.workspaces).not.toContainEqual(expect.objectContaining({ id: invitedWorkspace.id }));
+  });
+
+  it("creates a workspace response without one-time API key material", async () => {
+    const env = createEnvFixture({ workspaces: [], memberships: [] });
+
+    const response = await createWorkspaceForUser(
+      new Request("https://example.test/v1/workspaces", { method: "POST", body: JSON.stringify({ name: "Research" }) }),
+      env,
+      "user_owner"
+    );
+    const body = await response.json<CreatedWorkspaceResponse>();
+
+    expect(response.status).toBe(201);
+    expect(body).toEqual({
+      workspace_id: expect.stringMatching(/^workspace_/),
+      has_api_key: false,
+      name: "Research",
+      role: "owner",
+      created_at: expect.any(String)
+    });
+    expect(body).not.toHaveProperty("api_key");
+    await expect((await listWorkspacesForUser(env, "user_owner")).json()).resolves.toEqual({
+      workspaces: [
+        {
+          id: body.workspace_id,
+          name: "Research",
+          created_at: body.created_at,
+          max_source_file_bytes: null,
+          has_api_key: false,
+          role: "owner"
+        }
+      ]
+    });
+  });
+
+  it("returns one-time API key material and existence state when issuing a workspace API key", async () => {
+    const workspace = createWorkspace({ id: "workspace_key", api_key_hash: null });
+    const env = createEnvFixture({
+      workspaces: [workspace],
+      memberships: [{ workspace_id: workspace.id, user_id: "user_owner", role: "owner" }]
+    });
+
+    const response = await rotateWorkspaceApiKeyForUser(
+      new Request("https://example.test/v1/workspaces/workspace_key/api-key", { method: "POST" }),
+      env,
+      workspace.id,
+      "user_owner"
+    );
+    const body = await response.json<IssuedWorkspaceApiKeyResponse>();
+
+    expect(body).toEqual({
+      workspace_id: workspace.id,
+      api_key: expect.stringMatching(/^key_/),
+      has_api_key: true,
+      rotated_at: expect.any(String)
+    });
+    expect(workspace.api_key_hash).toEqual(expect.any(String));
+    expect(workspace.api_key_hash).not.toContain(body.api_key);
+  });
+
+  it("does not immediately repair another user's accepted Workspace state when removing their last membership", async () => {
+    const workspace = createWorkspace({ id: "workspace_team" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ];
+    const workspaces = [workspace];
+    const env = createEnvFixture({ workspaces, memberships });
+
+    const response = await updateWorkspaceUserRoleForUser(
+      new Request("https://example.test/v1/workspaces/workspace_team/users/user_member", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "remove_user" })
+      }),
+      env,
+      workspace.id,
+      "user_owner",
+      "user_member"
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      workspace_id: workspace.id,
+      target_user_id: "user_member",
+      action: "remove_user"
+    });
+    expect(memberships).toEqual([{ workspace_id: workspace.id, user_id: "user_owner", role: "owner" }]);
+    expect(workspaces.filter((candidate) => candidate.created_by_user_id === "user_member")).toEqual([]);
+  });
+
+  it("repairs a removed user's accepted Workspace state on their next Workspace listing", async () => {
+    const workspace = createWorkspace({ id: "workspace_team" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ];
+    const env = createEnvFixture({ workspaces: [workspace], memberships });
+
+    await updateWorkspaceUserRoleForUser(
+      new Request("https://example.test/v1/workspaces/workspace_team/users/user_member", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "remove_user" })
+      }),
+      env,
+      workspace.id,
+      "user_owner",
+      "user_member"
+    );
+    const response = await listWorkspacesForUser(env, "user_member", "Mina");
+    const body = await response.json<WorkspaceListingResponse>();
+
+    expect(body.workspaces).toEqual([
+      expect.objectContaining({
+        id: expect.stringMatching(/^workspace_/),
+        name: "Mina Workspace",
+        has_api_key: false,
+        role: "owner"
+      })
+    ]);
+  });
+
   it("deletes a workspace through the cascade path after policy approval", async () => {
     const workspace = createWorkspace();
     const otherWorkspace = createWorkspace({ id: "workspace_keep" });
@@ -225,6 +533,39 @@ describe("Workspace routes", () => {
     expect(memberships).toEqual([
       { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
       { workspace_id: otherWorkspace.id, user_id: "user_admin", role: "member" }
+    ]);
+  });
+
+  it("creates a Replacement personal Workspace immediately when leaving the last accepted Workspace", async () => {
+    const workspace = createWorkspace({ id: "workspace_leave" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ];
+    const env = createEnvFixture({ workspaces: [workspace], memberships });
+
+    const response = await leaveWorkspaceForUser(env, workspace.id, "user_member", "Mina");
+    const body = await response.json<LeftWorkspaceResponse>();
+
+    expect(body).toEqual({
+      ok: true,
+      workspace_id: workspace.id,
+      replacement_workspace: {
+        workspace_id: expect.stringMatching(/^workspace_/),
+        has_api_key: false,
+        name: "Mina Workspace",
+        role: "owner",
+        created_at: expect.any(String)
+      }
+    });
+    expect(body.replacement_workspace).not.toHaveProperty("api_key");
+    expect(memberships).toEqual([
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      {
+        workspace_id: body.replacement_workspace?.workspace_id,
+        user_id: "user_member",
+        role: "owner"
+      }
     ]);
   });
 

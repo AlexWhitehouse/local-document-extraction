@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 const authClientMock = vi.hoisted(() => ({
   refetchSession: vi.fn(),
+  signOut: vi.fn(),
 }));
 
 const toastMock = vi.hoisted(() => ({
@@ -32,7 +33,7 @@ vi.mock("./lib/authClient", () => ({
     signUp: {
       email: vi.fn(),
     },
-    signOut: vi.fn(),
+    signOut: authClientMock.signOut,
   }),
 }));
 
@@ -44,6 +45,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { App } from "./App.jsx";
+import { COMPLETED_DOCUMENT_CACHE_STORAGE_KEY } from "./lib/completedDocumentCache";
 
 describe("Workspace action toast feedback", () => {
   beforeEach(() => {
@@ -73,18 +75,176 @@ describe("Workspace action toast feedback", () => {
     vi.restoreAllMocks();
   });
 
-  it("confirms Workspace API key rotation without exposing key material", async () => {
+  it("stores only accepted Workspace ID and display name in Stored workspace preference", async () => {
+    installLocalStorage({
+      workspaceId: "ws_1",
+      workspaceName: "Research Workspace",
+      apiBase: "/v1",
+      authName: "Ada Lovelace",
+      authEmail: "ada@example.com",
+      apiKey: "imgx_live_existing_key",
+      apiKeysByWorkspace: { ws_1: "imgx_live_existing_key" },
+      templates: [{ id: "tpl_1", name: "Prescription Template" }],
+      extractTemplateId: "tpl_1",
+      lastJobId: "job_1",
+      jobHistory: [failedDocument({ job_id: "job_1" })],
+      selectedDocumentId: "job_1",
+      userWorkspaces: [{ id: "ws_1", name: "Research Workspace", role: "owner" }],
+      userWorkspaceInvitations: [],
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Research Workspace/ })).toBeTruthy();
+    });
+
+    const storedPayload = JSON.parse(
+      window.localStorage.setItem.mock.calls.at(-1)[1],
+    );
+    expect(storedPayload).toEqual({
+      workspaceId: "ws_1",
+      workspaceName: "Research Workspace",
+    });
+  });
+
+  it("clears Stored workspace preference on sign-out", async () => {
     const user = userEvent.setup();
-    const rotatedKey = "imgx_live_rotated_secret_key";
+    authClientMock.signOut.mockResolvedValue({ error: null });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /Ada Lovelace/ }));
+    await user.click(screen.getByRole("button", { name: "Sign Out" }));
+
+    await waitFor(() => {
+      expect(authClientMock.signOut).toHaveBeenCalledOnce();
+    });
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith(
+      "documentextraction.workspace.v1",
+    );
+  });
+
+  it("shows Loading workspace context without stored Workspace details while startup resolution is pending", async () => {
+    installLocalStorage({
+      workspaceId: "ws_stored",
+      workspaceName: "Stored Workspace",
+    });
+    globalThis.fetch = vi.fn((input) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces") || url.endsWith("/invitations")) {
+        return new Promise(() => {});
+      }
+      return mockWorkspaceFetch(input);
+    });
+
+    render(<App />);
+
+    expect(screen.getByText("Loading workspace context")).toBeTruthy();
+    expect(screen.queryByText(/Stored Workspace/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(
+      true,
+    );
+    expect(screen.getByRole("button", { name: "Invite User" }).disabled).toBe(
+      true,
+    );
+  });
+
+  it("shows a retryable Workspace resolution error when backend workspace listing fails", async () => {
+    installLocalStorage({
+      workspaceId: "ws_stored",
+      workspaceName: "Stored Workspace",
+    });
+    globalThis.fetch = vi.fn((input) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(jsonResponse({ error: "unavailable" }, { status: 500 }));
+      }
+      return mockWorkspaceFetch(input);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Workspace resolution error")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry Workspaces" })).toBeTruthy();
+    expect(screen.queryByText(/Stored Workspace/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(
+      true,
+    );
+    expect(screen.getByRole("button", { name: "Invite User" }).disabled).toBe(
+      true,
+    );
+  });
+
+  it("refreshes Workspaces and shows an Action toast when selected Workspace access is forbidden", async () => {
+    installLocalStorage({
+      workspaceId: "ws_removed",
+      workspaceName: "Removed Workspace",
+    });
+    let workspaceListCalls = 0;
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        workspaceListCalls += 1;
+        return Promise.resolve(
+          jsonResponse({
+            workspaces:
+              workspaceListCalls === 1
+                ? [{ id: "ws_removed", name: "Removed Workspace", role: "owner" }]
+                : [{ id: "ws_remaining", name: "Remaining Workspace", role: "owner" }],
+          }),
+        );
+      }
+      if (url.endsWith("/templates") && (!options.method || options.method === "GET")) {
+        const headers = new Headers(options.headers || {});
+        if (headers.get("x-workspace-id") === "ws_removed") {
+          return Promise.resolve(jsonResponse({ error: "forbidden" }, { status: 403 }));
+        }
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /Remaining Workspace/ })).toBeTruthy();
+    expect(toastMock.success).toHaveBeenCalledWith(
+      "Workspace access changed. Switched to Remaining Workspace.",
+    );
+  });
+
+  it("generates a one-time visible Workspace API key for owners without persisting the secret", async () => {
+    const user = userEvent.setup();
+    const generatedKey = "generated-secret-key";
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
 
     globalThis.fetch.mockImplementation((input, options = {}) => {
       const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspaces: [
+              {
+                id: "ws_1",
+                name: "Research Workspace",
+                role: "owner",
+                has_api_key: false,
+                created_at: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
       if (
         url.endsWith("/workspaces/ws_1/api-key") &&
         options.method === "POST"
       ) {
         return Promise.resolve(
-          jsonResponse({ workspace_id: "ws_1", api_key: rotatedKey }),
+          jsonResponse({ workspace_id: "ws_1", api_key: generatedKey, has_api_key: true }),
         );
       }
       return mockWorkspaceFetch(input, options);
@@ -92,20 +252,187 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "Refresh API Key" }));
+    await user.click(await screen.findByRole("button", { name: "Generate API Key" }));
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith("Workspace API key rotated");
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "Workspace API key generated and copied",
+      );
+    });
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(writeText).toHaveBeenCalledWith(generatedKey);
+    expect(screen.getByDisplayValue(generatedKey)).toBeTruthy();
+    const storedPayload = JSON.parse(window.localStorage.setItem.mock.calls.at(-1)[1]);
+    expect(storedPayload).toEqual({
+      workspaceId: "ws_1",
+      workspaceName: "Research Workspace",
     });
     expect(toastMock.success).not.toHaveBeenCalledWith(
-      expect.stringContaining(rotatedKey),
+      expect.stringContaining(generatedKey),
     );
     expect(toastMock.error).not.toHaveBeenCalledWith(
+      expect.stringContaining(generatedKey),
+    );
+  });
+
+  it("confirms and rotates an existing Workspace API key for owners", async () => {
+    const user = userEvent.setup();
+    const rotatedKey = "rotated-secret-key";
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspaces: [
+              {
+                id: "ws_1",
+                name: "Research Workspace",
+                role: "owner",
+                has_api_key: true,
+                created_at: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      if (
+        url.endsWith("/workspaces/ws_1/api-key") &&
+        options.method === "POST"
+      ) {
+        return Promise.resolve(
+          jsonResponse({ workspace_id: "ws_1", api_key: rotatedKey, has_api_key: true }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Rotate API Key" }));
+
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "Workspace API key rotated and copied",
+      );
+    });
+    expect(confirmSpy).toHaveBeenCalledOnce();
+    expect(writeText).toHaveBeenCalledWith(rotatedKey);
+    expect(screen.getByDisplayValue(rotatedKey)).toBeTruthy();
+    expect(toastMock.success).not.toHaveBeenCalledWith(
       expect.stringContaining(rotatedKey),
     );
   });
 
-  it("disables Workspace API key rotation for workspace members", () => {
+  it("keeps generated Workspace API key visible when clipboard copy needs manual retry", async () => {
+    const user = userEvent.setup();
+    const generatedKey = "manual-copy-secret-key";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspaces: [
+              {
+                id: "ws_1",
+                name: "Research Workspace",
+                role: "owner",
+                has_api_key: false,
+                created_at: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      if (
+        url.endsWith("/workspaces/ws_1/api-key") &&
+        options.method === "POST"
+      ) {
+        return Promise.resolve(
+          jsonResponse({ workspace_id: "ws_1", api_key: generatedKey, has_api_key: true }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Generate API Key" }));
+
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "Workspace API key generated. Copy it before leaving this page.",
+      );
+    });
+    expect(screen.getByDisplayValue(generatedKey)).toBeTruthy();
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    await user.click(screen.getByRole("button", { name: "Copy API key" }));
+
+    expect(writeText).toHaveBeenCalledWith(generatedKey);
+  });
+
+  it("keeps one-time visible Workspace API key material without a dismiss control", async () => {
+    const user = userEvent.setup();
+    const generatedKey = "dismiss-secret-key";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspaces: [
+              {
+                id: "ws_1",
+                name: "Research Workspace",
+                role: "owner",
+                has_api_key: false,
+                created_at: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      if (
+        url.endsWith("/workspaces/ws_1/api-key") &&
+        options.method === "POST"
+      ) {
+        return Promise.resolve(
+          jsonResponse({ workspace_id: "ws_1", api_key: generatedKey, has_api_key: true }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Generate API Key" }));
+    expect(await screen.findByDisplayValue(generatedKey)).toBeTruthy();
+
+    expect(screen.queryByRole("button", { name: "Dismiss API key" })).toBeNull();
+    expect(screen.getByDisplayValue(generatedKey)).toBeTruthy();
+  });
+
+  it("shows Workspace API key display to members without an actionable generate control", async () => {
     installLocalStorage({
       workspaceId: "ws_1",
       workspaceName: "Research Workspace",
@@ -144,7 +471,9 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    expect(screen.getByRole("button", { name: "Refresh API Key" }).disabled).toBe(
+    expect(await screen.findByText("API key")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Generate an API key to view")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(
       true,
     );
   });
@@ -190,6 +519,8 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
+    await screen.findByRole("button", { name: /Research Workspace/ });
+
     await user.clear(screen.getByLabelText("Workspace name"));
     await user.type(screen.getByLabelText("Workspace name"), "Clinical Workspace");
     await user.click(screen.getByRole("button", { name: "Save Changes" }));
@@ -199,6 +530,59 @@ describe("Workspace action toast feedback", () => {
         "Workspace renamed: Clinical Workspace",
       );
     });
+  });
+
+  it("preserves visible Document data when renaming the current Workspace", async () => {
+    const user = userEvent.setup();
+    let renamed = false;
+
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({ jobs: [failedDocument()], next_cursor: null }),
+        );
+      }
+      if (url.endsWith("/workspaces/ws_1") && options.method === "PATCH") {
+        renamed = true;
+        return Promise.resolve(jsonResponse({ id: "ws_1", name: "Clinical Workspace" }));
+      }
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspaces: [
+              {
+                id: "ws_1",
+                name: renamed ? "Clinical Workspace" : "Research Workspace",
+                role: "owner",
+                created_at: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    expect(await screen.findByText("invoice.pdf")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Workspaces/ }));
+    await user.clear(screen.getByLabelText("Workspace name"));
+    await user.type(screen.getByLabelText("Workspace name"), "Clinical Workspace");
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "Workspace renamed: Clinical Workspace",
+      );
+    });
+    expect(screen.getByRole("button", { name: "Documents1" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    expect(screen.getByText("invoice.pdf")).toBeTruthy();
   });
 
   it("confirms Leave Workspace with replacement personal Workspace wording", async () => {
@@ -264,6 +648,8 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
+    await screen.findByRole("button", { name: /Research Workspace/ });
+
     await user.click(screen.getByRole("button", { name: "Leave Workspace" }));
 
     await waitFor(() => {
@@ -287,6 +673,8 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
+    await screen.findByRole("button", { name: /Research Workspace/ });
+
     await user.click(screen.getByRole("button", { name: "Delete Workspace" }));
 
     await waitFor(() => {
@@ -299,6 +687,8 @@ describe("Workspace action toast feedback", () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
 
     render(<App />);
+
+    await screen.findByRole("button", { name: /Research Workspace/ });
 
     await user.click(screen.getByRole("button", { name: "Delete Workspace" }));
 
@@ -317,6 +707,133 @@ describe("Workspace action toast feedback", () => {
     });
     expect(toastMock.success).not.toHaveBeenCalled();
     expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("uses the signed-in session and accepted Workspace context for product requests", async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/templates",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    const templatesRequest = globalThis.fetch.mock.calls.find(
+      ([url, options]) => String(url).endsWith("/templates") && options?.method === "GET",
+    );
+    const headers = templatesRequest?.[1]?.headers;
+
+    expect(headers.get("x-workspace-id")).toBe("ws_1");
+    expect(headers.has("Authorization")).toBe(false);
+  });
+
+  it("clears visible Document data immediately when switching accepted Workspaces", async () => {
+    const user = userEvent.setup();
+    let resolveSecondWorkspaceJobs;
+    const secondWorkspaceJobs = new Promise((resolve) => {
+      resolveSecondWorkspaceJobs = resolve;
+    });
+
+    installLocalStorage({
+      workspaceId: "ws_1",
+      workspaceName: "Research Workspace",
+      userWorkspaces: [
+        {
+          id: "ws_1",
+          name: "Research Workspace",
+          role: "owner",
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "ws_2",
+          name: "Clinical Workspace",
+          role: "admin",
+          created_at: "2026-01-02T00:00:00.000Z",
+        },
+      ],
+      userWorkspaceInvitations: [],
+    });
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspaces: [
+              {
+                id: "ws_1",
+                name: "Research Workspace",
+                role: "owner",
+                created_at: "2026-01-01T00:00:00.000Z",
+              },
+              {
+                id: "ws_2",
+                name: "Clinical Workspace",
+                role: "admin",
+                created_at: "2026-01-02T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
+        const headers = new Headers(options.headers || {});
+        if (headers.get("x-workspace-id") === "ws_2") {
+          return secondWorkspaceJobs;
+        }
+        return Promise.resolve(
+          jsonResponse({
+            jobs: [failedDocument({ job_id: "job_ws_1", source_name: "research.pdf" })],
+            next_cursor: null,
+          }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    expect(await screen.findByText("research.pdf")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Workspaces/ }));
+    await user.click(screen.getByRole("button", { name: /Clinical Workspace/ }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("research.pdf")).toBeNull();
+      expect(screen.getByRole("button", { name: "Documents0" })).toBeTruthy();
+    });
+
+    resolveSecondWorkspaceJobs(
+      jsonResponse({
+        jobs: [failedDocument({ job_id: "job_ws_2", source_name: "clinical.pdf" })],
+        next_cursor: null,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    expect(await screen.findByText("clinical.pdf")).toBeTruthy();
+  });
+
+  it("does not send product requests with a synthetic fallback Workspace ID", async () => {
+    installLocalStorage({ apiKey: "imgx_live_legacy_key" });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/workspaces",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    const productRequests = globalThis.fetch.mock.calls.filter(([url]) =>
+      ["/v1/templates", "/v1/jobs"].some((path) => String(url).startsWith(path)),
+    );
+
+    expect(productRequests).not.toEqual([]);
+    for (const [, options] of productRequests) {
+      expect(options.headers.get("x-workspace-id")).not.toBe("workspace_local_default");
+    }
   });
 
   it("confirms creating a Workspace invitation", async () => {
@@ -538,7 +1055,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Clinical Workspace/ }));
+    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
     await user.click(await screen.findByRole("button", { name: "Accept Invitation" }));
 
     await waitFor(() => {
@@ -577,7 +1094,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Clinical Workspace/ }));
+    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
     await user.click(await screen.findByRole("button", { name: "Accept Invitation" }));
 
     await waitFor(() => {
@@ -622,7 +1139,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Clinical Workspace/ }));
+    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
     await user.click(await screen.findByRole("button", { name: "Decline Invitation" }));
 
     await waitFor(() => {
@@ -661,7 +1178,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Clinical Workspace/ }));
+    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
     await user.click(await screen.findByRole("button", { name: "Decline Invitation" }));
 
     await waitFor(() => {
@@ -1042,6 +1559,26 @@ describe("Workspace action toast feedback", () => {
     });
     const intervalSpy = vi.spyOn(window, "setInterval").mockReturnValue(123);
     vi.spyOn(window, "clearInterval").mockImplementation(() => {});
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            jobs: [
+              {
+                job_id: "job_processing_1",
+                status: "processing",
+                source_name: "invoice.pdf",
+                template_id: "tpl_document",
+                updated_at: "2026-01-03T00:00:01.000Z",
+              },
+            ],
+            next_cursor: null,
+          }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
 
     render(<App />);
 
@@ -1124,6 +1661,166 @@ describe("Workspace action toast feedback", () => {
       );
     });
     expect(intervalSpy).not.toHaveBeenCalledWith(expect.any(Function), 1000);
+  });
+
+  it("stores completed Extraction job details after the Document details load", async () => {
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            jobs: [completedDocument({ results: [] })],
+            next_cursor: null,
+          }),
+        );
+      }
+      if (url.endsWith("/jobs/job_completed_1")) {
+        return Promise.resolve(
+          jsonResponse(
+            completedDocument({
+              source_preview_url: "blob:http://localhost/source-preview",
+              results: [
+                {
+                  field_id: "total",
+                  name: "Total",
+                  status: "found",
+                  answer: "$42.00",
+                },
+              ],
+            }),
+          ),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      const cacheWrite = window.localStorage.setItem.mock.calls.find(
+        ([key]) => key === COMPLETED_DOCUMENT_CACHE_STORAGE_KEY,
+      );
+      expect(cacheWrite).toBeTruthy();
+      expect(cacheWrite[1]).toContain("job_completed_1");
+      expect(cacheWrite[1]).toContain("$42.00");
+      expect(cacheWrite[1]).not.toContain("source_preview_url");
+      expect(cacheWrite[1]).not.toContain("blob:http://localhost/source-preview");
+    });
+  });
+
+  it("renders cached completed Extraction results after refresh for the same accepted Workspace", async () => {
+    installLocalStorage(
+      {
+        workspaceId: "ws_1",
+        workspaceName: "Research Workspace",
+      },
+      {
+        [COMPLETED_DOCUMENT_CACHE_STORAGE_KEY]: JSON.stringify({
+          ws_1: [
+            completedDocument({
+              results: [
+                {
+                  field_id: "total",
+                  name: "Total",
+                  status: "found",
+                  answer: "$42.00",
+                },
+              ],
+            }),
+          ],
+        }),
+      },
+    );
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            jobs: [completedDocument({ results: [] })],
+            next_cursor: null,
+          }),
+        );
+      }
+      if (url.endsWith("/jobs/job_completed_1")) {
+        return new Promise(() => {});
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Documents/ }));
+
+    expect(await screen.findByText("$42.00")).toBeTruthy();
+  });
+
+  it("clears selected Document when backend refresh no longer lists it", async () => {
+    installLocalStorage({
+      workspaceId: "ws_1",
+      workspaceName: "Research Workspace",
+      selectedDocumentId: "job_missing",
+      jobHistory: [failedDocument({ job_id: "job_missing", source_name: "missing.pdf" })],
+      userWorkspaces: [
+        {
+          id: "ws_1",
+          name: "Research Workspace",
+          role: "owner",
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      userWorkspaceInvitations: [],
+    });
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({ jobs: [], next_cursor: null }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Documents0" })).toBeTruthy();
+    });
+    await userEvent.click(screen.getByRole("button", { name: /Documents/ }));
+    expect(screen.getByText("No documents uploaded yet.")).toBeTruthy();
+  });
+
+  it("selects the first available Document when the previous selection disappears", async () => {
+    installLocalStorage({
+      workspaceId: "ws_1",
+      workspaceName: "Research Workspace",
+      selectedDocumentId: "job_missing",
+      jobHistory: [failedDocument({ job_id: "job_missing", source_name: "missing.pdf" })],
+      userWorkspaces: [
+        {
+          id: "ws_1",
+          name: "Research Workspace",
+          role: "owner",
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      userWorkspaceInvitations: [],
+    });
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            jobs: [failedDocument({ job_id: "job_available", source_name: "available.pdf" })],
+            next_cursor: null,
+          }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Documents1" })).toBeTruthy();
+    });
   });
 
   it("summarizes a mixed multi-file upload with one aggregate toast", async () => {
@@ -1276,9 +1973,10 @@ describe("Workspace action toast feedback", () => {
   });
 });
 
-function installLocalStorage(initialValue) {
+function installLocalStorage(initialValue, extraEntries = {}) {
   const storage = new Map([
-    ["imageextraction.workspace.v1", JSON.stringify(initialValue)],
+    ["documentextraction.workspace.v1", JSON.stringify(initialValue)],
+    ...Object.entries(extraEntries),
   ]);
   Object.defineProperty(window, "localStorage", {
     configurable: true,
@@ -1421,6 +2119,19 @@ function failedDocument(overrides = {}) {
     error_code: "extract_failed",
     error_message: "OCR failed",
     queued_at: "2026-01-03T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function completedDocument(overrides = {}) {
+  return {
+    job_id: "job_completed_1",
+    status: "completed",
+    source_name: "invoice.pdf",
+    template_id: "tpl_document",
+    queued_at: "2026-01-03T00:00:00.000Z",
+    completed_at: "2026-01-03T00:00:03.000Z",
+    results: [],
     ...overrides,
   };
 }

@@ -1,7 +1,17 @@
 const successMessages = {
   "workspace.apiKey.rotate": () => "Workspace API key rotated",
+  "workspace.apiKey.generate.copied": () => "Workspace API key generated and copied",
+  "workspace.apiKey.rotate.copied": () => "Workspace API key rotated and copied",
+  "workspace.apiKey.generate.manualCopy": () =>
+    "Workspace API key generated. Copy it before leaving this page.",
+  "workspace.apiKey.rotate.manualCopy": () =>
+    "Workspace API key rotated. Copy it before leaving this page.",
   "workspace.create": ({ target }) => withTarget("Workspace created", target),
   "workspace.rename": ({ target }) => withTarget("Workspace renamed", target),
+  "workspace.access.changed": ({ target }) =>
+    target
+      ? `Workspace access changed. Switched to ${target}.`
+      : "Workspace access changed.",
   "workspace.leave": ({ replacementPersonalWorkspaceCreated }) =>
     replacementPersonalWorkspaceCreated
       ? "Workspace left. Replacement personal Workspace created."

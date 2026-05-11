@@ -9,12 +9,13 @@ import {
   getLeaveWorkspaceTransition,
   getWorkspacePrimaryAction,
   getWorkspaceMemberActionTransition,
-  getWorkspaceContextRefreshTransition,
   getWorkspaceContextDisplay,
+  resolveAcceptedWorkspaceContext,
   selectPendingWorkspaceInvitationContext,
   selectAcceptedWorkspaceContext,
 } from "./lib/workspaceSelection";
 import { getActionToast, getDocumentUploadToast } from "./lib/toastNotifications";
+import { createCompletedDocumentCache } from "./lib/completedDocumentCache";
 
 const DEFAULT_FIELDS = [
   {
@@ -157,7 +158,7 @@ const SIDEBAR_ITEMS = [
   { id: "documents", label: "Documents", icon: "DC" },
 ];
 
-const WORKSPACE_STORAGE_KEY = "imageextraction.workspace.v1";
+const WORKSPACE_STORAGE_KEY = "documentextraction.workspace.v1";
 const DEFAULT_WORKSPACE_ID = "workspace_local_default";
 const DEFAULT_WORKSPACE_NAME = "Local Workspace";
 const NEW_WORKSPACE_NAME = "New Workspace";
@@ -175,7 +176,19 @@ function loadPersistedWorkspace() {
       return null;
     }
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const workspaceId = String(parsed.workspaceId || "").trim();
+    if (!workspaceId || workspaceId === DEFAULT_WORKSPACE_ID) {
+      return null;
+    }
+
+    return {
+      workspaceId,
+      workspaceName: String(parsed.workspaceName || "").trim(),
+    };
   } catch {
     return null;
   }
@@ -201,27 +214,9 @@ export function App() {
   const [authPasswordTouched, setAuthPasswordTouched] = useState(false);
   const [signUpSubmitAttempted, setSignUpSubmitAttempted] = useState(false);
 
-  const [workspaceName, setWorkspaceName] = useState(
-    initialWorkspace.workspaceName || DEFAULT_WORKSPACE_NAME,
-  );
-  const [workspaceId, setWorkspaceId] = useState(
-    initialWorkspace.workspaceId || DEFAULT_WORKSPACE_ID,
-  );
-  const [apiKey, setApiKey] = useState(initialWorkspace.apiKey || "");
-  const [apiKeysByWorkspace, setApiKeysByWorkspace] = useState(() => {
-    const stored =
-      initialWorkspace.apiKeysByWorkspace &&
-      typeof initialWorkspace.apiKeysByWorkspace === "object"
-        ? { ...initialWorkspace.apiKeysByWorkspace }
-        : {};
-
-    const initialWorkspaceId = initialWorkspace.workspaceId;
-    if (initialWorkspaceId && initialWorkspace.apiKey) {
-      stored[initialWorkspaceId] = initialWorkspace.apiKey;
-    }
-
-    return stored;
-  });
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [apiKey, setApiKey] = useState("");
 
   const [templates, setTemplates] = useState(
     Array.isArray(initialWorkspace.templates) ? initialWorkspace.templates : [],
@@ -289,15 +284,13 @@ export function App() {
   const [workspaceSearch, setWorkspaceSearch] = useState("");
   const [showDraftTemplateNav, setShowDraftTemplateNav] = useState(false);
   const [userWorkspaces, setUserWorkspaces] = useState(
-    Array.isArray(initialWorkspace.userWorkspaces)
-      ? initialWorkspace.userWorkspaces
-      : [],
+    [],
   );
   const [userWorkspaceInvitations, setUserWorkspaceInvitations] = useState(
-    Array.isArray(initialWorkspace.userWorkspaceInvitations)
-      ? initialWorkspace.userWorkspaceInvitations
-      : [],
+    [],
   );
+  const [workspaceResolutionStatus, setWorkspaceResolutionStatus] =
+    useState("idle");
   const [selectedWorkspaceInvitationId, setSelectedWorkspaceInvitationId] =
     useState("");
   const [workspaceUsers, setWorkspaceUsers] = useState([]);
@@ -312,6 +305,8 @@ export function App() {
   const [inviteRole, setInviteRole] = useState("member");
 
   const previewUrlsRef = useRef(new Set());
+  const completedDocumentCacheRef = useRef(createCompletedDocumentCache());
+  const isRecoveringForbiddenWorkspaceRef = useRef(false);
   const profilePanelRef = useRef(null);
   const uploadInputRef = useRef(null);
 
@@ -324,9 +319,18 @@ export function App() {
   const displayProfileName = currentProfileName || "Unnamed User";
   const displayProfileEmail = currentProfileEmail || "No email";
   const profileIsDirty = profileDraftName.trim() !== currentProfileName;
-  const hasApiKey = Boolean(apiKey.trim());
-  const hasWorkspaceContext = Boolean(workspaceId.trim());
-  const hasApiAccess = hasApiKey || (hasSession && hasWorkspaceContext);
+  const normalizedWorkspaceId = workspaceId.trim();
+  const hasWorkspaceContext =
+    workspaceResolutionStatus === "resolved" &&
+    Boolean(normalizedWorkspaceId) &&
+    normalizedWorkspaceId !== DEFAULT_WORKSPACE_ID;
+  const hasApiAccess = hasSession && hasWorkspaceContext;
+  const isWorkspaceContextLoading =
+    hasSession &&
+    (workspaceResolutionStatus === "idle" ||
+      workspaceResolutionStatus === "loading");
+  const hasWorkspaceResolutionError =
+    hasSession && workspaceResolutionStatus === "error";
   const baseUrl = useMemo(() => apiBase.replace(/\/+$/, ""), [apiBase]);
   const isEditingTemplate = Boolean(updateTemplateId.trim());
   const templateDraftSnapshot = useMemo(() => {
@@ -471,6 +475,17 @@ export function App() {
       (workspace) => String(workspace?.id || "") === String(workspaceId || ""),
     )?.role || "",
   );
+  const selectedWorkspaceHasApiKey = Boolean(
+    userWorkspaces.find(
+      (workspace) => String(workspace?.id || "") === String(workspaceId || ""),
+    )?.has_api_key,
+  );
+  const workspaceApiKeyActionLabel = selectedWorkspaceHasApiKey
+    ? "Rotate API Key"
+    : "Generate API Key";
+  const workspaceApiKeyPlaceholder = selectedWorkspaceHasApiKey
+    ? "Rotate API key to view again"
+    : "Generate an API key to view";
   const canRotateWorkspaceApiKey = ["owner", "admin"].includes(
     selectedWorkspaceRole.trim().toLowerCase(),
   );
@@ -562,15 +577,41 @@ export function App() {
   function applyAcceptedWorkspaceContext(workspace) {
     const selection = selectAcceptedWorkspaceContext({
       workspace,
-      apiKeysByWorkspace,
     });
     applyWorkspaceContextUpdate(selection);
     return selection;
   }
 
+  function clearWorkspaceScopedData() {
+    setTemplates([]);
+    setExtractTemplateId("");
+    setJobHistory([]);
+    setQueuedJobs({});
+    setJobsNextCursor(null);
+    setJobsHasMore(false);
+    setSelectedDocumentId("");
+    setLastJobId("");
+    setLatestResponse(null);
+    setWorkspaceUsers([]);
+    setWorkspaceInvitations([]);
+  }
+
   function applyWorkspaceContextUpdate(nextWorkspaceContext) {
     if (!nextWorkspaceContext) {
       return null;
+    }
+
+    const nextWorkspaceId = Object.prototype.hasOwnProperty.call(
+      nextWorkspaceContext,
+      "workspaceId",
+    )
+      ? String(nextWorkspaceContext.workspaceId || "")
+      : workspaceId;
+    if (String(nextWorkspaceId || "") !== String(workspaceId || "")) {
+      if (String(workspaceId || "")) {
+        completedDocumentCacheRef.current.clearAll();
+      }
+      clearWorkspaceScopedData();
     }
 
     if (
@@ -617,38 +658,26 @@ export function App() {
       return;
     }
 
+    if (hasSession && workspaceResolutionStatus !== "resolved") {
+      return;
+    }
+
+    const storedWorkspaceId = workspaceId.trim();
+    if (!storedWorkspaceId || storedWorkspaceId === DEFAULT_WORKSPACE_ID) {
+      window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+      return;
+    }
+
     const payload = {
-      apiBase,
-      authName,
-      authEmail,
+      workspaceId: storedWorkspaceId,
       workspaceName,
-      workspaceId,
-      apiKey,
-      apiKeysByWorkspace,
-      templates,
-      extractTemplateId,
-      lastJobId,
-      jobHistory,
-      selectedDocumentId,
-      userWorkspaces,
-      userWorkspaceInvitations,
     };
     window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(payload));
   }, [
-    apiBase,
-    authName,
-    authEmail,
+    hasSession,
+    workspaceResolutionStatus,
     workspaceName,
     workspaceId,
-    apiKey,
-    apiKeysByWorkspace,
-    templates,
-    extractTemplateId,
-    lastJobId,
-    jobHistory,
-    selectedDocumentId,
-    userWorkspaces,
-    userWorkspaceInvitations,
   ]);
 
   useEffect(() => {
@@ -721,9 +750,7 @@ export function App() {
     const headers = new Headers(options.headers || {});
 
     if (authRequired) {
-      if (hasApiKey) {
-        headers.set("Authorization", `Bearer ${apiKey.trim()}`);
-      } else if (hasSession) {
+      if (hasSession) {
         if (workspaceRequired) {
           if (!workspaceId.trim()) {
             throw new Error("Workspace ID is required");
@@ -731,7 +758,7 @@ export function App() {
           headers.set("x-workspace-id", workspaceId.trim());
         }
       } else {
-        throw new Error("Sign in or provide an API key");
+        throw new Error("Sign in to continue");
       }
     }
 
@@ -749,6 +776,9 @@ export function App() {
     const data = rawText ? tryParseJson(rawText) : null;
 
     if (!response.ok) {
+      if (response.status === 403 && authRequired && workspaceRequired) {
+        await recoverForbiddenWorkspaceAccess();
+      }
       const message =
         data?.error?.message ||
         data?.message ||
@@ -841,7 +871,20 @@ export function App() {
     }
   }
 
+  async function copyWorkspaceApiKeyToClipboard(keyMaterial) {
+    if (!navigator.clipboard?.writeText) {
+      return false;
+    }
+    try {
+      await navigator.clipboard.writeText(keyMaterial);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function rotateWorkspaceApiKey(targetWorkspaceId = workspaceId) {
+    const wasRotation = selectedWorkspaceHasApiKey;
     const data = await request(
       `/workspaces/${encodeURIComponent(targetWorkspaceId)}/api-key`,
       {
@@ -853,17 +896,38 @@ export function App() {
 
     setWorkspaceId(data.workspace_id || targetWorkspaceId);
     setApiKey(data.api_key || "");
-    if (data.workspace_id && data.api_key) {
-      setApiKeysByWorkspace((prev) => ({
-        ...prev,
-        [String(data.workspace_id)]: String(data.api_key),
-      }));
-    }
+    setUserWorkspaces((prev) =>
+      prev.map((workspace) =>
+        String(workspace?.id || "") === String(data.workspace_id || targetWorkspaceId)
+          ? { ...workspace, has_api_key: true }
+          : workspace,
+      ),
+    );
+    const copied = data.api_key
+      ? await copyWorkspaceApiKeyToClipboard(String(data.api_key))
+      : false;
     addLog(
       `API key rotated for workspace: ${data.workspace_id || targetWorkspaceId}`,
     );
-    showActionToast("workspace.apiKey.rotate", "success", data);
+    showActionToast(
+      wasRotation
+        ? copied
+          ? "workspace.apiKey.rotate.copied"
+          : "workspace.apiKey.rotate.manualCopy"
+        : copied
+          ? "workspace.apiKey.generate.copied"
+          : "workspace.apiKey.generate.manualCopy",
+      "success",
+      data,
+    );
     return data;
+  }
+
+  async function copyVisibleWorkspaceApiKey() {
+    if (!apiKey) {
+      return;
+    }
+    await copyWorkspaceApiKeyToClipboard(apiKey);
   }
 
   async function createWorkspace(options = {}) {
@@ -887,15 +951,13 @@ export function App() {
         true,
         false,
       );
+      if (String(data.workspace_id || "") !== String(workspaceId || "")) {
+        completedDocumentCacheRef.current.clearAll();
+        clearWorkspaceScopedData();
+      }
       setWorkspaceId(data.workspace_id || "");
       setWorkspaceName(data.name || NEW_WORKSPACE_NAME);
-      setApiKey(data.api_key || "");
-      if (data.workspace_id && data.api_key) {
-        setApiKeysByWorkspace((prev) => ({
-          ...prev,
-          [String(data.workspace_id)]: String(data.api_key),
-        }));
-      }
+      setApiKey("");
       if (!silent) {
         addLog(`Workspace created: ${data.workspace_id || "unknown"}`);
         showActionToast("workspace.create", "success", {
@@ -914,12 +976,20 @@ export function App() {
   }
 
   async function refreshApiKey() {
-    if (!workspaceId.trim()) {
+    if (!hasWorkspaceContext) {
       addLog("Refresh API key failed: select or create a workspace first");
       return;
     }
 
-    const targetWorkspaceId = workspaceId || DEFAULT_WORKSPACE_ID;
+    const targetWorkspaceId = normalizedWorkspaceId;
+    if (
+      selectedWorkspaceHasApiKey &&
+      !window.confirm(
+        "Rotate this Workspace API key? Existing external clients using the current key will stop working.",
+      )
+    ) {
+      return;
+    }
 
     setBusy(true);
     try {
@@ -950,18 +1020,46 @@ export function App() {
         : [];
       setUserWorkspaces(workspaces);
       setUserWorkspaceInvitations(invitations);
-      const transition = getWorkspaceContextRefreshTransition({
-        workspaceId,
-        selectedWorkspaceInvitationId,
+      const resolution = resolveAcceptedWorkspaceContext({
+        storedWorkspacePreference: workspaceId.trim()
+          ? { workspaceId, workspaceName }
+          : initialWorkspaceRef.current,
         userWorkspaces: workspaces,
         userWorkspaceInvitations: invitations,
-        apiKeysByWorkspace,
       });
-      applyWorkspaceContextUpdate(transition.nextWorkspaceContext);
-      return workspaces;
+      applyWorkspaceContextUpdate(resolution.nextWorkspaceContext);
+      setWorkspaceResolutionStatus(resolution.type === "resolved" ? "resolved" : "error");
+      return { workspaces, invitations, resolution };
     } catch (error) {
       addLog(`List workspaces failed: ${error.message}`);
-      return [];
+      setWorkspaceResolutionStatus("error");
+      throw error;
+    }
+  }
+
+  function retryWorkspaceResolution() {
+    setWorkspaceResolutionStatus("loading");
+    void listWorkspaces().catch(() => {});
+  }
+
+  async function recoverForbiddenWorkspaceAccess() {
+    if (isRecoveringForbiddenWorkspaceRef.current) {
+      return;
+    }
+
+    isRecoveringForbiddenWorkspaceRef.current = true;
+    try {
+      const refresh = await listWorkspaces();
+      const nextWorkspace = refresh?.resolution?.workspace;
+      if (nextWorkspace?.id) {
+        showActionToast("workspace.access.changed", "success", {
+          targetName: nextWorkspace.name || nextWorkspace.id,
+        });
+      }
+    } catch {
+      // listWorkspaces already records the retryable resolution failure.
+    } finally {
+      isRecoveringForbiddenWorkspaceRef.current = false;
     }
   }
 
@@ -1054,7 +1152,6 @@ export function App() {
         action,
         actionResult: data || {},
         refreshedUserWorkspaces: workspaces,
-        apiKeysByWorkspace,
       });
       if (successTransition.nextWorkspaceContext) {
         applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
@@ -1217,7 +1314,6 @@ export function App() {
         selectedWorkspaceInvitation,
         acceptResult: data,
         refreshedUserWorkspaces: workspaces,
-        apiKeysByWorkspace,
       });
       if (successTransition.nextWorkspaceContext) {
         applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
@@ -1341,14 +1437,10 @@ export function App() {
       await request(`/workspaces/${encodeURIComponent(workspaceId.trim())}`, {
         method: "DELETE",
       });
+      completedDocumentCacheRef.current.clearAll();
       setWorkspaceId("");
       setWorkspaceName("");
       setApiKey("");
-      setApiKeysByWorkspace((prev) => {
-        const next = { ...prev };
-        delete next[workspaceId.trim()];
-        return next;
-      });
       await listWorkspaces();
       addLog("Workspace deleted");
       showActionToast("workspace.delete", "success");
@@ -1393,31 +1485,14 @@ export function App() {
         workspaceId: leftWorkspaceId,
         leaveResult: data,
         refreshedUserWorkspaces: workspaces,
-        apiKeysByWorkspace,
       });
-      if (
-        successTransition.removedApiKeyWorkspaceId ||
-        successTransition.storedApiKey
-      ) {
-        setApiKeysByWorkspace((prev) => {
-          const next = { ...prev };
-          if (successTransition.removedApiKeyWorkspaceId) {
-            delete next[successTransition.removedApiKeyWorkspaceId];
-          }
-          if (successTransition.storedApiKey) {
-            next[successTransition.storedApiKey.workspaceId] =
-              successTransition.storedApiKey.apiKey;
-          }
-          return next;
-        });
-      }
       if (successTransition.nextWorkspaceContext) {
         applyWorkspaceContextUpdate(successTransition.nextWorkspaceContext);
       }
       addLog("Workspace left");
       showActionToast("workspace.leave", "success", {
         replacementPersonalWorkspaceCreated: Boolean(
-          successTransition.storedApiKey,
+          data?.replacement_workspace,
         ),
       });
     } catch (error) {
@@ -1561,8 +1636,8 @@ export function App() {
     setBusy(true);
     try {
       await authClient.signOut();
+      completedDocumentCacheRef.current.clearAll();
       setApiKey("");
-      setApiKeysByWorkspace({});
       setWorkspaceId("");
       setTemplates([]);
       setJobHistory([]);
@@ -1655,7 +1730,7 @@ export function App() {
     }
 
     void listTemplates();
-  }, [hasApiAccess, workspaceId, apiKey]);
+  }, [hasApiAccess, workspaceId]);
 
   useEffect(() => {
     if (!hasApiAccess) {
@@ -1663,14 +1738,16 @@ export function App() {
     }
 
     void listJobs();
-  }, [debouncedDocumentSearch, hasApiAccess, workspaceId, apiKey]);
+  }, [debouncedDocumentSearch, hasApiAccess, workspaceId]);
 
   useEffect(() => {
     if (!hasSession) {
+      setWorkspaceResolutionStatus("idle");
       return;
     }
 
-    void listWorkspaces();
+    setWorkspaceResolutionStatus("loading");
+    void listWorkspaces().catch(() => {});
     void loadProfile();
   }, [hasSession]);
 
@@ -1722,13 +1799,26 @@ export function App() {
         method: "GET",
       });
       const list = Array.isArray(data?.jobs) ? data.jobs : [];
+      const isFilteredList = Boolean(search);
+      const hydratedList = list.map((job) => {
+        if (String(job?.status || "") !== "completed") {
+          return job;
+        }
+        const cached = completedDocumentCacheRef.current.get(workspaceId, job.job_id);
+        return cached ? { ...job, ...cached } : job;
+      });
+      if (!append && !data?.has_more) {
+        completedDocumentCacheRef.current.pruneFromJobList(workspaceId, list, {
+          filtered: isFilteredList,
+        });
+      }
       setJobHistory((prev) => {
         if (!append) {
-          return list;
+          return hydratedList;
         }
 
         const seen = new Set(prev.map((job) => String(job.job_id || "")));
-        const additions = list.filter((job) => {
+        const additions = hydratedList.filter((job) => {
           const jobId = String(job.job_id || "");
           if (!jobId || seen.has(jobId)) {
             return false;
@@ -1740,8 +1830,8 @@ export function App() {
       });
       setJobsNextCursor(data?.next_cursor || null);
       setJobsHasMore(Boolean(data?.has_more));
-      if (!selectedDocumentId && list[0]?.job_id) {
-        setSelectedDocumentId(String(list[0].job_id));
+      if (!selectedDocumentId && hydratedList[0]?.job_id) {
+        setSelectedDocumentId(String(hydratedList[0].job_id));
       }
       addLog(
         `${append ? "Loaded" : "Loaded"} ${list.length} document${list.length === 1 ? "" : "s"}${search ? ` matching "${search}"` : ""}`,
@@ -1785,7 +1875,12 @@ export function App() {
         },
       );
       upsertJobHistory(data);
+      completedDocumentCacheRef.current.store(workspaceId, data);
     } catch (error) {
+      if (Number(error?.status) === 404) {
+        completedDocumentCacheRef.current.remove(workspaceId, normalizedJobId);
+        removeDocumentFromState(normalizedJobId);
+      }
       if (!silent) {
         addLog(`Load job details failed: ${error.message}`);
       }
@@ -2450,6 +2545,7 @@ export function App() {
       URL.revokeObjectURL(sourcePreviewUrl);
       previewUrlsRef.current.delete(sourcePreviewUrl);
     }
+    completedDocumentCacheRef.current.remove(workspaceId, targetDocumentId);
 
     setJobHistory((prev) =>
       prev.filter((job) => String(job.job_id || "") !== targetDocumentId),
@@ -2935,7 +3031,20 @@ export function App() {
                 />
               </label>
               <div className="context-list">
-                {filteredWorkspaces.map((workspace) => (
+                {isWorkspaceContextLoading ? (
+                  <p className="muted">Loading workspace context</p>
+                ) : hasWorkspaceResolutionError ? (
+                  <>
+                    <p className="muted">Workspace resolution error</p>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={retryWorkspaceResolution}
+                    >
+                      Retry Workspaces
+                    </button>
+                  </>
+                ) : filteredWorkspaces.map((workspace) => (
                   <button
                     type="button"
                     key={
@@ -3013,7 +3122,7 @@ export function App() {
             ) : (
               <>
                 <span className="status-chip">
-                  Workspaces {availableWorkspaces.length}
+                  Workspaces {isWorkspaceContextLoading || hasWorkspaceResolutionError ? 0 : availableWorkspaces.length}
                 </span>
                 <span
                   className={`status-chip ${
@@ -3022,7 +3131,11 @@ export function App() {
                       : "warn"
                   }`}
                 >
-                  {isWorkspaceInvitationSelected
+                  {isWorkspaceContextLoading
+                    ? "Loading"
+                    : hasWorkspaceResolutionError
+                      ? "Resolution Error"
+                      : isWorkspaceInvitationSelected
                     ? "Invitation Pending"
                     : `API ${
                         workspaceSelectionView.hasWorkspaceApiAccess
@@ -3039,7 +3152,11 @@ export function App() {
           <section className="workspace-toolbar" aria-label="Workspace toolbar">
             <div className="workspace-toolbar-meta">
               <span className="status-chip">
-                Workspace {workspaceSelectionView.workspaceName}
+                Workspace {isWorkspaceContextLoading
+                  ? "Loading workspace context"
+                  : hasWorkspaceResolutionError
+                    ? "Workspace resolution error"
+                    : workspaceSelectionView.workspaceName}
               </span>
               {isWorkspaceInvitationSelected ? (
                 <>
@@ -3089,6 +3206,7 @@ export function App() {
                   className="danger"
                   disabled={
                     isDeletingWorkspace ||
+                    !hasApiAccess ||
                     !workspaceId.trim() ||
                     workspacePrimaryAction.type === "none"
                   }
@@ -3311,18 +3429,41 @@ export function App() {
                     <label>
                       API key
                       <div className="row two-up workspace-key-row">
-                        <input
-                          value={apiKey}
-                          readOnly
-                          placeholder="Rotate to generate key_ + 32 chars"
-                        />
+                        <div className="workspace-key-field">
+                          <input
+                            value={apiKey}
+                            readOnly
+                            placeholder={workspaceApiKeyPlaceholder}
+                          />
+                          {apiKey ? (
+                            <button
+                              type="button"
+                              className="icon-action-button workspace-key-copy-button"
+                              aria-label="Copy API key"
+                              onClick={copyVisibleWorkspaceApiKey}
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <rect x="9" y="9" width="13" height="13" rx="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                            </button>
+                          ) : null}
+                        </div>
                         <button
                           type="button"
                           className="workspace-inline-action"
                           disabled={busy || !canRotateWorkspaceApiKey}
                           onClick={refreshApiKey}
                         >
-                          Refresh API Key
+                          {workspaceApiKeyActionLabel}
                         </button>
                       </div>
                     </label>
@@ -3361,7 +3502,7 @@ export function App() {
                       <button
                         type="button"
                         className="secondary"
-                        disabled={busy || !workspaceId.trim()}
+                          disabled={busy || !hasApiAccess}
                         onClick={inviteUser}
                       >
                         Invite User

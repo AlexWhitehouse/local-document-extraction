@@ -48,6 +48,14 @@ _Avoid_: invitation row, invite card
 An action that changes a member's workspace access or role.
 _Avoid_: user status change, member edit
 
+**Workspace API key**:
+A workspace-scoped credential for external API clients to access workspace-scoped product routes.
+_Avoid_: frontend session key, user token
+
+**Workspace API key format**:
+The opaque generated string format for **Workspace API keys**.
+_Avoid_: user-facing key schema, guaranteed key length
+
 **Leave Workspace**:
 A self-service action where a non-owner workspace member removes only their own **Workspace membership**.
 _Avoid_: exit group, delete access
@@ -111,12 +119,39 @@ _Avoid_: object marker parsing, nested field table
 - A current workspace member should not also have a pending **Workspace invitation** for the same **Workspace**.
 - Accepting a **Workspace invitation** must not overwrite an existing **Workspace membership** or change its role.
 - **Workspace invitations** match the invitee by the account's current email address; account email is not user-editable.
-- Users should normally always have at least one accepted **Workspace**; if that invariant is broken and only invitations are available, select the latest-updated invitation.
+- A signed-in user must always have at least one accepted **Workspace** after sign-up or first login.
+- A user cannot delete their only accepted **Workspace**.
+- If the accepted **Workspace** invariant is broken, the backend owns repairing it; clients must not create a replacement through the normal user-facing create-workspace flow.
+- `GET /v1/workspaces` repairs a broken zero-accepted-Workspace invariant by creating a personal **Workspace** through the same bootstrap path used for first login.
+- Pending **Workspace invitations** do not satisfy the accepted **Workspace** invariant.
+- A workspace owner/admin may remove another user's **Workspace membership** even if that was the target user's last accepted **Workspace**; the target user's invariant is repaired when they next list their Workspaces.
+- Removing another user's **Workspace membership** does not immediately create that user's replacement personal **Workspace**.
+- Accepted **Workspace** IDs are backend-owned; clients must not invent default or fallback workspace IDs.
+- When a client needs a replacement accepted **Workspace context**, it should use the first accepted **Workspace** returned by the backend workspace list.
+- The SPA uses the signed-in user session plus accepted **Workspace context** for workspace-scoped requests; **Workspace API keys** are for external API clients.
+- **Workspace API keys** may be generated and shown to workspace owners/admins for external clients, but they are not SPA authentication credentials.
+- **Workspace API keys** authenticate external clients for workspace-scoped product routes such as templates, extraction jobs, and document submission.
+- **Workspace API keys** currently have the same access as accepted Workspace context on workspace-scoped product routes.
+- **Workspace API keys** do not authenticate user/session-only routes such as profile, workspace membership, invitations, workspace deletion, or API key generation.
+- **Workspace API keys** do not create browser sessions or authenticate access to the SPA shell.
+- **Workspace API key** material is visible only immediately after creation or rotation because the backend stores only a hash.
+- **Workspace API key format** is opaque to users and clients beyond being passed as a bearer token.
+- Creating a **Workspace** and generating a **Workspace API key** are separate user intents.
+- `POST /v1/workspaces` returns the new accepted **Workspace context** with `has_api_key: false` and no **Workspace API key** secret.
+- First-login Workspace bootstrap creates the accepted **Workspace** and starter template, not visible external-client **Workspace API key** material.
+- A new or bootstrapped **Workspace** starts without an external-client **Workspace API key** until an owner/admin explicitly generates one.
+- Existing silently generated workspace key hashes are treated as not being external-client **Workspace API keys** during migration.
+- Workspace listing or detail responses may expose whether a **Workspace API key** exists, but never expose existing key material.
+- `/v1/workspaces` includes whether each accepted **Workspace** has an external-client **Workspace API key**.
+- `POST /v1/workspaces/:id/api-key` issues a new one-time **Workspace API key** secret and replaces any existing key hash.
+- `POST /v1/workspaces/:id/api-key` returns the one-time **Workspace API key** secret and `has_api_key: true`.
+- Workspace owners/admins may generate or rotate **Workspace API keys**; members may not.
 - **Leave Workspace** does not delete the **Workspace**, its documents, invitations, API key, or other members.
 - **Leave Workspace** is performed by a signed-in workspace member, not by a workspace API key.
 - Workspace owners delete workspaces rather than leave them.
 - If **Leave Workspace** would remove a user's last accepted **Workspace**, create a **Replacement personal Workspace** for that user.
 - A **Replacement personal Workspace** uses the same starter-template bootstrap as a new-user workspace.
+- A **Replacement personal Workspace** response includes `has_api_key: false` and no **Workspace API key** secret.
 - After **Leave Workspace**, the user moves into another accepted **Workspace context**, preferring the **Replacement personal Workspace** when one was created.
 - A workspace member should confirm before leaving a **Workspace**.
 - **Template object schema** defines expected columns, column order, data types, and extraction guidance for fields whose data type is `object` or `array<object>`.

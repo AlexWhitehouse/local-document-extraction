@@ -81,7 +81,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   if (request.method === "GET" && url.pathname === "/v1/workspaces") {
     const session = await requireSession(request, env);
-    return listWorkspacesForUser(env, session.id);
+    return listWorkspacesForUser(env, session.id, session.name);
   }
 
   if (request.method === "GET" && url.pathname === "/v1/invitations") {

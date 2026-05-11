@@ -69,7 +69,7 @@ export type DocumentProcessingWorkflowParams = {
 
 export type Workspace = {
   id: string;
-  api_key_hash: string;
+  api_key_hash: string | null;
   name: string | null;
   created_at: string;
   created_by_user_id: string | null;

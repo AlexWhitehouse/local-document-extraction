@@ -118,7 +118,7 @@ function createD1Fixture(input: {
                 const [id, apiKeyHash, name, createdAt, createdByUserId] = params;
                 input.workspaces.push({
                   id: String(id),
-                  api_key_hash: String(apiKeyHash),
+                  api_key_hash: typeof apiKeyHash === "string" ? apiKeyHash : null,
                   name: String(name),
                   created_at: String(createdAt),
                   created_by_user_id: String(createdByUserId),
@@ -383,6 +383,7 @@ function createD1Fixture(input: {
                       name: workspace.name,
                       created_at: workspace.created_at,
                       max_source_file_bytes: workspace.max_source_file_bytes,
+                      has_api_key: workspace.api_key_hash !== null,
                       role: membership.role
                     };
                   })
@@ -628,6 +629,7 @@ describe("Workspace policy", () => {
         name: "Research",
         created_at: "2026-05-04T00:00:00.000Z",
         max_source_file_bytes: 20,
+        has_api_key: true,
         role: "admin"
       },
       {
@@ -635,6 +637,7 @@ describe("Workspace policy", () => {
         name: "Archive",
         created_at: "2026-05-03T00:00:00.000Z",
         max_source_file_bytes: 10,
+        has_api_key: true,
         role: "member"
       }
     ]);
@@ -845,37 +848,33 @@ describe("Workspace policy", () => {
     expect(workspace.created_by_user_id).toBe("user_member");
   });
 
-  it("creates a workspace with an owner membership and one-time API key", async () => {
+  it("creates a workspace with an owner membership and no external-client API key", async () => {
     const db = createD1Fixture({ workspaces: [], memberships: [] });
 
     const created = await createWorkspaceForUser(db, { userId: "user_owner", name: "Research" });
 
     expect(created).toEqual({
       workspace_id: expect.stringMatching(/^workspace_/),
-      api_key: expect.stringMatching(/^key_/),
+      has_api_key: false,
       name: "Research",
       role: "owner",
       created_at: expect.any(String)
     });
+    expect(created).not.toHaveProperty("api_key");
 
-    await expect(authorizeWorkspaceForApiKey(db, { apiKey: created.api_key })).resolves.toMatchObject({
-      id: created.workspace_id,
-      api_key_hash: expect.not.stringContaining(created.api_key),
-      name: "Research",
-      created_by_user_id: "user_owner"
-    });
     await expect(listWorkspacesForUser(db, { userId: "user_owner" })).resolves.toEqual([
       {
         id: created.workspace_id,
         name: "Research",
         created_at: created.created_at,
         max_source_file_bytes: null,
+        has_api_key: false,
         role: "owner"
       }
     ]);
   });
 
-  it("bootstraps a starter workspace for a new user with no existing membership", async () => {
+  it("bootstraps a starter workspace for a new user without an external-client API key", async () => {
     const db = createD1Fixture({ workspaces: [], memberships: [] });
 
     const created = await bootstrapWorkspaceForNewUser(db, { userId: "user_new", userName: "Alex" }, { createStarterTemplate: async () => {} });
@@ -886,23 +885,19 @@ describe("Workspace policy", () => {
     expect(created).toEqual({
       created: true,
       workspace_id: expect.stringMatching(/^workspace_/),
-      api_key: expect.stringMatching(/^key_/),
+      has_api_key: false,
       name: "Alex Workspace",
       role: "owner",
       created_at: expect.any(String)
     });
-    await expect(authorizeWorkspaceForApiKey(db, { apiKey: created.api_key })).resolves.toMatchObject({
-      id: created.workspace_id,
-      api_key_hash: expect.not.stringContaining(created.api_key),
-      name: "Alex Workspace",
-      created_by_user_id: "user_new"
-    });
+    expect(created).not.toHaveProperty("api_key");
     await expect(listWorkspacesForUser(db, { userId: "user_new" })).resolves.toEqual([
       {
         id: created.workspace_id,
         name: "Alex Workspace",
         created_at: created.created_at,
         max_source_file_bytes: null,
+        has_api_key: false,
         role: "owner"
       }
     ]);
@@ -1064,6 +1059,7 @@ describe("Workspace policy", () => {
     expect(rotated).toEqual({
       workspace_id: workspace.id,
       api_key: expect.stringMatching(/^key_/),
+      has_api_key: true,
       rotated_at: expect.any(String)
     });
     expect(workspace.api_key_hash).not.toContain(rotated.api_key);
@@ -1093,6 +1089,7 @@ describe("Workspace policy", () => {
     await expect(rotateWorkspaceApiKeyForUser(db, { workspaceId: workspace.id, userId: "user_owner" })).resolves.toEqual({
       workspace_id: workspace.id,
       api_key: expect.stringMatching(/^key_/),
+      has_api_key: true,
       rotated_at: expect.any(String)
     });
   });
@@ -1354,7 +1351,7 @@ describe("Workspace policy", () => {
       workspace_id: workspace.id,
       replacement_workspace: {
         workspace_id: expect.stringMatching(/^workspace_/),
-        api_key: expect.stringMatching(/^key_/),
+        has_api_key: false,
         name: "Mina Member Workspace",
         role: "owner",
         created_at: expect.any(String)
@@ -1379,9 +1376,7 @@ describe("Workspace policy", () => {
     expect(templates).toEqual([
       expect.objectContaining({ workspace_id: replacement.workspace_id, name: "Example Invoice" })
     ]);
-    await expect(authorizeWorkspaceForApiKey(db, { apiKey: replacement.api_key })).resolves.toMatchObject({
-      id: replacement.workspace_id
-    });
+    expect(replacement).not.toHaveProperty("api_key");
   });
 
   it("invites a workspace member as an owner using a normalized email", async () => {
@@ -1585,7 +1580,7 @@ describe("Workspace policy", () => {
           accepted_by_user_id: null,
           created_at: "2026-05-04T00:00:00.000Z",
           updated_at: "2026-05-04T00:00:00.000Z",
-          expires_at: "2026-05-11T00:00:00.000Z"
+          expires_at: "2026-06-11T00:00:00.000Z"
         },
         {
           id: "invite_old",
@@ -1616,7 +1611,7 @@ describe("Workspace policy", () => {
         inviter_display: "Olivia Owner",
         created_at: "2026-05-04T00:00:00.000Z",
         updated_at: "2026-05-04T00:00:00.000Z",
-        expires_at: "2026-05-11T00:00:00.000Z"
+        expires_at: "2026-06-11T00:00:00.000Z"
       }
     ]);
   });

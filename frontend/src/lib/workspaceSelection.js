@@ -1,4 +1,3 @@
-const DEFAULT_WORKSPACE_ID = "workspace_local_default";
 const DEFAULT_WORKSPACE_NAME = "Local Workspace";
 
 export function getWorkspaceContextDisplay({
@@ -44,7 +43,7 @@ export function getWorkspaceContextDisplay({
   const selectedInvitationId = String(selectedWorkspaceInvitationId || "").trim();
 
   const toDisplay = (availableWorkspaces) => {
-    const selectedEntryId = activeWorkspaceId || DEFAULT_WORKSPACE_ID;
+    const selectedEntryId = activeWorkspaceId;
     const effectiveSelectedWorkspaceInvitationId =
       selectedInvitationId ||
       (acceptedEntries.length === 0
@@ -88,29 +87,47 @@ export function getWorkspaceContextDisplay({
     return toDisplay(invitedEntries);
   }
 
-  return toDisplay([
-    {
-      id: activeWorkspaceId || DEFAULT_WORKSPACE_ID,
-      name: workspaceName || DEFAULT_WORKSPACE_NAME,
-      api_base: normalizedApiBase,
-      connected: Boolean(hasApiAccess),
-      type: "workspace",
-      role: "",
-    },
-  ]);
+  return toDisplay([]);
 }
 
-export function selectAcceptedWorkspaceContext({
-  workspace,
-  apiKeysByWorkspace,
-}) {
+export function selectAcceptedWorkspaceContext({ workspace }) {
   const workspaceId = String(workspace?.id || "");
 
   return {
     workspaceId,
     workspaceName: String(workspace?.name || "Untitled Workspace"),
     selectedWorkspaceInvitationId: "",
-    apiKey: String(apiKeysByWorkspace?.[workspaceId] || ""),
+    apiKey: "",
+  };
+}
+
+export function resolveAcceptedWorkspaceContext({
+  storedWorkspacePreference,
+  userWorkspaces,
+}) {
+  const workspaces = Array.isArray(userWorkspaces) ? userWorkspaces : [];
+  const storedWorkspaceId = String(
+    storedWorkspacePreference?.workspaceId || "",
+  ).trim();
+  const matchedWorkspace = workspaces.find(
+    (workspace) => String(workspace?.id || "") === storedWorkspaceId,
+  );
+  const resolvedWorkspace = matchedWorkspace || workspaces[0] || null;
+
+  if (!resolvedWorkspace) {
+    return {
+      type: "unresolved",
+      workspace: null,
+      nextWorkspaceContext: null,
+    };
+  }
+
+  return {
+    type: "resolved",
+    workspace: resolvedWorkspace,
+    nextWorkspaceContext: selectAcceptedWorkspaceContext({
+      workspace: resolvedWorkspace,
+    }),
   };
 }
 
@@ -125,7 +142,6 @@ export function getWorkspaceContextRefreshTransition({
   selectedWorkspaceInvitationId,
   userWorkspaces,
   userWorkspaceInvitations,
-  apiKeysByWorkspace,
 }) {
   const workspaces = Array.isArray(userWorkspaces) ? userWorkspaces : [];
   const invitations = Array.isArray(userWorkspaceInvitations)
@@ -141,7 +157,6 @@ export function getWorkspaceContextRefreshTransition({
       type: "context_update",
       nextWorkspaceContext: selectAcceptedWorkspaceContext({
         workspace: workspaces[0],
-        apiKeysByWorkspace,
       }),
     };
   }
@@ -362,7 +377,6 @@ export function getLeaveWorkspaceTransition({
   leaveResult,
   leaveError,
   refreshedUserWorkspaces,
-  apiKeysByWorkspace,
 }) {
   const targetWorkspaceId = String(workspaceId || "").trim();
   if (!targetWorkspaceId) {
@@ -381,9 +395,6 @@ export function getLeaveWorkspaceTransition({
     const replacementWorkspaceId = String(
       leaveResult?.replacement_workspace?.workspace_id || "",
     ).trim();
-    const replacementApiKey = String(
-      leaveResult?.replacement_workspace?.api_key || "",
-    );
     const remainingWorkspaces = Array.isArray(refreshedUserWorkspaces)
       ? refreshedUserWorkspaces.filter(
           (workspace) => String(workspace?.id || "") !== targetWorkspaceId,
@@ -396,13 +407,8 @@ export function getLeaveWorkspaceTransition({
       : null;
     const nextWorkspace =
       replacementWorkspace ||
-      [...remainingWorkspaces].sort((a, b) =>
-        String(b?.created_at || "").localeCompare(String(a?.created_at || "")),
-      )[0];
-    const nextApiKeysByWorkspace = replacementWorkspaceId && replacementApiKey
-      ? { ...apiKeysByWorkspace, [replacementWorkspaceId]: replacementApiKey }
-      : apiKeysByWorkspace;
-    const transition = {
+      remainingWorkspaces[0];
+    return {
       type: "success",
       workspaceId: targetWorkspaceId,
       request: null,
@@ -410,21 +416,11 @@ export function getLeaveWorkspaceTransition({
       nextWorkspaceContext: nextWorkspace
         ? selectAcceptedWorkspaceContext({
             workspace: nextWorkspace,
-            apiKeysByWorkspace: nextApiKeysByWorkspace,
           })
         : null,
       removedApiKeyWorkspaceId: targetWorkspaceId,
       requiresConfirmation: false,
     };
-
-    if (replacementWorkspaceId && replacementApiKey) {
-      transition.storedApiKey = {
-        workspaceId: replacementWorkspaceId,
-        apiKey: replacementApiKey,
-      };
-    }
-
-    return transition;
   }
 
   if (leaveError) {
@@ -473,7 +469,6 @@ export function getWorkspaceMemberActionTransition({
   actionResult,
   actionError,
   refreshedUserWorkspaces,
-  apiKeysByWorkspace,
 }) {
   const targetWorkspaceId = String(workspaceId || "").trim();
   if (!targetWorkspaceId) {
@@ -516,7 +511,6 @@ export function getWorkspaceMemberActionTransition({
       nextWorkspaceContext: refreshedWorkspace
         ? selectAcceptedWorkspaceContext({
             workspace: refreshedWorkspace,
-            apiKeysByWorkspace,
           })
         : null,
     };
@@ -554,7 +548,6 @@ export function getAcceptWorkspaceInvitationTransition({
   acceptResult,
   acceptError,
   refreshedUserWorkspaces,
-  apiKeysByWorkspace,
 }) {
   const invitationId = String(selectedWorkspaceInvitation?.id || "").trim();
   if (!invitationId) {
@@ -599,7 +592,6 @@ export function getAcceptWorkspaceInvitationTransition({
           id: acceptedWorkspaceId,
           name: selectedWorkspaceInvitation?.workspaceName,
         },
-        apiKeysByWorkspace,
       }),
     };
   }

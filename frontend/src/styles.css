@@ -1291,10 +1291,26 @@ button.danger:hover:not(:disabled) {
 }
 
 .workspace-name-row > label,
-.workspace-key-row > input {
+.workspace-key-row > .workspace-key-field {
   min-width: 0;
   width: 100%;
   justify-self: stretch;
+}
+
+.workspace-key-field {
+  position: relative;
+}
+
+.workspace-key-field > input {
+  padding-right: 44px;
+  width: 100%;
+}
+
+.workspace-key-copy-button {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .workspace-inline-action {

@@ -11,6 +11,7 @@ import {
   getWorkspaceContextRefreshTransition,
   getWorkspaceContextDisplay,
   getWorkspaceSelectionView,
+  resolveAcceptedWorkspaceContext,
   selectPendingWorkspaceInvitationContext,
   selectAcceptedWorkspaceContext,
 } from "./workspaceSelection.js";
@@ -227,7 +228,7 @@ describe("workspace context display", () => {
     expect(display.activeWorkspaceName).toBe("Selected Workspace");
   });
 
-  it("returns a safe default Workspace context when no accepted Workspaces or invitations exist", () => {
+  it("does not invent an accepted Workspace entry when no accepted Workspaces or invitations exist", () => {
     const display = getWorkspaceContextDisplay({
       apiBase: "",
       hasApiAccess: false,
@@ -238,17 +239,8 @@ describe("workspace context display", () => {
     });
 
     expect(display).toEqual({
-      availableWorkspaces: [
-        {
-          id: "workspace_local_default",
-          name: "Local Workspace",
-          api_base: "/v1",
-          connected: false,
-          type: "workspace",
-          role: "",
-        },
-      ],
-      selectedWorkspaceName: "Local Workspace",
+      availableWorkspaces: [],
+      selectedWorkspaceName: "",
       activeWorkspaceName: "Local Workspace",
       selectedWorkspaceInvitationId: "",
       workspaceSelectionView: {
@@ -403,7 +395,6 @@ describe("accepted Workspace context selection", () => {
         name: "Alpha Workspace",
         type: "workspace",
       },
-      apiKeysByWorkspace: {},
     });
 
     expect(selection).toEqual({
@@ -414,7 +405,7 @@ describe("accepted Workspace context selection", () => {
     });
   });
 
-  it("restores the API key saved for the accepted Workspace", () => {
+  it("does not restore prior Workspace API key material for an accepted Workspace", () => {
     const selection = selectAcceptedWorkspaceContext({
       workspace: {
         id: "workspace_beta",
@@ -427,7 +418,7 @@ describe("accepted Workspace context selection", () => {
       },
     });
 
-    expect(selection.apiKey).toBe("beta-key");
+    expect(selection.apiKey).toBe("");
   });
 });
 
@@ -447,6 +438,96 @@ describe("pending Workspace invitation context selection", () => {
 });
 
 describe("Workspace context refresh transition", () => {
+  it("restores a stored workspace preference only when backend lists that accepted Workspace", () => {
+    const resolution = resolveAcceptedWorkspaceContext({
+      storedWorkspacePreference: {
+        workspaceId: "workspace_stored",
+        workspaceName: "Stored Workspace",
+      },
+      userWorkspaces: [
+        { id: "workspace_first", name: "First Workspace" },
+        { id: "workspace_stored", name: "Backend Workspace" },
+      ],
+    });
+
+    expect(resolution).toEqual({
+      type: "resolved",
+      workspace: {
+        id: "workspace_stored",
+        name: "Backend Workspace",
+      },
+      nextWorkspaceContext: {
+        workspaceId: "workspace_stored",
+        workspaceName: "Backend Workspace",
+        selectedWorkspaceInvitationId: "",
+        apiKey: "",
+      },
+    });
+  });
+
+  it("selects the first accepted Workspace when stored preference is stale", () => {
+    const resolution = resolveAcceptedWorkspaceContext({
+      storedWorkspacePreference: {
+        workspaceId: "workspace_stale",
+        workspaceName: "Stale Workspace",
+      },
+      userWorkspaces: [
+        { id: "workspace_first", name: "First Workspace" },
+        { id: "workspace_second", name: "Second Workspace" },
+      ],
+    });
+
+    expect(resolution).toEqual({
+      type: "resolved",
+      workspace: {
+        id: "workspace_first",
+        name: "First Workspace",
+      },
+      nextWorkspaceContext: {
+        workspaceId: "workspace_first",
+        workspaceName: "First Workspace",
+        selectedWorkspaceInvitationId: "",
+        apiKey: "",
+      },
+    });
+  });
+
+  it("treats a legacy synthetic stored Workspace preference as stale", () => {
+    const resolution = resolveAcceptedWorkspaceContext({
+      storedWorkspacePreference: {
+        workspaceId: "workspace_local_default",
+        workspaceName: "Local Workspace",
+      },
+      userWorkspaces: [
+        { id: "workspace_backend", name: "Backend Workspace" },
+      ],
+    });
+
+    expect(resolution.nextWorkspaceContext).toEqual({
+      workspaceId: "workspace_backend",
+      workspaceName: "Backend Workspace",
+      selectedWorkspaceInvitationId: "",
+      apiKey: "",
+    });
+  });
+
+  it("does not auto-select pending Workspace invitations while accepted Workspaces exist", () => {
+    const resolution = resolveAcceptedWorkspaceContext({
+      storedWorkspacePreference: null,
+      userWorkspaces: [{ id: "workspace_first", name: "First Workspace" }],
+      userWorkspaceInvitations: [
+        { id: "invitation_123", workspace_name: "Invited Workspace" },
+      ],
+    });
+
+    expect(resolution.nextWorkspaceContext).toEqual({
+      workspaceId: "workspace_first",
+      workspaceName: "First Workspace",
+      selectedWorkspaceInvitationId: "",
+      apiKey: "",
+    });
+  });
+
   it("selects the first accepted Workspace when the current accepted Workspace is missing", () => {
     const transition = getWorkspaceContextRefreshTransition({
       workspaceId: "workspace_missing",
@@ -455,9 +536,6 @@ describe("Workspace context refresh transition", () => {
         { id: "workspace_123", name: "Restored Workspace" },
       ],
       userWorkspaceInvitations: [],
-      apiKeysByWorkspace: {
-        workspace_123: "saved-key",
-      },
     });
 
     expect(transition).toEqual({
@@ -466,7 +544,7 @@ describe("Workspace context refresh transition", () => {
         workspaceId: "workspace_123",
         workspaceName: "Restored Workspace",
         selectedWorkspaceInvitationId: "",
-        apiKey: "saved-key",
+        apiKey: "",
       },
     });
   });
@@ -830,16 +908,13 @@ describe("Workspace member action transition", () => {
       refreshedUserWorkspaces: [
         { id: "workspace_123", name: "Updated Workspace", role: "admin" },
       ],
-      apiKeysByWorkspace: {
-        workspace_123: "saved-key",
-      },
     });
 
     expect(transition.nextWorkspaceContext).toEqual({
       workspaceId: "workspace_123",
       workspaceName: "Updated Workspace",
       selectedWorkspaceInvitationId: "",
-      apiKey: "saved-key",
+      apiKey: "",
     });
   });
 
@@ -864,7 +939,7 @@ describe("Workspace member action transition", () => {
 });
 
 describe("Leave Workspace transition", () => {
-  it("selects the most recently created remaining accepted Workspace after a successful leave", () => {
+  it("selects the first backend-returned remaining accepted Workspace after a successful leave", () => {
     const transition = getLeaveWorkspaceTransition({
       workspaceId: "workspace_left",
       confirmed: true,
@@ -872,12 +947,7 @@ describe("Leave Workspace transition", () => {
       refreshedUserWorkspaces: [
         { id: "workspace_old", name: "Older Workspace", created_at: "2026-05-01T00:00:00.000Z", role: "member" },
         { id: "workspace_new", name: "Newer Workspace", created_at: "2026-05-03T00:00:00.000Z", role: "admin" }
-      ],
-      apiKeysByWorkspace: {
-        workspace_left: "left-key",
-        workspace_old: "old-key",
-        workspace_new: "new-key"
-      }
+      ]
     });
 
     expect(transition).toEqual({
@@ -886,17 +956,17 @@ describe("Leave Workspace transition", () => {
       request: null,
       refresh: ["acceptedWorkspaces", "workspaceContext"],
       nextWorkspaceContext: {
-        workspaceId: "workspace_new",
-        workspaceName: "Newer Workspace",
+        workspaceId: "workspace_old",
+        workspaceName: "Older Workspace",
         selectedWorkspaceInvitationId: "",
-        apiKey: "new-key"
+        apiKey: ""
       },
       removedApiKeyWorkspaceId: "workspace_left",
       requiresConfirmation: false
     });
   });
 
-  it("selects the replacement Workspace and one-time API key after leaving the last accepted Workspace", () => {
+  it("selects the replacement Workspace without retaining one-time API key material after leaving the last accepted Workspace", () => {
     const transition = getLeaveWorkspaceTransition({
       workspaceId: "workspace_left",
       confirmed: true,
@@ -913,10 +983,7 @@ describe("Leave Workspace transition", () => {
       },
       refreshedUserWorkspaces: [
         { id: "workspace_replacement", name: "Mina Member Workspace", created_at: "2026-05-05T00:00:00.000Z", role: "owner" }
-      ],
-      apiKeysByWorkspace: {
-        workspace_left: "left-key"
-      }
+      ]
     });
 
     expect(transition).toEqual({
@@ -928,11 +995,7 @@ describe("Leave Workspace transition", () => {
         workspaceId: "workspace_replacement",
         workspaceName: "Mina Member Workspace",
         selectedWorkspaceInvitationId: "",
-        apiKey: "replacement-key"
-      },
-      storedApiKey: {
-        workspaceId: "workspace_replacement",
-        apiKey: "replacement-key"
+        apiKey: ""
       },
       removedApiKeyWorkspaceId: "workspace_left",
       requiresConfirmation: false
@@ -1009,7 +1072,7 @@ describe("accept Workspace invitation transition", () => {
     });
   });
 
-  it("selects the accepted Workspace after success and restores its saved API key", () => {
+  it("selects the accepted Workspace after success without restoring saved API key material", () => {
     const transition = getAcceptWorkspaceInvitationTransition({
       selectedWorkspaceInvitation: {
         id: "invitation_123",
@@ -1022,9 +1085,6 @@ describe("accept Workspace invitation transition", () => {
       refreshedUserWorkspaces: [
         { id: "workspace_invited", name: "Invited Workspace", role: "member" },
       ],
-      apiKeysByWorkspace: {
-        workspace_invited: "saved-invited-key",
-      },
     });
 
     expect(transition).toEqual({
@@ -1037,7 +1097,7 @@ describe("accept Workspace invitation transition", () => {
         workspaceId: "workspace_invited",
         workspaceName: "Invited Workspace",
         selectedWorkspaceInvitationId: "",
-        apiKey: "saved-invited-key",
+        apiKey: "",
       },
     });
   });

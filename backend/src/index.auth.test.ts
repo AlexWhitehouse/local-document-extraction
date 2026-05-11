@@ -12,12 +12,14 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 import worker from "./index";
+import { hashWorkspaceApiKey } from "./lib/workspacePolicy";
 import type { Env } from "./lib/types";
 
-function createEnv(): Env {
+function createEnv(overrides: Partial<Env> = {}): Env {
   return {
     BETTER_AUTH_SECRET: "test-secret",
     DB: {} as D1Database,
+    ...overrides,
   } as Env;
 }
 
@@ -102,4 +104,106 @@ describe("auth request handling", () => {
       },
     });
   });
+
+  it("accepts Workspace API keys on workspace-scoped product routes", async () => {
+    const apiKey = "workspace-api-key";
+    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
+    const db = createProductRouteDb(apiKeyHash);
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates", {
+        method: "GET",
+        headers: { authorization: `Bearer ${apiKey}` },
+      }),
+      createEnv({ DB: db }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      templates: [
+        {
+          id: "template_1",
+          name: "Invoices",
+          description: null,
+          status: "active",
+          current_version: 1,
+          created_at: "2026-05-01T00:00:00.000Z",
+          updated_at: "2026-05-01T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(createAuthMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects Workspace API keys on profile routes", async () => {
+    createAuthMock.mockReturnValue({
+      api: {
+        getSession: vi.fn().mockResolvedValue(null),
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/profile", {
+        method: "GET",
+        headers: { authorization: "Bearer workspace-api-key" },
+      }),
+      createEnv(),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "unauthorized",
+        message: "Authentication required",
+      },
+    });
+  });
 });
+
+function createProductRouteDb(apiKeyHash: string): D1Database {
+  return {
+    prepare: vi.fn((sql: string) => ({
+      bind: vi.fn((...params: unknown[]) => ({
+        first: vi.fn(async () => {
+          if (sql.includes("FROM workspaces WHERE api_key_hash = ?")) {
+            return params[0] === apiKeyHash
+              ? {
+                  id: "workspace_1",
+                  api_key_hash: apiKeyHash,
+                  name: "Research",
+                  created_at: "2026-05-01T00:00:00.000Z",
+                  created_by_user_id: "user_1",
+                  rate_limit_per_minute: null,
+                  max_templates: null,
+                  max_fields_per_template: null,
+                  max_source_file_bytes: null,
+                }
+              : null;
+          }
+
+          return null;
+        }),
+        all: vi.fn(async () => {
+          if (sql.includes("FROM templates")) {
+            expect(params).toEqual(["workspace_1"]);
+            return {
+              results: [
+                {
+                  id: "template_1",
+                  name: "Invoices",
+                  description: null,
+                  status: "active",
+                  current_version: 1,
+                  created_at: "2026-05-01T00:00:00.000Z",
+                  updated_at: "2026-05-01T00:00:00.000Z",
+                },
+              ],
+            };
+          }
+
+          return { results: [] };
+        }),
+      })),
+    })),
+  } as unknown as D1Database;
+}
