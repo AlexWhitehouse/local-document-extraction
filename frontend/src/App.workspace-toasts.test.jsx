@@ -1,6 +1,13 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const authClientMock = vi.hoisted(() => ({
@@ -123,6 +130,47 @@ describe("Workspace action toast feedback", () => {
     expect(window.localStorage.removeItem).toHaveBeenCalledWith(
       "documentextraction.workspace.v1",
     );
+  });
+
+  it("loads and saves dirty profile edits from the profile menu", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/profile") && options.method === "PATCH") {
+        return Promise.resolve(
+          jsonResponse({ name: "Ada Byron", email: "ada@example.com" }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
+
+    const profileMenu = screen.getByText("Save Profile").closest(".sidebar-profile");
+    const saveButton = within(profileMenu).getByRole("button", {
+      name: "Save Profile",
+    });
+    expect(saveButton.disabled).toBe(true);
+
+    await user.clear(within(profileMenu).getByLabelText("Name"));
+    await user.type(within(profileMenu).getByLabelText("Name"), "Ada Byron");
+
+    expect(saveButton.disabled).toBe(false);
+
+    await user.click(saveButton);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/profile"),
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+    await waitFor(() => {
+      expect(authClientMock.refetchSession).toHaveBeenCalledOnce();
+    });
+    expect(screen.queryByText("Save Profile")).toBeNull();
   });
 
   it("shows Loading workspace context without stored Workspace details while startup resolution is pending", async () => {
