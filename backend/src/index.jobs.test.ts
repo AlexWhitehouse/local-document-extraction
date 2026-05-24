@@ -16,7 +16,6 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 import worker from "./index";
-import type { Env } from "./lib/types";
 
 const supportedLifecycleStates = ["queued", "processing", "completed", "failed"];
 const obsoleteLifecycleStates = ["workflow_started", "retryable_failed"];

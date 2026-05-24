@@ -1,7 +1,7 @@
 import { HttpError } from "./http";
 import { createAuth } from "./betterAuth";
 import { authorizeWorkspaceForApiKey, authorizeWorkspaceForSession } from "./workspacePolicy";
-import type { Env, Workspace } from "./types";
+import type { Workspace } from "./types";
 
 export type AuthContext = {
   workspace: Workspace;

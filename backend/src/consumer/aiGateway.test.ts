@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Env, FieldDefinition } from "../lib/types";
+import type { FieldDefinition } from "../lib/types";
 import { RetryableError, runExtraction } from "./aiGateway";
 
 const fields: FieldDefinition[] = [

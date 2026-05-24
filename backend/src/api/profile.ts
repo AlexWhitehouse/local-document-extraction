@@ -1,7 +1,6 @@
 import { HttpError, json } from "../lib/http";
 import { nowIso } from "../lib/ids";
 import { parseJsonBody } from "../lib/validation";
-import type { Env } from "../lib/types";
 
 type UserRow = {
   id: string;

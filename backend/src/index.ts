@@ -24,12 +24,12 @@ import { authenticate, requireSession } from "./lib/auth";
 import { evaluateAccountPasswordPolicy } from "./lib/accountPasswordPolicy";
 import { createAuth } from "./lib/betterAuth";
 import { HttpError, json, toHttpError } from "./lib/http";
-import type { Env, QueueJobMessage } from "./lib/types";
+import type { QueueJobMessage } from "./lib/types";
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     try {
-      return await handleRequest(request, env);
+      return await handleRequest(request, env, ctx);
     } catch (error) {
       const httpError = toHttpError(error);
       return json(
@@ -61,12 +61,12 @@ export default {
 
 export { DocumentProcessingWorkflow };
 
-async function handleRequest(request: Request, env: Env): Promise<Response> {
+async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
 
   if (url.pathname.startsWith("/api/auth")) {
     await enforceAccountPasswordPolicyForSignUp(request, url);
-    const auth = createAuth(env, request);
+    const auth = createAuth(env, request, ctx);
     return auth.handler(request);
   }
 

@@ -1,6 +1,6 @@
 import { HttpError, json } from "../lib/http";
 import { deleteJobCascade } from "../lib/cascadeDelete";
-import type { Env, Workspace } from "../lib/types";
+import type { Workspace } from "../lib/types";
 
 const DEFAULT_JOBS_LIMIT = 200;
 const MAX_JOBS_LIMIT = 200;

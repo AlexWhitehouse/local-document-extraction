@@ -36,22 +36,6 @@ export type ExtractOptions = {
   include_evidence?: boolean;
 };
 
-export type WorkersAiBinding = {
-  run: (
-    model: string,
-    inputs: Record<string, unknown>,
-    options?: Record<string, unknown>
-  ) => Promise<unknown>;
-  gateway: (gatewayId: string) => {
-    run: (data: {
-      provider: string;
-      endpoint: string;
-      headers: Record<string, unknown>;
-      query: unknown;
-    }) => Promise<Response>;
-  };
-};
-
 export type QueueJobMessage = {
   job_id: string;
   attempt: number;
@@ -80,20 +64,3 @@ export type Workspace = {
 };
 
 export type WorkspaceMembershipRole = "owner" | "admin" | "member";
-
-export interface Env {
-  ASSETS: Fetcher;
-  DB: D1Database;
-  SOURCE_FILES_BUCKET: R2Bucket;
-  EXTRACTION_JOBS_QUEUE: Queue<QueueJobMessage>;
-  DOCUMENT_PROCESSING_WORKFLOW: Workflow<DocumentProcessingWorkflowParams>;
-  AI: WorkersAiBinding;
-  AI_GATEWAY_ID: string;
-  BETTER_AUTH_SECRET?: string;
-  BETTER_AUTH_URL?: string;
-  BETTER_AUTH_TRUSTED_ORIGINS?: string;
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
-  AI_MODEL?: string;
-  MAX_SOURCE_FILE_BYTES?: string;
-}

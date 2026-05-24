@@ -68,6 +68,12 @@
 	"ai": {
 		"binding": "AI",
 	},
+	"send_email": [
+		{
+			"name": "EMAIL",
+			"remote": true,
+		},
+	],
 	"vars": {
 		"AI_GATEWAY_ID": "default",
 		"AI_MODEL": "google/gemini-3-flash",

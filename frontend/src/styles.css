@@ -556,6 +556,22 @@ button.danger:hover:not(:disabled) {
   border-radius: 5px;
 }
 
+.auth-verification-prompt {
+  border-color: rgba(72, 196, 159, 0.48);
+  background: linear-gradient(180deg, rgba(16, 44, 38, 0.72), rgba(10, 25, 25, 0.78));
+  padding: 14px 16px;
+}
+
+.auth-verification-prompt h2 {
+  margin: 0;
+  color: #d9fff4;
+}
+
+.auth-verification-prompt p {
+  margin: 8px 0 0;
+  color: var(--text-1);
+}
+
 .auth-card input:not([type="checkbox"]),
 .auth-card select,
 .auth-card textarea,

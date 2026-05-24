@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Env, QueueJobMessage } from "../lib/types";
+import type { QueueJobMessage } from "../lib/types";
 import { processJob } from "./processJob";
 
 function createProcessJobFixture() {

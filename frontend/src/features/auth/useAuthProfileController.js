@@ -32,6 +32,8 @@ export function useAuthProfileController({
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authPasswordTouched, setAuthPasswordTouched] = useState(false);
   const [signUpSubmitAttempted, setSignUpSubmitAttempted] = useState(false);
+  const [accountVerificationPromptEmail, setAccountVerificationPromptEmail] =
+    useState("");
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -118,7 +120,7 @@ export function useAuthProfileController({
       addLog(`Signed in as ${authEmail.trim()}`);
     } catch (error) {
       addLog(`Sign in failed: ${error.message}`);
-      toast.error("Sign in failed. Check your email and password and try again.");
+      toast.error(getSignInErrorToastMessage(error.message));
     } finally {
       setBusy(false);
     }
@@ -169,10 +171,13 @@ export function useAuthProfileController({
       if (result.error) {
         throw new Error(result.error.message || "Sign up failed");
       }
+      const signedUpEmail = authEmail.trim();
       setAuthPassword("");
       setAuthConfirmPassword("");
-      await refetchSession();
-      addLog(`Account created for ${authEmail.trim()}`);
+      setAuthPasswordTouched(false);
+      setSignUpSubmitAttempted(false);
+      setAccountVerificationPromptEmail(signedUpEmail);
+      addLog(`Account verification required for ${signedUpEmail}`);
     } catch (error) {
       addLog(`Sign up failed: ${error.message}`);
       toast.error(getSignUpErrorToastMessage(error.message));
@@ -213,6 +218,7 @@ export function useAuthProfileController({
     setAuthConfirmPassword("");
     setAuthPasswordTouched(false);
     setSignUpSubmitAttempted(false);
+    setAccountVerificationPromptEmail("");
   }
 
   async function signOut() {
@@ -305,9 +311,13 @@ export function useAuthProfileController({
       hasPasswordMismatch: hasSignUpPasswordMismatch,
       shouldShowPasswordRequirements: shouldShowAccountPasswordRequirements,
       unmetPasswordRequirements: unmetAccountPasswordRequirements,
+      accountVerificationPromptEmail,
       onSubmit: submitAuthForm,
       onNameChange: setAuthName,
-      onEmailChange: setAuthEmail,
+      onEmailChange: (nextEmail) => {
+        setAuthEmail(nextEmail);
+        setAccountVerificationPromptEmail("");
+      },
       onPasswordChange: setAuthPassword,
       onConfirmPasswordChange: setAuthConfirmPassword,
       onPasswordTouched: () => setAuthPasswordTouched(true),
@@ -329,6 +339,18 @@ export function useAuthProfileController({
       onSignOut: signOut,
     },
   };
+}
+
+function getSignInErrorToastMessage(message) {
+  const normalized = String(message || "").toLowerCase();
+  if (
+    normalized.includes("verify") ||
+    normalized.includes("verified") ||
+    normalized.includes("verification")
+  ) {
+    return "Verify your email before signing in. We sent you a new Account verification link.";
+  }
+  return "Sign in failed. Check your email and password and try again.";
 }
 
 function getSignUpErrorToastMessage(message) {

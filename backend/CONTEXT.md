@@ -8,6 +8,10 @@ The backend context covers durable product rules for authentication, workspace a
 The minimum strength rule for email/password account credentials.
 _Avoid_: password validation, sign-up password rule
 
+**Account email verification**:
+Proof that a user controls the email address used for application access.
+_Avoid_: email confirmation, verified user
+
 **Workspace**:
 An environment a user can access only after they have a workspace membership.
 _Avoid_: group, account, tenant
@@ -103,6 +107,25 @@ _Avoid_: object marker parsing, nested field table
 ## Rules
 
 - **Account password policy** requires at least 8 characters, one ASCII uppercase letter, one ASCII number, and one special character.
+- **Account email verification** is required before an email/password user may access the application.
+- A trusted social provider's verified email claim satisfies **Account email verification** without a separate Document Extraction verification email.
+- **Account email verification** email is sent from `Document Extraction <no-reply@extract.t3m.uk>`.
+- Reusable outbound email sending requires callers to provide the sender identity rather than reading a global sender from configuration.
+- The Worker email sending binding is named `EMAIL` and is shared by transactional email flows.
+- Local development uses the real Cloudflare Email Sending service for **Account email verification**, not a verification bypass.
+- After successful **Account email verification**, users return to the application root.
+- Successful **Account email verification** signs the user in automatically.
+- Signing in with an unverified email/password account sends a new **Account email verification** link instead of granting access.
+- Existing unverified email/password users are blocked on future sign-in, but this slice does not forcibly invalidate existing sessions.
+- Existing unverified email/password users are not backfilled as verified by migration.
+- **Account email verification** email is HTML formatted, includes a plain-text alternative, and tells unexpected recipients they can ignore it.
+- **Account email verification** sending is scheduled without blocking sign-up or sign-in responses.
+- **Account email verification** uses direct Cloudflare Email Sending for this slice; a durable email queue is deferred until retry, audit, or provider-switching needs justify it.
+- Transactional email templates are code-owned render modules, with each email type in its own file.
+- Auth-triggered transactional emails use Worker `waitUntil` when the request path can send email; session-read paths do not require scheduling context.
+- A personal **Workspace** is created only after **Account email verification** gives the user account access, not when an unverified email/password account is first registered.
+- Personal **Workspace** creation after **Account email verification** is idempotent; users who already have accepted **Workspace membership** do not receive another personal **Workspace**.
+- Pending **Workspace invitations** do not suppress personal **Workspace** creation after **Account email verification**.
 - A **Workspace invitation** is not workspace access until accepted.
 - **Workspace invitations** are in-app invitations; outbound email is outside the current invitation lifecycle.
 - Use `cancelled` for a **Workspace invitation** that ended without acceptance, including when the invitee declines it.

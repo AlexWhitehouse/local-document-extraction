@@ -1,4 +1,4 @@
-import type { Env, FieldDefinition } from "../lib/types";
+import type { FieldDefinition } from "../lib/types";
 import type { ModelFieldResult } from "./modelResultNormalizer";
 
 export class RetryableError extends Error {}

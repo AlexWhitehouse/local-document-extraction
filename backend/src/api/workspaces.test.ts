@@ -10,7 +10,7 @@ import {
   updateWorkspaceUserRoleForUser
 } from "./workspaces";
 import { HttpError } from "../lib/http";
-import type { Env, Workspace } from "../lib/types";
+import type { Workspace } from "../lib/types";
 
 type MembershipFixture = {
   workspace_id: string;

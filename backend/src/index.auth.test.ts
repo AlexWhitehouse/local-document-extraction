@@ -13,7 +13,6 @@ vi.mock("cloudflare:workers", () => ({
 
 import worker from "./index";
 import { hashWorkspaceApiKey } from "./lib/workspacePolicy";
-import type { Env } from "./lib/types";
 
 function createEnv(overrides: Partial<Env> = {}): Env {
   return {
@@ -79,6 +78,23 @@ describe("auth request handling", () => {
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual(body);
     expect(authHandlerMock).toHaveBeenCalledOnce();
+  });
+
+  it("provides Worker scheduling context to auth request handling", async () => {
+    createAuthMock.mockReturnValue({ handler: authHandlerMock });
+    authHandlerMock.mockResolvedValue(new Response(null, { status: 202 }));
+    const env = createEnv();
+    const request = new Request("https://example.com/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "ada@example.com", password: "Strong1!" }),
+    });
+    const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
+
+    const response = await worker.fetch(request, env, ctx);
+
+    expect(response.status).toBe(202);
+    expect(createAuthMock).toHaveBeenCalledWith(env, request, ctx);
   });
 
   it("rejects Workspace API-key-authenticated leave requests as session-only actions", async () => {

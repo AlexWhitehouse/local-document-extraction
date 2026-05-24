@@ -96,6 +96,25 @@ describe("auth sign-in feedback", () => {
     );
   });
 
+  it("tells an unverified email/password user to verify their email and that a new link was sent", async () => {
+    const user = userEvent.setup();
+    authClientMock.signInEmail.mockResolvedValue({
+      error: { message: "Email not verified" },
+    });
+
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "Password1!");
+    await user.click(screen.getByRole("button", { name: "Sign In" }));
+
+    expect(toastMock.error).toHaveBeenCalledOnce();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Verify your email before signing in. We sent you a new Account verification link.",
+    );
+    expect(authClientMock.refetchSession).not.toHaveBeenCalled();
+  });
+
   it("shows a generic safe error toast when Google sign-in cannot start", async () => {
     const user = userEvent.setup();
     authClientMock.signInSocial.mockResolvedValue({
@@ -338,6 +357,40 @@ describe("auth sign-up password policy feedback", () => {
       password: "Password1!",
     });
     expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("shows an Account verification prompt after successful email/password sign-up without refetching the session", async () => {
+    const user = userEvent.setup();
+    authClientMock.signUpEmail.mockResolvedValue({ error: null });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("link", { name: "Sign Up" }));
+    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "Password1!");
+    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
+    await user.click(screen.getByRole("button", { name: "Create Account" }));
+
+    expect(screen.getByText("Check your email to verify your account.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "We sent an Account verification link to ada@example.com. Open it to finish setting up your account.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create Account" })).toBeNull();
+    expect(screen.queryByLabelText("Name")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in with Google" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /resend/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /resend/i })).toBeNull();
+    expect(authClientMock.refetchSession).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Back to sign in" }));
+
+    expect(screen.getByRole("button", { name: "Sign In" })).toBeTruthy();
+    expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
+    expect(screen.getByLabelText("Password").value).toBe("");
   });
 
   it("shows only unmet account password policy requirements while composing a sign-up password", async () => {

@@ -9,7 +9,7 @@ import {
   failExtractionJob,
 } from "../lib/extractionJobLifecycle";
 import { nowIso } from "../lib/ids";
-import type { Env, FieldDefinition, DocumentProcessingWorkflowParams } from "../lib/types";
+import type { FieldDefinition, DocumentProcessingWorkflowParams } from "../lib/types";
 import {
   type NormalizedModelField,
   normalizeModelResults,

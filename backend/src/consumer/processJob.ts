@@ -1,5 +1,5 @@
 import { nowIso } from "../lib/ids";
-import type { Env, QueueJobMessage } from "../lib/types";
+import type { QueueJobMessage } from "../lib/types";
 
 export async function processJob(message: QueueJobMessage, env: Env): Promise<void> {
   const job = await env.DB

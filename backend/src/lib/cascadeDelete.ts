@@ -1,5 +1,5 @@
 import { HttpError } from "./http";
-import type { Env, Workspace } from "./types";
+import type { Workspace } from "./types";
 
 type R2KeyRow = {
   source_file_key: string | null;

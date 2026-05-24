@@ -2,7 +2,7 @@ import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
 import { deleteTemplateCascade } from "../lib/cascadeDelete";
 import { parseJsonBody, validateTemplatePayload } from "../lib/validation";
-import type { Env, FieldDefinition, Workspace } from "../lib/types";
+import type { FieldDefinition, Workspace } from "../lib/types";
 
 export async function createTemplate(request: Request, db: D1Database, workspace: Workspace): Promise<Response> {
   const payload = validateTemplatePayload(parseJsonBody(await request.text()));

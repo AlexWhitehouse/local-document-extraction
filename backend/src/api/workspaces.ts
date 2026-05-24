@@ -20,7 +20,6 @@ import {
 } from "../lib/workspacePolicy";
 import { parseJsonBody } from "../lib/validation";
 import { createStarterInvoiceTemplate } from "../lib/starterTemplateAdapter";
-import type { Env } from "../lib/types";
 
 type CreateWorkspaceBody = {
   name?: unknown;

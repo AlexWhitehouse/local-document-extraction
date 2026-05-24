@@ -16,7 +16,6 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 import worker from "./index";
-import type { Env } from "./lib/types";
 
 describe("Extraction submission route", () => {
   beforeEach(() => {
@@ -144,7 +143,11 @@ function createExtractRequest(sourceFieldName: string, sourceText = "source"): R
   });
 }
 
-function createExtractEnv(overrides: Partial<Env> = {}): Env {
+type ExtractTestEnv = Omit<Env, "MAX_SOURCE_FILE_BYTES"> & {
+  MAX_SOURCE_FILE_BYTES?: string;
+};
+
+function createExtractEnv(overrides: Partial<ExtractTestEnv> = {}): Env {
   const db = {
     prepare: vi.fn((sql: string) => ({
       bind: vi.fn(() => ({

@@ -28,6 +28,10 @@ _Avoid_: disabled workspace, read-only workspace
 A user-facing notification that reports the outcome of a workspace, template, document, clipboard, or invitation action.
 _Avoid_: alert, snackbar
 
+**Account verification prompt**:
+The auth-screen message telling an email/password user to verify their email before account access is available.
+_Avoid_: signup success, generic auth notice
+
 **Document upload toast**:
 An **Action toast** that summarizes how many uploaded documents were queued and how many failed to queue.
 _Avoid_: upload alert, document status message
@@ -111,6 +115,16 @@ _Avoid_: frontend auth mode, session replacement
 - During **Loading workspace context**, workspace-scoped UI actions are unavailable until an accepted **Workspace** is resolved.
 - A **Workspace resolution error** keeps workspace-scoped UI actions unavailable and offers retry rather than falling back to stored Workspace preference.
 - Unauthenticated users accessing the SPA are taken to the login page and do not have a **Workspace context**.
+- After email/password sign-up, the frontend shows an **Account verification prompt** instead of resolving a session or Workspace.
+- After email/password sign-up, the **Account verification prompt** replaces the create-account form rather than appearing alongside it.
+- Leaving the **Account verification prompt** for sign-in preserves the submitted email address and clears password fields.
+- While the **Account verification prompt** is visible, it owns the transition back to sign-in; normal auth form switch links are not shown alongside it.
+- The email address shown in the **Account verification prompt** is read-only display text, not an editable resend or account-change control.
+- The **Account verification prompt** tells the user to open the verification link to finish setting up the account, rather than implying manual sign-in is always required after verification.
+- The **Account verification prompt** does not show alternate auth actions such as Google sign-in; those remain available on the sign-in screen.
+- The visible **Account verification prompt** blocks another sign-up attempt until the user leaves the prompt and intentionally opens sign-up again.
+- When an unverified email/password user tries to sign in, the frontend tells them to verify their email and that a new verification link was sent.
+- The initial **Account verification prompt** does not include a separate resend control; sign-in retries send a new verification link.
 - Backend repair of a broken zero-accepted-Workspace invariant is not surfaced as a user-facing **Action toast**.
 - The frontend SPA uses the signed-in user session plus accepted **Workspace context** for workspace-scoped requests, not **Workspace API key display** credentials.
 - When the accepted **Workspace context** changes, the frontend immediately clears visible workspace-scoped data from the previous **Workspace** before loading the new **Workspace** data.

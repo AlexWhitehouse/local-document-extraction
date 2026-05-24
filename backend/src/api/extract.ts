@@ -2,7 +2,7 @@ import { HttpError, json } from "../lib/http";
 import { createQueuedExtractionJob } from "../lib/extractionJobLifecycle";
 import { newId, nowIso } from "../lib/ids";
 import { validateExtractRequest } from "../lib/validation";
-import type { Env, QueueJobMessage, Workspace } from "../lib/types";
+import type { QueueJobMessage, Workspace } from "../lib/types";
 
 const EXT_BY_MIME: Record<string, string> = {
   "image/png": "png",

@@ -1,9 +1,14 @@
 import { betterAuth } from "better-auth";
+import { renderAccountEmailVerificationEmail } from "./email/accountEmailVerification";
+import { scheduleTransactionalEmailSend } from "./email/transactionalEmail";
 import { createStarterInvoiceTemplate } from "./starterTemplateAdapter";
 import { bootstrapWorkspaceForNewUser } from "./workspacePolicy";
-import type { Env } from "./types";
 
-function trustedOriginsFromEnv(env: Env): string[] {
+type AuthEnv = Env & {
+  BETTER_AUTH_URL?: string;
+};
+
+function trustedOriginsFromEnv(env: AuthEnv): string[] {
   const configured = (env.BETTER_AUTH_TRUSTED_ORIGINS || "")
     .split(",")
     .map((value) => value.trim())
@@ -18,8 +23,33 @@ function trustedOriginsFromEnv(env: Env): string[] {
   ];
 }
 
-export function createAuth(env: Env, request: Request) {
-  const baseURL = env.BETTER_AUTH_URL || new URL(request.url).origin;
+function resolveAuthBaseURL(env: AuthEnv, request: Request): string {
+  const requestOrigin = new URL(request.url).origin;
+  if (isLocalOrigin(requestOrigin)) {
+    return requestOrigin;
+  }
+
+  return normalizeAuthOrigin(env.BETTER_AUTH_URL || requestOrigin);
+}
+
+function normalizeAuthOrigin(origin: string): string {
+  const url = new URL(origin);
+  if (url.protocol === "http:" && !isLocalHostname(url.hostname)) {
+    url.protocol = "https:";
+  }
+  return url.origin;
+}
+
+function isLocalOrigin(origin: string): boolean {
+  return isLocalHostname(new URL(origin).hostname);
+}
+
+function isLocalHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+export function createAuth(env: AuthEnv, request: Request, ctx?: ExecutionContext) {
+  const baseURL = resolveAuthBaseURL(env, request);
   const secret = env.BETTER_AUTH_SECRET;
   if (!secret) {
     throw new Error("BETTER_AUTH_SECRET is required");
@@ -45,14 +75,39 @@ export function createAuth(env: Env, request: Request) {
     trustedOrigins: trustedOriginsFromEnv(env),
     emailAndPassword: {
       enabled: true,
-      minPasswordLength: 8
+      minPasswordLength: 8,
+      requireEmailVerification: true
+    },
+    emailVerification: {
+      sendOnSignUp: true,
+      sendOnSignIn: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        scheduleTransactionalEmailSend({
+          email: env.EMAIL,
+          ctx,
+          message: {
+            ...renderAccountEmailVerificationEmail({ verificationUrl: url }),
+            to: user.email,
+          },
+        });
+      }
     },
     ...(socialProviders ? { socialProviders } : {}),
     databaseHooks: {
       user: {
         create: {
           after: async (user) => {
-            await bootstrapUserWorkspace(env, user.id, user.name);
+            if (user.emailVerified) {
+              await bootstrapUserWorkspace(env, user.id, user.name);
+            }
+          }
+        },
+        update: {
+          after: async (user) => {
+            if (user.emailVerified) {
+              await bootstrapUserWorkspace(env, user.id, user.name);
+            }
           }
         }
       }

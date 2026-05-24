@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 
-import type { Env, DocumentProcessingWorkflowParams } from "../lib/types";
+import type { DocumentProcessingWorkflowParams } from "../lib/types";
 
 type UnsupportedExtractionConfig =
   | "AI_GATEWAY_ACCOUNT_ID"
   | "AI_GATEWAY_PROVIDER"
   | "AI_GATEWAY_ROUTE"
-  | "AI_GATEWAY_TOKEN"
   | "OPENAI_API_KEY"
   | "ANTHROPIC_API_KEY";
 type EnvExcludesUnsupportedExtractionConfig = Extract<
