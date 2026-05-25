@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const betterAuthMock = vi.hoisted(() => vi.fn());
+const adminPluginMock = vi.hoisted(() => vi.fn(() => ({ id: "admin-plugin" })));
 
 vi.mock("better-auth", () => ({
   betterAuth: betterAuthMock,
+}));
+
+vi.mock("better-auth/plugins", () => ({
+  admin: adminPluginMock,
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -59,6 +64,42 @@ describe("Better Auth Account email verification", () => {
       sendOnSignUp: true,
       sendOnSignIn: true,
       autoSignInAfterVerification: true,
+    });
+  });
+
+  it("configures Better Auth Application admin support without config-based admin user IDs", () => {
+    createAuth(createEnv(), new Request("https://extract.t3m.uk/api/auth/session"));
+
+    const options = betterAuthMock.mock.calls[0][0];
+
+    expect(adminPluginMock).toHaveBeenCalledOnce();
+    expect(adminPluginMock).toHaveBeenCalledWith();
+    expect(options.plugins).toContainEqual({ id: "admin-plugin" });
+  });
+
+  it("includes Application admin fields in synthetic email/password user responses", () => {
+    createAuth(createEnv(), new Request("https://extract.t3m.uk/api/auth/sign-in/email"));
+
+    const options = betterAuthMock.mock.calls[0][0];
+    const syntheticUser = options.emailAndPassword.customSyntheticUser({
+      coreFields: {
+        name: "Synthetic User",
+        email: "synthetic@example.com",
+        emailVerified: false,
+        image: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      additionalFields: {},
+      id: "synthetic_user",
+    });
+
+    expect(syntheticUser).toMatchObject({
+      id: "synthetic_user",
+      role: "user",
+      banned: false,
+      banReason: null,
+      banExpires: null,
     });
   });
 

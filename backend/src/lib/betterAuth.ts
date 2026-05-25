@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { admin } from "better-auth/plugins";
 import { renderAccountEmailVerificationEmail } from "./email/accountEmailVerification";
 import { scheduleTransactionalEmailSend } from "./email/transactionalEmail";
 import { createStarterInvoiceTemplate } from "./starterTemplateAdapter";
@@ -76,7 +77,16 @@ export function createAuth(env: AuthEnv, request: Request, ctx?: ExecutionContex
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 8,
-      requireEmailVerification: true
+      requireEmailVerification: true,
+      customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
+        ...coreFields,
+        role: "user",
+        banned: false,
+        banReason: null,
+        banExpires: null,
+        ...additionalFields,
+        id,
+      })
     },
     emailVerification: {
       sendOnSignUp: true,
@@ -94,6 +104,7 @@ export function createAuth(env: AuthEnv, request: Request, ctx?: ExecutionContex
       }
     },
     ...(socialProviders ? { socialProviders } : {}),
+    plugins: [admin()],
     databaseHooks: {
       user: {
         create: {

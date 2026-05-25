@@ -32,6 +32,10 @@ _Avoid_: alert, snackbar
 The auth-screen message telling an email/password user to verify their email before account access is available.
 _Avoid_: signup success, generic auth notice
 
+**Application admin page**:
+The application-wide account management UI for **Application admins**, separate from workspace-scoped administration.
+_Avoid_: workspace admin page, owner tools, support panel
+
 **Document upload toast**:
 An **Action toast** that summarizes how many uploaded documents were queued and how many failed to queue.
 _Avoid_: upload alert, document status message
@@ -125,6 +129,63 @@ _Avoid_: frontend auth mode, session replacement
 - The visible **Account verification prompt** blocks another sign-up attempt until the user leaves the prompt and intentionally opens sign-up again.
 - When an unverified email/password user tries to sign in, the frontend tells them to verify their email and that a new verification link was sent.
 - The initial **Account verification prompt** does not include a separate resend control; sign-in retries send a new verification link.
+- **Application admin page** access is for application-wide account administration and is not implied by Workspace owner/admin membership.
+- Initial **Application admin** access is bootstrapped by a one-time migration that promotes known Better Auth users to the persisted Application admin role.
+- The first **Application admin page** lets Application admins list users, search users, change application roles, ban/unban users with reasons, and impersonate non-admin users.
+- The first **Application admin page** does not expose user deletion, user creation, password setting, or manual session revocation.
+- The first **Application admin page** does not expose user name or account email editing.
+- The first **Application admin page** does not show Workspace membership summaries or provide Workspace data management.
+- The **Application admin page** remains available to Application admins during Loading workspace context or Workspace resolution error because it is account-level, not workspace-scoped.
+- When the **Application admin page** is active, the context sidebar shows admin-specific account-management context rather than Workspace, Template, or Document lists.
+- The **Application admin page** does not render workspace-specific toolbar content, but preserves the app's established page layout and visual structure.
+- **Application admin page** loading and mutation state is local to the admin feature and does not use the app-wide busy flag.
+- The first **Application admin page** shows account email verification status but does not show authentication provider/source.
+- The first **Application admin page** does not show Better Auth user IDs.
+- The first **Application admin page** shows account creation as an exact local date/time, not relative-only text.
+- The first **Application admin page** changes application role through per-row `Make admin` or `Remove admin` actions with confirmation, not inline role dropdown editing.
+- The first **Application admin page** bans users through a confirmation modal with a required reason field.
+- The first **Application admin page** unbans users through a confirmation modal that shows the existing ban reason.
+- The **Application admin page** reloads the current user list after successful role changes, bans, and unbans.
+- The **Application admin page** does not reload the user list after successful impersonation because the session changes and the admin leaves the page.
+- **Application admin page** implementation follows the existing feature-controller pattern rather than placing admin table state directly in the SPA root.
+- **Application admin page** styling uses the existing global frontend stylesheet and feature-specific class names.
+- **Application admin page** implementation includes focused frontend coverage for admin visibility, non-admin fallback, self-action guards, and impersonation transition behavior.
+- The first **Application admin page** calls Better Auth admin client utilities directly rather than custom product `/v1/admin/*` routes.
+- The existing runtime auth client includes Better Auth's admin client plugin rather than creating a separate admin-only client.
+- The first **Application admin page** does not introduce custom audit-log UI.
+- **Application admin page** user search uses one search input plus a field selector for email or name, defaulting to email.
+- **Application admin page** user search is submitted manually and can be cleared back to the first unfiltered page.
+- **Application admin page** user listing uses a fixed page size of 25 with previous/next pagination.
+- **Application admin page** user listing sorts by newest accounts first by default.
+- The first **Application admin page** does not expose role or banned-status filters.
+- If a non-admin frontend state attempts to show the **Application admin page**, the frontend returns to the Workspace page rather than rendering an unauthorized admin view.
+- **Application admin page** actions use Action toasts for operation outcomes and inline errors for recoverable form or loading issues.
+- **Application admin page** user listing uses a simple in-panel loading state rather than a skeleton layout.
+- The Admin sidebar item does not show a count badge in the first slice; total user count appears inside the **Application admin page** after loading.
+- Starting impersonation from the **Application admin page** requires confirmation that identifies the target user and explains the transition into that user's app experience.
+- The **Application admin page** does not allow an Application admin to impersonate their own account.
+- The **Application admin page** does not allow impersonating banned users.
+- The **Application admin page** allows impersonating regular users, but not other Application admins.
+- Checking **Application admin page** visibility must not cause non-admin users to see content layout shifts.
+- The frontend decides **Application admin page** visibility from the resolved authenticated session before rendering the authenticated layout, not from a later post-render permission check.
+- **Application admin page** visibility is based on persisted application role in the authenticated session.
+- Better Auth admin plugin account fields are expected to exist before the **Application admin page** is used.
+- Better Auth application role is single-valued: a user is either `user` or `admin` in the application-wide auth context.
+- Banning a user from the **Application admin page** affects that user's account access, not Workspace memberships or Workspace API keys.
+- The first **Application admin page** ban flow creates permanent bans with required reasons; temporary ban duration is not exposed.
+- Application role changes from the **Application admin page** require confirmation, with stronger confirmation language when removing Application admin authority.
+- The **Application admin page** does not allow an Application admin to demote their own application role in the first slice.
+- The **Application admin page** does not allow an Application admin to ban their own account in the first slice.
+- The **Application admin page** allows banning another Application admin with explicit confirmation.
+- Unbanning a user from the **Application admin page** requires confirmation that shows the user's email and existing ban reason.
+- Application role changes from the **Application admin page** do not trigger custom session invalidation in the first slice.
+- After an Application admin starts impersonating a user, the frontend clears session-scoped Workspace, Template, and Document UI state, refetches the session, and moves to the Workspace page.
+- During impersonation, the frontend shows a persistent impersonation indicator with a stop-impersonating action.
+- The primary impersonation indicator appears in the main layout, not only inside the profile menu.
+- Impersonation state is read from Better Auth's session response rather than a custom product session endpoint.
+- The impersonation indicator names the current impersonated user and does not show the original admin's Better Auth user ID.
+- Stopping impersonation is immediate and does not require confirmation.
+- Stopping impersonation clears session-scoped Workspace, Template, and Document UI state, refetches the session, and returns an Application admin to the **Application admin page**.
 - Backend repair of a broken zero-accepted-Workspace invariant is not surfaced as a user-facing **Action toast**.
 - The frontend SPA uses the signed-in user session plus accepted **Workspace context** for workspace-scoped requests, not **Workspace API key display** credentials.
 - When the accepted **Workspace context** changes, the frontend immediately clears visible workspace-scoped data from the previous **Workspace** before loading the new **Workspace** data.

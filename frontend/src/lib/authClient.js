@@ -1,4 +1,5 @@
 import { createAuthClient } from "better-auth/react";
+import { adminClient } from "better-auth/client/plugins";
 
 export function authBaseFromApiBase(apiBase) {
   const browserOrigin =
@@ -25,6 +26,7 @@ export function createRuntimeAuthClient(apiBase) {
     baseURL: authBaseFromApiBase(apiBase),
     fetchOptions: {
       credentials: "include"
-    }
+    },
+    plugins: [adminClient()]
   });
 }

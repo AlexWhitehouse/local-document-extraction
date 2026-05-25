@@ -373,11 +373,10 @@ describe("auth sign-up password policy feedback", () => {
     await user.click(screen.getByRole("button", { name: "Create Account" }));
 
     expect(screen.getByText("Check your email to verify your account.")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "We sent an Account verification link to ada@example.com. Open it to finish setting up your account.",
-      ),
-    ).toBeTruthy();
+    const verificationPrompt = screen.getByRole("status");
+    expect(verificationPrompt.textContent).toContain(
+      "We sent an Account verification link to ada@example.com. Open it to finish setting up your account.",
+    );
     expect(screen.queryByRole("button", { name: "Create Account" })).toBeNull();
     expect(screen.queryByLabelText("Name")).toBeNull();
     expect(screen.queryByLabelText("Password")).toBeNull();

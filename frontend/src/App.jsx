@@ -7,6 +7,8 @@ import {
 } from "./lib/appRuntime";
 import { AuthScreen } from "./features/auth/AuthScreen.jsx";
 import { useAuthProfileController } from "./features/auth/useAuthProfileController.js";
+import { ApplicationAdminPage } from "./features/admin/ApplicationAdminPage.jsx";
+import { useApplicationAdminController } from "./features/admin/useApplicationAdminController.js";
 import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
 import {
   ExtractionJobStatusDisplay,
@@ -46,6 +48,7 @@ export function App() {
   } = authClient.useSession();
 
   const [busy, setBusy] = useState(false);
+  const [isStoppingImpersonation, setIsStoppingImpersonation] = useState(false);
   const [, setLogLines] = useState([]);
   const [latestResponse, setLatestResponse] = useState(null);
 
@@ -55,6 +58,10 @@ export function App() {
   const sessionUserId = String(session?.user?.id || "").trim();
   const sessionUserName = String(session?.user?.name || "").trim();
   const sessionUserEmail = String(session?.user?.email || "").trim();
+  const isImpersonating = Boolean(String(session?.session?.impersonatedBy || "").trim());
+  const impersonatedUserLabel = sessionUserEmail || sessionUserName || "this user";
+  const isApplicationAdmin = String(session?.user?.role || "").trim() === "admin";
+  const activeVisiblePage = activePage === "admin" && !isApplicationAdmin ? "workspace" : activePage;
   const runtimeCore = createAppRuntimeCore({
     apiBase,
     setLatestResponse,
@@ -128,6 +135,39 @@ export function App() {
   const documents = documentController.contextList.documents;
   const selectedDocument = documentController.documentPage.selectedDocument;
   const { documentStatusMetrics, completionRate } = documentController.metrics;
+  async function handleImpersonationStarted() {
+    workspaceController.actions.clearSessionWorkspaceData();
+    await refetchSession();
+    setActivePage("workspace");
+    await workspaceController.actions.listWorkspaces().catch(() => {});
+  }
+
+  async function handleStopImpersonating() {
+    setIsStoppingImpersonation(true);
+    try {
+      const result = await authClient.admin.stopImpersonating();
+      if (result?.error) {
+        throw new Error(result.error.message || "Unable to stop impersonating.");
+      }
+      workspaceController.actions.clearSessionWorkspaceData();
+      await refetchSession();
+      await workspaceController.actions.listWorkspaces().catch(() => {});
+      setActivePage("admin");
+      showActionToast?.("applicationUser.stopImpersonating", "success");
+    } catch (error) {
+      showActionToast?.("applicationUser.stopImpersonating", "failure");
+    } finally {
+      setIsStoppingImpersonation(false);
+    }
+  }
+
+  const adminController = useApplicationAdminController({
+    authClient,
+    isActive: activeVisiblePage === "admin",
+    sessionUserId,
+    showActionToast,
+    onImpersonationStarted: handleImpersonationStarted,
+  });
   const workspaceContext = workspaceController.context;
   const workspaceSidebar = workspaceController.sidebar;
   const workspaceToolbar = workspaceController.toolbar;
@@ -151,6 +191,11 @@ export function App() {
   const { authScreen, profileMenu } = authProfileController;
 
   function handleSidebarNavigation(pageId) {
+    if (pageId === "admin" && !isApplicationAdmin) {
+      setActivePage("workspace");
+      return;
+    }
+
     setActivePage(pageId);
     if (pageId !== "templates") {
       return;
@@ -173,7 +218,7 @@ export function App() {
     <>
       <Toaster richColors />
       <MainLayout
-        activePage={activePage}
+        activePage={activeVisiblePage}
         counts={{
           workspace: workspaceContext.availableWorkspaces.length,
           templates: templates.length,
@@ -181,6 +226,26 @@ export function App() {
         }}
         uploadAriaDisabled={busy || !workspaceContext.hasWorkspaceApiAccess}
         isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess}
+        showAdminNavigation={isApplicationAdmin}
+        impersonationSlot={
+          isImpersonating ? (
+            <div
+              role="status"
+              aria-label="Impersonation mode"
+              className="impersonation-banner"
+            >
+              <strong>Impersonating {impersonatedUserLabel}</strong>
+              <button
+                type="button"
+                className="secondary"
+                disabled={isStoppingImpersonation}
+                onClick={handleStopImpersonating}
+              >
+                {isStoppingImpersonation ? "Stopping..." : "Stop impersonating"}
+              </button>
+            </div>
+          ) : null
+        }
         onNavigate={handleSidebarNavigation}
         onUploadDocument={documentController.toolbar.onUploadDocument}
         profileSlot={
@@ -196,10 +261,12 @@ export function App() {
                 ? "Jobs"
                 : activePage === "templates"
                   ? "Templates"
-                  : "Workspaces"
+                  : activeVisiblePage === "admin"
+                    ? "Admin"
+                    : "Workspaces"
             }
             footer={
-              activePage === "documents" ? (
+              activeVisiblePage === "admin" ? null : activePage === "documents" ? (
                 <>
                   <span className="status-chip">
                     Queued {documentStatusMetrics.queued}
@@ -241,7 +308,15 @@ export function App() {
               )
             }
           >
-            {activePage === "documents" ? (
+            {activeVisiblePage === "admin" ? (
+              <div className="context-list admin-context-list">
+                <div className="context-item active">
+                  <strong>Account Management</strong>
+                  <span>Users, roles, bans, and impersonation</span>
+                  <span>Application-wide</span>
+                </div>
+              </div>
+            ) : activePage === "documents" ? (
               <DocumentContextList {...documentController.contextList} />
             ) : activePage === "templates" ? (
               <TemplateContextList {...templateController.contextList} />
@@ -309,40 +384,48 @@ export function App() {
           </>
         }
       >
-        <WorkspaceToolbar
-          activePage={activePage}
-          workspaceLabel={
-            workspaceToolbar.workspaceLabel
-          }
-          isWorkspaceInvitationSelected={workspaceContext.isWorkspaceInvitationSelected}
-          hasWorkspaceApiAccess={workspaceContext.hasWorkspaceApiAccess}
-          documentCount={documents.length}
-          hasApiAccess={hasApiAccess}
-          workspaceId={workspaceToolbar.workspaceId}
-          workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
-          isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
-          isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
-          isDeletingDocument={documentController.toolbar.isDeletingDocument}
-          selectedDocumentId={documentController.toolbar.selectedDocumentId}
-          updateTemplateId={templateController.toolbar.selectedTemplateId}
-          onCreateTemplate={templateController.toolbar.onCreateTemplate}
-          onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
-          onUploadDocument={documentController.toolbar.onUploadDocument}
-          onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
-          onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
-          onDeleteDocument={documentController.toolbar.onDeleteDocument}
-        />
+        {activeVisiblePage !== "admin" ? (
+          <>
+            <WorkspaceToolbar
+              activePage={activeVisiblePage}
+              workspaceLabel={
+                workspaceToolbar.workspaceLabel
+              }
+              isWorkspaceInvitationSelected={workspaceContext.isWorkspaceInvitationSelected}
+              hasWorkspaceApiAccess={workspaceContext.hasWorkspaceApiAccess}
+              documentCount={documents.length}
+              hasApiAccess={hasApiAccess}
+              workspaceId={workspaceToolbar.workspaceId}
+              workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
+              isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
+              isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
+              isDeletingDocument={documentController.toolbar.isDeletingDocument}
+              selectedDocumentId={documentController.toolbar.selectedDocumentId}
+              updateTemplateId={templateController.toolbar.selectedTemplateId}
+              onCreateTemplate={templateController.toolbar.onCreateTemplate}
+              onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
+              onUploadDocument={documentController.toolbar.onUploadDocument}
+              onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
+              onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
+              onDeleteDocument={documentController.toolbar.onDeleteDocument}
+            />
 
-        {!workspaceContext.isWorkspaceInvitationSelected ? (
-          <OperationalMetrics
-            templateCount={templates.length}
-            documentCount={documents.length}
-            completionRate={completionRate}
-            failureCount={documentStatusMetrics.failed}
-          />
+            {!workspaceContext.isWorkspaceInvitationSelected ? (
+              <OperationalMetrics
+                templateCount={templates.length}
+                documentCount={documents.length}
+                completionRate={completionRate}
+                failureCount={documentStatusMetrics.failed}
+              />
+            ) : null}
+          </>
         ) : null}
 
-          {activePage === "workspace" ? (
+          {activeVisiblePage === "admin" ? (
+            <ApplicationAdminPage admin={adminController} />
+          ) : null}
+
+        {activeVisiblePage === "workspace" ? (
             workspaceContext.isWorkspaceInvitationSelected && workspaceContext.selectedWorkspaceInvitation ? (
               <WorkspaceInvitationPage
                 {...workspaceController.invitationPage}
@@ -354,7 +437,7 @@ export function App() {
             )
           ) : null}
 
-          {activePage === "templates" ? (
+          {activeVisiblePage === "templates" ? (
             <>
               <header className="page-header">
                 <p className="eyebrow">Templates</p>
@@ -438,7 +521,7 @@ export function App() {
             </>
           ) : null}
 
-          {activePage === "documents" ? (
+          {activeVisiblePage === "documents" ? (
             <>
               <header className="page-header">
                 <p className="eyebrow">Documents</p>

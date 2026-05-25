@@ -12,6 +12,10 @@ _Avoid_: password validation, sign-up password rule
 Proof that a user controls the email address used for application access.
 _Avoid_: email confirmation, verified user
 
+**Application admin**:
+A user with application-wide account management authority, separate from any workspace-scoped role.
+_Avoid_: workspace admin, owner, support user
+
 **Workspace**:
 An environment a user can access only after they have a workspace membership.
 _Avoid_: group, account, tenant
@@ -123,6 +127,34 @@ _Avoid_: object marker parsing, nested field table
 - **Account email verification** uses direct Cloudflare Email Sending for this slice; a durable email queue is deferred until retry, audit, or provider-switching needs justify it.
 - Transactional email templates are code-owned render modules, with each email type in its own file.
 - Auth-triggered transactional emails use Worker `waitUntil` when the request path can send email; session-read paths do not require scheduling context.
+- **Application admin** authority is application-wide and is not granted by Workspace owner/admin membership.
+- Initial **Application admin** access is bootstrapped by a one-time migration that promotes known Better Auth users to the persisted Application admin role.
+- **Application admin page** visibility is based on persisted application role in the authenticated session.
+- Better Auth application role is single-valued: a user is either `user` or `admin` in the application-wide auth context.
+- Better Auth admin plugin account fields are added through an explicit forward migration, including a safe one-time promotion of known bootstrap users when those users exist.
+- Better Auth's persisted application role field remains unconstrained in the database; single-role `user`/`admin` semantics are enforced by application behavior.
+- Better Auth synthetic user responses include admin plugin fields so email-verification flows do not expose a different user shape from real account records.
+- The first **Application admin** capability set includes listing users, searching users, changing application roles, banning/unbanning users with reasons, and impersonating non-admin users.
+- The first **Application admin** capability set does not include deleting users, creating users, setting passwords, or manually revoking sessions.
+- The first **Application admin** capability set does not include editing user names or account email addresses.
+- The first **Application admin** capability set does not include Workspace membership summaries or Workspace data management.
+- The first **Application admin** capability set uses Better Auth admin utilities directly rather than custom product `/v1/admin/*` routes.
+- The first **Application admin** capability set does not introduce custom audit logging for admin actions.
+- Better Auth admin endpoints are served by the existing `/api/auth/*` Better Auth handler delegation, not custom product routing.
+- Backend coverage for **Application admin** setup verifies Better Auth admin plugin configuration rather than Better Auth endpoint internals.
+- **Application admins** may impersonate regular users, but may not impersonate other **Application admins**.
+- Banning a user through **Application admin** account management blocks that user's account sessions and future sign-in, but does not automatically delete Workspace memberships or rotate Workspace API keys.
+- The first **Application admin** ban flow creates permanent bans with required reasons; temporary ban duration is not exposed.
+- **Application admin** role changes require confirmation, with stronger confirmation language when removing Application admin authority.
+- An **Application admin** cannot demote their own application role in the first admin capability set.
+- An **Application admin** cannot ban their own account in the first admin capability set.
+- An **Application admin** may ban another Application admin with explicit confirmation.
+- Unbanning a user through **Application admin** account management requires confirmation that shows the user's email and existing ban reason.
+- **Application admin** role changes do not trigger custom session invalidation in the first admin capability set.
+- Starting impersonation requires confirmation that identifies the target user.
+- An **Application admin** cannot impersonate their own account.
+- Banned users are not eligible impersonation targets until unbanned.
+- Banned users receive Better Auth's default banned-user sign-in message.
 - A personal **Workspace** is created only after **Account email verification** gives the user account access, not when an unverified email/password account is first registered.
 - Personal **Workspace** creation after **Account email verification** is idempotent; users who already have accepted **Workspace membership** do not receive another personal **Workspace**.
 - Pending **Workspace invitations** do not suppress personal **Workspace** creation after **Account email verification**.

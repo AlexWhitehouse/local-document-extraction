@@ -6,6 +6,8 @@ const SIDEBAR_ITEMS = [
   { id: "documents", label: "Documents", icon: "DC" },
 ];
 
+const ADMIN_SIDEBAR_ITEM = { id: "admin", label: "Admin", icon: "AD" };
+
 export function MainLayout({
   activePage,
   counts,
@@ -15,6 +17,8 @@ export function MainLayout({
   onUploadDocument,
   profileSlot,
   contextSidebar,
+  showAdminNavigation = false,
+  impersonationSlot = null,
   children,
   modalSlot,
 }) {
@@ -29,6 +33,7 @@ export function MainLayout({
         <SidebarNavigation
           activePage={activePage}
           counts={counts}
+          showAdminNavigation={showAdminNavigation}
           onNavigate={onNavigate}
         />
 
@@ -49,17 +54,24 @@ export function MainLayout({
 
       {contextSidebar}
 
-      <main className="main-content">{children}</main>
+      <main className="main-content">
+        {impersonationSlot}
+        {children}
+      </main>
 
       {modalSlot}
     </div>
   );
 }
 
-function SidebarNavigation({ activePage, counts, onNavigate }) {
+function SidebarNavigation({ activePage, counts, showAdminNavigation, onNavigate }) {
+  const items = showAdminNavigation
+    ? [...SIDEBAR_ITEMS, ADMIN_SIDEBAR_ITEM]
+    : SIDEBAR_ITEMS;
+
   return (
     <nav className="sidebar-nav" aria-label="Main navigation">
-      {SIDEBAR_ITEMS.map((item) => (
+      {items.map((item) => (
         <button
           key={item.id}
           type="button"
@@ -70,7 +82,9 @@ function SidebarNavigation({ activePage, counts, onNavigate }) {
             {item.icon}
           </span>
           <span>{item.label}</span>
-          <span className="sidebar-link-count">{counts[item.id] ?? ""}</span>
+          {item.id === "admin" ? null : (
+            <span className="sidebar-link-count">{counts[item.id] ?? ""}</span>
+          )}
         </button>
       ))}
     </nav>
