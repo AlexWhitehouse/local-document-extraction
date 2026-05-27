@@ -1,4 +1,5 @@
 import React from "react";
+import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 
 export function WorkspaceContextList({
   search,
@@ -34,8 +35,7 @@ export function WorkspaceContextList({
           </>
         ) : (
           workspaces.map((workspace) => (
-            <button
-              type="button"
+            <div
               key={
                 workspace.type === "invitation"
                   ? `workspace-invitation-${workspace.invitation_id}`
@@ -46,23 +46,36 @@ export function WorkspaceContextList({
                 selectedWorkspaceId,
                 selectedWorkspaceInvitationId,
               })}
-              onClick={() => {
-                if (workspace.type === "invitation") {
-                  onSelectInvitedWorkspace(workspace);
-                  return;
-                }
-                onSelectAcceptedWorkspace(workspace);
-              }}
             >
-              <strong>{workspace.name}</strong>
-              <span>{workspace.id}</span>
-              {workspace.type === "invitation" ? (
-                <span className="workspace-invited-meta">
-                  Invited as {formatRoleLabel(workspace.role)}
-                </span>
-              ) : null}
-              {workspace.connected ? <span>Connected</span> : null}
-            </button>
+              <button
+                type="button"
+                className={getWorkspaceItemButtonClassName({
+                  workspace,
+                  selectedWorkspaceId,
+                  selectedWorkspaceInvitationId,
+                })}
+                onClick={() => {
+                  if (workspace.type === "invitation") {
+                    onSelectInvitedWorkspace(workspace);
+                    return;
+                  }
+                  onSelectAcceptedWorkspace(workspace);
+                }}
+              >
+                <strong>{workspace.name}</strong>
+                <span>{workspace.id}</span>
+                {workspace.type === "invitation" ? (
+                  <span className="workspace-invited-meta">
+                    Invited as {formatRoleLabel(workspace.role)}
+                  </span>
+                ) : null}
+                {workspace.connected ? <span>Connected</span> : null}
+              </button>
+              <ContextCopyButton
+                ariaLabel={`Copy workspace ID ${workspace.id}`}
+                value={workspace.id}
+              />
+            </div>
           ))
         )}
       </div>
@@ -76,7 +89,7 @@ function getWorkspaceItemClassName({
   selectedWorkspaceInvitationId,
 }) {
   return [
-    "context-item context-item-workspace",
+    "context-item-card context-item-workspace",
     workspace.type === "invitation" ? "invited" : "",
     workspace.type === "invitation"
       ? workspace.invitation_id === selectedWorkspaceInvitationId
@@ -88,6 +101,18 @@ function getWorkspaceItemClassName({
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function getWorkspaceItemButtonClassName({
+  workspace,
+  selectedWorkspaceId,
+  selectedWorkspaceInvitationId,
+}) {
+  return getWorkspaceItemClassName({
+    workspace,
+    selectedWorkspaceId,
+    selectedWorkspaceInvitationId,
+  }).replace("context-item-card", "context-item-main");
 }
 
 function formatRoleLabel(value) {

@@ -244,18 +244,70 @@ button.danger:hover:not(:disabled) {
   height: auto;
 }
 
-.context-item strong {
+.context-item-card {
+  width: 100%;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line-0);
+  background: #0d141f;
+  color: var(--text-1);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  overflow: hidden;
+}
+
+.context-item-main,
+.context-copy-button {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  transform: none;
+}
+
+.context-item-main {
+  width: 100%;
+  height: auto;
+  min-height: 100%;
+  text-align: left;
+  border-radius: 8px 0 0 8px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+}
+
+.context-copy-button {
+  width: 36px;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+  border-left: 1px solid var(--line-0);
+  border-radius: 0 8px 8px 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+}
+
+.context-copy-button svg {
+  display: block;
+}
+
+.context-item strong,
+.context-item-main strong {
   font-size: 0.8rem;
   line-height: 1.2;
 }
 
-.context-item span {
+.context-item span,
+.context-item-main span {
   font-size: 0.72rem;
   color: var(--text-3);
 }
 
 .context-item-workspace strong,
-.context-item-workspace span {
+.context-item-workspace span,
+.context-item-main strong,
+.context-item-main span {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -269,7 +321,24 @@ button.danger:hover:not(:disabled) {
   border-color: var(--line-1);
 }
 
-.context-item.active {
+.context-item-card:has(.context-item-main:hover:not(:disabled)) {
+  border-color: var(--line-1);
+}
+
+.context-item-main:hover:not(:disabled) {
+  transform: none;
+  background: #111a27;
+}
+
+.context-copy-button:hover:not(:disabled) {
+  transform: none;
+  background: #111a27;
+  color: var(--text-1);
+  border-left-color: var(--line-1);
+}
+
+.context-item.active,
+.context-item-card.active {
   border-color: rgba(25, 193, 180, 0.5);
   background: rgba(25, 193, 180, 0.12);
 }
@@ -280,17 +349,34 @@ button.danger:hover:not(:disabled) {
 }
 
 .context-item-workspace.invited.active,
-.context-item-workspace.invited:hover:not(:disabled) {
+.context-item-workspace.invited:has(.context-item-main:hover:not(:disabled)) {
   border-color: rgba(244, 184, 79, 0.72);
   background: rgba(244, 184, 79, 0.14);
 }
 
-.context-item-workspace .workspace-invited-meta {
+.context-item-workspace.invited .context-copy-button:hover:not(:disabled) {
+  background: rgba(244, 184, 79, 0.14);
+  border-left-color: rgba(244, 184, 79, 0.72);
+  color: #ffdca1;
+}
+
+.context-item-workspace .workspace-invited-meta,
+.context-item-workspace .context-item-main .workspace-invited-meta {
   color: #ffdca1;
 }
 
 .context-item.active:hover:not(:disabled) {
   border-color: rgba(25, 193, 180, 0.56);
+  background: rgba(25, 193, 180, 0.18);
+  color: #e6fffb;
+}
+
+.context-item-card.active:has(.context-item-main:hover:not(:disabled)) {
+  border-color: rgba(25, 193, 180, 0.56);
+}
+
+.context-item-card.active .context-item-main:hover:not(:disabled),
+.context-item-card.active .context-copy-button:hover:not(:disabled) {
   background: rgba(25, 193, 180, 0.18);
   color: #e6fffb;
 }
