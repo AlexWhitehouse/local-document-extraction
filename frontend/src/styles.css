@@ -1184,6 +1184,7 @@ button.danger:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  white-space: nowrap;
   border-radius: 6px;
   padding: 4px 9px;
   font-size: 0.71rem;
@@ -1771,6 +1772,7 @@ button.danger:hover:not(:disabled) {
 
 .result-card {
   display: grid;
+  align-content: start;
   gap: 8px;
 }
 
@@ -1781,7 +1783,7 @@ button.danger:hover:not(:disabled) {
 .result-card header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
 }
 
@@ -1790,6 +1792,11 @@ button.danger:hover:not(:disabled) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.result-card-badges {
+  flex: 0 0 auto;
+  justify-content: flex-end;
 }
 
 .result-card h3 {
@@ -1806,6 +1813,11 @@ button.danger:hover:not(:disabled) {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.result-card-answer p,
+.result-card-foot p {
+  margin: 0;
 }
 
 .kv-list,

@@ -88,9 +88,9 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
               <header>
                 <h3>{result.name}</h3>
                 <div className="result-card-badges">
-                  <span className={`status-pill ${statusTone(result.status)}`}>
-                    {result.status}
-                  </span>
+                  {result.status === "not_found" ? (
+                    <span className="status-pill pending">Not Found</span>
+                  ) : null}
                   {typeof result.confidence === "number" ? (
                     <span
                       className={`status-pill ${confidenceTone(result.confidence)}`}
@@ -264,10 +264,4 @@ function confidenceTone(confidence) {
     return "pending";
   }
   return "bad";
-}
-
-function statusTone(status) {
-  if (status === "completed") return "good";
-  if (status === "failed") return "bad";
-  return "pending";
 }
