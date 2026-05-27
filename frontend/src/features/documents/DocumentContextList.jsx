@@ -1,4 +1,5 @@
 import React from "react";
+import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 
 export function DocumentContextList({
   search,
@@ -23,21 +24,33 @@ export function DocumentContextList({
       </label>
       <div className="context-list">
         {documents.map((job) => (
-          <button
-            type="button"
+          <div
             key={`context-${job.job_id}`}
             className={
               selectedDocumentId === job.job_id
-                ? "context-item active"
-                : "context-item"
+                ? "context-item-card active"
+                : "context-item-card"
             }
-            onClick={() => onSelectDocument(job.job_id)}
           >
-            <strong>
-              {job.source_name || defaultUploadedName(job.source_mime_type)}
-            </strong>
-            <span>{job.job_id}</span>
-          </button>
+            <button
+              type="button"
+              className={
+                selectedDocumentId === job.job_id
+                  ? "context-item-main active"
+                  : "context-item-main"
+              }
+              onClick={() => onSelectDocument(job.job_id)}
+            >
+              <strong>
+                {job.source_name || defaultUploadedName(job.source_mime_type)}
+              </strong>
+              <span>{job.job_id}</span>
+            </button>
+            <ContextCopyButton
+              ariaLabel={`Copy document ID ${job.job_id}`}
+              value={job.job_id}
+            />
+          </div>
         ))}
         {!documents.length ? (
           <p className="muted">

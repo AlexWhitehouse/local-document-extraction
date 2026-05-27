@@ -8,6 +8,12 @@ describe("TemplateContextList", () => {
     const onSearchChange = vi.fn();
     const onSelectDraftTemplate = vi.fn();
     const onSelectTemplate = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
 
     render(
       <TemplateContextList
@@ -28,6 +34,7 @@ describe("TemplateContextList", () => {
       target: { value: "receipt" },
     });
     fireEvent.click(screen.getByRole("button", { name: /New Template DraftUnsaved/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy template ID tpl_1" }));
     fireEvent.click(screen.getByRole("button", { name: /Prescription Templatetpl_1/ }));
 
     expect(onSearchChange).toHaveBeenCalledWith("receipt");
@@ -36,5 +43,6 @@ describe("TemplateContextList", () => {
     expect(
       screen.getByRole("button", { name: /Prescription Templatetpl_1/ }).className,
     ).toContain("active");
+    expect(writeText).toHaveBeenCalledWith("tpl_1");
   });
 });

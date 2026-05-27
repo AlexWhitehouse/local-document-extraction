@@ -8,6 +8,12 @@ describe("WorkspaceContextList", () => {
     const onSearchChange = vi.fn();
     const onSelectAcceptedWorkspace = vi.fn();
     const onSelectInvitedWorkspace = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
 
     render(
       <WorkspaceContextList
@@ -44,6 +50,7 @@ describe("WorkspaceContextList", () => {
         name: /Clinical Workspacews_invitedInvited as Member/,
       }),
     );
+    fireEvent.click(screen.getByRole("button", { name: "Copy workspace ID ws_1" }));
 
     expect(onSearchChange).toHaveBeenCalledWith("research");
     expect(onSelectAcceptedWorkspace).toHaveBeenCalledWith(
@@ -56,6 +63,7 @@ describe("WorkspaceContextList", () => {
       screen.getByRole("button", { name: /Research Workspacews_1Connected/ })
         .className,
     ).toContain("active");
+    expect(writeText).toHaveBeenCalledWith("ws_1");
   });
 
   it("shows Loading workspace context and retryable Workspace resolution errors", () => {

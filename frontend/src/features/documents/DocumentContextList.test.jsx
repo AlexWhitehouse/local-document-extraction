@@ -8,6 +8,12 @@ describe("DocumentContextList", () => {
     const onSearchChange = vi.fn();
     const onSelectDocument = vi.fn();
     const onLoadMoreDocuments = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
 
     render(
       <DocumentContextList
@@ -38,6 +44,7 @@ describe("DocumentContextList", () => {
       target: { value: "receipt" },
     });
     fireEvent.click(screen.getByRole("button", { name: /receipt.pdfjob_2/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy document ID job_2" }));
     fireEvent.click(screen.getByRole("button", { name: /Load More Documents/ }));
 
     expect(onSearchChange).toHaveBeenCalledWith("receipt");
@@ -46,6 +53,7 @@ describe("DocumentContextList", () => {
     expect(screen.getByRole("button", { name: /receipt.pdfjob_2/ }).className).toContain(
       "active",
     );
+    expect(writeText).toHaveBeenCalledWith("job_2");
     expect(screen.getByText("Continue searching older jobs")).toBeTruthy();
   });
 });
