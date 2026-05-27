@@ -222,19 +222,16 @@ export function TemplateFieldEditor({ fields, onChange, title, subtitle }) {
                 onClick={() => setActiveFieldIndex(index)}
               >
                 <div className="field-nav-top">
-                  <strong>{field.name || `Field ${index + 1}`}</strong>
-                  <span className="status-pill pending">{field.data_type}</span>
-                </div>
-                <span>{field.id || "ID auto-generated from name"}</span>
-                <div className="field-nav-flags">
-                  {field.required ? (
-                    <span className="status-chip good">Required</span>
-                  ) : (
-                    <span className="status-chip">Optional</span>
-                  )}
-                  {isObjectLikeType(field.data_type) ? (
-                    <span className="status-chip">Object schema</span>
-                  ) : null}
+                  <div className="field-nav-label">
+                    <strong>{field.name || `Field ${index + 1}`}</strong>
+                    <span>{field.id || "ID auto-generated from name"}</span>
+                  </div>
+                  <div className="field-nav-badges">
+                    <span className="status-pill pending">{field.data_type}</span>
+                    {isObjectLikeType(field.data_type) ? (
+                      <span className="status-chip">Object schema</span>
+                    ) : null}
+                  </div>
                 </div>
               </button>
             ))}
@@ -327,20 +324,6 @@ export function TemplateFieldEditor({ fields, onChange, title, subtitle }) {
               </label>
 
               <div className="field-controls">
-                <label className="checkbox-inline">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(activeField.required)}
-                    onChange={(event) =>
-                      updateField(
-                        activeFieldIndex,
-                        "required",
-                        event.target.checked,
-                      )
-                    }
-                  />
-                  Required field
-                </label>
                 <div className="actions compact">
                   <button
                     type="button"

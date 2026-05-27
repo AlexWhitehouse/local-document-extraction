@@ -88,7 +88,6 @@ function buildPrompt(
     name: field.name,
     description: field.description,
     data_type: field.data_type,
-    required: Boolean(field.required),
   }));
 
   const sourceGuidance =

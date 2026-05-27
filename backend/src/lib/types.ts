@@ -12,7 +12,6 @@ export type FieldDefinition = {
   name: string;
   description: string;
   data_type: DataType;
-  required?: boolean;
 };
 
 export type Template = {

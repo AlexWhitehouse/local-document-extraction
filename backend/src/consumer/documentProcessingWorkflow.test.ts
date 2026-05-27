@@ -139,7 +139,6 @@ function createWorkflowFixture(options: { hasSource: boolean }) {
                         name: "Patient Name",
                         description: "Patient name",
                         data_type: "string",
-                        required: 1,
                       },
                     ],
                   };
@@ -264,7 +263,6 @@ describe("DocumentProcessingWorkflow", () => {
           name: "Patient Name",
           description: "Patient name",
           data_type: "string",
-          required: true,
         },
       ],
       [

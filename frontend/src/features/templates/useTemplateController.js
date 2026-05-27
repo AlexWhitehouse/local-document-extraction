@@ -13,35 +13,30 @@ const DEFAULT_FIELDS = [
     name: "Patient Name",
     description: "Full name of the patient on the prescription",
     data_type: "string",
-    required: true,
   },
   {
     id: "medication_name",
     name: "Medication Name",
     description: "Name of the prescribed medication",
     data_type: "string",
-    required: true,
   },
   {
     id: "dosage",
     name: "Dosage",
     description: "Strength and amount per dose (e.g. 10 mg)",
     data_type: "string",
-    required: true,
   },
   {
     id: "frequency",
     name: "Frequency",
     description: "How often the medication should be taken",
     data_type: "string",
-    required: true,
   },
   {
     id: "prescriber_name",
     name: "Prescriber Name",
     description: "Name of the prescribing clinician",
     data_type: "string",
-    required: true,
   },
   {
     id: "prescription_lines",
@@ -49,7 +44,6 @@ const DEFAULT_FIELDS = [
     description:
       "List each prescribed medication line when the document contains multiple medications",
     data_type: "array<object>",
-    required: false,
     object_schema: {
       mode: "table",
       columns: [

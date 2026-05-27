@@ -159,7 +159,7 @@ export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
     version: number,
   ): Promise<FieldDefinition[]> {
     const fieldsRows = await this.env.DB.prepare(
-      `SELECT field_id, name, description, data_type, required
+      `SELECT field_id, name, description, data_type
          FROM template_fields
          WHERE template_id = ? AND version = ?
          ORDER BY position ASC`,
@@ -170,7 +170,6 @@ export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
         name: string;
         description: string;
         data_type: FieldDefinition["data_type"];
-        required: number;
       }>();
 
     return fieldsRows.results.map((row) => ({
@@ -178,7 +177,6 @@ export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
       name: row.name,
       description: row.description,
       data_type: row.data_type,
-      required: Boolean(row.required),
     }));
   }
 

@@ -2225,7 +2225,6 @@ function validTemplatePayload(name = "Prescription Template", description = "Ext
         name: "Patient Name",
         description: "Extract the patient name",
         data_type: "string",
-        required: true,
       },
     ],
   };

@@ -11,7 +11,6 @@ describe("normalizeModelResults", () => {
         name: "Invoice Date",
         description: "The invoice date",
         data_type: "date",
-        required: true,
       },
     ];
 
@@ -42,7 +41,6 @@ describe("normalizeModelResults", () => {
         name: "Invoice Date",
         description: "The invoice date",
         data_type: "date",
-        required: true,
       },
     ];
 
@@ -64,7 +62,6 @@ describe("normalizeModelResults", () => {
         name: "Invoice Date",
         description: "The invoice date",
         data_type: "date",
-        required: true,
       },
     ];
 

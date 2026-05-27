@@ -9,7 +9,6 @@ const fields: FieldDefinition[] = [
     name: "Patient Name",
     description: "Patient name",
     data_type: "string",
-    required: true,
   },
 ];
 

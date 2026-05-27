@@ -21,7 +21,6 @@ describe("Template field editor", () => {
           name: "Prescription Lines",
           description: "Medication rows from the prescription",
           data_type: "string",
-          required: false,
         },
       ]);
       latestFields = fields;
