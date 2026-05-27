@@ -239,6 +239,7 @@ _Avoid_: frontend auth mode, session replacement
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
 - A **Document** submitted with a **Template** creates one **Extraction job** in the document list.
 - A **Template** has one or more **Template fields** displayed and edited by the frontend.
+- **Template fields** are always requested during extraction; the template editing UI does not offer required/optional field controls.
 - An **Extraction job** shows results for the **Template version** used when the Document was submitted.
 - A completed **Extraction job** displays **Extraction results** for extracted **Template fields**.
 - **Selected upload Template** is derived from backend Templates after Workspace resolution and does not persist across page refresh.

@@ -27,7 +27,6 @@ export const EMPTY_FIELD = {
   name: "",
   description: "",
   data_type: "string",
-  required: false,
 };
 
 function normalizeFields(fields, options = {}) {
@@ -47,7 +46,6 @@ function normalizeFields(fields, options = {}) {
     const id = toFieldId(name);
     const description = String(field.description || "").trim();
     const dataType = normalizeDataType(field.data_type);
-    const required = Boolean(field.required);
     const { baseDescription, objectSchema: descriptionObjectSchema } =
       extractObjectMetadata(description);
     const objectSchema = isObjectLikeType(dataType)
@@ -89,7 +87,6 @@ function normalizeFields(fields, options = {}) {
       name,
       description: finalDescription,
       data_type: dataType,
-      required,
     };
 
     if (options.includeFieldIds) {
@@ -292,7 +289,6 @@ export function hydrateFieldFromTemplate(field) {
     name: sanitizedName,
     description: baseDescription,
     data_type: normalizedDataType || "string",
-    required: Boolean(field.required),
     ...(objectSchema ? { object_schema: objectSchema } : {}),
   };
 }

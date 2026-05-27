@@ -47,7 +47,7 @@ export function createStarterInvoiceTemplate(db: D1Database): StarterTemplateAda
         db
           .prepare(
             `INSERT INTO template_fields (template_id, version, field_id, name, description, data_type, required, position)
-             VALUES (?, 1, 'currency', 'Currency', 'Currency code used for the totals (e.g. USD).', 'string', 0, 5)`
+             VALUES (?, 1, 'currency', 'Currency', 'Currency code used for the totals (e.g. USD).', 'string', 1, 5)`
           )
           .bind(templateId)
       ]);

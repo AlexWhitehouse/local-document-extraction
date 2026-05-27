@@ -89,8 +89,6 @@ export function validateTemplatePayload(input: TemplateInput, allowPartial = fal
       const id = toFieldId(name);
       const description = typeof field.description === "string" ? field.description.trim() : "";
       const dataType = field.data_type;
-      const required = Boolean(field.required);
-
       if (!name) {
         throw new HttpError(400, "invalid_fields", `Field ${index + 1} is missing name`);
       }
@@ -123,8 +121,7 @@ export function validateTemplatePayload(input: TemplateInput, allowPartial = fal
         id,
         name,
         description: normalizedDescription,
-        data_type: dataType as DataType,
-        required
+        data_type: dataType as DataType
       };
     });
   } else if (!allowPartial) {

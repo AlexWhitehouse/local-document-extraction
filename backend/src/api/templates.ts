@@ -59,7 +59,7 @@ export async function getTemplate(db: D1Database, workspace: Workspace, id: stri
   const version = Number(template.current_version);
   const fields = await db
     .prepare(
-      `SELECT field_id AS id, name, description, data_type, required, position
+      `SELECT field_id AS id, name, description, data_type, position
        FROM template_fields
        WHERE template_id = ? AND version = ?
        ORDER BY position ASC`
@@ -69,10 +69,7 @@ export async function getTemplate(db: D1Database, workspace: Workspace, id: stri
 
   return json({
     ...template,
-    fields: fields.results.map((f) => ({
-      ...f,
-      required: Boolean(f.required)
-    }))
+    fields: fields.results
   });
 }
 
@@ -149,7 +146,7 @@ function fieldInsertStatements(
         field.name,
         field.description,
         field.data_type,
-        field.required ? 1 : 0,
+        1,
         index
       )
   );

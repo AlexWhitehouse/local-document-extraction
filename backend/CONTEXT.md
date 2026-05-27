@@ -223,6 +223,7 @@ _Avoid_: object marker parsing, nested field table
 - A workspace member should confirm before leaving a **Workspace**.
 - **Template object schema** defines expected columns, column order, data types, and extraction guidance for fields whose data type is `object` or `array<object>`.
 - **Template object schema** should be normalized, validated, encoded for model guidance, decoded for editing, and rendered through one domain module.
+- **Template fields** are always requested during extraction; the public Template contract does not distinguish required and optional fields.
 - A **Source file** may be an image or PDF, but the product term for the submitted item is **Document**.
 - Document submission must use the `document` multipart field; legacy `image` and generic `file` submission fields are not accepted or advertised.
 - Application-owned configuration, storage binding, and database names should use **Document** or **Source file** terminology rather than legacy `image` terminology.

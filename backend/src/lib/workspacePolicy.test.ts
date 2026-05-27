@@ -954,7 +954,7 @@ describe("Workspace policy", () => {
       expect.objectContaining({ field_id: "invoice_date", name: "Invoice Date", data_type: "date", required: 1, position: 2 }),
       expect.objectContaining({ field_id: "vendor_name", name: "Vendor Name", data_type: "string", required: 1, position: 3 }),
       expect.objectContaining({ field_id: "total_amount", name: "Total Amount", data_type: "number", required: 1, position: 4 }),
-      expect.objectContaining({ field_id: "currency", name: "Currency", data_type: "string", required: 0, position: 5 })
+      expect.objectContaining({ field_id: "currency", name: "Currency", data_type: "string", required: 1, position: 5 })
     ]);
   });
 
