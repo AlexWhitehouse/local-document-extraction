@@ -4,9 +4,12 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const authClientMock = vi.hoisted(() => ({
+  useSession: vi.fn(),
   signInEmail: vi.fn(),
   signInSocial: vi.fn(),
   signUpEmail: vi.fn(),
+  requestPasswordReset: vi.fn(),
+  resetPassword: vi.fn(),
   signOut: vi.fn(),
   refetchSession: vi.fn(),
 }));
@@ -18,11 +21,7 @@ const toastMock = vi.hoisted(() => ({
 
 vi.mock("./lib/authClient", () => ({
   createRuntimeAuthClient: () => ({
-    useSession: () => ({
-      data: null,
-      isPending: false,
-      refetch: authClientMock.refetchSession,
-    }),
+    useSession: authClientMock.useSession,
     signIn: {
       email: authClientMock.signInEmail,
       social: authClientMock.signInSocial,
@@ -30,6 +29,8 @@ vi.mock("./lib/authClient", () => ({
     signUp: {
       email: authClientMock.signUpEmail,
     },
+    requestPasswordReset: authClientMock.requestPasswordReset,
+    resetPassword: authClientMock.resetPassword,
     signOut: authClientMock.signOut,
   }),
 }));
@@ -50,6 +51,12 @@ describe("auth sign-in feedback", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    authClientMock.useSession.mockReturnValue({
+      data: null,
+      isPending: false,
+      refetch: authClientMock.refetchSession,
+    });
+    window.history.replaceState(null, "", "/");
     const storage = new Map();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -206,6 +213,211 @@ describe("auth sign-in feedback", () => {
     );
     expect(screen.getByLabelText("Email").value).toBe("");
   });
+
+  it("opens Account password reset request mode from sign-in while preserving the typed email", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.click(screen.getByRole("link", { name: "Forgot password?" }));
+
+    expect(screen.getByRole("heading", { name: "Reset password" })).toBeTruthy();
+    expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
+    expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
+  it("shows feedback and does not call auth when Account password reset request email is missing", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(screen.getByRole("link", { name: "Forgot password?" }));
+    await user.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    expect(toastMock.error).toHaveBeenCalledOnce();
+    expect(toastMock.error).toHaveBeenCalledWith("Email is required.");
+    expect(authClientMock.requestPasswordReset).not.toHaveBeenCalled();
+  });
+
+  it("requests an Account password reset link and shows neutral success with a return to sign-in action", async () => {
+    const user = userEvent.setup();
+    authClientMock.requestPasswordReset.mockResolvedValue({ error: null });
+
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.click(screen.getByRole("link", { name: "Forgot password?" }));
+    await user.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    expect(authClientMock.requestPasswordReset).toHaveBeenCalledOnce();
+    expect(authClientMock.requestPasswordReset).toHaveBeenCalledWith({
+      email: "ada@example.com",
+      redirectTo: "/reset-password",
+    });
+    expect(screen.getByRole("status").textContent).toContain(
+      "If an account exists for ada@example.com, a reset link has been sent.",
+    );
+    expect(screen.getByRole("status").textContent).not.toContain("Account exists");
+
+    await user.click(screen.getByRole("button", { name: "Back to sign in" }));
+
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeTruthy();
+    expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
+  });
+
+  it("shows Account password reset recovery when the reset link has no token", async () => {
+    window.history.replaceState(null, "", "/reset-password");
+
+    render(<App />);
+
+    expect(authClientMock.useSession).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", { name: "Reset link is missing or invalid" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Request a new Account password reset link to continue."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Request a new reset link" }),
+    ).toBeTruthy();
+  });
+
+  it("shows Account password reset recovery when Better Auth reports a token error", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/reset-password?error=invalid_token",
+    );
+
+    render(<App />);
+
+    expect(authClientMock.useSession).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", {
+        name: "Reset link has expired or is invalid",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "This Account password reset link can no longer be used.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Request a new reset link" }),
+    ).toBeTruthy();
+  });
+
+  it("opens Account password reset request mode from a reset link recovery state", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/reset-password");
+
+    render(<App />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Request a new reset link" }),
+    );
+
+    expect(authClientMock.useSession).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Reset password" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send reset link" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
+  it("shows a new-password form when an Account password reset token is present", () => {
+    window.history.replaceState(null, "", "/reset-password?token=abc123");
+
+    render(<App />);
+
+    expect(authClientMock.useSession).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", { name: "Set new password" }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("New password")).toBeTruthy();
+    expect(screen.getByLabelText("Confirm new password")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Set new password" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: /Reset link/i }),
+    ).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull();
+  });
+
+  it("blocks Account password reset submission until the new password satisfies policy", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/reset-password?token=abc123");
+
+    render(<App />);
+
+    await user.type(screen.getByLabelText("New password"), "password");
+
+    expect(screen.queryByText("At least 8 characters")).toBeNull();
+    expect(screen.getByText("One uppercase letter")).toBeTruthy();
+    expect(screen.getByText("One number")).toBeTruthy();
+    expect(screen.getByText("One special character")).toBeTruthy();
+
+    await user.type(screen.getByLabelText("Confirm new password"), "password");
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+
+    expect(authClientMock.resetPassword).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledOnce();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Password must meet all complexity requirements.",
+    );
+  });
+
+  it("blocks Account password reset when confirmation does not match", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/reset-password?token=abc123");
+
+    render(<App />);
+
+    const newPasswordInput = screen.getByLabelText("New password");
+    const confirmPasswordInput = screen.getByLabelText("Confirm new password");
+
+    await user.type(newPasswordInput, "Password1!");
+    await user.type(confirmPasswordInput, "Password2!");
+
+    expect(screen.getByText("Passwords do not match.")).toBeTruthy();
+    expect(newPasswordInput.getAttribute("aria-invalid")).toBe("true");
+    expect(confirmPasswordInput.getAttribute("aria-invalid")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+
+    expect(authClientMock.resetPassword).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledOnce();
+    expect(toastMock.error).toHaveBeenCalledWith("Passwords do not match.");
+  });
+
+  it("submits Account password reset with token and returns to sign in", async () => {
+    const user = userEvent.setup();
+    authClientMock.resetPassword.mockResolvedValue({ error: null });
+    window.history.replaceState(null, "", "/reset-password?token=abc123");
+
+    render(<App />);
+
+    await user.type(screen.getByLabelText("New password"), "Password1!");
+    await user.type(
+      screen.getByLabelText("Confirm new password"),
+      "Password1!",
+    );
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+
+    expect(authClientMock.resetPassword).toHaveBeenCalledOnce();
+    expect(authClientMock.resetPassword).toHaveBeenCalledWith({
+      newPassword: "Password1!",
+      token: "abc123",
+    });
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeTruthy();
+    expect(screen.queryByLabelText("New password")).toBeNull();
+    expect(screen.queryByDisplayValue("Password1!")).toBeNull();
+    expect(window.location.pathname).toBe("/");
+  });
 });
 
 describe("auth sign-up password policy feedback", () => {
@@ -215,6 +427,12 @@ describe("auth sign-up password policy feedback", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    authClientMock.useSession.mockReturnValue({
+      data: null,
+      isPending: false,
+      refetch: authClientMock.refetchSession,
+    });
+    window.history.replaceState(null, "", "/");
     const storage = new Map();
     Object.defineProperty(window, "localStorage", {
       configurable: true,

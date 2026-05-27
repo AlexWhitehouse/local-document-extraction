@@ -67,6 +67,37 @@ describe("Better Auth Account email verification", () => {
     });
   });
 
+  it("schedules Account password reset email with one-hour expiry and session revocation", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const waitUntil = vi.fn();
+
+    createAuth(
+      createEnv({ EMAIL: { send } as unknown as Env["EMAIL"] }),
+      new Request("https://extract.t3m.uk/api/auth/request-password-reset"),
+      { waitUntil } as unknown as ExecutionContext,
+    );
+
+    const options = betterAuthMock.mock.calls[0][0];
+    expect(options.emailAndPassword.resetPasswordTokenExpiresIn).toBe(60 * 60);
+    expect(options.emailAndPassword.revokeSessionsOnPasswordReset).toBe(true);
+
+    await options.emailAndPassword.sendResetPassword({
+      user: { email: "ada@example.com" },
+      url: "https://extract.t3m.uk/api/auth/reset-password/abc123?callbackURL=%2Freset-password",
+      token: "abc123",
+    });
+
+    expect(waitUntil).toHaveBeenCalledOnce();
+    await expect(waitUntil.mock.calls[0][0]).resolves.toBeUndefined();
+    expect(send).toHaveBeenCalledWith({
+      from: { name: "Document Extraction", email: "no-reply@extract.t3m.uk" },
+      to: "ada@example.com",
+      subject: "Reset your Document Extraction password",
+      html: expect.stringContaining("https://extract.t3m.uk/api/auth/reset-password/abc123?callbackURL=%2Freset-password"),
+      text: expect.stringContaining("https://extract.t3m.uk/api/auth/reset-password/abc123?callbackURL=%2Freset-password"),
+    });
+  });
+
   it("configures Better Auth Application admin support without config-based admin user IDs", () => {
     createAuth(createEnv(), new Request("https://extract.t3m.uk/api/auth/session"));
 

@@ -37,6 +37,15 @@ import {
   workspaceUserActionLabel,
 } from "./features/workspaces/useWorkspaceController.js";
 export function App() {
+  const resetPasswordRoute = getAccountPasswordResetRoute(window.location);
+  if (resetPasswordRoute) {
+    return <AccountPasswordResetRoute resetState={resetPasswordRoute} />;
+  }
+
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
   const initialWorkspace = {};
 
   const [apiBase] = useState("/v1");
@@ -571,6 +580,219 @@ export function App() {
       </MainLayout>
     </>
   );
+}
+
+function AccountPasswordResetRoute({ resetState }) {
+  const [isRequestingNewLink, setIsRequestingNewLink] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [isComplete, setIsComplete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const authClient = useMemo(() => createRuntimeAuthClient("/v1"), []);
+  const authProfileController = useAuthProfileController({
+    authClient,
+    refetchSession: async () => {},
+    request: async () => {},
+    addLog: () => {},
+    initialAuthMode: "reset-request",
+    hasSession: false,
+    sessionUserName: "",
+    sessionUserEmail: "",
+    busy,
+    setBusy,
+    onClearWorkspaceScopedTemplates: () => {},
+    onClearWorkspaceScopedDocuments: () => {},
+    onClearSessionWorkspaceData: () => {},
+  });
+
+  if (isRequestingNewLink) {
+    return <AuthScreen {...authProfileController.authScreen} />;
+  }
+
+  if (isComplete) {
+    return <AuthScreen {...authProfileController.authScreen} />;
+  }
+
+  if (resetState?.token) {
+    const unmetPasswordRequirements = getUnmetAccountPasswordRequirements(newPassword);
+    const shouldShowPasswordRequirements = passwordTouched || submitAttempted;
+    const hasPasswordMismatch =
+      confirmNewPassword.length > 0 && newPassword !== confirmNewPassword;
+
+    async function submitNewPassword(event) {
+      event.preventDefault();
+      setSubmitAttempted(true);
+
+      if (unmetPasswordRequirements.length > 0) {
+        toast.error("Password must meet all complexity requirements.");
+        return;
+      }
+      if (!confirmNewPassword.trim()) {
+        toast.error("Confirm password is required.");
+        return;
+      }
+      if (hasPasswordMismatch) {
+        toast.error("Passwords do not match.");
+        return;
+      }
+
+      setBusy(true);
+      try {
+        const result = await authClient.resetPassword({
+          newPassword,
+          token: resetState.token,
+        });
+        if (result?.error) {
+          throw new Error(result.error.message || "Account password reset failed");
+        }
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setPasswordTouched(false);
+        setSubmitAttempted(false);
+        window.history.replaceState(null, "", "/");
+        authProfileController.authScreen.onSwitchMode("signin");
+        setIsComplete(true);
+      } catch (error) {
+        toast.error("Password reset failed. Please request a new reset link.");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    return (
+      <>
+        <Toaster richColors />
+        <div className="auth-shell">
+          <section className="auth-card">
+            <div className="auth-header">
+              <p className="eyebrow">Document Extraction</p>
+              <h1>Studio</h1>
+              <p>Choose a new password for your account.</p>
+            </div>
+            <form className="panel auth-panel" onSubmit={submitNewPassword}>
+              <h2>Set new password</h2>
+              <p className="muted">
+                Your new password must meet the Account password policy.
+              </p>
+              <div className="row auth-form-grid">
+                <label>
+                  New password
+                  <input
+                    type="password"
+                    value={newPassword}
+                    aria-invalid={hasPasswordMismatch}
+                    className={hasPasswordMismatch ? "auth-input-error" : ""}
+                    onChange={(event) => {
+                      setNewPassword(event.target.value);
+                      setPasswordTouched(true);
+                    }}
+                    placeholder="************"
+                  />
+                </label>
+                <label>
+                  Confirm new password
+                  <input
+                    type="password"
+                    value={confirmNewPassword}
+                    aria-invalid={hasPasswordMismatch}
+                    className={hasPasswordMismatch ? "auth-input-error" : ""}
+                    onChange={(event) =>
+                      setConfirmNewPassword(event.target.value)
+                    }
+                    placeholder="Repeat password"
+                  />
+                </label>
+              </div>
+              {hasPasswordMismatch ? (
+                <p className="auth-password-mismatch">
+                  Passwords do not match.
+                </p>
+              ) : null}
+              {shouldShowPasswordRequirements &&
+              unmetPasswordRequirements.length > 0 ? (
+                <ul className="auth-password-requirements">
+                  {unmetPasswordRequirements.map((requirement) => (
+                    <li key={requirement}>{requirement}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <button
+                type="submit"
+                className="auth-primary-action"
+                disabled={busy}
+              >
+                Set new password
+              </button>
+            </form>
+          </section>
+        </div>
+      </>
+    );
+  }
+
+  const title =
+    resetState === "token-error"
+      ? "Reset link has expired or is invalid"
+      : "Reset link is missing or invalid";
+  const message =
+    resetState === "token-error"
+      ? "This Account password reset link can no longer be used."
+      : "Request a new Account password reset link to continue.";
+
+  return (
+    <>
+      <Toaster richColors />
+      <div className="auth-shell">
+        <section className="auth-card">
+          <div className="auth-header">
+            <p className="eyebrow">Document Extraction</p>
+            <h1>Studio</h1>
+            <p>Use Account password reset to recover access to your account.</p>
+          </div>
+          <div className="panel auth-verification-prompt" role="status">
+            <h2>{title}</h2>
+            <p>{message}</p>
+            <button
+              type="button"
+              className="auth-primary-action"
+              disabled={busy}
+              onClick={() => setIsRequestingNewLink(true)}
+            >
+              Request a new reset link
+            </button>
+          </div>
+        </section>
+      </div>
+    </>
+  );
+}
+
+function getAccountPasswordResetRoute(location) {
+  if (location.pathname !== "/reset-password") {
+    return null;
+  }
+
+  const params = new URLSearchParams(location.search);
+  if (params.has("error")) {
+    return "token-error";
+  }
+  if (!params.get("token")) {
+    return "missing-token";
+  }
+  return { token: params.get("token") };
+}
+
+function getUnmetAccountPasswordRequirements(password) {
+  return [
+    { label: "At least 8 characters", test: password.length >= 8 },
+    { label: "One uppercase letter", test: /[A-Z]/.test(password) },
+    { label: "One number", test: /[0-9]/.test(password) },
+    { label: "One special character", test: /[^A-Za-z0-9]/.test(password) },
+  ]
+    .filter((requirement) => !requirement.test)
+    .map((requirement) => requirement.label);
 }
 
 function formatRoleLabel(value) {

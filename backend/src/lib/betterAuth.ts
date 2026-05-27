@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { admin } from "better-auth/plugins";
 import { renderAccountEmailVerificationEmail } from "./email/accountEmailVerification";
+import { renderAccountPasswordResetEmail } from "./email/accountPasswordReset";
 import { scheduleTransactionalEmailSend } from "./email/transactionalEmail";
 import { createStarterInvoiceTemplate } from "./starterTemplateAdapter";
 import { bootstrapWorkspaceForNewUser } from "./workspacePolicy";
@@ -78,6 +79,18 @@ export function createAuth(env: AuthEnv, request: Request, ctx?: ExecutionContex
       enabled: true,
       minPasswordLength: 8,
       requireEmailVerification: true,
+      resetPasswordTokenExpiresIn: 60 * 60,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url }) => {
+        scheduleTransactionalEmailSend({
+          email: env.EMAIL,
+          ctx,
+          message: {
+            ...renderAccountPasswordResetEmail({ resetUrl: url }),
+            to: user.email,
+          },
+        });
+      },
       customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
         ...coreFields,
         role: "user",

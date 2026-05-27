@@ -12,6 +12,10 @@ _Avoid_: password validation, sign-up password rule
 Proof that a user controls the email address used for application access.
 _Avoid_: email confirmation, verified user
 
+**Account password reset**:
+A self-service flow where someone who knows an account email can request a link and set a new password for an email/password Account.
+_Avoid_: forgot password, password recovery, Workspace password reset
+
 **Application admin**:
 A user with application-wide account management authority, separate from any workspace-scoped role.
 _Avoid_: workspace admin, owner, support user
@@ -125,6 +129,14 @@ _Avoid_: object marker parsing, nested field table
 - **Account email verification** email is HTML formatted, includes a plain-text alternative, and tells unexpected recipients they can ignore it.
 - **Account email verification** sending is scheduled without blocking sign-up or sign-in responses.
 - **Account email verification** uses direct Cloudflare Email Sending for this slice; a durable email queue is deferred until retry, audit, or provider-switching needs justify it.
+- **Account password reset** request responses do not reveal whether the submitted email belongs to an email/password Account.
+- **Account password reset** links land on the SPA `/reset-password` experience with a Better Auth reset token or token error in the query string.
+- **Account password reset** requires the same **Account password policy** as email/password sign-up.
+- **Account password reset** links expire after one hour.
+- **Account password reset** revokes existing sessions after the password changes.
+- **Account password reset** email is sent from `Document Extraction <no-reply@extract.t3m.uk>`.
+- **Account password reset** email is HTML formatted, includes a plain-text alternative, includes the reset link, and tells unexpected recipients they can ignore it.
+- **Account password reset** sending is scheduled without blocking request responses.
 - Transactional email templates are code-owned render modules, with each email type in its own file.
 - Auth-triggered transactional emails use Worker `waitUntil` when the request path can send email; session-read paths do not require scheduling context.
 - **Application admin** authority is application-wide and is not granted by Workspace owner/admin membership.

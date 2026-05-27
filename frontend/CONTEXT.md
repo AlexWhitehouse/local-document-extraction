@@ -32,6 +32,10 @@ _Avoid_: alert, snackbar
 The auth-screen message telling an email/password user to verify their email before account access is available.
 _Avoid_: signup success, generic auth notice
 
+**Account password reset**:
+The auth-screen flow where someone who knows an account email can request a reset link and set a new password for an email/password Account.
+_Avoid_: forgot password flow, password recovery, Workspace password reset
+
 **Application admin page**:
 The application-wide account management UI for **Application admins**, separate from workspace-scoped administration.
 _Avoid_: workspace admin page, owner tools, support panel
@@ -129,6 +133,15 @@ _Avoid_: frontend auth mode, session replacement
 - The visible **Account verification prompt** blocks another sign-up attempt until the user leaves the prompt and intentionally opens sign-up again.
 - When an unverified email/password user tries to sign in, the frontend tells them to verify their email and that a new verification link was sent.
 - The initial **Account verification prompt** does not include a separate resend control; sign-in retries send a new verification link.
+- **Account password reset** request feedback does not reveal whether the submitted email belongs to an email/password Account.
+- **Account password reset** links open the unauthenticated `/reset-password` SPA experience with a Better Auth reset token or token error in the query string.
+- **Account password reset** links expire after one hour.
+- **Account password reset** uses the same password requirements UI and **Account password policy** as account creation.
+- **Account password reset** request is a distinct auth-screen mode reached from the sign-in password field area.
+- **Account password reset** request preserves any email already typed on the sign-in form.
+- **Account password reset** request success replaces the request form with a neutral success panel and a return to sign-in action.
+- The `/reset-password` **Account password reset** form is unauthenticated and separate from the sign-in/sign-up auth-screen modes.
+- After successful **Account password reset**, the frontend returns the user to sign in rather than treating the user as signed in.
 - **Application admin page** access is for application-wide account administration and is not implied by Workspace owner/admin membership.
 - Initial **Application admin** access is bootstrapped by a one-time migration that promotes known Better Auth users to the persisted Application admin role.
 - The first **Application admin page** lets Application admins list users, search users, change application roles, ban/unban users with reasons, and impersonate non-admin users.

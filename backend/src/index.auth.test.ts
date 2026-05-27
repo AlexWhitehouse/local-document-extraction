@@ -80,6 +80,57 @@ describe("auth request handling", () => {
     expect(authHandlerMock).toHaveBeenCalledOnce();
   });
 
+  it("rejects weak Account password reset before normal auth handling", async () => {
+    createAuthMock.mockReturnValue({ handler: authHandlerMock });
+    authHandlerMock.mockResolvedValue(new Response(null, { status: 200 }));
+
+    const response = await worker.fetch(
+      new Request("https://example.com/api/auth/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: "reset_token",
+          newPassword: "password",
+        }),
+      }),
+      createEnv(),
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "password_policy_not_met",
+        message: "Password must meet all complexity requirements.",
+      },
+    });
+    expect(response.status).toBe(400);
+    expect(authHandlerMock).not.toHaveBeenCalled();
+  });
+
+  it("passes strong Account password reset to normal auth handling", async () => {
+    createAuthMock.mockReturnValue({ handler: authHandlerMock });
+    authHandlerMock.mockImplementation(async (request: Request) => {
+      return Response.json(await request.json(), { status: 200 });
+    });
+
+    const body = {
+      token: "reset_token",
+      newPassword: "Strong1!",
+    };
+
+    const response = await worker.fetch(
+      new Request("https://example.com/api/auth/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      createEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(body);
+    expect(authHandlerMock).toHaveBeenCalledOnce();
+  });
+
   it("provides Worker scheduling context to auth request handling", async () => {
     createAuthMock.mockReturnValue({ handler: authHandlerMock });
     authHandlerMock.mockResolvedValue(new Response(null, { status: 202 }));

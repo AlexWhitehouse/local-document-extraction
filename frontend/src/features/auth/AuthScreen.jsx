@@ -12,6 +12,7 @@ export function AuthScreen({
   shouldShowPasswordRequirements,
   unmetPasswordRequirements,
   accountVerificationPromptEmail,
+  accountPasswordResetRequestedEmail,
   onSubmit,
   onNameChange,
   onEmailChange,
@@ -22,6 +23,9 @@ export function AuthScreen({
   onSwitchMode,
 }) {
   const isSignUp = mode === "signup";
+  const isResetRequest = mode === "reset-request";
+  const isSignIn = mode === "signin";
+  const formTitle = isResetRequest ? "Reset password" : isSignIn ? "Sign in" : "Create account";
 
   return (
     <>
@@ -32,8 +36,10 @@ export function AuthScreen({
             <p className="eyebrow">Document Extraction</p>
             <h1>Studio</h1>
             <p>
-              {mode === "signin"
+              {isSignIn
                 ? "Welcome back. Sign in to continue working in your workspace."
+                : isResetRequest
+                  ? "Enter your account email and we will send a password reset link."
                 : "Create your account to start extracting structured data from documents."}
             </p>
           </div>
@@ -60,11 +66,30 @@ export function AuthScreen({
                 Back to sign in
               </button>
             </div>
+          ) : accountPasswordResetRequestedEmail ? (
+            <div className="panel auth-verification-prompt" role="status">
+              <h2>Check your email</h2>
+              <p>
+                If an account exists for{" "}
+                <b>{accountPasswordResetRequestedEmail}</b>, a reset link has
+                been sent.
+              </p>
+              <button
+                type="button"
+                className="auth-primary-action"
+                disabled={busy}
+                onClick={() => onSwitchMode("signin")}
+              >
+                Back to sign in
+              </button>
+            </div>
           ) : (
             <form className="panel auth-panel" onSubmit={onSubmit}>
-              <h2>{mode === "signin" ? "Sign in" : "Create account"}</h2>
+              <h2>{formTitle}</h2>
               <p className="muted">
-                Sign in first, then create or select a workspace.
+                {isResetRequest
+                  ? "If an account exists for that email, a reset link will be sent."
+                  : "Sign in first, then create or select a workspace."}
               </p>
               <div
                 className={
@@ -90,22 +115,43 @@ export function AuthScreen({
                     placeholder="jane@example.com"
                   />
                 </label>
-                <label>
-                  Password
-                  <input
-                    type="password"
-                    value={password}
-                    aria-invalid={hasPasswordMismatch}
-                    className={hasPasswordMismatch ? "auth-input-error" : ""}
-                    onChange={(event) => {
-                      onPasswordChange(event.target.value);
-                      if (isSignUp) {
-                        onPasswordTouched();
-                      }
-                    }}
-                    placeholder="************"
-                  />
-                </label>
+                {isResetRequest ? null : (
+                  <div className="auth-field">
+                    <div className="auth-password-label-row">
+                      <label htmlFor="auth-password" className="auth-field-label">
+                        Password
+                      </label>
+                      {isSignIn ? (
+                        <a
+                          href="#"
+                          className="auth-forgot-password-link"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (!busy) {
+                              onSwitchMode("reset-request");
+                            }
+                          }}
+                        >
+                          Forgot password?
+                        </a>
+                      ) : null}
+                    </div>
+                    <input
+                      id="auth-password"
+                      type="password"
+                      value={password}
+                      aria-invalid={hasPasswordMismatch}
+                      className={hasPasswordMismatch ? "auth-input-error" : ""}
+                      onChange={(event) => {
+                        onPasswordChange(event.target.value);
+                        if (isSignUp) {
+                          onPasswordTouched();
+                        }
+                      }}
+                      placeholder="************"
+                    />
+                  </div>
+                )}
                 {isSignUp ? (
                   <label>
                     Confirm Password
@@ -135,7 +181,7 @@ export function AuthScreen({
                   ))}
                 </ul>
               ) : null}
-              {mode === "signin" ? (
+              {isSignIn ? (
                 <>
                   <button
                     type="submit"
@@ -168,6 +214,31 @@ export function AuthScreen({
                       }}
                     >
                       Sign Up
+                    </a>
+                  </p>
+                </>
+              ) : isResetRequest ? (
+                <>
+                  <button
+                    type="submit"
+                    className="auth-primary-action"
+                    disabled={busy}
+                  >
+                    Send reset link
+                  </button>
+                  <p className="auth-switch-copy">
+                    Remember your password?{" "}
+                    <a
+                      href="#"
+                      className="auth-switch-link"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (!busy) {
+                          onSwitchMode("signin");
+                        }
+                      }}
+                    >
+                      Sign In
                     </a>
                   </p>
                 </>

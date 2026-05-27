@@ -16,6 +16,7 @@ export function useAuthProfileController({
   refetchSession,
   request,
   addLog,
+  initialAuthMode = "signin",
   hasSession,
   sessionUserName,
   sessionUserEmail,
@@ -25,7 +26,7 @@ export function useAuthProfileController({
   onClearWorkspaceScopedDocuments,
   onClearSessionWorkspaceData,
 }) {
-  const [authMode, setAuthMode] = useState("signin");
+  const [authMode, setAuthMode] = useState(initialAuthMode);
   const [authName, setAuthName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -33,6 +34,8 @@ export function useAuthProfileController({
   const [authPasswordTouched, setAuthPasswordTouched] = useState(false);
   const [signUpSubmitAttempted, setSignUpSubmitAttempted] = useState(false);
   const [accountVerificationPromptEmail, setAccountVerificationPromptEmail] =
+    useState("");
+  const [accountPasswordResetRequestedEmail, setAccountPasswordResetRequestedEmail] =
     useState("");
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -203,8 +206,39 @@ export function useAuthProfileController({
     }
   }
 
+  async function requestAccountPasswordReset() {
+    if (!authEmail.trim()) {
+      addLog("Account password reset request failed: email is required");
+      toast.error("Email is required.");
+      return;
+    }
+
+    const requestedEmail = authEmail.trim();
+    setBusy(true);
+    try {
+      const result = await authClient.requestPasswordReset({
+        email: requestedEmail,
+        redirectTo: "/reset-password",
+      });
+      if (result?.error) {
+        throw new Error(result.error.message || "Account password reset request failed");
+      }
+      setAccountPasswordResetRequestedEmail(requestedEmail);
+      addLog(`Account password reset requested for ${requestedEmail}`);
+    } catch (error) {
+      addLog(`Account password reset request failed: ${error.message}`);
+      toast.error("Password reset request failed. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitAuthForm(event) {
     event.preventDefault();
+    if (authMode === "reset-request") {
+      await requestAccountPasswordReset();
+      return;
+    }
     if (authMode === "signin") {
       await signIn();
       return;
@@ -219,6 +253,7 @@ export function useAuthProfileController({
     setAuthPasswordTouched(false);
     setSignUpSubmitAttempted(false);
     setAccountVerificationPromptEmail("");
+    setAccountPasswordResetRequestedEmail("");
   }
 
   async function signOut() {
@@ -312,6 +347,7 @@ export function useAuthProfileController({
       shouldShowPasswordRequirements: shouldShowAccountPasswordRequirements,
       unmetPasswordRequirements: unmetAccountPasswordRequirements,
       accountVerificationPromptEmail,
+      accountPasswordResetRequestedEmail,
       onSubmit: submitAuthForm,
       onNameChange: setAuthName,
       onEmailChange: (nextEmail) => {

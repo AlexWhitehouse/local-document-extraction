@@ -65,7 +65,7 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
   const url = new URL(request.url);
 
   if (url.pathname.startsWith("/api/auth")) {
-    await enforceAccountPasswordPolicyForSignUp(request, url);
+    await enforceAccountPasswordPolicyForAuthRequest(request, url);
     const auth = createAuth(env, request, ctx);
     return auth.handler(request);
   }
@@ -257,18 +257,28 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
   throw new HttpError(404, "not_found", "Route not found");
 }
 
-async function enforceAccountPasswordPolicyForSignUp(
+async function enforceAccountPasswordPolicyForAuthRequest(
   request: Request,
   url: URL,
 ): Promise<void> {
-  if (request.method !== "POST" || url.pathname !== "/api/auth/sign-up/email") {
+  if (request.method !== "POST") {
+    return;
+  }
+
+  const passwordField =
+    url.pathname === "/api/auth/sign-up/email"
+      ? "password"
+      : url.pathname === "/api/auth/reset-password"
+        ? "newPassword"
+        : null;
+  if (!passwordField) {
     return;
   }
 
   const body = await request.clone().json().catch(() => null);
   const password =
-    body && typeof body === "object" && "password" in body
-      ? (body as { password?: unknown }).password
+    body && typeof body === "object" && passwordField in body
+      ? (body as Record<string, unknown>)[passwordField]
       : null;
 
   if (typeof password !== "string") {
