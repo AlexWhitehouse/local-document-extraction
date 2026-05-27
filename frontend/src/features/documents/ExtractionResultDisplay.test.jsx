@@ -48,7 +48,7 @@ describe("Extraction result display", () => {
     cleanup();
   });
 
-  it("shows scalar Extraction results with status and confidence cues", () => {
+  it("shows scalar Extraction results with confidence cues and hides ok status", () => {
     render(
       <ExtractionResultDisplay
         job={{
@@ -68,10 +68,32 @@ describe("Extraction result display", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Patient Name" })).toBeTruthy();
-    expect(screen.getByText("completed")).toBeTruthy();
+    expect(screen.queryByText("ok")).toBeNull();
+    expect(screen.queryByText("completed")).toBeNull();
     expect(screen.getByText("Confidence 93.2%")).toBeTruthy();
     expect(screen.getByText("Ada Lovelace")).toBeTruthy();
     expect(screen.getByText("Evidence: Patient: Ada Lovelace")).toBeTruthy();
+  });
+
+  it("shows a Not Found status cue only when extraction data was missing", () => {
+    render(
+      <ExtractionResultDisplay
+        job={{
+          status: "completed",
+          results: [
+            {
+              field_id: "delivery_interval",
+              name: "Delivery instruction every x weeks",
+              status: "not_found",
+              answer: null,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Not Found")).toBeTruthy();
+    expect(screen.getByText("No value extracted.")).toBeTruthy();
   });
 
   it("shows empty Extraction result values without inventing answers", () => {
