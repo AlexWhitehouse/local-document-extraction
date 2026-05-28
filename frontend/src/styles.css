@@ -228,6 +228,25 @@ button.danger:hover:not(:disabled) {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: #273244 transparent;
+}
+
+.context-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.context-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.context-list::-webkit-scrollbar-thumb {
+  background: #273244;
+  border-radius: 999px;
+}
+
+.context-list::-webkit-scrollbar-thumb:hover {
+  background: #3a4658;
 }
 
 .context-item {
