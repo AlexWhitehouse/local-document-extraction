@@ -19,6 +19,8 @@ Workspace-scoped extraction data can exceed one global D1 database's 10 GB stora
 - Legacy global D1 product tables are retained during the initial cutover for rollback/archive, but product code stops writing authoritative data to them.
 - The Workspace Durable Object exposes domain-specific RPC methods rather than a generic SQL or query interface.
 - Workspace Durable Objects are addressed deterministically by Workspace ID.
+- Workspace deletion erases residual Source file binaries and clears the Workspace Durable Object's storage before deleting Workspace control data, so a failed cleanup attempt leaves the Workspace reachable for retry instead of orphaning authoritative Workspace product data.
+- Workspace deletion closes Workspace live update sockets before clearing Durable Object storage.
 - Workspace Durable Objects terminate Workspace-scoped WebSockets using the hibernation API and publish job lifecycle notifications after durable state changes.
 - The Worker validates WebSocket upgrade requests and session-based Workspace access before proxying live update connections to the Workspace Durable Object.
 - The SPA connects to `GET /v1/workspaces/:workspaceId/live` for session-only Workspace live updates.

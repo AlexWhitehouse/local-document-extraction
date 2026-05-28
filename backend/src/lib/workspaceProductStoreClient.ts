@@ -234,6 +234,7 @@ export interface WorkspaceProductStoreRpc {
   deleteExtractionJob(input: DeleteWorkspaceExtractionJobInput): Promise<boolean>;
   markSourceFileCleaned(input: MarkWorkspaceSourceFileCleanedInput): Promise<boolean>;
   listResidualSourceFilesForCleanup(input: ListWorkspaceResidualSourceFilesForCleanupInput): Promise<WorkspaceResidualSourceFile[]>;
+  eraseWorkspaceProductData(): Promise<void>;
 }
 
 export function isWorkspaceProductStoreFailure(value: unknown): value is WorkspaceProductStoreFailure {

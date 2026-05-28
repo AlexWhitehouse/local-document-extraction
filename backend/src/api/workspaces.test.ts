@@ -94,15 +94,20 @@ function createEnvFixture(input: {
   invitations?: WorkspaceInvitationFixture[];
   jobSourceFileKeys?: string[];
   residualSourceFiles?: ResidualSourceFileFixture[];
+  productStoreEraseError?: Error;
 }): Env & {
   deletedSourceFileKeys: string[];
   cleanedSourceFiles: ResidualSourceFileFixture[];
+  erasedProductStoreWorkspaces: string[];
+  deletionEvents: string[];
   createdTemplates: TemplateFixture[];
   createdTemplateFields: TemplateFieldFixture[];
   createdProductStoreTemplates: TemplateFixture[];
 } {
   const deletedSourceFileKeys: string[] = [];
   const cleanedSourceFiles: ResidualSourceFileFixture[] = [];
+  const erasedProductStoreWorkspaces: string[] = [];
+  const deletionEvents: string[] = [];
   const createdTemplates: TemplateFixture[] = [];
   const createdTemplateFields: TemplateFieldFixture[] = [];
   const createdProductStoreTemplates: TemplateFixture[] = [];
@@ -130,16 +135,25 @@ function createEnvFixture(input: {
               const [cleaned] = residualSourceFiles.splice(index, 1);
               if (cleaned) {
                 cleanedSourceFiles.push(cleaned);
+                deletionEvents.push(`source-file-cleaned:${cleaned.source_file_key}`);
               }
               return true;
             }
             return false;
+          },
+          async eraseWorkspaceProductData() {
+            if (input.productStoreEraseError) {
+              throw input.productStoreEraseError;
+            }
+            erasedProductStoreWorkspaces.push(workspaceId);
+            deletionEvents.push(`product-data-erased:${workspaceId}`);
           },
         };
       },
     } as unknown as DurableObjectNamespace,
     DB: {
       async batch(statements: D1PreparedStatement[]) {
+        deletionEvents.push("control-data-delete");
         await Promise.all(statements.map((statement) => statement.run()));
         return [];
       },
@@ -320,15 +334,22 @@ function createEnvFixture(input: {
         };
       }
     },
-    SOURCE_FILES_BUCKET: { delete: async (key: string) => { deletedSourceFileKeys.push(key); } },
+    SOURCE_FILES_BUCKET: { delete: async (key: string) => {
+      deletedSourceFileKeys.push(key);
+      deletionEvents.push(`source-file-deleted:${key}`);
+    } },
     deletedSourceFileKeys,
     cleanedSourceFiles,
+    erasedProductStoreWorkspaces,
+    deletionEvents,
     createdTemplates,
     createdTemplateFields,
     createdProductStoreTemplates,
   } as unknown as Env & {
     deletedSourceFileKeys: string[];
     cleanedSourceFiles: ResidualSourceFileFixture[];
+    erasedProductStoreWorkspaces: string[];
+    deletionEvents: string[];
     createdTemplates: TemplateFixture[];
     createdTemplateFields: TemplateFieldFixture[];
     createdProductStoreTemplates: TemplateFixture[];
@@ -527,9 +548,10 @@ describe("Workspace routes", () => {
     await expect(response.json()).resolves.toEqual({ ok: true, workspace_id: workspace.id });
     expect(env.DB.prepare).toBeDefined();
     expect(memberships).toEqual([{ workspace_id: otherWorkspace.id, user_id: "user_owner", role: "owner" }]);
+    expect(env.erasedProductStoreWorkspaces).toEqual([workspace.id]);
   });
 
-  it("deletes Workspace Source files through the Source file storage binding", async () => {
+  it("deletes residual Source files then hard-erases Workspace product data before control data", async () => {
     const workspace = createWorkspace();
     const otherWorkspace = createWorkspace({ id: "workspace_keep" });
     const memberships: MembershipFixture[] = [
@@ -555,6 +577,38 @@ describe("Workspace routes", () => {
         job_id: "job_1",
         source_file_key: "workspaces/workspace_delete/jobs/job_1/source.pdf",
       },
+    ]);
+    expect(env.erasedProductStoreWorkspaces).toEqual([workspace.id]);
+    expect(env.deletionEvents).toEqual([
+      "source-file-deleted:workspaces/workspace_delete/jobs/job_1/source.pdf",
+      "source-file-cleaned:workspaces/workspace_delete/jobs/job_1/source.pdf",
+      "product-data-erased:workspace_delete",
+      "control-data-delete",
+    ]);
+  });
+
+  it("keeps Workspace control data retryable when product data hard-erasure fails", async () => {
+    const workspace = createWorkspace();
+    const otherWorkspace = createWorkspace({ id: "workspace_keep" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: otherWorkspace.id, user_id: "user_owner", role: "owner" }
+    ];
+    const env = createEnvFixture({
+      workspaces: [workspace, otherWorkspace],
+      memberships,
+      productStoreEraseError: new Error("deleteAll failed"),
+    });
+
+    await expect(deleteWorkspaceForUser(env, workspace.id, "user_owner")).rejects.toThrow("deleteAll failed");
+
+    expect(env.erasedProductStoreWorkspaces).toEqual([]);
+    expect(env.deletionEvents).not.toContain("control-data-delete");
+    expect(env.deletionEvents).not.toContain(`product-data-erased:${workspace.id}`);
+    expect(env.deletedSourceFileKeys).toEqual([]);
+    expect(memberships).toEqual([
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: otherWorkspace.id, user_id: "user_owner", role: "owner" }
     ]);
   });
 

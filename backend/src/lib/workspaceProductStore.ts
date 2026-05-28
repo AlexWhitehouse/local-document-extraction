@@ -77,12 +77,7 @@ type ExtractionJobRow = {
 };
 
 export class WorkspaceProductStore extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    ctx.blockConcurrencyWhile(async () => {
-      this.ensureSchema();
-    });
-  }
+  private schemaReady = false;
 
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
@@ -104,6 +99,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async createTemplate(input: CreateWorkspaceTemplateInput): Promise<CreatedWorkspaceTemplate | WorkspaceProductStoreFailure> {
+    this.ensureSchema();
+
     const fieldLimitFailure = enforceFieldLimit(input.fields.length, input.maxFieldsPerTemplate);
     if (fieldLimitFailure) {
       return fieldLimitFailure;
@@ -155,6 +152,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async listTemplates(): Promise<ListedWorkspaceTemplate[]> {
+    this.ensureSchema();
+
     return this.ctx.storage.sql
       .exec<TemplateRow>(
         `SELECT id, name, description, status, current_version, created_at, updated_at
@@ -175,6 +174,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async getTemplate(templateId: string): Promise<WorkspaceTemplateDetail | null> {
+    this.ensureSchema();
+
     const template = this.ctx.storage.sql
       .exec<TemplateRow>(
         `SELECT id, name, description, status, current_version, created_at, updated_at
@@ -220,6 +221,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async updateTemplate(input: UpdateWorkspaceTemplateInput): Promise<UpdatedWorkspaceTemplate | WorkspaceProductStoreFailure | null> {
+    this.ensureSchema();
+
     const existing = this.ctx.storage.sql
       .exec<Pick<TemplateRow, "id" | "name" | "description" | "current_version">>(
         `SELECT id, name, description, current_version
@@ -279,6 +282,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async deleteTemplate(templateId: string): Promise<boolean> {
+    this.ensureSchema();
+
     const existing = this.ctx.storage.sql
       .exec<Pick<TemplateRow, "id">>(
         `SELECT id
@@ -306,6 +311,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async validateTemplateForDocumentSubmission(templateId: string): Promise<WorkspaceSubmissionTemplate | WorkspaceProductStoreFailure> {
+    this.ensureSchema();
+
     const template = this.ctx.storage.sql
       .exec<SubmissionTemplateRow>(
         `SELECT id, current_version
@@ -341,6 +348,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async createQueuedExtractionJob(input: CreateQueuedWorkspaceExtractionJobInput): Promise<QueuedWorkspaceExtractionJob | WorkspaceProductStoreFailure> {
+    this.ensureSchema();
+
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec(
         `INSERT INTO source_files (key, job_id, mime_type, name, created_at, deleted_at)
@@ -380,6 +389,10 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async failQueuedExtractionJob(input: FailQueuedWorkspaceExtractionJobInput): Promise<boolean> {
+    if (!this.ensureExistingSchema()) {
+      return false;
+    }
+
     let changed = 0;
     this.ctx.storage.transactionSync(() => {
       const result = this.ctx.storage.sql.exec(
@@ -414,6 +427,10 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async startExtractionWorkflow(input: StartExtractionWorkflowInput): Promise<boolean> {
+    if (!this.ensureExistingSchema()) {
+      return false;
+    }
+
     const result = this.ctx.storage.sql.exec(
       `UPDATE jobs
        SET workflow_instance_id = ?,
@@ -434,6 +451,10 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async noteExtractionWorkflowStartFailure(input: NoteExtractionWorkflowStartFailureInput): Promise<void> {
+    if (!this.ensureExistingSchema()) {
+      return;
+    }
+
     this.ctx.storage.sql.exec(
       `UPDATE jobs
        SET error_code = ?,
@@ -449,6 +470,10 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async claimExtractionJobForProcessing(input: ClaimWorkspaceExtractionJobForProcessingInput): Promise<ClaimedWorkspaceExtractionJob | null> {
+    if (!this.ensureExistingSchema()) {
+      return null;
+    }
+
     let claimed: ClaimedWorkspaceExtractionJob | null = null;
 
     this.ctx.storage.transactionSync(() => {
@@ -528,6 +553,10 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async completeExtractionJob(input: CompleteWorkspaceExtractionJobInput): Promise<boolean> {
+    if (!this.ensureExistingSchema()) {
+      return false;
+    }
+
     let completed = false;
 
     this.ctx.storage.transactionSync(() => {
@@ -602,6 +631,10 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async failExtractionJob(input: FailWorkspaceExtractionJobInput): Promise<boolean> {
+    if (!this.ensureExistingSchema()) {
+      return false;
+    }
+
     const result = this.ctx.storage.sql.exec(
       `UPDATE jobs
        SET status = 'failed',
@@ -627,6 +660,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async listExtractionJobs(input: ListWorkspaceExtractionJobsInput): Promise<ListWorkspaceExtractionJobsResult> {
+    this.ensureSchema();
+
     const filters = ["status IN ('queued', 'processing', 'completed', 'failed')"];
     const params: Array<string | number> = [];
     const search = input.search.trim().slice(0, 120);
@@ -682,6 +717,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async getExtractionJob(jobId: string): Promise<WorkspaceExtractionJobDetail | null> {
+    this.ensureSchema();
+
     const job = this.ctx.storage.sql
       .exec<ExtractionJobRow>(
         `SELECT id, status, template_id, template_version, source_name, error_code, error_message,
@@ -761,6 +798,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async getExtractionJobDeletionCandidate(jobId: string): Promise<WorkspaceExtractionJobDeletionCandidate | null> {
+    this.ensureSchema();
+
     const job = this.ctx.storage.sql
       .exec<{ id: string; source_file_key: string | null }>(
         `SELECT id, source_file_key
@@ -781,6 +820,8 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async deleteExtractionJob(input: DeleteWorkspaceExtractionJobInput): Promise<boolean> {
+    this.ensureSchema();
+
     let deleted = false;
 
     this.ctx.storage.transactionSync(() => {
@@ -814,6 +855,10 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async markSourceFileCleaned(input: MarkWorkspaceSourceFileCleanedInput): Promise<boolean> {
+    if (!this.ensureExistingSchema()) {
+      return false;
+    }
+
     const result = this.ctx.storage.sql.exec(
       `UPDATE source_files
        SET deleted_at = COALESCE(deleted_at, ?)
@@ -827,6 +872,10 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   async listResidualSourceFilesForCleanup(input: ListWorkspaceResidualSourceFilesForCleanupInput): Promise<WorkspaceResidualSourceFile[]> {
+    if (!this.ensureExistingSchema()) {
+      return [];
+    }
+
     const limit = Math.max(1, Math.min(input.limit, 100));
 
     return this.ctx.storage.sql
@@ -843,6 +892,15 @@ export class WorkspaceProductStore extends DurableObject<Env> {
         job_id: row.job_id,
         source_file_key: row.key,
       }));
+  }
+
+  async eraseWorkspaceProductData(): Promise<void> {
+    for (const socket of this.ctx.getWebSockets()) {
+      socket.close(1000, "Workspace deleted");
+    }
+
+    await this.ctx.storage.deleteAll();
+    this.schemaReady = false;
   }
 
   private broadcastExtractionJobLifecycle(jobId: string): void {
@@ -867,6 +925,10 @@ export class WorkspaceProductStore extends DurableObject<Env> {
   }
 
   private readExtractionJobSummary(jobId: string): WorkspaceExtractionJobSummary | null {
+    if (!this.ensureExistingSchema()) {
+      return null;
+    }
+
     const row = this.ctx.storage.sql
       .exec<ExtractionJobRow>(
         `SELECT id, status, template_id, template_version, source_name, error_code, error_message,
@@ -899,7 +961,34 @@ export class WorkspaceProductStore extends DurableObject<Env> {
     };
   }
 
+  private ensureExistingSchema(): boolean {
+    if (!this.hasProductSchema()) {
+      return false;
+    }
+
+    this.ensureSchema();
+    return true;
+  }
+
+  private hasProductSchema(): boolean {
+    if (this.schemaReady) {
+      return true;
+    }
+
+    const row = this.ctx.storage.sql
+      .exec<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'product_schema_migrations'",
+      )
+      .toArray()[0];
+
+    return Boolean(row);
+  }
+
   private ensureSchema(): void {
+    if (this.schemaReady) {
+      return;
+    }
+
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS product_schema_migrations (
          version INTEGER PRIMARY KEY,
@@ -911,6 +1000,7 @@ export class WorkspaceProductStore extends DurableObject<Env> {
       .exec<SchemaVersionRow>("SELECT COALESCE(MAX(version), 0) AS version FROM product_schema_migrations")
       .one();
     if (Number(current.version) >= WORKSPACE_PRODUCT_SCHEMA_VERSION) {
+      this.schemaReady = true;
       return;
     }
 
@@ -1010,6 +1100,7 @@ export class WorkspaceProductStore extends DurableObject<Env> {
         new Date().toISOString(),
       );
     });
+    this.schemaReady = true;
   }
 }
 

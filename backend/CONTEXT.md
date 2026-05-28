@@ -227,6 +227,8 @@ _Avoid_: object marker parsing, nested field table
 - **Workspace control data** includes account/session records, Workspace records, Workspace memberships, Workspace invitations, and Workspace API key lookup.
 - **Workspace product data** includes Templates, Template fields and versions, Extraction jobs, Extraction results, and Source file metadata.
 - **Workspace product data** includes Source file metadata, not Source file binary contents.
+- Deleting a **Workspace** hard-erases its authoritative **Workspace product data** and associated **Source file** binary contents.
+- **Workspace** deletion wins over in-flight **Extraction processing**; late background work must not recreate hard-erased **Workspace product data**.
 - Cross-workspace summaries of **Workspace product data** are rebuildable read models, not the authority for workspace-scoped product APIs.
 - Workspace-scoped product API responses must come from authoritative **Workspace product data**, not from cross-workspace projections.
 - The first Workspace product data scale-out does not introduce a global D1 projection of **Workspace product data**.
@@ -237,6 +239,7 @@ _Avoid_: object marker parsing, nested field table
 - Workspace membership and **Workspace API key** authorization are checked against **Workspace control data** before routing to authoritative **Workspace product data**.
 - **Workspace product analytics** may include stable product identifiers such as Workspace ID, Template ID, and Extraction job ID when needed for aggregate usage analysis or operational debugging.
 - **Workspace product analytics** must not include extracted answers, evidence text, Source file names, account emails, API keys, or Document contents.
+- **Workspace product analytics** is not authoritative **Workspace product data** and is not part of Workspace deletion hard-erasure.
 - **Workspace live updates** notify clients about **Extraction job lifecycle** changes after authoritative **Workspace product data** has been persisted.
 - **Workspace live updates** cover all **Extraction job lifecycle** changes for the accepted **Workspace context**, not only the currently selected Extraction job.
 - **Workspace live updates** are not durable history; clients revalidate authoritative **Workspace product data** after reconnecting.
@@ -304,6 +307,8 @@ _Avoid_: object marker parsing, nested field table
 - A **Pending workspace invitation context** is locked until the **Workspace invitation** is accepted or declined.
 - **Workspace control data** identifies which **Workspace product data** a user or **Workspace API key** may access.
 - **Workspace product data** belongs to exactly one **Workspace**.
+- A deleted **Workspace** has no remaining authoritative **Workspace product data**.
+- In-flight **Extraction processing** for a deleted **Workspace** may finish externally, but it has no **Extraction job lifecycle** state to update after hard-erasure.
 - A **Document** has exactly one **Source file** at submission time.
 - A **Document** submitted with a **Template** creates one **Extraction job**.
 - An **Extraction job lifecycle** is coordinated by authoritative **Workspace product data** and executed by an **Extraction processor** after the **Extraction job** is queued.
