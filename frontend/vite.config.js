@@ -13,7 +13,8 @@ export default defineConfig({
       },
       "/v1": {
         target: "http://localhost:8787",
-        changeOrigin: true
+        changeOrigin: true,
+        ws: true
       }
     }
   }

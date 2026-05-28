@@ -1,153 +1,106 @@
 import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
-import { deleteTemplateCascade } from "../lib/cascadeDelete";
 import { parseJsonBody, validateTemplatePayload } from "../lib/validation";
-import type { FieldDefinition, Workspace } from "../lib/types";
+import { emitWorkspaceProductAnalytics } from "../lib/workspaceProductAnalytics";
+import { getWorkspaceProductStore, isWorkspaceProductStoreFailure } from "../lib/workspaceProductStoreClient";
+import type { Workspace } from "../lib/types";
 
-export async function createTemplate(request: Request, db: D1Database, workspace: Workspace): Promise<Response> {
+export async function createTemplate(request: Request, env: Env, workspace: Workspace): Promise<Response> {
   const payload = validateTemplatePayload(parseJsonBody(await request.text()));
+  if (!payload.name) {
+    throw new HttpError(400, "invalid_name", "Template name is required");
+  }
 
   const templateId = newId("tpl");
   const now = nowIso();
   const fields = payload.fields || [];
 
-  await db.batch([
-    db
-      .prepare(
-        `INSERT INTO templates (id, workspace_id, name, description, status, current_version, created_at, updated_at, deleted_at)
-         VALUES (?, ?, ?, ?, 'active', 1, ?, ?, NULL)`
-      )
-      .bind(templateId, workspace.id, payload.name, payload.description || null, now, now),
-    ...fieldInsertStatements(db, templateId, 1, fields)
-  ]);
+  const productStore = getWorkspaceProductStore(env, workspace.id);
+  const created = await productStore.createTemplate({
+    templateId,
+    name: payload.name,
+    description: payload.description || null,
+    fields,
+    createdAt: now,
+    maxTemplates: workspace.max_templates,
+    maxFieldsPerTemplate: workspace.max_fields_per_template,
+  });
+  if (isWorkspaceProductStoreFailure(created)) {
+    throw new HttpError(created.error.status, created.error.code, created.error.message);
+  }
 
-  return json({
-    template_id: templateId,
-    version: 1,
-    status: "active"
-  }, 201);
+  emitWorkspaceProductAnalytics(env, {
+    type: "template_created",
+    workspaceId: workspace.id,
+    templateId: created.template_id,
+    templateVersion: created.version,
+    status: created.status,
+    fieldCount: fields.length,
+  });
+
+  return json(created, 201);
 }
 
-export async function listTemplates(db: D1Database, workspace: Workspace): Promise<Response> {
-  const result = await db
-    .prepare(
-      `SELECT id, name, description, status, current_version, created_at, updated_at
-       FROM templates
-       WHERE workspace_id = ? AND deleted_at IS NULL
-       ORDER BY created_at DESC`
-    )
-    .bind(workspace.id)
-    .all<Record<string, unknown>>();
-
-  return json({ templates: result.results });
+export async function listTemplates(env: Env, workspace: Workspace): Promise<Response> {
+  const productStore = getWorkspaceProductStore(env, workspace.id);
+  return json({ templates: await productStore.listTemplates() });
 }
 
-export async function getTemplate(db: D1Database, workspace: Workspace, id: string): Promise<Response> {
-  const template = await db
-    .prepare(
-      `SELECT id, name, description, status, current_version, created_at, updated_at
-       FROM templates
-       WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
-    )
-    .bind(id, workspace.id)
-    .first<Record<string, unknown>>();
-
+export async function getTemplate(env: Env, workspace: Workspace, id: string): Promise<Response> {
+  const productStore = getWorkspaceProductStore(env, workspace.id);
+  const template = await productStore.getTemplate(id);
   if (!template) {
     throw new HttpError(404, "not_found", "Template not found");
   }
 
-  const version = Number(template.current_version);
-  const fields = await db
-    .prepare(
-      `SELECT field_id AS id, name, description, data_type, position
-       FROM template_fields
-       WHERE template_id = ? AND version = ?
-       ORDER BY position ASC`
-    )
-    .bind(id, version)
-    .all<Record<string, unknown>>();
-
-  return json({
-    ...template,
-    fields: fields.results
-  });
+  return json(template);
 }
 
 export async function updateTemplate(
   request: Request,
-  db: D1Database,
+  env: Env,
   workspace: Workspace,
   id: string
 ): Promise<Response> {
-  const existing = await db
-    .prepare("SELECT id, name, description, current_version FROM templates WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL")
-    .bind(id, workspace.id)
-    .first<{ id: string; name: string; description: string | null; current_version: number }>();
+  const patch = validateTemplatePayload(parseJsonBody(await request.text()), true);
+  const now = nowIso();
 
-  if (!existing) {
+  const productStore = getWorkspaceProductStore(env, workspace.id);
+  const updated = await productStore.updateTemplate({
+    templateId: id,
+    name: patch.name,
+    description: patch.description,
+    fields: patch.fields,
+    updatedAt: now,
+    maxFieldsPerTemplate: workspace.max_fields_per_template,
+  });
+
+  if (isWorkspaceProductStoreFailure(updated)) {
+    throw new HttpError(updated.error.status, updated.error.code, updated.error.message);
+  }
+
+  if (!updated) {
     throw new HttpError(404, "not_found", "Template not found");
   }
 
-  const patch = validateTemplatePayload(parseJsonBody(await request.text()), true);
-  const now = nowIso();
-  const nextVersion = patch.fields ? Number(existing.current_version) + 1 : Number(existing.current_version);
-
-  const statements: D1PreparedStatement[] = [
-    db
-      .prepare(
-        `UPDATE templates
-         SET name = ?, description = ?, current_version = ?, updated_at = ?
-         WHERE id = ? AND workspace_id = ?`
-      )
-      .bind(
-        patch.name ?? existing.name,
-        patch.description !== undefined ? patch.description : existing.description,
-        nextVersion,
-        now,
-        id,
-        workspace.id
-      )
-  ];
-
-  if (patch.fields) {
-    statements.push(...fieldInsertStatements(db, id, nextVersion, patch.fields));
-  }
-
-  await db.batch(statements);
-
-  return json({
-    template_id: id,
-    version: nextVersion,
-    status: "active"
+  emitWorkspaceProductAnalytics(env, {
+    type: "template_updated",
+    workspaceId: workspace.id,
+    templateId: updated.template_id,
+    templateVersion: updated.version,
+    status: updated.status,
+    fieldCount: patch.fields?.length || 0,
   });
+
+  return json(updated);
 }
 
 export async function deleteTemplate(env: Env, workspace: Workspace, id: string): Promise<Response> {
-  await deleteTemplateCascade(env, workspace, id);
-  return new Response(null, { status: 204 });
-}
+  const productStore = getWorkspaceProductStore(env, workspace.id);
+  const deleted = await productStore.deleteTemplate(id);
+  if (!deleted) {
+    throw new HttpError(404, "not_found", "Template not found");
+  }
 
-function fieldInsertStatements(
-  db: D1Database,
-  templateId: string,
-  version: number,
-  fields: FieldDefinition[]
-): D1PreparedStatement[] {
-  return fields.map((field, index) =>
-    db
-      .prepare(
-        `INSERT INTO template_fields (template_id, version, field_id, name, description, data_type, required, position)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        templateId,
-        version,
-        field.id,
-        field.name,
-        field.description,
-        field.data_type,
-        1,
-        index
-      )
-  );
+  return new Response(null, { status: 204 });
 }

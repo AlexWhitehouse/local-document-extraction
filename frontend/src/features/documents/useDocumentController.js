@@ -9,6 +9,7 @@ const DEFAULT_OPTIONS = {
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
 export function useDocumentController({
+  apiBase = "/v1",
   initialWorkspace = {},
   templates,
   selectedUploadTemplateId,
@@ -45,9 +46,17 @@ export function useDocumentController({
   );
   const [documentSearch, setDocumentSearch] = useState("");
   const [debouncedDocumentSearch, setDebouncedDocumentSearch] = useState("");
+  const [liveUpdatesUnavailable, setLiveUpdatesUnavailable] = useState(false);
 
   const previewUrlsRef = useRef(new Set());
   const completedDocumentCacheRef = useRef(createCompletedDocumentCache());
+  const liveUpdateSocketRef = useRef(null);
+  const liveUpdateReconnectTimerRef = useRef(null);
+  const liveCompletedDetailLoadsRef = useRef(new Set());
+  const normalizedWorkspaceId = String(workspaceId || "").trim();
+  const canOpenLiveUpdates =
+    hasApiAccess && Boolean(normalizedWorkspaceId) && typeof WebSocket === "function";
+  const shouldUseLiveUpdates = canOpenLiveUpdates && !liveUpdatesUnavailable;
 
   const documents = useMemo(() => {
     const query = debouncedDocumentSearch.trim().toLowerCase();
@@ -130,13 +139,27 @@ export function useDocumentController({
     if (!documents.length) {
       return 0;
     }
+
+    const completedDocuments = documents.filter(
+      (document) => !LIVE_DOCUMENT_STATUSES.has(document.status),
+    ).length;
+
     return Math.round(
-      (documentStatusMetrics.completed / documents.length) * 100,
+      (completedDocuments / documents.length) * 100,
     );
-  }, [documentStatusMetrics.completed, documents.length]);
+  }, [documents]);
 
   function clearCompletedDocumentCache() {
     completedDocumentCacheRef.current.clearAll();
+  }
+
+  function clearLiveUpdateReconnectTimer() {
+    if (!liveUpdateReconnectTimerRef.current) {
+      return;
+    }
+
+    window.clearTimeout(liveUpdateReconnectTimerRef.current);
+    liveUpdateReconnectTimerRef.current = null;
   }
 
   function clearWorkspaceScopedDocuments() {
@@ -147,6 +170,7 @@ export function useDocumentController({
     setSelectedDocumentId("");
     setLastJobId("");
     setLatestResponse(null);
+    liveCompletedDetailLoadsRef.current.clear();
   }
 
   function upsertJobHistory(job) {
@@ -159,6 +183,7 @@ export function useDocumentController({
       const existing =
         prev.find((entry) => entry.job_id === job.job_id) || null;
       const normalized = {
+        ...existing,
         ...job,
         source_name:
           queuedMeta?.source_name ||
@@ -175,8 +200,13 @@ export function useDocumentController({
           existing?.source_mime_type ||
           job.source_mime_type ||
           null,
+        created_at:
+          job.created_at ||
+          existing?.created_at ||
+          queuedMeta?.queued_at ||
+          null,
         queued_at:
-          queuedMeta?.queued_at || existing?.queued_at || job.queued_at || null,
+          job.queued_at || existing?.queued_at || queuedMeta?.queued_at || null,
         updated_at:
           job.updated_at ||
           existing?.updated_at ||
@@ -201,10 +231,11 @@ export function useDocumentController({
               ? existing.last_failed_attempt
               : 0,
       };
-      const next = [
-        normalized,
-        ...prev.filter((entry) => entry.job_id !== job.job_id),
-      ];
+      const next = existing
+        ? prev.map((entry) =>
+            entry.job_id === job.job_id ? normalized : entry,
+          )
+        : [normalized, ...prev];
       next.sort((a, b) => {
         const left = getDocumentSortTimestamp(b);
         const right = getDocumentSortTimestamp(a);
@@ -222,7 +253,6 @@ export function useDocumentController({
         delete next[job.job_id];
         return next;
       });
-      setSelectedDocumentId(job.job_id);
     }
   }
 
@@ -319,6 +349,7 @@ export function useDocumentController({
       );
       upsertJobHistory(data);
       completedDocumentCacheRef.current.store(workspaceId, data);
+      return data;
     } catch (error) {
       if (Number(error?.status) === 404) {
         completedDocumentCacheRef.current.remove(workspaceId, normalizedJobId);
@@ -327,6 +358,7 @@ export function useDocumentController({
       if (!silent) {
         addLog(`Load job details failed: ${error.message}`);
       }
+      return null;
     } finally {
       if (showLoading) {
         setLoadingDocumentDetailsId((currentId) =>
@@ -621,12 +653,69 @@ export function useDocumentController({
 
   useEffect(() => {
     if (!hasApiAccess) {
+      clearLiveUpdateReconnectTimer();
+      liveUpdateSocketRef.current?.close();
+      liveUpdateSocketRef.current = null;
+      setLiveUpdatesUnavailable(false);
       clearWorkspaceScopedDocuments();
       return;
     }
 
     void listJobs();
   }, [debouncedDocumentSearch, hasApiAccess, workspaceId]);
+
+  useEffect(() => {
+    if (!canOpenLiveUpdates || liveUpdatesUnavailable) {
+      if (!canOpenLiveUpdates) {
+        clearLiveUpdateReconnectTimer();
+      }
+      liveUpdateSocketRef.current?.close();
+      liveUpdateSocketRef.current = null;
+      if (!canOpenLiveUpdates) {
+        setLiveUpdatesUnavailable(false);
+      }
+      return;
+    }
+
+    clearLiveUpdateReconnectTimer();
+    const socket = new WebSocket(createWorkspaceLiveUpdateUrl(apiBase, normalizedWorkspaceId));
+    liveUpdateSocketRef.current = socket;
+    setLiveUpdatesUnavailable(false);
+    socket.onopen = () => {
+      if (liveUpdateSocketRef.current === socket) {
+        setLiveUpdatesUnavailable(false);
+      }
+    };
+    const scheduleReconnect = () => {
+      if (liveUpdateSocketRef.current === socket) {
+        liveUpdateSocketRef.current = null;
+        setLiveUpdatesUnavailable(true);
+        clearLiveUpdateReconnectTimer();
+        liveUpdateReconnectTimerRef.current = window.setTimeout(() => {
+          liveUpdateReconnectTimerRef.current = null;
+          setLiveUpdatesUnavailable(false);
+          void listJobs();
+        }, 1000);
+      }
+    };
+    socket.onclose = scheduleReconnect;
+    socket.onerror = () => {
+      scheduleReconnect();
+    };
+    socket.onmessage = (event) => {
+      for (const job of parseWorkspaceLiveUpdateJobs(event?.data)) {
+        upsertJobHistory(job);
+      }
+    };
+
+    return () => {
+      if (liveUpdateSocketRef.current === socket) {
+        liveUpdateSocketRef.current = null;
+        clearLiveUpdateReconnectTimer();
+      }
+      socket.close();
+    };
+  }, [apiBase, canOpenLiveUpdates, liveUpdatesUnavailable, normalizedWorkspaceId]);
 
   useEffect(() => {
     if (!hasApiAccess || !selectedDocumentId.trim()) {
@@ -640,7 +729,7 @@ export function useDocumentController({
   }, [hasApiAccess, selectedDocumentId]);
 
   useEffect(() => {
-    if (!hasApiAccess || !selectedDocumentId.trim()) {
+    if (!hasApiAccess || !selectedDocumentId.trim() || shouldUseLiveUpdates) {
       return;
     }
 
@@ -656,7 +745,44 @@ export function useDocumentController({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [hasApiAccess, selectedDocumentId, selectedDocument?.status]);
+  }, [hasApiAccess, selectedDocumentId, selectedDocument?.status, shouldUseLiveUpdates]);
+
+  useEffect(() => {
+    if (!hasApiAccess || !selectedDocumentId.trim() || !shouldUseLiveUpdates) {
+      return;
+    }
+
+    const selectedId = String(selectedDocument?.job_id || selectedDocumentId).trim();
+    if (!selectedId || selectedDocument?.status !== "completed") {
+      return;
+    }
+
+    if (liveCompletedDetailLoadsRef.current.has(selectedId)) {
+      return;
+    }
+
+    if (Array.isArray(selectedDocument.results) && selectedDocument.results.length > 0) {
+      liveCompletedDetailLoadsRef.current.add(selectedId);
+      return;
+    }
+
+    liveCompletedDetailLoadsRef.current.add(selectedId);
+    void loadJobDetails(selectedId, {
+      silent: true,
+      showLoading: true,
+    }).then((data) => {
+      if (!data) {
+        liveCompletedDetailLoadsRef.current.delete(selectedId);
+      }
+    });
+  }, [
+    hasApiAccess,
+    selectedDocumentId,
+    selectedDocument?.job_id,
+    selectedDocument?.results,
+    selectedDocument?.status,
+    shouldUseLiveUpdates,
+  ]);
 
   return {
     contextList: {
@@ -724,6 +850,37 @@ function defaultUploadedName(sourceMimeType) {
     return "Uploaded Document";
   }
   return "Uploaded Source file";
+}
+
+function createWorkspaceLiveUpdateUrl(apiBase, workspaceId) {
+  const basePath = String(apiBase || "/v1").replace(/\/+$/, "") || "/v1";
+  const url = new URL(
+    `${basePath}/workspaces/${encodeURIComponent(workspaceId)}/live`,
+    window.location.origin,
+  );
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
+
+function parseWorkspaceLiveUpdateJobs(message) {
+  if (typeof message !== "string") {
+    return [];
+  }
+
+  let envelope;
+  try {
+    envelope = JSON.parse(message);
+  } catch {
+    return [];
+  }
+
+  if (Number(envelope?.version) !== 1 || !Array.isArray(envelope?.events)) {
+    return [];
+  }
+
+  return envelope.events
+    .filter((event) => event?.type === "extraction_job_lifecycle" && event?.job?.job_id)
+    .map((event) => event.job);
 }
 
 function getDocumentSortTimestamp(job) {

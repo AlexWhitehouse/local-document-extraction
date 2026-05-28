@@ -80,6 +80,7 @@ describe("Workspace action toast feedback", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("stores only accepted Workspace ID and display name in Stored workspace preference", async () => {
@@ -1690,7 +1691,8 @@ describe("Workspace action toast feedback", () => {
     expect(screen.queryByText("No files selected")).toBeNull();
   });
 
-  it("keeps polling while a selected document is processing", async () => {
+  it("keeps polling while a selected document is processing when live updates are unavailable", async () => {
+    vi.stubGlobal("WebSocket", undefined);
     installLocalStorage({
       workspaceId: "ws_1",
       workspaceName: "Research Workspace",

@@ -36,6 +36,22 @@
 			"migrations_dir": "migrations",
 		},
 	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "WORKSPACE_PRODUCT_STORE",
+				"class_name": "WorkspaceProductStore",
+			},
+		],
+	},
+	"migrations": [
+		{
+			"tag": "v1_workspace_product_store",
+			"new_sqlite_classes": [
+				"WorkspaceProductStore",
+			],
+		},
+	],
 	"r2_buckets": [
 		{
 			"binding": "SOURCE_FILES_BUCKET",
@@ -68,6 +84,12 @@
 	"ai": {
 		"binding": "AI",
 	},
+	"analytics_engine_datasets": [
+		{
+			"binding": "WORKSPACE_PRODUCT_ANALYTICS",
+			"dataset": "workspace_product_analytics",
+		},
+	],
 	"send_email": [
 		{
 			"name": "EMAIL",

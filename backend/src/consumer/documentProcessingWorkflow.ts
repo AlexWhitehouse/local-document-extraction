@@ -3,13 +3,14 @@ import {
   type WorkflowEvent,
   type WorkflowStep,
 } from "cloudflare:workers";
-import {
-  claimExtractionJobForProcessing,
-  completeExtractionJob,
-  failExtractionJob,
-} from "../lib/extractionJobLifecycle";
 import { nowIso } from "../lib/ids";
-import type { FieldDefinition, DocumentProcessingWorkflowParams } from "../lib/types";
+import type { DocumentProcessingWorkflowParams } from "../lib/types";
+import { emitWorkspaceProductAnalytics } from "../lib/workspaceProductAnalytics";
+import {
+  getWorkspaceProductStore,
+  type ClaimedWorkspaceExtractionJob,
+  type WorkspaceProductStoreRpc,
+} from "../lib/workspaceProductStoreClient";
 import {
   type NormalizedModelField,
   normalizeModelResults,
@@ -57,15 +58,14 @@ export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
     step: WorkflowStep,
   ): Promise<void> {
     const params = event.payload;
-    const job = await step.do("load job", DB_STEP_CONFIG, async () =>
-      this.loadJob(params.job_id, params.workspace_id),
-    );
-    if (!job) {
-      return;
-    }
+    const productStore = getWorkspaceProductStore(this.env, params.workspace_id);
 
     const claimed = await step.do("claim job", DB_STEP_CONFIG, async () =>
-      this.claimJob(params.job_id, params.attempt),
+      productStore.claimExtractionJobForProcessing({
+        jobId: params.job_id,
+        attempt: params.attempt,
+        claimedAt: nowIso(),
+      }),
     );
     if (!claimed) {
       return;
@@ -76,19 +76,8 @@ export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
         "extract and persist",
         EXTRACT_PERSIST_STEP_CONFIG,
         async () => {
-          const freshJob = await this.loadJob(
-            params.job_id,
-            params.workspace_id,
-          );
-          if (!freshJob) {
-            throw new Error("missing_job");
-          }
-          const fields = await this.loadTemplateFields(
-            freshJob.template_id,
-            freshJob.template_version,
-          );
           const object = await this.env.SOURCE_FILES_BUCKET.get(
-            freshJob.source_file_key,
+            claimed.source_file_key,
           );
           if (!object) {
             throw new Error("missing_source_file");
@@ -96,21 +85,25 @@ export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
           const source = await object.arrayBuffer();
           const modelResults = await runExtraction(
             this.env,
-            fields,
+            claimed.fields,
             source,
-            freshJob.source_mime_type,
+            claimed.source_mime_type,
           );
-          const normalized = normalizeModelResults(fields, modelResults);
-          await this.completeJob(params.job_id, params.attempt, normalized);
+          const normalized = normalizeModelResults(claimed.fields, modelResults);
+          await this.completeJob(
+            productStore,
+            params.workspace_id,
+            params.job_id,
+            params.attempt,
+            claimed,
+            normalized,
+            source.byteLength,
+          );
           return { ok: true };
         },
       );
       await step.do("cleanup source file", CLEANUP_STEP_CONFIG, async () => {
-        const freshJob = await this.loadJob(params.job_id, params.workspace_id);
-        if (!freshJob) {
-          return { skipped: true };
-        }
-        await this.cleanupSource(freshJob.source_file_key, params.job_id);
+        await this.cleanupSource(productStore, params.job_id, claimed.source_file_key);
         return { ok: true };
       });
     } catch (error) {
@@ -121,71 +114,29 @@ export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
       const code = errorCode(error);
       const message = failureMessage(code, error);
       await step.do("mark failed", DB_STEP_CONFIG, async () =>
-        this.markFailed(params.job_id, params.attempt, code, message),
+        this.markFailed(
+          productStore,
+          params.workspace_id,
+          params.job_id,
+          params.attempt,
+          claimed,
+          code,
+          message,
+        ),
       );
     }
   }
 
-  private async loadJob(
-    jobId: string,
-    workspaceId: string,
-  ): Promise<{
-    template_id: string;
-    template_version: number;
-    source_file_key: string;
-    source_mime_type: string;
-  } | null> {
-    return (
-      (await this.env.DB.prepare(
-        `SELECT template_id, template_version, source_file_key, source_mime_type
-           FROM jobs
-           WHERE id = ? AND workspace_id = ?`,
-      )
-        .bind(jobId, workspaceId)
-        .first()) || null
-    );
-  }
-
-  private async claimJob(jobId: string, attempt: number): Promise<boolean> {
-    return claimExtractionJobForProcessing(this.env.DB, {
-      jobId,
-      attempt,
-      claimedAt: nowIso(),
-    });
-  }
-
-  private async loadTemplateFields(
-    templateId: string,
-    version: number,
-  ): Promise<FieldDefinition[]> {
-    const fieldsRows = await this.env.DB.prepare(
-      `SELECT field_id, name, description, data_type
-         FROM template_fields
-         WHERE template_id = ? AND version = ?
-         ORDER BY position ASC`,
-    )
-      .bind(templateId, version)
-      .all<{
-        field_id: string;
-        name: string;
-        description: string;
-        data_type: FieldDefinition["data_type"];
-      }>();
-
-    return fieldsRows.results.map((row) => ({
-      id: row.field_id,
-      name: row.name,
-      description: row.description,
-      data_type: row.data_type,
-    }));
-  }
-
   private async completeJob(
+    productStore: WorkspaceProductStoreRpc,
+    workspaceId: string,
     jobId: string,
     attempt: number,
+    claimed: ClaimedWorkspaceExtractionJob,
     normalized: NormalizedModelField[],
+    sourceByteSize: number,
   ): Promise<void> {
-    await completeExtractionJob(this.env.DB, {
+    const completed = await productStore.completeExtractionJob({
       jobId,
       attempt,
       completedAt: nowIso(),
@@ -193,37 +144,75 @@ export class DocumentProcessingWorkflow extends WorkflowEntrypoint<
       route: getAiGatewayId(this.env),
       results: normalized,
     });
+    if (!completed) {
+      return;
+    }
+
+    emitWorkspaceProductAnalytics(this.env, {
+      type: "extraction_completed",
+      workspaceId,
+      templateId: claimed.template_id,
+      templateVersion: claimed.template_version,
+      extractionJobId: jobId,
+      status: "completed",
+      attempt,
+      sourceMimeType: claimed.source_mime_type,
+      sourceByteSize,
+      modelName: getExtractionModelName(this.env),
+      fieldCount: claimed.fields.length,
+    });
   }
 
-  private async cleanupSource(sourceFileKey: string, jobId: string): Promise<void> {
+  private async cleanupSource(
+    productStore: WorkspaceProductStoreRpc,
+    jobId: string,
+    sourceFileKey: string,
+  ): Promise<void> {
     try {
       await this.env.SOURCE_FILES_BUCKET.delete(sourceFileKey);
-      const now = nowIso();
-      await this.env.DB.prepare(
-        "UPDATE jobs SET image_deleted_at = ?, updated_at = ? WHERE id = ?",
-      )
-        .bind(now, now, jobId)
-        .run();
+      await productStore.markSourceFileCleaned({
+        jobId,
+        sourceFileKey,
+        cleanedAt: nowIso(),
+      });
     } catch (cleanupError) {
       console.error("R2 cleanup failed", cleanupError);
     }
   }
 
   private async markFailed(
+    productStore: WorkspaceProductStoreRpc,
+    workspaceId: string,
     jobId: string,
     attempt: number,
+    claimed: ClaimedWorkspaceExtractionJob,
     code: string,
     message: string,
   ): Promise<void> {
-    await failExtractionJob(this.env.DB, {
+    const failed = await productStore.failExtractionJob({
       jobId,
       attempt,
       failedAt: nowIso(),
       errorCode: code,
       errorMessage: message,
     });
-  }
+    if (!failed) {
+      return;
+    }
 
+    emitWorkspaceProductAnalytics(this.env, {
+      type: "extraction_failed",
+      workspaceId,
+      templateId: claimed.template_id,
+      templateVersion: claimed.template_version,
+      extractionJobId: jobId,
+      status: "failed",
+      attempt,
+      sourceMimeType: claimed.source_mime_type,
+      errorCode: code,
+      fieldCount: claimed.fields.length,
+    });
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -237,18 +226,12 @@ function errorCode(error: unknown): string {
   if (errorMessage(error) === "missing_source_file") {
     return "missing_source_file";
   }
-  if (errorMessage(error) === "missing_job") {
-    return "missing_job";
-  }
   return "processing_error";
 }
 
 function failureMessage(code: string, error: unknown): string {
   if (code === "missing_source_file") {
     return "Source file is missing from storage";
-  }
-  if (code === "missing_job") {
-    return "Job is missing or no longer belongs to the workspace";
   }
   return errorMessage(error);
 }

@@ -238,6 +238,7 @@ _Avoid_: frontend auth mode, session replacement
 - Use **Document** synonymously for supported source formats, including PNG, JPEG, WebP, and PDF, unless a standards-level MIME type must be named.
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
 - A **Document** submitted with a **Template** creates one **Extraction job** in the document list.
+- The header Documents count represents the total number of durable **Extraction jobs** in the current accepted **Workspace** across `queued`, `processing`, `completed`, and `failed`, regardless of pagination, search, or how many list rows the frontend has loaded.
 - A **Template** has one or more **Template fields** displayed and edited by the frontend.
 - **Template fields** are always requested during extraction; the template editing UI does not offer required/optional field controls.
 - An **Extraction job** shows results for the **Template version** used when the Document was submitted.

@@ -125,6 +125,7 @@ function AuthenticatedApp() {
   const isEditingTemplate = templateController.templatePage.isEditingTemplate;
 
   const documentController = useDocumentController({
+    apiBase,
     initialWorkspace,
     templates,
     selectedUploadTemplateId: templateController.selectedUploadTemplateId,

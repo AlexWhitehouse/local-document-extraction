@@ -3,7 +3,7 @@ import { admin } from "better-auth/plugins";
 import { renderAccountEmailVerificationEmail } from "./email/accountEmailVerification";
 import { renderAccountPasswordResetEmail } from "./email/accountPasswordReset";
 import { scheduleTransactionalEmailSend } from "./email/transactionalEmail";
-import { createStarterInvoiceTemplate } from "./starterTemplateAdapter";
+import { createWorkspaceProductStarterInvoiceTemplate } from "./starterTemplateAdapter";
 import { bootstrapWorkspaceForNewUser } from "./workspacePolicy";
 
 type AuthEnv = Env & {
@@ -140,5 +140,5 @@ export function createAuth(env: AuthEnv, request: Request, ctx?: ExecutionContex
 }
 
 async function bootstrapUserWorkspace(env: Env, userId: string, userName: string) {
-  await bootstrapWorkspaceForNewUser(env.DB, { userId, userName }, createStarterInvoiceTemplate(env.DB));
+  await bootstrapWorkspaceForNewUser(env.DB, { userId, userName }, createWorkspaceProductStarterInvoiceTemplate(env));
 }
