@@ -68,6 +68,22 @@ _Avoid_: frontend session key, user token
 The opaque generated string format for **Workspace API keys**.
 _Avoid_: user-facing key schema, guaranteed key length
 
+**Workspace control data**:
+Durable access and identity records needed to locate and authorize a **Workspace**.
+_Avoid_: global workspace data, aggregate workspace data
+
+**Workspace product data**:
+Workspace-owned extraction configuration and processing records created inside an **Accepted workspace context**.
+_Avoid_: app data, tenant payload, aggregate data
+
+**Workspace product analytics**:
+Aggregate event data about **Workspace product data** usage that excludes customer content and identity data.
+_Avoid_: product data projection, audit log, source of truth
+
+**Workspace live update**:
+A realtime notification about changed **Workspace product data** for an accepted **Workspace context**.
+_Avoid_: polling replacement for all data, durable event log, analytics event
+
 **Leave Workspace**:
 A self-service action where a non-owner workspace member removes only their own **Workspace membership**.
 _Avoid_: exit group, delete access
@@ -91,6 +107,10 @@ _Avoid_: job, document, processing task
 **Extraction job lifecycle**:
 The durable state progression for an **Extraction job** from submission through Cloudflare Workflow processing, result persistence, completion, failure, and **Source file** cleanup.
 _Avoid_: job status helpers, queue state, workflow flag
+
+**Extraction processor**:
+The background execution path that performs model extraction work for an **Extraction job**.
+_Avoid_: job state owner, queue state machine
 
 **Extraction result**:
 The completed output value for a **Template field** in an **Extraction job**.
@@ -203,6 +223,26 @@ _Avoid_: object marker parsing, nested field table
 - **Workspace API keys** do not create browser sessions or authenticate access to the SPA shell.
 - **Workspace API key** material is visible only immediately after creation or rotation because the backend stores only a hash.
 - **Workspace API key format** is opaque to users and clients beyond being passed as a bearer token.
+- **Workspace API key** lookup is **Workspace control data** so external clients do not need to provide Workspace context before authentication.
+- **Workspace control data** includes account/session records, Workspace records, Workspace memberships, Workspace invitations, and Workspace API key lookup.
+- **Workspace product data** includes Templates, Template fields and versions, Extraction jobs, Extraction results, and Source file metadata.
+- **Workspace product data** includes Source file metadata, not Source file binary contents.
+- Cross-workspace summaries of **Workspace product data** are rebuildable read models, not the authority for workspace-scoped product APIs.
+- Workspace-scoped product API responses must come from authoritative **Workspace product data**, not from cross-workspace projections.
+- The first Workspace product data scale-out does not introduce a global D1 projection of **Workspace product data**.
+- The first Workspace product data scale-out does not require automated migration of existing **Workspace product data**.
+- The current scale model optimizes for many Workspaces across the application, not one Workspace with unbounded product data.
+- Workspace limit configuration is **Workspace control data**.
+- Workspace limits that depend on counting Templates, Template fields, Extraction jobs, or Extraction results are enforced against authoritative **Workspace product data**.
+- Workspace membership and **Workspace API key** authorization are checked against **Workspace control data** before routing to authoritative **Workspace product data**.
+- **Workspace product analytics** may include stable product identifiers such as Workspace ID, Template ID, and Extraction job ID when needed for aggregate usage analysis or operational debugging.
+- **Workspace product analytics** must not include extracted answers, evidence text, Source file names, account emails, API keys, or Document contents.
+- **Workspace live updates** notify clients about **Extraction job lifecycle** changes after authoritative **Workspace product data** has been persisted.
+- **Workspace live updates** cover all **Extraction job lifecycle** changes for the accepted **Workspace context**, not only the currently selected Extraction job.
+- **Workspace live updates** are not durable history; clients revalidate authoritative **Workspace product data** after reconnecting.
+- The first **Workspace live update** capability is session-only for the SPA; Workspace API keys do not open live update connections.
+- **Workspace live updates** use a versioned batch message envelope.
+- **Workspace live updates** must not include extracted answers, evidence text, Source file binary contents, account emails, API keys, or Document contents.
 - Creating a **Workspace** and generating a **Workspace API key** are separate user intents.
 - `POST /v1/workspaces` returns the new accepted **Workspace context** with `has_api_key: false` and no **Workspace API key** secret.
 - First-login Workspace bootstrap creates the accepted **Workspace** and starter template, not visible external-client **Workspace API key** material.
@@ -233,16 +273,23 @@ _Avoid_: object marker parsing, nested field table
 - Use **Document** synonymously for supported source formats, including PNG, JPEG, WebP, and PDF, unless a standards-level MIME type must be named.
 - The background workflow that processes submitted **Documents** should be named `documentProcessingWorkflow` in application-owned code.
 - R2 storage for **Source files** should use non-legacy **Document** or **Source file** naming for both Worker bindings and physical bucket names.
+- R2 remains the authoritative binary store for **Source files**.
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
 - Cloudflare Workflow retry steps, not **Extraction job** status values, own retryability for transient processing failures.
 - Do not model retryability with a durable `retryable_failed` **Extraction job** status.
 - The durable **Extraction job lifecycle** states are `queued`, `processing`, `completed`, and `failed`.
+- Authoritative **Extraction job lifecycle** state belongs to **Workspace product data**.
+- The **Extraction processor** performs long-running extraction work but does not own authoritative **Extraction job lifecycle** state.
 - Cloudflare Workflow instance details are implementation metadata, not durable **Extraction job lifecycle** states.
 - After Cloudflare Workflow receives an AI gateway response, **Extraction results** should be persisted and the **Extraction job** should be marked `completed`.
+- A completed **Extraction job** should not retain its **Source file** binary after processing cleanup succeeds.
+- If queuing an **Extraction processor** fails during Document submission, the **Extraction job** is marked `failed` and the uploaded **Source file** is deleted.
+- **Workspace** deletion cleanup sweeps residual **Source files** that normal **Extraction job lifecycle** cleanup did not delete.
 - A **Template** must have at least one **Template field** before it can be used for extraction.
 - Changing **Template fields** creates a new **Template version**.
 - An **Extraction job** is interpreted against the **Template version** selected at submission time.
 - An **Extraction result** may include confidence and evidence when requested.
+- Authoritative **Template** existence, status, current version, field count, version creation, and deletion checks belong to **Workspace product data**.
 
 ## Relationships
 
@@ -255,9 +302,11 @@ _Avoid_: object marker parsing, nested field table
 - **Leave Workspace** removes a non-owner member's **Workspace membership** without deleting the **Workspace**.
 - **Leave Workspace** creates a **Replacement personal Workspace** when it removes the user's last accepted **Workspace**.
 - A **Pending workspace invitation context** is locked until the **Workspace invitation** is accepted or declined.
+- **Workspace control data** identifies which **Workspace product data** a user or **Workspace API key** may access.
+- **Workspace product data** belongs to exactly one **Workspace**.
 - A **Document** has exactly one **Source file** at submission time.
 - A **Document** submitted with a **Template** creates one **Extraction job**.
-- An **Extraction job lifecycle** is driven by Cloudflare Workflow after the **Extraction job** is queued.
+- An **Extraction job lifecycle** is coordinated by authoritative **Workspace product data** and executed by an **Extraction processor** after the **Extraction job** is queued.
 - A **Template** has one or more **Template fields**.
 - A **Template** has one or more **Template versions**.
 - A **Template field** may have a **Template object schema** when its data type is `object` or `array<object>`.

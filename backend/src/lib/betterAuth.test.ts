@@ -12,6 +12,15 @@ vi.mock("better-auth/plugins", () => ({
 }));
 
 vi.mock("cloudflare:workers", () => ({
+  DurableObject: class {
+    protected ctx: unknown;
+    protected env: unknown;
+
+    constructor(ctx: unknown, env: unknown) {
+      this.ctx = ctx;
+      this.env = env;
+    }
+  },
   WorkflowEntrypoint: class {},
 }));
 
@@ -259,8 +268,17 @@ function createEnv(overrides: Partial<Env> = {}): Env {
   return {
     BETTER_AUTH_SECRET: "test-secret",
     DB: {} as D1Database,
+    WORKSPACE_PRODUCT_STORE: createProductStoreBinding(),
     ...overrides,
   } as Env;
+}
+
+function createProductStoreBinding(): Env["WORKSPACE_PRODUCT_STORE"] {
+  return {
+    getByName: () => ({
+      createTemplate: async () => ({ template_id: "tpl_starter", version: 1, status: "active" }),
+    }),
+  } as unknown as Env["WORKSPACE_PRODUCT_STORE"];
 }
 
 function createWorkspaceBootstrapDb(input: { invitations?: Array<{ email: string; status: string }> } = {}) {

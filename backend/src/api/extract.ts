@@ -1,7 +1,8 @@
 import { HttpError, json } from "../lib/http";
-import { createQueuedExtractionJob } from "../lib/extractionJobLifecycle";
 import { newId, nowIso } from "../lib/ids";
 import { validateExtractRequest } from "../lib/validation";
+import { emitWorkspaceProductAnalytics } from "../lib/workspaceProductAnalytics";
+import { getWorkspaceProductStore, isWorkspaceProductStoreFailure } from "../lib/workspaceProductStoreClient";
 import type { QueueJobMessage, Workspace } from "../lib/types";
 
 const EXT_BY_MIME: Record<string, string> = {
@@ -15,33 +16,14 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
   const maxSourceFileBytes = workspace.max_source_file_bytes || Number(env.MAX_SOURCE_FILE_BYTES || 10 * 1024 * 1024);
   const { templateId, source } = await validateExtractRequest(request, maxSourceFileBytes);
 
-  const template = await env.DB
-    .prepare(
-      `SELECT id, current_version, status, deleted_at
-       FROM templates
-       WHERE id = ? AND workspace_id = ?`
-    )
-    .bind(templateId, workspace.id)
-    .first<{ id: string; current_version: number; status: string; deleted_at: string | null }>();
-
-  if (!template || template.deleted_at || template.status !== "active") {
-    throw new HttpError(404, "template_not_found", "Template not found");
+  const productStore = getWorkspaceProductStore(env, workspace.id);
+  const template = await productStore.validateTemplateForDocumentSubmission(templateId);
+  if (isWorkspaceProductStoreFailure(template)) {
+    throw new HttpError(template.error.status, template.error.code, template.error.message);
   }
 
-  const version = Number(template.current_version);
-  const hasFields = await env.DB
-    .prepare(
-      `SELECT 1 AS exists_flag
-       FROM template_fields
-       WHERE template_id = ? AND version = ?
-       LIMIT 1`
-    )
-    .bind(templateId, version)
-    .first<{ exists_flag: number }>();
-
-  if (!hasFields) {
-    throw new HttpError(400, "template_invalid", "Template has no fields");
-  }
+  const selectedTemplateId = template.template_id;
+  const version = Number(template.template_version);
 
   const jobId = newId("job");
   const ext = EXT_BY_MIME[source.type] || "bin";
@@ -57,16 +39,18 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
   });
 
   try {
-    await createQueuedExtractionJob(env.DB, {
+    const queued = await productStore.createQueuedExtractionJob({
       jobId,
-      workspaceId: workspace.id,
-      templateId,
+      templateId: selectedTemplateId,
       templateVersion: version,
       sourceFileKey: objectKey,
       sourceMimeType: source.type,
       sourceName,
       submittedAt: now,
     });
+    if (isWorkspaceProductStoreFailure(queued)) {
+      throw new HttpError(queued.error.status, queued.error.code, queued.error.message);
+    }
   } catch (error) {
     await env.SOURCE_FILES_BUCKET.delete(objectKey);
     throw error;
@@ -76,21 +60,54 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
     job_id: jobId,
     attempt: 1,
     workspace_id: workspace.id,
-    template_id: templateId,
+    template_id: selectedTemplateId,
     template_version: version,
     enqueued_at: now
   };
 
-  await env.EXTRACTION_JOBS_QUEUE.send(message, { contentType: "json" });
+  try {
+    await env.EXTRACTION_JOBS_QUEUE.send(message, { contentType: "json" });
+  } catch (error) {
+    try {
+      await productStore.failQueuedExtractionJob({
+        jobId,
+        failedAt: nowIso(),
+        errorCode: "queue_send_failed",
+        errorMessage: errorMessage(error),
+      });
+    } finally {
+      await env.SOURCE_FILES_BUCKET.delete(objectKey);
+    }
+    throw error;
+  }
+
+  emitWorkspaceProductAnalytics(env, {
+    type: "document_submitted",
+    workspaceId: workspace.id,
+    templateId: selectedTemplateId,
+    templateVersion: version,
+    extractionJobId: jobId,
+    status: "queued",
+    attempt: 1,
+    sourceMimeType: source.type,
+    sourceByteSize: sourceBytes.byteLength,
+  });
 
   return json(
     {
       job_id: jobId,
       status: "queued",
       source_name: sourceName,
-      template_id: templateId,
+      template_id: selectedTemplateId,
       template_version: version
     },
     202
   );
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Unknown error";
 }

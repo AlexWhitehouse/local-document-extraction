@@ -24,6 +24,8 @@ import { authenticate, requireSession } from "./lib/auth";
 import { evaluateAccountPasswordPolicy } from "./lib/accountPasswordPolicy";
 import { createAuth } from "./lib/betterAuth";
 import { HttpError, json, toHttpError } from "./lib/http";
+import { WorkspaceProductStore } from "./lib/workspaceProductStore";
+import { authorizeWorkspaceForSession } from "./lib/workspacePolicy";
 import type { QueueJobMessage } from "./lib/types";
 
 export default {
@@ -60,6 +62,7 @@ export default {
 } satisfies ExportedHandler<Env, QueueJobMessage>;
 
 export { DocumentProcessingWorkflow };
+export { WorkspaceProductStore };
 
 async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
@@ -82,6 +85,25 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
   if (request.method === "GET" && url.pathname === "/v1/workspaces") {
     const session = await requireSession(request, env);
     return listWorkspacesForUser(env, session.id, session.name);
+  }
+
+  if (/^\/v1\/workspaces\/[^/]+\/live$/.test(url.pathname)) {
+    if (request.method !== "GET") {
+      throw new HttpError(405, "method_not_allowed", "Workspace live updates require GET");
+    }
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      throw new HttpError(400, "invalid_websocket_upgrade", "Expected WebSocket upgrade");
+    }
+    if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot open live updates");
+    }
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    const session = await requireSession(request, env);
+    const workspace = await authorizeWorkspaceForSession(env.DB, { workspaceId, userId: session.id });
+    if (!workspace) {
+      throw new HttpError(403, "forbidden", "You do not have access to this workspace");
+    }
+    return env.WORKSPACE_PRODUCT_STORE.getByName(workspace.id).fetch(request);
   }
 
   if (request.method === "GET" && url.pathname === "/v1/invitations") {
@@ -210,14 +232,14 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
   const workspace = authContext.workspace;
 
   if (request.method === "GET" && url.pathname === "/v1/jobs") {
-    return listJobs(request, env.DB, workspace);
+    return listJobs(request, env, workspace);
   }
 
   if (request.method === "POST" && url.pathname === "/v1/templates") {
-    return createTemplate(request, env.DB, workspace);
+    return createTemplate(request, env, workspace);
   }
   if (request.method === "GET" && url.pathname === "/v1/templates") {
-    return listTemplates(env.DB, workspace);
+    return listTemplates(env, workspace);
   }
 
   if (url.pathname.startsWith("/v1/templates/")) {
@@ -227,10 +249,10 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
     }
 
     if (request.method === "GET") {
-      return getTemplate(env.DB, workspace, templateId);
+      return getTemplate(env, workspace, templateId);
     }
     if (request.method === "PATCH") {
-      return updateTemplate(request, env.DB, workspace, templateId);
+      return updateTemplate(request, env, workspace, templateId);
     }
     if (request.method === "DELETE") {
       return deleteTemplate(env, workspace, templateId);
@@ -248,7 +270,7 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
     }
 
     if (request.method === "GET") {
-      return getJob(env.DB, workspace, jobId);
+      return getJob(env, workspace, jobId);
     }
 
     return deleteJob(env, workspace, jobId);

@@ -207,7 +207,7 @@ export function OperationalMetrics({ templateCount, documentCount, completionRat
       <article className="kpi-card">
         <p className="kpi-label">Completion</p>
         <p className="kpi-value">{completionRate}%</p>
-        <p className="kpi-meta">Successful jobs ratio</p>
+        <p className="kpi-meta">Completed jobs ratio</p>
         <div
           className="kpi-progress"
           role="img"

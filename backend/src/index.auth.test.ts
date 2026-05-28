@@ -8,6 +8,15 @@ vi.mock("./lib/betterAuth", () => ({
 }));
 
 vi.mock("cloudflare:workers", () => ({
+  DurableObject: class {
+    protected ctx: unknown;
+    protected env: unknown;
+
+    constructor(ctx: unknown, env: unknown) {
+      this.ctx = ctx;
+      this.env = env;
+    }
+  },
   WorkflowEntrypoint: class {},
 }));
 
@@ -182,7 +191,20 @@ describe("auth request handling", () => {
         method: "GET",
         headers: { authorization: `Bearer ${apiKey}` },
       }),
-      createEnv({ DB: db }),
+      createEnv({
+        DB: db,
+        WORKSPACE_PRODUCT_STORE: createProductStoreBinding([
+          {
+            id: "template_1",
+            name: "Invoices",
+            description: null,
+            status: "active",
+            current_version: 1,
+            created_at: "2026-05-01T00:00:00.000Z",
+            updated_at: "2026-05-01T00:00:00.000Z",
+          },
+        ]),
+      }),
     );
 
     expect(response.status).toBe(200);
@@ -250,27 +272,19 @@ function createProductRouteDb(apiKeyHash: string): D1Database {
 
           return null;
         }),
-        all: vi.fn(async () => {
-          if (sql.includes("FROM templates")) {
-            expect(params).toEqual(["workspace_1"]);
-            return {
-              results: [
-                {
-                  id: "template_1",
-                  name: "Invoices",
-                  description: null,
-                  status: "active",
-                  current_version: 1,
-                  created_at: "2026-05-01T00:00:00.000Z",
-                  updated_at: "2026-05-01T00:00:00.000Z",
-                },
-              ],
-            };
-          }
-
-          return { results: [] };
-        }),
+        all: vi.fn(async () => ({ results: [] })),
       })),
     })),
   } as unknown as D1Database;
+}
+
+function createProductStoreBinding(templates: Array<Record<string, unknown>>): Env["WORKSPACE_PRODUCT_STORE"] {
+  return {
+    getByName: vi.fn((workspaceId: string) => {
+      expect(workspaceId).toBe("workspace_1");
+      return {
+        listTemplates: vi.fn(async () => templates),
+      };
+    }),
+  } as unknown as Env["WORKSPACE_PRODUCT_STORE"];
 }

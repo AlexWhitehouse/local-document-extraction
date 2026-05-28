@@ -21,7 +21,6 @@ import {
 } from "./workspacePolicy";
 import { listJobs } from "../api/jobs";
 import { listTemplates } from "../api/templates";
-import { createStarterInvoiceTemplate } from "./starterTemplateAdapter";
 import type { Workspace } from "./types";
 
 type WorkspaceMembershipFixture = {
@@ -932,7 +931,11 @@ describe("Workspace policy", () => {
     const templateFields: TemplateFieldFixture[] = [];
     const db = createD1Fixture({ workspaces: [], memberships: [], templates, templateFields });
 
-    const created = await bootstrapWorkspaceForNewUser(db, { userId: "user_new", userName: "Alex" }, createStarterInvoiceTemplate(db));
+    const created = await bootstrapWorkspaceForNewUser(
+      db,
+      { userId: "user_new", userName: "Alex" },
+      createRecordingStarterInvoiceTemplate({ templates, templateFields }),
+    );
 
     if (!created.created) {
       throw new Error("Expected bootstrap to create a workspace");
@@ -1244,7 +1247,7 @@ describe("Workspace policy", () => {
     });
 
     expect(remainingMemberWorkspace).toEqual(workspace);
-    await expect(listTemplates(db, workspace).then((response) => response.json())).resolves.toEqual({
+    await expect(listTemplates(createTemplateRouteEnv(db, [template]), workspace).then((response) => response.json())).resolves.toEqual({
       templates: [
         {
           id: template.id,
@@ -1258,7 +1261,7 @@ describe("Workspace policy", () => {
       ]
     });
     await expect(
-      listJobs(new Request("https://example.com/v1/jobs"), db, workspace).then((response) => response.json())
+      listJobs(new Request("https://example.com/v1/jobs"), createTemplateRouteEnv(db, [template], [job]), workspace).then((response) => response.json())
     ).resolves.toEqual({
       jobs: [
         {
@@ -1343,7 +1346,7 @@ describe("Workspace policy", () => {
     const result = await leaveWorkspaceForUser(
       db,
       { workspaceId: workspace.id, userId: "user_member", userName: "Mina Member" },
-      createStarterInvoiceTemplate(db)
+      createRecordingStarterInvoiceTemplate({ templates, templateFields })
     );
 
     expect(result).toEqual({
@@ -2171,6 +2174,122 @@ describe("Workspace policy", () => {
     expect(workspace.api_key_hash).toBe("hash_old");
   });
 });
+
+function createTemplateRouteEnv(db: D1Database, templates: TemplateFixture[], jobs: JobFixture[] = []): Env {
+  return {
+    DB: db,
+    WORKSPACE_PRODUCT_STORE: {
+      getByName: () => ({
+        listTemplates: async () =>
+          templates.map((template) => ({
+            id: template.id,
+            name: template.name,
+            description: template.description,
+            status: template.status,
+            current_version: template.current_version,
+            created_at: template.created_at,
+            updated_at: template.updated_at
+          })),
+        listExtractionJobs: async () => ({
+          jobs: jobs.map((job) => ({
+            job_id: job.id,
+            status: job.status,
+            source_name: job.source_name,
+            template_id: job.template_id,
+            template_version: job.template_version,
+            error_code: job.error_code,
+            error_message: job.error_message,
+            created_at: job.created_at,
+            updated_at: job.updated_at,
+            completed_at: job.completed_at,
+            current_attempt: Number(job.current_attempt || 0),
+            completed_attempt: Number(job.completed_attempt || 0),
+            last_failed_attempt: Number(job.last_failed_attempt || 0),
+            results: [],
+          })),
+          nextCursor: null,
+          has_more: false,
+        }),
+      }),
+    } as unknown as Env["WORKSPACE_PRODUCT_STORE"],
+  } as Env;
+}
+
+function createRecordingStarterInvoiceTemplate({
+  templates,
+  templateFields,
+}: {
+  templates: TemplateFixture[];
+  templateFields: TemplateFieldFixture[];
+}) {
+  return {
+    async createStarterTemplate(input: { workspaceId: string; createdAt: string }) {
+      const templateId = "tpl_recorded_starter_invoice";
+      templates.push({
+        id: templateId,
+        workspace_id: input.workspaceId,
+        name: "Example Invoice",
+        description: "Starter template that extracts key invoice fields for quick testing.",
+        status: "active",
+        current_version: 1,
+        created_at: input.createdAt,
+        updated_at: input.createdAt,
+      });
+      templateFields.push(
+        {
+          template_id: templateId,
+          version: 1,
+          field_id: "invoice_number",
+          name: "Invoice Number",
+          description: "Unique invoice identifier.",
+          data_type: "string",
+          required: 1,
+          position: 1,
+        },
+        {
+          template_id: templateId,
+          version: 1,
+          field_id: "invoice_date",
+          name: "Invoice Date",
+          description: "Date shown on the invoice.",
+          data_type: "date",
+          required: 1,
+          position: 2,
+        },
+        {
+          template_id: templateId,
+          version: 1,
+          field_id: "vendor_name",
+          name: "Vendor Name",
+          description: "Name of the supplier issuing the invoice.",
+          data_type: "string",
+          required: 1,
+          position: 3,
+        },
+        {
+          template_id: templateId,
+          version: 1,
+          field_id: "total_amount",
+          name: "Total Amount",
+          description: "Total amount due on the invoice.",
+          data_type: "number",
+          required: 1,
+          position: 4,
+        },
+        {
+          template_id: templateId,
+          version: 1,
+          field_id: "currency",
+          name: "Currency",
+          description: "Currency code used for the totals (e.g. USD).",
+          data_type: "string",
+          required: 1,
+          position: 5,
+        },
+      );
+    },
+  };
+}
 
 function hex(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);

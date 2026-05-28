@@ -19,7 +19,7 @@ import {
   WorkspacePolicyError
 } from "../lib/workspacePolicy";
 import { parseJsonBody } from "../lib/validation";
-import { createStarterInvoiceTemplate } from "../lib/starterTemplateAdapter";
+import { createWorkspaceProductStarterInvoiceTemplate } from "../lib/starterTemplateAdapter";
 
 type CreateWorkspaceBody = {
   name?: unknown;
@@ -66,7 +66,11 @@ export async function createWorkspaceForUser(
 export async function listWorkspacesForUser(env: Env, userId: string, userName?: string | null): Promise<Response> {
   let workspaces = await listWorkspacesForUserPolicy(env.DB, { userId });
   if (workspaces.length === 0) {
-    await bootstrapWorkspaceForNewUserPolicy(env.DB, { userId, userName: userName ?? null }, createStarterInvoiceTemplate(env.DB));
+    await bootstrapWorkspaceForNewUserPolicy(
+      env.DB,
+      { userId, userName: userName ?? null },
+      createWorkspaceProductStarterInvoiceTemplate(env)
+    );
     workspaces = await listWorkspacesForUserPolicy(env.DB, { userId });
   }
   return json({ workspaces });
@@ -104,7 +108,13 @@ export async function deleteWorkspaceForUser(env: Env, workspaceId: string, user
 
 export async function leaveWorkspaceForUser(env: Env, workspaceId: string, userId: string, userName?: string | null): Promise<Response> {
   try {
-    return json(await leaveWorkspaceForUserPolicy(env.DB, { workspaceId, userId, userName }, createStarterInvoiceTemplate(env.DB)));
+    return json(
+      await leaveWorkspaceForUserPolicy(
+        env.DB,
+        { workspaceId, userId, userName },
+        createWorkspaceProductStarterInvoiceTemplate(env)
+      )
+    );
   } catch (error) {
     mapWorkspacePolicyError(error);
   }

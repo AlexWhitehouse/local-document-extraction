@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { QueueJobMessage } from "../lib/types";
 import { processJob } from "./processJob";
+
+type ProductStoreStub = {
+  startExtractionWorkflow: ReturnType<typeof vi.fn>;
+  noteExtractionWorkflowStartFailure: ReturnType<typeof vi.fn>;
+};
 
 function createProcessJobFixture() {
   const statusWrites: string[] = [];
@@ -13,69 +18,77 @@ function createProcessJobFixture() {
     error_message: null as string | null,
     workflow_instance_id: null as string | null,
   };
+  const productStore = createProductStoreStub();
+  productStore.startExtractionWorkflow.mockImplementation(async (input) => {
+    if (job.status !== "queued" || job.workflow_instance_id) {
+      return false;
+    }
+    job.error_code = null;
+    job.error_message = null;
+    job.workflow_instance_id = String(input.workflowInstanceId);
+    return true;
+  });
+  productStore.noteExtractionWorkflowStartFailure.mockImplementation(async (input) => {
+    statusWrites.push("queued");
+    job.status = "queued";
+    job.error_code = String(input.errorCode);
+    job.error_message = String(input.errorMessage);
+    job.workflow_instance_id = null;
+  });
 
-  const env = {
-    DB: {
-      prepare(sql: string) {
-        return {
-          bind(...params: unknown[]) {
-            return {
-              async first() {
-                if (sql.includes("FROM jobs")) {
-                  const [jobId, workspaceId] = params;
-                  return job.id === jobId && job.workspace_id === workspaceId
-                    ? { id: job.id, status: job.status }
-                    : null;
-                }
-
-                throw new Error(`Unhandled first SQL: ${sql}`);
-              },
-              async run() {
-                if (sql.includes("workflow_instance_id = ?")) {
-                  const [_updatedAt, workflowInstanceId, jobId] = params;
-                  if (job.id === jobId && ["queued", "failed"].includes(job.status)) {
-                    job.error_code = null;
-                    job.error_message = null;
-                    job.workflow_instance_id = String(workflowInstanceId);
-                    return { meta: { changes: 1 } };
-                  }
-                  return { meta: { changes: 0 } };
-                }
-
-                if (sql.includes("SET status = 'queued'")) {
-                  const [code, message, _updatedAt, jobId] = params;
-                  if (job.id === jobId && job.status === "queued") {
-                    statusWrites.push("queued");
-                    job.status = "queued";
-                    job.error_code = String(code);
-                    job.error_message = String(message);
-                    job.workflow_instance_id = null;
-                    return { meta: { changes: 1 } };
-                  }
-                  return { meta: { changes: 0 } };
-                }
-
-                throw new Error(`Unhandled run SQL: ${sql}`);
-              },
-            };
-          },
-        };
-      },
-    },
+  const env = createProductStoreProcessJobEnv(productStore, {
     DOCUMENT_PROCESSING_WORKFLOW: {
-      async create(): Promise<void> {
+      create: vi.fn(async () => {
         throw new Error("Workflow service unavailable");
-      },
-    },
-  };
+      }),
+    } as unknown as Workflow,
+  });
 
   return { env, job, statusWrites };
 }
 
 describe("processJob", () => {
+  it("starts the Cloudflare Workflow from authoritative Workspace product data", async () => {
+    const productStore = createProductStoreStub();
+    productStore.startExtractionWorkflow.mockResolvedValue(true);
+    const env = createProductStoreProcessJobEnv(productStore, {
+      DB: {
+        prepare() {
+          throw new Error("legacy global D1 product tables should not be required to start processing");
+        },
+      } as unknown as D1Database,
+    });
+    const message: QueueJobMessage = {
+      job_id: "job_test",
+      workspace_id: "workspace_test",
+      template_id: "template_test",
+      template_version: 1,
+      attempt: 1,
+      enqueued_at: "2026-05-06T12:00:00.000Z",
+    };
+
+    await processJob(message, env);
+
+    expect(productStore.startExtractionWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: "job_test",
+        attempt: 1,
+        workflowInstanceId: "job_test-attempt-1",
+      }),
+    );
+    expect(env.DOCUMENT_PROCESSING_WORKFLOW.create).toHaveBeenCalledWith({
+      id: "job_test-attempt-1",
+      params: {
+        job_id: "job_test",
+        workspace_id: "workspace_test",
+        attempt: 1,
+      },
+    });
+  });
+
   it("starts the Cloudflare Workflow without exposing workflow metadata as a durable status", async () => {
     const { env, job, statusWrites } = createProcessJobFixture();
-    env.DOCUMENT_PROCESSING_WORKFLOW.create = async () => undefined;
+    (env.DOCUMENT_PROCESSING_WORKFLOW.create as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
     const message: QueueJobMessage = {
       job_id: job.id,
       workspace_id: job.workspace_id,
@@ -114,3 +127,23 @@ describe("processJob", () => {
     expect(job.workflow_instance_id).toBeNull();
   });
 });
+
+function createProductStoreStub(): ProductStoreStub {
+  return {
+    startExtractionWorkflow: vi.fn(),
+    noteExtractionWorkflowStartFailure: vi.fn(),
+  };
+}
+
+function createProductStoreProcessJobEnv(productStore: ProductStoreStub, overrides: Partial<Env> = {}): Env {
+  return {
+    DB: {} as D1Database,
+    WORKSPACE_PRODUCT_STORE: {
+      getByName: vi.fn(() => productStore),
+    } as unknown as Env["WORKSPACE_PRODUCT_STORE"],
+    DOCUMENT_PROCESSING_WORKFLOW: {
+      create: vi.fn(async () => undefined),
+    } as unknown as Workflow,
+    ...overrides,
+  } as Env;
+}

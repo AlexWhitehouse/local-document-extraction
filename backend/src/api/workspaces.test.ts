@@ -60,11 +60,17 @@ type LeftWorkspaceResponse = {
 type TemplateFixture = {
   workspace_id: string;
   name: string;
+  fields?: Array<{ id: string; name: string }>;
 };
 
 type TemplateFieldFixture = {
   field_id: string;
   name: string;
+};
+
+type ResidualSourceFileFixture = {
+  job_id: string;
+  source_file_key: string;
 };
 
 function createWorkspace(overrides: Partial<Workspace> = {}): Workspace {
@@ -87,11 +93,51 @@ function createEnvFixture(input: {
   memberships: MembershipFixture[];
   invitations?: WorkspaceInvitationFixture[];
   jobSourceFileKeys?: string[];
-}): Env & { deletedSourceFileKeys: string[]; createdTemplates: TemplateFixture[]; createdTemplateFields: TemplateFieldFixture[] } {
+  residualSourceFiles?: ResidualSourceFileFixture[];
+}): Env & {
+  deletedSourceFileKeys: string[];
+  cleanedSourceFiles: ResidualSourceFileFixture[];
+  createdTemplates: TemplateFixture[];
+  createdTemplateFields: TemplateFieldFixture[];
+  createdProductStoreTemplates: TemplateFixture[];
+} {
   const deletedSourceFileKeys: string[] = [];
+  const cleanedSourceFiles: ResidualSourceFileFixture[] = [];
   const createdTemplates: TemplateFixture[] = [];
   const createdTemplateFields: TemplateFieldFixture[] = [];
+  const createdProductStoreTemplates: TemplateFixture[] = [];
+  const residualSourceFiles = [...(input.residualSourceFiles ?? [])];
   return {
+    WORKSPACE_PRODUCT_STORE: {
+      getByName(workspaceId: string) {
+        return {
+          async createTemplate(template: { name: string; fields: Array<{ id: string; name: string }> }) {
+            createdProductStoreTemplates.push({
+              workspace_id: workspaceId,
+              name: template.name,
+              fields: template.fields,
+            });
+            return { template_id: "tpl_starter", version: 1, status: "active" };
+          },
+          async listResidualSourceFilesForCleanup({ limit }: { limit: number }) {
+            return residualSourceFiles.slice(0, limit);
+          },
+          async markSourceFileCleaned(input: { jobId: string; sourceFileKey: string }) {
+            const index = residualSourceFiles.findIndex(
+              (candidate) => candidate.job_id === input.jobId && candidate.source_file_key === input.sourceFileKey,
+            );
+            if (index >= 0) {
+              const [cleaned] = residualSourceFiles.splice(index, 1);
+              if (cleaned) {
+                cleanedSourceFiles.push(cleaned);
+              }
+              return true;
+            }
+            return false;
+          },
+        };
+      },
+    } as unknown as DurableObjectNamespace,
     DB: {
       async batch(statements: D1PreparedStatement[]) {
         await Promise.all(statements.map((statement) => statement.run()));
@@ -276,9 +322,17 @@ function createEnvFixture(input: {
     },
     SOURCE_FILES_BUCKET: { delete: async (key: string) => { deletedSourceFileKeys.push(key); } },
     deletedSourceFileKeys,
+    cleanedSourceFiles,
     createdTemplates,
     createdTemplateFields,
-  } as unknown as Env & { deletedSourceFileKeys: string[]; createdTemplates: TemplateFixture[]; createdTemplateFields: TemplateFieldFixture[] };
+    createdProductStoreTemplates,
+  } as unknown as Env & {
+    deletedSourceFileKeys: string[];
+    cleanedSourceFiles: ResidualSourceFileFixture[];
+    createdTemplates: TemplateFixture[];
+    createdTemplateFields: TemplateFieldFixture[];
+    createdProductStoreTemplates: TemplateFixture[];
+  };
 }
 
 describe("Workspace routes", () => {
@@ -301,13 +355,20 @@ describe("Workspace routes", () => {
       ]
     });
     expect(body.workspaces[0]).not.toHaveProperty("api_key");
-    expect(env.createdTemplates).toEqual([{ workspace_id: body.workspaces[0].id, name: "Example Invoice" }]);
-    expect(env.createdTemplateFields).toEqual([
-      expect.objectContaining({ field_id: "invoice_number", name: "Invoice Number" }),
-      expect.objectContaining({ field_id: "invoice_date", name: "Invoice Date" }),
-      expect.objectContaining({ field_id: "vendor_name", name: "Vendor Name" }),
-      expect.objectContaining({ field_id: "total_amount", name: "Total Amount" }),
-      expect.objectContaining({ field_id: "currency", name: "Currency" })
+    expect(env.createdTemplates).toEqual([]);
+    expect(env.createdTemplateFields).toEqual([]);
+    expect(env.createdProductStoreTemplates).toEqual([
+      {
+        workspace_id: body.workspaces[0].id,
+        name: "Example Invoice",
+        fields: [
+          expect.objectContaining({ id: "invoice_number", name: "Invoice Number" }),
+          expect.objectContaining({ id: "invoice_date", name: "Invoice Date" }),
+          expect.objectContaining({ id: "vendor_name", name: "Vendor Name" }),
+          expect.objectContaining({ id: "total_amount", name: "Total Amount" }),
+          expect.objectContaining({ id: "currency", name: "Currency" }),
+        ],
+      },
     ]);
   });
 
@@ -478,12 +539,23 @@ describe("Workspace routes", () => {
     const env = createEnvFixture({
       workspaces: [workspace, otherWorkspace],
       memberships,
-      jobSourceFileKeys: ["workspaces/workspace_delete/jobs/job_1/source.pdf"],
+      residualSourceFiles: [
+        {
+          job_id: "job_1",
+          source_file_key: "workspaces/workspace_delete/jobs/job_1/source.pdf",
+        },
+      ],
     });
 
     await deleteWorkspaceForUser(env, workspace.id, "user_owner");
 
     expect(env.deletedSourceFileKeys).toEqual(["workspaces/workspace_delete/jobs/job_1/source.pdf"]);
+    expect(env.cleanedSourceFiles).toEqual([
+      {
+        job_id: "job_1",
+        source_file_key: "workspaces/workspace_delete/jobs/job_1/source.pdf",
+      },
+    ]);
   });
 
   it("preserves last-workspace HTTP semantics from policy rejection", async () => {
