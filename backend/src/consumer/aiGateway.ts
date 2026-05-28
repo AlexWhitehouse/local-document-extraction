@@ -5,6 +5,7 @@ export class RetryableError extends Error {}
 
 const DEFAULT_GEMINI_MODEL = "google/gemini-3-flash";
 const DEFAULT_AI_GATEWAY_ID = "default";
+const DEFAULT_AI_GATEWAY_REQUEST_TIMEOUT_MS = 300_000;
 
 export function getExtractionModelName(env: Env): string {
   return env.AI_MODEL || DEFAULT_GEMINI_MODEL;
@@ -12,6 +13,19 @@ export function getExtractionModelName(env: Env): string {
 
 export function getAiGatewayId(env: Env): string {
   return env.AI_GATEWAY_ID || DEFAULT_AI_GATEWAY_ID;
+}
+
+export function getAiGatewayRequestTimeoutMs(env: Env): number {
+  const configured = Number(
+    env.AI_GATEWAY_REQUEST_TIMEOUT_MS ||
+      DEFAULT_AI_GATEWAY_REQUEST_TIMEOUT_MS,
+  );
+
+  if (!Number.isFinite(configured) || configured <= 0) {
+    return DEFAULT_AI_GATEWAY_REQUEST_TIMEOUT_MS;
+  }
+
+  return Math.trunc(configured);
 }
 
 export async function runExtraction(
@@ -151,7 +165,10 @@ async function runViaGateway(
 ): Promise<unknown> {
   try {
     return await env.AI.run(model, input, {
-      gateway: { id: gatewayId },
+      gateway: {
+        id: gatewayId,
+        requestTimeoutMs: getAiGatewayRequestTimeoutMs(env),
+      },
     });
   } catch (error) {
     throw new RetryableError(`AI.run failed: ${errorToMessage(error)}`);
