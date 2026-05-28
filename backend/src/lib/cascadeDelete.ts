@@ -4,7 +4,10 @@ import { getWorkspaceProductStore } from "./workspaceProductStoreClient";
 const RESIDUAL_SOURCE_FILE_CLEANUP_BATCH_SIZE = 25;
 
 export async function deleteWorkspaceCascade(env: Env, workspaceId: string): Promise<void> {
-  await deleteResidualWorkspaceSourceFiles(env, workspaceId);
+  const productStore = getWorkspaceProductStore(env, workspaceId);
+
+  await deleteResidualWorkspaceSourceFiles(env, productStore);
+  await productStore.eraseWorkspaceProductData();
 
   await env.DB.batch([
     env.DB.prepare("DELETE FROM workspace_invitations WHERE workspace_id = ?").bind(workspaceId),
@@ -13,9 +16,10 @@ export async function deleteWorkspaceCascade(env: Env, workspaceId: string): Pro
   ]);
 }
 
-async function deleteResidualWorkspaceSourceFiles(env: Env, workspaceId: string): Promise<void> {
-  const productStore = getWorkspaceProductStore(env, workspaceId);
-
+async function deleteResidualWorkspaceSourceFiles(
+  env: Env,
+  productStore: ReturnType<typeof getWorkspaceProductStore>,
+): Promise<void> {
   while (true) {
     const residualSourceFiles = await productStore.listResidualSourceFilesForCleanup({
       limit: RESIDUAL_SOURCE_FILE_CLEANUP_BATCH_SIZE,

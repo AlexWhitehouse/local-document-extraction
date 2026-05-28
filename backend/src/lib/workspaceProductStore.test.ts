@@ -416,6 +416,62 @@ describe("WorkspaceProductStore Extraction job lifecycle", () => {
 
     await expect(store.listResidualSourceFilesForCleanup({ limit: 25 })).resolves.toEqual([]);
   });
+
+  it("hard-erases Workspace product data and ignores late lifecycle updates", async () => {
+    const liveSocket = new TestWebSocket("live");
+    const store = createStore({
+      webSockets: [liveSocket as unknown as WebSocket],
+    });
+    await createQueuedJob(store);
+
+    await store.eraseWorkspaceProductData();
+
+    expect(liveSocket.close).toHaveBeenCalledWith(1000, "Workspace deleted");
+    await expect(store.listResidualSourceFilesForCleanup({ limit: 25 })).resolves.toEqual([]);
+    await expect(
+      store.startExtractionWorkflow({
+        jobId: "job_test",
+        attempt: 1,
+        startedAt: "2026-05-06T12:01:00.000Z",
+        workflowInstanceId: "job_test-attempt-1",
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      store.claimExtractionJobForProcessing({
+        jobId: "job_test",
+        attempt: 1,
+        claimedAt: "2026-05-06T12:02:00.000Z",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      store.completeExtractionJob({
+        jobId: "job_test",
+        attempt: 1,
+        completedAt: "2026-05-06T12:03:00.000Z",
+        modelName: "google/gemini-3-flash",
+        route: "default",
+        results: [
+          {
+            field_id: "patient_name",
+            status: "ok",
+            answer: "Ada Lovelace",
+            normalized_value: "Ada Lovelace",
+            confidence: 0.97,
+            evidence: "Patient: Ada Lovelace",
+          },
+        ],
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      store.failExtractionJob({
+        jobId: "job_test",
+        attempt: 1,
+        failedAt: "2026-05-06T12:04:00.000Z",
+        errorCode: "processing_error",
+        errorMessage: "Late failure after Workspace deletion",
+      }),
+    ).resolves.toBe(false);
+  });
 });
 
 async function createQueuedJob(store: InstanceType<typeof WorkspaceProductStore>): Promise<void> {
@@ -462,6 +518,9 @@ function createStore(options: {
         sql.database.exec("ROLLBACK");
         throw error;
       }
+    },
+    async deleteAll(): Promise<void> {
+      sql.deleteAll();
     },
   };
   const ctx = {
@@ -562,6 +621,16 @@ class DurableObjectSqlStorageAdapter {
     const result = statement.run(...normalizedParams);
     return new DurableObjectSqlCursor([], Number(result.changes || 0));
   }
+
+  deleteAll(): void {
+    const tables = this.database
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all() as Array<{ name: string }>;
+
+    for (const table of tables) {
+      this.database.exec(`DROP TABLE IF EXISTS ${quoteSqlIdentifier(table.name)}`);
+    }
+  }
 }
 
 class DurableObjectSqlCursor<T> {
@@ -580,4 +649,8 @@ class DurableObjectSqlCursor<T> {
     }
     return this.rows[0];
   }
+}
+
+function quoteSqlIdentifier(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
 }
