@@ -4,6 +4,8 @@
   --font-display: "Space Grotesk", "IBM Plex Sans", sans-serif;
   --font-body: "IBM Plex Sans", "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", monospace;
+  --scrollbar-thumb: #273244;
+  --scrollbar-thumb-hover: #3a4658;
 
   --bg-0: #06090f;
   --bg-1: #0a0f17;
@@ -34,6 +36,75 @@
     radial-gradient(circle at 12% -5%, rgba(32, 126, 205, 0.14), transparent 42%),
     radial-gradient(circle at 100% 0%, rgba(25, 193, 180, 0.1), transparent 48%),
     linear-gradient(180deg, #05080e 0%, #070b12 50%, #06090f 100%);
+}
+
+.context-list,
+.document-list-scroll,
+.field-nav,
+.log-block,
+.result-card-answer,
+.table-scroll,
+.template-json-textarea,
+.upload-file-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.context-list::-webkit-scrollbar,
+.document-list-scroll::-webkit-scrollbar,
+.field-nav::-webkit-scrollbar,
+.log-block::-webkit-scrollbar,
+.result-card-answer::-webkit-scrollbar,
+.table-scroll::-webkit-scrollbar,
+.template-json-textarea::-webkit-scrollbar,
+.upload-file-list::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.context-list::-webkit-scrollbar-track,
+.document-list-scroll::-webkit-scrollbar-track,
+.field-nav::-webkit-scrollbar-track,
+.log-block::-webkit-scrollbar-track,
+.result-card-answer::-webkit-scrollbar-track,
+.table-scroll::-webkit-scrollbar-track,
+.template-json-textarea::-webkit-scrollbar-track,
+.upload-file-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.context-list::-webkit-scrollbar-thumb,
+.document-list-scroll::-webkit-scrollbar-thumb,
+.field-nav::-webkit-scrollbar-thumb,
+.log-block::-webkit-scrollbar-thumb,
+.result-card-answer::-webkit-scrollbar-thumb,
+.table-scroll::-webkit-scrollbar-thumb,
+.template-json-textarea::-webkit-scrollbar-thumb,
+.upload-file-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+
+.context-list::-webkit-scrollbar-thumb:hover,
+.document-list-scroll::-webkit-scrollbar-thumb:hover,
+.field-nav::-webkit-scrollbar-thumb:hover,
+.log-block::-webkit-scrollbar-thumb:hover,
+.result-card-answer::-webkit-scrollbar-thumb:hover,
+.table-scroll::-webkit-scrollbar-thumb:hover,
+.template-json-textarea::-webkit-scrollbar-thumb:hover,
+.upload-file-list::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.context-list::-webkit-scrollbar-corner,
+.document-list-scroll::-webkit-scrollbar-corner,
+.field-nav::-webkit-scrollbar-corner,
+.log-block::-webkit-scrollbar-corner,
+.result-card-answer::-webkit-scrollbar-corner,
+.table-scroll::-webkit-scrollbar-corner,
+.template-json-textarea::-webkit-scrollbar-corner,
+.upload-file-list::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 * {
@@ -228,25 +299,6 @@ button.danger:hover:not(:disabled) {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: #273244 transparent;
-}
-
-.context-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.context-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.context-list::-webkit-scrollbar-thumb {
-  background: #273244;
-  border-radius: 999px;
-}
-
-.context-list::-webkit-scrollbar-thumb:hover {
-  background: #3a4658;
 }
 
 .context-item {
