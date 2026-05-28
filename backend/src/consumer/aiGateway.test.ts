@@ -12,7 +12,7 @@ const fields: FieldDefinition[] = [
   },
 ];
 
-function createEnv(overrides: Partial<Env> = {}) {
+function createEnv(overrides: Record<string, unknown> = {}) {
   const run = vi.fn(async () => ({
     candidates: [
       {
@@ -38,6 +38,7 @@ function createEnv(overrides: Partial<Env> = {}) {
   const env = {
     AI: { run },
     AI_GATEWAY_ID: "configured-gateway",
+    AI_GATEWAY_REQUEST_TIMEOUT_MS: "300000",
     AI_MODEL: "google/gemini-configured",
     ...overrides,
   } as unknown as Env;
@@ -62,7 +63,12 @@ describe("runExtraction", () => {
     expect(run).toHaveBeenCalledWith(
       "google/gemini-configured",
       expect.any(Object),
-      { gateway: { id: "configured-gateway" } },
+      {
+        gateway: {
+          id: "configured-gateway",
+          requestTimeoutMs: 300_000,
+        },
+      },
     );
   });
 
@@ -79,7 +85,12 @@ describe("runExtraction", () => {
     expect(run).toHaveBeenCalledWith(
       "google/gemini-3-flash",
       expect.any(Object),
-      { gateway: { id: "configured-gateway" } },
+      {
+        gateway: {
+          id: "configured-gateway",
+          requestTimeoutMs: 300_000,
+        },
+      },
     );
   });
 
@@ -96,7 +107,36 @@ describe("runExtraction", () => {
     expect(run).toHaveBeenCalledWith(
       "google/gemini-configured",
       expect.any(Object),
-      { gateway: { id: "default" } },
+      {
+        gateway: {
+          id: "default",
+          requestTimeoutMs: 300_000,
+        },
+      },
+    );
+  });
+
+  it("passes the configured AI Gateway request timeout", async () => {
+    const { env, run } = createEnv({
+      AI_GATEWAY_REQUEST_TIMEOUT_MS: "120000",
+    });
+
+    await runExtraction(
+      env,
+      fields,
+      new Uint8Array([1, 2, 3]).buffer,
+      "application/pdf",
+    );
+
+    expect(run).toHaveBeenCalledWith(
+      "google/gemini-configured",
+      expect.any(Object),
+      {
+        gateway: {
+          id: "configured-gateway",
+          requestTimeoutMs: 120_000,
+        },
+      },
     );
   });
 
@@ -128,7 +168,12 @@ describe("runExtraction", () => {
           }),
         ],
       }),
-      { gateway: { id: "configured-gateway" } },
+      {
+        gateway: {
+          id: "configured-gateway",
+          requestTimeoutMs: 300_000,
+        },
+      },
     );
   });
 
@@ -160,7 +205,12 @@ describe("runExtraction", () => {
           }),
         ],
       }),
-      { gateway: { id: "configured-gateway" } },
+      {
+        gateway: {
+          id: "configured-gateway",
+          requestTimeoutMs: 300_000,
+        },
+      },
     );
   });
 

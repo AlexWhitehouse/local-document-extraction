@@ -98,6 +98,7 @@
 	],
 	"vars": {
 		"AI_GATEWAY_ID": "default",
+		"AI_GATEWAY_REQUEST_TIMEOUT_MS": "300000",
 		"AI_MODEL": "google/gemini-3-flash",
 		"BETTER_AUTH_TRUSTED_ORIGINS": "https://extract.t3m.uk,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8787",
 		"GOOGLE_CLIENT_ID": "1082322177224-edqh57bijki1hku07sqdp91s3j0um4q6.apps.googleusercontent.com",
