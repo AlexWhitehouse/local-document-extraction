@@ -100,6 +100,10 @@ _Avoid_: image, upload, input file
 The original uploaded binary for a **Document**.
 _Avoid_: image object, R2 object, file blob
 
+**Source file page count**:
+The detected number of pages in a PDF **Source file**.
+_Avoid_: PDF page metadata, upload page count
+
 **Extraction job**:
 The durable processing record created when a **Document** is submitted with a **Template**.
 _Avoid_: job, document, processing task
@@ -277,6 +281,10 @@ _Avoid_: object marker parsing, nested field table
 - The background workflow that processes submitted **Documents** should be named `documentProcessingWorkflow` in application-owned code.
 - R2 storage for **Source files** should use non-legacy **Document** or **Source file** naming for both Worker bindings and physical bucket names.
 - R2 remains the authoritative binary store for **Source files**.
+- A **Source file page count** applies only to PDF **Source files** and is absent for non-PDF **Source files**.
+- PDF **Source files** require a **Source file page count** at Document submission time; if the count cannot be determined, the Document submission is rejected.
+- A **Source file page count** is internal Source file metadata until a product feature requires exposing or enforcing it.
+- Existing **Source files** are not backfilled with a **Source file page count** because their original binary may already have been cleaned up.
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
 - Cloudflare Workflow retry steps, not **Extraction job** status values, own retryability for transient processing failures.
 - Do not model retryability with a durable `retryable_failed` **Extraction job** status.

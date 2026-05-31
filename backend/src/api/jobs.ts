@@ -1,7 +1,13 @@
 import { HttpError, json } from "../lib/http";
 import { nowIso } from "../lib/ids";
 import type { Workspace } from "../lib/types";
-import { getWorkspaceProductStore } from "../lib/workspaceProductStoreClient";
+import {
+  getWorkspaceProductStore,
+  type ListedWorkspaceExtractionJob,
+  type WorkspaceExtractionJobDetail,
+  type WorkspaceExtractionJobResult,
+  type WorkspaceExtractionJobSummary,
+} from "../lib/workspaceProductStoreClient";
 
 const DEFAULT_JOBS_LIMIT = 200;
 const MAX_JOBS_LIMIT = 200;
@@ -21,10 +27,60 @@ export async function listJobs(request: Request, env: Env, workspace: Workspace)
   const page = await productStore.listExtractionJobs({ limit, search, cursor });
 
   return json({
-    jobs: page.jobs,
+    jobs: page.jobs.map(toPublicListedExtractionJob),
     next_cursor: page.nextCursor ? encodeCursor(page.nextCursor) : null,
     has_more: page.has_more
   });
+}
+
+function toPublicListedExtractionJob(job: ListedWorkspaceExtractionJob): ListedWorkspaceExtractionJob {
+  return {
+    ...toPublicExtractionJobSummary(job),
+    results: job.results,
+  };
+}
+
+function toPublicExtractionJobDetail(job: WorkspaceExtractionJobDetail): WorkspaceExtractionJobDetail {
+  const summary = toPublicExtractionJobSummary(job);
+
+  if ("results" in job) {
+    return {
+      ...summary,
+      results: job.results.map(toPublicExtractionJobResult),
+    };
+  }
+
+  return summary;
+}
+
+function toPublicExtractionJobSummary(job: WorkspaceExtractionJobSummary): WorkspaceExtractionJobSummary {
+  return {
+    job_id: job.job_id,
+    status: job.status,
+    source_name: job.source_name,
+    template_id: job.template_id,
+    template_version: job.template_version,
+    error_code: job.error_code,
+    error_message: job.error_message,
+    created_at: job.created_at,
+    updated_at: job.updated_at,
+    completed_at: job.completed_at,
+    current_attempt: job.current_attempt,
+    completed_attempt: job.completed_attempt,
+    last_failed_attempt: job.last_failed_attempt,
+  };
+}
+
+function toPublicExtractionJobResult(result: WorkspaceExtractionJobResult): WorkspaceExtractionJobResult {
+  return {
+    field_id: result.field_id,
+    name: result.name,
+    data_type: result.data_type,
+    status: result.status,
+    answer: result.answer,
+    confidence: result.confidence,
+    evidence: result.evidence,
+  };
 }
 
 function parseLimit(value: string | null): number {
@@ -74,7 +130,7 @@ export async function getJob(env: Env, workspace: Workspace, id: string): Promis
     throw new HttpError(404, "not_found", "Job not found");
   }
 
-  return json(job);
+  return json(toPublicExtractionJobDetail(job));
 }
 
 export async function deleteJob(env: Env, workspace: Workspace, id: string): Promise<Response> {

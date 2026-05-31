@@ -48,7 +48,7 @@ describe("WorkspaceProductStore Extraction job lifecycle", () => {
     }
   });
 
-  it("broadcasts queued Extraction job lifecycle envelopes after persisting Workspace product data", async () => {
+  it("broadcasts queued Extraction job lifecycle envelopes without Source file page count", async () => {
     const liveSocket = new TestWebSocket("live");
     const store = createStore({
       webSockets: [liveSocket as unknown as WebSocket],
@@ -61,6 +61,7 @@ describe("WorkspaceProductStore Extraction job lifecycle", () => {
       sourceFileKey: "workspaces/workspace_test/jobs/job_live/source.pdf",
       sourceMimeType: "application/pdf",
       sourceName: "invoice.pdf",
+      sourceFilePageCount: 4,
       submittedAt: "2026-05-06T12:00:00.000Z",
     });
 
@@ -87,6 +88,116 @@ describe("WorkspaceProductStore Extraction job lifecycle", () => {
         },
       ],
     }));
+  });
+
+  it("persists Source file page count with Source file metadata", async () => {
+    const sql = new DurableObjectSqlStorageAdapter();
+    const store = createStore({ sql });
+
+    await store.createQueuedExtractionJob({
+      jobId: "job_counted",
+      templateId: "template_test",
+      templateVersion: 1,
+      sourceFileKey: "workspaces/workspace_test/jobs/job_counted/source.pdf",
+      sourceMimeType: "application/pdf",
+      sourceName: "invoice.pdf",
+      sourceFilePageCount: 5,
+      submittedAt: "2026-05-06T12:00:00.000Z",
+    });
+
+    const row = sql
+      .exec<{ page_count: number | null }>(
+        "SELECT page_count FROM source_files WHERE job_id = ?",
+        "job_counted",
+      )
+      .one();
+
+    expect(row.page_count).toBe(5);
+  });
+
+  it("persists NULL Source file page count for non-PDF Source file metadata", async () => {
+    const sql = new DurableObjectSqlStorageAdapter();
+    const store = createStore({ sql });
+
+    await store.createQueuedExtractionJob({
+      jobId: "job_image",
+      templateId: "template_test",
+      templateVersion: 1,
+      sourceFileKey: "workspaces/workspace_test/jobs/job_image/source.png",
+      sourceMimeType: "image/png",
+      sourceName: "scan.png",
+      sourceFilePageCount: null,
+      submittedAt: "2026-05-06T12:00:00.000Z",
+    });
+
+    const row = sql
+      .exec<{ mime_type: string; page_count: number | null }>(
+        "SELECT mime_type, page_count FROM source_files WHERE job_id = ?",
+        "job_image",
+      )
+      .one();
+
+    expect(row).toEqual({
+      mime_type: "image/png",
+      page_count: null,
+    });
+  });
+
+  it("lazily upgrades existing Source file metadata to include nullable page count", async () => {
+    const sql = new DurableObjectSqlStorageAdapter();
+    sql.database.exec(`
+      CREATE TABLE product_schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO product_schema_migrations (version, applied_at)
+      VALUES (3, '2026-05-06T11:00:00.000Z');
+      CREATE TABLE source_files (
+        key TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL UNIQUE,
+        mime_type TEXT NOT NULL,
+        name TEXT,
+        created_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+      INSERT INTO source_files (key, job_id, mime_type, name, created_at, deleted_at)
+      VALUES (
+        'workspaces/workspace_test/jobs/job_historical/source.pdf',
+        'job_historical',
+        'application/pdf',
+        'historical.pdf',
+        '2026-05-06T11:30:00.000Z',
+        NULL
+      );
+    `);
+    const store = createStore({ sql });
+
+    await store.createQueuedExtractionJob({
+      jobId: "job_counted",
+      templateId: "template_test",
+      templateVersion: 1,
+      sourceFileKey: "workspaces/workspace_test/jobs/job_counted/source.pdf",
+      sourceMimeType: "application/pdf",
+      sourceName: "invoice.pdf",
+      sourceFilePageCount: 2,
+      submittedAt: "2026-05-06T12:00:00.000Z",
+    });
+
+    const counted = sql
+      .exec<{ page_count: number | null }>(
+        "SELECT page_count FROM source_files WHERE job_id = ?",
+        "job_counted",
+      )
+      .one();
+    const historical = sql
+      .exec<{ page_count: number | null }>(
+        "SELECT page_count FROM source_files WHERE job_id = ?",
+        "job_historical",
+      )
+      .one();
+
+    expect(counted.page_count).toBe(2);
+    expect(historical.page_count).toBeNull();
   });
 
   it("broadcasts completed Extraction job summaries without Extraction results or evidence", async () => {
@@ -496,6 +607,7 @@ async function createQueuedJob(store: InstanceType<typeof WorkspaceProductStore>
     sourceFileKey: "workspaces/workspace_test/jobs/job_test/source.pdf",
     sourceMimeType: "application/pdf",
     sourceName: "source.pdf",
+    sourceFilePageCount: null,
     submittedAt: "2026-05-06T12:00:00.000Z",
   });
 }
@@ -503,8 +615,9 @@ async function createQueuedJob(store: InstanceType<typeof WorkspaceProductStore>
 function createStore(options: {
   acceptWebSocket?: (ws: WebSocket) => void;
   webSockets?: WebSocket[];
+  sql?: DurableObjectSqlStorageAdapter;
 } = {}): InstanceType<typeof WorkspaceProductStore> {
-  const sql = new DurableObjectSqlStorageAdapter();
+  const sql = options.sql ?? new DurableObjectSqlStorageAdapter();
   const acceptedWebSockets: WebSocket[] = [];
   const storage = {
     sql,

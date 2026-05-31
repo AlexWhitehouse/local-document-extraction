@@ -19,6 +19,7 @@
     "wrangler": "^4.87.0"
   },
   "dependencies": {
-    "better-auth": "^1.6.6"
+    "better-auth": "^1.6.6",
+    "pdf-lib": "^1.17.1"
   }
 }

@@ -65,6 +65,7 @@ export type CreateQueuedWorkspaceExtractionJobInput = {
   sourceFileKey: string;
   sourceMimeType: string;
   sourceName: string | null;
+  sourceFilePageCount: number | null;
   submittedAt: string;
 };
 

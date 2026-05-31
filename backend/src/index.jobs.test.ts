@@ -90,6 +90,7 @@ describe("Extraction job routes", () => {
           current_attempt: 0,
           completed_attempt: 0,
           last_failed_attempt: 0,
+          source_file_page_count: 7,
           results: [],
         },
       ],
@@ -265,6 +266,7 @@ describe("Extraction job routes", () => {
         current_attempt: 1,
         completed_attempt: 1,
         last_failed_attempt: 0,
+        source_file_page_count: 7,
       },
       resultRows: [
         {
@@ -306,6 +308,47 @@ describe("Extraction job routes", () => {
       ],
     });
     expect(body).not.toHaveProperty("image_name");
+    expect(body).not.toHaveProperty("source_file_page_count");
+  });
+
+  it("does not expose Source file page count from Extraction job detail responses", async () => {
+    const productStore = createProductStoreStub();
+    productStore.getExtractionJob.mockResolvedValue({
+      job_id: "job_product",
+      status: "queued",
+      source_name: "invoice.pdf",
+      template_id: "template_test",
+      template_version: 1,
+      error_code: null,
+      error_message: null,
+      created_at: "2026-05-06T12:00:00.000Z",
+      updated_at: "2026-05-06T12:00:00.000Z",
+      completed_at: null,
+      current_attempt: 0,
+      completed_attempt: 0,
+      last_failed_attempt: 0,
+      source_file_page_count: 7,
+    });
+    const env = createJobsRouteEnv({
+      WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/jobs/job_product", {
+        method: "GET",
+        headers: { authorization: "Bearer workspace-api-key" },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      job_id: "job_product",
+      status: "queued",
+      source_name: "invoice.pdf",
+    });
+    expect(body).not.toHaveProperty("source_file_page_count");
   });
 
   it("deletes Extraction jobs through authoritative Workspace product data and Source file storage", async () => {

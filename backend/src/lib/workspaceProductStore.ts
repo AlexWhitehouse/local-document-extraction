@@ -30,10 +30,14 @@ import type {
   WorkspaceTemplateField,
 } from "./workspaceProductStoreClient";
 
-const WORKSPACE_PRODUCT_SCHEMA_VERSION = 3;
+const WORKSPACE_PRODUCT_SCHEMA_VERSION = 4;
 
 type SchemaVersionRow = {
   version: number;
+};
+
+type TableColumnRow = {
+  name: string;
 };
 
 type TemplateRow = {
@@ -352,12 +356,13 @@ export class WorkspaceProductStore extends DurableObject<Env> {
 
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec(
-        `INSERT INTO source_files (key, job_id, mime_type, name, created_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, NULL)`,
+        `INSERT INTO source_files (key, job_id, mime_type, name, page_count, created_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL)`,
         input.sourceFileKey,
         input.jobId,
         input.sourceMimeType,
         input.sourceName,
+        input.sourceFilePageCount,
         input.submittedAt,
       );
       this.ctx.storage.sql.exec(
@@ -1042,10 +1047,12 @@ export class WorkspaceProductStore extends DurableObject<Env> {
            job_id TEXT NOT NULL UNIQUE,
            mime_type TEXT NOT NULL,
            name TEXT,
+           page_count INTEGER CHECK (page_count IS NULL OR page_count > 0),
            created_at TEXT NOT NULL,
            deleted_at TEXT
          )`,
       );
+      this.ensureSourceFilePageCountColumn();
       this.ctx.storage.sql.exec(
         "CREATE INDEX IF NOT EXISTS idx_source_files_job ON source_files(job_id)",
       );
@@ -1101,6 +1108,20 @@ export class WorkspaceProductStore extends DurableObject<Env> {
       );
     });
     this.schemaReady = true;
+  }
+
+  private ensureSourceFilePageCountColumn(): void {
+    const columns = this.ctx.storage.sql
+      .exec<TableColumnRow>("PRAGMA table_info(source_files)")
+      .toArray();
+
+    if (columns.some((column) => column.name === "page_count")) {
+      return;
+    }
+
+    this.ctx.storage.sql.exec(
+      "ALTER TABLE source_files ADD COLUMN page_count INTEGER CHECK (page_count IS NULL OR page_count > 0)",
+    );
   }
 }
 
