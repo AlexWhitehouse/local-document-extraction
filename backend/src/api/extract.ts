@@ -1,5 +1,6 @@
 import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
+import { InvalidPdfSourceFileError, countPdfSourceFilePages } from "../lib/sourceFilePageCount";
 import { validateExtractRequest } from "../lib/validation";
 import { emitWorkspaceProductAnalytics } from "../lib/workspaceProductAnalytics";
 import { getWorkspaceProductStore, isWorkspaceProductStoreFailure } from "../lib/workspaceProductStoreClient";
@@ -32,6 +33,7 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
   const now = nowIso();
 
   const sourceBytes = await source.arrayBuffer();
+  const sourceFilePageCount = await countSourceFilePagesForSubmission(source.type, sourceBytes);
   await env.SOURCE_FILES_BUCKET.put(objectKey, sourceBytes, {
     httpMetadata: {
       contentType: source.type
@@ -46,6 +48,7 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
       sourceFileKey: objectKey,
       sourceMimeType: source.type,
       sourceName,
+      sourceFilePageCount,
       submittedAt: now,
     });
     if (isWorkspaceProductStoreFailure(queued)) {
@@ -103,6 +106,21 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
     },
     202
   );
+}
+
+async function countSourceFilePagesForSubmission(sourceMimeType: string, sourceBytes: ArrayBuffer): Promise<number | null> {
+  if (sourceMimeType !== "application/pdf") {
+    return null;
+  }
+
+  try {
+    return await countPdfSourceFilePages(sourceBytes);
+  } catch (error) {
+    if (error instanceof InvalidPdfSourceFileError) {
+      throw new HttpError(400, error.code, error.message);
+    }
+    throw error;
+  }
 }
 
 function errorMessage(error: unknown): string {

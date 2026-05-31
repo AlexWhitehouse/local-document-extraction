@@ -58,13 +58,14 @@ describe("processJob", () => {
         },
       } as unknown as D1Database,
     });
-    const message: QueueJobMessage = {
+    const message: QueueJobMessage & { source_file_page_count: number } = {
       job_id: "job_test",
       workspace_id: "workspace_test",
       template_id: "template_test",
       template_version: 1,
       attempt: 1,
       enqueued_at: "2026-05-06T12:00:00.000Z",
+      source_file_page_count: 7,
     };
 
     await processJob(message, env);
