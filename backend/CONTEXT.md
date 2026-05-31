@@ -24,6 +24,30 @@ _Avoid_: workspace admin, owner, support user
 An environment a user can access only after they have a workspace membership.
 _Avoid_: group, account, tenant
 
+**Workspace billing**:
+The billing relationship for a **Workspace**, including its plan, payment state, credits, invoices, and usage charges.
+_Avoid_: user billing, account billing, tenant billing
+
+**Workspace billing authority**:
+The self-service permission held by the current **Workspace** owner to view and manage **Workspace billing**.
+_Avoid_: billing admin, billing user, workspace billing member
+
+**Application admin billing view**:
+The application-wide billing management surface where Application admins manage Workspace billing outside the owner-facing billing page.
+_Avoid_: owner billing page, workspace billing tab, support billing
+
+**Application admin billing audit log**:
+The durable audit trail of Application admin actions that change Workspace billing state or commercial terms.
+_Avoid_: billing ledger, admin note, support history
+
+**Owner billing activity**:
+The customer-facing history of billing activity visible to the Workspace owner.
+_Avoid_: admin audit log, Stripe raw events, reconciliation log
+
+**Billing operational status**:
+Limited Workspace billing state shown to non-owner members only to explain blocked product actions.
+_Avoid_: billing details, invoice summary, payment status
+
 **Workspace membership**:
 Accepted access that makes a user a member of a **Workspace** with a role.
 _Avoid_: user status, workspace user row
@@ -104,6 +128,194 @@ _Avoid_: image object, R2 object, file blob
 The detected number of pages in a PDF **Source file**.
 _Avoid_: PDF page metadata, upload page count
 
+**Credit**:
+A prepaid unit that allows one billable Document page to be submitted for extraction.
+_Avoid_: token, page token, usage point
+
+**Included Credit**:
+A Credit granted by a paid monthly plan for the current billing period.
+_Avoid_: free credit, bundled page, monthly allowance
+
+**Purchased Credit**:
+A Credit bought separately in advance and carried forward until spent.
+_Avoid_: top-up token, extra page, add-on credit
+
+**Credit pack**:
+A fixed bundle of Purchased Credits bought at the Workspace's current non-enterprise plan price.
+_Avoid_: custom credit amount, credit order, top-up quantity
+
+**Billing ledger**:
+The authoritative record of Workspace credit grants, purchases, spending, refunds, and page usage reservations.
+_Avoid_: balance cache, billing summary, Stripe ledger
+
+**Billing reconciliation**:
+An idempotent scheduled check that compares Stripe billing state with Workspace billing records and records or alerts on drift.
+_Avoid_: billing cron, webhook backup, balance rewrite
+
+**Stripe billing event**:
+A Stripe-originated webhook or API-observed billing change that may affect Workspace billing state.
+_Avoid_: Stripe callback, payment notification, billing ping
+
+**Stripe restricted API key**:
+A least-privilege Stripe API key used by the backend for Stripe billing operations.
+_Avoid_: Stripe secret key, client Stripe key, dashboard key
+
+**Stripe test mode**:
+The non-production Stripe environment used for local development, test customers, test prices, and webhook testing.
+_Avoid_: fake billing, local Stripe, mock Stripe
+
+**Credit reservation**:
+A committed **Billing ledger** entry that spends Credits and records Plan page limit usage for an accepted Document submission.
+_Avoid_: pending charge, job credit flag, usage estimate
+
+**Credit refund**:
+A compensating **Billing ledger** entry that returns Credits and page-limit capacity after a reserved submission is not accepted or is intentionally refunded.
+_Avoid_: reservation deletion, credit reversal, balance edit
+
+**Goodwill Credit grant**:
+A manual Credit grant that compensates a Workspace commercially without changing historical Plan page limit usage unless explicitly marked to do so.
+_Avoid_: refund, coupon, balance edit
+
+**Billable Document page**:
+One counted page of a submitted **Document** for **Workspace billing** purposes.
+_Avoid_: source file page count, model page, processed image
+
+**Billing period**:
+The monthly interval in which plan entitlement, included Credits, and plan usage limits are evaluated.
+_Avoid_: billing cycle, subscription month, usage month
+
+**Billing period anchor**:
+The date/time used to determine the start of a Workspace's monthly Billing periods.
+_Avoid_: cycle anchor, reset date, usage window start
+
+**Plan page limit**:
+The maximum number of Billable Document pages a Workspace may submit during a Billing period under its current plan.
+_Avoid_: credit limit, usage balance, monthly quota
+
+**Plan member limit**:
+The maximum number of accepted Workspace memberships allowed by the Workspace's current plan.
+_Avoid_: user quota, seat limit, workspace user limit
+
+**Plan limit overage**:
+The state where existing Workspace product data exceeds the limits of the Workspace's current plan.
+_Avoid_: grandfathered data, invalid workspace, excess resources
+
+**Plan upgrade**:
+A paid change to a higher non-enterprise plan that takes effect during the current Billing period after successful payment.
+_Avoid_: plan switch, tier bump, subscription edit
+
+**Plan downgrade**:
+A scheduled change to a lower non-enterprise plan that takes effect at the next Billing period.
+_Avoid_: plan reduction, tier drop, cancellation
+
+**Subscription cancellation**:
+A Workspace owner action that schedules the self-service paid subscription entitlement to end at the next Billing period.
+_Avoid_: immediate downgrade, account cancellation, refund request
+
+**Plan override**:
+A time-bounded Application admin assignment that controls a Workspace's plan entitlement outside normal self-service subscription changes.
+_Avoid_: manual tier, admin plan, temporary subscription
+
+**No-billing mode**:
+An Application admin state where a Workspace receives Enterprise product limits without Credits, invoices, or usage charges.
+_Avoid_: free enterprise, unlimited plan, comped subscription
+
+**Enterprise limit profile**:
+The product limits shared by Enterprise plans and No-billing mode.
+_Avoid_: unlimited limits, enterprise plan, no-billing limits
+
+**Enterprise usage charge**:
+An invoice-based charge for Enterprise Billable Document pages rather than prepaid Credit spend.
+_Avoid_: enterprise credit, prepaid enterprise usage, credit overage
+
+**No-billing usage entry**:
+A Billing ledger entry that records Billable Document page usage for a Workspace in No-billing mode without charging Credits or invoices.
+_Avoid_: free usage charge, ignored usage, no-cost credit
+
+**Per-page price**:
+The GBP price charged for one Billable Document page.
+_Avoid_: pence fraction, credit amount, page cost
+
+**Billing catalog price**:
+The tax-exclusive GBP price shown for a plan, Credit pack, or Enterprise usage charge before VAT or other applicable taxes.
+_Avoid_: tax-inclusive price, displayed total, final charge
+
+**Enterprise ramp-up**:
+A time-bounded Enterprise billing state where monthly invoices charge actual Billable Document page usage by ramp-up usage bands before an annual commitment starts.
+_Avoid_: enterprise trial, enterprise credits, pilot plan
+
+**Enterprise billing cycle start date**:
+The Application-admin-selected date that anchors Enterprise ramp-up months and monthly invoice periods.
+_Avoid_: ramp-up start, invoice anchor, enterprise renewal day
+
+**Enterprise ramp-up usage band**:
+An inclusive monthly Billable Document page slice that determines the per-page price for that slice of Enterprise ramp-up usage.
+_Avoid_: enterprise credit tier, volume discount, usage bracket
+
+**Enterprise annual commitment**:
+A yearly Enterprise plan paid upfront with a minimum monthly page allowance and monthly overage invoicing.
+_Avoid_: enterprise subscription, annual credits, enterprise MOQ plan
+
+**Enterprise deal terms**:
+The Application-admin-set commercial terms for a Workspace's Enterprise ramp-up or annual commitment.
+_Avoid_: enterprise catalog plan, custom subscription, sales note
+
+**Enterprise monthly minimum allowance**:
+The Billable Document pages prepaid for each monthly invoice period under an Enterprise annual commitment.
+_Avoid_: MOQ credits, prepaid monthly credits, included enterprise pages
+
+**Enterprise annual tier default**:
+A standard annual commitment option shown to Application admins when setting Enterprise deal terms.
+_Avoid_: fixed enterprise plan, self-service enterprise tier, required contract
+
+**Enterprise overage**:
+Billable Document pages above the Enterprise monthly minimum allowance that are invoiced monthly.
+_Avoid_: enterprise extra credits, excess usage, monthly add-on
+
+**Enterprise billing invoice**:
+A Stripe invoice for Enterprise upfront commitment, ramp-up usage, or monthly overage that is visible to the Workspace owner.
+_Avoid_: enterprise bill, admin invoice, enterprise credit invoice
+
+**Enterprise invoice review mode**:
+An Application-admin setting that leaves automatically generated Enterprise invoices in draft for review before finalization.
+_Avoid_: manual enterprise billing, invoice approval, draft billing
+
+**Automatic invoice collection**:
+Stripe collection where invoices are charged against the Workspace billing customer's default payment method.
+_Avoid_: auto-pay, stored-card billing, silent charge
+
+**Manual invoice collection**:
+Stripe collection where invoices are sent for manual payment instead of automatically charged.
+_Avoid_: offline billing, pay later, procurement invoice
+
+**Stripe Checkout Session**:
+A Stripe-hosted payment flow used for owner-initiated subscription starts and Credit pack purchases.
+_Avoid_: custom payment form, raw payment intent, card form
+
+**Stripe Customer Portal**:
+A Stripe-hosted self-service billing management flow for payment method and subscription management.
+_Avoid_: custom subscription manager, payment settings page, billing settings form
+
+**Stripe Customer**:
+The Stripe customer record that represents exactly one Workspace for billing.
+_Avoid_: user customer, owner customer, account customer
+
+**Unpaid billing state**:
+The state where a Workspace has not paid the subscription invoice required to activate paid plan entitlements for a Billing period.
+_Avoid_: grace usage, failed subscription, delinquent account
+
+**Active entitlement**:
+The single effective billing state that determines a Workspace's current plan limits, credit behavior, and invoice behavior.
+_Avoid_: active plan, billing status, subscription state
+
+**Free plan**:
+The default non-enterprise plan that grants limited product access but no Included Credits.
+_Avoid_: trial plan, free credits plan, unpaid workspace
+
+**Non-enterprise plan catalog**:
+The code-owned Free, Pro, and Max plan definitions and Stripe price mappings.
+_Avoid_: editable plans, admin pricing table, plan database
+
 **Extraction job**:
 The durable processing record created when a **Document** is submitted with a **Template**.
 _Avoid_: job, document, processing task
@@ -136,6 +348,14 @@ _Avoid_: current template, schema snapshot
 The table-shaped definition for an object-like **Template field**.
 _Avoid_: object marker parsing, nested field table
 
+**Template object column**:
+A column inside a table-shaped **Template object schema**.
+_Avoid_: nested field, table field, object field
+
+**Template object column limit**:
+The maximum number of **Template object columns** allowed in the single table-shaped **Template field** permitted by a plan.
+_Avoid_: nested field limit, table array field limit, max table fields
+
 ## Rules
 
 - **Account password policy** requires at least 8 characters, one ASCII uppercase letter, one ASCII number, and one special character.
@@ -164,6 +384,221 @@ _Avoid_: object marker parsing, nested field table
 - Transactional email templates are code-owned render modules, with each email type in its own file.
 - Auth-triggered transactional emails use Worker `waitUntil` when the request path can send email; session-read paths do not require scheduling context.
 - **Application admin** authority is application-wide and is not granted by Workspace owner/admin membership.
+- **Workspace billing** is scoped to the **Workspace**, not to an individual user.
+- Each **Workspace** has at most one **Stripe Customer** for billing.
+- A **Stripe Customer** represents the **Workspace**, not the **Workspace** owner user.
+- **Workspace** ownership transfer keeps the same **Stripe Customer**.
+- **Workspace** ownership transfer updates the **Stripe Customer** billing contact email to the new owner while preserving billing history.
+- The current **Workspace** owner has **Workspace billing authority**.
+- Transferring **Workspace** ownership transfers **Workspace billing authority** without changing the **Workspace billing** history.
+- Workspace admins and members do not have **Workspace billing authority**.
+- The owner-facing billing page is visible only to the current **Workspace** owner.
+- The owner-facing billing page may show **Owner billing activity** including credit purchases, included Credit grants, credit spending summaries, refunds, subscription changes, invoices, and payment status.
+- **Owner billing activity** must not expose internal admin notes, **Application admin billing audit log** details, raw Stripe identifiers, or billing reconciliation internals.
+- **Application admins** manage **Workspace billing** through the **Application admin billing view**, not through the owner-facing billing page unless they are also the **Workspace** owner.
+- **Application admin** actions that change **Workspace billing** state or commercial terms are recorded in the **Application admin billing audit log** with actor, timestamp, reason, before/after values, and affected **Workspace**.
+- Non-owner **Workspace members** may see **Billing operational status** when billing state blocks product actions.
+- **Billing operational status** must not expose invoices, payment methods, exact prices paid, or owner-only billing controls.
+- The backend exposes billing entitlement summaries so clients can show why new Document submission is blocked before upload.
+- Billing entitlement summaries expose both current **Active entitlement** and next scheduled entitlement change when one exists.
+- Backend billing entitlement summaries are advisory; final Document submission enforcement happens after exact billable page count is known.
+- Detailed **Workspace billing** data is fetched through dedicated billing endpoints rather than normal Workspace listing responses.
+- Normal Workspace listing responses may include minimal **Billing operational status** but must not expose owner-only billing details.
+- Owner-facing **Workspace billing** endpoints are session-only and require **Workspace billing authority**.
+- **Workspace API keys** cannot read billing details or start Stripe billing flows.
+- A **Credit** is reserved and spent when a **Document** submission is accepted and an **Extraction job** is queued.
+- **Plan page limit** usage is counted when a **Document** submission is accepted and an **Extraction job** is queued.
+- **Credit** spend and **Plan page limit** usage must be recorded as a **Credit reservation** before a **Document** submission is accepted.
+- A **Document** submission must be rejected before queueing work when the **Workspace** lacks enough **Credits** or remaining **Plan page limit** capacity.
+- A **Document** submission should determine exact **Billable Document page** count before **Source file** storage, billing reservation, and **Extraction job** creation.
+- A **Document** submission rejected for billing entitlement or capacity must not store its **Source file**.
+- A **Document** submission generates its **Extraction job** ID before billing reservation so the **Billing ledger** can reference the future job.
+- Billing reservation happens before **Source file** storage and **Extraction job** creation.
+- The **Billing ledger** is the source of truth for **Credit** balances, **Credit reservations**, refunds, and **Plan page limit** usage.
+- The **Billing ledger** is append-only for grants, purchases, reservations, refunds, revocations, and Enterprise usage charges.
+- The **Billing ledger** records **No-billing usage entries** for **No-billing mode** submissions.
+- Billing balances and monthly usage summaries are rebuildable projections from the **Billing ledger**.
+- **Credit reservation** entries include **Workspace** ID, **Extraction job** ID, **Template** ID and version, **Billable Document page** count, submission time, actor or auth mode when available, and idempotency key.
+- **Credit reservation** idempotency keys for Document submission are generated internally from the **Extraction job** ID rather than supplied by the client.
+- Duplicate user submissions are treated as separate submissions with separate **Extraction job** IDs and billing entries.
+- **Credit reservation** entries record Credit and page quantities rather than monetary amounts.
+- **Enterprise usage charge** entries include the same submission metadata as **Credit reservation** entries.
+- **Enterprise usage charge** and invoice-related ledger entries record the rates and monetary amounts used for invoice generation.
+- **No-billing usage entries** include the same submission metadata as **Credit reservation** entries.
+- **Credit reservations** are not mutated or deleted; failed acceptance and intentional refunds are represented by **Credit refunds**.
+- If **Credit reservation** succeeds but **Extraction job** creation or queueing fails, a **Credit refund** must be recorded.
+- A **Credit refund** for failed acceptance or platform fault restores both **Credits** and **Plan page limit** capacity.
+- A **Goodwill Credit grant** adds **Credits** without changing historical **Plan page limit** usage unless explicitly marked as usage-restoring.
+- Deleting an **Extraction job** does not create a **Credit refund** or reduce historical **Plan page limit** usage.
+- Deleting a **Workspace** does not refund **Credits**, subscription payments, Enterprise invoices, or other billing charges.
+- Deleting a **Workspace** ends future self-service subscription billing and deactivates billing entitlements before **Workspace control data** and **Workspace product data** are deleted.
+- Deleting a **Workspace** is blocked while the **Workspace** has unpaid billing invoices.
+- Deleting a **Workspace** retains minimal billing records needed for financial, audit, and legal purposes, including invoices, payments, billing ledger entries, and billing audit logs.
+- Billing records retained after **Workspace** deletion may reference the deleted **Workspace** ID.
+- Billing records retained after **Workspace** deletion may retain actor user IDs needed to explain financial or admin actions, but should avoid retaining account emails and names beyond what Stripe or invoices already retain.
+- A **Workspace** with active Enterprise deal terms requires **Application admin** handling before deletion completes.
+- **Application admins** may grant **Goodwill Credit grants** to a **Workspace**.
+- **Application admins** may revoke unspent **Purchased Credits** or **Goodwill Credit grants**, but must not delete or mutate historical **Billing ledger** entries.
+- A PDF **Document** spends one **Credit** per detected **Source file page count** page.
+- An image **Document** spends one **Credit** as one **Billable Document page**.
+- **Included Credits** expire at the end of the **Billing period** that granted them.
+- Paid non-enterprise **Included Credits** are granted from Stripe invoice payment or subscription events, not from local time passing alone.
+- Stripe webhooks are the primary path for real-time billing state changes.
+- **Stripe billing events** must be processed idempotently because Stripe may deliver duplicate or related events.
+- The backend uses a **Stripe restricted API key** for Stripe API calls.
+- Local development uses **Stripe test mode** keys, customers, products, prices, invoices, and webhooks.
+- Production uses separate live-mode Stripe keys, products, prices, invoices, and webhooks.
+- Stripe webhook endpoints should subscribe only to required billing event types, not all events.
+- Launch Stripe webhook events include Checkout completion, invoice payment/failure/voiding, subscription lifecycle changes, and customer updates only when cached billing summaries require them.
+- Stripe API keys and webhook signing secrets are stored as deployment secrets, not source code or committed configuration.
+- Stripe webhooks must verify Stripe signatures before processing **Stripe billing events**.
+- The application stores minimal processed **Stripe billing event** records for idempotency and debugging, not full raw Stripe webhook payloads by default.
+- Minimal processed **Stripe billing event** records are **Workspace control data** stored in D1.
+- The Workspace billing ledger still enforces Workspace-specific ledger idempotency.
+- **Billing ledger** entries created from Stripe must use stable Stripe references, such as event ID, invoice ID, invoice line ID, Checkout Session ID, PaymentIntent ID, or subscription ID, to prevent duplicate grants, purchases, and invoice charges.
+- Stripe API write requests must use Stripe idempotency keys for retryable create/update operations.
+- **Billing reconciliation** catches missed webhook deliveries, stale unpaid states, ungranted **Included Credits**, and invoice status drift.
+- **Billing reconciliation** must be idempotent and must not blindly rewrite **Billing ledger** history.
+- **Purchased Credits** carry forward until spent.
+- **Billable Document pages** spend **Included Credits** before **Purchased Credits**.
+- Paid non-enterprise **Billing periods** follow the Stripe subscription billing cycle.
+- **Free plan** **Billing periods** use the **Workspace** creation time as the **Billing period anchor** until the **Workspace** starts a paid subscription.
+- After a paid subscription ends, the **Workspace** keeps the latest Stripe **Billing period anchor** for future **Free plan** Billing periods.
+- A **Plan page limit** is a hard cap for non-enterprise plans even when the **Workspace** has enough **Credits**.
+- A **Plan page limit** is a monthly limit, not a per-Document page limit.
+- A **Workspace** must upgrade or receive an **Application admin** override to submit beyond its non-enterprise **Plan page limit**.
+- The **Free plan** grants zero **Included Credits**.
+- A **Workspace** on the **Free plan** must buy **Purchased Credits** before submitting billable Documents.
+- Existing **Workspaces** default to the **Free plan** when billing launches unless an **Application admin** assigns another entitlement before launch.
+- New **Workspaces** start on the **Free plan**.
+- Starter **Templates** created for new **Workspaces** count against **Free plan** limits and must fit those limits.
+- Any non-enterprise **Workspace** may buy **Purchased Credits**.
+- Self-service **Credit packs** are fixed at 100, 500, 1,000, and 5,000 **Purchased Credits**.
+- A **Credit pack** is priced from the **Workspace**'s current non-enterprise plan at purchase time.
+- Non-enterprise **Per-page prices** are £0.22 on the **Free plan**, £0.20 on Pro, and £0.18 on Max.
+- **Billing catalog prices** are tax-exclusive.
+- Billing is GBP-only at launch.
+- Stripe calculates VAT or other applicable taxes for invoices and Checkout payments.
+- Stripe Tax automatic tax is enabled for supported Checkout Sessions, Subscriptions, and Invoices.
+- Stripe-hosted flows collect and update billing address, tax identity, and payment method details.
+- The application stores Stripe identifiers and sanitized billing summaries, not raw payment method details.
+- Stripe owns payment method storage, default payment method selection, and payment method removal for each **Stripe Customer**.
+- The application may display whether automatic collection is available, but does not model individual payment methods.
+- The **Non-enterprise plan catalog** is code-owned/static at launch.
+- **Application admins** do not edit the **Non-enterprise plan catalog** through the application.
+- Stripe product and price IDs are environment configuration because test mode and live mode use different Stripe objects.
+- Pro and Max subscriptions use pre-created monthly recurring Stripe Prices.
+- The **Free plan** has no Stripe Price because it has no subscription fee.
+- **Credit packs** are explicit one-off self-service purchases.
+- Self-service **Credit packs** use pre-created one-time Stripe Prices for each non-enterprise plan and pack-size combination.
+- The application validates that a selected **Credit pack** Stripe Price matches the **Workspace**'s current plan at purchase time.
+- Starting **Stripe Checkout Sessions** for **Credit packs** does not grant **Purchased Credits**.
+- **Purchased Credits** from **Credit packs** are granted only after successful Stripe payment events.
+- Pending **Credit pack** Checkout Sessions are not shown as available balance or **Owner billing activity** before payment succeeds.
+- Owner-initiated self-service subscription starts and **Credit pack** purchases use **Stripe Checkout Sessions**.
+- Non-enterprise paid subscriptions use **Automatic invoice collection** through Stripe by default.
+- Self-service payment method updates, **Subscription cancellation**, and standard Pro/Max subscription management use **Stripe Customer Portal** where it can express the product rules.
+- Self-service plan changes are initiated through the application so product rules, proration intent, and entitlement activation remain application-owned.
+- **Stripe Customer Portal** must not expose unrestricted plan switching that bypasses application-owned entitlement rules.
+- Stripe-hosted invoice payment pages may be used for **Application admin**-created payment-required invoices.
+- Stripe payment flows must use dynamic payment methods and must not hardcode `payment_method_types`.
+- A **Workspace** in **Unpaid billing state** may buy **Credit packs**, but doing so does not restore paid subscription entitlements.
+- Existing **Purchased Credits** are not repriced when the **Workspace** changes plan.
+- Downgrading a **Workspace** preserves existing **Purchased Credits**, but the lower plan's **Plan page limit** still gates monthly usage.
+- A **Plan upgrade** takes effect for plan perks, **Plan page limit**, and **Included Credits** only after successful payment.
+- A mid-period **Plan upgrade** creates a prorated upgrade invoice for the remaining **Billing period**.
+- A mid-period **Plan upgrade** grants only the additional **Included Credits** needed to reach the new plan's included allowance for the current **Billing period**.
+- A **Workspace** blocked at its current **Plan page limit** may complete a **Plan upgrade**.
+- Existing **Billing period** page usage carries forward after a **Plan upgrade** and is evaluated against the new plan's **Plan page limit**.
+- Moving from the **Free plan** to a paid non-enterprise plan activates paid entitlements only after the first subscription invoice is paid.
+- Moving from the **Free plan** to Pro grants the full 200 **Included Credits** for the current **Billing period** after payment.
+- Moving from the **Free plan** to Max grants the full 1,000 **Included Credits** for the current **Billing period** after payment.
+- A **Plan downgrade** takes effect at the next **Billing period**.
+- **Subscription cancellation** schedules a **Plan downgrade** to the **Free plan** at the next **Billing period**.
+- **Subscription cancellation** does not refund unused paid time or unused **Included Credits**.
+- A **Plan override** has a Free, Pro, or Max target plan, start time, end time, payment-required setting, reason, and creating **Application admin**.
+- An active **Plan override** controls **Workspace** entitlements ahead of normal self-service subscription state.
+- A payment-required **Plan override** does not activate paid entitlements until its required invoice is paid.
+- A payment-required **Plan override** creates an owner-visible Stripe invoice for the **Workspace**.
+- A payment-required **Plan override** uses **Automatic invoice collection** by default when the **Workspace** has a default payment method, otherwise the owner pays manually through the billing page.
+- A no-payment-required **Plan override** activates its entitlements without Stripe subscription payment.
+- An active no-payment-required **Plan override** grants the target plan's **Included Credits** for each covered **Billing period**.
+- When a **Plan override** expires, the **Workspace** falls back to its active self-service subscription entitlement if one exists, otherwise the **Free plan**.
+- **No-billing mode** is distinct from Enterprise plans.
+- **No-billing mode** bypasses **Credits**, invoices, usage charges, and **Plan page limit** enforcement.
+- The **Enterprise limit profile** allows unlimited **Templates** and unlimited accepted **Workspace memberships**.
+- The **Enterprise limit profile** allows at most 25 top-level **Template fields** per **Template**.
+- The **Enterprise limit profile** allows at most one table-shaped **Template field** with at most 20 **Template object columns**.
+- **No-billing mode** uses the **Enterprise limit profile**.
+- **No-billing mode** does not bypass product safety limits such as source file size limits or abuse/rate limits.
+- **Active entitlement** precedence is **No-billing mode**, active **Plan override**, active Enterprise entitlement, active self-service subscription entitlement, then **Free plan**.
+- Active Enterprise entitlement supersedes self-service subscription entitlement.
+- A **Workspace** may retain historical self-service subscription records after Enterprise entitlement starts, but should not be double-billed for overlapping self-service and Enterprise entitlements.
+- Enterprise plans use the **Enterprise limit profile**.
+- Enterprise plans do not use prepaid **Credits**.
+- Enterprise **Billable Document pages** are recorded as **Enterprise usage charges** for invoice billing.
+- Enterprise plans do not have a standard hard monthly **Plan page limit**.
+- Enterprise usage remains subject to product safety limits and abuse/rate limits.
+- **Enterprise ramp-up** duration is set by an **Application admin** in months and defaults to 3 months.
+- **Enterprise ramp-up** uses an **Enterprise billing cycle start date** chosen by an **Application admin** so ramp-up periods and monthly invoicing align.
+- **Enterprise ramp-up** is optional.
+- During **Enterprise ramp-up**, invoices charge actual **Billable Document page** usage by ramp-up usage bands.
+- **Enterprise ramp-up** usage is billed in arrears for each monthly invoice period.
+- **Enterprise ramp-up** invoices are generated automatically after each monthly invoice period closes from the **Billing ledger**.
+- **Enterprise ramp-up** invoices finalize automatically unless **Enterprise invoice review mode** is enabled.
+- An overdue **Enterprise ramp-up** invoice suspends Enterprise entitlement until paid.
+- Suspended Enterprise entitlement falls back to the **Workspace**'s active self-service subscription entitlement if one exists, otherwise the **Free plan**.
+- When **Enterprise ramp-up** ends without an active paid **Enterprise annual commitment**, the **Workspace** falls back to its active self-service subscription entitlement if one exists, otherwise the **Free plan**.
+- **Enterprise ramp-up usage bands** are 0-10,000 pages at £0.14 per page, 10,001-20,000 pages at £0.13 per page, 20,001-40,000 pages at £0.12 per page, 40,001-60,000 pages at £0.11 per page, and 60,001+ pages at £0.10 per page.
+- **Enterprise ramp-up usage bands** are tiered: each slice of monthly usage is charged at that slice's per-page price.
+- **Enterprise deal terms** are set per **Workspace** by **Application admins**.
+- Standard Enterprise price tables provide defaults for **Enterprise deal terms** but are not a self-service public plan catalog.
+- An **Enterprise annual commitment** is paid upfront for a year.
+- **Enterprise annual tier defaults** are 60,000 pages/month at £0.09 per page and £64,800/year, 100,000 pages/month at £0.08 per page and £96,000/year, and 200,000 pages/month at £0.07 per page and £168,000/year.
+- **Application admins** may enter custom **Enterprise annual commitment** allowance and per-page price instead of using an **Enterprise annual tier default**.
+- The yearly cost for an **Enterprise annual commitment** is derived from monthly minimum allowance times 12 times per-page price.
+- An **Application admin** may create an **Enterprise annual commitment** after **Enterprise ramp-up** or without any **Enterprise ramp-up**.
+- An **Enterprise annual commitment** includes an **Enterprise monthly minimum allowance** for each monthly invoice period.
+- Unused **Enterprise monthly minimum allowance** does not roll over to later invoice periods.
+- **Enterprise overage** is invoiced monthly for usage above the **Enterprise monthly minimum allowance**.
+- **Enterprise overage** uses the same per-page price as the selected **Enterprise annual commitment**.
+- **Enterprise overage** is billed in arrears for each monthly invoice period.
+- **Enterprise overage** invoices are generated automatically after each monthly invoice period closes from the **Billing ledger**.
+- **Enterprise overage** invoices finalize automatically unless **Enterprise invoice review mode** is enabled.
+- An overdue **Enterprise overage** invoice suspends Enterprise entitlement until paid.
+- **Application admins** assign Enterprise plans and create or trigger required **Enterprise billing invoices**.
+- **Enterprise billing invoices** use explicit Stripe invoice items derived from **Enterprise deal terms**, not a pre-created Stripe Price for every custom deal.
+- **Enterprise billing invoices** are visible and payable by the **Workspace** owner through the billing page.
+- **Enterprise billing invoices** use **Automatic invoice collection** by default after the **Workspace** owner adds a default payment method.
+- **Application admins** may set **Enterprise billing invoices** to **Manual invoice collection** for Workspaces that require manual payment.
+- An **Enterprise annual commitment** activates only after its upfront **Enterprise billing invoice** is paid.
+- **Application admins** do not manually activate unpaid **Enterprise annual commitments**; no-cost access uses **No-billing mode** instead.
+- Monthly **Enterprise overage** invoices are visible to the **Workspace** owner through the billing page.
+- Non-enterprise paid plan entitlements for a **Billing period** activate only after that period's subscription invoice is paid.
+- A **Workspace** in **Unpaid billing state** receives no new **Included Credits** and operates under **Free plan** limits for new actions until payment succeeds.
+- **Unpaid billing state** preserves existing **Workspace product data**, **Workspace memberships**, and **Workspace API keys**, but does not grant paid API access while unpaid.
+- **Plan limit overage** does not delete existing **Workspace product data**.
+- Billing enforcement does not destructively migrate existing **Templates** or **Workspace memberships** that exceed the active plan.
+- Billing enforcement applies to new **Extraction jobs**, new **Templates**, **Template** saves, and new **Workspace invitations**.
+- Any **Plan limit overage** blocks new **Extraction jobs** until the overage is resolved or billing is restored.
+- If a **Workspace** has more **Templates** than its current plan allows, no new **Extraction jobs** may be submitted against any **Template** until the Template count is brought within the current plan or billing is restored.
+- If a **Workspace** has more **Templates** than its current plan allows, no new **Templates** may be created until the Template count is brought within the current plan or billing is restored.
+- If a **Template** has more **Template fields** than the current plan allows, no new **Extraction jobs** may be submitted against that **Template** until it is edited within the current plan or billing is restored.
+- A **Template** with too many **Template fields** for the current plan can only be saved when the save brings it within the current plan limit or billing is restored.
+- Each **Template** may contain at most one table-shaped **Template field**.
+- A table-shaped **Template field** counts as one top-level **Template field**.
+- A table-shaped **Template field** may contain no more **Template object columns** than the current plan's **Template object column limit**.
+- If a **Workspace** has more accepted **Workspace memberships** than its current **Plan member limit**, no new **Extraction jobs** may be submitted against any **Template** until membership count is brought within the current plan or billing is restored.
+- If a **Workspace** has more accepted **Workspace memberships** than its current **Plan member limit**, no new **Workspace invitations** may be created until membership count is brought within the current plan or billing is restored.
+- A **Plan member limit** overage still allows accepted **Workspace members** to access the frontend, but blocks new Document submission through both session and **Workspace API key** access.
+- **Workspace API key** generation requires paid API access entitlement and is unavailable on the **Free plan** or in **Unpaid billing state**.
+- **Workspace API keys** may authenticate product API access only when the **Workspace** has active API access entitlement.
+- **Purchased Credits** do not grant API access entitlement.
+- Losing API access entitlement preserves existing **Workspace API keys** but product API requests using them are rejected until entitlement returns.
+- API access entitlement failures should be reported as entitlement errors rather than invalid **Workspace API key** authentication.
+- Billing entitlements and **Plan limit overage** checks apply the same way to session-authenticated requests and **Workspace API key** requests.
+- A failed validation or queueing failure before an **Extraction job** is accepted does not spend **Credits**.
+- A failed **Extraction job** keeps its spent **Credits** unless the failure is later classified as a platform fault and intentionally refunded.
 - Initial **Application admin** access is bootstrapped by a one-time migration that promotes known Better Auth users to the persisted Application admin role.
 - **Application admin page** visibility is based on persisted application role in the authenticated session.
 - Better Auth application role is single-valued: a user is either `user` or `admin` in the application-wide auth context.
@@ -229,6 +664,7 @@ _Avoid_: object marker parsing, nested field table
 - **Workspace API key format** is opaque to users and clients beyond being passed as a bearer token.
 - **Workspace API key** lookup is **Workspace control data** so external clients do not need to provide Workspace context before authentication.
 - **Workspace control data** includes account/session records, Workspace records, Workspace memberships, Workspace invitations, and Workspace API key lookup.
+- **Workspace control data** includes Stripe customer, subscription, invoice references, active entitlement summaries, scheduled billing changes, no-billing state, **Plan overrides**, Enterprise deal metadata, and processed **Stripe billing event** records.
 - **Workspace product data** includes Templates, Template fields and versions, Extraction jobs, Extraction results, and Source file metadata.
 - **Workspace product data** includes Source file metadata, not Source file binary contents.
 - Deleting a **Workspace** hard-erases its authoritative **Workspace product data** and associated **Source file** binary contents.

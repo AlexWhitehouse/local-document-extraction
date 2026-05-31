@@ -40,6 +40,14 @@ _Avoid_: forgot password flow, password recovery, Workspace password reset
 The application-wide account management UI for **Application admins**, separate from workspace-scoped administration.
 _Avoid_: workspace admin page, owner tools, support panel
 
+**Billing page**:
+The owner-only workspace UI for viewing and managing Workspace billing.
+_Avoid_: billing tab, payment page, subscription page
+
+**Billing operational status**:
+Limited billing state shown to non-owner Workspace members only to explain blocked product actions.
+_Avoid_: billing details, invoice summary, payment status
+
 **Document upload toast**:
 An **Action toast** that summarizes how many uploaded documents were queued and how many failed to queue.
 _Avoid_: upload alert, document status message
@@ -149,6 +157,15 @@ _Avoid_: frontend auth mode, session replacement
 - The first **Application admin page** does not expose user name or account email editing.
 - The first **Application admin page** does not show Workspace membership summaries or provide Workspace data management.
 - The **Application admin page** remains available to Application admins during Loading workspace context or Workspace resolution error because it is account-level, not workspace-scoped.
+- The **Billing page** is visible only to the current Workspace owner.
+- The **Billing page** shows current plan entitlement, Credits, Included Credit renewal, monthly page usage, Credit pack purchase actions, subscription management, invoices, and payment setup.
+- The **Billing page** shows the next scheduled entitlement change when one exists.
+- The **Billing page** shows available Credits separately from remaining current-period page capacity.
+- Non-owner Workspace members do not see the **Billing page** navigation item.
+- Non-owner Workspace members may see **Billing operational status** when billing state blocks product actions.
+- **Billing operational status** must not expose invoices, payment methods, exact prices paid, or owner-only billing controls.
+- The frontend uses billing entitlement summaries to disable Document upload before file selection when new submission is already blocked.
+- The frontend treats billing entitlement summaries as advisory because final billing enforcement happens after the backend knows exact billable page count.
 - When the **Application admin page** is active, the context sidebar shows admin-specific account-management context rather than Workspace, Template, or Document lists.
 - The **Application admin page** does not render workspace-specific toolbar content, but preserves the app's established page layout and visual structure.
 - **Application admin page** loading and mutation state is local to the admin feature and does not use the app-wide busy flag.
