@@ -25,10 +25,13 @@ import type {
   WorkspaceExtractionJobDetail,
   WorkspaceExtractionJobSummary,
   WorkspaceResidualSourceFile,
+  WorkspacePlanLimitUsage,
+  WorkspacePlanLimitUsageInput,
   WorkspaceSubmissionTemplate,
   WorkspaceTemplateDetail,
   WorkspaceTemplateField,
 } from "./workspaceProductStoreClient";
+import { summarizeTemplatePlanLimitUsage } from "./workspaceBilling";
 
 const WORKSPACE_PRODUCT_SCHEMA_VERSION = 4;
 
@@ -56,6 +59,10 @@ type TemplateFieldRow = {
   description: string;
   data_type: WorkspaceTemplateField["data_type"];
   position: number;
+};
+
+type PlanLimitFieldRow = TemplateFieldRow & {
+  template_id: string;
 };
 
 type SubmissionTemplateRow = {
@@ -312,6 +319,62 @@ export class WorkspaceProductStore extends DurableObject<Env> {
     );
 
     return true;
+  }
+
+  async summarizePlanLimitUsage(input: WorkspacePlanLimitUsageInput = {}): Promise<WorkspacePlanLimitUsage> {
+    this.ensureSchema();
+
+    const templateCount = this.ctx.storage.sql
+      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM templates WHERE deleted_at IS NULL")
+      .one();
+    const filters = ["t.deleted_at IS NULL"];
+    const params: string[] = [];
+    if (input.templateId) {
+      filters.push("t.id = ?");
+      params.push(input.templateId);
+    }
+
+    const rows = this.ctx.storage.sql
+      .exec<PlanLimitFieldRow>(
+        `SELECT t.id AS template_id,
+                f.field_id AS id,
+                f.name,
+                f.description,
+                f.data_type,
+                f.position
+         FROM templates t
+         LEFT JOIN template_fields f
+           ON f.template_id = t.id
+          AND f.version = t.current_version
+         WHERE ${filters.join(" AND ")}
+         ORDER BY t.created_at DESC, f.position ASC`,
+        ...params,
+      )
+      .toArray();
+
+    const fieldsByTemplate = new Map<string, WorkspaceTemplateField[]>();
+    for (const row of rows) {
+      if (!fieldsByTemplate.has(row.template_id)) {
+        fieldsByTemplate.set(row.template_id, []);
+      }
+      if (!row.id) {
+        continue;
+      }
+      fieldsByTemplate.get(row.template_id)?.push({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        data_type: row.data_type,
+        position: Number(row.position),
+      });
+    }
+
+    return {
+      active_template_count: Number(templateCount.count || 0),
+      templates: Array.from(fieldsByTemplate.entries()).map(([templateId, fields]) =>
+        summarizeTemplatePlanLimitUsage(templateId, fields),
+      ),
+    };
   }
 
   async validateTemplateForDocumentSubmission(templateId: string): Promise<WorkspaceSubmissionTemplate | WorkspaceProductStoreFailure> {

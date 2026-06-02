@@ -64,10 +64,16 @@ export function MainLayout({
   );
 }
 
-function SidebarNavigation({ activePage, counts, showAdminNavigation, onNavigate }) {
-  const items = showAdminNavigation
-    ? [...SIDEBAR_ITEMS, ADMIN_SIDEBAR_ITEM]
-    : SIDEBAR_ITEMS;
+function SidebarNavigation({
+  activePage,
+  counts,
+  showAdminNavigation,
+  onNavigate,
+}) {
+  const items = [
+    ...SIDEBAR_ITEMS,
+    ...(showAdminNavigation ? [ADMIN_SIDEBAR_ITEM] : []),
+  ];
 
   return (
     <nav className="sidebar-nav" aria-label="Main navigation">
@@ -75,7 +81,9 @@ function SidebarNavigation({ activePage, counts, showAdminNavigation, onNavigate
         <button
           key={item.id}
           type="button"
-          className={item.id === activePage ? "sidebar-link active" : "sidebar-link"}
+          className={
+            item.id === activePage ? "sidebar-link active" : "sidebar-link"
+          }
           onClick={() => onNavigate(item.id)}
         >
           <span className="sidebar-link-icon" aria-hidden="true">
@@ -96,10 +104,14 @@ export function WorkspaceToolbar({
   workspaceLabel,
   isWorkspaceInvitationSelected,
   hasWorkspaceApiAccess,
+  billingOperationalStatus,
   documentCount,
   hasApiAccess,
+  isUploadDisabled = false,
   workspaceId,
   workspacePrimaryAction,
+  hasWorkspaceBillingAuthority = false,
+  isWorkspaceBillingView = false,
   isDeletingWorkspace,
   isDeletingTemplate,
   isDeletingDocument,
@@ -108,10 +120,19 @@ export function WorkspaceToolbar({
   onCreateTemplate,
   onCreateWorkspace,
   onUploadDocument,
+  onToggleWorkspaceBillingView,
   onWorkspacePrimaryAction,
   onDeleteTemplate,
   onDeleteDocument,
 }) {
+  const billingBlockingReasons = Array.isArray(
+    billingOperationalStatus?.blocking_reasons,
+  )
+    ? billingOperationalStatus.blocking_reasons
+        .map((reason) => String(reason || "").trim())
+        .filter(Boolean)
+    : [];
+
   return (
     <section className="workspace-toolbar" aria-label="Workspace toolbar">
       <div className="workspace-toolbar-meta">
@@ -123,18 +144,39 @@ export function WorkspaceToolbar({
           </>
         ) : (
           <>
-            <span className={`status-chip ${hasWorkspaceApiAccess ? "good" : "warn"}`}>
+            <span
+              className={`status-chip ${hasWorkspaceApiAccess ? "good" : "warn"}`}
+            >
               API {hasWorkspaceApiAccess ? "Ready" : "Missing Access"}
             </span>
             <span className="status-chip">Jobs {documentCount}</span>
+            {billingBlockingReasons.map((reason) => (
+              <span key={reason} className="status-chip warn">
+                {reason}
+              </span>
+            ))}
           </>
         )}
       </div>
       <div className="actions compact">
+        {activePage === "workspace" &&
+        !isWorkspaceInvitationSelected &&
+        hasWorkspaceBillingAuthority ? (
+          <button
+            type="button"
+            className="secondary"
+            disabled={!String(workspaceId || "").trim()}
+            onClick={onToggleWorkspaceBillingView}
+          >
+            {isWorkspaceBillingView ? "View Dashboard" : "View Billing"}
+          </button>
+        ) : null}
         <button
           type="button"
           className="secondary"
-          disabled={activePage === "documents" && !hasApiAccess}
+          disabled={
+            activePage === "documents" && (!hasApiAccess || isUploadDisabled)
+          }
           onClick={
             activePage === "templates"
               ? onCreateTemplate
@@ -171,7 +213,9 @@ export function WorkspaceToolbar({
           <button
             type="button"
             className="danger"
-            disabled={isDeletingTemplate || !hasApiAccess || !updateTemplateId.trim()}
+            disabled={
+              isDeletingTemplate || !hasApiAccess || !updateTemplateId.trim()
+            }
             onClick={onDeleteTemplate}
           >
             {isDeletingTemplate ? "Deleting..." : "Delete Template"}
@@ -191,13 +235,18 @@ export function WorkspaceToolbar({
   );
 }
 
-export function OperationalMetrics({ templateCount, documentCount, completionRate, failureCount }) {
+export function OperationalMetrics({
+  remainingCredits,
+  documentCount,
+  completionRate,
+  remainingPages,
+}) {
   return (
     <section className="kpi-grid" aria-label="Operational metrics">
       <article className="kpi-card">
-        <p className="kpi-label">Templates</p>
-        <p className="kpi-value">{templateCount}</p>
-        <p className="kpi-meta">Active extraction schemas</p>
+        <p className="kpi-label">Remaining Credits</p>
+        <p className="kpi-value">{formatMetricValue(remainingCredits)}</p>
+        <p className="kpi-meta">Available submission credits</p>
       </article>
       <article className="kpi-card">
         <p className="kpi-label">Documents</p>
@@ -217,10 +266,20 @@ export function OperationalMetrics({ templateCount, documentCount, completionRat
         </div>
       </article>
       <article className="kpi-card">
-        <p className="kpi-label">Failures</p>
-        <p className="kpi-value">{failureCount}</p>
-        <p className="kpi-meta">Terminal failed jobs</p>
+        <p className="kpi-label">Remaining Pages</p>
+        <p className="kpi-value">{formatMetricValue(remainingPages)}</p>
+        <p className="kpi-meta">Page quota left this period</p>
       </article>
     </section>
   );
+}
+
+function formatMetricValue(value) {
+  if (value === null) {
+    return "Unlimited";
+  }
+  if (value === undefined) {
+    return "...";
+  }
+  return Number(value).toLocaleString("en-GB");
 }

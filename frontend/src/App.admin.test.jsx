@@ -71,6 +71,53 @@ async function clickUserAction(user, email, actionName) {
   await user.click(await within(row).findByRole("menuitem", { name: actionName }));
 }
 
+async function openAdminBillingView(user) {
+  await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+  await screen.findByText("Total users 0");
+  await user.click(screen.getByRole("button", { name: /Workspace Billing/ }));
+  await screen.findByText("Inspect Billing State");
+  expect(screen.queryByText("Selected Workspace State")).toBeNull();
+  expect(screen.queryByText("Payment-Required Override")).toBeNull();
+  expect(screen.queryByText("Enterprise Ramp-Up")).toBeNull();
+  expect(screen.queryByText("Enterprise Annual")).toBeNull();
+  expect(screen.queryByText("Enable No-Billing Mode")).toBeNull();
+  expect(screen.queryByText("Disable No-Billing Mode")).toBeNull();
+}
+
+async function startBillingFlow(user, flowName, query = "ws_1") {
+  const flowButton = screen.getByText(flowName).closest("button");
+  expect(flowButton).toBeTruthy();
+  await user.click(flowButton);
+  const dialog = await screen.findByRole("dialog", { name: flowName });
+
+  await user.type(within(dialog).getByLabelText("Workspace search"), query);
+  await user.click(within(dialog).getByRole("button", { name: "Search Workspaces" }));
+  await user.click(await within(dialog).findByRole("button", { name: `Select workspace ${query}` }));
+
+  const continueButton = within(dialog).getByRole("button", { name: "Continue" });
+  await waitFor(() => {
+    expect(continueButton.disabled).toBe(false);
+  });
+  await user.click(continueButton);
+
+  return dialog;
+}
+
+async function expectVisibleText(text) {
+  const matches = await screen.findAllByText(text);
+  expect(matches.length).toBeGreaterThan(0);
+}
+
+async function expectBillingFlowClosed(flowName) {
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog", { name: flowName })).toBeNull();
+  });
+}
+
+function expectExistingText(text) {
+  expect(screen.getAllByText(text).length).toBeGreaterThan(0);
+}
+
 describe("Application admin page gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -105,6 +152,682 @@ describe("Application admin page gate", () => {
     const adminButton = await screen.findByRole("button", { name: /^Admin$/ });
     expect(adminButton).toBeTruthy();
     expect(within(adminButton).queryByText(/\d+/)).toBeNull();
+  });
+
+  it("lets Application admins find a billing Workspace by owner email before starting a flow", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+
+    const flowButton = screen.getByText("Grant Goodwill Credits").closest("button");
+    await user.click(flowButton);
+    const dialog = await screen.findByRole("dialog", { name: "Grant Goodwill Credits" });
+
+    await user.selectOptions(within(dialog).getByLabelText("Search field"), "owner_email");
+    await user.type(within(dialog).getByLabelText("Workspace search"), "owner@example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Search Workspaces" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/admin/billing/workspaces?owner_email=owner%40example.com",
+        expect.objectContaining({ credentials: "include", method: "GET" }),
+      );
+    });
+    await user.click(await within(dialog).findByRole("button", { name: "Select workspace ws_1" }));
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+
+    expect(within(dialog).getByLabelText("Goodwill Credits")).toBeTruthy();
+  });
+
+  it("lets Application admins grant Goodwill Credits from the Application admin billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1/goodwill-credits")) {
+        return Promise.resolve(jsonResponse({
+          grant_id: "grant_grant-request-1",
+          workspace_id: "ws_1",
+          granted_credits: 25,
+          available_credits: 25,
+        }, { status: 201 }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    const dialog = await startBillingFlow(user, "Grant Goodwill Credits");
+
+    await user.clear(within(dialog).getByLabelText("Goodwill Credits"));
+    await user.type(within(dialog).getByLabelText("Goodwill Credits"), "25");
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.type(within(dialog).getByLabelText("Grant reason"), "Support adjustment for onboarding");
+    await user.click(within(dialog).getByRole("button", { name: "Grant Goodwill Credits" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/admin/billing/workspaces/ws_1/goodwill-credits",
+        expect.objectContaining({
+          credentials: "include",
+          method: "POST",
+          body: expect.any(String),
+        }),
+      );
+    });
+    const [, grantRequestOptions] = globalThis.fetch.mock.calls.find(([input]) =>
+      String(input).endsWith("/admin/billing/workspaces/ws_1/goodwill-credits"),
+    );
+    expect(JSON.parse(grantRequestOptions.body)).toEqual({
+      credits: 25,
+      reason: "Support adjustment for onboarding",
+      idempotency_key: expect.stringMatching(/^goodwill-grant-/),
+    });
+    await expectBillingFlowClosed("Grant Goodwill Credits");
+    expect(toast.success).toHaveBeenCalledWith("Goodwill Credits granted: ws_1");
+  });
+
+  it("lets Application admins revoke a Goodwill Credit grant from the Application admin billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1/goodwill-credits/grant_123/revoke")) {
+        return Promise.resolve(jsonResponse({
+          revocation_id: "revocation_revoke-request-1",
+          grant_id: "grant_123",
+          workspace_id: "ws_1",
+          revoked_credits: 25,
+          available_credits: 0,
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    const dialog = await startBillingFlow(user, "Revoke Goodwill Grant");
+
+    await user.type(within(dialog).getByLabelText("Goodwill grant ID"), "grant_123");
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.type(within(dialog).getByLabelText("Revocation reason"), "Grant entered for the wrong Workspace");
+    await user.click(within(dialog).getByRole("button", { name: "Revoke Goodwill Grant" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/admin/billing/workspaces/ws_1/goodwill-credits/grant_123/revoke",
+        expect.objectContaining({
+          credentials: "include",
+          method: "POST",
+          body: expect.any(String),
+        }),
+      );
+    });
+    const [, revokeRequestOptions] = globalThis.fetch.mock.calls.find(([input]) =>
+      String(input).endsWith("/admin/billing/workspaces/ws_1/goodwill-credits/grant_123/revoke"),
+    );
+    expect(JSON.parse(revokeRequestOptions.body)).toEqual({
+      reason: "Grant entered for the wrong Workspace",
+      idempotency_key: expect.stringMatching(/^goodwill-revoke-/),
+    });
+    await expectBillingFlowClosed("Revoke Goodwill Grant");
+    expect(toast.success).toHaveBeenCalledWith("Goodwill grant revoked: ws_1");
+  });
+
+  it("lets Application admins inspect billing state and create a no-payment Plan override", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          active_entitlement: { plan: "free", display_name: "Free" },
+          plan_override: null,
+          no_billing_mode: { enabled: false },
+          audit_entries: [],
+        }));
+      }
+      if (url.endsWith("/admin/billing/workspaces/ws_1/plan-overrides")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          plan_override: {
+            plan: "pro",
+            display_name: "Pro",
+            start_at: "2026-05-31T00:00:00.000Z",
+            end_at: "2026-06-30T00:00:00.000Z",
+            reason: "Commercial onboarding grant",
+            created_by_user_id: "user_1",
+          },
+          included_credit_grant: {
+            granted_credits: 200,
+            available_credits: 200,
+          },
+        }, { status: 201 }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    const inspectDialog = await startBillingFlow(user, "Inspect Billing State");
+
+    await expectVisibleText("Active Plan Free");
+    await user.click(within(inspectDialog).getByRole("button", { name: "Done" }));
+
+    const dialog = await startBillingFlow(user, "Plan Override");
+    await user.selectOptions(within(dialog).getByLabelText("Plan override target"), "pro");
+    await user.type(within(dialog).getByLabelText("Override start date"), "2026-05-15");
+    await user.clear(within(dialog).getByLabelText("Override duration months"));
+    await user.type(within(dialog).getByLabelText("Override duration months"), "2");
+    expect(within(dialog).getByText("Derived end date 15/07/2026")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.type(within(dialog).getByLabelText("Override reason"), "Commercial onboarding grant");
+    await user.click(within(dialog).getByRole("button", { name: "Create Plan Override" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/admin/billing/workspaces/ws_1/plan-overrides",
+        expect.objectContaining({
+          credentials: "include",
+          method: "POST",
+          body: expect.any(String),
+        }),
+      );
+    });
+    const [, overrideRequestOptions] = globalThis.fetch.mock.calls.find(([input]) =>
+      String(input).endsWith("/admin/billing/workspaces/ws_1/plan-overrides"),
+    );
+    expect(JSON.parse(overrideRequestOptions.body)).toEqual({
+      plan: "pro",
+      start_at: "2026-05-15T00:00:00.000Z",
+      end_at: "2026-07-15T00:00:00.000Z",
+      reason: "Commercial onboarding grant",
+      idempotency_key: expect.stringMatching(/^plan-override-/),
+    });
+    await expectBillingFlowClosed("Plan Override");
+    expect(toast.success).toHaveBeenCalledWith("Plan override created: ws_1");
+  });
+
+  it("shows Billing reconciliation drift in the Application admin billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          active_entitlement: { plan: "free", display_name: "Free" },
+          plan_override: null,
+          no_billing_mode: { enabled: false },
+          reconciliation: {
+            last_checked_at: "2026-05-31T12:00:00.000Z",
+            open_drift_count: 1,
+            drift_records: [
+              {
+                id: "drift_ws_1_ambiguous_stripe_invoice_in_ambiguous_subscription",
+                workspace_id: "ws_1",
+                drift_type: "ambiguous_stripe_invoice",
+                severity: "needs_review",
+                actionability: "manual_review",
+                related_stripe_object_id: "in_ambiguous_subscription",
+                observed: {
+                  invoice_status: "paid",
+                  metadata_workspace_id: null,
+                },
+                expected: {
+                  workspace_id: "ws_1",
+                },
+                first_seen_at: "2026-05-31T12:00:00.000Z",
+                last_seen_at: "2026-05-31T12:00:00.000Z",
+                status: "open",
+              },
+            ],
+          },
+          audit_entries: [],
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    await startBillingFlow(user, "Inspect Billing State");
+
+    await expectVisibleText("Reconciliation checked 2026-05-31 12:00:00");
+    expectExistingText("Open drift 1");
+    expectExistingText("ambiguous_stripe_invoice");
+    expectExistingText("in_ambiguous_subscription");
+    expectExistingText("manual_review");
+  });
+
+  it("hides the reconciliation checked badge when reconciliation has not run", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          active_entitlement: { plan: "free", display_name: "Free" },
+          plan_override: null,
+          no_billing_mode: { enabled: false },
+          reconciliation: {
+            last_checked_at: "1970-01-01T00:00:00.000Z",
+            open_drift_count: 0,
+            drift_records: [],
+          },
+          audit_entries: [],
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    await startBillingFlow(user, "Inspect Billing State");
+
+    expect(screen.queryByText(/Reconciliation checked/)).toBeNull();
+    expectExistingText("Open drift 0");
+  });
+
+  it("shows Application admin billing audit entries as reviewable billing history", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          active_entitlement: { plan: "pro", display_name: "Pro" },
+          plan_override: null,
+          no_billing_mode: { enabled: false },
+          audit_entries: [
+            {
+              id: "audit_1",
+              action: "payment_required_plan_override_created",
+              actor_user_id: "user_admin_1",
+              actor_name: "Application Admin",
+              reason: "Paid onboarding extension",
+              before: {
+                plan: "free",
+                stripe_invoice_id: "in_hidden_before",
+              },
+              after: {
+                plan: "pro",
+                invoice_status: "open",
+                stripe_invoice_id: "in_hidden_after",
+              },
+              occurred_at: "2026-06-01T11:00:00.000Z",
+            },
+            {
+              id: "audit_2",
+              action: "plan_override_created",
+              actor_user_id: "user_admin_1",
+              actor_name: "Application Admin",
+              reason: "Max onboarding grant",
+              before: {
+                plan_override_plan: "pro",
+                plan_override_start_at: "2026-06-02T00:00:00.000Z",
+                plan_override_end_at: "2026-07-02T00:00:00.000Z",
+              },
+              after: {
+                plan_override_plan: "max",
+                plan_override_start_at: "2026-06-02T00:00:00.000Z",
+                plan_override_end_at: "2026-07-02T00:00:00.000Z",
+              },
+              occurred_at: "2026-06-02T00:12:09.000Z",
+            },
+          ],
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    await startBillingFlow(user, "Inspect Billing State");
+
+    expect(await screen.findByText("Application admin billing audit")).toBeTruthy();
+    expect(screen.getByText("Payment-required Plan override created")).toBeTruthy();
+    expect(screen.getByText("Paid onboarding extension")).toBeTruthy();
+    expect(screen.getAllByText("Actor").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("Application Admin").length).toBeGreaterThan(1);
+    expect(screen.getByText("2026-06-01 11:00:00")).toBeTruthy();
+    expect(screen.getAllByText("Previous state").length).toBeGreaterThan(1);
+    expect(screen.getByText("Free")).toBeTruthy();
+    expect(screen.getAllByText("New state").length).toBeGreaterThan(1);
+    expect(screen.getByText("Pro, invoice open")).toBeTruthy();
+    expect(screen.getByText("Max onboarding grant")).toBeTruthy();
+    expect(screen.getByText("Plan override Pro, starts 2026-06-02 00:00:00, ends 2026-07-02 00:00:00")).toBeTruthy();
+    expect(screen.getByText("Plan override Max, starts 2026-06-02 00:00:00, ends 2026-07-02 00:00:00")).toBeTruthy();
+    expect(screen.queryByText(/in_hidden/)).toBeNull();
+  });
+
+  it("lets Application admins create a payment-required Plan override invoice from the Plan Override flow", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1/payment-required-plan-overrides")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          payment_required_plan_override: {
+            plan: "pro",
+            display_name: "Pro",
+            start_at: "2026-06-01T00:00:00.000Z",
+            end_at: "2026-07-01T00:00:00.000Z",
+            reason: "Paid onboarding extension",
+            created_by_user_id: "user_1",
+            amount: {
+              currency: "GBP",
+              amount_minor: 12500,
+              display: "GBP 125.00",
+              tax_behavior: "exclusive",
+            },
+            collection_mode: "manual",
+            invoice: {
+              status: "open",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_override",
+            },
+          },
+        }, { status: 201 }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    const dialog = await startBillingFlow(user, "Plan Override");
+
+    await user.selectOptions(within(dialog).getByLabelText("Plan override target"), "pro");
+    await user.type(within(dialog).getByLabelText("Override start date"), "2026-06-10");
+    await user.clear(within(dialog).getByLabelText("Override duration months"));
+    await user.type(within(dialog).getByLabelText("Override duration months"), "2");
+    expect(within(dialog).getByText("Derived end date 10/08/2026")).toBeTruthy();
+    await user.click(within(dialog).getByLabelText("Require payment before activation"));
+    await user.clear(within(dialog).getByLabelText("Payment-required amount (GBP)"));
+    await user.type(within(dialog).getByLabelText("Payment-required amount (GBP)"), "125");
+    await user.selectOptions(within(dialog).getByLabelText("Invoice payment method"), "manual");
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.type(within(dialog).getByLabelText("Override reason"), "Paid onboarding extension");
+    await user.click(within(dialog).getByRole("button", { name: "Create Plan Override" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/admin/billing/workspaces/ws_1/payment-required-plan-overrides",
+        expect.objectContaining({
+          credentials: "include",
+          method: "POST",
+          body: expect.any(String),
+        }),
+      );
+    });
+    const [, overrideRequestOptions] = globalThis.fetch.mock.calls.find(([input]) =>
+      String(input).endsWith("/admin/billing/workspaces/ws_1/payment-required-plan-overrides"),
+    );
+    expect(JSON.parse(overrideRequestOptions.body)).toEqual({
+      plan: "pro",
+      start_at: "2026-06-10T00:00:00.000Z",
+      end_at: "2026-08-10T00:00:00.000Z",
+      reason: "Paid onboarding extension",
+      amount_minor: 12500,
+      collection_mode: "manual",
+      idempotency_key: expect.stringMatching(/^payment-required-plan-override-/),
+    });
+    await expectBillingFlowClosed("Plan Override");
+    expect(toast.success).toHaveBeenCalledWith("Payment-required Plan override invoice created: ws_1");
+  });
+
+  it("lets Application admins assign Enterprise ramp-up terms from the billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1/enterprise-ramp-up")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          enterprise_ramp_up: {
+            status: "active",
+            duration_months: 3,
+            enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+            starts_at: "2026-05-01T00:00:00.000Z",
+            ends_at: "2026-08-01T00:00:00.000Z",
+            collection_mode: "manual",
+            invoice_review_enabled: true,
+            reason: "Enterprise ramp-up before annual commitment",
+          },
+          active_entitlement: {
+            plan: "enterprise_ramp_up",
+            display_name: "Enterprise ramp-up",
+          },
+        }, { status: 201 }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    const dialog = await startBillingFlow(user, "Enterprise Terms");
+
+    await user.click(within(dialog).getByLabelText("Include Enterprise ramp-up"));
+    await user.type(within(dialog).getByLabelText("Enterprise ramp-up billing cycle start"), "2026-05");
+    await user.clear(within(dialog).getByLabelText("Enterprise ramp-up duration months"));
+    await user.type(within(dialog).getByLabelText("Enterprise ramp-up duration months"), "3");
+    await user.selectOptions(within(dialog).getByLabelText("Enterprise ramp-up collection"), "manual");
+    await user.click(within(dialog).getByLabelText("Review ramp-up invoices before finalization"));
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.type(within(dialog).getByLabelText("Enterprise terms reason"), "Enterprise ramp-up before annual commitment");
+    await user.click(within(dialog).getByRole("button", { name: "Create Enterprise Terms" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/admin/billing/workspaces/ws_1/enterprise-ramp-up",
+        expect.objectContaining({
+          credentials: "include",
+          method: "POST",
+          body: expect.any(String),
+        }),
+      );
+    });
+    const [, requestOptions] = globalThis.fetch.mock.calls.find(([input]) =>
+      String(input).endsWith("/admin/billing/workspaces/ws_1/enterprise-ramp-up"),
+    );
+    expect(JSON.parse(requestOptions.body)).toEqual({
+      enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+      duration_months: 3,
+      collection_mode: "manual",
+      invoice_review_enabled: true,
+      reason: "Enterprise ramp-up before annual commitment",
+      idempotency_key: expect.stringMatching(/^enterprise-ramp-up-/),
+    });
+    await expectBillingFlowClosed("Enterprise Terms");
+    expect(toast.success).toHaveBeenCalledWith("Enterprise terms created: ws_1");
+  });
+
+  it("lets Application admins assign standard Enterprise annual commitment terms from the billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1/enterprise-annual-commitments")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          enterprise_annual_commitment: {
+            status: "pending_payment",
+            monthly_minimum_allowance: 100000,
+            per_page_price: {
+              currency: "GBP",
+              amount_minor: 8,
+              display: "GBP 0.08",
+              tax_behavior: "exclusive",
+            },
+            yearly_amount: {
+              currency: "GBP",
+              amount_minor: 9600000,
+              display: "GBP 96,000.00",
+              tax_behavior: "exclusive",
+            },
+            enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+            starts_at: "2026-06-01T00:00:00.000Z",
+            ends_at: "2027-06-01T00:00:00.000Z",
+            collection_mode: "manual",
+            invoice_review_enabled: true,
+            reason: "Annual Enterprise commitment",
+            upfront_invoice: {
+              status: "open",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual",
+            },
+          },
+          active_entitlement: {
+            plan: "free",
+            display_name: "Free",
+          },
+        }, { status: 201 }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    const dialog = await startBillingFlow(user, "Enterprise Terms");
+
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.click(within(dialog).getByLabelText("Include Enterprise annual commitment"));
+    await user.selectOptions(within(dialog).getByLabelText("Annual commitment preset"), "100000:8");
+    expect(screen.getByText("Derived yearly cost GBP 96,000.00")).toBeTruthy();
+    await user.type(within(dialog).getByLabelText("Annual billing cycle start"), "2026-06");
+    await user.selectOptions(within(dialog).getByLabelText("Annual collection"), "manual");
+    await user.click(within(dialog).getByLabelText("Review annual invoices before finalization"));
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.type(within(dialog).getByLabelText("Enterprise terms reason"), "Annual Enterprise commitment");
+    await user.click(within(dialog).getByRole("button", { name: "Create Enterprise Terms" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/admin/billing/workspaces/ws_1/enterprise-annual-commitments",
+        expect.objectContaining({
+          credentials: "include",
+          method: "POST",
+          body: expect.any(String),
+        }),
+      );
+    });
+    const [, requestOptions] = globalThis.fetch.mock.calls.find(([input]) =>
+      String(input).endsWith("/admin/billing/workspaces/ws_1/enterprise-annual-commitments"),
+    );
+    expect(JSON.parse(requestOptions.body)).toEqual({
+      monthly_minimum_allowance: 100000,
+      per_page_price_minor: 8,
+      enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+      collection_mode: "manual",
+      invoice_review_enabled: true,
+      reason: "Annual Enterprise commitment",
+      idempotency_key: expect.stringMatching(/^enterprise-annual-/),
+    });
+    await expectBillingFlowClosed("Enterprise Terms");
+    expect(toast.success).toHaveBeenCalledWith("Enterprise terms created: ws_1");
+  });
+
+  it("lets Application admins enable No-billing mode from the Application admin billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1/no-billing")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          no_billing_mode: {
+            enabled: true,
+            reason: "Internal evaluation workspace",
+            updated_by_user_id: "user_1",
+            updated_at: "2026-05-31T12:00:00.000Z",
+          },
+          active_entitlement: {
+            plan: "no_billing",
+            display_name: "No-billing",
+          },
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    const dialog = await startBillingFlow(user, "Edit No-Billing Mode");
+
+    await user.click(within(dialog).getByLabelText("No-billing mode enabled"));
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.type(within(dialog).getByLabelText("No-billing reason"), "Internal evaluation workspace");
+    await user.click(within(dialog).getByRole("button", { name: "Save No-Billing Mode" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/admin/billing/workspaces/ws_1/no-billing",
+        expect.objectContaining({
+          credentials: "include",
+          method: "POST",
+          body: expect.any(String),
+        }),
+      );
+    });
+    const [, noBillingRequestOptions] = globalThis.fetch.mock.calls.find(([input]) =>
+      String(input).endsWith("/admin/billing/workspaces/ws_1/no-billing"),
+    );
+    expect(JSON.parse(noBillingRequestOptions.body)).toEqual({
+      enabled: true,
+      reason: "Internal evaluation workspace",
+      idempotency_key: expect.stringMatching(/^no-billing-/),
+    });
+    await expectBillingFlowClosed("Edit No-Billing Mode");
+    expect(toast.success).toHaveBeenCalledWith("No-billing mode updated: ws_1");
   });
 
   it("returns a regular user with stale admin-page state to the Workspace page", async () => {
@@ -1036,6 +1759,32 @@ function installLocalStorage() {
 function mockWorkspaceFetch(input) {
   const url = String(input);
 
+  if (url.includes("/admin/billing/workspaces?")) {
+    return Promise.resolve(
+      jsonResponse({
+        workspaces: [
+          {
+            id: "ws_1",
+            name: "Research Workspace",
+            owner_email: "owner@example.com",
+            owner_name: "Workspace Owner",
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+  }
+  if (url.endsWith("/admin/billing/workspaces/ws_1")) {
+    return Promise.resolve(
+      jsonResponse({
+        workspace_id: "ws_1",
+        active_entitlement: { plan: "free", display_name: "Free" },
+        plan_override: null,
+        no_billing_mode: { enabled: false },
+        audit_entries: [],
+      }),
+    );
+  }
   if (url.endsWith("/workspaces")) {
     return Promise.resolve(
       jsonResponse({

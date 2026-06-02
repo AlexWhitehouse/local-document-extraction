@@ -2030,6 +2030,62 @@ describe("Workspace action toast feedback", () => {
     expect(screen.getByText(/queue detail/)).toBeTruthy();
   });
 
+  it("keeps billing-rejected Documents failed after page count with actionable feedback", async () => {
+    const user = userEvent.setup();
+    const template = { id: "tpl_document", name: "Invoice Template" };
+    let queueAttempts = 0;
+
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/templates")) {
+        return Promise.resolve(jsonResponse({ templates: [template] }));
+      }
+      if (url.endsWith("/extract") && options.method === "POST") {
+        queueAttempts += 1;
+        if (queueAttempts === 1) {
+          return Promise.resolve(jsonResponse({ job_id: "job_upload_1" }));
+        }
+        return Promise.resolve(
+          jsonResponse({
+            error: {
+              code: "billing_insufficient_credits",
+              message: "Billing rejected after detecting 7 Billable Document pages. Buy Credits or ask the Workspace owner to update billing.",
+            },
+          }, { status: 402 }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    const { container } = render(<App />);
+
+    await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
+    fireEvent.change(container.querySelector('input[type="file"]'), {
+      target: {
+        files: [
+          new File(["invoice"], "invoice.pdf", { type: "application/pdf" }),
+          new File(["receipt"], "receipt.pdf", { type: "application/pdf" }),
+        ],
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Upload Documents" }));
+
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenCalledWith("1 document queued, 1 blocked by billing");
+    });
+    const uploadDialog = within(screen.getByRole("dialog", { name: "Upload document" }));
+    expect(uploadDialog.getByText("invoice.pdf")).toBeTruthy();
+    expect(uploadDialog.getByText("receipt.pdf")).toBeTruthy();
+    expect(screen.getByText("success")).toBeTruthy();
+    expect(screen.getByText("failed")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Billing rejected after detecting 7 Billable Document pages. Buy Credits or ask the Workspace owner to update billing.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("job_upload_2")).toBeNull();
+  });
+
   it("confirms deleting a document", async () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);

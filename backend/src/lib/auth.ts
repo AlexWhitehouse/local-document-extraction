@@ -1,5 +1,7 @@
 import { HttpError } from "./http";
 import { createAuth } from "./betterAuth";
+import { getWorkspaceBillingControl } from "./workspaceBillingControl";
+import { summarizeWorkspaceBilling } from "./workspaceBilling";
 import { authorizeWorkspaceForApiKey, authorizeWorkspaceForSession } from "./workspacePolicy";
 import type { Workspace } from "./types";
 
@@ -13,6 +15,7 @@ type SessionUser = {
   id: string;
   email: string;
   name: string;
+  role?: string;
 };
 
 export async function authenticate(request: Request, env: Env): Promise<AuthContext> {
@@ -55,7 +58,8 @@ export async function requireSession(request: Request, env: Env): Promise<Sessio
   return {
     id: session.user.id,
     email: session.user.email,
-    name: session.user.name
+    name: session.user.name,
+    role: typeof session.user.role === "string" ? session.user.role : undefined
   };
 }
 
@@ -80,6 +84,15 @@ async function authenticateViaApiKey(request: Request, db: D1Database): Promise<
 
   if (!workspace) {
     throw new HttpError(401, "unauthorized", "Invalid API key");
+  }
+  const billingControl = await getWorkspaceBillingControl(db, workspace.id);
+  const billing = summarizeWorkspaceBilling(workspace, billingControl);
+  if (!billing.active_entitlement.api_access) {
+    throw new HttpError(
+      402,
+      "api_access_entitlement_inactive",
+      "Workspace plan does not include API access",
+    );
   }
 
   return workspace;

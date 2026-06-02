@@ -261,6 +261,60 @@ describe("useDocumentController Workspace live updates", () => {
     });
   });
 
+  it("refreshes Workspace capacity when live lifecycle updates arrive", async () => {
+    const WebSocketStub = installWebSocketStub();
+    const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+        initialWorkspace={{
+          selectedDocumentId: "job_processing_1",
+          jobHistory: [
+            {
+              job_id: "job_processing_1",
+              status: "processing",
+              source_name: "invoice.pdf",
+              template_id: "template_test",
+              created_at: "2026-05-06T12:00:00.000Z",
+              updated_at: "2026-05-06T12:01:00.000Z",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+    });
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [
+            {
+              type: "extraction_job_lifecycle",
+              job: {
+                job_id: "job_processing_1",
+                status: "completed",
+                source_name: "invoice.pdf",
+                template_id: "template_test",
+                updated_at: "2026-05-06T12:02:00.000Z",
+                completed_at: "2026-05-06T12:02:00.000Z",
+              },
+            },
+          ],
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
+    });
+  });
+
   it("preserves document list order when a live lifecycle update omits the created timestamp", async () => {
     const WebSocketStub = installWebSocketStub();
     let controller = null;
@@ -390,6 +444,7 @@ function DocumentControllerHarness({
   workspaceId,
   initialWorkspace = {},
   onController,
+  onWorkspaceCapacityRefresh,
   request = vi.fn(async () => ({ jobs: [], next_cursor: null, has_more: false })),
 }) {
   const [latestResponse, setLatestResponse] = React.useState(null);
@@ -409,6 +464,7 @@ function DocumentControllerHarness({
     workspaceId,
     latestResponse,
     setLatestResponse,
+    onWorkspaceCapacityRefresh,
     onActivePageChange: vi.fn(),
   });
   onController?.(controller);

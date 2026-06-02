@@ -1,127 +1,138 @@
 import React, { useEffect, useRef, useState } from "react";
+import { ApplicationAdminBillingPage } from "./ApplicationAdminBillingPage.jsx";
 
-export function ApplicationAdminPage({ admin }) {
+export function ApplicationAdminPage({ admin, activeSection = "accounts" }) {
+  const isBillingSection = activeSection === "billing";
+
   return (
     <>
       <header className="page-header">
         <p className="eyebrow">Admin</p>
-        <h2>Application Admin</h2>
-        <p>Manage application-wide accounts separately from Workspace access.</p>
+        <h2>{isBillingSection ? "Workspace Billing" : "Application Admin"}</h2>
+        <p>
+          {isBillingSection
+            ? "Run guided billing exception flows for selected Workspaces."
+            : "Manage application-wide accounts separately from Workspace access."}
+        </p>
       </header>
 
-      <section className="content-grid admin-page-grid">
-        <article className="workspace-card admin-user-panel">
-          <div className="workspace-head admin-user-panel-head">
-            <div>
-              <h2>Account Management</h2>
-              <p>Find Better Auth accounts without exposing Workspace data.</p>
+      {isBillingSection ? (
+        <ApplicationAdminBillingPage admin={admin} />
+      ) : (
+        <section className="content-grid admin-page-grid">
+          <article className="workspace-card admin-user-panel">
+            <div className="workspace-head admin-user-panel-head">
+              <div>
+                <h2>Account Management</h2>
+                <p>Find Better Auth accounts without exposing Workspace data.</p>
+              </div>
+              <span className="status-chip">Total users {admin.total}</span>
             </div>
-            <span className="status-chip">Total users {admin.total}</span>
-          </div>
 
-          <form className="admin-user-search" onSubmit={admin.onSubmitSearch}>
-            <label>
-              Search field
-              <select
-                value={admin.searchField}
-                onChange={(event) => admin.onSearchFieldChange(event.target.value)}
-              >
-                <option value="email">Email</option>
-                <option value="name">Name</option>
-              </select>
-            </label>
-            <label>
-              Search users
-              <input
-                value={admin.searchInput}
-                placeholder="Search by email"
-                onChange={(event) => admin.onSearchInputChange(event.target.value)}
-              />
-            </label>
-            <div className="actions compact admin-user-search-actions">
-              <button type="submit" disabled={admin.isLoading}>Search</button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={admin.isLoading || !admin.submittedSearch.value}
-                onClick={admin.onClearSearch}
-              >
-                Clear Search
-              </button>
-            </div>
-          </form>
+            <form className="admin-user-search" onSubmit={admin.onSubmitSearch}>
+              <label>
+                Search field
+                <select
+                  value={admin.searchField}
+                  onChange={(event) => admin.onSearchFieldChange(event.target.value)}
+                >
+                  <option value="email">Email</option>
+                  <option value="name">Name</option>
+                </select>
+              </label>
+              <label>
+                Search users
+                <input
+                  value={admin.searchInput}
+                  placeholder="Search by email"
+                  onChange={(event) => admin.onSearchInputChange(event.target.value)}
+                />
+              </label>
+              <div className="actions compact admin-user-search-actions">
+                <button type="submit" disabled={admin.isLoading}>Search</button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={admin.isLoading || !admin.submittedSearch.value}
+                  onClick={admin.onClearSearch}
+                >
+                  Clear Search
+                </button>
+              </div>
+            </form>
 
-          {admin.listError ? (
-            <div className="form-error" role="alert">
-              {admin.listError}
-              <button type="button" className="ghost" onClick={admin.onRetry}>
-                Retry
-              </button>
-            </div>
-          ) : null}
+            {admin.listError ? (
+              <div className="form-error" role="alert">
+                {admin.listError}
+                <button type="button" className="ghost" onClick={admin.onRetry}>
+                  Retry
+                </button>
+              </div>
+            ) : null}
 
-          {admin.isLoading ? <p className="muted">Loading users...</p> : null}
+            {admin.isLoading ? <p className="muted">Loading users...</p> : null}
 
-          <div className="table-scroll admin-users-table" aria-label="Application admin users">
-            <table>
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Name</th>
-                  <th>Email Status</th>
-                  <th>Application Role</th>
-                  <th>Banned</th>
-                  <th>Ban Reason</th>
-                  <th>Created</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {admin.users.length ? (
-                  admin.users.map((user) => (
-                    <tr key={String(user.id || user.email)}>
-                      <td>{safeText(user.email)}</td>
-                      <td>{safeText(user.name)}</td>
-                      <td>{isEmailVerified(user) ? "Verified" : "Unverified"}</td>
-                      <td>{formatApplicationRole(user.role)}</td>
-                      <td>{user.banned ? "Banned" : "Active"}</td>
-                      <td>{user.banned ? safeText(user.banReason) : "Not banned"}</td>
-                      <td>{formatExactLocalDateTime(user.createdAt)}</td>
-                      <td>{renderUserActions(admin, user)}</td>
-                    </tr>
-                  ))
-                ) : (
+            <div className="table-scroll admin-users-table" aria-label="Application admin users">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={8}>No users found.</td>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Email Status</th>
+                    <th>Application Role</th>
+                    <th>Banned</th>
+                    <th>Ban Reason</th>
+                    <th>Created</th>
+                    <th>Actions</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="admin-user-pagination">
-            <span className="muted">Page {admin.currentPage}</span>
-            <div className="actions compact">
-              <button
-                type="button"
-                className="secondary"
-                disabled={admin.isLoading || !admin.hasPreviousPage}
-                onClick={admin.onPreviousPage}
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={admin.isLoading || !admin.hasNextPage}
-                onClick={admin.onNextPage}
-              >
-                Next
-              </button>
+                </thead>
+                <tbody>
+                  {admin.users.length ? (
+                    admin.users.map((user) => (
+                      <tr key={String(user.id || user.email)}>
+                        <td>{safeText(user.email)}</td>
+                        <td>{safeText(user.name)}</td>
+                        <td>{isEmailVerified(user) ? "Verified" : "Unverified"}</td>
+                        <td>{formatApplicationRole(user.role)}</td>
+                        <td>{user.banned ? "Banned" : "Active"}</td>
+                        <td>{user.banned ? safeText(user.banReason) : "Not banned"}</td>
+                        <td>{formatExactLocalDateTime(user.createdAt)}</td>
+                        <td>{renderUserActions(admin, user)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={8}>No users found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
-          </div>
-        </article>
-      </section>
+
+            <div className="admin-user-pagination">
+              <span className="muted">Page {admin.currentPage}</span>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={admin.isLoading || !admin.hasPreviousPage}
+                  onClick={admin.onPreviousPage}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={admin.isLoading || !admin.hasNextPage}
+                  onClick={admin.onNextPage}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </article>
+        </section>
+      )}
 
       {admin.banDialogUser ? <BanUserDialog admin={admin} user={admin.banDialogUser} /> : null}
       {admin.unbanDialogUser ? <UnbanUserDialog admin={admin} user={admin.unbanDialogUser} /> : null}
@@ -404,6 +415,64 @@ function formatApplicationRole(role) {
   return String(role || "user").trim() === "admin" ? "Application Admin" : "Regular User";
 }
 
+function formatPlanName(plan) {
+  const normalized = String(plan || "").trim();
+  if (normalized === "no_billing") {
+    return "No-billing";
+  }
+  if (!normalized) {
+    return "-";
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatBillingAuditAction(action) {
+  const normalized = String(action || "").trim();
+  const labels = {
+    goodwill_credit_grant: "Goodwill Credit grant",
+    goodwill_credit_revocation: "Goodwill Credit revocation",
+    plan_override_created: "Plan override created",
+    no_billing_mode_updated: "No-billing mode updated",
+    payment_required_plan_override_created: "Payment-required Plan override created",
+    payment_required_plan_override_payment_updated: "Payment-required Plan override payment updated",
+    enterprise_ramp_up_assigned: "Enterprise ramp-up assigned",
+    enterprise_annual_commitment_created: "Enterprise annual commitment created",
+  };
+  if (labels[normalized]) {
+    return labels[normalized];
+  }
+  return normalized
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || "-";
+}
+
+function summarizeBillingAuditSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return "none";
+  }
+
+  const parts = [];
+  const plan = snapshot.plan || snapshot.active_entitlement?.plan;
+  if (plan) {
+    parts.push(formatPlanName(plan));
+  }
+  const invoiceStatus = snapshot.invoice_status || snapshot.invoice?.status;
+  if (invoiceStatus) {
+    parts.push(`invoice ${String(invoiceStatus).replaceAll("_", " ")}`);
+  }
+  if (typeof snapshot.enabled === "boolean") {
+    parts.push(snapshot.enabled ? "enabled" : "disabled");
+  }
+  const status = snapshot.status || snapshot.enterprise_status;
+  if (status && !invoiceStatus) {
+    parts.push(String(status).replaceAll("_", " "));
+  }
+
+  return parts.length ? parts.join(", ") : "recorded";
+}
+
 function formatExactLocalDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -416,6 +485,20 @@ function formatExactLocalDateTime(value) {
     pad(date.getDate()),
   ];
   return `${parts.join("-")} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function formatUtcDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  const parts = [
+    date.getUTCFullYear(),
+    pad(date.getUTCMonth() + 1),
+    pad(date.getUTCDate()),
+  ];
+  return `${parts.join("-")} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
 }
 
 function pad(value) {

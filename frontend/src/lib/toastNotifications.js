@@ -30,6 +30,13 @@ const successMessages = {
   "applicationUser.ban": ({ target }) => withTarget("User banned", target),
   "applicationUser.unban": ({ target }) => withTarget("User unbanned", target),
   "applicationUser.stopImpersonating": () => "Impersonation stopped",
+  "applicationBilling.goodwillGrant": ({ target }) => withTarget("Goodwill Credits granted", target),
+  "applicationBilling.goodwillRevoke": ({ target }) => withTarget("Goodwill grant revoked", target),
+  "applicationBilling.planOverride": ({ target }) => withTarget("Plan override created", target),
+  "applicationBilling.paymentRequiredPlanOverride": ({ target }) =>
+    withTarget("Payment-required Plan override invoice created", target),
+  "applicationBilling.enterpriseTerms": ({ target }) => withTarget("Enterprise terms created", target),
+  "applicationBilling.noBillingMode": ({ target }) => withTarget("No-billing mode updated", target),
   "document.delete": ({ target }) => withTarget("Document deleted", target),
   "clipboard.copyTemplateJson": () => "Template JSON copied",
 };
@@ -129,7 +136,23 @@ export function getActionToast(action, outcome, options = {}) {
   };
 }
 
-export function getDocumentUploadToast({ queued = 0, failed = 0 }) {
+export function getDocumentUploadToast({ queued = 0, failed = 0, billingFailed = 0 }) {
+  if (billingFailed > 0) {
+    const otherFailed = Math.max(0, failed - billingFailed);
+    const parts = [];
+    if (queued > 0) {
+      parts.push(`${queued} ${pluralize("document", queued)} queued`);
+    }
+    parts.push(`${billingFailed} blocked by billing`);
+    if (otherFailed > 0) {
+      parts.push(`${otherFailed} failed`);
+    }
+    return {
+      severity: "error",
+      message: parts.join(", "),
+    };
+  }
+
   if (failed === 0) {
     return {
       severity: "success",

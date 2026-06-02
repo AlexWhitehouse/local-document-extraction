@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { hashWorkspaceApiKey } from "./lib/workspacePolicy";
 
 const createAuthMock = vi.hoisted(() => vi.fn());
 
@@ -28,16 +27,26 @@ type ProductStoreStub = {
   getTemplate: ReturnType<typeof vi.fn>;
   updateTemplate: ReturnType<typeof vi.fn>;
   deleteTemplate: ReturnType<typeof vi.fn>;
+  summarizePlanLimitUsage: ReturnType<typeof vi.fn>;
 };
 
 describe("Template product routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    createAuthMock.mockReturnValue({
+      api: {
+        getSession: vi.fn(async () => ({
+          user: {
+            id: "user_1",
+            email: "ada@example.com",
+            name: "Ada",
+          },
+        })),
+      },
+    });
   });
 
-  it("creates Templates through the Workspace product store after Workspace API key authorization", async () => {
-    const apiKey = "workspace-api-key";
-    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
+  it("creates Templates through the Workspace product store after session Workspace authorization", async () => {
     const legacyTemplateInsert = vi.fn(async () => {
       throw new Error("legacy Template table should not receive authoritative writes");
     });
@@ -50,7 +59,10 @@ describe("Template product routes", () => {
     const productStoreBinding = createProductStoreBinding(productStore);
     const analytics = createAnalyticsBinding();
     const env = createEnv({
-      DB: createWorkspaceControlDb({ apiKeyHash, legacyTemplateInsert }),
+      DB: createWorkspaceControlDb({
+        sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        legacyTemplateInsert,
+      }),
       WORKSPACE_PRODUCT_STORE: productStoreBinding,
       WORKSPACE_PRODUCT_ANALYTICS: analytics,
     });
@@ -59,7 +71,7 @@ describe("Template product routes", () => {
       new Request("https://example.com/v1/templates", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${apiKey}`,
+          "x-workspace-id": "workspace_1",
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -109,8 +121,6 @@ describe("Template product routes", () => {
   });
 
   it("returns a Template limit error from authoritative Workspace product data during Template creation", async () => {
-    const apiKey = "workspace-api-key";
-    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
     const productStore = createProductStoreStub();
     productStore.createTemplate.mockResolvedValue({
       error: {
@@ -125,7 +135,7 @@ describe("Template product routes", () => {
       new Request("https://example.com/v1/templates", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${apiKey}`,
+          "x-workspace-id": "workspace_1",
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -141,8 +151,7 @@ describe("Template product routes", () => {
       }),
       createEnv({
         DB: createWorkspaceControlDb({
-          apiKeyHash,
-          workspace: createWorkspaceControlRow({ apiKeyHash, maxTemplates: 1 }),
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null, maxTemplates: 1 }),
         }),
         WORKSPACE_PRODUCT_STORE: productStoreBinding,
       }),
@@ -162,9 +171,119 @@ describe("Template product routes", () => {
     );
   });
 
-  it("lists Templates from the Workspace product store after Workspace API key authorization", async () => {
-    const apiKey = "workspace-api-key";
-    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
+  it("blocks new Template creation when existing Templates exceed the Active entitlement", async () => {
+    createAuthMock.mockReturnValue({
+      api: {
+        getSession: vi.fn(async () => ({
+          user: {
+            id: "user_1",
+            email: "ada@example.com",
+            name: "Ada",
+          },
+        })),
+      },
+    });
+    const productStore = createProductStoreStub();
+    productStore.summarizePlanLimitUsage.mockResolvedValue({
+      active_template_count: 3,
+      templates: [],
+    });
+    productStore.createTemplate.mockResolvedValue({
+      template_id: "tpl_created",
+      version: 1,
+      status: "active",
+    });
+    const productStoreBinding = createProductStoreBinding(productStore);
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates", {
+        method: "POST",
+        headers: {
+          "x-workspace-id": "workspace_1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Purchase Orders",
+          fields: [
+            {
+              name: "Purchase Order Number",
+              description: "Unique purchase order identifier.",
+              data_type: "string",
+            },
+          ],
+        }),
+      }),
+      createEnv({
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        }),
+        WORKSPACE_PRODUCT_STORE: productStoreBinding,
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "template_limit_exceeded",
+        message: "Workspace has reached the Free plan limit of 3 Templates",
+      },
+    });
+    expect(productStore.createTemplate).not.toHaveBeenCalled();
+  });
+
+  it("blocks new Template creation with too many table-shaped fields", async () => {
+    createAuthMock.mockReturnValue({
+      api: {
+        getSession: vi.fn(async () => ({
+          user: {
+            id: "user_1",
+            email: "ada@example.com",
+            name: "Ada",
+          },
+        })),
+      },
+    });
+    const productStore = createProductStoreStub();
+    productStore.createTemplate.mockResolvedValue({
+      template_id: "tpl_created",
+      version: 1,
+      status: "active",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates", {
+        method: "POST",
+        headers: {
+          "x-workspace-id": "workspace_1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Line Item Tables",
+          fields: [
+            tableField("Line Items"),
+            tableField("Tax Lines"),
+          ],
+        }),
+      }),
+      createEnv({
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        }),
+        WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "template_table_limit_exceeded",
+        message: "Template has exceeded the Free plan limit of 1 table-shaped field",
+      },
+    });
+    expect(productStore.createTemplate).not.toHaveBeenCalled();
+  });
+
+  it("lists Templates from the Workspace product store after session Workspace authorization", async () => {
     const legacyTemplateRead = vi.fn(async () => {
       throw new Error("legacy Template table should not be required for authoritative reads");
     });
@@ -185,10 +304,13 @@ describe("Template product routes", () => {
     const response = await worker.fetch(
       new Request("https://example.com/v1/templates", {
         method: "GET",
-        headers: { authorization: `Bearer ${apiKey}` },
+        headers: { "x-workspace-id": "workspace_1" },
       }),
       createEnv({
-        DB: createWorkspaceControlDb({ apiKeyHash, legacyTemplateRead }),
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+          legacyTemplateRead,
+        }),
         WORKSPACE_PRODUCT_STORE: productStoreBinding,
       }),
     );
@@ -247,9 +369,7 @@ describe("Template product routes", () => {
     expect(productStore.listTemplates).toHaveBeenCalledOnce();
   });
 
-  it("gets Template detail with ordered fields from the Workspace product store after Workspace API key authorization", async () => {
-    const apiKey = "workspace-api-key";
-    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
+  it("gets Template detail with ordered fields from the Workspace product store after session Workspace authorization", async () => {
     const legacyTemplateRead = vi.fn(async () => {
       throw new Error("legacy Template table should not be required for authoritative detail reads");
     });
@@ -284,10 +404,13 @@ describe("Template product routes", () => {
     const response = await worker.fetch(
       new Request("https://example.com/v1/templates/tpl_product", {
         method: "GET",
-        headers: { authorization: `Bearer ${apiKey}` },
+        headers: { "x-workspace-id": "workspace_1" },
       }),
       createEnv({
-        DB: createWorkspaceControlDb({ apiKeyHash, legacyTemplateRead }),
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+          legacyTemplateRead,
+        }),
         WORKSPACE_PRODUCT_STORE: productStoreBinding,
       }),
     );
@@ -324,8 +447,6 @@ describe("Template product routes", () => {
   });
 
   it("returns not_found when Template detail is missing from Workspace product data", async () => {
-    const apiKey = "workspace-api-key";
-    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
     const productStore = createProductStoreStub();
     productStore.getTemplate.mockResolvedValue(null);
     const productStoreBinding = createProductStoreBinding(productStore);
@@ -333,10 +454,12 @@ describe("Template product routes", () => {
     const response = await worker.fetch(
       new Request("https://example.com/v1/templates/tpl_missing", {
         method: "GET",
-        headers: { authorization: `Bearer ${apiKey}` },
+        headers: { "x-workspace-id": "workspace_1" },
       }),
       createEnv({
-        DB: createWorkspaceControlDb({ apiKeyHash }),
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        }),
         WORKSPACE_PRODUCT_STORE: productStoreBinding,
       }),
     );
@@ -352,8 +475,6 @@ describe("Template product routes", () => {
   });
 
   it("updates Template fields through the Workspace product store and returns the new Template version", async () => {
-    const apiKey = "workspace-api-key";
-    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
     const legacyTemplateInsert = vi.fn(async () => {
       throw new Error("legacy Template table should not receive authoritative update writes");
     });
@@ -366,7 +487,10 @@ describe("Template product routes", () => {
     const productStoreBinding = createProductStoreBinding(productStore);
     const analytics = createAnalyticsBinding();
     const env = createEnv({
-      DB: createWorkspaceControlDb({ apiKeyHash, legacyTemplateInsert }),
+      DB: createWorkspaceControlDb({
+        sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        legacyTemplateInsert,
+      }),
       WORKSPACE_PRODUCT_STORE: productStoreBinding,
       WORKSPACE_PRODUCT_ANALYTICS: analytics,
     });
@@ -375,7 +499,7 @@ describe("Template product routes", () => {
       new Request("https://example.com/v1/templates/tpl_product", {
         method: "PATCH",
         headers: {
-          authorization: `Bearer ${apiKey}`,
+          "x-workspace-id": "workspace_1",
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -436,8 +560,6 @@ describe("Template product routes", () => {
   });
 
   it("returns a Template field limit error from authoritative Workspace product data during Template update", async () => {
-    const apiKey = "workspace-api-key";
-    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
     const productStore = createProductStoreStub();
     productStore.updateTemplate.mockResolvedValue({
       error: {
@@ -452,7 +574,7 @@ describe("Template product routes", () => {
       new Request("https://example.com/v1/templates/tpl_product", {
         method: "PATCH",
         headers: {
-          authorization: `Bearer ${apiKey}`,
+          "x-workspace-id": "workspace_1",
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -472,8 +594,7 @@ describe("Template product routes", () => {
       }),
       createEnv({
         DB: createWorkspaceControlDb({
-          apiKeyHash,
-          workspace: createWorkspaceControlRow({ apiKeyHash, maxFieldsPerTemplate: 1 }),
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null, maxFieldsPerTemplate: 1 }),
         }),
         WORKSPACE_PRODUCT_STORE: productStoreBinding,
       }),
@@ -493,9 +614,66 @@ describe("Template product routes", () => {
     );
   });
 
-  it("deletes Templates through the Workspace product store after Workspace API key authorization", async () => {
-    const apiKey = "workspace-api-key";
-    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
+  it("blocks Template saves that leave an over-limit Template unchanged", async () => {
+    createAuthMock.mockReturnValue({
+      api: {
+        getSession: vi.fn(async () => ({
+          user: {
+            id: "user_1",
+            email: "ada@example.com",
+            name: "Ada",
+          },
+        })),
+      },
+    });
+    const productStore = createProductStoreStub();
+    productStore.summarizePlanLimitUsage.mockResolvedValue({
+      active_template_count: 3,
+      templates: [
+        {
+          template_id: "tpl_product",
+          top_level_template_fields: 6,
+          table_shaped_fields: 0,
+          max_table_columns_per_field: 0,
+        },
+      ],
+    });
+    productStore.updateTemplate.mockResolvedValue({
+      template_id: "tpl_product",
+      version: 3,
+      status: "active",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates/tpl_product", {
+        method: "PATCH",
+        headers: {
+          "x-workspace-id": "workspace_1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          description: "Still too many fields.",
+        }),
+      }),
+      createEnv({
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        }),
+        WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "template_field_limit_exceeded",
+        message: "Template has exceeded the Free plan limit of 5 top-level fields",
+      },
+    });
+    expect(productStore.updateTemplate).not.toHaveBeenCalled();
+  });
+
+  it("deletes Templates through the Workspace product store after session Workspace authorization", async () => {
     const legacyTemplateDelete = vi.fn(async () => {
       throw new Error("legacy Template table should not receive authoritative delete writes");
     });
@@ -506,10 +684,13 @@ describe("Template product routes", () => {
     const response = await worker.fetch(
       new Request("https://example.com/v1/templates/tpl_product", {
         method: "DELETE",
-        headers: { authorization: `Bearer ${apiKey}` },
+        headers: { "x-workspace-id": "workspace_1" },
       }),
       createEnv({
-        DB: createWorkspaceControlDb({ apiKeyHash, legacyTemplateInsert: legacyTemplateDelete }),
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+          legacyTemplateInsert: legacyTemplateDelete,
+        }),
         WORKSPACE_PRODUCT_STORE: productStoreBinding,
       }),
     );
@@ -563,6 +744,10 @@ function createProductStoreStub(): ProductStoreStub {
     getTemplate: vi.fn(),
     updateTemplate: vi.fn(),
     deleteTemplate: vi.fn(),
+    summarizePlanLimitUsage: vi.fn(async () => ({
+      active_template_count: 0,
+      templates: [],
+    })),
   };
 }
 
@@ -623,5 +808,22 @@ function createWorkspaceControlRow(input: {
     max_templates: input.maxTemplates ?? null,
     max_fields_per_template: input.maxFieldsPerTemplate ?? null,
     max_source_file_bytes: null,
+  };
+}
+
+function tableField(name: string, columns = 1) {
+  return {
+    name,
+    description: `${name} table.`,
+    data_type: "array<object>",
+    object_schema: {
+      mode: "table",
+      data_type: "array<object>",
+      columns: Array.from({ length: columns }, (_, index) => ({
+        heading: `Column ${index + 1}`,
+        data_type: "string",
+        description: `Column ${index + 1} value.`,
+      })),
+    },
   };
 }
