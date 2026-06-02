@@ -583,6 +583,68 @@ describe("WorkspaceProductStore Extraction job lifecycle", () => {
       }),
     ).resolves.toBe(false);
   });
+
+  it("summarizes active Template usage for Plan limit enforcement", async () => {
+    const store = createStore();
+    await store.createTemplate({
+      templateId: "template_limits",
+      name: "Limit Template",
+      description: null,
+      fields: [
+        {
+          id: "invoice_number",
+          name: "Invoice Number",
+          description: "Invoice identifier.",
+          data_type: "string",
+        },
+        {
+          id: "line_items",
+          name: "Line Items",
+          description: tableDescription("Line item table.", 6),
+          data_type: "array<object>",
+        },
+      ],
+      createdAt: "2026-05-06T12:00:00.000Z",
+    });
+    await store.createTemplate({
+      templateId: "template_deleted",
+      name: "Deleted Template",
+      description: null,
+      fields: [
+        {
+          id: "ignored",
+          name: "Ignored",
+          description: "Deleted Template field.",
+          data_type: "string",
+        },
+      ],
+      createdAt: "2026-05-06T12:05:00.000Z",
+    });
+    await store.deleteTemplate("template_deleted");
+
+    await expect(store.summarizePlanLimitUsage()).resolves.toEqual({
+      active_template_count: 1,
+      templates: [
+        {
+          template_id: "template_limits",
+          top_level_template_fields: 2,
+          table_shaped_fields: 1,
+          max_table_columns_per_field: 6,
+        },
+      ],
+    });
+    await expect(store.summarizePlanLimitUsage({ templateId: "template_limits" })).resolves.toEqual({
+      active_template_count: 1,
+      templates: [
+        {
+          template_id: "template_limits",
+          top_level_template_fields: 2,
+          table_shaped_fields: 1,
+          max_table_columns_per_field: 6,
+        },
+      ],
+    });
+  });
 });
 
 async function createQueuedJob(store: InstanceType<typeof WorkspaceProductStore>): Promise<void> {
@@ -719,6 +781,27 @@ function readLastLiveJob(socket: TestWebSocket): Record<string, unknown> {
   const lastMessage = String(socket.send.mock.calls.at(-1)?.[0] || "");
   const envelope = JSON.parse(lastMessage);
   return envelope.events[0].job;
+}
+
+function tableDescription(baseDescription: string, columns: number): string {
+  const schema = {
+    mode: "table",
+    data_type: "array<object>",
+    columns: Array.from({ length: columns }, (_, index) => ({
+      key: `column_${index + 1}`,
+      heading: `Column ${index + 1}`,
+      data_type: "string",
+      description: `Column ${index + 1} value.`,
+    })),
+  };
+
+  return [
+    baseDescription,
+    "",
+    "[[OBJECT_SCHEMA]]",
+    JSON.stringify(schema),
+    "[[/OBJECT_SCHEMA]]",
+  ].join("\n");
 }
 
 class DurableObjectSqlStorageAdapter {

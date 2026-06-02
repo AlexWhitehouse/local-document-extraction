@@ -181,15 +181,24 @@ describe("auth request handling", () => {
     });
   });
 
-  it("accepts Workspace API keys on workspace-scoped product routes", async () => {
-    const apiKey = "workspace-api-key";
-    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
-    const db = createProductRouteDb(apiKeyHash);
+  it("accepts signed-in sessions with accepted Workspace context on workspace-scoped product routes", async () => {
+    createAuthMock.mockReturnValue({
+      api: {
+        getSession: vi.fn().mockResolvedValue({
+          user: {
+            id: "user_1",
+            email: "ada@example.com",
+            name: "Ada",
+          },
+        }),
+      },
+    });
+    const db = createProductRouteDb("unused-api-key-hash");
 
     const response = await worker.fetch(
       new Request("https://example.com/v1/templates", {
         method: "GET",
-        headers: { authorization: `Bearer ${apiKey}` },
+        headers: { "x-workspace-id": "workspace_1" },
       }),
       createEnv({
         DB: db,
@@ -204,6 +213,80 @@ describe("auth request handling", () => {
             updated_at: "2026-05-01T00:00:00.000Z",
           },
         ]),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      templates: [
+        {
+          id: "template_1",
+          name: "Invoices",
+          description: null,
+          status: "active",
+          current_version: 1,
+          created_at: "2026-05-01T00:00:00.000Z",
+          updated_at: "2026-05-01T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(createAuthMock).toHaveBeenCalled();
+  });
+
+  it("rejects valid Workspace API keys on product routes when API access entitlement is inactive", async () => {
+    const apiKey = "workspace-api-key";
+    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
+    const productStore = createProductStoreBinding([]);
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates", {
+        method: "GET",
+        headers: { authorization: `Bearer ${apiKey}` },
+      }),
+      createEnv({
+        DB: createProductRouteDb(apiKeyHash),
+        WORKSPACE_PRODUCT_STORE: productStore,
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "api_access_entitlement_inactive",
+        message: "Workspace plan does not include API access",
+      },
+    });
+    expect(createAuthMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts valid Workspace API keys on product routes when paid API access entitlement is active", async () => {
+    const apiKey = "workspace-api-key";
+    const apiKeyHash = await hashWorkspaceApiKey(apiKey);
+    const productStore = createProductStoreBinding([
+      {
+        id: "template_1",
+        name: "Invoices",
+        description: null,
+        status: "active",
+        current_version: 1,
+        created_at: "2026-05-01T00:00:00.000Z",
+        updated_at: "2026-05-01T00:00:00.000Z",
+      },
+    ]);
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates", {
+        method: "GET",
+        headers: { authorization: `Bearer ${apiKey}` },
+      }),
+      createEnv({
+        DB: createProductRouteDb(apiKeyHash, {
+          self_service_subscription_plan: "pro",
+          self_service_subscription_status: "active",
+          stripe_subscription_current_period_start: "2026-05-31T12:00:00.000Z",
+          stripe_subscription_current_period_end: "2099-06-30T12:00:00.000Z",
+        }),
+        WORKSPACE_PRODUCT_STORE: productStore,
       }),
     );
 
@@ -249,7 +332,15 @@ describe("auth request handling", () => {
   });
 });
 
-function createProductRouteDb(apiKeyHash: string): D1Database {
+function createProductRouteDb(
+  apiKeyHash: string,
+  billingControl: {
+    self_service_subscription_plan: "pro" | "max";
+    self_service_subscription_status: string;
+    stripe_subscription_current_period_start: string;
+    stripe_subscription_current_period_end: string;
+  } | null = null,
+): D1Database {
   return {
     prepare: vi.fn((sql: string) => ({
       bind: vi.fn((...params: unknown[]) => ({
@@ -268,6 +359,27 @@ function createProductRouteDb(apiKeyHash: string): D1Database {
                   max_source_file_bytes: null,
                 }
               : null;
+          }
+
+          if (sql.includes("JOIN workspace_memberships")) {
+            const [workspaceId, userId] = params;
+            return workspaceId === "workspace_1" && userId === "user_1"
+              ? {
+                  id: "workspace_1",
+                  api_key_hash: apiKeyHash,
+                  name: "Research",
+                  created_at: "2026-05-01T00:00:00.000Z",
+                  created_by_user_id: "user_1",
+                  rate_limit_per_minute: null,
+                  max_templates: null,
+                  max_fields_per_template: null,
+                  max_source_file_bytes: null,
+                }
+              : null;
+          }
+
+          if (sql.includes("FROM workspace_billing_controls")) {
+            return billingControl;
           }
 
           return null;

@@ -371,6 +371,11 @@ describe("Extraction job routes", () => {
           deletedKeys.push(key);
         },
       } as unknown as R2Bucket,
+      WORKSPACE_BILLING_LEDGER: {
+        getByName() {
+          throw new Error("Extraction job deletion should not refund Credits");
+        },
+      } as unknown as Env["WORKSPACE_BILLING_LEDGER"],
     });
 
     const response = await worker.fetch(
@@ -425,6 +430,7 @@ function createJobsRouteEnv({
   DB,
   WORKSPACE_PRODUCT_STORE,
   SOURCE_FILES_BUCKET,
+  WORKSPACE_BILLING_LEDGER,
   listRows = [],
   detailJob = null,
   resultRows = [],
@@ -432,6 +438,7 @@ function createJobsRouteEnv({
   DB?: D1Database;
   WORKSPACE_PRODUCT_STORE?: Env["WORKSPACE_PRODUCT_STORE"];
   SOURCE_FILES_BUCKET?: R2Bucket;
+  WORKSPACE_BILLING_LEDGER?: Env["WORKSPACE_BILLING_LEDGER"];
   listRows?: Array<Record<string, unknown>>;
   detailJob?: Record<string, unknown> | null;
   resultRows?: Array<Record<string, unknown>>;
@@ -462,7 +469,7 @@ function createJobsRouteEnv({
     deleteExtractionJob: vi.fn(async () => false),
   });
 
-  return { DB: db, WORKSPACE_PRODUCT_STORE: productStore, SOURCE_FILES_BUCKET } as Env;
+  return { DB: db, WORKSPACE_PRODUCT_STORE: productStore, SOURCE_FILES_BUCKET, WORKSPACE_BILLING_LEDGER } as Env;
 }
 
 function createProductStoreStub(): ProductStoreStub {

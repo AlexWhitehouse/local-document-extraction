@@ -1,4 +1,27 @@
 import { createExtractionJob } from "./api/extract";
+import {
+  generateEnterpriseAnnualOverageInvoices,
+  generateEnterpriseRampUpInvoices,
+  getWorkspaceBillingSummaryForUser,
+  getWorkspaceBillingUsageForUser,
+  createEnterpriseAnnualCommitmentForApplicationAdmin,
+  createEnterpriseRampUpForApplicationAdmin,
+  createNoPaymentPlanOverrideForApplicationAdmin,
+  createPaymentRequiredPlanOverrideForApplicationAdmin,
+  getApplicationAdminWorkspaceBillingState,
+  grantGoodwillCreditsForApplicationAdmin,
+  handleStripeBillingWebhook,
+  listApplicationAdminBillingAuditLog,
+  searchApplicationAdminBillingWorkspaces,
+  listWorkspaceBillingActivityForUser,
+  reconcileWorkspaceBilling,
+  scheduleSubscriptionCancellationForUser,
+  revokeGoodwillCreditGrantForApplicationAdmin,
+  startCreditPackCheckoutForUser,
+  startSubscriptionChangeForUser,
+  startSubscriptionCheckoutForUser,
+  updateNoBillingModeForApplicationAdmin,
+} from "./api/billing";
 import { deleteJob, getJob, listJobs } from "./api/jobs";
 import { DocumentProcessingWorkflow } from "./consumer/documentProcessingWorkflow";
 import { getProfileForUser, updateProfileForUser } from "./api/profile";
@@ -24,6 +47,7 @@ import { authenticate, requireSession } from "./lib/auth";
 import { evaluateAccountPasswordPolicy } from "./lib/accountPasswordPolicy";
 import { createAuth } from "./lib/betterAuth";
 import { HttpError, json, toHttpError } from "./lib/http";
+import { WorkspaceBillingLedger } from "./lib/workspaceBillingLedger";
 import { WorkspaceProductStore } from "./lib/workspaceProductStore";
 import { authorizeWorkspaceForSession } from "./lib/workspacePolicy";
 import type { QueueJobMessage } from "./lib/types";
@@ -58,10 +82,22 @@ export default {
         }
       }),
     );
+  },
+
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    const scheduledAt = new Date(controller.scheduledTime);
+    const invoiceGeneration = Promise.all([
+      generateEnterpriseRampUpInvoices(env, scheduledAt),
+      generateEnterpriseAnnualOverageInvoices(env, scheduledAt),
+      reconcileWorkspaceBilling(env, scheduledAt),
+    ]);
+    ctx.waitUntil(invoiceGeneration);
+    await invoiceGeneration;
   }
 } satisfies ExportedHandler<Env, QueueJobMessage>;
 
 export { DocumentProcessingWorkflow };
+export { WorkspaceBillingLedger };
 export { WorkspaceProductStore };
 
 async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
@@ -75,6 +111,10 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
 
   if (request.method === "GET" && url.pathname === "/v1/health") {
     return json({ ok: true, service: "document-extraction-api" });
+  }
+
+  if (request.method === "POST" && url.pathname === "/v1/billing/stripe/webhook") {
+    return handleStripeBillingWebhook(request, env);
   }
 
   if (request.method === "POST" && url.pathname === "/v1/workspaces") {
@@ -177,6 +217,178 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
     return listWorkspaceUsersForUser(env, workspaceId, session.id);
   }
 
+  if (request.method === "GET" && url.pathname === "/v1/admin/billing/workspaces") {
+    const session = await requireSession(request, env);
+    return searchApplicationAdminBillingWorkspaces(request, env, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/admin\/billing\/workspaces\/[^/]+\/goodwill-credits$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[5] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return grantGoodwillCreditsForApplicationAdmin(request, env, workspaceId, session);
+  }
+
+  if (request.method === "GET" && /^\/v1\/admin\/billing\/workspaces\/[^/]+$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[5] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return getApplicationAdminWorkspaceBillingState(env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/admin\/billing\/workspaces\/[^/]+\/plan-overrides$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[5] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return createNoPaymentPlanOverrideForApplicationAdmin(request, env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/admin\/billing\/workspaces\/[^/]+\/payment-required-plan-overrides$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[5] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return createPaymentRequiredPlanOverrideForApplicationAdmin(request, env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/admin\/billing\/workspaces\/[^/]+\/enterprise-ramp-up$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[5] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return createEnterpriseRampUpForApplicationAdmin(request, env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/admin\/billing\/workspaces\/[^/]+\/enterprise-annual-commitments$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[5] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return createEnterpriseAnnualCommitmentForApplicationAdmin(request, env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/admin\/billing\/workspaces\/[^/]+\/no-billing$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[5] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return updateNoBillingModeForApplicationAdmin(request, env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/admin\/billing\/workspaces\/[^/]+\/goodwill-credits\/[^/]+\/revoke$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const parts = url.pathname.split("/");
+    const workspaceId = decodeURIComponent(parts[5] || "");
+    const grantId = decodeURIComponent(parts[7] || "");
+    if (!workspaceId || !grantId) {
+      throw new HttpError(404, "not_found", "Goodwill Credit grant not found");
+    }
+    return revokeGoodwillCreditGrantForApplicationAdmin(request, env, workspaceId, grantId, session);
+  }
+
+  if (request.method === "GET" && /^\/v1\/admin\/billing\/workspaces\/[^/]+\/audit-log$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[5] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return listApplicationAdminBillingAuditLog(env, workspaceId, session);
+  }
+
+  if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/billing\/summary$/.test(url.pathname)) {
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot read billing summaries");
+    }
+    const session = await requireSession(request, env);
+    return getWorkspaceBillingSummaryForUser(request, env, workspaceId, session.id);
+  }
+
+  if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/billing\/activity$/.test(url.pathname)) {
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot read billing activity");
+    }
+    const session = await requireSession(request, env);
+    return listWorkspaceBillingActivityForUser(request, env, workspaceId, session.id);
+  }
+
+  if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/billing\/usage$/.test(url.pathname)) {
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot read billing usage");
+    }
+    const session = await requireSession(request, env);
+    return getWorkspaceBillingUsageForUser(request, env, workspaceId, session.id);
+  }
+
+  if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/billing\/credit-packs\/checkout$/.test(url.pathname)) {
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot start billing Checkout");
+    }
+    const session = await requireSession(request, env);
+    return startCreditPackCheckoutForUser(request, env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/billing\/subscriptions\/checkout$/.test(url.pathname)) {
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot start billing Checkout");
+    }
+    const session = await requireSession(request, env);
+    return startSubscriptionCheckoutForUser(request, env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/billing\/subscriptions\/change$/.test(url.pathname)) {
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot start billing Checkout");
+    }
+    const session = await requireSession(request, env);
+    return startSubscriptionChangeForUser(request, env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/billing\/subscriptions\/cancel$/.test(url.pathname)) {
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot start billing Checkout");
+    }
+    const session = await requireSession(request, env);
+    return scheduleSubscriptionCancellationForUser(request, env, workspaceId, session);
+  }
+
   if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/users\/[^/]+$/.test(url.pathname)) {
     const session = await requireSession(request, env);
     const parts = url.pathname.split("/");
@@ -260,7 +472,7 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
   }
 
   if (request.method === "POST" && url.pathname === "/v1/extract") {
-    return createExtractionJob(request, env, workspace);
+    return createExtractionJob(request, env, authContext);
   }
 
   if ((request.method === "GET" || request.method === "DELETE") && url.pathname.startsWith("/v1/jobs/")) {

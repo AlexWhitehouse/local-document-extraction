@@ -58,6 +58,22 @@ export type WorkspaceSubmissionTemplate = {
   template_version: number;
 };
 
+export type WorkspacePlanLimitTemplateUsage = {
+  template_id: string;
+  top_level_template_fields: number;
+  table_shaped_fields: number;
+  max_table_columns_per_field: number;
+};
+
+export type WorkspacePlanLimitUsage = {
+  active_template_count: number;
+  templates: WorkspacePlanLimitTemplateUsage[];
+};
+
+export type WorkspacePlanLimitUsageInput = {
+  templateId?: string;
+};
+
 export type CreateQueuedWorkspaceExtractionJobInput = {
   jobId: string;
   templateId: string;
@@ -221,6 +237,7 @@ export interface WorkspaceProductStoreRpc {
   getTemplate(templateId: string): Promise<WorkspaceTemplateDetail | null>;
   updateTemplate(input: UpdateWorkspaceTemplateInput): Promise<UpdatedWorkspaceTemplate | WorkspaceProductStoreFailure | null>;
   deleteTemplate(templateId: string): Promise<boolean>;
+  summarizePlanLimitUsage?(input?: WorkspacePlanLimitUsageInput): Promise<WorkspacePlanLimitUsage>;
   validateTemplateForDocumentSubmission(templateId: string): Promise<WorkspaceSubmissionTemplate | WorkspaceProductStoreFailure>;
   createQueuedExtractionJob(input: CreateQueuedWorkspaceExtractionJobInput): Promise<QueuedWorkspaceExtractionJob | WorkspaceProductStoreFailure>;
   failQueuedExtractionJob(input: FailQueuedWorkspaceExtractionJobInput): Promise<boolean>;

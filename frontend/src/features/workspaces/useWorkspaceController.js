@@ -148,16 +148,27 @@ export function useWorkspaceController({
   const canManageWorkspaceInvitations = Boolean(
     workspaceUserManagement?.canManageWorkspaceInvitations,
   );
-  const selectedWorkspaceRole = String(
-    userWorkspaces.find(
-      (workspace) => String(workspace?.id || "") === String(workspaceId || ""),
-    )?.role || "",
+  const selectedWorkspace = userWorkspaces.find(
+    (workspace) => String(workspace?.id || "") === String(workspaceId || ""),
   );
+  const selectedWorkspaceRole = String(selectedWorkspace?.role || "");
   const selectedWorkspaceHasApiKey = Boolean(
-    userWorkspaces.find(
-      (workspace) => String(workspace?.id || "") === String(workspaceId || ""),
-    )?.has_api_key,
+    selectedWorkspace?.has_api_key,
   );
+  const billingOperationalStatus = normalizeBillingOperationalStatus(
+    selectedWorkspace?.billing_operational_status,
+  );
+  const billingPlanLimits = normalizeBillingPlanLimits(
+    selectedWorkspace?.billing_plan_limits,
+  );
+  const billingUsageSummary = normalizeBillingUsageSummary(
+    selectedWorkspace?.billing_usage_summary,
+  );
+  const isBillingSubmissionBlocked =
+    billingOperationalStatus.blocking_reasons.length > 0;
+  const hasWorkspaceBillingAuthority =
+    !selectedWorkspaceInvitationId.trim() &&
+    selectedWorkspaceRole.trim().toLowerCase() === "owner";
   const workspaceApiKeyActionLabel = selectedWorkspaceHasApiKey
     ? "Rotate API Key"
     : "Generate API Key";
@@ -993,12 +1004,21 @@ export function useWorkspaceController({
       hasWorkspaceContext,
       hasApiAccess,
       hasWorkspaceApiAccess: workspaceSelectionView.hasWorkspaceApiAccess,
+      canSubmitDocuments:
+        workspaceSelectionView.hasWorkspaceApiAccess &&
+        !isBillingSubmissionBlocked,
+      billingOperationalStatus,
+      isBillingSubmissionBlocked,
       isWorkspaceContextLoading,
       hasWorkspaceResolutionError,
       isWorkspaceInvitationSelected,
       selectedWorkspaceInvitation,
       availableWorkspaces,
       workspaceSelectionView,
+      selectedWorkspaceRole,
+      billingPlanLimits,
+      billingUsageSummary,
+      hasWorkspaceBillingAuthority,
       canManageWorkspaceInvitations,
     },
     sidebar: {
@@ -1100,6 +1120,61 @@ function getWorkspaceUserActions(userManagement, targetRole) {
     return ["remove_user"];
   }
   return [];
+}
+
+function normalizeBillingOperationalStatus(value) {
+  const blockingReasons = Array.isArray(value?.blocking_reasons)
+    ? value.blocking_reasons
+        .map((reason) => String(reason || "").trim())
+        .filter(Boolean)
+    : [];
+  return {
+    status: blockingReasons.length ? "blocked" : String(value?.status || "active"),
+    blocking_reasons: blockingReasons,
+  };
+}
+
+function normalizeBillingPlanLimits(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return {
+    templates: normalizePlanLimitCount(value.templates),
+    top_level_template_fields: normalizePlanLimitCount(
+      value.top_level_template_fields,
+    ),
+    table_shaped_fields: normalizePlanLimitCount(value.table_shaped_fields),
+    table_columns_per_field: normalizePlanLimitCount(
+      value.table_columns_per_field,
+    ),
+    members: normalizePlanLimitCount(value.members),
+    monthly_pages: normalizePlanLimitCount(value.monthly_pages),
+    api_access: Boolean(value.api_access),
+  };
+}
+
+function normalizeBillingUsageSummary(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return {
+    remaining_credits: normalizePlanLimitCount(value.remaining_credits),
+    remaining_pages: normalizePlanLimitCount(value.remaining_pages),
+  };
+}
+
+function normalizePlanLimitCount(value) {
+  if (value === null) {
+    return null;
+  }
+
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return undefined;
+  }
+  return number;
 }
 
 export function workspaceUserActionLabel(action) {

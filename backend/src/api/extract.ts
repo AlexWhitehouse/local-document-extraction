@@ -2,9 +2,25 @@ import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
 import { InvalidPdfSourceFileError, countPdfSourceFilePages } from "../lib/sourceFilePageCount";
 import { validateExtractRequest } from "../lib/validation";
+import { summarizeWorkspaceBilling } from "../lib/workspaceBilling";
+import { getWorkspaceBillingControl } from "../lib/workspaceBillingControl";
+import {
+  reconcileActivePlanOverrideIncludedCredits,
+  type IncludedCreditGrantLedger,
+} from "../lib/workspaceBillingIncludedCredits";
+import { BillingReservationError } from "../lib/workspaceBillingLedger";
+import { countAcceptedWorkspaceMemberships } from "../lib/workspaceBillingAuthority";
 import { emitWorkspaceProductAnalytics } from "../lib/workspaceProductAnalytics";
 import { getWorkspaceProductStore, isWorkspaceProductStoreFailure } from "../lib/workspaceProductStoreClient";
+import type { AuthContext } from "../lib/auth";
 import type { QueueJobMessage, Workspace } from "../lib/types";
+import type {
+  RefundCreditReservationInput,
+  RecordEnterpriseUsageChargeInput,
+  RecordNoBillingUsageInput,
+  ReserveCreditsForDocumentSubmissionInput,
+  ReserveCreditsForDocumentSubmissionResult,
+} from "../lib/workspaceBillingLedger";
 
 const EXT_BY_MIME: Record<string, string> = {
   "image/png": "png",
@@ -13,7 +29,26 @@ const EXT_BY_MIME: Record<string, string> = {
   "application/pdf": "pdf"
 };
 
-export async function createExtractionJob(request: Request, env: Env, workspace: Workspace): Promise<Response> {
+type BillingLedgerRpc = IncludedCreditGrantLedger & {
+  summarizeOwnerBilling(input: {
+    billingPeriodStart: string;
+    billingPeriodEnd: string;
+    monthlyPageLimit: number | null;
+  }): Promise<{
+    credits: {
+      included_available: number;
+    };
+  }>;
+  reserveCreditsForDocumentSubmission(
+    input: ReserveCreditsForDocumentSubmissionInput,
+  ): Promise<ReserveCreditsForDocumentSubmissionResult>;
+  recordNoBillingUsage(input: RecordNoBillingUsageInput): Promise<unknown>;
+  recordEnterpriseUsageCharge(input: RecordEnterpriseUsageChargeInput): Promise<unknown>;
+  refundCreditReservation(input: RefundCreditReservationInput): Promise<unknown>;
+};
+
+export async function createExtractionJob(request: Request, env: Env, authContext: AuthContext): Promise<Response> {
+  const workspace = authContext.workspace;
   const maxSourceFileBytes = workspace.max_source_file_bytes || Number(env.MAX_SOURCE_FILE_BYTES || 10 * 1024 * 1024);
   const { templateId, source } = await validateExtractRequest(request, maxSourceFileBytes);
 
@@ -25,6 +60,7 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
 
   const selectedTemplateId = template.template_id;
   const version = Number(template.template_version);
+  await assertPlanLimitsAllowDocumentSubmission(env, productStore, workspace, selectedTemplateId);
 
   const jobId = newId("job");
   const ext = EXT_BY_MIME[source.type] || "bin";
@@ -34,11 +70,26 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
 
   const sourceBytes = await source.arrayBuffer();
   const sourceFilePageCount = await countSourceFilePagesForSubmission(source.type, sourceBytes);
-  await env.SOURCE_FILES_BUCKET.put(objectKey, sourceBytes, {
-    httpMetadata: {
-      contentType: source.type
-    }
+  const billableDocumentPages = getBillableDocumentPages(source.type, sourceFilePageCount);
+  await reservePrepaidSubmissionCredits(env, workspace, {
+    authContext,
+    jobId,
+    templateId: selectedTemplateId,
+    templateVersion: version,
+    billableDocumentPages,
+    submittedAt: now,
   });
+
+  try {
+    await env.SOURCE_FILES_BUCKET.put(objectKey, sourceBytes, {
+      httpMetadata: {
+        contentType: source.type
+      }
+    });
+  } catch (error) {
+    await refundPrepaidSubmissionCredits(env, workspace.id, jobId, "Source file storage failed");
+    throw error;
+  }
 
   try {
     const queued = await productStore.createQueuedExtractionJob({
@@ -56,6 +107,7 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
     }
   } catch (error) {
     await env.SOURCE_FILES_BUCKET.delete(objectKey);
+    await refundPrepaidSubmissionCredits(env, workspace.id, jobId, "Queued Extraction job creation failed");
     throw error;
   }
 
@@ -80,6 +132,7 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
       });
     } finally {
       await env.SOURCE_FILES_BUCKET.delete(objectKey);
+      await refundPrepaidSubmissionCredits(env, workspace.id, jobId, "Queue send failed");
     }
     throw error;
   }
@@ -106,6 +159,198 @@ export async function createExtractionJob(request: Request, env: Env, workspace:
     },
     202
   );
+}
+
+async function assertPlanLimitsAllowDocumentSubmission(
+  env: Env,
+  productStore: ReturnType<typeof getWorkspaceProductStore>,
+  workspace: Workspace,
+  templateId: string,
+): Promise<void> {
+  const billing = await summarizeActiveWorkspaceBilling(env, workspace);
+  const memberCount = await countAcceptedWorkspaceMemberships(env.DB, workspace.id);
+  if (isLimitExceeded(memberCount, billing.plan_limits.members)) {
+    throw new HttpError(
+      402,
+      "member_limit_exceeded",
+      `Workspace has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.members} members`,
+    );
+  }
+
+  const usage = await productStore.summarizePlanLimitUsage?.({ templateId });
+  if (!usage) {
+    return;
+  }
+
+  if (isLimitExceeded(usage.active_template_count, billing.plan_limits.templates)) {
+    throw new HttpError(
+      402,
+      "template_limit_exceeded",
+      `Workspace has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.templates} Templates`,
+    );
+  }
+
+  const templateUsage = usage.templates.find((candidate) => candidate.template_id === templateId);
+  if (
+    templateUsage &&
+    isLimitExceeded(templateUsage.top_level_template_fields, billing.plan_limits.top_level_template_fields)
+  ) {
+    throw new HttpError(
+      402,
+      "template_field_limit_exceeded",
+      `Template has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.top_level_template_fields} top-level fields`,
+    );
+  }
+  if (
+    templateUsage &&
+    isLimitExceeded(templateUsage.table_shaped_fields, billing.plan_limits.table_shaped_fields)
+  ) {
+    throw new HttpError(
+      402,
+      "template_table_limit_exceeded",
+      `Template has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.table_shaped_fields} table-shaped field`,
+    );
+  }
+  if (
+    templateUsage &&
+    isLimitExceeded(templateUsage.max_table_columns_per_field, billing.plan_limits.table_columns_per_field)
+  ) {
+    throw new HttpError(
+      402,
+      "template_table_column_limit_exceeded",
+      `Template has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.table_columns_per_field} table columns`,
+    );
+  }
+}
+
+function isLimitExceeded(value: number, limit: number | null): boolean {
+  return limit !== null && value > limit;
+}
+
+function getBillableDocumentPages(sourceMimeType: string, sourceFilePageCount: number | null): number {
+  if (sourceMimeType === "application/pdf") {
+    return Number(sourceFilePageCount || 0);
+  }
+  return 1;
+}
+
+async function reservePrepaidSubmissionCredits(
+  env: Env,
+  workspace: Workspace,
+  input: {
+    authContext: AuthContext;
+    jobId: string;
+    templateId: string;
+    templateVersion: number;
+    billableDocumentPages: number;
+    submittedAt: string;
+  },
+): Promise<void> {
+  const ledger = getWorkspaceBillingLedger(env, workspace.id);
+  const submittedAt = new Date(input.submittedAt);
+  const billingControl = await getWorkspaceBillingControl(env.DB, workspace.id);
+  const billing = summarizeWorkspaceBilling(workspace, billingControl, submittedAt);
+  await reconcileActivePlanOverrideIncludedCredits({
+    workspace,
+    control: billingControl,
+    ledger,
+    now: submittedAt,
+  });
+
+  if (billing.active_entitlement.plan === "no_billing") {
+    await ledger.recordNoBillingUsage({
+      workspaceId: workspace.id,
+      extractionJobId: input.jobId,
+      templateId: input.templateId,
+      templateVersion: input.templateVersion,
+      billableDocumentPages: input.billableDocumentPages,
+      billingPeriodStart: billing.current_period.start,
+      billingPeriodEnd: billing.current_period.end,
+      submittedAt: input.submittedAt,
+      authMode: input.authContext.auth_mode,
+      actorUserId: input.authContext.user_id,
+      idempotencyKey: `no-billing-submission:${input.jobId}`,
+    });
+    return;
+  }
+  if (
+    billing.active_entitlement.plan === "enterprise_ramp_up" ||
+    billing.active_entitlement.plan === "enterprise_annual"
+  ) {
+    await ledger.recordEnterpriseUsageCharge({
+      workspaceId: workspace.id,
+      extractionJobId: input.jobId,
+      templateId: input.templateId,
+      templateVersion: input.templateVersion,
+      billableDocumentPages: input.billableDocumentPages,
+      billingPeriodStart: billing.current_period.start,
+      billingPeriodEnd: billing.current_period.end,
+      submittedAt: input.submittedAt,
+      authMode: input.authContext.auth_mode,
+      actorUserId: input.authContext.user_id,
+      idempotencyKey: `enterprise-submission:${input.jobId}`,
+      amountMinor: billing.active_entitlement.plan === "enterprise_annual" ? 0 : undefined,
+    });
+    return;
+  }
+  if (billing.current_period.monthly_page_limit === null) {
+    throw new HttpError(500, "billing_entitlement_invalid", "Current billing entitlement is missing a Plan page limit");
+  }
+
+  try {
+    await ledger.reserveCreditsForDocumentSubmission({
+      workspaceId: workspace.id,
+      extractionJobId: input.jobId,
+      templateId: input.templateId,
+      templateVersion: input.templateVersion,
+      billableDocumentPages: input.billableDocumentPages,
+      billingPeriodStart: billing.current_period.start,
+      billingPeriodEnd: billing.current_period.end,
+      monthlyPageLimit: billing.current_period.monthly_page_limit,
+      submittedAt: input.submittedAt,
+      authMode: input.authContext.auth_mode,
+      actorUserId: input.authContext.user_id,
+      idempotencyKey: `submission:${input.jobId}`,
+    });
+  } catch (error) {
+    if (error instanceof BillingReservationError) {
+      throw new HttpError(402, error.code, error.message);
+    }
+    throw error;
+  }
+}
+
+async function refundPrepaidSubmissionCredits(
+  env: Env,
+  workspaceId: string,
+  jobId: string,
+  reason: string,
+): Promise<void> {
+  const ledger = getWorkspaceBillingLedger(env, workspaceId);
+  await ledger.refundCreditReservation({
+    workspaceId,
+    extractionJobId: jobId,
+    reason,
+    idempotencyKey: `refund:${jobId}`,
+    occurredAt: nowIso(),
+  });
+}
+
+function getWorkspaceBillingLedger(env: Env, workspaceId: string): BillingLedgerRpc {
+  const binding = env.WORKSPACE_BILLING_LEDGER;
+  if (!binding) {
+    throw new HttpError(500, "billing_ledger_unavailable", "Workspace billing ledger is not configured");
+  }
+  return binding.getByName(workspaceId) as unknown as BillingLedgerRpc;
+}
+
+async function summarizeActiveWorkspaceBilling(
+  env: Env,
+  workspace: Workspace,
+  now?: Date,
+) {
+  const billingControl = await getWorkspaceBillingControl(env.DB, workspace.id);
+  return summarizeWorkspaceBilling(workspace, billingControl, now);
 }
 
 async function countSourceFilePagesForSubmission(sourceMimeType: string, sourceBytes: ArrayBuffer): Promise<number | null> {

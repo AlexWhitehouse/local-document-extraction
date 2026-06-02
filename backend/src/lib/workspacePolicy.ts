@@ -1,4 +1,5 @@
 import type { Workspace, WorkspaceMembershipRole } from "./types";
+import type { WorkspaceBillingSummary } from "./workspaceBilling";
 import { newId, nowIso } from "./ids";
 
 const INVITEABLE_ROLES: ReadonlySet<WorkspaceMembershipRole> = new Set(["admin", "member"]);
@@ -10,6 +11,15 @@ export type WorkspaceListing = {
   max_source_file_bytes: number | null;
   has_api_key: boolean;
   role: "owner" | "admin" | "member";
+  billing_plan_limits?: WorkspaceBillingSummary["plan_limits"];
+  billing_usage_summary?: {
+    remaining_credits: number | null;
+    remaining_pages: number | null;
+  };
+  billing_operational_status?: {
+    status: "active" | "blocked";
+    blocking_reasons: string[];
+  };
 };
 
 export type WorkspaceUserListing = {

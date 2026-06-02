@@ -20,11 +20,13 @@ export function useDocumentController({
   showDocumentUploadToast,
   hasApiAccess,
   hasWorkspaceApiAccess,
+  canSubmitDocuments = hasWorkspaceApiAccess,
   isAppBusy,
   workspaceId,
   latestResponse,
   setLatestResponse,
   onActivePageChange,
+  onWorkspaceCapacityRefresh,
 }) {
   const [lastJobId, setLastJobId] = useState(initialWorkspace.lastJobId || "");
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -52,6 +54,7 @@ export function useDocumentController({
   const completedDocumentCacheRef = useRef(createCompletedDocumentCache());
   const liveUpdateSocketRef = useRef(null);
   const liveUpdateReconnectTimerRef = useRef(null);
+  const workspaceCapacityRefreshTimerRef = useRef(null);
   const liveCompletedDetailLoadsRef = useRef(new Set());
   const normalizedWorkspaceId = String(workspaceId || "").trim();
   const canOpenLiveUpdates =
@@ -162,7 +165,33 @@ export function useDocumentController({
     liveUpdateReconnectTimerRef.current = null;
   }
 
+  function clearWorkspaceCapacityRefreshTimer() {
+    if (!workspaceCapacityRefreshTimerRef.current) {
+      return;
+    }
+
+    window.clearTimeout(workspaceCapacityRefreshTimerRef.current);
+    workspaceCapacityRefreshTimerRef.current = null;
+  }
+
+  function scheduleWorkspaceCapacityRefresh() {
+    if (typeof onWorkspaceCapacityRefresh !== "function") {
+      return;
+    }
+    if (workspaceCapacityRefreshTimerRef.current) {
+      return;
+    }
+
+    workspaceCapacityRefreshTimerRef.current = window.setTimeout(() => {
+      workspaceCapacityRefreshTimerRef.current = null;
+      Promise.resolve(onWorkspaceCapacityRefresh()).catch((error) => {
+        addLog?.(`Refresh workspace capacity failed: ${error.message}`);
+      });
+    }, 150);
+  }
+
   function clearWorkspaceScopedDocuments() {
+    clearWorkspaceCapacityRefreshTimer();
     setJobHistory([]);
     setQueuedJobs({});
     setJobsNextCursor(null);
@@ -348,6 +377,7 @@ export function useDocumentController({
         },
       );
       upsertJobHistory(data);
+      scheduleWorkspaceCapacityRefresh();
       completedDocumentCacheRef.current.store(workspaceId, data);
       return data;
     } catch (error) {
@@ -369,7 +399,7 @@ export function useDocumentController({
   }
 
   function openUploadModal() {
-    if (isAppBusy || !hasWorkspaceApiAccess) {
+    if (isAppBusy || !canSubmitDocuments) {
       return;
     }
 
@@ -464,6 +494,7 @@ export function useDocumentController({
     try {
       let queuedCount = 0;
       let failedCount = 0;
+      let billingFailedCount = 0;
 
       for (const entry of uploadFiles) {
         setUploadFiles((prev) =>
@@ -484,6 +515,9 @@ export function useDocumentController({
           );
         } catch (error) {
           failedCount += 1;
+          if (isBillingQueueError(error)) {
+            billingFailedCount += 1;
+          }
           setUploadFiles((prev) =>
             prev.map((row) =>
               row.id === entry.id
@@ -498,7 +532,11 @@ export function useDocumentController({
           addLog(`Queue failed for ${entry.file.name}: ${error.message}`);
         }
       }
-      showDocumentUploadToast({ queued: queuedCount, failed: failedCount });
+      showDocumentUploadToast({
+        queued: queuedCount,
+        failed: failedCount,
+        billingFailed: billingFailedCount,
+      });
       onActivePageChange("documents");
     } finally {
       setIsUploadingDocuments(false);
@@ -536,6 +574,7 @@ export function useDocumentController({
       },
     }));
     setSelectedDocumentId(jobId);
+    scheduleWorkspaceCapacityRefresh();
     addLog(`Job queued: ${jobId} (${file.name})`);
     return jobId;
   }
@@ -634,6 +673,7 @@ export function useDocumentController({
 
   useEffect(() => {
     return () => {
+      clearWorkspaceCapacityRefreshTimer();
       for (const url of previewUrlsRef.current) {
         URL.revokeObjectURL(url);
       }
@@ -703,7 +743,11 @@ export function useDocumentController({
       scheduleReconnect();
     };
     socket.onmessage = (event) => {
-      for (const job of parseWorkspaceLiveUpdateJobs(event?.data)) {
+      const jobs = parseWorkspaceLiveUpdateJobs(event?.data);
+      if (jobs.length) {
+        scheduleWorkspaceCapacityRefresh();
+      }
+      for (const job of jobs) {
         upsertJobHistory(job);
       }
     };
@@ -803,7 +847,7 @@ export function useDocumentController({
       sourceFiles: uploadFiles,
       isDragActive: isUploadDragActive,
       isUploadingDocuments,
-      hasApiAccess,
+      hasApiAccess: canSubmitDocuments,
       onClose: closeUploadModal,
       onSelectTemplate: setUploadTemplateId,
       onSelectSourceFiles: appendUploadFiles,
@@ -893,4 +937,9 @@ function getDocumentSortTimestamp(job) {
 
 function fileDedupKey(name, size, lastModified) {
   return `${name}::${size}::${lastModified}`;
+}
+
+function isBillingQueueError(error) {
+  const code = String(error?.code || "").toLowerCase();
+  return Number(error?.status) === 402 || code.startsWith("billing_");
 }

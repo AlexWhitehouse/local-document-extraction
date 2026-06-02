@@ -12,7 +12,13 @@ import {
   toFieldId,
 } from "./templateFields.js";
 
-export function TemplateFieldEditor({ fields, onChange, title, subtitle }) {
+export function TemplateFieldEditor({
+  fields,
+  onChange,
+  title,
+  subtitle,
+  planLimits = null,
+}) {
   const [activeFieldIndex, setActiveFieldIndex] = useState(0);
 
   useEffect(() => {
@@ -177,13 +183,18 @@ export function TemplateFieldEditor({ fields, onChange, title, subtitle }) {
   }
 
   const activeField = fields[activeFieldIndex] || null;
-  const completeFields = fields.filter((field) => {
-    return Boolean(
-      String(field.id || "").trim() &&
-        String(field.name || "").trim() &&
-        String(field.description || "").trim(),
-    );
-  }).length;
+  const totalFieldLimit = normalizeLimitCount(
+    planLimits?.top_level_template_fields ?? planLimits?.topLevelTemplateFields,
+  );
+  const tableColumnLimit = normalizeLimitCount(
+    planLimits?.table_columns_per_field ?? planLimits?.tableColumnsPerField,
+  );
+  const tableFields = fields.filter((field) => isObjectLikeType(field.data_type));
+  const tableColumnCount = tableFields.reduce(
+    (maxColumns, field) =>
+      Math.max(maxColumns, normalizeObjectSchema(field.object_schema).columns.length),
+    0,
+  );
   const objectColumns = activeField
     ? normalizeObjectSchema(activeField.object_schema).columns
     : [];
@@ -196,10 +207,26 @@ export function TemplateFieldEditor({ fields, onChange, title, subtitle }) {
           <p className="hint">{subtitle}</p>
         </div>
         <div className="field-editor-meta">
-          <span className="status-chip">Fields {fields.length}</span>
-          <span className="status-chip good">
-            Ready {completeFields}/{fields.length}
+          <span
+            className={
+              isLimitExceeded(fields.length, totalFieldLimit)
+                ? "status-chip warn"
+                : "status-chip"
+            }
+          >
+            Total Field Limit {formatUsedLimit(fields.length, totalFieldLimit)}
           </span>
+          {tableFields.length > 0 ? (
+            <span
+              className={
+                isLimitExceeded(tableColumnCount, tableColumnLimit)
+                  ? "status-chip warn"
+                  : "status-chip"
+              }
+            >
+              Table Field Limit {formatUsedLimit(tableColumnCount, tableColumnLimit)}
+            </span>
+          ) : null}
           <button type="button" onClick={addField}>
             Add Field
           </button>
@@ -484,4 +511,37 @@ export function TemplateFieldEditor({ fields, onChange, title, subtitle }) {
       )}
     </div>
   );
+}
+
+function normalizeLimitCount(value) {
+  if (value === null) {
+    return null;
+  }
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return undefined;
+  }
+  return number;
+}
+
+function isLimitExceeded(used, limit) {
+  return typeof limit === "number" && used > limit;
+}
+
+function formatUsedLimit(used, limit) {
+  return `${formatLimitCount(used)}/${formatLimitCount(limit)}`;
+}
+
+function formatLimitCount(value) {
+  if (value === null) {
+    return "Unlimited";
+  }
+  if (value === undefined) {
+    return "...";
+  }
+  return Number(value).toLocaleString("en-GB");
 }

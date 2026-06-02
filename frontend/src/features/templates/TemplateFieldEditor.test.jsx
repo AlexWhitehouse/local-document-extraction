@@ -10,6 +10,49 @@ describe("Template field editor", () => {
     cleanup();
   });
 
+  it("shows Workspace plan limit badges for total fields and table columns", async () => {
+    const user = userEvent.setup();
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([
+        {
+          id: "patient_name",
+          name: "Patient Name",
+          description: "Full name of the patient",
+          data_type: "string",
+        },
+      ]);
+
+      return (
+        <TemplateFieldEditor
+          fields={fields}
+          onChange={setFields}
+          planLimits={{
+            top_level_template_fields: 5,
+            table_columns_per_field: 5,
+          }}
+          title="Field Designer"
+          subtitle="Edit Template fields."
+        />
+      );
+    }
+
+    render(<TemplateFieldHarness />);
+
+    expect(screen.getByText("Total Field Limit 1/5")).toBeTruthy();
+    expect(screen.queryByText(/^Fields /)).toBeNull();
+    expect(screen.queryByText(/^Ready /)).toBeNull();
+    expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
+
+    expect(screen.getByText("Table Field Limit 0/5")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Add Column" }));
+
+    expect(screen.getByText("Table Field Limit 1/5")).toBeTruthy();
+  });
+
   it("edits object-like Template field columns through the public field change interface", async () => {
     const user = userEvent.setup();
     let latestFields = [];
