@@ -1,0 +1,65 @@
+site_name: Document Extraction
+site_description: Usage and API documentation for the Document Extraction workspace app.
+site_url: https://extract.t3m.uk/
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: teal
+    - scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Start Using The App: getting-started/index.md
+      - First Extraction: getting-started/first-extraction.md
+  - Using The App:
+      - Accounts And Workspaces: usage/accounts-and-workspaces.md
+      - Plans: usage/plans.md
+      - Templates: usage/templates.md
+      - Document Extraction: usage/document-extraction.md
+      - Billing: usage/billing.md
+  - API Reference:
+      - Overview: api/overview.md
+      - API Keys: api/authentication.md
+      - Templates: api/templates.md
+      - Extraction Jobs: api/extraction-jobs.md
+      - Errors: api/errors.md
+  - Reference:
+      - Concepts: reference/concepts.md
+      - Plans And Limits: reference/plans-and-limits.md
