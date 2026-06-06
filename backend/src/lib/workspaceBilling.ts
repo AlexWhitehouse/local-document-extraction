@@ -397,7 +397,7 @@ export function summarizeWorkspaceBilling(
 
   const activePlanOverride = resolveActivePlanOverride(control, now);
   if (activePlanOverride) {
-    const period = getCurrentBillingPeriod(getFreeBillingPeriodAnchor(workspace, control, now), now);
+    const period = getCurrentBillingPeriod(activePlanOverride.startAt, now, activePlanOverride.endAt);
     const nextScheduledEntitlement = activePlanOverride.fallbackPlan === activePlanOverride.plan
       ? null
       : {
@@ -574,7 +574,7 @@ function summarizeWorkspaceBillingForEnterpriseAnnual(
 function resolveActivePlanOverride(
   control: WorkspaceBillingControl | null,
   now: Date,
-): { plan: "free" | "pro" | "max"; endAt: string; fallbackPlan: "free" | "pro" | "max" } | null {
+): { plan: "free" | "pro" | "max"; startAt: string; endAt: string; fallbackPlan: "free" | "pro" | "max" } | null {
   const plan = control?.plan_override_plan;
   if (plan !== "free" && plan !== "pro" && plan !== "max") {
     return null;
@@ -590,6 +590,7 @@ function resolveActivePlanOverride(
   }
   return {
     plan,
+    startAt,
     endAt,
     fallbackPlan: resolveSelfServiceSubscription(control)?.plan ?? "free",
   };
@@ -959,7 +960,7 @@ function extractObjectSchemaColumnCount(description: string): number {
   }
 }
 
-function getCurrentBillingPeriod(anchorIso: string, now: Date): { anchor: string; start: string; end: string } {
+function getCurrentBillingPeriod(anchorIso: string, now: Date, capEndIso?: string): { anchor: string; start: string; end: string } {
   const anchor = new Date(anchorIso);
   if (Number.isNaN(anchor.getTime())) {
     throw new Error("Workspace creation time is invalid");
@@ -970,10 +971,16 @@ function getCurrentBillingPeriod(anchorIso: string, now: Date): { anchor: string
     start = addMonths(start, 1);
   }
 
+  const uncappedEnd = addMonths(start, 1);
+  const capEnd = normalizeIsoDate(capEndIso);
+  const end = capEnd && new Date(capEnd).getTime() < uncappedEnd.getTime()
+    ? new Date(capEnd)
+    : uncappedEnd;
+
   return {
     anchor: anchor.toISOString(),
     start: start.toISOString(),
-    end: addMonths(start, 1).toISOString(),
+    end: end.toISOString(),
   };
 }
 
