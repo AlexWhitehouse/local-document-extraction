@@ -1668,7 +1668,7 @@ describe("Workspace action toast feedback", () => {
     expect(extractFormData.get("document")).toBeInstanceOf(File);
     expect(extractFormData.has("image")).toBe(false);
     expect(extractFormData.has("file")).toBe(false);
-    expect(screen.getByText("success")).toBeTruthy();
+    expect(screen.getByText("Success")).toBeTruthy();
   });
 
   it("uses Source file language in document upload controls", async () => {
@@ -2076,8 +2076,8 @@ describe("Workspace action toast feedback", () => {
     const uploadDialog = within(screen.getByRole("dialog", { name: "Upload document" }));
     expect(uploadDialog.getByText("invoice.pdf")).toBeTruthy();
     expect(uploadDialog.getByText("receipt.pdf")).toBeTruthy();
-    expect(screen.getByText("success")).toBeTruthy();
-    expect(screen.getByText("failed")).toBeTruthy();
+    expect(uploadDialog.getByText("Success")).toBeTruthy();
+    expect(uploadDialog.getByText("Failed")).toBeTruthy();
     expect(
       screen.getByText(
         "Billing rejected after detecting 7 Billable Document pages. Buy Credits or ask the Workspace owner to update billing.",

@@ -316,6 +316,10 @@ async function reservePrepaidSubmissionCredits(
     if (error instanceof BillingReservationError) {
       throw new HttpError(402, error.code, error.message);
     }
+    const reservationError = mapRemoteBillingReservationError(error);
+    if (reservationError) {
+      throw new HttpError(402, reservationError.code, reservationError.message);
+    }
     throw error;
   }
 }
@@ -342,6 +346,22 @@ function getWorkspaceBillingLedger(env: Env, workspaceId: string): BillingLedger
     throw new HttpError(500, "billing_ledger_unavailable", "Workspace billing ledger is not configured");
   }
   return binding.getByName(workspaceId) as unknown as BillingLedgerRpc;
+}
+
+function mapRemoteBillingReservationError(
+  error: unknown,
+): { code: BillingReservationError["code"]; message: string } | null {
+  const message = error instanceof Error ? error.message : "";
+  if (message === "Workspace has insufficient Credits for this Document") {
+    return { code: "insufficient_credits", message };
+  }
+  if (message === "Workspace has exceeded remaining Plan page capacity") {
+    return { code: "plan_page_limit_exceeded", message };
+  }
+  if (message === "Billable Document page count must be positive") {
+    return { code: "insufficient_credits", message };
+  }
+  return null;
 }
 
 async function summarizeActiveWorkspaceBilling(

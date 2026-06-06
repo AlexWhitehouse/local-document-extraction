@@ -95,7 +95,7 @@ export function DocumentUploadModal({
                       <span
                         className={`status-pill ${queueStatusTone(entry.queueStatus)}`}
                       >
-                        {entry.queueStatus}
+                        {formatQueueStatus(entry.queueStatus)}
                       </span>
                       {entry.queueStatus === "pending" ? (
                         <button
@@ -138,4 +138,12 @@ function queueStatusTone(status) {
   if (status === "success") return "good";
   if (status === "failed") return "bad";
   return "pending";
+}
+
+function formatQueueStatus(status) {
+  const normalizedStatus = String(status || "").trim();
+  if (!normalizedStatus) {
+    return "";
+  }
+  return `${normalizedStatus.charAt(0).toUpperCase()}${normalizedStatus.slice(1)}`;
 }
