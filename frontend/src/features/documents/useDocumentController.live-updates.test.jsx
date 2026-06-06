@@ -174,6 +174,64 @@ describe("useDocumentController Workspace live updates", () => {
     });
   });
 
+  it("deduplicates selected completed detail hydration while live updates are active", async () => {
+    const WebSocketStub = installWebSocketStub();
+    const completedSummary = {
+      job_id: "job_completed_1",
+      status: "completed",
+      source_name: "invoice.pdf",
+      template_id: "template_test",
+      template_version: 1,
+      created_at: "2026-05-06T12:00:00.000Z",
+      updated_at: "2026-05-06T12:02:00.000Z",
+      completed_at: "2026-05-06T12:02:00.000Z",
+      results: [],
+    };
+    const completedDetails = {
+      ...completedSummary,
+      results: [
+        {
+          field_id: "invoice_total",
+          name: "Invoice Total",
+          answer: "$42.00",
+          confidence: 0.99,
+        },
+      ],
+    };
+    const request = vi.fn(async (path) => {
+      if (path === "/jobs/job_completed_1") {
+        return completedDetails;
+      }
+      return { jobs: [completedSummary], next_cursor: null, has_more: false };
+    });
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        request={request}
+        initialWorkspace={{
+          selectedDocumentId: "job_completed_1",
+          jobHistory: [completedSummary],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+      expect(
+        request.mock.calls.filter(([path]) => path === "/jobs/job_completed_1"),
+      ).toHaveLength(1);
+    });
+    await act(async () => {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 20);
+      });
+    });
+    expect(
+      request.mock.calls.filter(([path]) => path === "/jobs/job_completed_1"),
+    ).toHaveLength(1);
+  });
+
   it("does not select a background document when its live lifecycle update completes", async () => {
     const WebSocketStub = installWebSocketStub();
     let controller = null;
