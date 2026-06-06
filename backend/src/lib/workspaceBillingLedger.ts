@@ -42,6 +42,7 @@ type LedgerEntryType =
   | "included_credit_grant"
   | "included_credit_revocation"
   | "purchased_credit_grant"
+  | "credit_pack_payment_failed"
   | "credit_reservation"
   | "credit_refund"
   | "no_billing_usage"
@@ -148,6 +149,22 @@ export type GrantPurchasedCreditsResult = {
   workspace_id: string;
   granted_credits: number;
   available_credits: number;
+};
+
+export type RecordCreditPackPaymentFailedInput = {
+  workspaceId: string;
+  stripeEventId: string;
+  checkoutSessionId: string;
+  stripeInvoiceId?: string | null;
+  stripeInvoiceStatus?: string | null;
+  hostedInvoiceUrl?: string | null;
+  idempotencyKey: string;
+  occurredAt: string;
+};
+
+export type RecordCreditPackPaymentFailedResult = {
+  entry_id: string;
+  workspace_id: string;
 };
 
 export type OwnerBillingSummary = {
@@ -658,6 +675,55 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
     };
   }
 
+  async recordCreditPackPaymentFailed(
+    input: RecordCreditPackPaymentFailedInput,
+  ): Promise<RecordCreditPackPaymentFailedResult> {
+    this.ensureSchema();
+
+    const existing = this.findEntryByIdempotencyKey(input.idempotencyKey);
+    if (existing && existing.type === "credit_pack_payment_failed") {
+      this.updateLedgerEntryInvoiceReference(existing.id, input);
+      return {
+        entry_id: existing.id,
+        workspace_id: input.workspaceId,
+      };
+    }
+
+    const entryId = `entry_${input.idempotencyKey}`;
+    this.ctx.storage.sql.exec(
+      `INSERT INTO ledger_entries (
+         id,
+         workspace_id,
+         type,
+         grant_id,
+         related_grant_id,
+         credits,
+         actor_user_id,
+         reason,
+         idempotency_key,
+         occurred_at,
+         stripe_checkout_session_id,
+         stripe_invoice_id,
+         stripe_invoice_status,
+         stripe_hosted_invoice_url
+       )
+       VALUES (?, ?, 'credit_pack_payment_failed', NULL, NULL, 0, '', 'Credit pack payment failed', ?, ?, ?, ?, ?, ?)`,
+      entryId,
+      input.workspaceId,
+      input.idempotencyKey,
+      input.occurredAt,
+      normalizeNullableLedgerString(input.checkoutSessionId),
+      normalizeNullableLedgerString(input.stripeInvoiceId),
+      normalizeNullableLedgerString(input.stripeInvoiceStatus) || "payment_failed",
+      normalizeNullableLedgerString(input.hostedInvoiceUrl),
+    );
+
+    return {
+      entry_id: entryId,
+      workspace_id: input.workspaceId,
+    };
+  }
+
   async reserveCreditsForDocumentSubmission(
     input: ReserveCreditsForDocumentSubmissionInput,
   ): Promise<ReserveCreditsForDocumentSubmissionResult> {
@@ -1052,7 +1118,7 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
   private listOwnerBillingActivityRows(input: OwnerBillingActivityPageInput): OwnerBillingActivityPage {
     const limit = Math.max(1, Math.min(Math.floor(Number(input.limit || 1)), 50));
     const filters = [
-      "type IN ('goodwill_credit_grant', 'included_credit_grant', 'purchased_credit_grant')",
+      "type IN ('goodwill_credit_grant', 'included_credit_grant', 'purchased_credit_grant', 'credit_pack_payment_failed')",
     ];
     const params: Array<string | number> = [];
 
@@ -1657,6 +1723,9 @@ function ownerBillingActivityDescription(type: LedgerEntryType): string {
   }
   if (type === "purchased_credit_grant") {
     return "Purchased Credits granted";
+  }
+  if (type === "credit_pack_payment_failed") {
+    return "Credit pack payment failed";
   }
   if (type === "credit_reservation") {
     return "Credits reserved for Document submission";

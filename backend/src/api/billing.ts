@@ -15,6 +15,26 @@ import type { Workspace } from "../lib/types";
 const OWNER_BILLING_ACTIVITY_PAGE_SIZE = 5;
 const DEFAULT_OWNER_BILLING_USAGE_RANGE: OwnerBillingUsageRange = "daily";
 const OWNER_BILLING_USAGE_RANGES = new Set(["daily", "weekly", "monthly", "yearly"]);
+const STRIPE_API_VERSION = "2026-05-27.dahlia";
+const STRIPE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
+const SUPPORTED_STRIPE_BILLING_WEBHOOK_EVENT_TYPES = new Set([
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "invoice.finalized",
+  "invoice.finalization_failed",
+  "invoice.paid",
+  "invoice.payment_succeeded",
+  "invoice.payment_action_required",
+  "invoice.payment_failed",
+  "invoice.voided",
+  "invoice.marked_uncollectible",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "customer.subscription.paused",
+  "customer.subscription.resumed",
+]);
 
 type OwnerBillingActivityCursor = {
   occurred_at: string;
@@ -39,9 +59,23 @@ type OwnerBillingActivity = {
     status: string | null;
     hosted_invoice_url: string | null;
   };
+  invoice_status?: string;
 };
 
 type OwnerBillingUsageRange = "daily" | "weekly" | "monthly" | "yearly";
+
+type PaidSubscriptionInvoiceBillingAction =
+  | "subscription_start"
+  | "subscription_upgrade"
+  | "subscription_renewal"
+  | "subscription_downgrade";
+
+const PAID_SUBSCRIPTION_INVOICE_BILLING_ACTIONS = new Set<PaidSubscriptionInvoiceBillingAction>([
+  "subscription_start",
+  "subscription_upgrade",
+  "subscription_renewal",
+  "subscription_downgrade",
+]);
 
 type OwnerBillingUsageSeries = {
   range: OwnerBillingUsageRange;
@@ -145,6 +179,19 @@ type BillingLedgerRpc = IncludedCreditGrantLedger & {
     workspace_id: string;
     granted_credits: number;
     available_credits: number;
+  }>;
+  recordCreditPackPaymentFailed(input: {
+    workspaceId: string;
+    stripeEventId: string;
+    checkoutSessionId: string;
+    stripeInvoiceId?: string | null;
+    stripeInvoiceStatus?: string | null;
+    hostedInvoiceUrl?: string | null;
+    idempotencyKey: string;
+    occurredAt: string;
+  }): Promise<{
+    entry_id: string;
+    workspace_id: string;
   }>;
   grantIncludedCredits(input: {
     workspaceId: string;
@@ -356,6 +403,25 @@ type BillingReconciliationState = {
   last_checked_at: string | null;
   open_drift_count: number;
   drift_records: BillingReconciliationDriftRecord[];
+};
+
+type StripeEventDiagnostic = {
+  event_id: string;
+  type: string;
+  outcome: "ignored" | "failed" | "payment_failed";
+  workspace_id: string | null;
+  related_stripe_object_id: string | null;
+  failure_class: string | null;
+  retry_guidance: string | null;
+  manual_review_guidance: string | null;
+  received_at: string;
+};
+
+type StripeEventDiagnosticsState = {
+  ignored_event_count: number;
+  failed_event_count: number;
+  payment_failed_event_count: number;
+  recent_events: StripeEventDiagnostic[];
 };
 
 type StripeCheckoutSession = {
@@ -656,6 +722,21 @@ export async function startSubscriptionChangeForUser(
   const summary = summarizeWorkspaceBilling(authority.workspace, control);
   const activeSubscription = summary.self_service_subscription;
   const currentPlan = activeSubscription?.plan || null;
+  if (
+    activeSubscription &&
+    summary.active_entitlement.plan === "free" &&
+    targetPlan === currentPlan
+  ) {
+    await clearActiveFreePlanOverrideForPaidSubscription(env.DB, {
+      workspaceId,
+      now: new Date().toISOString(),
+    });
+    return json({
+      subscription_id: String(control?.stripe_subscription_id || "").trim(),
+      target_plan: targetPlan,
+    });
+  }
+
   if (targetPlan === "free") {
     if (!activeSubscription) {
       throw new HttpError(400, "subscription_not_active", "Workspace does not have an active paid subscription");
@@ -753,6 +834,71 @@ export async function scheduleSubscriptionCancellationForUser(
   ));
 }
 
+export async function cancelScheduledSubscriptionChangeForUser(
+  request: Request,
+  env: Env,
+  workspaceId: string,
+  session: BillingSession,
+): Promise<Response> {
+  if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+    throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot cancel scheduled billing changes");
+  }
+
+  const authority = await getWorkspaceBillingAuthorityForSession(env.DB, { workspaceId, userId: session.id });
+  if (!authority) {
+    throw new HttpError(403, "forbidden", "You do not have access to this workspace");
+  }
+  if (authority.role !== "owner") {
+    throw new HttpError(403, "forbidden", "Only Workspace owners can cancel scheduled billing changes");
+  }
+
+  const control = await getWorkspaceBillingControl(env.DB, workspaceId);
+  const summary = summarizeWorkspaceBilling(authority.workspace, control);
+  const scheduledPlan = summary.next_scheduled_entitlement?.plan || null;
+  if (!scheduledPlan) {
+    throw new HttpError(400, "scheduled_change_not_found", "Workspace does not have a scheduled subscription change");
+  }
+
+  const stripeSubscriptionId = String(control?.stripe_subscription_id || "").trim();
+  const stripeSubscriptionItemId = String(control?.stripe_subscription_item_id || "").trim();
+  if (!stripeSubscriptionId) {
+    throw new HttpError(409, "subscription_change_unavailable", "Workspace subscription cannot be changed yet");
+  }
+
+  let subscription: { id: string };
+  if (scheduledPlan === "free") {
+    subscription = await updateStripeSubscriptionScheduledCancellationReversal(env, {
+      workspaceId,
+      stripeSubscriptionId,
+      idempotencyKey: `subscription-scheduled-change-cancel:${workspaceId}:${scheduledPlan}:${crypto.randomUUID()}`,
+    });
+  } else {
+    const activePlan = normalizeSubscriptionPlan(String(summary.active_entitlement.plan || "").trim().toLowerCase());
+    if (!activePlan || !stripeSubscriptionItemId) {
+      throw new HttpError(409, "subscription_change_unavailable", "Workspace subscription cannot be changed yet");
+    }
+    subscription = await updateStripeSubscriptionForScheduledChangeCancellation(env, {
+      workspaceId,
+      stripeSubscriptionId,
+      stripeSubscriptionItemId,
+      targetPlan: activePlan,
+      priceId: getConfiguredStripePriceId(env, `STRIPE_${activePlan.toUpperCase()}_MONTHLY_PRICE_ID`),
+      idempotencyKey: `subscription-scheduled-change-cancel:${workspaceId}:${scheduledPlan}:to:${activePlan}:${crypto.randomUUID()}`,
+    });
+  }
+
+  await clearWorkspaceScheduledEntitlement(env.DB, {
+    workspaceId,
+    now: new Date().toISOString(),
+  });
+
+  return json({
+    subscription_id: subscription.id,
+    canceled_scheduled_plan: scheduledPlan,
+    active_plan: summary.active_entitlement.plan,
+  });
+}
+
 export async function handleStripeBillingWebhook(request: Request, env: Env): Promise<Response> {
   const signature = request.headers.get("stripe-signature")?.trim();
   if (!signature) {
@@ -766,39 +912,45 @@ export async function handleStripeBillingWebhook(request: Request, env: Env): Pr
     return json({ received: true });
   }
 
+  const receivedAt = new Date().toISOString();
   let processingResult: StripeBillingEventProcessingResult = {};
-  if (event.type === "checkout.session.completed") {
-    processingResult = await processCreditPackCheckoutCompleted(env, event);
-  } else if (event.type === "invoice.finalized") {
-    processingResult = await processSubscriptionManualCollectionInvoiceFinalized(env, event);
-  } else if (event.type === "invoice.paid" || event.type === "invoice.payment_succeeded") {
-    processingResult = await processCreditPackInvoicePaid(env, event);
-    if (!processingResult.workspaceId) {
-      processingResult = await processPaymentRequiredPlanOverrideInvoicePaid(env, event);
+  try {
+    if (!SUPPORTED_STRIPE_BILLING_WEBHOOK_EVENT_TYPES.has(event.type)) {
+      await recordProcessedStripeBillingEvent(env.DB, {
+        eventId: event.id,
+        type: event.type,
+        workspaceId: getStripeEventWorkspaceId(event),
+        relatedStripeObjectId: getStripeEventRelatedObjectId(event),
+        processedStatus: "ignored",
+        errorDetails: JSON.stringify({
+          retry_guidance: "No retry needed; event type is not handled by Workspace billing.",
+          manual_review_guidance: "No action required unless this event type becomes relevant to Workspace billing.",
+        }),
+        receivedAt,
+      });
+      return json({ received: true });
     }
-    if (!processingResult.workspaceId) {
-      processingResult = await processEnterpriseAnnualUpfrontInvoicePaid(env, event);
-    }
-    if (!processingResult.workspaceId) {
-      processingResult = await processEnterpriseAnnualOverageInvoicePaid(env, event);
-    }
-    if (!processingResult.workspaceId) {
-      processingResult = await processEnterpriseRampUpInvoicePaid(env, event);
-    }
-    if (!processingResult.workspaceId) {
-      processingResult = await processSubscriptionInvoicePaid(env, event);
-    }
-  } else if (event.type === "invoice.payment_failed") {
-    processingResult = await processPaymentRequiredPlanOverrideInvoicePaymentFailed(env, event);
-    if (!processingResult.workspaceId) {
-      processingResult = await processEnterpriseAnnualOverageInvoicePaymentFailed(env, event);
-    }
-    if (!processingResult.workspaceId) {
-      processingResult = await processEnterpriseRampUpInvoicePaymentFailed(env, event);
-    }
-    if (!processingResult.workspaceId) {
-      processingResult = await processSubscriptionInvoicePaymentFailed(env, event);
-    }
+
+    processingResult = await processSupportedStripeBillingEvent(env, event);
+  } catch (error) {
+    const failure = error instanceof HttpError
+      ? error
+      : new HttpError(500, "stripe_event_processing_failed", "Stripe billing event processing failed");
+    await recordProcessedStripeBillingEvent(env.DB, {
+      eventId: event.id,
+      type: event.type,
+      workspaceId: getStripeEventWorkspaceId(event),
+      relatedStripeObjectId: getStripeEventRelatedObjectId(event),
+      processedStatus: "failed",
+      errorDetails: JSON.stringify({
+        failure_class: failure.code,
+        error_message: failure.message,
+        retry_guidance: "Stripe can retry this event after the metadata, catalog, or Workspace billing state is repaired.",
+        manual_review_guidance: "Review the Stripe object and reconcile Workspace billing manually if automatic replay cannot succeed.",
+      }),
+      receivedAt,
+    });
+    throw error;
   }
   await recordProcessedStripeBillingEvent(env.DB, {
     eventId: event.id,
@@ -806,151 +958,614 @@ export async function handleStripeBillingWebhook(request: Request, env: Env): Pr
     workspaceId: processingResult.workspaceId || null,
     relatedStripeObjectId: processingResult.relatedStripeObjectId || null,
     processedStatus: "processed",
-    errorDetails: null,
-    receivedAt: new Date().toISOString(),
+    errorDetails: processingResult.diagnosticDetails
+      ? JSON.stringify(processingResult.diagnosticDetails)
+      : null,
+    receivedAt,
   });
 
   return json({ received: true });
 }
 
+async function processSupportedStripeBillingEvent(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  switch (event.type) {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded":
+      return processCreditPackCheckoutCompleted(env, event);
+    case "checkout.session.async_payment_failed":
+      return processCreditPackCheckoutAsyncPaymentFailed(env, event);
+    case "invoice.finalized":
+      return processFinalizedStripeInvoiceEvent(env, event);
+    case "invoice.finalization_failed":
+      return processFinalizationFailedStripeInvoiceEvent(env, event);
+    case "invoice.paid":
+    case "invoice.payment_succeeded":
+      return processPaidStripeInvoiceEvent(env, event);
+    case "invoice.payment_action_required":
+      return processPaymentActionRequiredStripeInvoiceEvent(env, event);
+    case "invoice.payment_failed":
+      return processFailedStripeInvoicePaymentEvent(env, event);
+    case "invoice.voided":
+      return processTerminalUnpaidStripeInvoiceEvent(env, event, "void");
+    case "invoice.marked_uncollectible":
+      return processTerminalUnpaidStripeInvoiceEvent(env, event, "uncollectible");
+    case "customer.subscription.created":
+    case "customer.subscription.updated":
+    case "customer.subscription.deleted":
+    case "customer.subscription.paused":
+    case "customer.subscription.resumed":
+      return processStripeSubscriptionLifecycleEvent(env, event);
+    default:
+      return {};
+  }
+}
+
+async function processStripeSubscriptionLifecycleEvent(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  const subscription = event.data.object;
+  if (!subscription) {
+    return {};
+  }
+
+  const metadata = getStripeSubscriptionMetadata(subscription);
+  const workspaceId = String(metadata.workspace_id || "").trim();
+  const plan = normalizeSubscriptionPlan(String(metadata.plan || "").trim().toLowerCase());
+  const subscriptionId = getStripeId(subscription.id);
+  const stripeCustomerId = getStripeSubscriptionCustomerId(subscription);
+  if (!workspaceId || !plan || !subscriptionId || !stripeCustomerId) {
+    throw new HttpError(
+      400,
+      "invalid_subscription_lifecycle_event",
+      "Stripe subscription lifecycle event metadata is incomplete",
+    );
+  }
+
+  const control = await getWorkspaceBillingControl(env.DB, workspaceId);
+  const expectedPriceId = getConfiguredStripePriceId(env, `STRIPE_${plan.toUpperCase()}_MONTHLY_PRICE_ID`);
+  const subscriptionItem = getStripeSubscriptionItemForPrice(subscription, expectedPriceId);
+  if (event.type === "customer.subscription.created") {
+    await recordSubscriptionLifecycleDrift(env.DB, {
+      event,
+      subscription,
+      workspaceId,
+      plan,
+      stripeCustomerId,
+      control,
+      now: new Date(),
+    });
+    return { workspaceId, relatedStripeObjectId: subscriptionId };
+  }
+
+  if (
+    String(control?.stripe_subscription_id || "").trim() !== subscriptionId ||
+    String(control?.stripe_customer_id || "").trim() !== stripeCustomerId
+  ) {
+    await recordSubscriptionLifecycleDrift(env.DB, {
+      event,
+      subscription,
+      workspaceId,
+      plan,
+      stripeCustomerId,
+      control,
+      now: new Date(),
+    });
+    return { workspaceId, relatedStripeObjectId: subscriptionId };
+  }
+  if (
+    !subscriptionItem?.currentPeriodStart ||
+    !subscriptionItem.currentPeriodEnd ||
+    control?.self_service_subscription_plan !== plan ||
+    (
+      String(control?.stripe_subscription_item_id || "").trim() &&
+      String(control?.stripe_subscription_item_id || "").trim() !== String(subscriptionItem.id || "").trim()
+    )
+  ) {
+    await recordSubscriptionLifecycleDrift(env.DB, {
+      event,
+      subscription,
+      workspaceId,
+      plan,
+      stripeCustomerId,
+      control,
+      now: new Date(),
+    });
+    return { workspaceId, relatedStripeObjectId: subscriptionId };
+  }
+
+  if (
+    event.type === "customer.subscription.paused" ||
+    event.type === "customer.subscription.resumed"
+  ) {
+    await recordSubscriptionLifecycleDrift(env.DB, {
+      event,
+      subscription,
+      workspaceId,
+      plan,
+      stripeCustomerId,
+      control,
+      now: new Date(),
+    });
+    return { workspaceId, relatedStripeObjectId: subscriptionId };
+  }
+
+  if (event.type === "customer.subscription.deleted") {
+    await storeWorkspaceSubscriptionActivation(env.DB, {
+      workspaceId,
+      stripeCustomerId,
+      stripeSubscriptionId: subscriptionId,
+      stripeSubscriptionItemId: subscriptionItem.id,
+      plan,
+      status: "unpaid",
+      currentPeriodStart: subscriptionItem.currentPeriodStart,
+      currentPeriodEnd: subscriptionItem.currentPeriodEnd,
+      now: new Date().toISOString(),
+    });
+    return { workspaceId, relatedStripeObjectId: subscriptionId };
+  }
+
+  const status = String(subscription.status || "").trim() === "active" ? "active" : null;
+  if (!status) {
+    return {};
+  }
+
+  await storeWorkspaceSubscriptionActivation(env.DB, {
+    workspaceId,
+    stripeCustomerId,
+    stripeSubscriptionId: subscriptionId,
+    stripeSubscriptionItemId: subscriptionItem.id,
+    plan,
+    status,
+    currentPeriodStart: subscriptionItem.currentPeriodStart,
+    currentPeriodEnd: subscriptionItem.currentPeriodEnd,
+    now: new Date().toISOString(),
+  });
+
+  if (
+    event.type === "customer.subscription.updated" &&
+    subscription.cancel_at_period_end === false &&
+    control?.scheduled_entitlement_plan === "free"
+  ) {
+    await clearWorkspaceScheduledEntitlement(env.DB, {
+      workspaceId,
+      now: new Date().toISOString(),
+    });
+  }
+
+  return { workspaceId, relatedStripeObjectId: subscriptionId };
+}
+
+async function recordSubscriptionLifecycleDrift(
+  db: D1Database,
+  input: {
+    event: StripeBillingEvent;
+    subscription: StripeInvoice;
+    workspaceId: string;
+    plan: "pro" | "max";
+    stripeCustomerId: string;
+    control: WorkspaceBillingControl | null;
+    now: Date;
+  },
+): Promise<void> {
+  const subscriptionId = getStripeId(input.subscription.id);
+  if (!subscriptionId) {
+    return;
+  }
+  const metadata = getStripeSubscriptionMetadata(input.subscription);
+  const timestamp = input.now.toISOString();
+  await recordBillingReconciliationDrift(db, {
+    id: createBillingReconciliationDriftId(input.workspaceId, "subscription_lifecycle_drift", subscriptionId),
+    workspace_id: input.workspaceId,
+    drift_type: "subscription_lifecycle_drift",
+    severity: "needs_review",
+    actionability: "manual_review",
+    related_stripe_object_id: subscriptionId,
+    observed: {
+      event_type: input.event.type,
+      subscription_status: String(input.subscription.status || "").trim() || null,
+      billing_action: String(metadata.billing_action || "").trim() || null,
+      plan: input.plan,
+      stripe_customer_id: input.stripeCustomerId,
+    },
+    expected: {
+      workspace_id: input.workspaceId,
+      app_owned_subscription_id: String(input.control?.stripe_subscription_id || "").trim() || null,
+      plan: input.control?.self_service_subscription_plan ?? null,
+    },
+    first_seen_at: timestamp,
+    last_seen_at: timestamp,
+    status: "open",
+  });
+}
+
+async function processPaidStripeInvoiceEvent(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  let processingResult = await processCreditPackInvoicePaid(env, event);
+  if (!processingResult.workspaceId) {
+    processingResult = await processPaymentRequiredPlanOverrideInvoicePaid(env, event);
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualUpfrontInvoicePaid(env, event);
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualOverageInvoicePaid(env, event);
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseRampUpInvoicePaid(env, event);
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processSubscriptionInvoicePaid(env, event);
+  }
+  return processingResult;
+}
+
+async function processFinalizedStripeInvoiceEvent(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  let processingResult = await processPaymentRequiredPlanOverrideInvoiceStatusUpdated(
+    env,
+    event,
+    String(event.data.object?.status || "").trim() || "open",
+    "Payment-required Plan override invoice finalized",
+  );
+  if (!processingResult.workspaceId) {
+    processingResult = await processSubscriptionManualCollectionInvoiceFinalized(env, event);
+  }
+  return processingResult;
+}
+
+async function processFinalizationFailedStripeInvoiceEvent(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  let processingResult = await processPaymentRequiredPlanOverrideInvoiceStatusUpdated(
+    env,
+    event,
+    "finalization_failed",
+    "Payment-required Plan override invoice finalization failed",
+  );
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualUpfrontInvoiceStatusUpdated(
+      env,
+      event,
+      "finalization_failed",
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualOverageInvoiceUnpaidState(
+      env,
+      event,
+      "finalization_failed",
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseRampUpInvoiceUnpaidState(
+      env,
+      event,
+      "finalization_failed",
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processSubscriptionInvoiceFinalizationFailed(env, event);
+  }
+  return processingResult;
+}
+
+async function processPaymentActionRequiredStripeInvoiceEvent(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  let processingResult = await processPaymentRequiredPlanOverrideInvoiceStatusUpdated(
+    env,
+    event,
+    "payment_action_required",
+    "Payment-required Plan override invoice requires customer action",
+  );
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualUpfrontInvoiceStatusUpdated(
+      env,
+      event,
+      "payment_action_required",
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualOverageInvoiceUnpaidState(
+      env,
+      event,
+      "payment_action_required",
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseRampUpInvoiceUnpaidState(
+      env,
+      event,
+      "payment_action_required",
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processSubscriptionInvoicePaymentActionRequired(env, event);
+  }
+  return processingResult;
+}
+
+async function processFailedStripeInvoicePaymentEvent(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  let processingResult = await processPaymentRequiredPlanOverrideInvoiceStatusUpdated(
+    env,
+    event,
+    "payment_failed",
+    "Payment-required Plan override invoice payment failed",
+  );
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualUpfrontInvoiceStatusUpdated(
+      env,
+      event,
+      "payment_failed",
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualOverageInvoiceUnpaidState(
+      env,
+      event,
+      "payment_failed",
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseRampUpInvoiceUnpaidState(
+      env,
+      event,
+      "payment_failed",
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processSubscriptionInvoicePaymentFailed(env, event);
+  }
+  return processingResult;
+}
+
+async function processTerminalUnpaidStripeInvoiceEvent(
+  env: Env,
+  event: StripeBillingEvent,
+  invoiceStatus: string,
+): Promise<StripeBillingEventProcessingResult> {
+  let processingResult = await processPaymentRequiredPlanOverrideInvoiceStatusUpdated(
+    env,
+    event,
+    invoiceStatus,
+    "Payment-required Plan override invoice reached terminal unpaid state",
+  );
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualUpfrontInvoiceStatusUpdated(
+      env,
+      event,
+      invoiceStatus,
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseAnnualOverageInvoiceUnpaidState(
+      env,
+      event,
+      invoiceStatus,
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processEnterpriseRampUpInvoiceUnpaidState(
+      env,
+      event,
+      invoiceStatus,
+    );
+  }
+  if (!processingResult.workspaceId) {
+    processingResult = await processSubscriptionInvoiceTerminalUnpaidState(env, event, invoiceStatus);
+  }
+  return processingResult;
+}
+
 export async function generateEnterpriseRampUpInvoices(env: Env, now: Date = new Date()): Promise<void> {
   const candidates = await listEnterpriseRampUpInvoiceCandidates(env.DB);
   for (const candidate of candidates) {
-    const period = getLatestClosedEnterpriseRampUpPeriod(candidate, now);
-    if (!period || candidate.lastInvoicePeriodEnd === period.end) {
-      continue;
-    }
+    try {
+      const period = getLatestClosedEnterpriseRampUpPeriod(candidate, now);
+      if (!period || candidate.lastInvoicePeriodEnd === period.end) {
+        continue;
+      }
 
-    const ledger = getWorkspaceBillingLedger(env, candidate.workspaceId);
-    if (!ledger) {
-      throw new HttpError(500, "billing_ledger_unavailable", "Workspace billing ledger is not configured");
-    }
-    const usage = await ledger.summarizeEnterpriseUsageCharges({
-      billingPeriodStart: period.start,
-      billingPeriodEnd: period.end,
-    });
-    const billablePages = Number(usage.billable_document_pages || 0);
-    if (billablePages <= 0) {
-      continue;
-    }
+      const ledger = getWorkspaceBillingLedger(env, candidate.workspaceId);
+      if (!ledger) {
+        throw new HttpError(500, "billing_ledger_unavailable", "Workspace billing ledger is not configured");
+      }
+      const usage = await ledger.summarizeEnterpriseUsageCharges({
+        billingPeriodStart: period.start,
+        billingPeriodEnd: period.end,
+      });
+      const billablePages = Number(usage.billable_document_pages || 0);
+      if (billablePages <= 0) {
+        continue;
+      }
 
-    const stripeCustomerId = candidate.stripeCustomerId || await getOrCreateStripeCustomerIdForWorkspace(env, {
-      workspaceId: candidate.workspaceId,
-      workspaceName: candidate.workspaceName || "Workspace",
-      ownerEmail: await getWorkspaceOwnerEmail(env.DB, candidate.workspaceId) || "billing@example.invalid",
-    });
-    const idempotencyKey = `enterprise-ramp-up-invoice:${candidate.workspaceId}:${period.start}:${period.end}`;
-    const invoice = await createStripeEnterpriseRampUpInvoice(env, {
-      workspaceId: candidate.workspaceId,
-      stripeCustomerId,
-      periodStart: period.start,
-      periodEnd: period.end,
-      collectionMode: candidate.collectionMode,
-      invoiceReviewEnabled: candidate.invoiceReviewEnabled,
-      billableDocumentPages: billablePages,
-      idempotencyKey,
-    });
-    await storeEnterpriseRampUpInvoiceState(env.DB, {
-      workspaceId: candidate.workspaceId,
-      periodStart: period.start,
-      periodEnd: period.end,
-      stripeInvoiceId: invoice.id,
-      invoiceStatus: invoice.status,
-      hostedInvoiceUrl: invoice.hosted_invoice_url,
-      now: now.toISOString(),
-    });
+      const stripeCustomerId = candidate.stripeCustomerId || await getOrCreateStripeCustomerIdForWorkspace(env, {
+        workspaceId: candidate.workspaceId,
+        workspaceName: candidate.workspaceName || "Workspace",
+        ownerEmail: await getWorkspaceOwnerEmail(env.DB, candidate.workspaceId) || "billing@example.invalid",
+      });
+      const idempotencyKey = `enterprise-ramp-up-invoice:${candidate.workspaceId}:${period.start}:${period.end}`;
+      const invoice = await createStripeEnterpriseRampUpInvoice(env, {
+        workspaceId: candidate.workspaceId,
+        stripeCustomerId,
+        periodStart: period.start,
+        periodEnd: period.end,
+        collectionMode: candidate.collectionMode,
+        invoiceReviewEnabled: candidate.invoiceReviewEnabled,
+        billableDocumentPages: billablePages,
+        idempotencyKey,
+      });
+      await storeEnterpriseRampUpInvoiceState(env.DB, {
+        workspaceId: candidate.workspaceId,
+        periodStart: period.start,
+        periodEnd: period.end,
+        stripeInvoiceId: invoice.id,
+        invoiceStatus: invoice.status,
+        hostedInvoiceUrl: invoice.hosted_invoice_url,
+        now: now.toISOString(),
+      });
+    } catch (error) {
+      logScheduledBillingWorkspaceFailure({
+        task: "enterprise_ramp_up_invoice_generation",
+        workspaceId: candidate.workspaceId,
+        scheduledAt: now,
+        error,
+      });
+    }
   }
 }
 
 export async function generateEnterpriseAnnualOverageInvoices(env: Env, now: Date = new Date()): Promise<void> {
   const candidates = await listEnterpriseAnnualOverageInvoiceCandidates(env.DB);
   for (const candidate of candidates) {
-    const period = getLatestClosedEnterpriseAnnualPeriod(candidate, now);
-    if (!period || candidate.lastInvoicePeriodEnd === period.end) {
-      continue;
-    }
+    try {
+      const period = getLatestClosedEnterpriseAnnualPeriod(candidate, now);
+      if (!period || candidate.lastInvoicePeriodEnd === period.end) {
+        continue;
+      }
 
-    const ledger = getWorkspaceBillingLedger(env, candidate.workspaceId);
-    if (!ledger) {
-      throw new HttpError(500, "billing_ledger_unavailable", "Workspace billing ledger is not configured");
-    }
-    const usage = await ledger.summarizeEnterpriseUsageCharges({
-      billingPeriodStart: period.start,
-      billingPeriodEnd: period.end,
-    });
-    const billablePages = Number(usage.billable_document_pages || 0);
-    const overagePages = Math.max(0, billablePages - candidate.monthlyMinimumAllowance);
-    if (overagePages <= 0) {
-      continue;
-    }
+      const ledger = getWorkspaceBillingLedger(env, candidate.workspaceId);
+      if (!ledger) {
+        throw new HttpError(500, "billing_ledger_unavailable", "Workspace billing ledger is not configured");
+      }
+      const usage = await ledger.summarizeEnterpriseUsageCharges({
+        billingPeriodStart: period.start,
+        billingPeriodEnd: period.end,
+      });
+      const billablePages = Number(usage.billable_document_pages || 0);
+      const overagePages = Math.max(0, billablePages - candidate.monthlyMinimumAllowance);
+      if (overagePages <= 0) {
+        continue;
+      }
 
-    const stripeCustomerId = candidate.stripeCustomerId || await getOrCreateStripeCustomerIdForWorkspace(env, {
-      workspaceId: candidate.workspaceId,
-      workspaceName: candidate.workspaceName || "Workspace",
-      ownerEmail: await getWorkspaceOwnerEmail(env.DB, candidate.workspaceId) || "billing@example.invalid",
-    });
-    const idempotencyKey = `enterprise-annual-overage-invoice:${candidate.workspaceId}:${period.start}:${period.end}`;
-    const invoice = await createStripeEnterpriseAnnualOverageInvoice(env, {
-      workspaceId: candidate.workspaceId,
-      stripeCustomerId,
-      periodStart: period.start,
-      periodEnd: period.end,
-      monthlyMinimumAllowance: candidate.monthlyMinimumAllowance,
-      billableDocumentPages: billablePages,
-      overagePages,
-      perPagePriceMinor: candidate.perPagePriceMinor,
-      amountMinor: overagePages * candidate.perPagePriceMinor,
-      collectionMode: candidate.collectionMode,
-      invoiceReviewEnabled: candidate.invoiceReviewEnabled,
-      idempotencyKey,
-    });
-    await storeEnterpriseAnnualOverageInvoiceState(env.DB, {
-      workspaceId: candidate.workspaceId,
-      periodStart: period.start,
-      periodEnd: period.end,
-      stripeInvoiceId: invoice.id,
-      invoiceStatus: invoice.status,
-      hostedInvoiceUrl: invoice.hosted_invoice_url,
-      now: now.toISOString(),
-    });
+      const stripeCustomerId = candidate.stripeCustomerId || await getOrCreateStripeCustomerIdForWorkspace(env, {
+        workspaceId: candidate.workspaceId,
+        workspaceName: candidate.workspaceName || "Workspace",
+        ownerEmail: await getWorkspaceOwnerEmail(env.DB, candidate.workspaceId) || "billing@example.invalid",
+      });
+      const idempotencyKey = `enterprise-annual-overage-invoice:${candidate.workspaceId}:${period.start}:${period.end}`;
+      const invoice = await createStripeEnterpriseAnnualOverageInvoice(env, {
+        workspaceId: candidate.workspaceId,
+        stripeCustomerId,
+        periodStart: period.start,
+        periodEnd: period.end,
+        monthlyMinimumAllowance: candidate.monthlyMinimumAllowance,
+        billableDocumentPages: billablePages,
+        overagePages,
+        perPagePriceMinor: candidate.perPagePriceMinor,
+        amountMinor: overagePages * candidate.perPagePriceMinor,
+        collectionMode: candidate.collectionMode,
+        invoiceReviewEnabled: candidate.invoiceReviewEnabled,
+        idempotencyKey,
+      });
+      await storeEnterpriseAnnualOverageInvoiceState(env.DB, {
+        workspaceId: candidate.workspaceId,
+        periodStart: period.start,
+        periodEnd: period.end,
+        stripeInvoiceId: invoice.id,
+        invoiceStatus: invoice.status,
+        hostedInvoiceUrl: invoice.hosted_invoice_url,
+        now: now.toISOString(),
+      });
+    } catch (error) {
+      logScheduledBillingWorkspaceFailure({
+        task: "enterprise_annual_overage_invoice_generation",
+        workspaceId: candidate.workspaceId,
+        scheduledAt: now,
+        error,
+      });
+    }
   }
 }
 
 export async function reconcileWorkspaceBilling(env: Env, now: Date = new Date()): Promise<void> {
   const candidates = await listBillingReconciliationCandidates(env.DB);
   for (const candidate of candidates) {
-    if (!candidate.stripeCustomerId) {
-      continue;
-    }
+    try {
+      if (!candidate.stripeCustomerId) {
+        continue;
+      }
+      const controlBeforeReconciliation = await getWorkspaceBillingControl(env.DB, candidate.workspaceId);
 
-    const checkoutSessions = await listStripeCheckoutSessionsForCustomer(env, candidate.stripeCustomerId);
-    for (const checkoutSession of checkoutSessions) {
-      await repairPaidCreditPackCheckoutSession(env, checkoutSession, now);
-      await recordMissingProcessedStripeCheckoutSessionDrift(env.DB, candidate, checkoutSession, now);
-    }
+      const checkoutSessions = await listStripeCheckoutSessionsForCustomer(env, candidate.stripeCustomerId);
+      for (const checkoutSession of checkoutSessions) {
+        await repairPaidCreditPackCheckoutSession(env, checkoutSession, now);
+        await recordFailedCreditPackCheckoutSessionFromReconciliation(env, candidate, checkoutSession, now);
+        await recordMissingProcessedStripeCheckoutSessionDrift(env.DB, candidate, checkoutSession, now);
+      }
 
-    const invoices = await listStripeInvoicesForCustomer(env, candidate.stripeCustomerId);
-    for (const invoice of invoices) {
-      await recordAmbiguousStripeInvoiceDrift(env.DB, candidate, invoice, now);
-      await repairPaidCreditPackInvoice(env, invoice, now);
-      await repairPaidPaymentRequiredPlanOverrideInvoice(env, invoice, now);
-      await repairPaidEnterpriseAnnualUpfrontInvoice(env, invoice, now);
-      await repairPaidSubscriptionInvoice(env, invoice, now);
-      await repairResolvedUnpaidSubscriptionInvoice(env, invoice, now);
+      const invoices = await listStripeInvoicesForCustomer(env, candidate.stripeCustomerId);
+      for (const invoice of invoices) {
+        await recordAmbiguousStripeInvoiceDrift(env.DB, candidate, invoice, now);
+        await repairPaidCreditPackInvoice(env, invoice, now);
+        await repairPaidPaymentRequiredPlanOverrideInvoice(env, invoice, now);
+        await repairPaidEnterpriseAnnualUpfrontInvoice(env, invoice, now);
+        await repairPaidEnterpriseAnnualOverageInvoice(env, invoice, now);
+        await repairPaidEnterpriseRampUpInvoice(env, invoice, now);
+        await repairPaidSubscriptionInvoice(env, invoice, now);
+        await repairMissedUnpaidSubscriptionInvoice(env, invoice, now);
+        const latestControl = await getWorkspaceBillingControl(env.DB, candidate.workspaceId);
+        await recordKnownInvoiceStatusDrift(env.DB, candidate, latestControl, invoice, now);
+        await recordMissingProcessedStripeInvoiceDrift(env.DB, candidate, invoice, now);
+      }
+
       const latestControl = await getWorkspaceBillingControl(env.DB, candidate.workspaceId);
-      await recordKnownInvoiceStatusDrift(env.DB, candidate, latestControl, invoice, now);
-      await recordMissingProcessedStripeInvoiceDrift(env.DB, candidate, invoice, now);
+      if (
+        String(controlBeforeReconciliation?.stripe_subscription_id || "").trim() ||
+        controlBeforeReconciliation?.self_service_subscription_plan
+      ) {
+        const subscriptions = await listStripeSubscriptionsForCustomer(env, candidate.stripeCustomerId);
+        for (const subscription of subscriptions) {
+          await recordSubscriptionLifecycleDriftFromReconciliation(env.DB, env, candidate, latestControl, subscription, now);
+        }
+      }
+
+      const workspace = await getWorkspaceForApplicationAdminBilling(env.DB, candidate.workspaceId);
+      await recordLedgerProjectionDrift(env, candidate, workspace, latestControl, now);
+
+      await storeBillingReconciliationStatus(env.DB, {
+        workspaceId: candidate.workspaceId,
+        checkedAt: now.toISOString(),
+      });
+    } catch (error) {
+      logScheduledBillingWorkspaceFailure({
+        task: "billing_reconciliation",
+        workspaceId: candidate.workspaceId,
+        scheduledAt: now,
+        error,
+      });
     }
-
-    const workspace = await getWorkspaceForApplicationAdminBilling(env.DB, candidate.workspaceId);
-    const control = await getWorkspaceBillingControl(env.DB, candidate.workspaceId);
-    await recordLedgerProjectionDrift(env, candidate, workspace, control, now);
-
-    await storeBillingReconciliationStatus(env.DB, {
-      workspaceId: candidate.workspaceId,
-      checkedAt: now.toISOString(),
-    });
   }
+}
+
+function logScheduledBillingWorkspaceFailure(input: {
+  task: string;
+  workspaceId: string;
+  scheduledAt: Date;
+  error: unknown;
+}): void {
+  console.error("Scheduled billing Workspace failed", {
+    event: "billing.scheduled.workspace_failed",
+    task: input.task,
+    workspace_id: input.workspaceId,
+    scheduled_at: input.scheduledAt.toISOString(),
+    error_code: input.error instanceof HttpError ? input.error.code : "unexpected_error",
+    error_class: input.error instanceof Error ? input.error.name || "Error" : typeof input.error,
+    actionability: "retry_or_manual_review",
+  });
 }
 
 export async function grantGoodwillCreditsForApplicationAdmin(
@@ -1119,6 +1734,7 @@ export async function getApplicationAdminWorkspaceBillingState(
   const summary = summarizeWorkspaceBilling(workspace, control);
   const auditEntries = await listApplicationAdminBillingAuditEntries(env.DB, workspaceId);
   const reconciliation = await getBillingReconciliationState(env.DB, workspaceId);
+  const stripeEventDiagnostics = await getStripeEventDiagnosticsState(env.DB, workspaceId);
 
   return json({
     workspace_id: workspaceId,
@@ -1134,6 +1750,7 @@ export async function getApplicationAdminWorkspaceBillingState(
     enterprise_annual_commitment: buildEnterpriseAnnualCommitmentState(control),
     no_billing_mode: buildNoBillingModeState(control),
     reconciliation,
+    stripe_event_diagnostics: stripeEventDiagnostics,
     audit_entries: auditEntries,
   });
 }
@@ -2863,6 +3480,65 @@ async function recordMissingProcessedStripeObjectDrift(
   });
 }
 
+async function recordSubscriptionLifecycleDriftFromReconciliation(
+  db: D1Database,
+  env: Env,
+  candidate: BillingReconciliationCandidate,
+  control: WorkspaceBillingControl | null,
+  subscription: StripeSubscription,
+  now: Date,
+): Promise<void> {
+  const subscriptionId = getStripeId(subscription.id);
+  if (!subscriptionId) {
+    return;
+  }
+
+  const metadata = getStripeSubscriptionMetadata(subscription);
+  const metadataWorkspaceId = String(metadata.workspace_id || "").trim();
+  const controlSubscriptionId = String(control?.stripe_subscription_id || "").trim();
+  if (metadataWorkspaceId && metadataWorkspaceId !== candidate.workspaceId) {
+    return;
+  }
+  if (!metadataWorkspaceId && controlSubscriptionId !== subscriptionId) {
+    return;
+  }
+
+  const plan = normalizeSubscriptionPlan(String(metadata.plan || control?.self_service_subscription_plan || "").trim().toLowerCase());
+  const stripeCustomerId = getStripeSubscriptionCustomerId(subscription);
+  if (!plan || stripeCustomerId !== candidate.stripeCustomerId) {
+    return;
+  }
+
+  const expectedPriceId = getConfiguredStripePriceId(env, `STRIPE_${plan.toUpperCase()}_MONTHLY_PRICE_ID`);
+  const subscriptionItem = getStripeSubscriptionItemForPrice(subscription, expectedPriceId);
+  const subscriptionStatus = String(subscription.status || "").trim();
+  const shouldRecordDrift =
+    controlSubscriptionId !== subscriptionId ||
+    control?.self_service_subscription_plan !== plan ||
+    String(control?.stripe_subscription_item_id || "").trim() !== String(subscriptionItem?.id || "").trim() ||
+    String(control?.stripe_subscription_current_period_start || "").trim() !== String(subscriptionItem?.currentPeriodStart || "").trim() ||
+    String(control?.stripe_subscription_current_period_end || "").trim() !== String(subscriptionItem?.currentPeriodEnd || "").trim() ||
+    subscriptionStatus !== "active";
+
+  if (!shouldRecordDrift) {
+    return;
+  }
+
+  await recordSubscriptionLifecycleDrift(db, {
+    event: {
+      id: `reconciliation:${subscriptionId}`,
+      type: "billing_reconciliation",
+      data: { object: subscription },
+    },
+    subscription,
+    workspaceId: candidate.workspaceId,
+    plan,
+    stripeCustomerId,
+    control,
+    now,
+  });
+}
+
 async function getProcessedStripeBillingEventStatusForObject(
   db: D1Database,
   input: { workspaceId: string; relatedStripeObjectId: string },
@@ -3134,6 +3810,32 @@ async function activateEnterpriseAnnualCommitment(
     .run();
 }
 
+async function storeEnterpriseAnnualUpfrontInvoiceStatus(
+  db: D1Database,
+  input: {
+    workspaceId: string;
+    invoiceStatus: string;
+    hostedInvoiceUrl: string | null;
+    now: string;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE workspace_billing_controls
+       SET enterprise_annual_upfront_invoice_status = ?,
+           enterprise_annual_upfront_invoice_hosted_url = COALESCE(?, enterprise_annual_upfront_invoice_hosted_url),
+           updated_at = ?
+       WHERE workspace_id = ?`,
+    )
+    .bind(
+      input.invoiceStatus,
+      input.hostedInvoiceUrl,
+      input.now,
+      input.workspaceId,
+    )
+    .run();
+}
+
 async function updateEnterpriseAnnualOverageInvoicePaymentState(
   db: D1Database,
   input: {
@@ -3201,7 +3903,7 @@ async function createStripeCustomer(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": `stripe-customer:${input.workspaceId}`,
     },
     body: body.toString(),
@@ -3226,7 +3928,7 @@ async function stripeCustomerHasDefaultPaymentMethod(env: Env, stripeCustomerId:
     method: "GET",
     headers: {
       authorization: `Bearer ${apiKey}`,
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
     },
   });
   const payload = await response.json().catch(() => null) as {
@@ -3262,10 +3964,32 @@ type StripeBillingEvent = {
       subscription?: unknown;
       billing_reason?: unknown;
       collection_method?: unknown;
+      automatic_tax?: {
+        status?: unknown;
+        reason?: unknown;
+      } | null;
+      last_finalization_error?: {
+        code?: unknown;
+        type?: unknown;
+      } | null;
       hosted_invoice_url?: unknown;
       payment_status?: unknown;
+      payment_intent?: {
+        status?: unknown;
+      } | string | null;
       invoice?: unknown;
       metadata?: Record<string, unknown> | null;
+      cancel_at_period_end?: unknown;
+      current_period_start?: unknown;
+      current_period_end?: unknown;
+      items?: {
+        data?: Array<{
+          id?: unknown;
+          price?: { id?: unknown } | null;
+          current_period_start?: unknown;
+          current_period_end?: unknown;
+        }> | null;
+      } | null;
       subscription_details?: {
         metadata?: Record<string, unknown> | null;
       } | null;
@@ -3301,10 +4025,12 @@ type StripeBillingEvent = {
 };
 
 type StripeInvoice = NonNullable<StripeBillingEvent["data"]["object"]>;
+type StripeSubscription = StripeInvoice;
 
 type StripeBillingEventProcessingResult = {
   workspaceId?: string;
   relatedStripeObjectId?: string;
+  diagnosticDetails?: Record<string, unknown> | null;
 };
 
 type StripeInvoiceReference = {
@@ -3362,6 +4088,21 @@ function getCreditPackGrantIdempotencyKey(
     : `${fallbackPrefix}_${fallback}`;
 }
 
+function getCreditPackPaymentFailedIdempotencyKey(
+  metadata: Record<string, unknown>,
+  fallback: string,
+): string {
+  const purchaseId = String(metadata.purchase_id || "").trim();
+  return purchaseId
+    ? `stripe_credit_pack_payment_failed_${purchaseId}`
+    : `stripe_checkout_session_payment_failed_${fallback}`;
+}
+
+function normalizePaidSubscriptionInvoiceBillingAction(value: unknown): PaidSubscriptionInvoiceBillingAction | null {
+  const action = String(value || "").trim() as PaidSubscriptionInvoiceBillingAction;
+  return PAID_SUBSCRIPTION_INVOICE_BILLING_ACTIONS.has(action) ? action : null;
+}
+
 function getStripeInvoiceSubscriptionMetadata(invoice: StripeInvoice): Record<string, unknown> {
   return invoice.parent?.subscription_details?.metadata ||
     invoice.subscription_details?.metadata ||
@@ -3381,6 +4122,35 @@ function isPaidStripeInvoice(invoice: StripeInvoice | undefined): invoice is Str
   return Boolean(invoice && invoice.status === "paid" && invoice.paid !== false);
 }
 
+function getStripeSubscriptionCustomerId(subscription: StripeInvoice): string {
+  return getStripeId(subscription.customer);
+}
+
+function getStripeSubscriptionMetadata(subscription: StripeInvoice): Record<string, unknown> {
+  return subscription.metadata || {};
+}
+
+function getStripeSubscriptionItemForPrice(
+  subscription: StripeInvoice,
+  expectedPriceId: string,
+): {
+  id: string | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+} | null {
+  const item = subscription.items?.data?.find((candidate) => getStripeId(candidate.price?.id) === expectedPriceId);
+  if (!item) {
+    return null;
+  }
+  const start = unixSecondsToIso(item.current_period_start) || unixSecondsToIso(subscription.current_period_start);
+  const end = unixSecondsToIso(item.current_period_end) || unixSecondsToIso(subscription.current_period_end);
+  return {
+    id: getStripeId(item.id) || null,
+    currentPeriodStart: start,
+    currentPeriodEnd: end,
+  };
+}
+
 function parseStripeBillingEvent(payload: string): StripeBillingEvent {
   try {
     const parsed = JSON.parse(payload) as Partial<StripeBillingEvent>;
@@ -3395,6 +4165,23 @@ function parseStripeBillingEvent(payload: string): StripeBillingEvent {
   } catch {
     throw new HttpError(400, "invalid_stripe_event", "Stripe webhook payload must be a valid event");
   }
+}
+
+function getStripeEventWorkspaceId(event: StripeBillingEvent): string | null {
+  const invoiceMetadata = event.data.object
+    ? getStripeInvoiceSubscriptionMetadata(event.data.object)
+    : {};
+  const workspaceId = String(
+    event.data.object?.metadata?.workspace_id ||
+      invoiceMetadata.workspace_id ||
+      "",
+  ).trim();
+  return workspaceId || null;
+}
+
+function getStripeEventRelatedObjectId(event: StripeBillingEvent): string | null {
+  const objectId = String(event.data.object?.id || "").trim();
+  return objectId || null;
 }
 
 async function processCreditPackCheckoutCompleted(
@@ -3436,6 +4223,55 @@ async function processCreditPackCheckoutCompleted(
   });
 
   return { workspaceId, relatedStripeObjectId: checkoutSessionId };
+}
+
+async function processCreditPackCheckoutAsyncPaymentFailed(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  const session = event.data.object;
+  if (!session) {
+    return {};
+  }
+  const metadata = session.metadata || {};
+  if (String(metadata.billing_action || "").trim() !== "credit_pack_purchase") {
+    return {};
+  }
+
+  const workspaceId = String(metadata.workspace_id || "").trim();
+  const packSize = Number(metadata.credit_pack_size);
+  const checkoutSessionId = String(session.id || "").trim();
+  if (!workspaceId || !checkoutSessionId || ![100, 500, 1000, 5000].includes(packSize)) {
+    throw new HttpError(400, "invalid_credit_pack_event", "Stripe Credit pack event metadata is incomplete");
+  }
+  const invoice = getStripeInvoiceReference(session.invoice);
+
+  const ledger = getWorkspaceBillingLedger(env, workspaceId);
+  if (!ledger) {
+    throw new HttpError(500, "billing_ledger_unavailable", "Workspace billing ledger is not configured");
+  }
+
+  await ledger.recordCreditPackPaymentFailed({
+    workspaceId,
+    stripeEventId: event.id,
+    checkoutSessionId,
+    stripeInvoiceId: invoice.id,
+    stripeInvoiceStatus: invoice.status || "payment_failed",
+    hostedInvoiceUrl: invoice.hostedInvoiceUrl,
+    idempotencyKey: getCreditPackPaymentFailedIdempotencyKey(metadata, checkoutSessionId),
+    occurredAt: new Date().toISOString(),
+  });
+
+  return {
+    workspaceId,
+    relatedStripeObjectId: checkoutSessionId,
+    diagnosticDetails: {
+      payment_outcome: "payment_failed",
+      failure_class: "credit_pack_payment_failed",
+      retry_guidance: "No retry needed; Stripe reported the delayed Credit pack payment failed.",
+      manual_review_guidance: "Ask the Workspace owner to retry Credit pack Checkout if they still need Purchased Credits.",
+    },
+  };
 }
 
 async function processCreditPackInvoicePaid(
@@ -3516,7 +4352,101 @@ async function repairPaidCreditPackCheckoutSession(
     hostedInvoiceUrl: invoice.hostedInvoiceUrl,
     idempotencyKey: getCreditPackGrantIdempotencyKey(metadata, checkoutSessionId),
     occurredAt: now.toISOString(),
+	  });
+	}
+
+async function recordFailedCreditPackCheckoutSessionFromReconciliation(
+  env: Env,
+  candidate: BillingReconciliationCandidate,
+  session: StripeCheckoutSession,
+  now: Date,
+): Promise<void> {
+  const metadata = session.metadata || {};
+  if (
+    String(metadata.workspace_id || "").trim() !== candidate.workspaceId ||
+    String(metadata.billing_action || "").trim() !== "credit_pack_purchase"
+  ) {
+    return;
+  }
+
+  const checkoutSessionId = String(session.id || "").trim();
+  const packSize = Number(metadata.credit_pack_size);
+  if (!checkoutSessionId || ![100, 500, 1000, 5000].includes(packSize)) {
+    return;
+  }
+
+  const invoice = getStripeInvoiceReference(session.invoice);
+  const paymentStatus = String(session.payment_status || "").trim() || null;
+  const invoiceStatus = String(invoice.status || "").trim() || null;
+  if (!isFailedDelayedCreditPackCheckoutOutcome(paymentStatus, invoiceStatus)) {
+    return;
+  }
+
+  const processedStatus = await getProcessedStripeBillingEventStatusForObject(env.DB, {
+    workspaceId: candidate.workspaceId,
+    relatedStripeObjectId: checkoutSessionId,
   });
+  if (processedStatus === "processed") {
+    return;
+  }
+
+  const ledger = getWorkspaceBillingLedger(env, candidate.workspaceId);
+  if (!ledger) {
+    throw new HttpError(500, "billing_ledger_unavailable", "Workspace billing ledger is not configured");
+  }
+
+  await ledger.recordCreditPackPaymentFailed({
+    workspaceId: candidate.workspaceId,
+    stripeEventId: checkoutSessionId,
+    checkoutSessionId,
+    stripeInvoiceId: invoice.id,
+    stripeInvoiceStatus: invoiceStatus || "payment_failed",
+    hostedInvoiceUrl: invoice.hostedInvoiceUrl,
+    idempotencyKey: getCreditPackPaymentFailedIdempotencyKey(metadata, checkoutSessionId),
+    occurredAt: now.toISOString(),
+  });
+
+  await recordBillingReconciliationDrift(env.DB, {
+    id: createBillingReconciliationDriftId(
+      candidate.workspaceId,
+      "missed_failed_credit_pack_checkout",
+      checkoutSessionId,
+    ),
+    workspace_id: candidate.workspaceId,
+    drift_type: "missed_failed_credit_pack_checkout",
+    severity: "warning",
+    actionability: "informational",
+    related_stripe_object_id: checkoutSessionId,
+    observed: {
+      stripe_object_type: "checkout.session",
+      billing_action: "credit_pack_purchase",
+      payment_status: paymentStatus,
+      invoice_status: invoiceStatus,
+    },
+    expected: {
+      workspace_id: candidate.workspaceId,
+      failed_activity_recorded: true,
+    },
+    first_seen_at: now.toISOString(),
+    last_seen_at: now.toISOString(),
+    status: "open",
+  });
+}
+
+function isFailedDelayedCreditPackCheckoutOutcome(
+  paymentStatus: string | null,
+  invoiceStatus: string | null,
+): boolean {
+  if (paymentStatus === "paid") {
+    return false;
+  }
+  return [
+    "payment_failed",
+    "failed",
+    "uncollectible",
+    "void",
+    "voided",
+  ].includes(String(invoiceStatus || "").trim());
 }
 
 async function repairPaidCreditPackInvoice(
@@ -3568,12 +4498,8 @@ async function repairPaidSubscriptionInvoice(
   }
 
   const metadata = getStripeInvoiceSubscriptionMetadata(invoice);
-  const billingAction = String(metadata.billing_action || "").trim();
-  if (
-    billingAction !== "subscription_start" &&
-    billingAction !== "subscription_upgrade" &&
-    billingAction !== "subscription_renewal"
-  ) {
+  const billingAction = normalizePaidSubscriptionInvoiceBillingAction(metadata.billing_action);
+  if (!billingAction) {
     return;
   }
 
@@ -3612,6 +4538,12 @@ async function repairPaidSubscriptionInvoice(
     hostedInvoiceUrl: String(invoice.hosted_invoice_url || "").trim() || null,
     now: now.toISOString(),
   });
+  if (billingAction === "subscription_downgrade") {
+    await clearWorkspaceScheduledEntitlement(env.DB, {
+      workspaceId,
+      now: now.toISOString(),
+    });
+  }
 
   const includedCreditsToGrant = billingAction === "subscription_upgrade"
     ? await calculateIncludedCreditUpgradeGrant(ledger, period, planDefinition.included_credits, planDefinition.limits.monthly_pages)
@@ -3724,23 +4656,105 @@ async function repairPaidEnterpriseAnnualUpfrontInvoice(
   });
 }
 
-async function repairResolvedUnpaidSubscriptionInvoice(
+async function repairPaidEnterpriseAnnualOverageInvoice(
   env: Env,
   invoice: StripeInvoice,
   now: Date,
 ): Promise<void> {
-  const invoiceStatus = String(invoice?.status || "").trim();
-  if (!["void", "voided", "uncollectible"].includes(invoiceStatus)) {
+  if (!isPaidStripeInvoice(invoice)) {
+    return;
+  }
+
+  const metadata = invoice.metadata || {};
+  if (String(metadata.billing_action || "").trim() !== "enterprise_annual_overage_invoice") {
+    return;
+  }
+
+  const workspaceId = String(metadata.workspace_id || "").trim();
+  const invoiceId = String(invoice.id || "").trim();
+  if (!workspaceId || !invoiceId) {
+    return;
+  }
+
+  const beforeControl = await getWorkspaceBillingControl(env.DB, workspaceId);
+  if (
+    String(beforeControl?.enterprise_annual_last_overage_invoice_id || "").trim() !== invoiceId ||
+    String(beforeControl?.enterprise_annual_last_overage_invoice_status || "").trim() === "paid"
+  ) {
+    return;
+  }
+
+  const enterpriseAnnual = buildEnterpriseAnnualCommitmentState(beforeControl);
+  const restoredStatus = enterpriseAnnual &&
+      now.getTime() >= new Date(enterpriseAnnual.starts_at).getTime() &&
+      now.getTime() < new Date(enterpriseAnnual.ends_at).getTime()
+    ? "active"
+    : "expired";
+  await updateEnterpriseAnnualOverageInvoicePaymentState(env.DB, {
+    workspaceId,
+    enterpriseAnnualStatus: restoredStatus,
+    invoiceStatus: "paid",
+    hostedInvoiceUrl: String(invoice.hosted_invoice_url || beforeControl?.enterprise_annual_last_overage_invoice_hosted_url || "").trim() || null,
+    now: now.toISOString(),
+  });
+}
+
+async function repairPaidEnterpriseRampUpInvoice(
+  env: Env,
+  invoice: StripeInvoice,
+  now: Date,
+): Promise<void> {
+  if (!isPaidStripeInvoice(invoice)) {
+    return;
+  }
+
+  const metadata = invoice.metadata || {};
+  if (String(metadata.billing_action || "").trim() !== "enterprise_ramp_up_invoice") {
+    return;
+  }
+
+  const workspaceId = String(metadata.workspace_id || "").trim();
+  const invoiceId = String(invoice.id || "").trim();
+  if (!workspaceId || !invoiceId) {
+    return;
+  }
+
+  const beforeControl = await getWorkspaceBillingControl(env.DB, workspaceId);
+  if (
+    String(beforeControl?.enterprise_ramp_up_last_invoice_id || "").trim() !== invoiceId ||
+    String(beforeControl?.enterprise_ramp_up_last_invoice_status || "").trim() === "paid"
+  ) {
+    return;
+  }
+
+  const enterpriseRampUp = buildEnterpriseRampUpState(beforeControl);
+  const restoredStatus = enterpriseRampUp &&
+      now.getTime() >= new Date(enterpriseRampUp.starts_at).getTime() &&
+      now.getTime() < new Date(enterpriseRampUp.ends_at).getTime()
+    ? "active"
+    : "expired";
+  await updateEnterpriseRampUpInvoicePaymentState(env.DB, {
+    workspaceId,
+    enterpriseRampUpStatus: restoredStatus,
+    invoiceStatus: "paid",
+    hostedInvoiceUrl: String(invoice.hosted_invoice_url || beforeControl?.enterprise_ramp_up_last_invoice_hosted_url || "").trim() || null,
+    now: now.toISOString(),
+  });
+}
+
+async function repairMissedUnpaidSubscriptionInvoice(
+  env: Env,
+  invoice: StripeInvoice,
+  now: Date,
+): Promise<void> {
+  const unpaidOutcome = getReconciledSubscriptionInvoiceUnpaidOutcome(invoice);
+  if (!unpaidOutcome) {
     return;
   }
 
   const metadata = getStripeInvoiceSubscriptionMetadata(invoice);
-  const billingAction = String(metadata.billing_action || "").trim();
-  if (
-    billingAction !== "subscription_start" &&
-    billingAction !== "subscription_upgrade" &&
-    billingAction !== "subscription_renewal"
-  ) {
+  const billingAction = normalizePaidSubscriptionInvoiceBillingAction(metadata.billing_action);
+  if (!billingAction) {
     return;
   }
 
@@ -3753,13 +4767,19 @@ async function repairResolvedUnpaidSubscriptionInvoice(
   }
 
   const control = await getWorkspaceBillingControl(env.DB, workspaceId);
-  if (String(control?.self_service_subscription_status || "").trim() !== "unpaid") {
-    return;
-  }
-
   const expectedPriceId = getConfiguredStripePriceId(env, `STRIPE_${plan.toUpperCase()}_MONTHLY_PRICE_ID`);
   const period = getInvoiceLineBillingPeriod(invoice, expectedPriceId);
   if (!period) {
+    return;
+  }
+  const existingPeriodStart = normalizeIsoDateOrNull(control?.stripe_subscription_current_period_start);
+  if (existingPeriodStart && new Date(existingPeriodStart).getTime() > new Date(period.start).getTime()) {
+    return;
+  }
+  if (
+    String(control?.self_service_subscription_invoice_id || "").trim() === String(invoice.id || "").trim() &&
+    String(control?.self_service_subscription_invoice_status || "").trim() === "paid"
+  ) {
     return;
   }
 
@@ -3769,14 +4789,59 @@ async function repairResolvedUnpaidSubscriptionInvoice(
     stripeSubscriptionId,
     stripeSubscriptionItemId: getInvoiceLineSubscriptionItemId(invoice, expectedPriceId),
     plan,
-    status: "active",
+    status: "unpaid",
     currentPeriodStart: period.start,
     currentPeriodEnd: period.end,
     stripeInvoiceId: String(invoice.id || "").trim() || null,
-    stripeInvoiceStatus: String(invoice.status || "").trim() || null,
+    stripeInvoiceStatus: unpaidOutcome.invoiceStatus,
     hostedInvoiceUrl: String(invoice.hosted_invoice_url || "").trim() || null,
+    invoiceDiagnostics: unpaidOutcome.invoiceDiagnostics,
     now: now.toISOString(),
   });
+}
+
+function getReconciledSubscriptionInvoiceUnpaidOutcome(
+  invoice: StripeInvoice,
+): { invoiceStatus: string; invoiceDiagnostics: Record<string, unknown> | null } | null {
+  const invoiceStatus = normalizeStoredInvoiceStatus(invoice.status);
+  if (["void", "uncollectible"].includes(invoiceStatus)) {
+    return { invoiceStatus, invoiceDiagnostics: null };
+  }
+  if (invoiceStatus === "payment_action_required") {
+    return { invoiceStatus: "payment_action_required", invoiceDiagnostics: null };
+  }
+  if (invoiceStatus === "payment_failed") {
+    return { invoiceStatus: "payment_failed", invoiceDiagnostics: null };
+  }
+  if (invoiceStatus === "finalization_failed") {
+    return {
+      invoiceStatus: "finalization_failed",
+      invoiceDiagnostics: getStripeInvoiceFinalizationFailureDiagnostics(invoice),
+    };
+  }
+
+  const paymentIntentStatus = getStripeInvoicePaymentIntentStatus(invoice);
+  if (paymentIntentStatus === "requires_action") {
+    return { invoiceStatus: "payment_action_required", invoiceDiagnostics: null };
+  }
+  if (paymentIntentStatus === "requires_payment_method" || paymentIntentStatus === "canceled") {
+    return { invoiceStatus: "payment_failed", invoiceDiagnostics: null };
+  }
+
+  const finalizationDiagnostics = getStripeInvoiceFinalizationFailureDiagnostics(invoice);
+  if (finalizationDiagnostics && (invoiceStatus === "draft" || invoiceStatus === "open")) {
+    return { invoiceStatus: "finalization_failed", invoiceDiagnostics: finalizationDiagnostics };
+  }
+
+  return null;
+}
+
+function getStripeInvoicePaymentIntentStatus(invoice: StripeInvoice): string | null {
+  const paymentIntent = invoice.payment_intent;
+  if (!paymentIntent || typeof paymentIntent !== "object") {
+    return null;
+  }
+  return stringValueOrNull(paymentIntent.status);
 }
 
 async function processPaymentRequiredPlanOverrideInvoicePaid(
@@ -3810,6 +4875,22 @@ async function processPaymentRequiredPlanOverrideInvoicePaid(
   }
 
   const now = new Date().toISOString();
+  if (String(beforeControl?.payment_required_plan_override_invoice_status || "").trim() === "paid") {
+    const hostedInvoiceUrl = String(invoice.hosted_invoice_url || "").trim();
+    if (
+      hostedInvoiceUrl &&
+      hostedInvoiceUrl !== String(beforeControl?.payment_required_plan_override_hosted_invoice_url || "").trim()
+    ) {
+      await storePaymentRequiredPlanOverrideInvoiceStatus(env.DB, {
+        workspaceId,
+        invoiceStatus: "paid",
+        hostedInvoiceUrl,
+        now,
+      });
+    }
+    return { workspaceId, relatedStripeObjectId: invoiceId };
+  }
+
   await activatePaymentRequiredPlanOverride(env.DB, {
     workspaceId,
     invoiceStatus: "paid",
@@ -3833,9 +4914,11 @@ async function processPaymentRequiredPlanOverrideInvoicePaid(
   return { workspaceId, relatedStripeObjectId: invoiceId };
 }
 
-async function processPaymentRequiredPlanOverrideInvoicePaymentFailed(
+async function processPaymentRequiredPlanOverrideInvoiceStatusUpdated(
   env: Env,
   event: StripeBillingEvent,
+  invoiceStatus: string,
+  auditReason: string,
 ): Promise<StripeBillingEventProcessingResult> {
   const invoice = event.data.object;
   if (!invoice) {
@@ -3858,11 +4941,25 @@ async function processPaymentRequiredPlanOverrideInvoicePaymentFailed(
     throw new HttpError(400, "invalid_payment_required_override_invoice_event", "Stripe payment-required override invoice event metadata is incomplete");
   }
 
+  const nextStatus = String(invoiceStatus || invoice.status || "").trim();
+  if (!nextStatus) {
+    throw new HttpError(400, "invalid_payment_required_override_invoice_event", "Stripe payment-required override invoice event metadata is incomplete");
+  }
+  const nextHostedInvoiceUrl = String(
+    invoice.hosted_invoice_url || beforeControl?.payment_required_plan_override_hosted_invoice_url || "",
+  ).trim() || null;
+  if (
+    String(beforeControl?.payment_required_plan_override_invoice_status || "").trim() === nextStatus &&
+    String(beforeControl?.payment_required_plan_override_hosted_invoice_url || "").trim() === String(nextHostedInvoiceUrl || "").trim()
+  ) {
+    return { workspaceId, relatedStripeObjectId: invoiceId };
+  }
+
   const now = new Date().toISOString();
   await storePaymentRequiredPlanOverrideInvoiceStatus(env.DB, {
     workspaceId,
-    invoiceStatus: "payment_failed",
-    hostedInvoiceUrl: String(invoice.hosted_invoice_url || beforeControl?.payment_required_plan_override_hosted_invoice_url || "").trim() || null,
+    invoiceStatus: nextStatus,
+    hostedInvoiceUrl: nextHostedInvoiceUrl,
     now,
   });
   const afterControl = await getWorkspaceBillingControl(env.DB, workspaceId);
@@ -3871,7 +4968,7 @@ async function processPaymentRequiredPlanOverrideInvoicePaymentFailed(
     workspace_id: workspaceId,
     action: "payment_required_plan_override_payment_updated",
     actor_user_id: String(beforeControl?.payment_required_plan_override_created_by_user_id || "stripe"),
-    reason: String(beforeControl?.payment_required_plan_override_reason || "Payment-required Plan override invoice payment failed"),
+    reason: String(beforeControl?.payment_required_plan_override_reason || auditReason),
     before: paymentRequiredPlanOverrideAuditSnapshot(beforeControl),
     after: paymentRequiredPlanOverrideAuditSnapshot(afterControl),
     occurred_at: now,
@@ -3912,6 +5009,42 @@ async function processEnterpriseAnnualUpfrontInvoicePaid(
     hostedInvoiceUrl: String(invoice.hosted_invoice_url || beforeControl?.enterprise_annual_upfront_invoice_hosted_url || "").trim() || null,
     paidAt: now,
     now,
+  });
+
+  return { workspaceId, relatedStripeObjectId: invoiceId };
+}
+
+async function processEnterpriseAnnualUpfrontInvoiceStatusUpdated(
+  env: Env,
+  event: StripeBillingEvent,
+  invoiceStatus: string,
+): Promise<StripeBillingEventProcessingResult> {
+  const invoice = event.data.object;
+  if (!invoice) {
+    return {};
+  }
+
+  const metadata = invoice.metadata || {};
+  if (String(metadata.billing_action || "").trim() !== "enterprise_annual_upfront_invoice") {
+    return {};
+  }
+
+  const workspaceId = String(metadata.workspace_id || "").trim();
+  const invoiceId = String(invoice.id || "").trim();
+  if (!workspaceId || !invoiceId) {
+    throw new HttpError(400, "invalid_enterprise_annual_invoice_event", "Stripe Enterprise annual invoice event metadata is incomplete");
+  }
+
+  const beforeControl = await getWorkspaceBillingControl(env.DB, workspaceId);
+  if (String(beforeControl?.enterprise_annual_upfront_invoice_id || "").trim() !== invoiceId) {
+    throw new HttpError(400, "invalid_enterprise_annual_invoice_event", "Stripe Enterprise annual invoice event metadata is incomplete");
+  }
+
+  await storeEnterpriseAnnualUpfrontInvoiceStatus(env.DB, {
+    workspaceId,
+    invoiceStatus,
+    hostedInvoiceUrl: String(invoice.hosted_invoice_url || beforeControl?.enterprise_annual_upfront_invoice_hosted_url || "").trim() || null,
+    now: new Date().toISOString(),
   });
 
   return { workspaceId, relatedStripeObjectId: invoiceId };
@@ -3960,9 +5093,10 @@ async function processEnterpriseAnnualOverageInvoicePaid(
   return { workspaceId, relatedStripeObjectId: invoiceId };
 }
 
-async function processEnterpriseAnnualOverageInvoicePaymentFailed(
+async function processEnterpriseAnnualOverageInvoiceUnpaidState(
   env: Env,
   event: StripeBillingEvent,
+  invoiceStatus: string,
 ): Promise<StripeBillingEventProcessingResult> {
   const invoice = event.data.object;
   if (!invoice) {
@@ -3988,7 +5122,7 @@ async function processEnterpriseAnnualOverageInvoicePaymentFailed(
   await updateEnterpriseAnnualOverageInvoicePaymentState(env.DB, {
     workspaceId,
     enterpriseAnnualStatus: "suspended",
-    invoiceStatus: "payment_failed",
+    invoiceStatus,
     hostedInvoiceUrl: String(invoice.hosted_invoice_url || beforeControl?.enterprise_annual_last_overage_invoice_hosted_url || "").trim() || null,
     now: new Date().toISOString(),
   });
@@ -4039,9 +5173,10 @@ async function processEnterpriseRampUpInvoicePaid(
   return { workspaceId, relatedStripeObjectId: invoiceId };
 }
 
-async function processEnterpriseRampUpInvoicePaymentFailed(
+async function processEnterpriseRampUpInvoiceUnpaidState(
   env: Env,
   event: StripeBillingEvent,
+  invoiceStatus: string,
 ): Promise<StripeBillingEventProcessingResult> {
   const invoice = event.data.object;
   if (!invoice) {
@@ -4067,7 +5202,7 @@ async function processEnterpriseRampUpInvoicePaymentFailed(
   await updateEnterpriseRampUpInvoicePaymentState(env.DB, {
     workspaceId,
     enterpriseRampUpStatus: "suspended",
-    invoiceStatus: "payment_failed",
+    invoiceStatus,
     hostedInvoiceUrl: String(invoice.hosted_invoice_url || beforeControl?.enterprise_ramp_up_last_invoice_hosted_url || "").trim() || null,
     now: new Date().toISOString(),
   });
@@ -4085,12 +5220,8 @@ async function processSubscriptionInvoicePaid(
   }
 
   const metadata = getStripeInvoiceSubscriptionMetadata(invoice);
-  const billingAction = String(metadata.billing_action || "").trim();
-  if (
-    billingAction !== "subscription_start" &&
-    billingAction !== "subscription_upgrade" &&
-    billingAction !== "subscription_renewal"
-  ) {
+  const billingAction = normalizePaidSubscriptionInvoiceBillingAction(metadata.billing_action);
+  if (!billingAction) {
     return {};
   }
 
@@ -4130,6 +5261,12 @@ async function processSubscriptionInvoicePaid(
     hostedInvoiceUrl: String(invoice.hosted_invoice_url || "").trim() || null,
     now: new Date().toISOString(),
   });
+  if (billingAction === "subscription_downgrade") {
+    await clearWorkspaceScheduledEntitlement(env.DB, {
+      workspaceId,
+      now: new Date().toISOString(),
+    });
+  }
   const includedCreditsToGrant = billingAction === "subscription_upgrade"
     ? await calculateIncludedCreditUpgradeGrant(ledger, period, planDefinition.included_credits, planDefinition.limits.monthly_pages)
     : planDefinition.included_credits;
@@ -4226,6 +5363,43 @@ async function processSubscriptionInvoicePaymentFailed(
   env: Env,
   event: StripeBillingEvent,
 ): Promise<StripeBillingEventProcessingResult> {
+  return processSubscriptionInvoiceUnpaidState(env, event, "payment_failed", null, true);
+}
+
+async function processSubscriptionInvoicePaymentActionRequired(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  return processSubscriptionInvoiceUnpaidState(env, event, "payment_action_required");
+}
+
+async function processSubscriptionInvoiceFinalizationFailed(
+  env: Env,
+  event: StripeBillingEvent,
+): Promise<StripeBillingEventProcessingResult> {
+  return processSubscriptionInvoiceUnpaidState(
+    env,
+    event,
+    "finalization_failed",
+    getStripeInvoiceFinalizationFailureDiagnostics(event.data.object),
+  );
+}
+
+async function processSubscriptionInvoiceTerminalUnpaidState(
+  env: Env,
+  event: StripeBillingEvent,
+  invoiceStatus: string,
+): Promise<StripeBillingEventProcessingResult> {
+  return processSubscriptionInvoiceUnpaidState(env, event, invoiceStatus);
+}
+
+async function processSubscriptionInvoiceUnpaidState(
+  env: Env,
+  event: StripeBillingEvent,
+  fallbackInvoiceStatus: string,
+  invoiceDiagnostics: Record<string, unknown> | null = null,
+  preferStripeInvoiceStatus = false,
+): Promise<StripeBillingEventProcessingResult> {
   const invoice = event.data.object;
   if (!invoice) {
     return {};
@@ -4258,12 +5432,41 @@ async function processSubscriptionInvoicePaymentFailed(
     currentPeriodStart: period.start,
     currentPeriodEnd: period.end,
     stripeInvoiceId: invoiceId,
-    stripeInvoiceStatus: String(invoice.status || "").trim() || "payment_failed",
+    stripeInvoiceStatus: preferStripeInvoiceStatus
+      ? String(invoice.status || "").trim() || fallbackInvoiceStatus
+      : fallbackInvoiceStatus,
     hostedInvoiceUrl: String(invoice.hosted_invoice_url || "").trim() || null,
+    invoiceDiagnostics,
     now: new Date().toISOString(),
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    diagnosticDetails: invoiceDiagnostics
+      ? {
+          payment_outcome: fallbackInvoiceStatus,
+          failure_class: "subscription_invoice_finalization_failed",
+          ...invoiceDiagnostics,
+          retry_guidance: "Stripe can retry invoice finalization after the Workspace owner or operator repairs tax or billing-location inputs.",
+          manual_review_guidance: "Review the Stripe invoice finalization failure and Workspace billing state without storing raw Stripe payloads.",
+        }
+      : null,
+  };
+}
+
+function getStripeInvoiceFinalizationFailureDiagnostics(
+  invoice: StripeInvoice | undefined,
+): Record<string, unknown> | null {
+  if (!invoice) {
+    return null;
+  }
+  const diagnostics = {
+    automatic_tax_status: stringValueOrNull(invoice.automatic_tax?.status),
+    automatic_tax_reason: stringValueOrNull(invoice.automatic_tax?.reason),
+    last_finalization_error_code: stringValueOrNull(invoice.last_finalization_error?.code),
+  };
+  return Object.values(diagnostics).some(Boolean) ? diagnostics : null;
 }
 
 function normalizeSubscriptionPlan(plan: string): "pro" | "max" | null {
@@ -4392,7 +5595,7 @@ async function recordProcessedStripeBillingEvent(
     type: string;
     workspaceId: string | null;
     relatedStripeObjectId: string | null;
-    processedStatus: "processed" | "failed";
+    processedStatus: "processed" | "ignored" | "failed";
     errorDetails: string | null;
     receivedAt: string;
   },
@@ -4427,6 +5630,67 @@ async function recordProcessedStripeBillingEvent(
     .run();
 }
 
+async function getStripeEventDiagnosticsState(
+  db: D1Database,
+  workspaceId: string,
+): Promise<StripeEventDiagnosticsState> {
+  const result = await db
+    .prepare(
+	      `SELECT event_id,
+	              type,
+	              received_at,
+	              processed_status,
+	              workspace_id,
+	              related_stripe_object_id,
+	              error_details
+	       FROM workspace_billing_stripe_events
+	       WHERE workspace_id = ?
+	         AND (
+	           processed_status IN ('ignored', 'failed')
+	           OR (processed_status = 'processed' AND error_details IS NOT NULL)
+	         )
+	       ORDER BY received_at DESC, event_id DESC
+	       LIMIT 20`,
+    )
+    .bind(workspaceId)
+    .all<{
+      event_id: string;
+      type: string;
+      received_at: string;
+	      processed_status: "processed" | "ignored" | "failed";
+      workspace_id?: string | null;
+	      related_stripe_object_id?: string | null;
+	      error_details?: string | null;
+	    }>();
+
+	  const recentEvents = (result.results || []).map((row) => {
+	    const details = parseJsonRecord(String(row.error_details || ""));
+	    const outcome: StripeEventDiagnostic["outcome"] = details.payment_outcome === "payment_failed"
+	      ? "payment_failed"
+	      : row.processed_status === "failed"
+	        ? "failed"
+	        : "ignored";
+	    return {
+      event_id: row.event_id,
+      type: row.type,
+      outcome,
+      workspace_id: row.workspace_id ?? null,
+      related_stripe_object_id: row.related_stripe_object_id ?? null,
+      failure_class: stringValueOrNull(details.failure_class),
+      retry_guidance: stringValueOrNull(details.retry_guidance),
+      manual_review_guidance: stringValueOrNull(details.manual_review_guidance),
+      received_at: row.received_at,
+    };
+  });
+
+	  return {
+	    ignored_event_count: recentEvents.filter((event) => event.outcome === "ignored").length,
+	    failed_event_count: recentEvents.filter((event) => event.outcome === "failed").length,
+	    payment_failed_event_count: recentEvents.filter((event) => event.outcome === "payment_failed").length,
+	    recent_events: recentEvents,
+	  };
+	}
+
 async function storeWorkspaceSubscriptionActivation(
   db: D1Database,
   input: {
@@ -4441,6 +5705,7 @@ async function storeWorkspaceSubscriptionActivation(
     stripeInvoiceId?: string | null;
     stripeInvoiceStatus?: string | null;
     hostedInvoiceUrl?: string | null;
+    invoiceDiagnostics?: Record<string, unknown> | null;
     now: string;
   },
 ): Promise<void> {
@@ -4459,10 +5724,11 @@ async function storeWorkspaceSubscriptionActivation(
          self_service_subscription_invoice_id,
          self_service_subscription_invoice_status,
          self_service_subscription_hosted_invoice_url,
+         self_service_subscription_invoice_diagnostics,
          created_at,
          updated_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace_id) DO UPDATE SET
          stripe_customer_id = COALESCE(excluded.stripe_customer_id, workspace_billing_controls.stripe_customer_id),
          stripe_subscription_id = excluded.stripe_subscription_id,
@@ -4474,6 +5740,7 @@ async function storeWorkspaceSubscriptionActivation(
          self_service_subscription_invoice_id = COALESCE(excluded.self_service_subscription_invoice_id, workspace_billing_controls.self_service_subscription_invoice_id),
          self_service_subscription_invoice_status = COALESCE(excluded.self_service_subscription_invoice_status, workspace_billing_controls.self_service_subscription_invoice_status),
          self_service_subscription_hosted_invoice_url = COALESCE(excluded.self_service_subscription_hosted_invoice_url, workspace_billing_controls.self_service_subscription_hosted_invoice_url),
+         self_service_subscription_invoice_diagnostics = excluded.self_service_subscription_invoice_diagnostics,
          updated_at = excluded.updated_at`,
     )
     .bind(
@@ -4489,9 +5756,43 @@ async function storeWorkspaceSubscriptionActivation(
       String(input.stripeInvoiceId || "").trim() || null,
       String(input.stripeInvoiceStatus || "").trim() || null,
       String(input.hostedInvoiceUrl || "").trim() || null,
+      input.invoiceDiagnostics ? JSON.stringify(input.invoiceDiagnostics) : null,
       input.now,
       input.now,
     )
+    .run();
+
+  if (input.status === "active") {
+    await clearActiveFreePlanOverrideForPaidSubscription(db, {
+      workspaceId: input.workspaceId,
+      now: input.now,
+    });
+  }
+}
+
+async function clearActiveFreePlanOverrideForPaidSubscription(
+  db: D1Database,
+  input: {
+    workspaceId: string;
+    now: string;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE workspace_billing_controls
+       SET plan_override_plan = NULL,
+           plan_override_start_at = NULL,
+           plan_override_end_at = NULL,
+           plan_override_reason = NULL,
+           plan_override_created_by_user_id = NULL,
+           plan_override_created_at = NULL,
+           updated_at = ?
+       WHERE workspace_id = ?
+         AND plan_override_plan = 'free'
+         AND plan_override_start_at <= ?
+         AND plan_override_end_at > ?`,
+    )
+    .bind(input.now, input.workspaceId, input.now, input.now)
     .run();
 }
 
@@ -4524,8 +5825,30 @@ async function storeWorkspaceScheduledEntitlement(
     .run();
 }
 
+async function clearWorkspaceScheduledEntitlement(
+  db: D1Database,
+  input: {
+    workspaceId: string;
+    now: string;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE workspace_billing_controls
+       SET scheduled_entitlement_plan = NULL,
+           scheduled_entitlement_effective_at = NULL,
+           updated_at = ?
+       WHERE workspace_id = ?`,
+    )
+    .bind(input.now, input.workspaceId)
+    .run();
+}
+
 async function verifyStripeWebhookSignature(env: Env, payload: string, signatureHeader: string): Promise<void> {
-  const secret = getConfiguredStripeValue(env, "STRIPE_WEBHOOK_SECRET");
+  const secrets = [
+    getConfiguredStripeValue(env, "STRIPE_WEBHOOK_SECRET"),
+    getOptionalConfiguredStripeValue(env, "STRIPE_WEBHOOK_SECRET_NEXT"),
+  ].filter((secret): secret is string => Boolean(secret));
   const parts = signatureHeader.split(",").map((part) => part.trim());
   const timestamp = parts.find((part) => part.startsWith("t="))?.slice(2);
   const signatures = parts
@@ -4534,9 +5857,24 @@ async function verifyStripeWebhookSignature(env: Env, payload: string, signature
   if (!timestamp || signatures.length === 0) {
     throw new HttpError(400, "stripe_signature_invalid", "Stripe webhook signature is invalid");
   }
+  if (!/^\d+$/.test(timestamp)) {
+    throw new HttpError(400, "stripe_signature_invalid", "Stripe webhook signature is invalid");
+  }
+  const timestampSeconds = Number(timestamp);
+  const currentSeconds = Math.floor(Date.now() / 1000);
+  if (
+    !Number.isSafeInteger(timestampSeconds) ||
+    Math.abs(currentSeconds - timestampSeconds) > STRIPE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS
+  ) {
+    throw new HttpError(400, "stripe_signature_invalid", "Stripe webhook signature is invalid");
+  }
 
-  const expected = await hmacSha256Hex(secret, `${timestamp}.${payload}`);
-  if (!signatures.some((signature) => constantTimeEqualHex(signature, expected))) {
+  const expectedSignatures = await Promise.all(
+    [...new Set(secrets)].map((secret) => hmacSha256Hex(secret, `${timestamp}.${payload}`)),
+  );
+  if (!signatures.some((signature) =>
+    expectedSignatures.some((expected) => constantTimeEqualHex(signature, expected))
+  )) {
     throw new HttpError(400, "stripe_signature_invalid", "Stripe webhook signature is invalid");
   }
 }
@@ -4762,7 +6100,7 @@ async function createStripeInvoice(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": `${input.idempotencyKey}:invoice`,
     },
     body: body.toString(),
@@ -4795,7 +6133,7 @@ async function createStripeEnterpriseAnnualUpfrontDraftInvoice(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": `${input.idempotencyKey}:upfront-invoice`,
     },
     body: body.toString(),
@@ -4830,7 +6168,7 @@ async function createStripeEnterpriseAnnualOverageDraftInvoice(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": `${input.idempotencyKey}:invoice`,
     },
     body: body.toString(),
@@ -4861,7 +6199,7 @@ async function createStripeEnterpriseRampUpDraftInvoice(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": `${input.idempotencyKey}:invoice`,
     },
     body: body.toString(),
@@ -4891,7 +6229,7 @@ async function createStripeInvoiceItem(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": `${input.idempotencyKey}:invoice-item`,
     },
     body: body.toString(),
@@ -4931,7 +6269,7 @@ async function createStripeEnterpriseAnnualUpfrontInvoiceItem(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": `${input.idempotencyKey}:upfront-invoice-item`,
     },
     body: body.toString(),
@@ -4974,7 +6312,7 @@ async function createStripeEnterpriseAnnualOverageInvoiceItem(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": `${input.idempotencyKey}:invoice-item`,
     },
     body: body.toString(),
@@ -5023,7 +6361,7 @@ async function createStripeEnterpriseRampUpInvoiceItem(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": `${input.idempotencyKey}:invoice-item:${input.usageBandStart}`,
     },
     body: body.toString(),
@@ -5096,7 +6434,7 @@ async function finalizeStripeInvoice(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": input.idempotencyKey,
     },
     body: new URLSearchParams().toString(),
@@ -5257,7 +6595,7 @@ async function createStripeCheckoutSession(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": input.idempotencyKey,
     },
     body: body.toString(),
@@ -5287,7 +6625,7 @@ async function listStripeCheckoutSessionsForCustomer(
     method: "GET",
     headers: {
       authorization: `Bearer ${apiKey}`,
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
     },
   });
   const payload = await response.json().catch(() => null) as {
@@ -5332,12 +6670,12 @@ async function listStripeInvoicesForCustomer(
   stripeCustomerId: string,
 ): Promise<StripeInvoice[]> {
   const apiKey = getConfiguredStripeValue(env, "STRIPE_API_KEY");
-  const url = `https://api.stripe.com/v1/invoices?customer=${encodeURIComponent(stripeCustomerId)}&limit=100&expand%5B0%5D=data.lines`;
+  const url = `https://api.stripe.com/v1/invoices?customer=${encodeURIComponent(stripeCustomerId)}&limit=100&expand%5B0%5D=data.lines&expand%5B1%5D=data.payment_intent`;
   const response = await fetch(url, {
     method: "GET",
     headers: {
       authorization: `Bearer ${apiKey}`,
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
     },
   });
   const payload = await response.json().catch(() => null) as {
@@ -5360,6 +6698,44 @@ async function listStripeInvoicesForCustomer(
       item && typeof item === "object" ? item as StripeInvoice : null
     ))
     .filter((invoice): invoice is StripeInvoice => Boolean(invoice));
+}
+
+async function listStripeSubscriptionsForCustomer(
+  env: Env,
+  stripeCustomerId: string,
+): Promise<StripeSubscription[]> {
+  const apiKey = getConfiguredStripeValue(env, "STRIPE_API_KEY");
+  const url = `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(stripeCustomerId)}&status=all&limit=100`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "stripe-version": STRIPE_API_VERSION,
+    },
+  }) as Response | undefined;
+  if (!response) {
+    return [];
+  }
+  const payload = await response.json().catch(() => null) as {
+    data?: unknown;
+    error?: { message?: string };
+  } | null;
+  if (!response.ok) {
+    throw new HttpError(
+      502,
+      "stripe_subscription_lookup_failed",
+      payload?.error?.message || "Stripe subscription lookup failed",
+    );
+  }
+  if (!Array.isArray(payload?.data)) {
+    throw new HttpError(502, "stripe_subscription_lookup_failed", "Stripe subscription response was incomplete");
+  }
+
+  return payload.data
+    .map((item): StripeSubscription | null => (
+      item && typeof item === "object" ? item as StripeSubscription : null
+    ))
+    .filter((subscription): subscription is StripeSubscription => Boolean(subscription));
 }
 
 async function createStripeSubscriptionCheckoutSession(
@@ -5392,7 +6768,7 @@ async function createStripeSubscriptionCheckoutSession(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": input.idempotencyKey,
     },
     body: body.toString(),
@@ -5432,7 +6808,7 @@ async function updateStripeSubscriptionForPlanChange(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": input.idempotencyKey,
     },
     body: body.toString(),
@@ -5482,7 +6858,46 @@ async function updateStripeSubscriptionForScheduledDowngrade(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
+      "idempotency-key": input.idempotencyKey,
+    },
+    body: body.toString(),
+  });
+  const payload = await response.json().catch(() => null) as { id?: unknown; error?: { message?: string } } | null;
+  if (!response.ok) {
+    throw new HttpError(
+      502,
+      "stripe_subscription_change_failed",
+      payload?.error?.message || "Stripe subscription change failed",
+    );
+  }
+  if (typeof payload?.id !== "string") {
+    throw new HttpError(502, "stripe_subscription_change_failed", "Stripe subscription response was incomplete");
+  }
+
+  return { id: payload.id };
+}
+
+async function updateStripeSubscriptionForScheduledChangeCancellation(
+  env: Env,
+  input: StripeSubscriptionPlanChangeInput,
+): Promise<{ id: string }> {
+  const apiKey = getConfiguredStripeValue(env, "STRIPE_API_KEY");
+  const body = new URLSearchParams();
+  body.set("items[0][id]", input.stripeSubscriptionItemId);
+  body.set("items[0][price]", input.priceId);
+  body.set("cancel_at_period_end", "false");
+  body.set("proration_behavior", "none");
+  body.set("metadata[workspace_id]", input.workspaceId);
+  body.set("metadata[billing_action]", "subscription_scheduled_change_canceled");
+  body.set("metadata[plan]", input.targetPlan);
+
+  const response = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(input.stripeSubscriptionId)}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/x-www-form-urlencoded",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": input.idempotencyKey,
     },
     body: body.toString(),
@@ -5518,7 +6933,7 @@ async function updateStripeSubscriptionCancellation(
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/x-www-form-urlencoded",
-      "stripe-version": "2026-05-27.dahlia",
+      "stripe-version": STRIPE_API_VERSION,
       "idempotency-key": input.idempotencyKey,
     },
     body: body.toString(),
@@ -5538,6 +6953,41 @@ async function updateStripeSubscriptionCancellation(
   return { id: payload.id };
 }
 
+async function updateStripeSubscriptionScheduledCancellationReversal(
+  env: Env,
+  input: { workspaceId: string; stripeSubscriptionId: string; idempotencyKey: string },
+): Promise<{ id: string }> {
+  const apiKey = getConfiguredStripeValue(env, "STRIPE_API_KEY");
+  const body = new URLSearchParams();
+  body.set("cancel_at_period_end", "false");
+  body.set("metadata[workspace_id]", input.workspaceId);
+  body.set("metadata[billing_action]", "subscription_scheduled_change_canceled");
+
+  const response = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(input.stripeSubscriptionId)}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/x-www-form-urlencoded",
+      "stripe-version": STRIPE_API_VERSION,
+      "idempotency-key": input.idempotencyKey,
+    },
+    body: body.toString(),
+  });
+  const payload = await response.json().catch(() => null) as { id?: unknown; error?: { message?: string } } | null;
+  if (!response.ok) {
+    throw new HttpError(
+      502,
+      "stripe_subscription_change_failed",
+      payload?.error?.message || "Stripe subscription change failed",
+    );
+  }
+  if (typeof payload?.id !== "string") {
+    throw new HttpError(502, "stripe_subscription_change_failed", "Stripe subscription response was incomplete");
+  }
+
+  return { id: payload.id };
+}
+
 function getConfiguredStripePriceId(env: Env, key: string): string {
   return getConfiguredStripeValue(env, key);
 }
@@ -5548,6 +6998,11 @@ function getConfiguredStripeValue(env: Env, key: string): string {
     throw new HttpError(500, "stripe_configuration_missing", `${key} is not configured`);
   }
   return value;
+}
+
+function getOptionalConfiguredStripeValue(env: Env, key: string): string | null {
+  const value = String((env as Env & Record<string, unknown>)[key] || "").trim();
+  return value || null;
 }
 
 async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
@@ -5752,6 +7207,11 @@ function parseJsonRecord(value: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function stringValueOrNull(value: unknown): string | null {
+  const text = String(value || "").trim();
+  return text || null;
 }
 
 async function listApplicationAdminBillingAuditEntries(

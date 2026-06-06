@@ -1744,6 +1744,36 @@ button.danger:hover:not(:disabled) {
   font-size: 0.78rem;
 }
 
+.billing-scheduled-change {
+  min-width: 0;
+  border: 1px solid rgba(244, 184, 79, 0.42);
+  border-radius: 8px;
+  background: rgba(244, 184, 79, 0.08);
+  color: #ffe2ad;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+}
+
+.billing-scheduled-change strong,
+.billing-scheduled-change p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.billing-scheduled-change strong {
+  display: block;
+  font-size: 0.84rem;
+}
+
+.billing-scheduled-change p {
+  color: #ffe2ad;
+  font-size: 0.78rem;
+}
+
 .billing-plan-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3592,7 +3622,8 @@ details summary {
   .billing-summary-metrics,
   .billing-limit-grid,
   .billing-plan-grid,
-  .billing-credit-grid {
+  .billing-credit-grid,
+  .billing-scheduled-change {
     grid-template-columns: 1fr;
   }
 

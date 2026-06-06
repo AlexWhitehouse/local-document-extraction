@@ -640,5 +640,6 @@ function createWorkflowEvent(payload: DocumentProcessingWorkflowParams): Workflo
     instanceId: `${payload.job_id}-attempt-${payload.attempt}`,
     payload,
     timestamp: new Date("2026-05-05T00:00:00.000Z"),
+    workflowName: "document-processing-workflow",
   };
 }

@@ -6,8 +6,9 @@
   "scripts": {
     "start": "wrangler dev --persist-to ./.wrangler/state",
     "test": "vitest run",
-    "deploy": "wrangler deploy",
-    "deploy:prod": "npm run build --prefix ../frontend && wrangler deploy",
+    "preflight:prod": "node scripts/productionPreflight.mjs",
+    "deploy": "npm run deploy:prod",
+    "deploy:prod": "npm run preflight:prod && wrangler deploy --secrets-file ../.vars",
     "typecheck": "tsc --noEmit",
     "db:migrate:local": "wrangler d1 migrations apply document-extraction-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply document-extraction-db --remote"
@@ -16,7 +17,7 @@
     "@types/node": "^25.6.0",
     "typescript": "^5.6.3",
     "vitest": "^4.1.5",
-    "wrangler": "^4.87.0"
+    "wrangler": "^4.98.0"
   },
   "dependencies": {
     "better-auth": "^1.6.6",

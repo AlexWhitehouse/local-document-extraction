@@ -84,6 +84,7 @@ export type WorkspaceBillingControl = {
   self_service_subscription_invoice_id?: string | null;
   self_service_subscription_invoice_status?: string | null;
   self_service_subscription_hosted_invoice_url?: string | null;
+  self_service_subscription_invoice_diagnostics?: string | null;
   scheduled_entitlement_plan?: "free" | "pro" | "max" | null;
   scheduled_entitlement_effective_at?: string | null;
   enterprise_deal_status?: string | null;
@@ -188,6 +189,11 @@ export type WorkspaceBillingSummary = {
     invoice?: {
       status: string | null;
       hosted_invoice_url: string | null;
+      finalization_failure?: {
+        automatic_tax_status: string | null;
+        automatic_tax_reason: string | null;
+        last_finalization_error_code: string | null;
+      } | null;
     } | null;
   } | null;
   payment_required_plan_override?: {
@@ -592,8 +598,18 @@ function resolveActivePlanOverride(
     plan,
     startAt,
     endAt,
-    fallbackPlan: resolveSelfServiceSubscription(control)?.plan ?? "free",
+    fallbackPlan: resolvePlanOverrideFallbackPlan(control),
   };
+}
+
+function resolvePlanOverrideFallbackPlan(
+  control: WorkspaceBillingControl | null,
+): "free" | "pro" | "max" {
+  const scheduledPlan = control?.scheduled_entitlement_plan;
+  if (scheduledPlan === "free" || scheduledPlan === "pro" || scheduledPlan === "max") {
+    return scheduledPlan;
+  }
+  return resolveSelfServiceSubscription(control)?.plan ?? "free";
 }
 
 function resolveSelfServiceSubscription(
@@ -622,13 +638,49 @@ function resolveSelfServiceSubscriptionInvoice(
   control: WorkspaceBillingControl | null,
 ): NonNullable<WorkspaceBillingSummary["self_service_subscription"]>["invoice"] {
   const hostedInvoiceUrl = String(control?.self_service_subscription_hosted_invoice_url || "").trim();
-  if (!hostedInvoiceUrl) {
+  const status = String(control?.self_service_subscription_invoice_status || "").trim();
+  const finalizationFailure = resolveSelfServiceSubscriptionInvoiceFinalizationFailure(control);
+  if (!hostedInvoiceUrl && !status && !finalizationFailure) {
     return null;
   }
   return {
-    status: String(control?.self_service_subscription_invoice_status || "").trim() || null,
-    hosted_invoice_url: hostedInvoiceUrl,
+    status: status || null,
+    hosted_invoice_url: hostedInvoiceUrl || null,
+    ...(finalizationFailure ? { finalization_failure: finalizationFailure } : {}),
   };
+}
+
+function resolveSelfServiceSubscriptionInvoiceFinalizationFailure(
+  control: WorkspaceBillingControl | null,
+): NonNullable<NonNullable<WorkspaceBillingSummary["self_service_subscription"]>["invoice"]>["finalization_failure"] {
+  const details = parseJsonRecord(control?.self_service_subscription_invoice_diagnostics);
+  const automaticTaxStatus = stringValueOrNull(details.automatic_tax_status);
+  const automaticTaxReason = stringValueOrNull(details.automatic_tax_reason);
+  const lastFinalizationErrorCode = stringValueOrNull(details.last_finalization_error_code);
+  if (!automaticTaxStatus && !automaticTaxReason && !lastFinalizationErrorCode) {
+    return null;
+  }
+  return {
+    automatic_tax_status: automaticTaxStatus,
+    automatic_tax_reason: automaticTaxReason,
+    last_finalization_error_code: lastFinalizationErrorCode,
+  };
+}
+
+function parseJsonRecord(value: unknown): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(String(value || ""));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function stringValueOrNull(value: unknown): string | null {
+  const text = String(value || "").trim();
+  return text || null;
 }
 
 function summarizeWorkspaceBillingForPlan(
