@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { NON_ENTERPRISE_BILLING_PLANS } from "./workspaceBilling";
+import { NON_ENTERPRISE_BILLING_PLANS, summarizeWorkspaceBilling } from "./workspaceBilling";
+import type { Workspace } from "./types";
 
 describe("Workspace billing plan catalog", () => {
   it("defines the code-owned Free, Pro, and Max non-enterprise plans", () => {
@@ -61,6 +62,47 @@ describe("Workspace billing plan catalog", () => {
           api_access: true,
         }),
       }),
+    });
+  });
+
+  it("anchors active Plan override monthly page periods to the override cycle", () => {
+    const workspace: Workspace = {
+      id: "workspace_billing",
+      api_key_hash: null,
+      name: "Billing Workspace",
+      created_at: "2026-05-06T17:54:36.645Z",
+      created_by_user_id: "user_owner",
+      rate_limit_per_minute: null,
+      max_templates: null,
+      max_fields_per_template: null,
+      max_source_file_bytes: null,
+    };
+
+    const summary = summarizeWorkspaceBilling(
+      workspace,
+      {
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-06-01T16:30:51.000Z",
+        stripe_subscription_current_period_end: "2026-07-01T16:30:51.000Z",
+        plan_override_plan: "max",
+        plan_override_start_at: "2026-06-01T00:00:00.000Z",
+        plan_override_end_at: "2026-07-01T00:00:00.000Z",
+      },
+      new Date("2026-06-06T12:00:00.000Z"),
+    );
+
+    expect(summary.active_entitlement.plan).toBe("max");
+    expect(summary.current_period).toMatchObject({
+      anchor: "2026-06-01T00:00:00.000Z",
+      start: "2026-06-01T00:00:00.000Z",
+      end: "2026-07-01T00:00:00.000Z",
+      monthly_page_limit: 5000,
+    });
+    expect(summary.next_scheduled_entitlement).toEqual({
+      plan: "pro",
+      display_name: "Pro",
+      effective_at: "2026-07-01T00:00:00.000Z",
     });
   });
 });
