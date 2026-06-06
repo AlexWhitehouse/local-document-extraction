@@ -57,6 +57,16 @@ describe("app action toast notifications", () => {
       severity: "error",
       message: "Choose a template before uploading documents.",
     });
+    expect(
+      getActionToast("document.upload", "validation", {
+        reason: "billing",
+        blockingReasons: ["Insufficient Credits", "Template schema limit overage"],
+      }),
+    ).toEqual({
+      severity: "error",
+      message:
+        "Document uploads are blocked: Insufficient Credits, Template schema limit overage.",
+    });
     expect(getActionToast("workspace.create", "validation", { reason: "name" })).toEqual({
       severity: "error",
       message: "Enter a Workspace name before creating it.",

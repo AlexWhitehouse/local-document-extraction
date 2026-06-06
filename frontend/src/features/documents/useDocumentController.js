@@ -21,6 +21,7 @@ export function useDocumentController({
   hasApiAccess,
   hasWorkspaceApiAccess,
   canSubmitDocuments = hasWorkspaceApiAccess,
+  submissionBlockingReasons = [],
   isAppBusy,
   workspaceId,
   latestResponse,
@@ -57,6 +58,13 @@ export function useDocumentController({
   const workspaceCapacityRefreshTimerRef = useRef(null);
   const liveCompletedDetailLoadsRef = useRef(new Set());
   const normalizedWorkspaceId = String(workspaceId || "").trim();
+  const normalizedSubmissionBlockingReasons = Array.isArray(
+    submissionBlockingReasons,
+  )
+    ? submissionBlockingReasons
+        .map((reason) => String(reason || "").trim())
+        .filter(Boolean)
+    : [];
   const canOpenLiveUpdates =
     hasApiAccess && Boolean(normalizedWorkspaceId) && typeof WebSocket === "function";
   const shouldUseLiveUpdates = canOpenLiveUpdates && !liveUpdatesUnavailable;
@@ -399,7 +407,19 @@ export function useDocumentController({
   }
 
   function openUploadModal() {
-    if (isAppBusy || !canSubmitDocuments) {
+    if (isAppBusy) {
+      return;
+    }
+    if (!canSubmitDocuments) {
+      if (normalizedSubmissionBlockingReasons.length) {
+        addLog(
+          `Upload blocked: ${normalizedSubmissionBlockingReasons.join(", ")}`,
+        );
+        showActionToast("document.upload", "validation", {
+          reason: "billing",
+          blockingReasons: normalizedSubmissionBlockingReasons,
+        });
+      }
       return;
     }
 

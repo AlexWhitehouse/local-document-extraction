@@ -83,6 +83,12 @@ const validationMessages = {
   "document.upload": {
     template: "Choose a template before uploading documents.",
     files: "Choose at least one document to upload.",
+    billing: ({ blockingReasons }) => {
+      const reasons = formatBlockingReasons(blockingReasons);
+      return reasons
+        ? `Document uploads are blocked: ${reasons}.`
+        : "Document uploads are blocked for this Workspace.";
+    },
   },
   "clipboard.copyTemplateJson": {
     content: "No template JSON is available to copy.",
@@ -115,11 +121,14 @@ export function getActionToast(action, outcome, options = {}) {
   }
 
   if (outcome === "validation") {
+    const validationMessage = validationMessages[action]?.[options.reason];
     return {
       severity: "error",
       message:
-        validationMessages[action]?.[options.reason] ??
-        "Action blocked. Check the form and try again.",
+        typeof validationMessage === "function"
+          ? validationMessage(options)
+          : (validationMessage ??
+            "Action blocked. Check the form and try again."),
     };
   }
 
@@ -179,6 +188,16 @@ function getTargetDisplay(options) {
 
 function withTarget(message, target) {
   return target ? `${message}: ${target}` : message;
+}
+
+function formatBlockingReasons(blockingReasons) {
+  if (!Array.isArray(blockingReasons)) {
+    return "";
+  }
+  return blockingReasons
+    .map((reason) => String(reason || "").trim())
+    .filter(Boolean)
+    .join(", ");
 }
 
 function pluralize(word, count) {

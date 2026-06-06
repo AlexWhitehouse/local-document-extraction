@@ -141,6 +141,8 @@ function AuthenticatedApp() {
     hasApiAccess,
     hasWorkspaceApiAccess: workspaceSelectionView.hasWorkspaceApiAccess,
     canSubmitDocuments: workspaceController.context.canSubmitDocuments,
+    submissionBlockingReasons:
+      workspaceController.context.billingOperationalStatus.blocking_reasons,
     isAppBusy: busy,
     workspaceId,
     latestResponse,
@@ -274,8 +276,8 @@ function AuthenticatedApp() {
           templates: templates.length,
           documents: documents.length,
         }}
-        uploadAriaDisabled={busy || !workspaceContext.canSubmitDocuments}
-        isUploadDisabled={!workspaceContext.canSubmitDocuments}
+        uploadAriaDisabled={busy || !workspaceContext.hasWorkspaceApiAccess}
+        isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess}
         showAdminNavigation={isApplicationAdmin}
         impersonationSlot={
           isImpersonating ? (
@@ -443,7 +445,7 @@ function AuthenticatedApp() {
               billingOperationalStatus={workspaceContext.billingOperationalStatus}
               documentCount={documents.length}
               hasApiAccess={hasApiAccess}
-              isUploadDisabled={!workspaceContext.canSubmitDocuments}
+              isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess}
               workspaceId={workspaceToolbar.workspaceId}
               workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
               hasWorkspaceBillingAuthority={workspaceContext.hasWorkspaceBillingAuthority}

@@ -38,6 +38,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { App } from "./App.jsx";
+import { toast } from "sonner";
 
 describe("Workspace Billing page", () => {
   beforeEach(() => {
@@ -1604,21 +1605,32 @@ describe("Workspace Billing page", () => {
     ).toBe(false);
   });
 
-  it("disables Document upload when Billing operational status blocks submissions", async () => {
+  it("keeps Document upload clickable and toasts Billing blockers without opening the modal", async () => {
     globalThis.fetch = vi.fn(mockBillingFetch({
       role: "owner",
       workspaceOverrides: {
         billing_operational_status: {
           status: "blocked",
-          blocking_reasons: ["Insufficient Credits"],
+          blocking_reasons: [
+            "Insufficient Credits",
+            "Template schema limit overage",
+          ],
         },
       },
     }));
+    const user = userEvent.setup();
 
     render(<App />);
 
     const uploadButton = await screen.findByRole("button", { name: "Upload Document" });
-    expect(uploadButton.disabled).toBe(true);
+    expect(uploadButton.disabled).toBe(false);
+
+    await user.click(uploadButton);
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Document uploads are blocked: Insufficient Credits, Template schema limit overage.",
+    );
+    expect(screen.queryByRole("dialog", { name: "Upload document" })).toBeNull();
   });
 
   it("shows limited blocked-action status without owner-only billing detail leakage", async () => {
@@ -1636,7 +1648,7 @@ describe("Workspace Billing page", () => {
 
     expect(await screen.findByText("Template limit overage")).toBeTruthy();
     expect(screen.getByText("Member limit overage")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upload Document" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Upload Document" }).disabled).toBe(false);
     expect(screen.queryByRole("button", { name: /^Billing$/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "View Billing" })).toBeNull();
     expect(screen.queryByText(/Checkout|Payment method|Invoice/i)).toBeNull();
