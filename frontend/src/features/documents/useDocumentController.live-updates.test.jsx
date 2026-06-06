@@ -315,6 +315,52 @@ describe("useDocumentController Workspace live updates", () => {
     });
   });
 
+  it("does not refresh Workspace capacity when selecting a document whose status is unchanged", async () => {
+    const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+    const completedJob = {
+      job_id: "job_completed_1",
+      status: "completed",
+      source_name: "invoice.pdf",
+      template_id: "template_test",
+      created_at: "2026-05-06T12:00:00.000Z",
+      updated_at: "2026-05-06T12:02:00.000Z",
+      completed_at: "2026-05-06T12:02:00.000Z",
+      results: [],
+    };
+    const request = vi.fn(async (path) => {
+      if (path === "/jobs/job_completed_1") {
+        return completedJob;
+      }
+      return { jobs: [completedJob], next_cursor: null, has_more: false };
+    });
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        request={request}
+        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+        initialWorkspace={{
+          selectedDocumentId: "job_completed_1",
+          jobHistory: [completedJob],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(request).toHaveBeenCalledWith("/jobs/job_completed_1", {
+        method: "GET",
+      });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 200);
+      });
+    });
+
+    expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
+  });
+
   it("preserves document list order when a live lifecycle update omits the created timestamp", async () => {
     const WebSocketStub = installWebSocketStub();
     let controller = null;

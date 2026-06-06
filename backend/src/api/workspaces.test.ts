@@ -34,13 +34,6 @@ type CreatedWorkspaceResponse = {
   created_at: string;
 };
 
-type IssuedWorkspaceApiKeyResponse = {
-  workspace_id: string;
-  api_key: string;
-  has_api_key: boolean;
-  rotated_at: string;
-};
-
 type WorkspaceListingResponse = {
   workspaces: Array<{
     id: string;

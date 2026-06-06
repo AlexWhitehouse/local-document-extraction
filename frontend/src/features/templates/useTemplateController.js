@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   EMPTY_FIELD,
@@ -117,15 +117,27 @@ export function useTemplateController({
   const [templateJsonCopied, setTemplateJsonCopied] = useState(false);
   const [templateSearch, setTemplateSearch] = useState("");
   const [showDraftTemplateNav, setShowDraftTemplateNav] = useState(false);
+  const addLogRef = useRef(addLog);
+  const requestRef = useRef(request);
 
   const isEditingTemplate = Boolean(updateTemplateId.trim());
+  const buildTemplateJsonPayloadFromEditor = useCallback(() => {
+    return validateTemplateJsonPayload(
+      {
+        name: templateName,
+        description: templateDescription,
+        fields: templateFields,
+      },
+      { includeObjectSchema: true },
+    );
+  }, [templateDescription, templateFields, templateName]);
   const templateDraftSnapshot = useMemo(() => {
     try {
       return serializeTemplatePayload(buildTemplateJsonPayloadFromEditor());
     } catch {
       return null;
     }
-  }, [templateDescription, templateFields, templateName]);
+  }, [buildTemplateJsonPayloadFromEditor]);
   const isEditedTemplateDirty =
     !isEditingTemplate ||
     !loadedTemplateSnapshot ||
@@ -162,21 +174,26 @@ export function useTemplateController({
     setSelectedUploadTemplateId("");
   }
 
-  async function listTemplates() {
+  useEffect(() => {
+    addLogRef.current = addLog;
+    requestRef.current = request;
+  }, [addLog, request]);
+
+  const listTemplates = useCallback(async () => {
     try {
-      const data = await request("/templates", { method: "GET" });
+      const data = await requestRef.current("/templates", { method: "GET" });
       const list = Array.isArray(data?.templates) ? data.templates : [];
       setTemplates(list);
-      if (!selectedUploadTemplateId && list.length > 0) {
-        setSelectedUploadTemplateId(list[0].id);
-      }
-      addLog(`Loaded ${list.length} templates`);
+      setSelectedUploadTemplateId((currentTemplateId) =>
+        currentTemplateId || !list[0]?.id ? currentTemplateId : list[0].id,
+      );
+      addLogRef.current(`Loaded ${list.length} templates`);
       return list;
     } catch (error) {
-      addLog(`List templates failed: ${error.message}`);
+      addLogRef.current(`List templates failed: ${error.message}`);
       return [];
     }
-  }
+  }, []);
 
   async function createTemplate() {
     if (isSavingTemplate) {
@@ -264,17 +281,6 @@ export function useTemplateController({
     } finally {
       setIsSavingTemplate(false);
     }
-  }
-
-  function buildTemplateJsonPayloadFromEditor() {
-    return validateTemplateJsonPayload(
-      {
-        name: templateName,
-        description: templateDescription,
-        fields: templateFields,
-      },
-      { includeObjectSchema: true },
-    );
   }
 
   function openTemplateJsonModal() {
@@ -512,7 +518,7 @@ export function useTemplateController({
     }
 
     void listTemplates();
-  }, [hasApiAccess, workspaceId]);
+  }, [hasApiAccess, listTemplates, workspaceId]);
 
   return {
     templates,

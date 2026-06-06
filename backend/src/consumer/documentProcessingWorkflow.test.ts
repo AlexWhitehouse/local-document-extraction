@@ -16,7 +16,7 @@ type EnvExcludesUnsupportedExtractionConfig = Extract<
   ? true
   : never;
 
-const envExcludesUnsupportedExtractionConfig: EnvExcludesUnsupportedExtractionConfig = true;
+const _envExcludesUnsupportedExtractionConfig: EnvExcludesUnsupportedExtractionConfig = true;
 
 vi.mock("cloudflare:workers", () => ({
   WorkflowEntrypoint: class {

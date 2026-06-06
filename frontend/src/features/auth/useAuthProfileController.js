@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const ACCOUNT_PASSWORD_REQUIREMENTS = [
@@ -43,6 +43,8 @@ export function useAuthProfileController({
   const [profileEmail, setProfileEmail] = useState("");
   const [profileDraftName, setProfileDraftName] = useState("");
   const profilePanelRef = useRef(null);
+  const addLogRef = useRef(addLog);
+  const requestRef = useRef(request);
 
   const currentProfileName = (profileName.trim() || sessionUserName).trim();
   const currentProfileEmail = (profileEmail.trim() || sessionUserEmail).trim();
@@ -58,6 +60,11 @@ export function useAuthProfileController({
     authMode === "signup" &&
     authConfirmPassword.length > 0 &&
     authPassword !== authConfirmPassword;
+
+  useEffect(() => {
+    addLogRef.current = addLog;
+    requestRef.current = request;
+  }, [addLog, request]);
 
   useEffect(() => {
     if (!hasSession) {
@@ -272,13 +279,13 @@ export function useAuthProfileController({
     }
   }
 
-  async function loadProfile() {
+  const loadProfile = useCallback(async () => {
     if (!hasSession) {
       return;
     }
 
     try {
-      const data = await request("/profile", { method: "GET" }, true, false);
+      const data = await requestRef.current("/profile", { method: "GET" }, true, false);
       const nextName = String(data?.name || "").trim();
       const nextEmail = String(data?.email || "").trim();
       setProfileName(nextName);
@@ -286,9 +293,9 @@ export function useAuthProfileController({
       setAuthName(nextName);
       setAuthEmail(nextEmail);
     } catch (error) {
-      addLog(`Load profile failed: ${error.message}`);
+      addLogRef.current(`Load profile failed: ${error.message}`);
     }
-  }
+  }, [hasSession]);
 
   async function saveProfile() {
     const name = profileDraftName.trim();
@@ -333,7 +340,7 @@ export function useAuthProfileController({
     }
 
     void loadProfile();
-  }, [hasSession]);
+  }, [hasSession, loadProfile]);
 
   return {
     authScreen: {

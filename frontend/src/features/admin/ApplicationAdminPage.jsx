@@ -415,64 +415,6 @@ function formatApplicationRole(role) {
   return String(role || "user").trim() === "admin" ? "Application Admin" : "Regular User";
 }
 
-function formatPlanName(plan) {
-  const normalized = String(plan || "").trim();
-  if (normalized === "no_billing") {
-    return "No-billing";
-  }
-  if (!normalized) {
-    return "-";
-  }
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-}
-
-function formatBillingAuditAction(action) {
-  const normalized = String(action || "").trim();
-  const labels = {
-    goodwill_credit_grant: "Goodwill Credit grant",
-    goodwill_credit_revocation: "Goodwill Credit revocation",
-    plan_override_created: "Plan override created",
-    no_billing_mode_updated: "No-billing mode updated",
-    payment_required_plan_override_created: "Payment-required Plan override created",
-    payment_required_plan_override_payment_updated: "Payment-required Plan override payment updated",
-    enterprise_ramp_up_assigned: "Enterprise ramp-up assigned",
-    enterprise_annual_commitment_created: "Enterprise annual commitment created",
-  };
-  if (labels[normalized]) {
-    return labels[normalized];
-  }
-  return normalized
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ") || "-";
-}
-
-function summarizeBillingAuditSnapshot(snapshot) {
-  if (!snapshot || typeof snapshot !== "object") {
-    return "none";
-  }
-
-  const parts = [];
-  const plan = snapshot.plan || snapshot.active_entitlement?.plan;
-  if (plan) {
-    parts.push(formatPlanName(plan));
-  }
-  const invoiceStatus = snapshot.invoice_status || snapshot.invoice?.status;
-  if (invoiceStatus) {
-    parts.push(`invoice ${String(invoiceStatus).replaceAll("_", " ")}`);
-  }
-  if (typeof snapshot.enabled === "boolean") {
-    parts.push(snapshot.enabled ? "enabled" : "disabled");
-  }
-  const status = snapshot.status || snapshot.enterprise_status;
-  if (status && !invoiceStatus) {
-    parts.push(String(status).replaceAll("_", " "));
-  }
-
-  return parts.length ? parts.join(", ") : "recorded";
-}
-
 function formatExactLocalDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -485,20 +427,6 @@ function formatExactLocalDateTime(value) {
     pad(date.getDate()),
   ];
   return `${parts.join("-")} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-function formatUtcDateTime(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "-";
-  }
-
-  const parts = [
-    date.getUTCFullYear(),
-    pad(date.getUTCMonth() + 1),
-    pad(date.getUTCDate()),
-  ];
-  return `${parts.join("-")} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
 }
 
 function pad(value) {

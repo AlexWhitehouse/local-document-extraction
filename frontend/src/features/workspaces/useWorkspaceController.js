@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createWorkspaceRequestLayer } from "../../lib/appRuntime";
 import {
@@ -97,6 +97,12 @@ export function useWorkspaceController({
 
   const isRecoveringForbiddenWorkspaceRef = useRef(false);
   const workspaceUsersRequestRef = useRef(0);
+  const addLogRef = useRef(addLog);
+  const applyWorkspaceContextUpdateRef = useRef(null);
+  const hasSessionRef = useRef(hasSession);
+  const requestRef = useRef(null);
+  const workspaceIdRef = useRef(workspaceId);
+  const workspaceNameRef = useRef(workspaceName);
 
   const normalizedWorkspaceId = workspaceId.trim();
   const hasWorkspaceContext =
@@ -117,6 +123,12 @@ export function useWorkspaceController({
     workspaceId,
     onForbiddenWorkspaceAccess: recoverForbiddenWorkspaceAccess,
   });
+
+  addLogRef.current = addLog;
+  hasSessionRef.current = hasSession;
+  requestRef.current = request;
+  workspaceIdRef.current = workspaceId;
+  workspaceNameRef.current = workspaceName;
 
   const workspaceContextDisplay = useMemo(
     () =>
@@ -301,6 +313,7 @@ export function useWorkspaceController({
 
     return nextWorkspaceContext;
   }
+  applyWorkspaceContextUpdateRef.current = applyWorkspaceContextUpdate;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -453,15 +466,15 @@ export function useWorkspaceController({
     }
   }
 
-  async function listWorkspaces(options = {}) {
-    if (!hasSession) {
+  const listWorkspaces = useCallback(async (options = {}) => {
+    if (!hasSessionRef.current || !requestRef.current) {
       return;
     }
 
     try {
       const [workspaceData, invitationData] = await Promise.all([
-        request("/workspaces", { method: "GET" }, true, false),
-        request("/invitations", { method: "GET" }, true, false),
+        requestRef.current("/workspaces", { method: "GET" }, true, false),
+        requestRef.current("/invitations", { method: "GET" }, true, false),
       ]);
       const workspaces = Array.isArray(workspaceData?.workspaces)
         ? workspaceData.workspaces
@@ -474,21 +487,24 @@ export function useWorkspaceController({
       const resolution = resolveAcceptedWorkspaceContext({
         storedWorkspacePreference:
           options.storedWorkspacePreference ||
-          (workspaceId.trim()
-            ? { workspaceId, workspaceName }
+          (workspaceIdRef.current.trim()
+            ? {
+                workspaceId: workspaceIdRef.current,
+                workspaceName: workspaceNameRef.current,
+              }
             : initialWorkspaceRef.current),
         userWorkspaces: workspaces,
         userWorkspaceInvitations: invitations,
       });
-      applyWorkspaceContextUpdate(resolution.nextWorkspaceContext);
+      applyWorkspaceContextUpdateRef.current?.(resolution.nextWorkspaceContext);
       setWorkspaceResolutionStatus(resolution.type === "resolved" ? "resolved" : "error");
       return { workspaces, invitations, resolution };
     } catch (error) {
-      addLog(`List workspaces failed: ${error.message}`);
+      addLogRef.current(`List workspaces failed: ${error.message}`);
       setWorkspaceResolutionStatus("error");
       throw error;
     }
-  }
+  }, []);
 
   function retryWorkspaceResolution() {
     setWorkspaceResolutionStatus("loading");
@@ -516,11 +532,11 @@ export function useWorkspaceController({
     }
   }
 
-  async function listWorkspaceUsers(targetWorkspaceId = workspaceId) {
+  const listWorkspaceUsers = useCallback(async (targetWorkspaceId = workspaceIdRef.current) => {
     const normalizedTargetWorkspaceId = String(targetWorkspaceId || "").trim();
     const requestId = workspaceUsersRequestRef.current + 1;
     workspaceUsersRequestRef.current = requestId;
-    if (!hasSession || !normalizedTargetWorkspaceId || !canListWorkspaceUsers) {
+    if (!hasSessionRef.current || !normalizedTargetWorkspaceId || !canListWorkspaceUsers || !requestRef.current) {
       setWorkspaceUsers([]);
       setIsLoadingWorkspaceUsers(false);
       return;
@@ -528,7 +544,7 @@ export function useWorkspaceController({
 
     setIsLoadingWorkspaceUsers(true);
     try {
-      const data = await request(
+      const data = await requestRef.current(
         `/workspaces/${encodeURIComponent(normalizedTargetWorkspaceId)}/users`,
         { method: "GET" },
         true,
@@ -543,23 +559,23 @@ export function useWorkspaceController({
         return;
       }
       setWorkspaceUsers([]);
-      addLog(`List workspace users failed: ${error.message}`);
+      addLogRef.current(`List workspace users failed: ${error.message}`);
     } finally {
       if (workspaceUsersRequestRef.current === requestId) {
         setIsLoadingWorkspaceUsers(false);
       }
     }
-  }
+  }, [canListWorkspaceUsers]);
 
-  async function listWorkspaceInvitations(targetWorkspaceId = workspaceId) {
+  const listWorkspaceInvitations = useCallback(async (targetWorkspaceId = workspaceIdRef.current) => {
     const normalizedTargetWorkspaceId = String(targetWorkspaceId || "").trim();
-    if (!hasSession || !normalizedTargetWorkspaceId || !canManageWorkspaceInvitations) {
+    if (!hasSessionRef.current || !normalizedTargetWorkspaceId || !canManageWorkspaceInvitations || !requestRef.current) {
       setWorkspaceInvitations([]);
       return;
     }
 
     try {
-      const data = await request(
+      const data = await requestRef.current(
         `/workspaces/${encodeURIComponent(normalizedTargetWorkspaceId)}/invitations`,
         { method: "GET" },
         true,
@@ -570,9 +586,9 @@ export function useWorkspaceController({
       );
     } catch (error) {
       setWorkspaceInvitations([]);
-      addLog(`List workspace invitations failed: ${error.message}`);
+      addLogRef.current(`List workspace invitations failed: ${error.message}`);
     }
-  }
+  }, [canManageWorkspaceInvitations]);
 
   async function applyWorkspaceUserAction(targetUserId, action) {
     const transition = getWorkspaceMemberActionTransition({
@@ -981,7 +997,7 @@ export function useWorkspaceController({
 
     setWorkspaceResolutionStatus("loading");
     void listWorkspaces().catch(() => {});
-  }, [hasSession]);
+  }, [hasSession, listWorkspaces]);
 
   useEffect(() => {
     if (!hasSession || !workspaceId.trim()) {
@@ -993,7 +1009,14 @@ export function useWorkspaceController({
 
     void listWorkspaceUsers(workspaceId.trim());
     void listWorkspaceInvitations(workspaceId.trim());
-  }, [canListWorkspaceUsers, canManageWorkspaceInvitations, hasSession, workspaceId]);
+  }, [
+    canListWorkspaceUsers,
+    canManageWorkspaceInvitations,
+    hasSession,
+    listWorkspaceInvitations,
+    listWorkspaceUsers,
+    workspaceId,
+  ]);
 
   return {
     initialWorkspace,

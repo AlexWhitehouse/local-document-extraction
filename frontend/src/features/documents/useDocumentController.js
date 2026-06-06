@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createCompletedDocumentCache } from "../../lib/completedDocumentCache";
 
 const DEFAULT_OPTIONS = {
@@ -29,7 +29,6 @@ export function useDocumentController({
   onActivePageChange,
   onWorkspaceCapacityRefresh,
 }) {
-  const [lastJobId, setLastJobId] = useState(initialWorkspace.lastJobId || "");
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
@@ -57,6 +56,15 @@ export function useDocumentController({
   const liveUpdateReconnectTimerRef = useRef(null);
   const workspaceCapacityRefreshTimerRef = useRef(null);
   const liveCompletedDetailLoadsRef = useRef(new Set());
+  const addLogRef = useRef(addLog);
+  const jobHistoryRef = useRef(jobHistory);
+  const jobsNextCursorRef = useRef(jobsNextCursor);
+  const latestResponseRef = useRef(latestResponse);
+  const listJobsRef = useRef(null);
+  const onWorkspaceCapacityRefreshRef = useRef(onWorkspaceCapacityRefresh);
+  const queuedJobsRef = useRef(queuedJobs);
+  const requestRef = useRef(request);
+  const workspaceIdRef = useRef(workspaceId);
   const normalizedWorkspaceId = String(workspaceId || "").trim();
   const normalizedSubmissionBlockingReasons = Array.isArray(
     submissionBlockingReasons,
@@ -68,6 +76,20 @@ export function useDocumentController({
   const canOpenLiveUpdates =
     hasApiAccess && Boolean(normalizedWorkspaceId) && typeof WebSocket === "function";
   const shouldUseLiveUpdates = canOpenLiveUpdates && !liveUpdatesUnavailable;
+
+  useEffect(() => {
+    addLogRef.current = addLog;
+    onWorkspaceCapacityRefreshRef.current = onWorkspaceCapacityRefresh;
+    requestRef.current = request;
+  }, [addLog, onWorkspaceCapacityRefresh, request]);
+
+  useEffect(() => {
+    jobHistoryRef.current = jobHistory;
+    jobsNextCursorRef.current = jobsNextCursor;
+    latestResponseRef.current = latestResponse;
+    queuedJobsRef.current = queuedJobs;
+    workspaceIdRef.current = workspaceId;
+  }, [jobHistory, jobsNextCursor, latestResponse, queuedJobs, workspaceId]);
 
   const documents = useMemo(() => {
     const query = debouncedDocumentSearch.trim().toLowerCase();
@@ -160,30 +182,31 @@ export function useDocumentController({
     );
   }, [documents]);
 
-  function clearCompletedDocumentCache() {
+  const clearCompletedDocumentCache = useCallback(() => {
     completedDocumentCacheRef.current.clearAll();
-  }
+  }, []);
 
-  function clearLiveUpdateReconnectTimer() {
+  const clearLiveUpdateReconnectTimer = useCallback(() => {
     if (!liveUpdateReconnectTimerRef.current) {
       return;
     }
 
     window.clearTimeout(liveUpdateReconnectTimerRef.current);
     liveUpdateReconnectTimerRef.current = null;
-  }
+  }, []);
 
-  function clearWorkspaceCapacityRefreshTimer() {
+  const clearWorkspaceCapacityRefreshTimer = useCallback(() => {
     if (!workspaceCapacityRefreshTimerRef.current) {
       return;
     }
 
     window.clearTimeout(workspaceCapacityRefreshTimerRef.current);
     workspaceCapacityRefreshTimerRef.current = null;
-  }
+  }, []);
 
-  function scheduleWorkspaceCapacityRefresh() {
-    if (typeof onWorkspaceCapacityRefresh !== "function") {
+  const scheduleWorkspaceCapacityRefresh = useCallback(() => {
+    const refreshWorkspaceCapacity = onWorkspaceCapacityRefreshRef.current;
+    if (typeof refreshWorkspaceCapacity !== "function") {
       return;
     }
     if (workspaceCapacityRefreshTimerRef.current) {
@@ -192,30 +215,29 @@ export function useDocumentController({
 
     workspaceCapacityRefreshTimerRef.current = window.setTimeout(() => {
       workspaceCapacityRefreshTimerRef.current = null;
-      Promise.resolve(onWorkspaceCapacityRefresh()).catch((error) => {
-        addLog?.(`Refresh workspace capacity failed: ${error.message}`);
+      Promise.resolve(refreshWorkspaceCapacity()).catch((error) => {
+        addLogRef.current?.(`Refresh workspace capacity failed: ${error.message}`);
       });
     }, 150);
-  }
+  }, []);
 
-  function clearWorkspaceScopedDocuments() {
+  const clearWorkspaceScopedDocuments = useCallback(() => {
     clearWorkspaceCapacityRefreshTimer();
     setJobHistory([]);
     setQueuedJobs({});
     setJobsNextCursor(null);
     setJobsHasMore(false);
     setSelectedDocumentId("");
-    setLastJobId("");
     setLatestResponse(null);
     liveCompletedDetailLoadsRef.current.clear();
-  }
+  }, [clearWorkspaceCapacityRefreshTimer, setLatestResponse]);
 
-  function upsertJobHistory(job) {
+  const upsertJobHistory = useCallback((job) => {
     if (!job?.job_id) {
       return;
     }
 
-    const queuedMeta = queuedJobs[job.job_id] || null;
+    const queuedMeta = queuedJobsRef.current[job.job_id] || null;
     setJobHistory((prev) => {
       const existing =
         prev.find((entry) => entry.job_id === job.job_id) || null;
@@ -291,21 +313,22 @@ export function useDocumentController({
         return next;
       });
     }
-  }
+  }, []);
 
-  async function listJobs({ append = false } = {}) {
+  const listJobs = useCallback(async ({ append = false } = {}) => {
     try {
       const params = new URLSearchParams();
       const search = debouncedDocumentSearch.trim();
       if (search) {
         params.set("search", search);
       }
-      if (append && jobsNextCursor) {
-        params.set("cursor", jobsNextCursor);
+      const nextCursor = jobsNextCursorRef.current;
+      if (append && nextCursor) {
+        params.set("cursor", nextCursor);
       }
 
       const query = params.toString();
-      const data = await request(query ? `/jobs?${query}` : "/jobs", {
+      const data = await requestRef.current(query ? `/jobs?${query}` : "/jobs", {
         method: "GET",
       });
       const list = Array.isArray(data?.jobs) ? data.jobs : [];
@@ -340,16 +363,22 @@ export function useDocumentController({
       });
       setJobsNextCursor(data?.next_cursor || null);
       setJobsHasMore(Boolean(data?.has_more));
-      if (!selectedDocumentId && hydratedList[0]?.job_id) {
-        setSelectedDocumentId(String(hydratedList[0].job_id));
-      }
-      addLog(
+      setSelectedDocumentId((currentSelectedDocumentId) =>
+        currentSelectedDocumentId || !hydratedList[0]?.job_id
+          ? currentSelectedDocumentId
+          : String(hydratedList[0].job_id),
+      );
+      addLogRef.current(
         `${append ? "Loaded" : "Loaded"} ${list.length} document${list.length === 1 ? "" : "s"}${search ? ` matching "${search}"` : ""}`,
       );
     } catch (error) {
-      addLog(`List documents failed: ${error.message}`);
+      addLogRef.current(`List documents failed: ${error.message}`);
     }
-  }
+  }, [debouncedDocumentSearch, workspaceId]);
+
+  useEffect(() => {
+    listJobsRef.current = listJobs;
+  }, [listJobs]);
 
   async function loadMoreJobs() {
     if (!jobsHasMore || !jobsNextCursor || isLoadingMoreJobs) {
@@ -364,10 +393,34 @@ export function useDocumentController({
     }
   }
 
-  async function loadJobDetails(
+  const removeDocumentFromState = useCallback((targetDocumentId, sourcePreviewUrl) => {
+    if (sourcePreviewUrl) {
+      URL.revokeObjectURL(sourcePreviewUrl);
+      previewUrlsRef.current.delete(sourcePreviewUrl);
+    }
+    completedDocumentCacheRef.current.remove(workspaceIdRef.current, targetDocumentId);
+
+    setJobHistory((prev) =>
+      prev.filter((job) => String(job.job_id || "") !== targetDocumentId),
+    );
+    setQueuedJobs((prev) => {
+      const next = { ...prev };
+      delete next[targetDocumentId];
+      return next;
+    });
+
+    setSelectedDocumentId((currentSelectedDocumentId) =>
+      currentSelectedDocumentId === targetDocumentId ? "" : currentSelectedDocumentId,
+    );
+    if (latestResponseRef.current?.job_id === targetDocumentId) {
+      setLatestResponse(null);
+    }
+  }, [setLatestResponse]);
+
+  const loadJobDetails = useCallback(async (
     jobId,
     { silent = true, showLoading = false } = {},
-  ) {
+  ) => {
     const normalizedJobId = String(jobId || "").trim();
     if (!normalizedJobId) {
       return;
@@ -378,14 +431,18 @@ export function useDocumentController({
     }
 
     try {
-      const data = await request(
+      const data = await requestRef.current(
         `/jobs/${encodeURIComponent(normalizedJobId)}`,
         {
           method: "GET",
         },
       );
+      const shouldRefreshWorkspaceCapacity =
+        hasDocumentStatusChanged(jobHistoryRef.current, queuedJobsRef.current, data);
       upsertJobHistory(data);
-      scheduleWorkspaceCapacityRefresh();
+      if (shouldRefreshWorkspaceCapacity) {
+        scheduleWorkspaceCapacityRefresh();
+      }
       completedDocumentCacheRef.current.store(workspaceId, data);
       return data;
     } catch (error) {
@@ -394,7 +451,7 @@ export function useDocumentController({
         removeDocumentFromState(normalizedJobId);
       }
       if (!silent) {
-        addLog(`Load job details failed: ${error.message}`);
+        addLogRef.current(`Load job details failed: ${error.message}`);
       }
       return null;
     } finally {
@@ -404,7 +461,7 @@ export function useDocumentController({
         );
       }
     }
-  }
+  }, [removeDocumentFromState, scheduleWorkspaceCapacityRefresh, upsertJobHistory, workspaceId]);
 
   function openUploadModal() {
     if (isAppBusy) {
@@ -582,7 +639,6 @@ export function useDocumentController({
     });
 
     const jobId = queued.job_id;
-    setLastJobId(jobId);
     setQueuedJobs((prev) => ({
       ...prev,
       [jobId]: {
@@ -597,33 +653,6 @@ export function useDocumentController({
     scheduleWorkspaceCapacityRefresh();
     addLog(`Job queued: ${jobId} (${file.name})`);
     return jobId;
-  }
-
-  function removeDocumentFromState(targetDocumentId, sourcePreviewUrl) {
-    if (sourcePreviewUrl) {
-      URL.revokeObjectURL(sourcePreviewUrl);
-      previewUrlsRef.current.delete(sourcePreviewUrl);
-    }
-    completedDocumentCacheRef.current.remove(workspaceId, targetDocumentId);
-
-    setJobHistory((prev) =>
-      prev.filter((job) => String(job.job_id || "") !== targetDocumentId),
-    );
-    setQueuedJobs((prev) => {
-      const next = { ...prev };
-      delete next[targetDocumentId];
-      return next;
-    });
-
-    if (lastJobId === targetDocumentId) {
-      setLastJobId("");
-    }
-    if (selectedDocumentId === targetDocumentId) {
-      setSelectedDocumentId("");
-    }
-    if (latestResponse?.job_id === targetDocumentId) {
-      setLatestResponse(null);
-    }
   }
 
   async function deleteSelectedDocument() {
@@ -692,14 +721,15 @@ export function useDocumentController({
   }
 
   useEffect(() => {
+    const previewUrls = previewUrlsRef.current;
     return () => {
       clearWorkspaceCapacityRefreshTimer();
-      for (const url of previewUrlsRef.current) {
+      for (const url of previewUrls) {
         URL.revokeObjectURL(url);
       }
-      previewUrlsRef.current.clear();
+      previewUrls.clear();
     };
-  }, []);
+  }, [clearWorkspaceCapacityRefreshTimer]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -722,7 +752,14 @@ export function useDocumentController({
     }
 
     void listJobs();
-  }, [debouncedDocumentSearch, hasApiAccess, workspaceId]);
+  }, [
+    clearLiveUpdateReconnectTimer,
+    clearWorkspaceScopedDocuments,
+    debouncedDocumentSearch,
+    hasApiAccess,
+    listJobs,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (!canOpenLiveUpdates || liveUpdatesUnavailable) {
@@ -754,7 +791,7 @@ export function useDocumentController({
         liveUpdateReconnectTimerRef.current = window.setTimeout(() => {
           liveUpdateReconnectTimerRef.current = null;
           setLiveUpdatesUnavailable(false);
-          void listJobs();
+          void listJobsRef.current?.();
         }, 1000);
       }
     };
@@ -779,7 +816,15 @@ export function useDocumentController({
       }
       socket.close();
     };
-  }, [apiBase, canOpenLiveUpdates, liveUpdatesUnavailable, normalizedWorkspaceId]);
+  }, [
+    apiBase,
+    canOpenLiveUpdates,
+    clearLiveUpdateReconnectTimer,
+    liveUpdatesUnavailable,
+    normalizedWorkspaceId,
+    scheduleWorkspaceCapacityRefresh,
+    upsertJobHistory,
+  ]);
 
   useEffect(() => {
     if (!hasApiAccess || !selectedDocumentId.trim()) {
@@ -790,7 +835,7 @@ export function useDocumentController({
       silent: true,
       showLoading: true,
     });
-  }, [hasApiAccess, selectedDocumentId]);
+  }, [hasApiAccess, loadJobDetails, selectedDocumentId]);
 
   useEffect(() => {
     if (!hasApiAccess || !selectedDocumentId.trim() || shouldUseLiveUpdates) {
@@ -809,7 +854,13 @@ export function useDocumentController({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [hasApiAccess, selectedDocumentId, selectedDocument?.status, shouldUseLiveUpdates]);
+  }, [
+    hasApiAccess,
+    loadJobDetails,
+    selectedDocumentId,
+    selectedDocument?.status,
+    shouldUseLiveUpdates,
+  ]);
 
   useEffect(() => {
     if (!hasApiAccess || !selectedDocumentId.trim() || !shouldUseLiveUpdates) {
@@ -845,6 +896,7 @@ export function useDocumentController({
     selectedDocument?.job_id,
     selectedDocument?.results,
     selectedDocument?.status,
+    loadJobDetails,
     shouldUseLiveUpdates,
   ]);
 
@@ -945,6 +997,23 @@ function parseWorkspaceLiveUpdateJobs(message) {
   return envelope.events
     .filter((event) => event?.type === "extraction_job_lifecycle" && event?.job?.job_id)
     .map((event) => event.job);
+}
+
+function hasDocumentStatusChanged(jobHistory, queuedJobs, nextJob) {
+  const jobId = String(nextJob?.job_id || "").trim();
+  const nextStatus = String(nextJob?.status || "").trim().toLowerCase();
+  if (!jobId || !nextStatus || LIVE_DOCUMENT_STATUSES.has(nextStatus)) {
+    return false;
+  }
+
+  const previousJob = Array.isArray(jobHistory)
+    ? jobHistory.find((job) => String(job?.job_id || "").trim() === jobId)
+    : null;
+  const previousStatus = String(
+    previousJob?.status || (queuedJobs?.[jobId] ? "queued" : ""),
+  ).trim().toLowerCase();
+
+  return Boolean(previousStatus) && previousStatus !== nextStatus;
 }
 
 function getDocumentSortTimestamp(job) {
