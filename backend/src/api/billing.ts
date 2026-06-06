@@ -913,7 +913,7 @@ export async function handleStripeBillingWebhook(request: Request, env: Env): Pr
   }
 
   const receivedAt = new Date().toISOString();
-  let processingResult: StripeBillingEventProcessingResult = {};
+  let processingResult: StripeBillingEventProcessingResult;
   try {
     if (!SUPPORTED_STRIPE_BILLING_WEBHOOK_EVENT_TYPES.has(event.type)) {
       await recordProcessedStripeBillingEvent(env.DB, {

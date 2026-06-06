@@ -64,7 +64,7 @@ function normalizeFields(fields, options = {}) {
       throw new Error(`Field ${index + 1}: description is required`);
     }
     if (!DATA_TYPES.includes(dataType)) {
-      throw new Error(`Field ${index + 1}: unsupported type \"${dataType}\"`);
+      throw new Error(`Field ${index + 1}: unsupported type "${dataType}"`);
     }
     if (ids.has(id)) {
       throw new Error(`Duplicate field ID: ${id}`);

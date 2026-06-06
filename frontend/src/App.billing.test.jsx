@@ -1696,7 +1696,7 @@ function mockBillingFetch({
     owner_billing_activity_next_cursor: null,
   },
 }) {
-  return (input, options = {}) => {
+  return (input) => {
     const url = String(input);
     if (url.endsWith("/workspaces")) {
       const entitlementPlan = String(

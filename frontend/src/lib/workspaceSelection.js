@@ -688,7 +688,6 @@ export function getDeclineWorkspaceInvitationTransition({
 }
 
 export function getWorkspaceSelectionView({
-  workspaceId,
   workspaceName,
   hasApiAccess,
   canManageWorkspaceUsers,

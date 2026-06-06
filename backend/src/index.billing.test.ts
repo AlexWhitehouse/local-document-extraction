@@ -5665,7 +5665,7 @@ describe("Workspace billing summary route", () => {
   });
 
   it("does not duplicate a reconciled Credit pack grant when the Checkout webhook later arrives", async () => {
-    const stripeFetch = vi.spyOn(globalThis, "fetch")
+    vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
         new Response(JSON.stringify({
           data: [

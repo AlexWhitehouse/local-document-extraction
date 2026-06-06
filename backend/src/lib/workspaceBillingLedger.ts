@@ -1621,17 +1621,14 @@ function findCreditUsageBucket(
   }
 
   const firstStart = new Date(buckets[0].start_at);
-  let index = -1;
-  if (range === "yearly") {
-    index = (occurred.getUTCFullYear() - firstStart.getUTCFullYear()) * 12 +
-      occurred.getUTCMonth() - firstStart.getUTCMonth();
-  } else if (range === "monthly") {
-    index = Math.floor((startOfUtcDay(occurred).getTime() - firstStart.getTime()) / (7 * 86_400_000));
-  } else if (range === "weekly") {
-    index = Math.floor((startOfUtcDay(occurred).getTime() - firstStart.getTime()) / 86_400_000);
-  } else {
-    index = Math.floor((startOfUtcHour(occurred).getTime() - firstStart.getTime()) / 3_600_000);
-  }
+  const index = range === "yearly"
+    ? (occurred.getUTCFullYear() - firstStart.getUTCFullYear()) * 12 +
+      occurred.getUTCMonth() - firstStart.getUTCMonth()
+    : range === "monthly"
+      ? Math.floor((startOfUtcDay(occurred).getTime() - firstStart.getTime()) / (7 * 86_400_000))
+      : range === "weekly"
+        ? Math.floor((startOfUtcDay(occurred).getTime() - firstStart.getTime()) / 86_400_000)
+        : Math.floor((startOfUtcHour(occurred).getTime() - firstStart.getTime()) / 3_600_000);
 
   return buckets[index] ?? null;
 }

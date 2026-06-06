@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useBillingController({
   request,
@@ -19,8 +19,15 @@ export function useBillingController({
   const [actionErrorMessage, setActionErrorMessage] = useState("");
   const [activityErrorMessage, setActivityErrorMessage] = useState("");
   const [usageErrorMessage, setUsageErrorMessage] = useState("");
+  const addLogRef = useRef(addLog);
+  const requestRef = useRef(request);
 
-  async function loadBillingSummary() {
+  useEffect(() => {
+    addLogRef.current = addLog;
+    requestRef.current = request;
+  }, [addLog, request]);
+
+  const loadBillingSummary = useCallback(async () => {
     const normalizedWorkspaceId = String(workspaceId || "").trim();
     if (!normalizedWorkspaceId || !hasWorkspaceBillingAuthority) {
       setSummary(null);
@@ -30,7 +37,7 @@ export function useBillingController({
     setIsLoading(true);
     setLoadErrorMessage("");
     try {
-      const data = await request(
+      const data = await requestRef.current(
         `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/billing/summary`,
         { method: "GET" },
         true,
@@ -39,17 +46,17 @@ export function useBillingController({
       setSummary(data || null);
       setActivityErrorMessage("");
       setUsageErrorMessage("");
-      addLog?.(`Loaded billing summary for workspace ${normalizedWorkspaceId}`);
+      addLogRef.current?.(`Loaded billing summary for workspace ${normalizedWorkspaceId}`);
       return data;
     } catch (error) {
       setSummary(null);
       setLoadErrorMessage(error.message || "Billing summary could not be loaded");
-      addLog?.(`Load billing summary failed: ${error.message}`);
+      addLogRef.current?.(`Load billing summary failed: ${error.message}`);
       return null;
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [hasWorkspaceBillingAuthority, workspaceId]);
 
   useEffect(() => {
     if (!isActive) {
@@ -57,7 +64,7 @@ export function useBillingController({
     }
 
     void loadBillingSummary();
-  }, [hasWorkspaceBillingAuthority, isActive, workspaceId]);
+  }, [isActive, loadBillingSummary]);
 
   async function startCreditPackCheckout(packSize) {
     const normalizedWorkspaceId = String(workspaceId || "").trim();
