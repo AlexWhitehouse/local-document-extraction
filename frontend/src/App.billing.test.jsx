@@ -220,6 +220,48 @@ describe("Workspace Billing page", () => {
     expect(creditBreakdownDialog.getByText("25")).toBeTruthy();
   });
 
+  it("shows failed delayed Credit pack payments as payment failures in Owner billing activity", async () => {
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...window.location,
+        assign,
+      },
+    });
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(mockBillingFetch({
+      role: "owner",
+      billingSummary: {
+        ...freeBillingSummary(),
+        owner_billing_activity: [
+          {
+            id: "entry_stripe_credit_pack_payment_failed_purchase_async_failed_100",
+            type: "credit_pack_payment_failed",
+            occurred_at: "2026-05-31T12:00:00.000Z",
+            credits: 0,
+            description: "Credit pack payment failed",
+            invoice: {
+              status: "payment_failed",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_async_failed_100",
+            },
+          },
+        ],
+      },
+    }));
+
+    render(<App />);
+
+    await waitForWorkspaceBilling();
+
+    const main = within(screen.getByRole("main"));
+    expect(await main.findByText("Credit pack payment failed")).toBeTruthy();
+    expect(main.getByText("Payment failed")).toBeTruthy();
+    expect(main.queryByText("+0 Credits")).toBeNull();
+    await user.click(main.getByRole("button", { name: "Pay invoice" }));
+    expect(assign).toHaveBeenCalledWith("https://invoice.stripe.com/i/in_async_failed_100");
+  });
+
   it("loads older Billing Activity with a cursor", async () => {
     const user = userEvent.setup();
     const firstPage = [6, 5, 4, 3, 2].map((index) => ({
@@ -573,7 +615,47 @@ describe("Workspace Billing page", () => {
     const planDialog = await openPlanModal(user);
     expect(planDialog.queryByText("Subscription unpaid")).toBeNull();
     expect(planDialog.queryByText("Next entitlement change Free on 30 Jul 2026")).toBeNull();
-    expect(planDialog.getAllByRole("button", { name: "Change scheduled" })).toHaveLength(3);
+    expect(planDialog.getByText("Plan change scheduled")).toBeTruthy();
+    expect(planDialog.getByText("Free now, Free on 30 Jul 2026.")).toBeTruthy();
+    expect(planDialog.getByRole("button", { name: "Cancel scheduled change" })).toBeTruthy();
+    expect(planDialog.getAllByRole("button", { name: "Scheduled" })).toHaveLength(3);
+  });
+
+  it("shows subscription invoice finalization failure signals without leaking raw Stripe errors", async () => {
+    globalThis.fetch = vi.fn(mockBillingFetch({
+      role: "owner",
+      billingSummary: {
+        ...freeBillingSummary(),
+        billing_state: "unpaid",
+        self_service_subscription: {
+          plan: "pro",
+          status: "unpaid",
+          current_period_start: "2026-06-30T12:00:00.000Z",
+          current_period_end: "2026-07-30T12:00:00.000Z",
+          invoice: {
+            status: "finalization_failed",
+            hosted_invoice_url: null,
+            finalization_failure: {
+              automatic_tax_status: "requires_location_inputs",
+              automatic_tax_reason: "customer_location_missing",
+              last_finalization_error_code: "customer_tax_location_invalid",
+            },
+          },
+        },
+      },
+    }));
+
+    render(<App />);
+
+    await waitForWorkspaceBilling();
+
+    const main = within(screen.getByRole("main"));
+    expect(await main.findByText("Unpaid billing state")).toBeTruthy();
+    expect(main.getByText("Pro subscription invoice finalization failed")).toBeTruthy();
+    expect(main.getByText(/Automatic tax requires location inputs/)).toBeTruthy();
+    expect(main.getByText(/Tax location customer location missing/)).toBeTruthy();
+    expect(main.getByText(/Finalization error customer tax location invalid/)).toBeTruthy();
+    expect(main.queryByText(/Do not store this Stripe error message/)).toBeNull();
   });
 
   it("shows payment-required override invoice status and hosted payment action to the Workspace owner", async () => {
@@ -625,6 +707,102 @@ describe("Workspace Billing page", () => {
 
     expect(window.sessionStorage.getItem("documentextraction.billing.return")).toBe("1");
     expect(assign).toHaveBeenCalledWith("https://invoice.stripe.com/i/in_payment_required_override");
+  });
+
+  it("shows customer-action payment-required override invoices as payable to the Workspace owner", async () => {
+    const user = userEvent.setup();
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...window.location,
+        assign,
+      },
+    });
+    globalThis.fetch = vi.fn(mockBillingFetch({
+      role: "owner",
+      billingSummary: {
+        ...freeBillingSummary(),
+        payment_required_plan_override: {
+          plan: "pro",
+          display_name: "Pro",
+          start_at: "2026-06-01T00:00:00.000Z",
+          end_at: "2026-07-01T00:00:00.000Z",
+          amount: {
+            currency: "GBP",
+            amount_minor: 12500,
+            display: "GBP 125.00",
+            tax_behavior: "exclusive",
+          },
+          collection_mode: "automatic",
+          invoice: {
+            status: "payment_action_required",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_action_required",
+          },
+        },
+      },
+    }));
+
+    render(<App />);
+
+    await waitForWorkspaceBilling();
+
+    const main = within(screen.getByRole("main"));
+    expect(await main.findByText("Payment-required Pro invoice payment action required")).toBeTruthy();
+    expect(main.getByText(/Automatic collection/)).toBeTruthy();
+    expect(main.queryByText(/in_payment_required_action_required/)).toBeNull();
+
+    await user.click(main.getByRole("button", { name: "Pay invoice" }));
+
+    expect(assign).toHaveBeenCalledWith("https://invoice.stripe.com/i/in_payment_required_action_required");
+  });
+
+  it("shows terminal payment-required override invoices as view-only to the Workspace owner", async () => {
+    const user = userEvent.setup();
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...window.location,
+        assign,
+      },
+    });
+    globalThis.fetch = vi.fn(mockBillingFetch({
+      role: "owner",
+      billingSummary: {
+        ...freeBillingSummary(),
+        payment_required_plan_override: {
+          plan: "pro",
+          display_name: "Pro",
+          start_at: "2026-06-01T00:00:00.000Z",
+          end_at: "2026-07-01T00:00:00.000Z",
+          amount: {
+            currency: "GBP",
+            amount_minor: 12500,
+            display: "GBP 125.00",
+            tax_behavior: "exclusive",
+          },
+          collection_mode: "manual",
+          invoice: {
+            status: "uncollectible",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_uncollectible",
+          },
+        },
+      },
+    }));
+
+    render(<App />);
+
+    await waitForWorkspaceBilling();
+
+    const main = within(screen.getByRole("main"));
+    expect(await main.findByText("Payment-required Pro invoice uncollectible")).toBeTruthy();
+    expect(main.queryByRole("button", { name: "Pay invoice" })).toBeNull();
+    expect(main.queryByText(/in_payment_required_uncollectible/)).toBeNull();
+
+    await user.click(main.getByRole("button", { name: "View invoice" }));
+
+    expect(assign).toHaveBeenCalledWith("https://invoice.stripe.com/i/in_payment_required_uncollectible");
   });
 
   it("shows suspended Enterprise ramp-up invoice status and hosted payment action to the Workspace owner", async () => {
@@ -810,6 +988,76 @@ describe("Workspace Billing page", () => {
 
     expect(window.sessionStorage.getItem("documentextraction.billing.return")).toBe("1");
     expect(assign).toHaveBeenCalledWith("https://invoice.stripe.com/i/in_enterprise_annual_overage");
+  });
+
+  it("shows payment-gated Enterprise annual upfront invoice action to the Workspace owner", async () => {
+    const user = userEvent.setup();
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...window.location,
+        assign,
+      },
+    });
+    globalThis.fetch = vi.fn(mockBillingFetch({
+      role: "owner",
+      billingSummary: {
+        ...freeBillingSummary(),
+        active_entitlement: {
+          plan: "free",
+          display_name: "Free",
+          included_credits: 0,
+          api_access: false,
+          per_page_catalog_price: {
+            currency: "GBP",
+            amount_minor: 22,
+            display: "GBP 0.22",
+            tax_behavior: "exclusive",
+          },
+        },
+        enterprise_annual_commitment: {
+          status: "pending_payment",
+          monthly_minimum_allowance: 60000,
+          per_page_price: {
+            currency: "GBP",
+            amount_minor: 9,
+            display: "GBP 0.09",
+            tax_behavior: "exclusive",
+          },
+          yearly_amount: {
+            currency: "GBP",
+            amount_minor: 6480000,
+            display: "GBP 64,800.00",
+            tax_behavior: "exclusive",
+          },
+          enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+          starts_at: "2026-06-01T00:00:00.000Z",
+          ends_at: "2027-06-01T00:00:00.000Z",
+          collection_mode: "manual",
+          invoice_review_enabled: false,
+          upfront_invoice: {
+            status: "payment_action_required",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_action",
+            paid_at: null,
+          },
+        },
+      },
+    }));
+
+    render(<App />);
+
+    await waitForWorkspaceBilling();
+
+    const main = within(screen.getByRole("main"));
+    expect(await main.findByText("Enterprise annual upfront invoice payment action required")).toBeTruthy();
+    expect(main.getByText("GBP 64,800.00")).toBeTruthy();
+    expect(main.queryByText(/in_enterprise_annual_upfront_action/)).toBeNull();
+
+    await user.click(main.getByRole("button", { name: "Pay invoice" }));
+
+    expect(window.sessionStorage.getItem("documentextraction.billing.return")).toBe("1");
+    expect(assign).toHaveBeenCalledWith("https://invoice.stripe.com/i/in_enterprise_annual_upfront_action");
   });
 
   it("starts Credit pack Checkout from the owner Billing page", async () => {
@@ -1046,6 +1294,99 @@ describe("Workspace Billing page", () => {
     expect(assign).toHaveBeenCalledWith("https://invoice.stripe.com/i/in_prorated_max_upgrade");
   });
 
+  it("shows Free as current and offers paid upgrades while a Free plan override is active", async () => {
+    const user = userEvent.setup();
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...window.location,
+        assign,
+      },
+    });
+    let billingSummary = {
+      ...freeBillingSummary(),
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+        included_credits: 0,
+        api_access: false,
+        per_page_catalog_price: {
+          currency: "GBP",
+          amount_minor: 22,
+          display: "GBP 0.22",
+          tax_behavior: "exclusive",
+        },
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+        current_period_start: "2026-05-31T12:00:00.000Z",
+        current_period_end: "2026-06-30T12:00:00.000Z",
+      },
+      next_scheduled_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+        effective_at: "2026-06-30T12:00:00.000Z",
+      },
+    };
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces/ws_1/billing/subscriptions/change")) {
+        billingSummary = {
+          ...billingSummary,
+          active_entitlement: {
+            plan: "pro",
+            display_name: "Pro",
+            included_credits: 200,
+            api_access: true,
+            per_page_catalog_price: {
+              currency: "GBP",
+              amount_minor: 20,
+              display: "GBP 0.20",
+              tax_behavior: "exclusive",
+            },
+          },
+          next_scheduled_entitlement: null,
+        };
+        return Promise.resolve(jsonResponse({
+          subscription_id: "sub_pro_workspace",
+          target_plan: "pro",
+        }));
+      }
+      return mockBillingFetch({
+        role: "owner",
+        billingSummary,
+      })(input, options);
+    });
+
+    render(<App />);
+
+    await waitForWorkspaceBilling();
+    const planDialog = await openPlanModal(user);
+    expect(planDialog.queryByRole("button", { name: "Change scheduled" })).toBeNull();
+    expect(planDialog.queryByRole("button", { name: "Switch to Free" })).toBeNull();
+    expect(planDialog.getByRole("button", { name: "Current plan" }).disabled).toBe(true);
+    expect(planDialog.getByRole("button", { name: "Upgrade to Pro" })).toBeTruthy();
+    expect(planDialog.getByRole("button", { name: "Upgrade to Max" })).toBeTruthy();
+    await user.click(planDialog.getByRole("button", { name: "Upgrade to Pro" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/workspaces/ws_1/billing/subscriptions/change",
+        expect.objectContaining({
+          credentials: "include",
+          method: "POST",
+          body: JSON.stringify({ plan: "pro" }),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(planDialog.getByRole("button", { name: "Current plan" }).disabled).toBe(true);
+    });
+    expect(assign).not.toHaveBeenCalled();
+  });
+
   it("schedules a paid to Free subscription change from the owner Billing page", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn(mockBillingFetch({
@@ -1094,6 +1435,79 @@ describe("Workspace Billing page", () => {
         }),
       );
     });
+  });
+
+  it("explains and cancels a scheduled paid to Free subscription change from the plan modal", async () => {
+    const user = userEvent.setup();
+    let billingSummary = {
+      ...freeBillingSummary(),
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+        included_credits: 200,
+        api_access: true,
+        per_page_catalog_price: {
+          currency: "GBP",
+          amount_minor: 20,
+          display: "GBP 0.20",
+          tax_behavior: "exclusive",
+        },
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+        current_period_start: "2026-05-31T12:00:00.000Z",
+        current_period_end: "2026-06-30T12:00:00.000Z",
+      },
+      next_scheduled_entitlement: {
+        plan: "free",
+        display_name: "Free",
+        effective_at: "2026-06-30T12:00:00.000Z",
+      },
+    };
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces/ws_1/billing/subscriptions/scheduled-change/cancel")) {
+        billingSummary = {
+          ...billingSummary,
+          next_scheduled_entitlement: null,
+        };
+        return Promise.resolve(jsonResponse({
+          subscription_id: "sub_pro_workspace",
+          canceled_scheduled_plan: "free",
+          active_plan: "pro",
+        }));
+      }
+      return mockBillingFetch({
+        role: "owner",
+        billingSummary,
+      })(input, options);
+    });
+
+    render(<App />);
+
+    await waitForWorkspaceBilling();
+    const planDialog = await openPlanModal(user);
+    expect(planDialog.getByText("Plan change scheduled")).toBeTruthy();
+    expect(planDialog.getByText("Pro now, Free on 30 Jun 2026.")).toBeTruthy();
+    expect(planDialog.getAllByRole("button", { name: "Scheduled" })).toHaveLength(3);
+    await user.click(planDialog.getByRole("button", { name: "Cancel scheduled change" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/workspaces/ws_1/billing/subscriptions/scheduled-change/cancel",
+        expect.objectContaining({
+          credentials: "include",
+          method: "POST",
+          body: JSON.stringify({}),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(planDialog.queryByText("Plan change scheduled")).toBeNull();
+    });
+    expect(planDialog.queryByRole("button", { name: "Scheduled" })).toBeNull();
+    expect(planDialog.getByRole("button", { name: "Current plan" })).toBeTruthy();
   });
 
   it("schedules a Max to Pro subscription change from the owner Billing page", async () => {
@@ -1344,6 +1758,13 @@ function mockBillingFetch({
         subscription_id: "sub_pro_workspace",
         target_plan: "max",
         payment_url: subscriptionChangeUrl || "https://invoice.stripe.com/i/in_prorated_max_upgrade",
+      }));
+    }
+    if (url.endsWith("/workspaces/ws_1/billing/subscriptions/scheduled-change/cancel")) {
+      return Promise.resolve(jsonResponse({
+        subscription_id: "sub_pro_workspace",
+        canceled_scheduled_plan: "free",
+        active_plan: "pro",
       }));
     }
     return Promise.resolve(jsonResponse({}));

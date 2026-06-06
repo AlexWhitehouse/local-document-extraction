@@ -17,6 +17,7 @@ export async function getWorkspaceBillingControl(
               self_service_subscription_invoice_id,
               self_service_subscription_invoice_status,
               self_service_subscription_hosted_invoice_url,
+              self_service_subscription_invoice_diagnostics,
               scheduled_entitlement_plan,
               scheduled_entitlement_effective_at,
               enterprise_deal_status,

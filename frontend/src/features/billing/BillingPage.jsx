@@ -661,6 +661,19 @@ function BillingPlanModal({
   const activePlan = normalizePlan(entitlement.plan) || "free";
   const subscriptionPlan = normalizePlan(subscription?.plan);
   const subscriptionStatus = String(subscription?.status || "").trim();
+  const nextScheduledPlan = normalizePlan(nextScheduledEntitlement?.plan);
+  const isFreeOverridePlanSelection =
+    activePlan === "free" &&
+    subscriptionStatus === "active" &&
+    Boolean(subscriptionPlan);
+  const hasBlockingScheduledChange =
+    Boolean(nextScheduledEntitlement) &&
+    !(
+      activePlan === "free" &&
+      subscriptionStatus === "active" &&
+      subscriptionPlan &&
+      nextScheduledPlan === subscriptionPlan
+    );
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -686,6 +699,15 @@ function BillingPlanModal({
 
         <BillingModalActionError message={actionErrorMessage} />
 
+        {hasBlockingScheduledChange ? (
+          <ScheduledPlanChangeNotice
+            activePlan={activePlan}
+            nextScheduledEntitlement={nextScheduledEntitlement}
+            isCanceling={billing.isCancelingScheduledChange}
+            onCancel={billing.onCancelScheduledSubscriptionChange}
+          />
+        ) : null}
+
         <div className="billing-plan-grid">
           {SELF_SERVICE_PLAN_OPTIONS.map((plan) => (
             <BillingPlanCard
@@ -697,7 +719,8 @@ function BillingPlanModal({
                 activePlan,
                 subscriptionPlan,
                 subscriptionStatus,
-                hasScheduledChange: Boolean(nextScheduledEntitlement),
+                isFreeOverridePlanSelection,
+                hasScheduledChange: hasBlockingScheduledChange,
               })}
               isActive={plan.plan === activePlan}
             />
@@ -705,6 +728,38 @@ function BillingPlanModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function ScheduledPlanChangeNotice({
+  activePlan,
+  nextScheduledEntitlement,
+  isCanceling,
+  onCancel,
+}) {
+  if (!nextScheduledEntitlement) {
+    return null;
+  }
+
+  return (
+    <section className="billing-scheduled-change" aria-label="Scheduled plan change">
+      <div>
+        <strong>Plan change scheduled</strong>
+        <p>
+          {formatPlanName(activePlan)} now, {formatPlanName(nextScheduledEntitlement.plan)} on{" "}
+          {formatDate(nextScheduledEntitlement.effective_at)}.
+        </p>
+      </div>
+      <button
+        type="button"
+        className="secondary"
+        disabled={isCanceling || !onCancel}
+        aria-busy={isCanceling ? "true" : undefined}
+        onClick={onCancel}
+      >
+        {isCanceling ? "Canceling..." : "Cancel scheduled change"}
+      </button>
+    </section>
   );
 }
 
@@ -778,11 +833,39 @@ function getPlanAction({
   activePlan,
   subscriptionPlan,
   subscriptionStatus,
+  isFreeOverridePlanSelection,
   hasScheduledChange,
 }) {
+  if (isFreeOverridePlanSelection) {
+    if (plan === "free") {
+      return {
+        label: "Current plan",
+        disabled: true,
+        onClick: undefined,
+      };
+    }
+
+    const isStartingThisChange =
+      billing.startingSubscriptionChangePlan === plan;
+    const isAnySubscriptionChangeStarting = Boolean(
+      billing.startingSubscriptionChangePlan,
+    );
+
+    return {
+      label: isStartingThisChange
+        ? "Starting..."
+        : `Upgrade to ${formatPlanName(plan)}`,
+      disabled: isAnySubscriptionChangeStarting,
+      isPending: isStartingThisChange,
+      isPassivelyDisabled:
+        isAnySubscriptionChangeStarting && !isStartingThisChange,
+      onClick: () => billing.onStartSubscriptionChange(plan),
+    };
+  }
+
   if (hasScheduledChange) {
     return {
-      label: "Change scheduled",
+      label: "Scheduled",
       disabled: true,
       onClick: undefined,
     };
@@ -942,9 +1025,13 @@ function buildInvoiceBillingActivityRows({
   enterpriseAnnual,
 }) {
   const rows = [];
-  const subscriptionUrl = subscription?.invoice?.hosted_invoice_url || "";
-  if (subscriptionUrl) {
-    const invoiceStatus = normalizeInvoiceStatus(subscription?.invoice?.status);
+  const subscriptionInvoice = subscription?.invoice || null;
+  const subscriptionUrl = subscriptionInvoice?.hosted_invoice_url || "";
+  const subscriptionFailureMeta = formatSubscriptionInvoiceFailureMeta(
+    subscriptionInvoice?.finalization_failure,
+  );
+  if (subscriptionUrl || subscriptionInvoice?.status || subscriptionFailureMeta.length) {
+    const invoiceStatus = normalizeInvoiceStatus(subscriptionInvoice?.status);
     rows.push({
       id: "invoice_self_service_subscription",
       type: "invoice",
@@ -960,6 +1047,7 @@ function buildInvoiceBillingActivityRows({
           subscription?.current_period_start,
           subscription?.current_period_end,
         ),
+        ...subscriptionFailureMeta,
       ],
       invoice_action: buildHostedInvoiceAction(subscriptionUrl, invoiceStatus),
     });
@@ -1093,6 +1181,23 @@ function buildHostedInvoiceAction(url, invoiceStatus) {
 }
 
 function normalizeOwnerBillingActivity(activity) {
+  if (activity?.type === "credit_pack_payment_failed") {
+    const invoiceStatus = normalizeInvoiceStatus(
+      activity?.invoice?.status ||
+        activity?.invoice_status ||
+        "payment_failed",
+    );
+    const invoiceUrl =
+      activity?.invoice?.hosted_invoice_url ||
+      activity?.invoice_action?.url ||
+      "";
+    return {
+      ...activity,
+      invoice_status: invoiceStatus,
+      invoice_action:
+        activity.invoice_action || buildHostedInvoiceAction(invoiceUrl, invoiceStatus),
+    };
+  }
   if (activity?.type === "included_credit_grant") {
     return activity;
   }
@@ -1122,6 +1227,29 @@ function formatSubscriptionInvoiceStatus(subscription) {
     " ",
   );
   return `${planName} subscription invoice ${status}`;
+}
+
+function formatSubscriptionInvoiceFailureMeta(finalizationFailure) {
+  if (!finalizationFailure) {
+    return [];
+  }
+  return [
+    finalizationFailure.automatic_tax_status
+      ? `Automatic tax ${formatDiagnosticValue(finalizationFailure.automatic_tax_status)}`
+      : "",
+    finalizationFailure.automatic_tax_reason
+      ? `Tax location ${formatDiagnosticValue(finalizationFailure.automatic_tax_reason)}`
+      : "",
+    finalizationFailure.last_finalization_error_code
+      ? `Finalization error ${formatDiagnosticValue(finalizationFailure.last_finalization_error_code)}`
+      : "",
+  ].filter(Boolean);
+}
+
+function formatDiagnosticValue(value) {
+  return String(value || "")
+    .trim()
+    .replaceAll("_", " ");
 }
 
 function formatPaymentRequiredOverrideStatus(override) {
@@ -1216,6 +1344,8 @@ function isPayableInvoiceStatus(value) {
   const status = normalizeInvoiceStatus(value);
   return [
     "open",
+    "finalization_failed",
+    "payment_action_required",
     "payment failed",
     "payment_failed",
     "past_due",

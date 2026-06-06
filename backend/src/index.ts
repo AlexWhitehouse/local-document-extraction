@@ -15,6 +15,7 @@ import {
   searchApplicationAdminBillingWorkspaces,
   listWorkspaceBillingActivityForUser,
   reconcileWorkspaceBilling,
+  cancelScheduledSubscriptionChangeForUser,
   scheduleSubscriptionCancellationForUser,
   revokeGoodwillCreditGrantForApplicationAdmin,
   startCreditPackCheckoutForUser,
@@ -375,6 +376,18 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
     }
     const session = await requireSession(request, env);
     return startSubscriptionChangeForUser(request, env, workspaceId, session);
+  }
+
+  if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/billing\/subscriptions\/scheduled-change\/cancel$/.test(url.pathname)) {
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    if (request.headers.get("authorization")?.trim().toLowerCase().startsWith("bearer ")) {
+      throw new HttpError(403, "unsupported_auth_mode", "Workspace API keys cannot cancel scheduled billing changes");
+    }
+    const session = await requireSession(request, env);
+    return cancelScheduledSubscriptionChangeForUser(request, env, workspaceId, session);
   }
 
   if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/billing\/subscriptions\/cancel$/.test(url.pathname)) {

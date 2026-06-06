@@ -401,6 +401,51 @@ describe("WorkspaceBillingLedger Goodwill Credit grants", () => {
     });
   });
 
+  it("records failed Credit pack payments without changing available Credits", async () => {
+    const ledger = createLedger();
+
+    const firstFailure = await ledger.recordCreditPackPaymentFailed({
+      workspaceId: "workspace_billing",
+      stripeEventId: "evt_credit_pack_async_payment_failed",
+      checkoutSessionId: "cs_test_credit_pack_async_failed",
+      stripeInvoiceId: "in_credit_pack_async_failed",
+      stripeInvoiceStatus: "payment_failed",
+      hostedInvoiceUrl: "https://invoice.stripe.com/i/in_credit_pack_async_failed",
+      idempotencyKey: "stripe_credit_pack_payment_failed_purchase_async_failed",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
+    const duplicateFailure = await ledger.recordCreditPackPaymentFailed({
+      workspaceId: "workspace_billing",
+      stripeEventId: "evt_credit_pack_async_payment_failed_duplicate",
+      checkoutSessionId: "cs_test_credit_pack_async_failed",
+      idempotencyKey: "stripe_credit_pack_payment_failed_purchase_async_failed",
+      occurredAt: "2026-05-31T12:05:00.000Z",
+    });
+
+    expect(duplicateFailure).toEqual(firstFailure);
+    await expect(ledger.summarizeOwnerBilling()).resolves.toMatchObject({
+      credits: {
+        included_available: 0,
+        purchased_available: 0,
+        goodwill_available: 0,
+        total_available: 0,
+      },
+      owner_billing_activity: [
+        {
+          id: firstFailure.entry_id,
+          type: "credit_pack_payment_failed",
+          occurred_at: "2026-05-31T12:00:00.000Z",
+          credits: 0,
+          description: "Credit pack payment failed",
+          invoice: {
+            status: "payment_failed",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_credit_pack_async_failed",
+          },
+        },
+      ],
+    });
+  });
+
   it("does not carry Included Credits into later Billing periods", async () => {
     const ledger = createLedger();
 

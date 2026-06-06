@@ -384,7 +384,7 @@ describe("Application admin page gate", () => {
           no_billing_mode: { enabled: false },
           reconciliation: {
             last_checked_at: "2026-05-31T12:00:00.000Z",
-            open_drift_count: 1,
+            open_drift_count: 2,
             drift_records: [
               {
                 id: "drift_ws_1_ambiguous_stripe_invoice_in_ambiguous_subscription",
@@ -404,6 +404,27 @@ describe("Application admin page gate", () => {
                 last_seen_at: "2026-05-31T12:00:00.000Z",
                 status: "open",
               },
+              {
+                id: "drift_ws_1_subscription_lifecycle_drift_sub_paused",
+                workspace_id: "ws_1",
+                drift_type: "subscription_lifecycle_drift",
+                severity: "needs_review",
+                actionability: "manual_review",
+                related_stripe_object_id: "sub_paused",
+                observed: {
+                  event_type: "billing_reconciliation",
+                  subscription_status: "paused",
+                  plan: "pro",
+                },
+                expected: {
+                  workspace_id: "ws_1",
+                  app_owned_subscription_id: "sub_paused",
+                  plan: "pro",
+                },
+                first_seen_at: "2026-05-31T12:00:00.000Z",
+                last_seen_at: "2026-05-31T12:00:00.000Z",
+                status: "open",
+              },
             ],
           },
           audit_entries: [],
@@ -417,10 +438,271 @@ describe("Application admin page gate", () => {
     await startBillingFlow(user, "Inspect Billing State");
 
     await expectVisibleText("Reconciliation checked 2026-05-31 12:00:00");
-    expectExistingText("Open drift 1");
+    expectExistingText("Open drift 2");
     expectExistingText("ambiguous_stripe_invoice");
     expectExistingText("in_ambiguous_subscription");
+    expectExistingText("subscription_lifecycle_drift");
+    expectExistingText("sub_paused");
     expectExistingText("manual_review");
+  });
+
+  it("shows failed Stripe billing event diagnostics in the Application admin billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          active_entitlement: { plan: "free", display_name: "Free" },
+          plan_override: null,
+          no_billing_mode: { enabled: false },
+          reconciliation: {
+            last_checked_at: null,
+            open_drift_count: 0,
+            drift_records: [],
+          },
+          stripe_event_diagnostics: {
+            ignored_event_count: 0,
+            failed_event_count: 1,
+            recent_events: [
+              {
+                event_id: "evt_subscription_wrong_price_diagnostic",
+                type: "invoice.paid",
+                outcome: "failed",
+                workspace_id: "ws_1",
+                related_stripe_object_id: "in_subscription_wrong_price_diagnostic",
+                failure_class: "invalid_subscription_invoice_event",
+                retry_guidance: "Stripe can retry this event after the metadata, catalog, or Workspace billing state is repaired.",
+                manual_review_guidance: "Review the Stripe object and reconcile Workspace billing manually if automatic replay cannot succeed.",
+                received_at: "2026-05-31T12:00:00.000Z",
+              },
+            ],
+          },
+          audit_entries: [],
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    await startBillingFlow(user, "Inspect Billing State");
+
+    await expectVisibleText("Failed Stripe events 1");
+    expectExistingText("Stripe event diagnostics");
+    expectExistingText("invoice.paid");
+    expectExistingText("in_subscription_wrong_price_diagnostic");
+    expectExistingText("invalid_subscription_invoice_event");
+    expectExistingText("Stripe can retry this event after the metadata, catalog, or Workspace billing state is repaired.");
+    expectExistingText("Review the Stripe object and reconcile Workspace billing manually if automatic replay cannot succeed.");
+  });
+
+  it("shows self-service subscription invoice finalization failure in the Application admin billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          active_entitlement: { plan: "free", display_name: "Free" },
+          self_service_subscription: {
+            plan: "pro",
+            status: "unpaid",
+            current_period_start: "2026-06-30T12:00:00.000Z",
+            current_period_end: "2026-07-30T12:00:00.000Z",
+            invoice: {
+              status: "finalization_failed",
+              hosted_invoice_url: null,
+              finalization_failure: {
+                automatic_tax_status: "requires_location_inputs",
+                automatic_tax_reason: "customer_location_missing",
+                last_finalization_error_code: "customer_tax_location_invalid",
+              },
+            },
+          },
+          plan_override: null,
+          no_billing_mode: { enabled: false },
+          reconciliation: {
+            last_checked_at: null,
+            open_drift_count: 0,
+            drift_records: [],
+          },
+          stripe_event_diagnostics: {
+            ignored_event_count: 0,
+            failed_event_count: 0,
+            payment_failed_event_count: 0,
+            recent_events: [],
+          },
+          audit_entries: [],
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    await startBillingFlow(user, "Inspect Billing State");
+
+    await expectVisibleText("Self-service Pro invoice finalization failed");
+    expectExistingText("Automatic tax requires location inputs");
+    expectExistingText("Tax location customer location missing");
+    expectExistingText("Finalization error customer tax location invalid");
+    expect(screen.queryByText(/Do not store this Stripe error message/)).toBeNull();
+  });
+
+  it("shows Enterprise invoice lifecycle statuses in the Application admin billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          active_entitlement: { plan: "free", display_name: "Free" },
+          enterprise_ramp_up: {
+            status: "suspended",
+            duration_months: 3,
+            enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+            starts_at: "2026-05-01T00:00:00.000Z",
+            ends_at: "2026-08-01T00:00:00.000Z",
+            collection_mode: "manual",
+            invoice_review_enabled: false,
+            latest_invoice: {
+              period_start: "2026-05-01T00:00:00.000Z",
+              period_end: "2026-06-01T00:00:00.000Z",
+              status: "payment_action_required",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_action",
+            },
+          },
+          enterprise_annual_commitment: {
+            status: "pending_payment",
+            monthly_minimum_allowance: 60000,
+            per_page_price: {
+              currency: "GBP",
+              amount_minor: 9,
+              display: "GBP 0.09",
+              tax_behavior: "exclusive",
+            },
+            yearly_amount: {
+              currency: "GBP",
+              amount_minor: 6480000,
+              display: "GBP 64,800.00",
+              tax_behavior: "exclusive",
+            },
+            enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+            starts_at: "2026-06-01T00:00:00.000Z",
+            ends_at: "2027-06-01T00:00:00.000Z",
+            collection_mode: "manual",
+            invoice_review_enabled: false,
+            upfront_invoice: {
+              status: "payment_action_required",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_action",
+            },
+            latest_overage_invoice: {
+              period_start: "2026-06-01T00:00:00.000Z",
+              period_end: "2026-07-01T00:00:00.000Z",
+              status: "finalization_failed",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_finalization",
+            },
+          },
+          plan_override: null,
+          no_billing_mode: { enabled: false },
+          reconciliation: {
+            last_checked_at: null,
+            open_drift_count: 0,
+            drift_records: [],
+          },
+          stripe_event_diagnostics: {
+            ignored_event_count: 0,
+            failed_event_count: 0,
+            payment_failed_event_count: 0,
+            recent_events: [],
+          },
+          audit_entries: [],
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    await startBillingFlow(user, "Inspect Billing State");
+
+    expectExistingText("Enterprise ramp-up suspended");
+    expectExistingText("Enterprise annual pending payment");
+    expectExistingText("Annual upfront invoice payment action required");
+    expectExistingText("Annual overage invoice finalization failed");
+    expect(screen.queryByText(/in_enterprise_annual|in_enterprise_ramp_up/)).toBeNull();
+  });
+
+  it("shows delayed Credit pack payment failure diagnostics in the Application admin billing view", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          workspace_id: "ws_1",
+          active_entitlement: { plan: "free", display_name: "Free" },
+          plan_override: null,
+          no_billing_mode: { enabled: false },
+          reconciliation: {
+            last_checked_at: null,
+            open_drift_count: 0,
+            drift_records: [],
+          },
+          stripe_event_diagnostics: {
+            ignored_event_count: 0,
+            failed_event_count: 0,
+            payment_failed_event_count: 1,
+            recent_events: [
+              {
+                event_id: "evt_credit_pack_async_payment_failed",
+                type: "checkout.session.async_payment_failed",
+                outcome: "payment_failed",
+                workspace_id: "ws_1",
+                related_stripe_object_id: "cs_credit_pack_async_failed",
+                failure_class: "credit_pack_payment_failed",
+                retry_guidance: "No retry needed; Stripe reported the delayed Credit pack payment failed.",
+                manual_review_guidance: "Ask the Workspace owner to retry Credit pack Checkout if they still need Purchased Credits.",
+                received_at: "2026-05-31T12:00:00.000Z",
+              },
+            ],
+          },
+          audit_entries: [],
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    await startBillingFlow(user, "Inspect Billing State");
+
+    await expectVisibleText("Payment failed events 1");
+    expectExistingText("checkout.session.async_payment_failed");
+    expectExistingText("cs_credit_pack_async_failed");
+    expectExistingText("credit_pack_payment_failed");
+    expectExistingText("No retry needed; Stripe reported the delayed Credit pack payment failed.");
+    expectExistingText("Ask the Workspace owner to retry Credit pack Checkout if they still need Purchased Credits.");
   });
 
   it("hides the reconciliation checked badge when reconciliation has not run", async () => {
@@ -508,6 +790,32 @@ describe("Application admin page gate", () => {
               },
               occurred_at: "2026-06-02T00:12:09.000Z",
             },
+            {
+              id: "audit_3",
+              action: "payment_required_plan_override_payment_updated",
+              actor_user_id: "user_admin_1",
+              actor_name: "Application Admin",
+              reason: "Customer action required",
+              before: {
+                payment_required_plan_override_plan: "pro",
+                payment_required_plan_override_start_at: "2026-06-01T00:00:00.000Z",
+                payment_required_plan_override_end_at: "2026-07-01T00:00:00.000Z",
+                payment_required_plan_override_amount_minor: 12500,
+                payment_required_plan_override_collection_mode: "automatic",
+                payment_required_plan_override_invoice_status: "open",
+                stripe_invoice_id: "in_hidden_action_before",
+              },
+              after: {
+                payment_required_plan_override_plan: "pro",
+                payment_required_plan_override_start_at: "2026-06-01T00:00:00.000Z",
+                payment_required_plan_override_end_at: "2026-07-01T00:00:00.000Z",
+                payment_required_plan_override_amount_minor: 12500,
+                payment_required_plan_override_collection_mode: "automatic",
+                payment_required_plan_override_invoice_status: "payment_action_required",
+                stripe_invoice_id: "in_hidden_action_after",
+              },
+              occurred_at: "2026-06-02T00:15:09.000Z",
+            },
           ],
         }));
       }
@@ -528,6 +836,9 @@ describe("Application admin page gate", () => {
     expect(screen.getByText("Free")).toBeTruthy();
     expect(screen.getAllByText("New state").length).toBeGreaterThan(1);
     expect(screen.getByText("Pro, invoice open")).toBeTruthy();
+    expect(screen.getByText("Payment-required Plan override payment updated")).toBeTruthy();
+    expect(screen.getByText("Customer action required")).toBeTruthy();
+    expect(screen.getByText("Payment-required override Pro, starts 2026-06-01 00:00:00, ends 2026-07-01 00:00:00, GBP 125.00, Auto-charge saved payment method, invoice payment action required")).toBeTruthy();
     expect(screen.getByText("Max onboarding grant")).toBeTruthy();
     expect(screen.getByText("Plan override Pro, starts 2026-06-02 00:00:00, ends 2026-07-02 00:00:00")).toBeTruthy();
     expect(screen.getByText("Plan override Max, starts 2026-06-02 00:00:00, ends 2026-07-02 00:00:00")).toBeTruthy();

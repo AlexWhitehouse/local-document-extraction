@@ -1594,6 +1594,406 @@ describe("Workspace billing summary route", () => {
     });
   });
 
+  it("keeps Enterprise annual payment-gated when the upfront invoice requires customer action", async () => {
+    vi.setSystemTime(new Date("2026-06-03T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_annual_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_annual_workspace",
+        enterprise_annual_status: "pending_payment",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual Enterprise commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_action",
+        enterprise_annual_upfront_invoice_status: "open",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_action",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_annual_upfront_action_required",
+      type: "invoice.payment_action_required",
+      data: {
+        object: {
+          id: "in_enterprise_annual_upfront_action",
+          status: "open",
+          paid: false,
+          customer: "cus_enterprise_annual_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_action_updated",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_annual_upfront_invoice",
+            monthly_minimum_allowance: "60000",
+            per_page_price_minor: "9",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      enterprise_annual_commitment: {
+        status: "pending_payment",
+        upfront_invoice: {
+          status: "payment_action_required",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_action_updated",
+          paid_at: null,
+        },
+      },
+    });
+  });
+
+  it("keeps Enterprise annual payment-gated when the upfront invoice finalization fails", async () => {
+    vi.setSystemTime(new Date("2026-06-03T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_annual_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_annual_workspace",
+        enterprise_annual_status: "pending_payment",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual Enterprise commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_finalization",
+        enterprise_annual_upfront_invoice_status: "open",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_finalization",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_annual_upfront_finalization_failed",
+      type: "invoice.finalization_failed",
+      data: {
+        object: {
+          id: "in_enterprise_annual_upfront_finalization",
+          status: "draft",
+          paid: false,
+          customer: "cus_enterprise_annual_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_finalization",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_annual_upfront_invoice",
+            monthly_minimum_allowance: "60000",
+            per_page_price_minor: "9",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      enterprise_annual_commitment: {
+        status: "pending_payment",
+        upfront_invoice: {
+          status: "finalization_failed",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_finalization",
+          paid_at: null,
+        },
+      },
+    });
+  });
+
+  it("keeps Enterprise annual payment-gated when the upfront invoice payment fails", async () => {
+    vi.setSystemTime(new Date("2026-06-03T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_annual_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_annual_workspace",
+        enterprise_annual_status: "pending_payment",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual Enterprise commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_failed",
+        enterprise_annual_upfront_invoice_status: "open",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_failed",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_annual_upfront_payment_failed",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_enterprise_annual_upfront_failed",
+          status: "open",
+          paid: false,
+          customer: "cus_enterprise_annual_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_failed",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_annual_upfront_invoice",
+            monthly_minimum_allowance: "60000",
+            per_page_price_minor: "9",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      enterprise_annual_commitment: {
+        status: "pending_payment",
+        upfront_invoice: {
+          status: "payment_failed",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_failed",
+          paid_at: null,
+        },
+      },
+    });
+  });
+
+  it("keeps Enterprise annual payment-gated when the upfront invoice is voided", async () => {
+    vi.setSystemTime(new Date("2026-06-03T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_annual_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_annual_workspace",
+        enterprise_annual_status: "pending_payment",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual Enterprise commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_voided",
+        enterprise_annual_upfront_invoice_status: "open",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_voided",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_annual_upfront_voided",
+      type: "invoice.voided",
+      data: {
+        object: {
+          id: "in_enterprise_annual_upfront_voided",
+          status: "void",
+          paid: false,
+          customer: "cus_enterprise_annual_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_voided",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_annual_upfront_invoice",
+            monthly_minimum_allowance: "60000",
+            per_page_price_minor: "9",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      enterprise_annual_commitment: {
+        status: "pending_payment",
+        upfront_invoice: {
+          status: "void",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_voided",
+          paid_at: null,
+        },
+      },
+    });
+  });
+
+  it("keeps Enterprise annual payment-gated when the upfront invoice is marked uncollectible", async () => {
+    vi.setSystemTime(new Date("2026-06-03T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_annual_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_annual_workspace",
+        enterprise_annual_status: "pending_payment",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual Enterprise commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_uncollectible",
+        enterprise_annual_upfront_invoice_status: "open",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_uncollectible",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_annual_upfront_uncollectible",
+      type: "invoice.marked_uncollectible",
+      data: {
+        object: {
+          id: "in_enterprise_annual_upfront_uncollectible",
+          status: "uncollectible",
+          paid: false,
+          customer: "cus_enterprise_annual_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_uncollectible",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_annual_upfront_invoice",
+            monthly_minimum_allowance: "60000",
+            per_page_price_minor: "9",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      enterprise_annual_commitment: {
+        status: "pending_payment",
+        upfront_invoice: {
+          status: "uncollectible",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_uncollectible",
+          paid_at: null,
+        },
+      },
+    });
+  });
+
   it("generates monthly Enterprise annual overage invoices only above the minimum allowance", async () => {
     vi.setSystemTime(new Date("2026-07-02T12:00:00.000Z"));
     requireSessionMock.mockResolvedValue({
@@ -1709,6 +2109,68 @@ describe("Workspace billing summary route", () => {
     });
   });
 
+  it("continues scheduled Enterprise annual overage invoice generation after one Workspace fails", async () => {
+    vi.setSystemTime(new Date("2026-07-02T12:00:00.000Z"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stripeFetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: "in_enterprise_annual_overage_ok",
+          status: "draft",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: "ii_enterprise_annual_overage_ok",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: "in_enterprise_annual_overage_ok",
+          status: "open",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_ok",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const env = createScheduledAnnualOverageIsolationEnv();
+
+    await expect(worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    )).resolves.toBeUndefined();
+
+    expect(stripeFetch).toHaveBeenCalledTimes(3);
+    const [invoiceUrl, invoiceRequest] = stripeFetch.mock.calls[0] as [string, RequestInit];
+    expect(invoiceUrl).toBe("https://api.stripe.com/v1/invoices");
+    const invoiceBody = new URLSearchParams(String(invoiceRequest.body));
+    expect(invoiceBody.get("customer")).toBe("cus_enterprise_annual_ok");
+    expect(invoiceBody.get("metadata[workspace_id]")).toBe("workspace_annual_ok");
+    expect(invoiceBody.get("metadata[overage_pages]")).toBe("5");
+    expect(invoiceRequest.headers).toHaveProperty(
+      "idempotency-key",
+      "enterprise-annual-overage-invoice:workspace_annual_ok:2026-06-01T00:00:00.000Z:2026-07-01T00:00:00.000Z:invoice",
+    );
+    expect(consoleError).toHaveBeenCalledWith("Scheduled billing Workspace failed", expect.objectContaining({
+      event: "billing.scheduled.workspace_failed",
+      task: "enterprise_annual_overage_invoice_generation",
+      workspace_id: "workspace_annual_failed",
+      scheduled_at: "2026-07-02T12:00:00.000Z",
+      error_code: "unexpected_error",
+    }));
+    expect(JSON.stringify(consoleError.mock.calls)).not.toMatch(/\b(?:sk|rk)_(?:test|live)_[A-Za-z0-9]+\b/);
+    expect(JSON.stringify(consoleError.mock.calls)).not.toMatch(/\bwhsec_[A-Za-z0-9]+\b/);
+    consoleError.mockRestore();
+  });
+
   it("suspends Enterprise annual after a failed overage invoice and falls back to the active subscription", async () => {
     vi.setSystemTime(new Date("2026-07-03T12:00:00.000Z"));
     const env = createBillingEnv({
@@ -1822,6 +2284,282 @@ describe("Workspace billing summary route", () => {
     });
   });
 
+  it("suspends Enterprise annual when an overage invoice requires customer action", async () => {
+    vi.setSystemTime(new Date("2026-07-03T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_annual_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_annual_workspace",
+        stripe_subscription_id: "sub_workspace_pro",
+        stripe_subscription_item_id: "si_workspace_pro",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-06-15T00:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-07-15T00:00:00.000Z",
+        enterprise_annual_status: "active",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual Enterprise commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_status: "paid",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_paid_at: "2026-06-03T12:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_start: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_end: "2026-07-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_id: "in_enterprise_annual_overage_action",
+        enterprise_annual_last_overage_invoice_status: "open",
+        enterprise_annual_last_overage_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_action",
+        enterprise_annual_last_overage_invoiced_at: "2026-07-02T12:00:00.000Z",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_annual_overage_action_required",
+      type: "invoice.payment_action_required",
+      data: {
+        object: {
+          id: "in_enterprise_annual_overage_action",
+          status: "open",
+          paid: false,
+          customer: "cus_enterprise_annual_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_action",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_annual_overage_invoice",
+            period_start: "2026-06-01T00:00:00.000Z",
+            period_end: "2026-07-01T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      enterprise_annual_commitment: {
+        status: "suspended",
+        latest_overage_invoice: {
+          status: "payment_action_required",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_action",
+        },
+      },
+    });
+  });
+
+  it("suspends Enterprise annual when an overage invoice finalization fails", async () => {
+    vi.setSystemTime(new Date("2026-07-03T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_annual_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_annual_workspace",
+        stripe_subscription_id: "sub_workspace_pro",
+        stripe_subscription_item_id: "si_workspace_pro",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-06-15T00:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-07-15T00:00:00.000Z",
+        enterprise_annual_status: "active",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual Enterprise commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_status: "paid",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_paid_at: "2026-06-03T12:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_start: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_end: "2026-07-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_id: "in_enterprise_annual_overage_finalization",
+        enterprise_annual_last_overage_invoice_status: "open",
+        enterprise_annual_last_overage_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_finalization",
+        enterprise_annual_last_overage_invoiced_at: "2026-07-02T12:00:00.000Z",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_annual_overage_finalization_failed",
+      type: "invoice.finalization_failed",
+      data: {
+        object: {
+          id: "in_enterprise_annual_overage_finalization",
+          status: "draft",
+          paid: false,
+          customer: "cus_enterprise_annual_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_finalization",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_annual_overage_invoice",
+            period_start: "2026-06-01T00:00:00.000Z",
+            period_end: "2026-07-01T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      enterprise_annual_commitment: {
+        status: "suspended",
+        latest_overage_invoice: {
+          status: "finalization_failed",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_finalization",
+        },
+      },
+    });
+  });
+
+  it("suspends Enterprise annual when an overage invoice is voided", async () => {
+    vi.setSystemTime(new Date("2026-07-03T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_annual_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_annual_workspace",
+        stripe_subscription_id: "sub_workspace_pro",
+        stripe_subscription_item_id: "si_workspace_pro",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-06-15T00:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-07-15T00:00:00.000Z",
+        enterprise_annual_status: "active",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual Enterprise commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_status: "paid",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_paid_at: "2026-06-03T12:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_start: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_end: "2026-07-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_id: "in_enterprise_annual_overage_voided",
+        enterprise_annual_last_overage_invoice_status: "open",
+        enterprise_annual_last_overage_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_voided",
+        enterprise_annual_last_overage_invoiced_at: "2026-07-02T12:00:00.000Z",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_annual_overage_voided",
+      type: "invoice.voided",
+      data: {
+        object: {
+          id: "in_enterprise_annual_overage_voided",
+          status: "void",
+          paid: false,
+          customer: "cus_enterprise_annual_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_voided",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_annual_overage_invoice",
+            period_start: "2026-06-01T00:00:00.000Z",
+            period_end: "2026-07-01T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      enterprise_annual_commitment: {
+        status: "suspended",
+        latest_overage_invoice: {
+          status: "void",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_voided",
+        },
+      },
+    });
+  });
+
   it("restores Enterprise annual after a failed overage invoice is paid while the term is active", async () => {
     vi.setSystemTime(new Date("2026-07-04T12:00:00.000Z"));
     const env = createBillingEnv({
@@ -1914,6 +2652,92 @@ describe("Workspace billing summary route", () => {
         latest_overage_invoice: {
           status: "paid",
           hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_paid",
+        },
+      },
+    });
+  });
+
+  it("marks Enterprise annual expired when a failed overage invoice is paid after the term ends", async () => {
+    vi.setSystemTime(new Date("2027-06-02T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_annual_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_annual_workspace",
+        enterprise_annual_status: "suspended",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual Enterprise commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_status: "paid",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_paid_at: "2026-06-03T12:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_start: "2027-05-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_end: "2027-06-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_id: "in_enterprise_annual_overage_late_paid",
+        enterprise_annual_last_overage_invoice_status: "payment_failed",
+        enterprise_annual_last_overage_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_late_paid",
+        enterprise_annual_last_overage_invoiced_at: "2027-06-01T12:00:00.000Z",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_annual_overage_late_paid",
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_enterprise_annual_overage_late_paid",
+          status: "paid",
+          paid: true,
+          customer: "cus_enterprise_annual_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_late_paid",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_annual_overage_invoice",
+            period_start: "2027-05-01T00:00:00.000Z",
+            period_end: "2027-06-01T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      enterprise_annual_commitment: {
+        status: "expired",
+        latest_overage_invoice: {
+          status: "paid",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_late_paid",
         },
       },
     });
@@ -2101,6 +2925,67 @@ describe("Workspace billing summary route", () => {
         },
       },
     });
+  });
+
+  it("continues scheduled Enterprise ramp-up invoice generation after one Workspace fails", async () => {
+    vi.setSystemTime(new Date("2026-06-02T12:00:00.000Z"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stripeFetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: "in_enterprise_ramp_up_ok",
+          status: "draft",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: "ii_enterprise_ramp_up_ok_slice_1",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          id: "in_enterprise_ramp_up_ok",
+          status: "open",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_ok",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const env = createScheduledRampUpIsolationEnv();
+
+    await expect(worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    )).resolves.toBeUndefined();
+
+    expect(stripeFetch).toHaveBeenCalledTimes(3);
+    const [invoiceUrl, invoiceRequest] = stripeFetch.mock.calls[0] as [string, RequestInit];
+    expect(invoiceUrl).toBe("https://api.stripe.com/v1/invoices");
+    const invoiceBody = new URLSearchParams(String(invoiceRequest.body));
+    expect(invoiceBody.get("customer")).toBe("cus_enterprise_ok");
+    expect(invoiceBody.get("metadata[workspace_id]")).toBe("workspace_ok");
+    expect(invoiceRequest.headers).toHaveProperty(
+      "idempotency-key",
+      "enterprise-ramp-up-invoice:workspace_ok:2026-05-01T00:00:00.000Z:2026-06-01T00:00:00.000Z:invoice",
+    );
+    expect(consoleError).toHaveBeenCalledWith("Scheduled billing Workspace failed", expect.objectContaining({
+      event: "billing.scheduled.workspace_failed",
+      task: "enterprise_ramp_up_invoice_generation",
+      workspace_id: "workspace_failed",
+      scheduled_at: "2026-06-02T12:00:00.000Z",
+      error_code: "unexpected_error",
+    }));
+    expect(JSON.stringify(consoleError.mock.calls)).not.toMatch(/\b(?:sk|rk)_(?:test|live)_[A-Za-z0-9]+\b/);
+    expect(JSON.stringify(consoleError.mock.calls)).not.toMatch(/\bwhsec_[A-Za-z0-9]+\b/);
+    consoleError.mockRestore();
   });
 
   it("keeps Enterprise ramp-up review-mode invoices as drafts without automatic finalization", async () => {
@@ -2295,6 +3180,261 @@ describe("Workspace billing summary route", () => {
     });
   });
 
+  it("suspends Enterprise ramp-up when an invoice requires customer action", async () => {
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_workspace",
+        stripe_subscription_id: "sub_workspace_pro",
+        stripe_subscription_item_id: "si_workspace_pro",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-05-15T00:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-06-15T00:00:00.000Z",
+        enterprise_ramp_up_status: "active",
+        enterprise_ramp_up_duration_months: 3,
+        enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_collection_mode: "manual",
+        enterprise_ramp_up_invoice_review_enabled: 0,
+        enterprise_ramp_up_reason: "Enterprise ramp-up before annual commitment",
+        enterprise_ramp_up_created_by_user_id: "user_admin",
+        enterprise_ramp_up_created_at: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_start: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_end: "2026-06-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_id: "in_enterprise_ramp_up_action",
+        enterprise_ramp_up_last_invoice_status: "open",
+        enterprise_ramp_up_last_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_action",
+        enterprise_ramp_up_last_invoiced_at: "2026-06-02T12:00:00.000Z",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_ramp_up_action_required",
+      type: "invoice.payment_action_required",
+      data: {
+        object: {
+          id: "in_enterprise_ramp_up_action",
+          status: "open",
+          paid: false,
+          customer: "cus_enterprise_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_action",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_ramp_up_invoice",
+            period_start: "2026-05-01T00:00:00.000Z",
+            period_end: "2026-06-01T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      enterprise_ramp_up: {
+        status: "suspended",
+        latest_invoice: {
+          status: "payment_action_required",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_action",
+        },
+      },
+    });
+  });
+
+  it("suspends Enterprise ramp-up when an invoice finalization fails", async () => {
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_workspace",
+        stripe_subscription_id: "sub_workspace_pro",
+        stripe_subscription_item_id: "si_workspace_pro",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-05-15T00:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-06-15T00:00:00.000Z",
+        enterprise_ramp_up_status: "active",
+        enterprise_ramp_up_duration_months: 3,
+        enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_collection_mode: "manual",
+        enterprise_ramp_up_invoice_review_enabled: 0,
+        enterprise_ramp_up_reason: "Enterprise ramp-up before annual commitment",
+        enterprise_ramp_up_created_by_user_id: "user_admin",
+        enterprise_ramp_up_created_at: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_start: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_end: "2026-06-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_id: "in_enterprise_ramp_up_finalization",
+        enterprise_ramp_up_last_invoice_status: "open",
+        enterprise_ramp_up_last_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_finalization",
+        enterprise_ramp_up_last_invoiced_at: "2026-06-02T12:00:00.000Z",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_ramp_up_finalization_failed",
+      type: "invoice.finalization_failed",
+      data: {
+        object: {
+          id: "in_enterprise_ramp_up_finalization",
+          status: "draft",
+          paid: false,
+          customer: "cus_enterprise_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_finalization",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_ramp_up_invoice",
+            period_start: "2026-05-01T00:00:00.000Z",
+            period_end: "2026-06-01T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      enterprise_ramp_up: {
+        status: "suspended",
+        latest_invoice: {
+          status: "finalization_failed",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_finalization",
+        },
+      },
+    });
+  });
+
+  it("suspends Enterprise ramp-up when an invoice is voided", async () => {
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_workspace",
+        stripe_subscription_id: "sub_workspace_pro",
+        stripe_subscription_item_id: "si_workspace_pro",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-05-15T00:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-06-15T00:00:00.000Z",
+        enterprise_ramp_up_status: "active",
+        enterprise_ramp_up_duration_months: 3,
+        enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_collection_mode: "manual",
+        enterprise_ramp_up_invoice_review_enabled: 0,
+        enterprise_ramp_up_reason: "Enterprise ramp-up before annual commitment",
+        enterprise_ramp_up_created_by_user_id: "user_admin",
+        enterprise_ramp_up_created_at: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_start: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_end: "2026-06-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_id: "in_enterprise_ramp_up_voided",
+        enterprise_ramp_up_last_invoice_status: "open",
+        enterprise_ramp_up_last_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_voided",
+        enterprise_ramp_up_last_invoiced_at: "2026-06-02T12:00:00.000Z",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_ramp_up_voided",
+      type: "invoice.voided",
+      data: {
+        object: {
+          id: "in_enterprise_ramp_up_voided",
+          status: "void",
+          paid: false,
+          customer: "cus_enterprise_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_voided",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_ramp_up_invoice",
+            period_start: "2026-05-01T00:00:00.000Z",
+            period_end: "2026-06-01T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      enterprise_ramp_up: {
+        status: "suspended",
+        latest_invoice: {
+          status: "void",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_voided",
+        },
+      },
+    });
+  });
+
   it("restores Enterprise ramp-up after a failed invoice is paid while the term is active", async () => {
     vi.setSystemTime(new Date("2026-06-03T12:00:00.000Z"));
     const env = createBillingEnv({
@@ -2395,6 +3535,86 @@ describe("Workspace billing summary route", () => {
         latest_invoice: {
           status: "paid",
           hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_paid",
+        },
+      },
+    });
+  });
+
+  it("marks Enterprise ramp-up expired when a failed invoice is paid after the term ends", async () => {
+    vi.setSystemTime(new Date("2026-08-03T12:00:00.000Z"));
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_enterprise_workspace",
+      billingControl: {
+        stripe_customer_id: "cus_enterprise_workspace",
+        enterprise_ramp_up_status: "suspended",
+        enterprise_ramp_up_duration_months: 3,
+        enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_collection_mode: "manual",
+        enterprise_ramp_up_invoice_review_enabled: 0,
+        enterprise_ramp_up_reason: "Enterprise ramp-up before annual commitment",
+        enterprise_ramp_up_created_by_user_id: "user_admin",
+        enterprise_ramp_up_created_at: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_start: "2026-07-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_end: "2026-08-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_id: "in_enterprise_ramp_up_late_paid",
+        enterprise_ramp_up_last_invoice_status: "payment_failed",
+        enterprise_ramp_up_last_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_late_paid",
+        enterprise_ramp_up_last_invoiced_at: "2026-08-02T12:00:00.000Z",
+      },
+    });
+    const event = {
+      id: "evt_enterprise_ramp_up_late_paid",
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_enterprise_ramp_up_late_paid",
+          status: "paid",
+          paid: true,
+          customer: "cus_enterprise_workspace",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_late_paid",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "enterprise_ramp_up_invoice",
+            period_start: "2026-07-01T00:00:00.000Z",
+            period_end: "2026-08-01T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      enterprise_ramp_up: {
+        status: "expired",
+        latest_invoice: {
+          status: "paid",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_late_paid",
         },
       },
     });
@@ -3184,6 +4404,208 @@ describe("Workspace billing summary route", () => {
     expect(stripeBody.get("metadata[billing_action]")).toBe("subscription_cancellation");
   });
 
+  it("lets a paid Workspace owner cancel a scheduled Free subscription change", async () => {
+    const stripeFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        id: "sub_pro_workspace_billing",
+        cancel_at_period_end: false,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: periodStart,
+        stripe_subscription_current_period_end: periodEnd,
+        scheduled_entitlement_plan: "free",
+        scheduled_entitlement_effective_at: periodEnd,
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/subscriptions/scheduled-change/cancel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      subscription_id: "sub_pro_workspace_billing",
+      canceled_scheduled_plan: "free",
+      active_plan: "pro",
+    });
+    expect(stripeFetch).toHaveBeenCalledTimes(1);
+    const [stripeUrl, stripeRequest] = stripeFetch.mock.calls[0] as [string, RequestInit];
+    expect(stripeUrl).toBe("https://api.stripe.com/v1/subscriptions/sub_pro_workspace_billing");
+    expect(stripeRequest.method).toBe("POST");
+    expect(stripeRequest.headers).toMatchObject({
+      authorization: "Bearer stripe-secret-test-key",
+      "content-type": "application/x-www-form-urlencoded",
+      "stripe-version": "2026-05-27.dahlia",
+    });
+    expect(stripeRequest.headers).toHaveProperty("idempotency-key");
+    const stripeBody = new URLSearchParams(String(stripeRequest.body));
+    expect(stripeBody.get("cancel_at_period_end")).toBe("false");
+    expect(stripeBody.get("metadata[workspace_id]")).toBe("workspace_billing");
+    expect(stripeBody.get("metadata[billing_action]")).toBe("subscription_scheduled_change_canceled");
+    expect(stripeBody.has("payment_method_types[0]")).toBe(false);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      next_scheduled_entitlement: null,
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+      },
+    });
+  });
+
+  it("keeps a Free override on Free after the owner cancels the paid subscription fallback", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        id: "sub_pro_workspace_billing",
+        cancel_at_period_end: true,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: periodStart,
+        stripe_subscription_current_period_end: periodEnd,
+        plan_override_plan: "free",
+        plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        plan_override_end_at: "2026-07-01T00:00:00.000Z",
+        plan_override_reason: "Downgrade after trial",
+        plan_override_created_by_user_id: "user_admin",
+        plan_override_created_at: "2026-05-31T00:00:00.000Z",
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/subscriptions/change", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: "free" }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      subscription_id: "sub_pro_workspace_billing",
+      scheduled_plan: "free",
+      effective_at: periodEnd,
+    });
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      next_scheduled_entitlement: null,
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+      },
+    });
+  });
+
+  it("clears an active Free override when the owner upgrades to the already-paid Pro subscription", async () => {
+    const stripeFetch = vi.spyOn(globalThis, "fetch");
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: periodStart,
+        stripe_subscription_current_period_end: periodEnd,
+        plan_override_plan: "free",
+        plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        plan_override_end_at: "2026-07-01T00:00:00.000Z",
+        plan_override_reason: "Downgrade after trial",
+        plan_override_created_by_user_id: "user_admin",
+        plan_override_created_at: "2026-05-31T00:00:00.000Z",
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/subscriptions/change", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: "pro" }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      subscription_id: "sub_pro_workspace_billing",
+      target_plan: "pro",
+    });
+    expect(stripeFetch).not.toHaveBeenCalled();
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      next_scheduled_entitlement: null,
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+      },
+    });
+  });
+
   it("schedules a Max to Pro downgrade for the next Billing period without removing current Max entitlement", async () => {
     const stripeFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({
@@ -3455,6 +4877,270 @@ describe("Workspace billing summary route", () => {
     expect(requireSessionMock).not.toHaveBeenCalled();
   });
 
+  it("rejects stale signed Stripe billing webhooks before mutating Workspace billing state", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+    });
+    const event = {
+      id: "evt_credit_pack_stale_signature",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_test_credit_pack_stale_signature",
+          payment_status: "paid",
+          invoice: {
+            id: "in_credit_pack_stale_signature",
+            status: "paid",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_credit_pack_stale_signature",
+          },
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "credit_pack_purchase",
+            plan: "free",
+            credit_pack_size: "100",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+    const staleTimestamp = Math.floor(Date.now() / 1000) - 10 * 60;
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret", {
+            timestamp: staleTimestamp,
+          }),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "stripe_signature_invalid",
+        message: "Stripe webhook signature is invalid",
+      },
+    });
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      credits: {
+        total_available: 0,
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("accepts Stripe billing webhooks signed by the configured rotation secret", async () => {
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      stripeWebhookSecretNext: "stripe-webhook-secret-next",
+    });
+    const event = {
+      id: "evt_future_unknown_billing_event_next_secret",
+      type: "billing.future_event",
+      data: {
+        object: {
+          id: "obj_future_unknown_next_secret",
+          object: "billing.future_object",
+          metadata: {
+            workspace_id: "workspace_billing",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret-next"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ received: true });
+  });
+
+  it.each([
+    {
+      name: "invalid HMAC",
+      signatureHeader: async (payload: string) => createStripeSignature(payload, "wrong-webhook-secret"),
+    },
+    {
+      name: "malformed timestamp",
+      signatureHeader: async (payload: string) => createStripeSignature(payload, "stripe-webhook-secret", {
+        timestamp: "not-a-timestamp",
+      }),
+    },
+    {
+      name: "unsupported signature scheme",
+      signatureHeader: async (payload: string) => createStripeSignature(payload, "stripe-webhook-secret", {
+        scheme: "v0",
+      }),
+    },
+  ])("rejects Stripe billing webhooks with $name before mutating Workspace billing state", async ({ signatureHeader }) => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+    });
+    const event = {
+      id: "evt_credit_pack_invalid_signature",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_test_credit_pack_invalid_signature",
+          payment_status: "paid",
+          invoice: {
+            id: "in_credit_pack_invalid_signature",
+            status: "paid",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_credit_pack_invalid_signature",
+          },
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "credit_pack_purchase",
+            plan: "free",
+            credit_pack_size: "100",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await signatureHeader(payload),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "stripe_signature_invalid",
+        message: "Stripe webhook signature is invalid",
+      },
+    });
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      credits: {
+        total_available: 0,
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("records unsupported signed Stripe billing events as ignored diagnostics without mutating billing state", async () => {
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+    });
+    const event = {
+      id: "evt_future_unknown_billing_event",
+      type: "billing.future_event",
+      data: {
+        object: {
+          id: "obj_future_unknown",
+          object: "billing.future_object",
+          metadata: {
+            workspace_id: "workspace_billing",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+    await expect(webhookResponse.json()).resolves.toEqual({ received: true });
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+      },
+      credits: {
+        total_available: 0,
+      },
+      owner_billing_activity: [],
+    });
+
+    requireSessionMock.mockResolvedValueOnce({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const adminResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(adminResponse.status).toBe(200);
+    await expect(adminResponse.json()).resolves.toMatchObject({
+      stripe_event_diagnostics: {
+        ignored_event_count: 1,
+        failed_event_count: 0,
+        recent_events: [
+          {
+            event_id: "evt_future_unknown_billing_event",
+            type: "billing.future_event",
+            outcome: "ignored",
+            workspace_id: "workspace_billing",
+            related_stripe_object_id: "obj_future_unknown",
+            failure_class: null,
+            retry_guidance: "No retry needed; event type is not handled by Workspace billing.",
+            manual_review_guidance: "No action required unless this event type becomes relevant to Workspace billing.",
+          },
+        ],
+      },
+    });
+  });
+
   it("grants Purchased Credits from a signed paid Credit pack Checkout event", async () => {
     const billingLedger = createBillingLedgerBinding();
     const env = createBillingEnv({
@@ -3525,6 +5211,186 @@ describe("Workspace billing summary route", () => {
           },
         },
       ],
+    });
+  });
+
+  it("grants Purchased Credits from a delayed Credit pack Checkout success event", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+    });
+    const event = {
+      id: "evt_credit_pack_async_payment_succeeded",
+      type: "checkout.session.async_payment_succeeded",
+      data: {
+        object: {
+          id: "cs_test_credit_pack_async_100",
+          payment_status: "paid",
+          invoice: {
+            id: "in_credit_pack_async_100",
+            status: "paid",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_credit_pack_async_100",
+          },
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "credit_pack_purchase",
+            plan: "free",
+            credit_pack_size: "100",
+            purchase_id: "purchase_credit_pack_async_100",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+    await expect(webhookResponse.json()).resolves.toEqual({ received: true });
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      credits: {
+        purchased_available: 100,
+        total_available: 100,
+      },
+      owner_billing_activity: [
+        {
+          id: "entry_stripe_credit_pack_purchase_purchase_credit_pack_async_100",
+          type: "purchased_credit_grant",
+          occurred_at: "2026-05-31T12:00:00.000Z",
+          credits: 100,
+          description: "Purchased Credits granted",
+          invoice: {
+            status: "paid",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_credit_pack_async_100",
+          },
+        },
+      ],
+    });
+  });
+
+  it("records delayed Credit pack Checkout payment failures without granting Credits", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+    });
+    const event = {
+      id: "evt_credit_pack_async_payment_failed",
+      type: "checkout.session.async_payment_failed",
+      data: {
+        object: {
+          id: "cs_test_credit_pack_async_failed_100",
+          payment_status: "unpaid",
+          invoice: {
+            id: "in_credit_pack_async_failed_100",
+            status: "payment_failed",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_credit_pack_async_failed_100",
+          },
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "credit_pack_purchase",
+            plan: "free",
+            credit_pack_size: "100",
+            purchase_id: "purchase_credit_pack_async_failed_100",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+    await expect(webhookResponse.json()).resolves.toEqual({ received: true });
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      credits: {
+        purchased_available: 0,
+        total_available: 0,
+      },
+      owner_billing_activity: [
+        {
+          id: "entry_stripe_credit_pack_payment_failed_purchase_credit_pack_async_failed_100",
+          type: "credit_pack_payment_failed",
+          occurred_at: "2026-05-31T12:00:00.000Z",
+          credits: 0,
+          description: "Credit pack payment failed",
+          invoice: {
+            status: "payment_failed",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_credit_pack_async_failed_100",
+          },
+        },
+      ],
+    });
+
+    requireSessionMock.mockResolvedValueOnce({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const adminResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(adminResponse.status).toBe(200);
+    await expect(adminResponse.json()).resolves.toMatchObject({
+      stripe_event_diagnostics: {
+        ignored_event_count: 0,
+        failed_event_count: 0,
+        payment_failed_event_count: 1,
+        recent_events: [
+          {
+            event_id: "evt_credit_pack_async_payment_failed",
+            type: "checkout.session.async_payment_failed",
+            outcome: "payment_failed",
+            workspace_id: "workspace_billing",
+            related_stripe_object_id: "cs_test_credit_pack_async_failed_100",
+            failure_class: "credit_pack_payment_failed",
+            retry_guidance: "No retry needed; Stripe reported the delayed Credit pack payment failed.",
+            manual_review_guidance: "Ask the Workspace owner to retry Credit pack Checkout if they still need Purchased Credits.",
+          },
+        ],
+      },
     });
   });
 
@@ -3629,6 +5495,12 @@ describe("Workspace billing summary route", () => {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
       );
     const billingLedger = createBillingLedgerBinding();
     const env = createBillingEnv({
@@ -3682,8 +5554,118 @@ describe("Workspace billing summary route", () => {
     });
   });
 
-  it("does not duplicate a reconciled Credit pack grant when the Checkout webhook later arrives", async () => {
+  it("records a missed failed delayed Credit pack Checkout Session during scheduled Billing reconciliation", async () => {
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          data: [
+            {
+              id: "cs_test_missed_failed_credit_pack_100",
+              payment_status: "unpaid",
+              invoice: {
+                id: "in_missed_failed_credit_pack_100",
+                status: "payment_failed",
+                hosted_invoice_url: "https://invoice.stripe.com/i/in_missed_failed_credit_pack_100",
+              },
+              metadata: {
+                workspace_id: "workspace_billing",
+                billing_action: "credit_pack_purchase",
+                plan: "free",
+                credit_pack_size: "100",
+                purchase_id: "purchase_missed_failed_credit_pack_100",
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_workspace_billing",
+    });
+
+    await worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    );
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      credits: {
+        purchased_available: 0,
+        total_available: 0,
+      },
+      owner_billing_activity: [
+        {
+          id: "entry_stripe_credit_pack_payment_failed_purchase_missed_failed_credit_pack_100",
+          type: "credit_pack_payment_failed",
+          credits: 0,
+          description: "Credit pack payment failed",
+          invoice: {
+            status: "payment_failed",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_missed_failed_credit_pack_100",
+          },
+        },
+      ],
+    });
+
+    requireSessionMock.mockResolvedValue({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const adminResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(adminResponse.status).toBe(200);
+    await expect(adminResponse.json()).resolves.toMatchObject({
+      reconciliation: {
+        last_checked_at: "2026-05-31T12:00:00.000Z",
+        open_drift_count: 1,
+        drift_records: [
+          {
+            id: "drift_workspace_billing_missed_failed_credit_pack_checkout_cs_test_missed_failed_credit_pack_100",
+            workspace_id: "workspace_billing",
+            drift_type: "missed_failed_credit_pack_checkout",
+            severity: "warning",
+            actionability: "informational",
+            related_stripe_object_id: "cs_test_missed_failed_credit_pack_100",
+            observed: {
+              stripe_object_type: "checkout.session",
+              billing_action: "credit_pack_purchase",
+              payment_status: "unpaid",
+              invoice_status: "payment_failed",
+            },
+            expected: {
+              workspace_id: "workspace_billing",
+              failed_activity_recorded: true,
+            },
+            status: "open",
+          },
+        ],
+      },
+    });
+  });
+
+  it("does not duplicate a reconciled Credit pack grant when the Checkout webhook later arrives", async () => {
+    const stripeFetch = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
         new Response(JSON.stringify({
           data: [
@@ -3906,6 +5888,12 @@ describe("Workspace billing summary route", () => {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
       );
     const billingLedger = createBillingLedgerBinding();
     const env = createBillingEnv({
@@ -3922,7 +5910,7 @@ describe("Workspace billing summary route", () => {
     );
 
     expect(stripeFetch).toHaveBeenCalledWith(
-      "https://api.stripe.com/v1/invoices?customer=cus_workspace_billing&limit=100&expand%5B0%5D=data.lines",
+      "https://api.stripe.com/v1/invoices?customer=cus_workspace_billing&limit=100&expand%5B0%5D=data.lines&expand%5B1%5D=data.payment_intent",
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
@@ -3973,6 +5961,152 @@ describe("Workspace billing summary route", () => {
     });
   });
 
+  it("repairs a missed paid Plan downgrade invoice during scheduled Billing reconciliation", async () => {
+    const previousPeriodStart = "2026-05-31T12:00:00.000Z";
+    const downgradePeriodStart = "2026-06-30T12:00:00.000Z";
+    const downgradePeriodEnd = "2026-07-30T12:00:00.000Z";
+    const stripeFetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          data: [
+            {
+              id: "in_missed_max_to_pro_downgrade",
+              status: "paid",
+              paid: true,
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_missed_max_to_pro_downgrade",
+              customer: "cus_workspace_billing",
+              parent: {
+                type: "subscription_details",
+                subscription_details: {
+                  subscription: "sub_max_workspace_billing",
+                  metadata: {
+                    workspace_id: "workspace_billing",
+                    billing_action: "subscription_downgrade",
+                    plan: "pro",
+                  },
+                },
+              },
+              lines: {
+                data: [
+                  {
+                    parent: {
+                      subscription_item_details: {
+                        subscription_item: "si_pro_workspace_billing",
+                      },
+                    },
+                    pricing: {
+                      price_details: {
+                        price: "price_pro_monthly",
+                        product: "prod_pro",
+                      },
+                      type: "price_details",
+                      unit_amount_decimal: "5000",
+                    },
+                    period: {
+                      start: Math.floor(new Date(downgradePeriodStart).getTime() / 1000),
+                      end: Math.floor(new Date(downgradePeriodEnd).getTime() / 1000),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_max_workspace_billing",
+        stripe_subscription_item_id: "si_max_workspace_billing",
+        self_service_subscription_plan: "max",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: previousPeriodStart,
+        stripe_subscription_current_period_end: downgradePeriodStart,
+        scheduled_entitlement_plan: "pro",
+        scheduled_entitlement_effective_at: downgradePeriodStart,
+      },
+    });
+
+    await worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    );
+
+    expect(stripeFetch).toHaveBeenCalledWith(
+      "https://api.stripe.com/v1/invoices?customer=cus_workspace_billing&limit=100&expand%5B0%5D=data.lines&expand%5B1%5D=data.payment_intent",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: "Bearer stripe-secret-test-key",
+          "stripe-version": "2026-05-27.dahlia",
+        }),
+      }),
+    );
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+        included_credits: 200,
+        api_access: true,
+      },
+      credits: {
+        included_available: 200,
+        total_available: 200,
+      },
+      current_period: {
+        anchor: downgradePeriodStart,
+        start: downgradePeriodStart,
+        end: downgradePeriodEnd,
+        monthly_page_limit: 1500,
+      },
+      next_scheduled_entitlement: null,
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+        current_period_start: downgradePeriodStart,
+        current_period_end: downgradePeriodEnd,
+        invoice: {
+          status: "paid",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_missed_max_to_pro_downgrade",
+        },
+      },
+      owner_billing_activity: [
+        expect.objectContaining({
+          id: "entry_stripe_invoice_in_missed_max_to_pro_downgrade_included",
+          type: "included_credit_grant",
+          credits: 200,
+        }),
+      ],
+    });
+  });
+
   it("does not duplicate a reconciled subscription invoice grant when the invoice webhook later arrives", async () => {
     const periodStart = "2026-05-31T12:00:00.000Z";
     const periodEnd = "2026-06-30T12:00:00.000Z";
@@ -4013,6 +6147,12 @@ describe("Workspace billing summary route", () => {
             },
           ],
         }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
@@ -4095,7 +6235,7 @@ describe("Workspace billing summary route", () => {
     });
   });
 
-  it("clears stale Unpaid billing state from a resolved subscription invoice without granting Credits", async () => {
+  it("keeps a terminal subscription invoice unpaid during scheduled Billing reconciliation without granting Credits", async () => {
     const periodStart = "2026-05-31T12:00:00.000Z";
     const periodEnd = "2026-06-30T12:00:00.000Z";
     vi.spyOn(globalThis, "fetch")
@@ -4138,6 +6278,12 @@ describe("Workspace billing summary route", () => {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
       );
     const billingLedger = createBillingLedgerBinding();
     const env = createBillingEnv({
@@ -4169,10 +6315,10 @@ describe("Workspace billing summary route", () => {
 
     expect(summaryResponse.status).toBe(200);
     await expect(summaryResponse.json()).resolves.toMatchObject({
-      billing_state: "active",
+      billing_state: "unpaid",
       active_entitlement: {
-        plan: "pro",
-        display_name: "Pro",
+        plan: "free",
+        display_name: "Free",
       },
       credits: {
         included_available: 0,
@@ -4180,12 +6326,358 @@ describe("Workspace billing summary route", () => {
       },
       self_service_subscription: {
         plan: "pro",
-        status: "active",
+        status: "unpaid",
         current_period_start: periodStart,
         current_period_end: periodEnd,
+        invoice: {
+          status: "void",
+          hosted_invoice_url: null,
+        },
       },
       owner_billing_activity: [],
     });
+  });
+
+  it("records a missed subscription invoice requiring payment action during scheduled Billing reconciliation without granting Included Credits", async () => {
+    const previousPeriodStart = "2026-05-31T12:00:00.000Z";
+    const missedPeriodStart = "2026-06-30T12:00:00.000Z";
+    const missedPeriodEnd = "2026-07-30T12:00:00.000Z";
+    const stripeFetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          data: [
+            {
+              id: "in_missed_pro_subscription_action_required",
+              status: "open",
+              paid: false,
+              customer: "cus_workspace_billing",
+              subscription: "sub_pro_workspace_billing",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_missed_pro_subscription_action_required",
+              payment_intent: {
+                id: "pi_missed_pro_subscription_action_required",
+                status: "requires_action",
+              },
+              subscription_details: {
+                metadata: {
+                  workspace_id: "workspace_billing",
+                  billing_action: "subscription_renewal",
+                  plan: "pro",
+                },
+              },
+              lines: {
+                data: [
+                  {
+                    price: { id: "price_pro_monthly" },
+                    period: {
+                      start: Math.floor(new Date(missedPeriodStart).getTime() / 1000),
+                      end: Math.floor(new Date(missedPeriodEnd).getTime() / 1000),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_customer_id: "cus_workspace_billing",
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: previousPeriodStart,
+        stripe_subscription_current_period_end: missedPeriodStart,
+      },
+    });
+
+    await worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    );
+
+    expect(stripeFetch).toHaveBeenCalledWith(
+      "https://api.stripe.com/v1/invoices?customer=cus_workspace_billing&limit=100&expand%5B0%5D=data.lines&expand%5B1%5D=data.payment_intent",
+      expect.objectContaining({ method: "GET" }),
+    );
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      billing_state: "unpaid",
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "unpaid",
+        current_period_start: missedPeriodStart,
+        current_period_end: missedPeriodEnd,
+        invoice: {
+          status: "payment_action_required",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_missed_pro_subscription_action_required",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("records a missed failed subscription invoice during scheduled Billing reconciliation without granting Included Credits", async () => {
+    const previousPeriodStart = "2026-05-31T12:00:00.000Z";
+    const missedPeriodStart = "2026-06-30T12:00:00.000Z";
+    const missedPeriodEnd = "2026-07-30T12:00:00.000Z";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          data: [
+            {
+              id: "in_missed_pro_subscription_payment_failed",
+              status: "open",
+              paid: false,
+              customer: "cus_workspace_billing",
+              subscription: "sub_pro_workspace_billing",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_missed_pro_subscription_payment_failed",
+              payment_intent: {
+                id: "pi_missed_pro_subscription_payment_failed",
+                status: "requires_payment_method",
+              },
+              subscription_details: {
+                metadata: {
+                  workspace_id: "workspace_billing",
+                  billing_action: "subscription_renewal",
+                  plan: "pro",
+                },
+              },
+              lines: {
+                data: [
+                  {
+                    price: { id: "price_pro_monthly" },
+                    period: {
+                      start: Math.floor(new Date(missedPeriodStart).getTime() / 1000),
+                      end: Math.floor(new Date(missedPeriodEnd).getTime() / 1000),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_customer_id: "cus_workspace_billing",
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: previousPeriodStart,
+        stripe_subscription_current_period_end: missedPeriodStart,
+      },
+    });
+
+    await worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    );
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      billing_state: "unpaid",
+      active_entitlement: {
+        plan: "free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "unpaid",
+        current_period_start: missedPeriodStart,
+        current_period_end: missedPeriodEnd,
+        invoice: {
+          status: "payment_failed",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_missed_pro_subscription_payment_failed",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("records a missed subscription invoice finalization failure during scheduled Billing reconciliation without raw Stripe error text", async () => {
+    const previousPeriodStart = "2026-05-31T12:00:00.000Z";
+    const missedPeriodStart = "2026-06-30T12:00:00.000Z";
+    const missedPeriodEnd = "2026-07-30T12:00:00.000Z";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          data: [
+            {
+              id: "in_missed_pro_subscription_finalization_failed",
+              status: "draft",
+              paid: false,
+              customer: "cus_workspace_billing",
+              subscription: "sub_pro_workspace_billing",
+              hosted_invoice_url: null,
+              automatic_tax: {
+                status: "requires_location_inputs",
+                reason: "customer_location_missing",
+              },
+              last_finalization_error: {
+                code: "customer_tax_location_invalid",
+                type: "invalid_request_error",
+                message: "Do not store this raw Stripe error text.",
+              },
+              subscription_details: {
+                metadata: {
+                  workspace_id: "workspace_billing",
+                  billing_action: "subscription_renewal",
+                  plan: "pro",
+                },
+              },
+              lines: {
+                data: [
+                  {
+                    price: { id: "price_pro_monthly" },
+                    period: {
+                      start: Math.floor(new Date(missedPeriodStart).getTime() / 1000),
+                      end: Math.floor(new Date(missedPeriodEnd).getTime() / 1000),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_customer_id: "cus_workspace_billing",
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: previousPeriodStart,
+        stripe_subscription_current_period_end: missedPeriodStart,
+      },
+    });
+
+    await worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    );
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    const summary = await summaryResponse.json() as Record<string, unknown>;
+    expect(summary).toMatchObject({
+      billing_state: "unpaid",
+      active_entitlement: {
+        plan: "free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "unpaid",
+        current_period_start: missedPeriodStart,
+        current_period_end: missedPeriodEnd,
+        invoice: {
+          status: "finalization_failed",
+          hosted_invoice_url: null,
+          finalization_failure: {
+            automatic_tax_status: "requires_location_inputs",
+            automatic_tax_reason: "customer_location_missing",
+            last_finalization_error_code: "customer_tax_location_invalid",
+          },
+        },
+      },
+      owner_billing_activity: [],
+    });
+    expect(JSON.stringify(summary)).not.toContain("Do not store this raw Stripe error text.");
   });
 
   it("records ambiguous Billing reconciliation drift for Application admin follow-up", async () => {
@@ -4270,6 +6762,166 @@ describe("Workspace billing summary route", () => {
         ],
       },
     });
+  });
+
+  it("records missed subscription lifecycle drift during scheduled Billing reconciliation", async () => {
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          data: [
+            {
+              id: "sub_pro_workspace_billing",
+              status: "paused",
+              customer: "cus_workspace_billing",
+              current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+              current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+              metadata: {
+                workspace_id: "workspace_billing",
+                billing_action: "subscription_start",
+                plan: "pro",
+              },
+              items: {
+                data: [
+                  {
+                    id: "si_pro_workspace_billing",
+                    price: { id: "price_pro_monthly" },
+                    current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+                    current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+                  },
+                ],
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_customer_id: "cus_workspace_billing",
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: periodStart,
+        stripe_subscription_current_period_end: periodEnd,
+      },
+    });
+
+    await worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    );
+
+    requireSessionMock.mockResolvedValue({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const stateResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(stateResponse.status).toBe(200);
+    await expect(stateResponse.json()).resolves.toMatchObject({
+      reconciliation: {
+        last_checked_at: "2026-05-31T12:00:00.000Z",
+        open_drift_count: 1,
+        drift_records: [
+          {
+            id: "drift_workspace_billing_subscription_lifecycle_drift_sub_pro_workspace_billing",
+            workspace_id: "workspace_billing",
+            drift_type: "subscription_lifecycle_drift",
+            severity: "needs_review",
+            actionability: "manual_review",
+            related_stripe_object_id: "sub_pro_workspace_billing",
+            observed: {
+              event_type: "billing_reconciliation",
+              subscription_status: "paused",
+              billing_action: "subscription_start",
+              plan: "pro",
+              stripe_customer_id: "cus_workspace_billing",
+            },
+            expected: {
+              workspace_id: "workspace_billing",
+              app_owned_subscription_id: "sub_pro_workspace_billing",
+              plan: "pro",
+            },
+            status: "open",
+          },
+        ],
+      },
+    });
+  });
+
+  it("continues scheduled Billing reconciliation after one Workspace fails", async () => {
+    vi.setSystemTime(new Date("2026-06-03T12:00:00.000Z"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stripeFetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          error: { message: "temporary Stripe failure" },
+        }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const env = createScheduledReconciliationIsolationEnv();
+
+    await expect(worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    )).resolves.toBeUndefined();
+
+    expect(stripeFetch).toHaveBeenCalledTimes(3);
+    expect(String(stripeFetch.mock.calls[0][0])).toContain("customer=cus_reconciliation_failed");
+    expect(String(stripeFetch.mock.calls[1][0])).toContain("customer=cus_reconciliation_ok");
+    expect(String(stripeFetch.mock.calls[2][0])).toContain("customer=cus_reconciliation_ok");
+    expect(consoleError).toHaveBeenCalledWith("Scheduled billing Workspace failed", expect.objectContaining({
+      event: "billing.scheduled.workspace_failed",
+      task: "billing_reconciliation",
+      workspace_id: "workspace_reconciliation_failed",
+      scheduled_at: "2026-06-03T12:00:00.000Z",
+      error_code: "stripe_checkout_lookup_failed",
+    }));
+    expect(JSON.stringify(consoleError.mock.calls)).not.toMatch(/\b(?:sk|rk)_(?:test|live)_[A-Za-z0-9]+\b/);
+    expect(JSON.stringify(consoleError.mock.calls)).not.toMatch(/\bwhsec_[A-Za-z0-9]+\b/);
+    consoleError.mockRestore();
   });
 
   it("records payment-required override invoice status drift for Application admin follow-up", async () => {
@@ -4461,6 +7113,12 @@ describe("Workspace billing summary route", () => {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
       );
     const env = createBillingEnv({
       workspace: createWorkspace(),
@@ -4602,6 +7260,176 @@ describe("Workspace billing summary route", () => {
           status: "paid",
           hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_reconciled",
           paid_at: "2026-05-31T12:00:00.000Z",
+        },
+      },
+    });
+  });
+
+  it("repairs a missed paid Enterprise annual overage invoice during scheduled Billing reconciliation", async () => {
+    vi.setSystemTime(new Date("2026-07-03T12:00:00.000Z"));
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          data: [
+            {
+              id: "in_enterprise_annual_overage_reconciled",
+              status: "paid",
+              paid: true,
+              customer: "cus_workspace_billing",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_reconciled",
+              metadata: {
+                workspace_id: "workspace_billing",
+                billing_action: "enterprise_annual_overage_invoice",
+                period_start: "2026-06-01T00:00:00.000Z",
+                period_end: "2026-07-01T00:00:00.000Z",
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_customer_id: "cus_workspace_billing",
+        enterprise_annual_status: "suspended",
+        enterprise_annual_monthly_minimum_allowance: 60000,
+        enterprise_annual_per_page_price_minor: 9,
+        enterprise_annual_yearly_amount_minor: 6480000,
+        enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_collection_mode: "manual",
+        enterprise_annual_invoice_review_enabled: 0,
+        enterprise_annual_reason: "Annual commitment",
+        enterprise_annual_created_by_user_id: "user_admin",
+        enterprise_annual_created_at: "2026-06-01T10:00:00.000Z",
+        enterprise_annual_upfront_invoice_id: "in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_status: "paid",
+        enterprise_annual_upfront_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_upfront_paid",
+        enterprise_annual_upfront_invoice_paid_at: "2026-06-01T12:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_start: "2026-06-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_period_end: "2026-07-01T00:00:00.000Z",
+        enterprise_annual_last_overage_invoice_id: "in_enterprise_annual_overage_reconciled",
+        enterprise_annual_last_overage_invoice_status: "payment_failed",
+        enterprise_annual_last_overage_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_reconciled",
+        enterprise_annual_last_overage_invoiced_at: "2026-07-02T12:00:00.000Z",
+      },
+    });
+
+    await worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    );
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "enterprise_annual",
+        display_name: "Enterprise annual",
+      },
+      enterprise_annual_commitment: {
+        status: "active",
+        latest_overage_invoice: {
+          status: "paid",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_annual_overage_reconciled",
+        },
+      },
+    });
+  });
+
+  it("repairs a missed paid Enterprise ramp-up invoice during scheduled Billing reconciliation", async () => {
+    vi.setSystemTime(new Date("2026-06-03T12:00:00.000Z"));
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          data: [
+            {
+              id: "in_enterprise_ramp_up_reconciled",
+              status: "paid",
+              paid: true,
+              customer: "cus_workspace_billing",
+              hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_reconciled",
+              metadata: {
+                workspace_id: "workspace_billing",
+                billing_action: "enterprise_ramp_up_invoice",
+                period_start: "2026-05-01T00:00:00.000Z",
+                period_end: "2026-06-01T00:00:00.000Z",
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger: createBillingLedgerBinding(),
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_customer_id: "cus_workspace_billing",
+        enterprise_ramp_up_status: "suspended",
+        enterprise_ramp_up_duration_months: 3,
+        enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_collection_mode: "manual",
+        enterprise_ramp_up_invoice_review_enabled: 0,
+        enterprise_ramp_up_reason: "Ramp-up",
+        enterprise_ramp_up_created_by_user_id: "user_admin",
+        enterprise_ramp_up_created_at: "2026-05-01T10:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_start: "2026-05-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_period_end: "2026-06-01T00:00:00.000Z",
+        enterprise_ramp_up_last_invoice_id: "in_enterprise_ramp_up_reconciled",
+        enterprise_ramp_up_last_invoice_status: "payment_failed",
+        enterprise_ramp_up_last_invoice_hosted_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_reconciled",
+        enterprise_ramp_up_last_invoiced_at: "2026-06-02T12:00:00.000Z",
+      },
+    });
+
+    await worker.scheduled?.(
+      { cron: "17 * * * *", scheduledTime: Date.now(), noRetry: vi.fn() } as unknown as ScheduledController,
+      env,
+      { waitUntil: vi.fn() } as unknown as ExecutionContext,
+    );
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "enterprise_ramp_up",
+        display_name: "Enterprise ramp-up",
+      },
+      enterprise_ramp_up: {
+        status: "active",
+        latest_invoice: {
+          status: "paid",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_enterprise_ramp_up_reconciled",
         },
       },
     });
@@ -4794,6 +7622,998 @@ describe("Workspace billing summary route", () => {
           description: "Included Credits granted",
         },
       ],
+    });
+  });
+
+  it("activates a paid subscription when an active Plan override has moved the Workspace back to Free", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        plan_override_plan: "free",
+        plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        plan_override_end_at: "2026-07-01T00:00:00.000Z",
+        plan_override_reason: "Downgrade after trial",
+        plan_override_created_by_user_id: "user_admin",
+        plan_override_created_at: "2026-05-31T00:00:00.000Z",
+      },
+    });
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const event = {
+      id: "evt_pro_subscription_invoice_paid_after_free_override",
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_pro_subscription_start_after_free_override",
+          status: "paid",
+          paid: true,
+          customer: "cus_workspace_billing",
+          subscription: "sub_pro_workspace_billing",
+          billing_reason: "subscription_create",
+          subscription_details: {
+            metadata: {
+              workspace_id: "workspace_billing",
+              billing_action: "subscription_start",
+              plan: "pro",
+            },
+          },
+          lines: {
+            data: [
+              {
+                price: { id: "price_pro_monthly" },
+                period: {
+                  start: Math.floor(new Date(periodStart).getTime() / 1000),
+                  end: Math.floor(new Date(periodEnd).getTime() / 1000),
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+        included_credits: 200,
+        api_access: true,
+      },
+      credits: {
+        included_available: 200,
+        total_available: 200,
+      },
+      current_period: {
+        anchor: periodStart,
+        start: periodStart,
+        end: periodEnd,
+        monthly_page_limit: 1500,
+      },
+      next_scheduled_entitlement: null,
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+        current_period_start: periodStart,
+        current_period_end: periodEnd,
+      },
+    });
+  });
+
+  it("clears a scheduled Free downgrade when Stripe reverses subscription cancellation", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: periodStart,
+        stripe_subscription_current_period_end: periodEnd,
+        scheduled_entitlement_plan: "free",
+        scheduled_entitlement_effective_at: periodEnd,
+      },
+    });
+    const event = {
+      id: "evt_pro_subscription_cancellation_reversed",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_pro_workspace_billing",
+          status: "active",
+          customer: "cus_workspace_billing",
+          cancel_at_period_end: false,
+          current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+          current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "subscription_start",
+            plan: "pro",
+          },
+          items: {
+            data: [
+              {
+                id: "si_pro_workspace_billing",
+                price: { id: "price_pro_monthly" },
+                current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+                current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      next_scheduled_entitlement: null,
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+        current_period_start: periodStart,
+        current_period_end: periodEnd,
+      },
+    });
+  });
+
+  it("records dashboard-created subscriptions as drift without granting paid entitlement", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+    });
+    const event = {
+      id: "evt_dashboard_subscription_created",
+      type: "customer.subscription.created",
+      data: {
+        object: {
+          id: "sub_dashboard_workspace_billing",
+          status: "active",
+          customer: "cus_workspace_billing",
+          current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+          current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "subscription_start",
+            plan: "pro",
+          },
+          items: {
+            data: [
+              {
+                id: "si_dashboard_workspace_billing",
+                price: { id: "price_pro_monthly" },
+                current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+                current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      self_service_subscription: null,
+    });
+
+    requireSessionMock.mockResolvedValueOnce({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const adminResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(adminResponse.status).toBe(200);
+    await expect(adminResponse.json()).resolves.toMatchObject({
+      reconciliation: {
+        open_drift_count: 1,
+        drift_records: [
+          {
+            id: "drift_workspace_billing_subscription_lifecycle_drift_sub_dashboard_workspace_billing",
+            workspace_id: "workspace_billing",
+            drift_type: "subscription_lifecycle_drift",
+            severity: "needs_review",
+            actionability: "manual_review",
+            related_stripe_object_id: "sub_dashboard_workspace_billing",
+            observed: {
+              event_type: "customer.subscription.created",
+              subscription_status: "active",
+              billing_action: "subscription_start",
+              plan: "pro",
+              stripe_customer_id: "cus_workspace_billing",
+            },
+            expected: {
+              workspace_id: "workspace_billing",
+              app_owned_subscription_id: null,
+            },
+            status: "open",
+          },
+        ],
+      },
+    });
+  });
+
+  it("records Stripe-side subscription plan changes as drift without changing entitlement", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: periodStart,
+        stripe_subscription_current_period_end: periodEnd,
+      },
+    });
+    const event = {
+      id: "evt_dashboard_subscription_plan_changed",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_pro_workspace_billing",
+          status: "active",
+          customer: "cus_workspace_billing",
+          current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+          current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "subscription_upgrade",
+            plan: "max",
+          },
+          items: {
+            data: [
+              {
+                id: "si_max_dashboard_change",
+                price: { id: "price_max_monthly" },
+                current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+                current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+      },
+    });
+
+    requireSessionMock.mockResolvedValueOnce({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const adminResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(adminResponse.status).toBe(200);
+    await expect(adminResponse.json()).resolves.toMatchObject({
+      reconciliation: {
+        open_drift_count: 1,
+        drift_records: [
+          {
+            id: "drift_workspace_billing_subscription_lifecycle_drift_sub_pro_workspace_billing",
+            drift_type: "subscription_lifecycle_drift",
+            related_stripe_object_id: "sub_pro_workspace_billing",
+            observed: {
+              event_type: "customer.subscription.updated",
+              subscription_status: "active",
+              billing_action: "subscription_upgrade",
+              plan: "max",
+              stripe_customer_id: "cus_workspace_billing",
+            },
+            expected: {
+              workspace_id: "workspace_billing",
+              app_owned_subscription_id: "sub_pro_workspace_billing",
+              plan: "pro",
+            },
+            status: "open",
+          },
+        ],
+      },
+    });
+  });
+
+  it("records failed diagnostics for subscription lifecycle events with incomplete metadata", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_customer_id: "cus_workspace_billing",
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: periodStart,
+        stripe_subscription_current_period_end: periodEnd,
+      },
+    });
+    const event = {
+      id: "evt_subscription_lifecycle_incomplete_metadata",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_pro_workspace_billing",
+          status: "active",
+          customer: "cus_workspace_billing",
+          current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+          current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "subscription_start",
+          },
+          items: {
+            data: [
+              {
+                id: "si_pro_workspace_billing",
+                price: { id: "price_pro_monthly" },
+                current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+                current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(400);
+    await expect(webhookResponse.json()).resolves.toEqual({
+      error: {
+        code: "invalid_subscription_lifecycle_event",
+        message: "Stripe subscription lifecycle event metadata is incomplete",
+      },
+    });
+
+    requireSessionMock.mockResolvedValueOnce({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const adminResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(adminResponse.status).toBe(200);
+    await expect(adminResponse.json()).resolves.toMatchObject({
+      stripe_event_diagnostics: {
+        failed_event_count: 1,
+        recent_events: [
+          {
+            event_id: "evt_subscription_lifecycle_incomplete_metadata",
+            type: "customer.subscription.updated",
+            outcome: "failed",
+            workspace_id: "workspace_billing",
+            related_stripe_object_id: "sub_pro_workspace_billing",
+            failure_class: "invalid_subscription_lifecycle_event",
+          },
+        ],
+      },
+    });
+  });
+
+  it("stops paid entitlement when Stripe deletes the app-owned subscription", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: periodStart,
+        stripe_subscription_current_period_end: periodEnd,
+      },
+    });
+    const event = {
+      id: "evt_app_subscription_deleted",
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_pro_workspace_billing",
+          status: "canceled",
+          customer: "cus_workspace_billing",
+          current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+          current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "subscription_cancellation",
+            plan: "pro",
+          },
+          items: {
+            data: [
+              {
+                id: "si_pro_workspace_billing",
+                price: { id: "price_pro_monthly" },
+                current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+                current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      billing_state: "unpaid",
+      active_entitlement: {
+        plan: "free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "unpaid",
+        current_period_start: periodStart,
+        current_period_end: periodEnd,
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("records subscription pause and resume events as manual-review drift", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: periodStart,
+        stripe_subscription_current_period_end: periodEnd,
+      },
+    });
+
+    for (const lifecycleEvent of [
+      { id: "evt_app_subscription_paused", type: "customer.subscription.paused", status: "paused" },
+      { id: "evt_app_subscription_resumed", type: "customer.subscription.resumed", status: "active" },
+    ]) {
+      const event = {
+        id: lifecycleEvent.id,
+        type: lifecycleEvent.type,
+        data: {
+          object: {
+            id: "sub_pro_workspace_billing",
+            status: lifecycleEvent.status,
+            customer: "cus_workspace_billing",
+            current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+            current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+            metadata: {
+              workspace_id: "workspace_billing",
+              billing_action: "subscription_start",
+              plan: "pro",
+            },
+            items: {
+              data: [
+                {
+                  id: "si_pro_workspace_billing",
+                  price: { id: "price_pro_monthly" },
+                  current_period_start: Math.floor(new Date(periodStart).getTime() / 1000),
+                  current_period_end: Math.floor(new Date(periodEnd).getTime() / 1000),
+                },
+              ],
+            },
+          },
+        },
+      };
+      const payload = JSON.stringify(event);
+
+      const webhookResponse = await worker.fetch(
+        new Request("https://example.com/v1/billing/stripe/webhook", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+          },
+          body: payload,
+        }),
+        env,
+      );
+      expect(webhookResponse.status).toBe(200);
+    }
+
+    requireSessionMock.mockResolvedValueOnce({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const adminResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(adminResponse.status).toBe(200);
+    await expect(adminResponse.json()).resolves.toMatchObject({
+      reconciliation: {
+        open_drift_count: 1,
+        drift_records: [
+          {
+            id: "drift_workspace_billing_subscription_lifecycle_drift_sub_pro_workspace_billing",
+            drift_type: "subscription_lifecycle_drift",
+            related_stripe_object_id: "sub_pro_workspace_billing",
+            observed: {
+              event_type: "customer.subscription.resumed",
+              subscription_status: "active",
+              plan: "pro",
+              stripe_customer_id: "cus_workspace_billing",
+            },
+            expected: {
+              workspace_id: "workspace_billing",
+              app_owned_subscription_id: "sub_pro_workspace_billing",
+              plan: "pro",
+            },
+            status: "open",
+          },
+        ],
+      },
+    });
+  });
+
+  it("activates Pro entitlement and clears the scheduled change from a paid Max to Pro downgrade invoice", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const previousPeriodStart = "2026-05-31T12:00:00.000Z";
+    const downgradePeriodStart = "2026-06-30T12:00:00.000Z";
+    const downgradePeriodEnd = "2026-07-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_max_workspace_billing",
+        stripe_subscription_item_id: "si_max_workspace_billing",
+        self_service_subscription_plan: "max",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: previousPeriodStart,
+        stripe_subscription_current_period_end: downgradePeriodStart,
+        scheduled_entitlement_plan: "pro",
+        scheduled_entitlement_effective_at: downgradePeriodStart,
+      },
+    });
+    const event = {
+      id: "evt_max_to_pro_downgrade_paid",
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_max_to_pro_downgrade_paid",
+          status: "paid",
+          paid: true,
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_max_to_pro_downgrade_paid",
+          customer: "cus_workspace_billing",
+          subscription: "sub_max_workspace_billing",
+          billing_reason: "subscription_cycle",
+          subscription_details: {
+            metadata: {
+              workspace_id: "workspace_billing",
+              billing_action: "subscription_downgrade",
+              plan: "pro",
+            },
+          },
+          lines: {
+            data: [
+              {
+                subscription_item: "si_pro_workspace_billing",
+                price: { id: "price_pro_monthly" },
+                period: {
+                  start: Math.floor(new Date(downgradePeriodStart).getTime() / 1000),
+                  end: Math.floor(new Date(downgradePeriodEnd).getTime() / 1000),
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+        included_credits: 200,
+        api_access: true,
+      },
+      credits: {
+        included_available: 200,
+        purchased_available: 0,
+        total_available: 200,
+      },
+      current_period: {
+        anchor: downgradePeriodStart,
+        start: downgradePeriodStart,
+        end: downgradePeriodEnd,
+        monthly_page_limit: 1500,
+      },
+      next_scheduled_entitlement: null,
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+        current_period_start: downgradePeriodStart,
+        current_period_end: downgradePeriodEnd,
+        invoice: {
+          status: "paid",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_max_to_pro_downgrade_paid",
+        },
+      },
+      owner_billing_activity: [
+        expect.objectContaining({
+          id: "entry_stripe_invoice_in_max_to_pro_downgrade_paid_included",
+          type: "included_credit_grant",
+          credits: 200,
+          invoice: {
+            status: "paid",
+            hosted_invoice_url: "https://invoice.stripe.com/i/in_max_to_pro_downgrade_paid",
+          },
+        }),
+      ],
+    });
+
+    requireSessionMock.mockResolvedValueOnce({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const adminResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(adminResponse.status).toBe(200);
+    await expect(adminResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+        display_name: "Pro",
+      },
+      next_scheduled_entitlement: null,
+      self_service_subscription: {
+        plan: "pro",
+        status: "active",
+        current_period_start: downgradePeriodStart,
+        current_period_end: downgradePeriodEnd,
+        invoice: {
+          status: "paid",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_max_to_pro_downgrade_paid",
+        },
+      },
+    });
+  });
+
+  it("preserves Purchased Credits and avoids duplicate Included Credits for duplicate paid downgrade delivery", async () => {
+    const billingLedger = createBillingLedgerBinding({ failDuplicateIncludedGrant: true });
+    const previousPeriodStart = "2026-05-31T12:00:00.000Z";
+    const downgradePeriodStart = "2026-06-30T12:00:00.000Z";
+    const downgradePeriodEnd = "2026-07-30T12:00:00.000Z";
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_max_workspace_billing",
+        stripe_subscription_item_id: "si_max_workspace_billing",
+        self_service_subscription_plan: "max",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: previousPeriodStart,
+        stripe_subscription_current_period_end: downgradePeriodStart,
+        scheduled_entitlement_plan: "pro",
+        scheduled_entitlement_effective_at: downgradePeriodStart,
+      },
+    });
+    const creditPackEvent = {
+      id: "evt_credit_pack_before_downgrade",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_credit_pack_before_downgrade",
+          payment_status: "paid",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "credit_pack_purchase",
+            plan: "max",
+            credit_pack_size: "100",
+          },
+        },
+      },
+    };
+    const downgradeEvent = {
+      id: "evt_duplicate_max_to_pro_downgrade_paid",
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_duplicate_max_to_pro_downgrade_paid",
+          status: "paid",
+          paid: true,
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_duplicate_max_to_pro_downgrade_paid",
+          customer: "cus_workspace_billing",
+          subscription: "sub_max_workspace_billing",
+          billing_reason: "subscription_cycle",
+          subscription_details: {
+            metadata: {
+              workspace_id: "workspace_billing",
+              billing_action: "subscription_downgrade",
+              plan: "pro",
+            },
+          },
+          lines: {
+            data: [
+              {
+                subscription_item: "si_pro_workspace_billing",
+                price: { id: "price_pro_monthly" },
+                period: {
+                  start: Math.floor(new Date(downgradePeriodStart).getTime() / 1000),
+                  end: Math.floor(new Date(downgradePeriodEnd).getTime() / 1000),
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const creditPackPayload = JSON.stringify(creditPackEvent);
+    const downgradePayload = JSON.stringify(downgradeEvent);
+    const downgradeSignature = await createStripeSignature(downgradePayload, "stripe-webhook-secret");
+
+    const creditPackResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(creditPackPayload, "stripe-webhook-secret"),
+        },
+        body: creditPackPayload,
+      }),
+      env,
+    );
+    const firstDowngradeResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": downgradeSignature,
+        },
+        body: downgradePayload,
+      }),
+      env,
+    );
+    const duplicateDowngradeResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": downgradeSignature,
+        },
+        body: downgradePayload,
+      }),
+      env,
+    );
+
+    expect(creditPackResponse.status).toBe(200);
+    expect(firstDowngradeResponse.status).toBe(200);
+    expect(duplicateDowngradeResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+      },
+      credits: {
+        included_available: 200,
+        purchased_available: 100,
+        total_available: 300,
+      },
+      owner_billing_activity: expect.arrayContaining([
+        expect.objectContaining({
+          id: "entry_stripe_invoice_in_duplicate_max_to_pro_downgrade_paid_included",
+          type: "included_credit_grant",
+          credits: 200,
+        }),
+        expect.objectContaining({
+          id: "entry_stripe_checkout_session_cs_credit_pack_before_downgrade",
+          type: "purchased_credit_grant",
+          credits: 100,
+        }),
+      ]),
     });
   });
 
@@ -5005,6 +8825,100 @@ describe("Workspace billing summary route", () => {
     });
   });
 
+  it("does not duplicate audit entries for distinct paid payment-required override invoice events for the same invoice", async () => {
+    const billingLedger = createBillingLedgerBinding({ failDuplicateIncludedGrant: true });
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        payment_required_plan_override_plan: "pro",
+        payment_required_plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        payment_required_plan_override_end_at: "2026-06-30T00:00:00.000Z",
+        payment_required_plan_override_reason: "Paid onboarding extension",
+        payment_required_plan_override_created_by_user_id: "user_admin",
+        payment_required_plan_override_created_at: "2026-05-31T12:00:00.000Z",
+        payment_required_plan_override_amount_minor: 12500,
+        payment_required_plan_override_currency: "GBP",
+        payment_required_plan_override_collection_mode: "manual",
+        payment_required_plan_override_invoice_id: "in_payment_required_distinct_paid",
+        payment_required_plan_override_invoice_status: "open",
+        payment_required_plan_override_hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_distinct_paid",
+      },
+    });
+    const invoice = {
+      id: "in_payment_required_distinct_paid",
+      status: "paid",
+      paid: true,
+      customer: "cus_workspace_billing",
+      hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_distinct_paid",
+      metadata: {
+        workspace_id: "workspace_billing",
+        billing_action: "payment_required_plan_override",
+        plan: "pro",
+      },
+    };
+    const paidEventPayload = JSON.stringify({
+      id: "evt_payment_required_distinct_paid",
+      type: "invoice.paid",
+      data: { object: invoice },
+    });
+    const succeededEventPayload = JSON.stringify({
+      id: "evt_payment_required_distinct_succeeded",
+      type: "invoice.payment_succeeded",
+      data: { object: invoice },
+    });
+
+    const paidResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(paidEventPayload, "stripe-webhook-secret"),
+        },
+        body: paidEventPayload,
+      }),
+      env,
+    );
+    const succeededResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(succeededEventPayload, "stripe-webhook-secret"),
+        },
+        body: succeededEventPayload,
+      }),
+      env,
+    );
+
+    expect(paidResponse.status).toBe(200);
+    expect(succeededResponse.status).toBe(200);
+
+    requireSessionMock.mockResolvedValueOnce({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const auditResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing/audit-log"),
+      env,
+    );
+    expect(auditResponse.status).toBe(200);
+    await expect(auditResponse.json()).resolves.toMatchObject({
+      entries: [
+        {
+          action: "payment_required_plan_override_payment_updated",
+          after: {
+            payment_required_plan_override_invoice_status: "paid",
+          },
+        },
+      ],
+    });
+  });
+
   it("records a failed payment-required override invoice without activating the entitlement", async () => {
     const billingLedger = createBillingLedgerBinding();
     const env = createBillingEnv({
@@ -5080,6 +8994,418 @@ describe("Workspace billing summary route", () => {
         invoice: {
           status: "payment_failed",
           hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_failed",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("records an action-required payment-required override invoice without activating the entitlement", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        payment_required_plan_override_plan: "pro",
+        payment_required_plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        payment_required_plan_override_end_at: "2026-06-30T00:00:00.000Z",
+        payment_required_plan_override_reason: "Paid onboarding extension",
+        payment_required_plan_override_created_by_user_id: "user_admin",
+        payment_required_plan_override_created_at: "2026-05-31T12:00:00.000Z",
+        payment_required_plan_override_amount_minor: 12500,
+        payment_required_plan_override_currency: "GBP",
+        payment_required_plan_override_collection_mode: "automatic",
+        payment_required_plan_override_invoice_id: "in_payment_required_action_required",
+        payment_required_plan_override_invoice_status: "open",
+        payment_required_plan_override_hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_action_required",
+      },
+    });
+    const event = {
+      id: "evt_payment_required_override_action_required",
+      type: "invoice.payment_action_required",
+      data: {
+        object: {
+          id: "in_payment_required_action_required",
+          status: "open",
+          paid: false,
+          customer: "cus_workspace_billing",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_action_required_next",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "payment_required_plan_override",
+            plan: "pro",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      payment_required_plan_override: {
+        plan: "pro",
+        invoice: {
+          status: "payment_action_required",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_action_required_next",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("records a finalization-failed payment-required override invoice without activating the entitlement", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        payment_required_plan_override_plan: "pro",
+        payment_required_plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        payment_required_plan_override_end_at: "2026-06-30T00:00:00.000Z",
+        payment_required_plan_override_reason: "Paid onboarding extension",
+        payment_required_plan_override_created_by_user_id: "user_admin",
+        payment_required_plan_override_created_at: "2026-05-31T12:00:00.000Z",
+        payment_required_plan_override_amount_minor: 12500,
+        payment_required_plan_override_currency: "GBP",
+        payment_required_plan_override_collection_mode: "automatic",
+        payment_required_plan_override_invoice_id: "in_payment_required_finalization_failed",
+        payment_required_plan_override_invoice_status: "draft",
+        payment_required_plan_override_hosted_invoice_url: null,
+      },
+    });
+    const event = {
+      id: "evt_payment_required_override_finalization_failed",
+      type: "invoice.finalization_failed",
+      data: {
+        object: {
+          id: "in_payment_required_finalization_failed",
+          status: "draft",
+          paid: false,
+          customer: "cus_workspace_billing",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_finalization_failed",
+          automatic_tax: {
+            status: "requires_location_inputs",
+            reason: "customer_location_missing",
+          },
+          last_finalization_error: {
+            code: "customer_tax_location_invalid",
+          },
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "payment_required_plan_override",
+            plan: "pro",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      payment_required_plan_override: {
+        plan: "pro",
+        invoice: {
+          status: "finalization_failed",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_finalization_failed",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("records a voided payment-required override invoice without activating the entitlement", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        payment_required_plan_override_plan: "pro",
+        payment_required_plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        payment_required_plan_override_end_at: "2026-06-30T00:00:00.000Z",
+        payment_required_plan_override_reason: "Paid onboarding extension",
+        payment_required_plan_override_created_by_user_id: "user_admin",
+        payment_required_plan_override_created_at: "2026-05-31T12:00:00.000Z",
+        payment_required_plan_override_amount_minor: 12500,
+        payment_required_plan_override_currency: "GBP",
+        payment_required_plan_override_collection_mode: "manual",
+        payment_required_plan_override_invoice_id: "in_payment_required_voided_event",
+        payment_required_plan_override_invoice_status: "open",
+        payment_required_plan_override_hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_voided_event",
+      },
+    });
+    const event = {
+      id: "evt_payment_required_override_voided",
+      type: "invoice.voided",
+      data: {
+        object: {
+          id: "in_payment_required_voided_event",
+          status: "void",
+          paid: false,
+          customer: "cus_workspace_billing",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_voided_event",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "payment_required_plan_override",
+            plan: "pro",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      payment_required_plan_override: {
+        plan: "pro",
+        invoice: {
+          status: "void",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_voided_event",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("records an uncollectible payment-required override invoice without activating the entitlement", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        payment_required_plan_override_plan: "pro",
+        payment_required_plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        payment_required_plan_override_end_at: "2026-06-30T00:00:00.000Z",
+        payment_required_plan_override_reason: "Paid onboarding extension",
+        payment_required_plan_override_created_by_user_id: "user_admin",
+        payment_required_plan_override_created_at: "2026-05-31T12:00:00.000Z",
+        payment_required_plan_override_amount_minor: 12500,
+        payment_required_plan_override_currency: "GBP",
+        payment_required_plan_override_collection_mode: "manual",
+        payment_required_plan_override_invoice_id: "in_payment_required_uncollectible_event",
+        payment_required_plan_override_invoice_status: "open",
+        payment_required_plan_override_hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_uncollectible_event",
+      },
+    });
+    const event = {
+      id: "evt_payment_required_override_uncollectible",
+      type: "invoice.marked_uncollectible",
+      data: {
+        object: {
+          id: "in_payment_required_uncollectible_event",
+          status: "uncollectible",
+          paid: false,
+          customer: "cus_workspace_billing",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_uncollectible_event",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "payment_required_plan_override",
+            plan: "pro",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      payment_required_plan_override: {
+        plan: "pro",
+        invoice: {
+          status: "uncollectible",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_uncollectible_event",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("retains a finalized payment-required override invoice URL without activating the entitlement", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        payment_required_plan_override_plan: "pro",
+        payment_required_plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        payment_required_plan_override_end_at: "2026-06-30T00:00:00.000Z",
+        payment_required_plan_override_reason: "Paid onboarding extension",
+        payment_required_plan_override_created_by_user_id: "user_admin",
+        payment_required_plan_override_created_at: "2026-05-31T12:00:00.000Z",
+        payment_required_plan_override_amount_minor: 12500,
+        payment_required_plan_override_currency: "GBP",
+        payment_required_plan_override_collection_mode: "manual",
+        payment_required_plan_override_invoice_id: "in_payment_required_finalized",
+        payment_required_plan_override_invoice_status: "draft",
+        payment_required_plan_override_hosted_invoice_url: null,
+      },
+    });
+    const event = {
+      id: "evt_payment_required_override_finalized",
+      type: "invoice.finalized",
+      data: {
+        object: {
+          id: "in_payment_required_finalized",
+          status: "open",
+          paid: false,
+          customer: "cus_workspace_billing",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_finalized",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "payment_required_plan_override",
+            plan: "pro",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      payment_required_plan_override: {
+        plan: "pro",
+        invoice: {
+          status: "open",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_finalized",
         },
       },
       owner_billing_activity: [],
@@ -5249,6 +9575,101 @@ describe("Workspace billing summary route", () => {
         total_available: 0,
       },
       self_service_subscription: null,
+    });
+  });
+
+  it("records non-secret diagnostics when a relevant Stripe billing event fails processing", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+    });
+    const periodStart = "2026-05-31T12:00:00.000Z";
+    const periodEnd = "2026-06-30T12:00:00.000Z";
+    const event = {
+      id: "evt_subscription_wrong_price_diagnostic",
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_subscription_wrong_price_diagnostic",
+          status: "paid",
+          paid: true,
+          customer: "cus_workspace_billing",
+          subscription: "sub_pro_workspace_billing",
+          subscription_details: {
+            metadata: {
+              workspace_id: "workspace_billing",
+              billing_action: "subscription_start",
+              plan: "pro",
+            },
+          },
+          lines: {
+            data: [
+              {
+                price: { id: "price_max_monthly" },
+                period: {
+                  start: Math.floor(new Date(periodStart).getTime() / 1000),
+                  end: Math.floor(new Date(periodEnd).getTime() / 1000),
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(400);
+    await expect(webhookResponse.json()).resolves.toEqual({
+      error: {
+        code: "invalid_subscription_invoice_event",
+        message: "Stripe subscription invoice event metadata is incomplete",
+      },
+    });
+
+    requireSessionMock.mockResolvedValueOnce({
+      id: "user_admin",
+      email: "admin@example.com",
+      name: "Application Admin",
+      role: "admin",
+    });
+    const adminResponse = await worker.fetch(
+      new Request("https://example.com/v1/admin/billing/workspaces/workspace_billing"),
+      env,
+    );
+
+    expect(adminResponse.status).toBe(200);
+    await expect(adminResponse.json()).resolves.toMatchObject({
+      stripe_event_diagnostics: {
+        ignored_event_count: 0,
+        failed_event_count: 1,
+        recent_events: [
+          {
+            event_id: "evt_subscription_wrong_price_diagnostic",
+            type: "invoice.paid",
+            outcome: "failed",
+            workspace_id: "workspace_billing",
+            related_stripe_object_id: "in_subscription_wrong_price_diagnostic",
+            failure_class: "invalid_subscription_invoice_event",
+            retry_guidance: "Stripe can retry this event after the metadata, catalog, or Workspace billing state is repaired.",
+            manual_review_guidance: "Review the Stripe object and reconcile Workspace billing manually if automatic replay cannot succeed.",
+          },
+        ],
+      },
     });
   });
 
@@ -5692,6 +10113,400 @@ describe("Workspace billing summary route", () => {
     });
   });
 
+  it("keeps a subscription invoice requiring payment action unpaid without granting Included Credits", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-05-31T12:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-06-30T12:00:00.000Z",
+      },
+    });
+    const actionRequiredPeriodStart = "2026-06-30T12:00:00.000Z";
+    const actionRequiredPeriodEnd = "2026-07-30T12:00:00.000Z";
+    const event = {
+      id: "evt_pro_renewal_payment_action_required",
+      type: "invoice.payment_action_required",
+      data: {
+        object: {
+          id: "in_pro_renewal_payment_action_required",
+          status: "open",
+          paid: false,
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_pro_renewal_payment_action_required",
+          customer: "cus_workspace_billing",
+          subscription: "sub_pro_workspace_billing",
+          billing_reason: "subscription_cycle",
+          subscription_details: {
+            metadata: {
+              workspace_id: "workspace_billing",
+              billing_action: "subscription_renewal",
+              plan: "pro",
+            },
+          },
+          lines: {
+            data: [
+              {
+                price: { id: "price_pro_monthly" },
+                period: {
+                  start: Math.floor(new Date(actionRequiredPeriodStart).getTime() / 1000),
+                  end: Math.floor(new Date(actionRequiredPeriodEnd).getTime() / 1000),
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      billing_state: "unpaid",
+      active_entitlement: {
+        plan: "free",
+        display_name: "Free",
+        included_credits: 0,
+        api_access: false,
+      },
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      current_period: {
+        anchor: actionRequiredPeriodStart,
+        start: actionRequiredPeriodStart,
+        end: actionRequiredPeriodEnd,
+        monthly_page_limit: 500,
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "unpaid",
+        current_period_start: actionRequiredPeriodStart,
+        current_period_end: actionRequiredPeriodEnd,
+        invoice: {
+          status: "payment_action_required",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_pro_renewal_payment_action_required",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("persists subscription invoice finalization failure diagnostics without granting Included Credits", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-05-31T12:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-06-30T12:00:00.000Z",
+      },
+    });
+    const failedPeriodStart = "2026-06-30T12:00:00.000Z";
+    const failedPeriodEnd = "2026-07-30T12:00:00.000Z";
+    const event = {
+      id: "evt_pro_renewal_finalization_failed",
+      type: "invoice.finalization_failed",
+      data: {
+        object: {
+          id: "in_pro_renewal_finalization_failed",
+          status: "draft",
+          paid: false,
+          hosted_invoice_url: null,
+          customer: "cus_workspace_billing",
+          subscription: "sub_pro_workspace_billing",
+          billing_reason: "subscription_cycle",
+          automatic_tax: {
+            status: "requires_location_inputs",
+            reason: "customer_location_missing",
+          },
+          last_finalization_error: {
+            code: "customer_tax_location_invalid",
+            type: "invalid_request_error",
+            message: "Do not store this Stripe error message in Workspace billing state.",
+          },
+          subscription_details: {
+            metadata: {
+              workspace_id: "workspace_billing",
+              billing_action: "subscription_renewal",
+              plan: "pro",
+            },
+          },
+          lines: {
+            data: [
+              {
+                price: { id: "price_pro_monthly" },
+                period: {
+                  start: Math.floor(new Date(failedPeriodStart).getTime() / 1000),
+                  end: Math.floor(new Date(failedPeriodEnd).getTime() / 1000),
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      billing_state: "unpaid",
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "unpaid",
+        current_period_start: failedPeriodStart,
+        current_period_end: failedPeriodEnd,
+        invoice: {
+          status: "finalization_failed",
+          hosted_invoice_url: null,
+          finalization_failure: {
+            automatic_tax_status: "requires_location_inputs",
+            automatic_tax_reason: "customer_location_missing",
+            last_finalization_error_code: "customer_tax_location_invalid",
+          },
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("keeps a voided subscription invoice as terminal unpaid without granting Included Credits", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-05-31T12:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-06-30T12:00:00.000Z",
+      },
+    });
+    const voidedPeriodStart = "2026-06-30T12:00:00.000Z";
+    const voidedPeriodEnd = "2026-07-30T12:00:00.000Z";
+    const event = {
+      id: "evt_pro_renewal_voided",
+      type: "invoice.voided",
+      data: {
+        object: {
+          id: "in_pro_renewal_voided",
+          status: "void",
+          paid: false,
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_pro_renewal_voided",
+          customer: "cus_workspace_billing",
+          subscription: "sub_pro_workspace_billing",
+          billing_reason: "subscription_cycle",
+          subscription_details: {
+            metadata: {
+              workspace_id: "workspace_billing",
+              billing_action: "subscription_renewal",
+              plan: "pro",
+            },
+          },
+          lines: {
+            data: [
+              {
+                price: { id: "price_pro_monthly" },
+                period: {
+                  start: Math.floor(new Date(voidedPeriodStart).getTime() / 1000),
+                  end: Math.floor(new Date(voidedPeriodEnd).getTime() / 1000),
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      billing_state: "unpaid",
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "unpaid",
+        current_period_start: voidedPeriodStart,
+        current_period_end: voidedPeriodEnd,
+        invoice: {
+          status: "void",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_pro_renewal_voided",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
+  it("keeps a marked-uncollectible subscription invoice as terminal unpaid without granting Included Credits", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      stripeCustomerId: "cus_workspace_billing",
+      billingControl: {
+        stripe_subscription_id: "sub_pro_workspace_billing",
+        stripe_subscription_item_id: "si_pro_workspace_billing",
+        self_service_subscription_plan: "pro",
+        self_service_subscription_status: "active",
+        stripe_subscription_current_period_start: "2026-05-31T12:00:00.000Z",
+        stripe_subscription_current_period_end: "2026-06-30T12:00:00.000Z",
+      },
+    });
+    const uncollectiblePeriodStart = "2026-06-30T12:00:00.000Z";
+    const uncollectiblePeriodEnd = "2026-07-30T12:00:00.000Z";
+    const event = {
+      id: "evt_pro_renewal_marked_uncollectible",
+      type: "invoice.marked_uncollectible",
+      data: {
+        object: {
+          id: "in_pro_renewal_marked_uncollectible",
+          status: "uncollectible",
+          paid: false,
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_pro_renewal_marked_uncollectible",
+          customer: "cus_workspace_billing",
+          subscription: "sub_pro_workspace_billing",
+          billing_reason: "subscription_cycle",
+          subscription_details: {
+            metadata: {
+              workspace_id: "workspace_billing",
+              billing_action: "subscription_renewal",
+              plan: "pro",
+            },
+          },
+          lines: {
+            data: [
+              {
+                price: { id: "price_pro_monthly" },
+                period: {
+                  start: Math.floor(new Date(uncollectiblePeriodStart).getTime() / 1000),
+                  end: Math.floor(new Date(uncollectiblePeriodEnd).getTime() / 1000),
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(200);
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      billing_state: "unpaid",
+      credits: {
+        included_available: 0,
+        total_available: 0,
+      },
+      self_service_subscription: {
+        plan: "pro",
+        status: "unpaid",
+        current_period_start: uncollectiblePeriodStart,
+        current_period_end: uncollectiblePeriodEnd,
+        invoice: {
+          status: "uncollectible",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_pro_renewal_marked_uncollectible",
+        },
+      },
+      owner_billing_activity: [],
+    });
+  });
+
   it("shows a manual subscription invoice as payable when Stripe finalizes it", async () => {
     const billingLedger = createBillingLedgerBinding();
     const env = createBillingEnv({
@@ -6054,6 +10869,7 @@ type BillingControlState = {
   self_service_subscription_invoice_id: string | null;
   self_service_subscription_invoice_status: string | null;
   self_service_subscription_hosted_invoice_url: string | null;
+  self_service_subscription_invoice_diagnostics: string | null;
   scheduled_entitlement_plan: "free" | "pro" | "max" | null;
   scheduled_entitlement_effective_at: string | null;
   plan_override_plan: "free" | "pro" | "max" | null;
@@ -6120,10 +10936,268 @@ function createBillingEnv(input: {
   billingLedger?: unknown;
   stripeCustomerId?: string | null;
   billingControl?: Partial<BillingControlState>;
+  stripeWebhookSecretNext?: string | null;
 }): Env {
-  return {
+  const env = {
     DB: createBillingDb(input),
     WORKSPACE_BILLING_LEDGER: input.billingLedger,
+    STRIPE_API_KEY: "stripe-secret-test-key",
+    STRIPE_WEBHOOK_SECRET: "stripe-webhook-secret",
+    STRIPE_PRO_MONTHLY_PRICE_ID: "price_pro_monthly",
+    STRIPE_MAX_MONTHLY_PRICE_ID: "price_max_monthly",
+    BETTER_AUTH_TRUSTED_ORIGINS: "https://app.example.com,http://localhost:5173,http://127.0.0.1:5173",
+  };
+  if (input.stripeWebhookSecretNext) {
+    return {
+      ...env,
+      STRIPE_WEBHOOK_SECRET_NEXT: input.stripeWebhookSecretNext,
+    } as unknown as Env;
+  }
+  return env as unknown as Env;
+}
+
+function createScheduledRampUpIsolationEnv(): Env {
+  const rampUpCandidates = [
+    {
+      workspace_id: "workspace_failed",
+      workspace_name: "Failed Workspace",
+      stripe_customer_id: "cus_enterprise_failed",
+      enterprise_ramp_up_duration_months: 3,
+      enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+      enterprise_ramp_up_collection_mode: "manual",
+      enterprise_ramp_up_invoice_review_enabled: 0,
+      enterprise_ramp_up_last_invoice_period_end: null,
+    },
+    {
+      workspace_id: "workspace_ok",
+      workspace_name: "OK Workspace",
+      stripe_customer_id: "cus_enterprise_ok",
+      enterprise_ramp_up_duration_months: 3,
+      enterprise_billing_cycle_start_date: "2026-05-01T00:00:00.000Z",
+      enterprise_ramp_up_collection_mode: "manual",
+      enterprise_ramp_up_invoice_review_enabled: 0,
+      enterprise_ramp_up_last_invoice_period_end: null,
+    },
+  ];
+
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(..._params: unknown[]) {
+          return {
+            async all() {
+              if (sql.includes("enterprise_ramp_up_status = 'active'")) {
+                return { success: true, results: rampUpCandidates };
+              }
+              if (sql.includes("enterprise_annual_status = 'active'")) {
+                return { success: true, results: [] };
+              }
+              if (sql.includes("WHERE c.stripe_customer_id IS NOT NULL")) {
+                return { success: true, results: [] };
+              }
+              throw new Error(`Unhandled scheduled ramp-up SQL all in billing test: ${sql}`);
+            },
+            async run() {
+              if (sql.includes("UPDATE workspace_billing_controls")) {
+                return { success: true };
+              }
+              throw new Error(`Unhandled scheduled ramp-up SQL run in billing test: ${sql}`);
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+  const ledger = {
+    getByName(workspaceId: string) {
+      return {
+        async summarizeEnterpriseUsageCharges() {
+          if (workspaceId === "workspace_failed") {
+            throw new Error("Enterprise usage summary failed");
+          }
+          if (workspaceId !== "workspace_ok") {
+            throw new Error(`Unexpected billing ledger name: ${workspaceId}`);
+          }
+          return {
+            billable_document_pages: 120,
+            amount: {
+              currency: "GBP",
+              amount_minor: 1680,
+              display: "GBP 16.80",
+              tax_behavior: "exclusive",
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    DB: db,
+    WORKSPACE_BILLING_LEDGER: ledger,
+    STRIPE_API_KEY: "stripe-secret-test-key",
+    STRIPE_WEBHOOK_SECRET: "stripe-webhook-secret",
+    STRIPE_PRO_MONTHLY_PRICE_ID: "price_pro_monthly",
+    STRIPE_MAX_MONTHLY_PRICE_ID: "price_max_monthly",
+    BETTER_AUTH_TRUSTED_ORIGINS: "https://app.example.com,http://localhost:5173,http://127.0.0.1:5173",
+  } as unknown as Env;
+}
+
+function createScheduledAnnualOverageIsolationEnv(): Env {
+  const annualCandidates = [
+    {
+      workspace_id: "workspace_annual_failed",
+      workspace_name: "Failed Annual Workspace",
+      stripe_customer_id: "cus_enterprise_annual_failed",
+      enterprise_annual_monthly_minimum_allowance: 60000,
+      enterprise_annual_per_page_price_minor: 9,
+      enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+      enterprise_annual_collection_mode: "manual",
+      enterprise_annual_invoice_review_enabled: 0,
+      enterprise_annual_last_overage_invoice_period_end: null,
+    },
+    {
+      workspace_id: "workspace_annual_ok",
+      workspace_name: "OK Annual Workspace",
+      stripe_customer_id: "cus_enterprise_annual_ok",
+      enterprise_annual_monthly_minimum_allowance: 60000,
+      enterprise_annual_per_page_price_minor: 9,
+      enterprise_billing_cycle_start_date: "2026-06-01T00:00:00.000Z",
+      enterprise_annual_collection_mode: "manual",
+      enterprise_annual_invoice_review_enabled: 0,
+      enterprise_annual_last_overage_invoice_period_end: null,
+    },
+  ];
+
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(..._params: unknown[]) {
+          return {
+            async all() {
+              if (sql.includes("enterprise_ramp_up_status = 'active'")) {
+                return { success: true, results: [] };
+              }
+              if (sql.includes("enterprise_annual_status = 'active'")) {
+                return { success: true, results: annualCandidates };
+              }
+              if (sql.includes("WHERE c.stripe_customer_id IS NOT NULL")) {
+                return { success: true, results: [] };
+              }
+              throw new Error(`Unhandled scheduled annual overage SQL all in billing test: ${sql}`);
+            },
+            async run() {
+              if (sql.includes("UPDATE workspace_billing_controls")) {
+                return { success: true };
+              }
+              throw new Error(`Unhandled scheduled annual overage SQL run in billing test: ${sql}`);
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+  const ledger = {
+    getByName(workspaceId: string) {
+      return {
+        async summarizeEnterpriseUsageCharges() {
+          if (workspaceId === "workspace_annual_failed") {
+            throw new Error("Enterprise usage summary failed");
+          }
+          if (workspaceId !== "workspace_annual_ok") {
+            throw new Error(`Unexpected billing ledger name: ${workspaceId}`);
+          }
+          return {
+            billable_document_pages: 60005,
+            amount: {
+              currency: "GBP",
+              amount_minor: 840070,
+              display: "GBP 8400.70",
+              tax_behavior: "exclusive",
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    DB: db,
+    WORKSPACE_BILLING_LEDGER: ledger,
+    STRIPE_API_KEY: "stripe-secret-test-key",
+    STRIPE_WEBHOOK_SECRET: "stripe-webhook-secret",
+    STRIPE_PRO_MONTHLY_PRICE_ID: "price_pro_monthly",
+    STRIPE_MAX_MONTHLY_PRICE_ID: "price_max_monthly",
+    BETTER_AUTH_TRUSTED_ORIGINS: "https://app.example.com,http://localhost:5173,http://127.0.0.1:5173",
+  } as unknown as Env;
+}
+
+function createScheduledReconciliationIsolationEnv(): Env {
+  const reconciliationCandidates = [
+    {
+      workspace_id: "workspace_reconciliation_failed",
+      workspace_name: "Failed Reconciliation Workspace",
+      stripe_customer_id: "cus_reconciliation_failed",
+    },
+    {
+      workspace_id: "workspace_reconciliation_ok",
+      workspace_name: "OK Reconciliation Workspace",
+      stripe_customer_id: "cus_reconciliation_ok",
+    },
+  ];
+
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(...params: unknown[]) {
+          return {
+            async first() {
+              if (sql.includes("FROM workspace_billing_controls")) {
+                const [workspaceId] = params;
+                const candidate = reconciliationCandidates.find((item) => item.workspace_id === workspaceId);
+                return candidate
+                  ? {
+                    workspace_id: candidate.workspace_id,
+                    ledger_object_name: candidate.workspace_id,
+                    stripe_customer_id: candidate.stripe_customer_id,
+                  }
+                  : null;
+              }
+              if (sql.includes("FROM workspaces") && sql.includes("WHERE id = ?")) {
+                return null;
+              }
+              if (sql.includes("FROM workspace_billing_reconciliation_status")) {
+                return null;
+              }
+              throw new Error(`Unhandled scheduled reconciliation SQL first in billing test: ${sql}`);
+            },
+            async all() {
+              if (sql.includes("enterprise_ramp_up_status = 'active'")) {
+                return { success: true, results: [] };
+              }
+              if (sql.includes("enterprise_annual_status = 'active'")) {
+                return { success: true, results: [] };
+              }
+              if (sql.includes("WHERE c.stripe_customer_id IS NOT NULL")) {
+                return { success: true, results: reconciliationCandidates };
+              }
+              throw new Error(`Unhandled scheduled reconciliation SQL all in billing test: ${sql}`);
+            },
+            async run() {
+              if (sql.includes("INSERT INTO workspace_billing_reconciliation_status")) {
+                return { success: true };
+              }
+              throw new Error(`Unhandled scheduled reconciliation SQL run in billing test: ${sql}`);
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+
+  return {
+    DB: db,
+    WORKSPACE_BILLING_LEDGER: createBillingLedgerBinding(),
     STRIPE_API_KEY: "stripe-secret-test-key",
     STRIPE_WEBHOOK_SECRET: "stripe-webhook-secret",
     STRIPE_PRO_MONTHLY_PRICE_ID: "price_pro_monthly",
@@ -6149,6 +11223,7 @@ function createBillingDb(input: {
     self_service_subscription_invoice_id: null,
     self_service_subscription_invoice_status: null,
     self_service_subscription_hosted_invoice_url: null,
+    self_service_subscription_invoice_diagnostics: null,
     scheduled_entitlement_plan: null,
     scheduled_entitlement_effective_at: null,
     plan_override_plan: null,
@@ -6357,6 +11432,27 @@ function createBillingDb(input: {
                 return { success: true };
               }
               if (sql.includes("UPDATE workspace_billing_controls")) {
+                if (sql.includes("scheduled_entitlement_plan = NULL")) {
+                  billingControl.scheduled_entitlement_plan = null;
+                  billingControl.scheduled_entitlement_effective_at = null;
+                  return { success: true };
+                }
+                if (sql.includes("plan_override_plan = NULL") && sql.includes("plan_override_plan = 'free'")) {
+                  const now = String(params[2] || "");
+                  if (
+                    billingControl.plan_override_plan === "free" &&
+                    String(billingControl.plan_override_start_at || "") <= now &&
+                    String(billingControl.plan_override_end_at || "") > now
+                  ) {
+                    billingControl.plan_override_plan = null;
+                    billingControl.plan_override_start_at = null;
+                    billingControl.plan_override_end_at = null;
+                    billingControl.plan_override_reason = null;
+                    billingControl.plan_override_created_by_user_id = null;
+                    billingControl.plan_override_created_at = null;
+                  }
+                  return { success: true };
+                }
                 if (sql.includes("enterprise_annual_status") && sql.includes("enterprise_annual_upfront_invoice_status")) {
                   billingControl.enterprise_annual_status = "active";
                   billingControl.enterprise_annual_upfront_invoice_status = String(params[0] || "");
@@ -6364,6 +11460,13 @@ function createBillingDb(input: {
                     ? String(params[1])
                     : billingControl.enterprise_annual_upfront_invoice_hosted_url;
                   billingControl.enterprise_annual_upfront_invoice_paid_at = String(params[2] || "");
+                  return { success: true };
+                }
+                if (sql.includes("enterprise_annual_upfront_invoice_status")) {
+                  billingControl.enterprise_annual_upfront_invoice_status = String(params[0] || "");
+                  billingControl.enterprise_annual_upfront_invoice_hosted_url = params[1]
+                    ? String(params[1])
+                    : billingControl.enterprise_annual_upfront_invoice_hosted_url;
                   return { success: true };
                 }
                 if (sql.includes("enterprise_annual_last_overage_invoice_period_start")) {
@@ -6492,6 +11595,7 @@ function createBillingDb(input: {
                   billingControl.self_service_subscription_invoice_id = params[9] ? String(params[9]) : null;
                   billingControl.self_service_subscription_invoice_status = params[10] ? String(params[10]) : null;
                   billingControl.self_service_subscription_hosted_invoice_url = params[11] ? String(params[11]) : null;
+                  billingControl.self_service_subscription_invoice_diagnostics = params[12] ? String(params[12]) : null;
                 } else if (sql.includes("stripe_customer_id")) {
                   billingControl.stripe_customer_id = String(params[2] || "");
                 }
@@ -6650,6 +11754,26 @@ function createBillingDb(input: {
                   ),
                 };
               }
+              if (sql.includes("FROM workspace_billing_stripe_events")) {
+                const [workspaceId] = params;
+                return {
+                  success: true,
+	                  results: stripeEvents
+	                    .filter((event) =>
+	                      event.workspace_id === workspaceId &&
+	                      (
+	                        event.processed_status === "ignored" ||
+	                        event.processed_status === "failed" ||
+	                        (event.processed_status === "processed" && event.error_details)
+	                      )
+	                    )
+                    .sort((left, right) =>
+                      right.received_at.localeCompare(left.received_at) ||
+                      right.event_id.localeCompare(left.event_id)
+                    )
+                    .slice(0, 20),
+                };
+              }
               throw new Error(`Unhandled SQL all in billing test: ${sql}`);
             },
           };
@@ -6702,6 +11826,13 @@ function createBillingLedgerBinding(
     grant_id: string;
     entry_id: string;
     credits: number;
+    occurred_at: string;
+    stripe_invoice_status?: string | null;
+    hosted_invoice_url?: string | null;
+  }> = [];
+  const creditPackPaymentFailures: Array<{
+    idempotency_key: string;
+    entry_id: string;
     occurred_at: string;
     stripe_invoice_status?: string | null;
     hosted_invoice_url?: string | null;
@@ -6787,6 +11918,14 @@ function createBillingLedgerBinding(
         credits: grant.credits,
         description: "Purchased Credits granted",
         ...invoiceForBillingActivity(grant),
+      })),
+      ...creditPackPaymentFailures.map((failure) => ({
+        id: failure.entry_id,
+        type: "credit_pack_payment_failed",
+        occurred_at: failure.occurred_at,
+        credits: 0,
+        description: "Credit pack payment failed",
+        ...invoiceForBillingActivity(failure),
       })),
     ];
   }
@@ -6931,6 +12070,34 @@ function createBillingLedgerBinding(
         workspace_id: "workspace_billing",
         granted_credits: grant.credits,
         available_credits: availableCredits(),
+      };
+    },
+    async recordCreditPackPaymentFailed(input: {
+      idempotencyKey: string;
+      occurredAt: string;
+      stripeInvoiceStatus?: string | null;
+      hostedInvoiceUrl?: string | null;
+    }) {
+      const existing = creditPackPaymentFailures.find((failure) => failure.idempotency_key === input.idempotencyKey);
+      if (existing) {
+        existing.stripe_invoice_status = input.stripeInvoiceStatus || existing.stripe_invoice_status || null;
+        existing.hosted_invoice_url = input.hostedInvoiceUrl || existing.hosted_invoice_url || null;
+        return {
+          entry_id: existing.entry_id,
+          workspace_id: "workspace_billing",
+        };
+      }
+      const failure = {
+        idempotency_key: input.idempotencyKey,
+        entry_id: `entry_${input.idempotencyKey}`,
+        occurred_at: input.occurredAt,
+        stripe_invoice_status: input.stripeInvoiceStatus || "payment_failed",
+        hosted_invoice_url: input.hostedInvoiceUrl || null,
+      };
+      creditPackPaymentFailures.push(failure);
+      return {
+        entry_id: failure.entry_id,
+        workspace_id: "workspace_billing",
       };
     },
     async findIncludedCreditGrant(input: { idempotencyKey: string }) {
@@ -7078,6 +12245,7 @@ function isCreditAdditionActivity(activity: { type: string }) {
     "goodwill_credit_grant",
     "included_credit_grant",
     "purchased_credit_grant",
+    "credit_pack_payment_failed",
   ].includes(activity.type);
 }
 
@@ -7090,8 +12258,13 @@ function emptyCreditUsage(range: "daily" | "weekly" | "monthly" | "yearly") {
   };
 }
 
-async function createStripeSignature(payload: string, secret: string): Promise<string> {
-  const timestamp = Math.floor(Date.now() / 1000);
+async function createStripeSignature(
+  payload: string,
+  secret: string,
+  options: { scheme?: string; timestamp?: number | string } = {},
+): Promise<string> {
+  const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
+  const scheme = options.scheme || "v1";
   const signedPayload = `${timestamp}.${payload}`;
   const key = await crypto.subtle.importKey(
     "raw",
@@ -7108,5 +12281,5 @@ async function createStripeSignature(payload: string, secret: string): Promise<s
   const hex = [...new Uint8Array(signature)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-  return `t=${timestamp},v1=${hex}`;
+  return `t=${timestamp},${scheme}=${hex}`;
 }

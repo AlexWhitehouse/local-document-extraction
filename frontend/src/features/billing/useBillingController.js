@@ -12,6 +12,7 @@ export function useBillingController({
   const [startingCreditPackSize, setStartingCreditPackSize] = useState(null);
   const [startingSubscriptionPlan, setStartingSubscriptionPlan] = useState(null);
   const [startingSubscriptionChangePlan, setStartingSubscriptionChangePlan] = useState(null);
+  const [isCancelingScheduledChange, setIsCancelingScheduledChange] = useState(false);
   const [isLoadingMoreBillingActivity, setIsLoadingMoreBillingActivity] = useState(false);
   const [isLoadingCreditUsage, setIsLoadingCreditUsage] = useState(false);
   const [loadErrorMessage, setLoadErrorMessage] = useState("");
@@ -179,6 +180,37 @@ export function useBillingController({
     }
   }
 
+  async function cancelScheduledSubscriptionChange() {
+    const normalizedWorkspaceId = String(workspaceId || "").trim();
+    if (!normalizedWorkspaceId || !hasWorkspaceBillingAuthority) {
+      return null;
+    }
+
+    setIsCancelingScheduledChange(true);
+    setActionErrorMessage("");
+    try {
+      const data = await request(
+        `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/billing/subscriptions/scheduled-change/cancel`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+        true,
+        false,
+      );
+      addLog?.(`Canceled scheduled subscription change for workspace ${normalizedWorkspaceId}`);
+      await loadBillingSummary();
+      return data;
+    } catch (error) {
+      setActionErrorMessage(error.message || "Scheduled subscription change could not be canceled");
+      addLog?.(`Cancel scheduled subscription change failed: ${error.message}`);
+      return null;
+    } finally {
+      setIsCancelingScheduledChange(false);
+    }
+  }
+
   async function loadMoreBillingActivity() {
     const normalizedWorkspaceId = String(workspaceId || "").trim();
     const cursor = String(summary?.owner_billing_activity_next_cursor || "").trim();
@@ -267,6 +299,7 @@ export function useBillingController({
     startingCreditPackSize,
     startingSubscriptionPlan,
     startingSubscriptionChangePlan,
+    isCancelingScheduledChange,
     errorMessage: loadErrorMessage,
     actionErrorMessage,
     activityErrorMessage,
@@ -278,6 +311,7 @@ export function useBillingController({
     onStartCreditPackCheckout: startCreditPackCheckout,
     onStartSubscriptionCheckout: startSubscriptionCheckout,
     onStartSubscriptionChange: startSubscriptionChange,
+    onCancelScheduledSubscriptionChange: cancelScheduledSubscriptionChange,
   };
 }
 

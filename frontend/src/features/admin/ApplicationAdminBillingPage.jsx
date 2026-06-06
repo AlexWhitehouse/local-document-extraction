@@ -119,6 +119,12 @@ export function ApplicationAdminBillingPage({ admin }) {
 
 function BillingStateReview({ state }) {
   const reconciliationCheckedAt = formatReconciliationCheckedAt(state?.reconciliation?.last_checked_at);
+  const stripeEventDiagnostics = state?.stripe_event_diagnostics;
+  const recentStripeEvents = stripeEventDiagnostics?.recent_events || [];
+  const selfServiceSubscription = state?.self_service_subscription;
+  const subscriptionFailureMeta = formatSubscriptionInvoiceFailureMeta(
+    selfServiceSubscription?.invoice?.finalization_failure,
+  );
 
   return (
     <>
@@ -131,6 +137,11 @@ function BillingStateReview({ state }) {
             <span className="status-chip">
               No-billing {state.no_billing_mode?.enabled ? "enabled" : "disabled"}
             </span>
+            {selfServiceSubscription ? (
+              <span className="status-chip">
+                Self-service {formatPlanName(selfServiceSubscription.plan)} invoice {formatStatusLabel(selfServiceSubscription.invoice?.status || selfServiceSubscription.status)}
+              </span>
+            ) : null}
             {state.plan_override ? (
               <span className="status-chip">
                 Override {formatPlanName(state.plan_override.plan)}
@@ -143,20 +154,20 @@ function BillingStateReview({ state }) {
             ) : null}
             {state.enterprise_ramp_up ? (
               <span className="status-chip">
-                Enterprise ramp-up {safeText(state.enterprise_ramp_up.status)}
+                Enterprise ramp-up {formatStatusLabel(state.enterprise_ramp_up.status)}
               </span>
             ) : null}
             {state.enterprise_annual_commitment ? (
               <>
                 <span className="status-chip">
-                  Enterprise annual {safeText(state.enterprise_annual_commitment.status)}
+                  Enterprise annual {formatStatusLabel(state.enterprise_annual_commitment.status)}
                 </span>
                 <span className="status-chip">
-                  Annual upfront invoice {safeText(state.enterprise_annual_commitment.upfront_invoice?.status)}
+                  Annual upfront invoice {formatStatusLabel(state.enterprise_annual_commitment.upfront_invoice?.status)}
                 </span>
                 {state.enterprise_annual_commitment.latest_overage_invoice ? (
                   <span className="status-chip">
-                    Annual overage invoice {safeText(state.enterprise_annual_commitment.latest_overage_invoice?.status)}
+                    Annual overage invoice {formatStatusLabel(state.enterprise_annual_commitment.latest_overage_invoice?.status)}
                   </span>
                 ) : null}
               </>
@@ -173,6 +184,23 @@ function BillingStateReview({ state }) {
                 </span>
               </>
             ) : null}
+            {stripeEventDiagnostics ? (
+              <>
+                <span className="status-chip">
+                  Failed Stripe events {Number(stripeEventDiagnostics.failed_event_count || 0)}
+                </span>
+                {Number(stripeEventDiagnostics.payment_failed_event_count || 0) > 0 ? (
+                  <span className="status-chip">
+                    Payment failed events {Number(stripeEventDiagnostics.payment_failed_event_count || 0)}
+                  </span>
+                ) : null}
+                {Number(stripeEventDiagnostics.ignored_event_count || 0) > 0 ? (
+                  <span className="status-chip">
+                    Ignored Stripe events {Number(stripeEventDiagnostics.ignored_event_count || 0)}
+                  </span>
+                ) : null}
+              </>
+            ) : null}
           </div>
 
           {state.reconciliation?.drift_records?.length ? (
@@ -182,6 +210,36 @@ function BillingStateReview({ state }) {
                   <strong>{safeText(record.drift_type)}</strong>
                   <span>{safeText(record.related_stripe_object_id)}</span>
                   <span>{safeText(record.actionability)}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {subscriptionFailureMeta.length ? (
+            <div className="admin-billing-reconciliation-list">
+              <div className="workspace-head">
+                <h3>Subscription invoice diagnostics</h3>
+              </div>
+              {subscriptionFailureMeta.map((item) => (
+                <div className="admin-billing-reconciliation-item" key={item}>
+                  <strong>{item}</strong>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {recentStripeEvents.length ? (
+            <div className="admin-billing-reconciliation-list">
+              <div className="workspace-head">
+                <h3>Stripe event diagnostics</h3>
+              </div>
+              {recentStripeEvents.map((event) => (
+                <div className="admin-billing-reconciliation-item" key={event.event_id}>
+                  <strong>{safeText(event.type)}</strong>
+                  <span>{safeText(event.related_stripe_object_id)}</span>
+                  <span>{safeText(event.failure_class || event.outcome)}</span>
+                  {event.retry_guidance ? <span>{safeText(event.retry_guidance)}</span> : null}
+                  {event.manual_review_guidance ? <span>{safeText(event.manual_review_guidance)}</span> : null}
                 </div>
               ))}
             </div>
@@ -907,6 +965,10 @@ function safeText(value) {
   return text || "-";
 }
 
+function formatStatusLabel(value) {
+  return safeText(value).replaceAll("_", " ");
+}
+
 function formatPlanName(plan) {
   const normalized = String(plan || "").trim();
   if (normalized === "no_billing") {
@@ -916,6 +978,23 @@ function formatPlanName(plan) {
     return "-";
   }
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatSubscriptionInvoiceFailureMeta(finalizationFailure) {
+  if (!finalizationFailure) {
+    return [];
+  }
+  return [
+    finalizationFailure.automatic_tax_status
+      ? `Automatic tax ${formatStatusLabel(finalizationFailure.automatic_tax_status)}`
+      : "",
+    finalizationFailure.automatic_tax_reason
+      ? `Tax location ${formatStatusLabel(finalizationFailure.automatic_tax_reason)}`
+      : "",
+    finalizationFailure.last_finalization_error_code
+      ? `Finalization error ${formatStatusLabel(finalizationFailure.last_finalization_error_code)}`
+      : "",
+  ].filter(Boolean);
 }
 
 function formatInvoicePaymentMethod(collectionMode) {
