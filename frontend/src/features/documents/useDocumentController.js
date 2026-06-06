@@ -55,6 +55,7 @@ export function useDocumentController({
   const liveUpdateSocketRef = useRef(null);
   const liveUpdateReconnectTimerRef = useRef(null);
   const workspaceCapacityRefreshTimerRef = useRef(null);
+  const jobDetailsInFlightRef = useRef(new Map());
   const liveCompletedDetailLoadsRef = useRef(new Set());
   const addLogRef = useRef(addLog);
   const jobHistoryRef = useRef(jobHistory);
@@ -430,31 +431,55 @@ export function useDocumentController({
       setLoadingDocumentDetailsId(normalizedJobId);
     }
 
+    const requestKey = `${String(workspaceId || "").trim()}::${normalizedJobId}`;
+    const inFlightLoad = jobDetailsInFlightRef.current.get(requestKey);
+    if (inFlightLoad) {
+      try {
+        return await inFlightLoad;
+      } finally {
+        if (showLoading) {
+          setLoadingDocumentDetailsId((currentId) =>
+            currentId === normalizedJobId ? "" : currentId,
+          );
+        }
+      }
+    }
+
+    const loadPromise = (async () => {
+      try {
+        const data = await requestRef.current(
+          `/jobs/${encodeURIComponent(normalizedJobId)}`,
+          {
+            method: "GET",
+          },
+        );
+        const shouldRefreshWorkspaceCapacity =
+          hasDocumentStatusChanged(jobHistoryRef.current, queuedJobsRef.current, data);
+        upsertJobHistory(data);
+        if (shouldRefreshWorkspaceCapacity) {
+          scheduleWorkspaceCapacityRefresh();
+        }
+        completedDocumentCacheRef.current.store(workspaceId, data);
+        return data;
+      } catch (error) {
+        if (Number(error?.status) === 404) {
+          completedDocumentCacheRef.current.remove(workspaceId, normalizedJobId);
+          removeDocumentFromState(normalizedJobId);
+        }
+        if (!silent) {
+          addLogRef.current(`Load job details failed: ${error.message}`);
+        }
+        return null;
+      }
+    })();
+    jobDetailsInFlightRef.current.set(requestKey, loadPromise);
+
     try {
-      const data = await requestRef.current(
-        `/jobs/${encodeURIComponent(normalizedJobId)}`,
-        {
-          method: "GET",
-        },
-      );
-      const shouldRefreshWorkspaceCapacity =
-        hasDocumentStatusChanged(jobHistoryRef.current, queuedJobsRef.current, data);
-      upsertJobHistory(data);
-      if (shouldRefreshWorkspaceCapacity) {
-        scheduleWorkspaceCapacityRefresh();
-      }
-      completedDocumentCacheRef.current.store(workspaceId, data);
-      return data;
-    } catch (error) {
-      if (Number(error?.status) === 404) {
-        completedDocumentCacheRef.current.remove(workspaceId, normalizedJobId);
-        removeDocumentFromState(normalizedJobId);
-      }
-      if (!silent) {
-        addLogRef.current(`Load job details failed: ${error.message}`);
-      }
-      return null;
+      return await loadPromise;
     } finally {
+      if (jobDetailsInFlightRef.current.get(requestKey) === loadPromise) {
+        jobDetailsInFlightRef.current.delete(requestKey);
+      }
       if (showLoading) {
         setLoadingDocumentDetailsId((currentId) =>
           currentId === normalizedJobId ? "" : currentId,
