@@ -2,6 +2,7 @@ import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
 import { InvalidPdfSourceFileError, countPdfSourceFilePages } from "../lib/sourceFilePageCount";
 import { validateExtractRequest } from "../lib/validation";
+import { disposeRpcResult } from "../lib/rpcDisposal";
 import { summarizeWorkspaceBilling } from "../lib/workspaceBilling";
 import { getWorkspaceBillingControl } from "../lib/workspaceBillingControl";
 import {
@@ -18,6 +19,7 @@ import type {
   RefundCreditReservationInput,
   RecordEnterpriseUsageChargeInput,
   RecordNoBillingUsageInput,
+  ReserveCreditsForDocumentSubmissionFailure,
   ReserveCreditsForDocumentSubmissionInput,
   ReserveCreditsForDocumentSubmissionResult,
 } from "../lib/workspaceBillingLedger";
@@ -54,12 +56,18 @@ export async function createExtractionJob(request: Request, env: Env, authContex
 
   const productStore = getWorkspaceProductStore(env, workspace.id);
   const template = await productStore.validateTemplateForDocumentSubmission(templateId);
-  if (isWorkspaceProductStoreFailure(template)) {
-    throw new HttpError(template.error.status, template.error.code, template.error.message);
+  let selectedTemplateId: string;
+  let version: number;
+  try {
+    if (isWorkspaceProductStoreFailure(template)) {
+      throw new HttpError(template.error.status, template.error.code, template.error.message);
+    }
+    selectedTemplateId = template.template_id;
+    version = Number(template.template_version);
+  } finally {
+    disposeRpcResult(template);
   }
 
-  const selectedTemplateId = template.template_id;
-  const version = Number(template.template_version);
   await assertPlanLimitsAllowDocumentSubmission(env, productStore, workspace, selectedTemplateId);
 
   const jobId = newId("job");
@@ -102,8 +110,12 @@ export async function createExtractionJob(request: Request, env: Env, authContex
       sourceFilePageCount,
       submittedAt: now,
     });
-    if (isWorkspaceProductStoreFailure(queued)) {
-      throw new HttpError(queued.error.status, queued.error.code, queued.error.message);
+    try {
+      if (isWorkspaceProductStoreFailure(queued)) {
+        throw new HttpError(queued.error.status, queued.error.code, queued.error.message);
+      }
+    } finally {
+      disposeRpcResult(queued);
     }
   } catch (error) {
     await env.SOURCE_FILES_BUCKET.delete(objectKey);
@@ -182,44 +194,48 @@ async function assertPlanLimitsAllowDocumentSubmission(
     return;
   }
 
-  if (isLimitExceeded(usage.active_template_count, billing.plan_limits.templates)) {
-    throw new HttpError(
-      402,
-      "template_limit_exceeded",
-      `Workspace has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.templates} Templates`,
-    );
-  }
+  try {
+    if (isLimitExceeded(usage.active_template_count, billing.plan_limits.templates)) {
+      throw new HttpError(
+        402,
+        "template_limit_exceeded",
+        `Workspace has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.templates} Templates`,
+      );
+    }
 
-  const templateUsage = usage.templates.find((candidate) => candidate.template_id === templateId);
-  if (
-    templateUsage &&
-    isLimitExceeded(templateUsage.top_level_template_fields, billing.plan_limits.top_level_template_fields)
-  ) {
-    throw new HttpError(
-      402,
-      "template_field_limit_exceeded",
-      `Template has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.top_level_template_fields} top-level fields`,
-    );
-  }
-  if (
-    templateUsage &&
-    isLimitExceeded(templateUsage.table_shaped_fields, billing.plan_limits.table_shaped_fields)
-  ) {
-    throw new HttpError(
-      402,
-      "template_table_limit_exceeded",
-      `Template has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.table_shaped_fields} table-shaped field`,
-    );
-  }
-  if (
-    templateUsage &&
-    isLimitExceeded(templateUsage.max_table_columns_per_field, billing.plan_limits.table_columns_per_field)
-  ) {
-    throw new HttpError(
-      402,
-      "template_table_column_limit_exceeded",
-      `Template has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.table_columns_per_field} table columns`,
-    );
+    const templateUsage = usage.templates.find((candidate) => candidate.template_id === templateId);
+    if (
+      templateUsage &&
+      isLimitExceeded(templateUsage.top_level_template_fields, billing.plan_limits.top_level_template_fields)
+    ) {
+      throw new HttpError(
+        402,
+        "template_field_limit_exceeded",
+        `Template has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.top_level_template_fields} top-level fields`,
+      );
+    }
+    if (
+      templateUsage &&
+      isLimitExceeded(templateUsage.table_shaped_fields, billing.plan_limits.table_shaped_fields)
+    ) {
+      throw new HttpError(
+        402,
+        "template_table_limit_exceeded",
+        `Template has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.table_shaped_fields} table-shaped field`,
+      );
+    }
+    if (
+      templateUsage &&
+      isLimitExceeded(templateUsage.max_table_columns_per_field, billing.plan_limits.table_columns_per_field)
+    ) {
+      throw new HttpError(
+        402,
+        "template_table_column_limit_exceeded",
+        `Template has exceeded the ${billing.active_entitlement.display_name} plan limit of ${billing.plan_limits.table_columns_per_field} table columns`,
+      );
+    }
+  } finally {
+    disposeRpcResult(usage);
   }
 }
 
@@ -258,7 +274,7 @@ async function reservePrepaidSubmissionCredits(
   });
 
   if (billing.active_entitlement.plan === "no_billing") {
-    await ledger.recordNoBillingUsage({
+    const result = await ledger.recordNoBillingUsage({
       workspaceId: workspace.id,
       extractionJobId: input.jobId,
       templateId: input.templateId,
@@ -271,13 +287,14 @@ async function reservePrepaidSubmissionCredits(
       actorUserId: input.authContext.user_id,
       idempotencyKey: `no-billing-submission:${input.jobId}`,
     });
+    disposeRpcResult(result);
     return;
   }
   if (
     billing.active_entitlement.plan === "enterprise_ramp_up" ||
     billing.active_entitlement.plan === "enterprise_annual"
   ) {
-    await ledger.recordEnterpriseUsageCharge({
+    const result = await ledger.recordEnterpriseUsageCharge({
       workspaceId: workspace.id,
       extractionJobId: input.jobId,
       templateId: input.templateId,
@@ -291,6 +308,7 @@ async function reservePrepaidSubmissionCredits(
       idempotencyKey: `enterprise-submission:${input.jobId}`,
       amountMinor: billing.active_entitlement.plan === "enterprise_annual" ? 0 : undefined,
     });
+    disposeRpcResult(result);
     return;
   }
   if (billing.current_period.monthly_page_limit === null) {
@@ -298,7 +316,7 @@ async function reservePrepaidSubmissionCredits(
   }
 
   try {
-    await ledger.reserveCreditsForDocumentSubmission({
+    const reservation = await ledger.reserveCreditsForDocumentSubmission({
       workspaceId: workspace.id,
       extractionJobId: input.jobId,
       templateId: input.templateId,
@@ -312,6 +330,13 @@ async function reservePrepaidSubmissionCredits(
       actorUserId: input.authContext.user_id,
       idempotencyKey: `submission:${input.jobId}`,
     });
+    try {
+      if (isBillingReservationFailure(reservation)) {
+        throw new HttpError(402, reservation.error.code, reservation.error.message);
+      }
+    } finally {
+      disposeRpcResult(reservation);
+    }
   } catch (error) {
     if (error instanceof BillingReservationError) {
       throw new HttpError(402, error.code, error.message);
@@ -331,13 +356,26 @@ async function refundPrepaidSubmissionCredits(
   reason: string,
 ): Promise<void> {
   const ledger = getWorkspaceBillingLedger(env, workspaceId);
-  await ledger.refundCreditReservation({
+  const result = await ledger.refundCreditReservation({
     workspaceId,
     extractionJobId: jobId,
     reason,
     idempotencyKey: `refund:${jobId}`,
     occurredAt: nowIso(),
   });
+  disposeRpcResult(result);
+}
+
+function isBillingReservationFailure(
+  result: ReserveCreditsForDocumentSubmissionResult,
+): result is ReserveCreditsForDocumentSubmissionFailure {
+  const error = (result as { error?: { code?: unknown; message?: unknown } }).error;
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    typeof error.code === "string" &&
+    typeof error.message === "string"
+  );
 }
 
 function getWorkspaceBillingLedger(env: Env, workspaceId: string): BillingLedgerRpc {

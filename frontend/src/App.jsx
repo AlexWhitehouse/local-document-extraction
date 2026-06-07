@@ -127,6 +127,35 @@ function AuthenticatedApp() {
   });
   const templates = templateController.templates;
   const isEditingTemplate = templateController.templatePage.isEditingTemplate;
+  const workspaceContext = workspaceController.context;
+  const activeVisiblePage =
+    adminVisiblePage === "billing"
+      ? "workspace"
+      : adminVisiblePage;
+  const isAcceptedWorkspacePage =
+    activeVisiblePage === "workspace" &&
+    !workspaceContext.isWorkspaceInvitationSelected;
+  const isWorkspaceBillingView =
+    isAcceptedWorkspacePage &&
+    workspaceContext.hasWorkspaceBillingAuthority &&
+    workspacePageView === "billing";
+  const billingController = useBillingController({
+    request,
+    workspaceId,
+    isActive:
+      isWorkspaceBillingView && workspaceContext.hasWorkspaceBillingAuthority,
+    hasWorkspaceBillingAuthority: workspaceContext.hasWorkspaceBillingAuthority,
+    addLog,
+    onSummaryLoaded: workspaceController.actions.listWorkspaces,
+  });
+
+  async function handleWorkspaceCapacityRefresh() {
+    const refreshes = [workspaceController.actions.listWorkspaces()];
+    if (isWorkspaceBillingView && workspaceContext.hasWorkspaceBillingAuthority) {
+      refreshes.push(billingController.onRefresh());
+    }
+    await Promise.all(refreshes);
+  }
 
   const documentController = useDocumentController({
     apiBase,
@@ -147,7 +176,7 @@ function AuthenticatedApp() {
     workspaceId,
     latestResponse,
     setLatestResponse,
-    onWorkspaceCapacityRefresh: workspaceController.actions.listWorkspaces,
+    onWorkspaceCapacityRefresh: handleWorkspaceCapacityRefresh,
     onActivePageChange: setActivePage,
   });
   const documents = documentController.contextList.documents;
@@ -179,18 +208,6 @@ function AuthenticatedApp() {
     }
   }
 
-  const workspaceContext = workspaceController.context;
-  const activeVisiblePage =
-    adminVisiblePage === "billing"
-      ? "workspace"
-      : adminVisiblePage;
-  const isAcceptedWorkspacePage =
-    activeVisiblePage === "workspace" &&
-    !workspaceContext.isWorkspaceInvitationSelected;
-  const isWorkspaceBillingView =
-    isAcceptedWorkspacePage &&
-    workspaceContext.hasWorkspaceBillingAuthority &&
-    workspacePageView === "billing";
   const adminController = useApplicationAdminController({
     authClient,
     request: coreRequest,
@@ -219,14 +236,6 @@ function AuthenticatedApp() {
     onClearSessionWorkspaceData: workspaceController.actions.clearSessionWorkspaceData,
   });
   const { authScreen, profileMenu } = authProfileController;
-  const billingController = useBillingController({
-    request,
-    workspaceId,
-    isActive:
-      isWorkspaceBillingView && workspaceContext.hasWorkspaceBillingAuthority,
-    hasWorkspaceBillingAuthority: workspaceContext.hasWorkspaceBillingAuthority,
-    addLog,
-  });
 
   useEffect(() => {
     setWorkspacePageView("dashboard");

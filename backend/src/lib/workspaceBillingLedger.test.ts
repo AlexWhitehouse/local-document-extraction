@@ -193,6 +193,154 @@ describe("WorkspaceBillingLedger Goodwill Credit grants", () => {
     });
   });
 
+  it("does not spend new Goodwill Credits on reservations covered by older Included Credit periods", async () => {
+    const ledger = createLedger();
+    const oldPeriod = {
+      start: "2026-06-01T23:54:20.265Z",
+      end: "2026-07-01T23:54:20.265Z",
+    };
+    const currentPeriod = {
+      start: "2026-06-02T00:00:00.000Z",
+      end: "2026-07-02T00:00:00.000Z",
+    };
+
+    await ledger.grantIncludedCredits({
+      workspaceId: "workspace_billing",
+      credits: 4,
+      billingPeriodStart: oldPeriod.start,
+      billingPeriodEnd: oldPeriod.end,
+      idempotencyKey: "included-old-period",
+      occurredAt: "2026-06-02T00:00:00.000Z",
+    });
+    for (let index = 1; index <= 4; index += 1) {
+      await ledger.reserveCreditsForDocumentSubmission({
+        workspaceId: "workspace_billing",
+        extractionJobId: `job_old_${index}`,
+        templateId: "template_test",
+        templateVersion: 3,
+        billableDocumentPages: 1,
+        billingPeriodStart: oldPeriod.start,
+        billingPeriodEnd: oldPeriod.end,
+        monthlyPageLimit: 500,
+        submittedAt: `2026-06-02T00:10:0${index}.000Z`,
+        authMode: "session",
+        actorUserId: "user_owner",
+        idempotencyKey: `submission-old-${index}`,
+      });
+    }
+    for (let index = 1; index <= 6; index += 1) {
+      await ledger.grantGoodwillCredits({
+        workspaceId: "workspace_billing",
+        credits: 1,
+        reason: "Support adjustment",
+        actorUserId: "user_admin",
+        idempotencyKey: `goodwill-current-${index}`,
+        occurredAt: `2026-06-07T16:0${index}:00.000Z`,
+      });
+    }
+    await ledger.reserveCreditsForDocumentSubmission({
+      workspaceId: "workspace_billing",
+      extractionJobId: "job_current_one",
+      templateId: "template_test",
+      templateVersion: 3,
+      billableDocumentPages: 1,
+      billingPeriodStart: currentPeriod.start,
+      billingPeriodEnd: currentPeriod.end,
+      monthlyPageLimit: 500,
+      submittedAt: "2026-06-07T16:06:10.458Z",
+      authMode: "session",
+      actorUserId: "user_owner",
+      idempotencyKey: "submission-current-one",
+    });
+    await ledger.reserveCreditsForDocumentSubmission({
+      workspaceId: "workspace_billing",
+      extractionJobId: "job_current_two",
+      templateId: "template_test",
+      templateVersion: 3,
+      billableDocumentPages: 2,
+      billingPeriodStart: currentPeriod.start,
+      billingPeriodEnd: currentPeriod.end,
+      monthlyPageLimit: 500,
+      submittedAt: "2026-06-07T16:06:20.458Z",
+      authMode: "session",
+      actorUserId: "user_owner",
+      idempotencyKey: "submission-current-two",
+    });
+
+    await expect(ledger.summarizeOwnerBilling({
+      billingPeriodStart: currentPeriod.start,
+      billingPeriodEnd: currentPeriod.end,
+      monthlyPageLimit: 500,
+    })).resolves.toMatchObject({
+      credits: {
+        included_available: 0,
+        purchased_available: 0,
+        goodwill_available: 3,
+        total_available: 3,
+      },
+      current_period: {
+        pages_used: 3,
+        pages_remaining: 497,
+      },
+    });
+  });
+
+  it("returns a prepaid reservation failure when Credits are unavailable", async () => {
+    const ledger = createLedger();
+
+    await expect(ledger.reserveCreditsForDocumentSubmission({
+      workspaceId: "workspace_billing",
+      extractionJobId: "job_prepaid",
+      templateId: "template_test",
+      templateVersion: 3,
+      billableDocumentPages: 1,
+      billingPeriodStart: "2026-05-01T00:00:00.000Z",
+      billingPeriodEnd: "2026-06-01T00:00:00.000Z",
+      monthlyPageLimit: 500,
+      submittedAt: "2026-05-15T12:00:00.000Z",
+      authMode: "api_key",
+      actorUserId: null,
+      idempotencyKey: "submission-job-prepaid",
+    })).resolves.toEqual({
+      error: {
+        code: "insufficient_credits",
+        message: "Workspace has insufficient Credits for this Document",
+      },
+    });
+  });
+
+  it("returns a prepaid reservation failure when Plan page capacity is exceeded", async () => {
+    const ledger = createLedger();
+    await ledger.grantGoodwillCredits({
+      workspaceId: "workspace_billing",
+      credits: 2,
+      reason: "Support adjustment for onboarding",
+      actorUserId: "user_admin",
+      idempotencyKey: "grant-request-1",
+      occurredAt: "2026-05-01T00:05:00.000Z",
+    });
+
+    await expect(ledger.reserveCreditsForDocumentSubmission({
+      workspaceId: "workspace_billing",
+      extractionJobId: "job_prepaid",
+      templateId: "template_test",
+      templateVersion: 3,
+      billableDocumentPages: 2,
+      billingPeriodStart: "2026-05-01T00:00:00.000Z",
+      billingPeriodEnd: "2026-06-01T00:00:00.000Z",
+      monthlyPageLimit: 1,
+      submittedAt: "2026-05-15T12:00:00.000Z",
+      authMode: "api_key",
+      actorUserId: null,
+      idempotencyKey: "submission-job-prepaid",
+    })).resolves.toEqual({
+      error: {
+        code: "plan_page_limit_exceeded",
+        message: "Workspace has exceeded remaining Plan page capacity",
+      },
+    });
+  });
+
   it("revokes only unspent Included Credits from the current billing period", async () => {
     const ledger = createLedger();
     const grant = await ledger.grantIncludedCredits({

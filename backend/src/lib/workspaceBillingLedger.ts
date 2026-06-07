@@ -255,7 +255,9 @@ export type ReserveCreditsForDocumentSubmissionInput = {
   idempotencyKey: string;
 };
 
-export type ReserveCreditsForDocumentSubmissionResult = {
+export type BillingReservationFailureCode = "insufficient_credits" | "plan_page_limit_exceeded";
+
+export type ReserveCreditsForDocumentSubmissionSuccess = {
   entry_id: string;
   reservation_id: string;
   workspace_id: string;
@@ -264,6 +266,17 @@ export type ReserveCreditsForDocumentSubmissionResult = {
   billable_document_pages: number;
   available_credits: number;
 };
+
+export type ReserveCreditsForDocumentSubmissionFailure = {
+  error: {
+    code: BillingReservationFailureCode;
+    message: string;
+  };
+};
+
+export type ReserveCreditsForDocumentSubmissionResult =
+  | ReserveCreditsForDocumentSubmissionSuccess
+  | ReserveCreditsForDocumentSubmissionFailure;
 
 export type RefundCreditReservationInput = {
   workspaceId: string;
@@ -361,7 +374,7 @@ export type EnterpriseUsageChargeSummary = {
 
 export class BillingReservationError extends Error {
   constructor(
-    readonly code: "insufficient_credits" | "plan_page_limit_exceeded",
+    readonly code: BillingReservationFailureCode,
     message: string,
   ) {
     super(message);
@@ -730,7 +743,7 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
     this.ensureSchema();
 
     if (!Number.isInteger(input.billableDocumentPages) || input.billableDocumentPages <= 0) {
-      throw new BillingReservationError("insufficient_credits", "Billable Document page count must be positive");
+      return billingReservationFailure("insufficient_credits", "Billable Document page count must be positive");
     }
 
     const existing = this.findEntryByIdempotencyKey(input.idempotencyKey);
@@ -748,7 +761,7 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
 
     const pagesUsed = this.calculateBillablePagesUsed(input.billingPeriodStart, input.billingPeriodEnd);
     if (pagesUsed + input.billableDocumentPages > input.monthlyPageLimit) {
-      throw new BillingReservationError(
+      return billingReservationFailure(
         "plan_page_limit_exceeded",
         "Workspace has exceeded remaining Plan page capacity",
       );
@@ -759,7 +772,7 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
       billingPeriodEnd: input.billingPeriodEnd,
       monthlyPageLimit: input.monthlyPageLimit,
     }).total_available < input.billableDocumentPages) {
-      throw new BillingReservationError(
+      return billingReservationFailure(
         "insufficient_credits",
         "Workspace has insufficient Credits for this Document",
       );
@@ -1291,30 +1304,18 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
   }
 
   private calculateCreditBucketsAvailable(input?: OwnerBillingSummaryInput): OwnerBillingSummary["credits"] {
-    const rows = input
-      ? this.ctx.storage.sql
-        .exec<{ type: LedgerEntryType; credits: number | null }>(
-          `SELECT type, COALESCE(SUM(credits), 0) AS credits
-           FROM ledger_entries
-           WHERE type IN ('goodwill_credit_grant', 'goodwill_credit_revocation', 'purchased_credit_grant', 'credit_reservation', 'credit_refund')
-              OR (
-                type IN ('included_credit_grant', 'included_credit_revocation')
-                AND billing_period_start = ?
-                AND billing_period_end = ?
-              )
-           GROUP BY type`,
-          input.billingPeriodStart,
-          input.billingPeriodEnd,
-        )
-        .toArray()
-      : this.ctx.storage.sql
-        .exec<{ type: LedgerEntryType; credits: number | null }>(
-          `SELECT type, COALESCE(SUM(credits), 0) AS credits
-           FROM ledger_entries
-           WHERE type IN ('goodwill_credit_grant', 'goodwill_credit_revocation', 'included_credit_grant', 'included_credit_revocation', 'purchased_credit_grant', 'credit_reservation', 'credit_refund')
-           GROUP BY type`,
-        )
-        .toArray();
+    if (input) {
+      return this.calculatePeriodAwareCreditBucketsAvailable(input);
+    }
+
+    const rows = this.ctx.storage.sql
+      .exec<{ type: LedgerEntryType; credits: number | null }>(
+        `SELECT type, COALESCE(SUM(credits), 0) AS credits
+         FROM ledger_entries
+         WHERE type IN ('goodwill_credit_grant', 'goodwill_credit_revocation', 'included_credit_grant', 'included_credit_revocation', 'purchased_credit_grant', 'credit_reservation', 'credit_refund')
+         GROUP BY type`,
+      )
+      .toArray();
     const creditsByType = new Map(rows.map((row) => [row.type, Number(row.credits || 0)]));
     const includedGranted = (creditsByType.get("included_credit_grant") || 0) +
       (creditsByType.get("included_credit_revocation") || 0);
@@ -1330,6 +1331,78 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
     const purchasedAvailable = Math.max(0, purchasedGranted - remainingSpend);
     remainingSpend = Math.max(0, remainingSpend - purchasedGranted);
     const goodwillAvailable = Math.max(0, goodwillGranted - remainingSpend);
+
+    return {
+      included_available: includedAvailable,
+      purchased_available: purchasedAvailable,
+      goodwill_available: goodwillAvailable,
+      total_available: includedAvailable + purchasedAvailable + goodwillAvailable,
+    };
+  }
+
+  private calculatePeriodAwareCreditBucketsAvailable(input: OwnerBillingSummaryInput): OwnerBillingSummary["credits"] {
+    const rows = this.ctx.storage.sql
+      .exec<{
+        type: LedgerEntryType;
+        billing_period_start: string | null;
+        billing_period_end: string | null;
+        credits: number | null;
+      }>(
+        `SELECT type,
+                billing_period_start,
+                billing_period_end,
+                COALESCE(SUM(credits), 0) AS credits
+         FROM ledger_entries
+         WHERE type IN ('goodwill_credit_grant', 'goodwill_credit_revocation', 'included_credit_grant', 'included_credit_revocation', 'purchased_credit_grant', 'credit_reservation', 'credit_refund')
+         GROUP BY type, billing_period_start, billing_period_end`,
+      )
+      .toArray();
+    const currentPeriodKey = billingPeriodKey(input.billingPeriodStart, input.billingPeriodEnd);
+    const includedCreditsByPeriod = new Map<string, number>();
+    const reservationCreditsByPeriod = new Map<string, number>();
+    let purchasedGranted = 0;
+    let goodwillGranted = 0;
+
+    for (const row of rows) {
+      const credits = Number(row.credits || 0);
+      if (row.type === "purchased_credit_grant") {
+        purchasedGranted += credits;
+        continue;
+      }
+      if (row.type === "goodwill_credit_grant" || row.type === "goodwill_credit_revocation") {
+        goodwillGranted += credits;
+        continue;
+      }
+
+      const periodKey = billingPeriodKey(row.billing_period_start, row.billing_period_end);
+      if (row.type === "included_credit_grant" || row.type === "included_credit_revocation") {
+        includedCreditsByPeriod.set(
+          periodKey,
+          (includedCreditsByPeriod.get(periodKey) || 0) + credits,
+        );
+        continue;
+      }
+      if (row.type === "credit_reservation" || row.type === "credit_refund") {
+        reservationCreditsByPeriod.set(
+          periodKey,
+          (reservationCreditsByPeriod.get(periodKey) || 0) + credits,
+        );
+      }
+    }
+
+    let persistentSpend = 0;
+    for (const [periodKey, reservationCredits] of reservationCreditsByPeriod) {
+      const spend = Math.max(0, -reservationCredits);
+      const periodIncludedCredits = Math.max(0, includedCreditsByPeriod.get(periodKey) || 0);
+      persistentSpend += Math.max(0, spend - periodIncludedCredits);
+    }
+
+    const currentPeriodIncludedCredits = includedCreditsByPeriod.get(currentPeriodKey) || 0;
+    const currentPeriodSpend = Math.max(0, -(reservationCreditsByPeriod.get(currentPeriodKey) || 0));
+    const includedAvailable = Math.max(0, currentPeriodIncludedCredits - currentPeriodSpend);
+    const purchasedAvailable = Math.max(0, purchasedGranted - persistentSpend);
+    const remainingPersistentSpend = Math.max(0, persistentSpend - purchasedGranted);
+    const goodwillAvailable = Math.max(0, goodwillGranted - remainingPersistentSpend);
 
     return {
       included_available: includedAvailable,
@@ -1520,6 +1593,18 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
   }
 }
 
+function billingReservationFailure(
+  code: BillingReservationFailureCode,
+  message: string,
+): ReserveCreditsForDocumentSubmissionFailure {
+  return {
+    error: {
+      code,
+      message,
+    },
+  };
+}
+
 function ownerBillingActivityFromEntry(entry: LedgerEntryRow): OwnerBillingSummary["owner_billing_activity"][number] {
   const base = {
     id: entry.id,
@@ -1681,6 +1766,10 @@ function addUtcHours(value: Date, hours: number): Date {
 
 function addUtcMonths(value: Date, months: number): Date {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() + months, 1));
+}
+
+function billingPeriodKey(start: string | null | undefined, end: string | null | undefined): string {
+  return `${String(start || "")}::${String(end || "")}`;
 }
 
 function formatUtcDayMonthLabel(value: Date): string {
