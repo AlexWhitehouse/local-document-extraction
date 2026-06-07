@@ -511,6 +511,50 @@ export function useWorkspaceController({
     void listWorkspaces().catch(() => {});
   }
 
+  async function refreshSelectedWorkspaceContext() {
+    const targetWorkspaceId = workspaceIdRef.current.trim();
+    if (!hasSessionRef.current || !targetWorkspaceId || !requestRef.current) {
+      return null;
+    }
+
+    try {
+      const data = await requestRef.current(
+        `/workspaces/${encodeURIComponent(targetWorkspaceId)}/context`,
+        { method: "GET" },
+        true,
+        false,
+      );
+      const refreshedWorkspace = data?.workspace;
+      if (!refreshedWorkspace?.id) {
+        return null;
+      }
+
+      setUserWorkspaces((prev) => {
+        const workspaces = Array.isArray(prev) ? prev : [];
+        const refreshedWorkspaceId = String(refreshedWorkspace.id || "");
+        let didReplace = false;
+        const next = workspaces.map((workspace) => {
+          if (String(workspace?.id || "") !== refreshedWorkspaceId) {
+            return workspace;
+          }
+          didReplace = true;
+          return refreshedWorkspace;
+        });
+        return didReplace ? next : [...next, refreshedWorkspace];
+      });
+      applyWorkspaceContextUpdateRef.current?.(
+        selectAcceptedWorkspaceContext({ workspace: refreshedWorkspace }),
+      );
+      setWorkspaceResolutionStatus("resolved");
+      return refreshedWorkspace;
+    } catch (error) {
+      if (error.status === 403 || error.status === 404) {
+        return listWorkspaces();
+      }
+      throw error;
+    }
+  }
+
   async function recoverForbiddenWorkspaceAccess() {
     if (isRecoveringForbiddenWorkspaceRef.current) {
       return;
@@ -1118,6 +1162,7 @@ export function useWorkspaceController({
     actions: {
       clearSessionWorkspaceData,
       recoverForbiddenWorkspaceAccess,
+      refreshSelectedWorkspaceContext,
       listWorkspaces,
     },
   };

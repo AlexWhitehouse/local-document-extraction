@@ -11,11 +11,16 @@ import {
 import { BillingReservationError } from "../lib/workspaceBillingLedger";
 import { countAcceptedWorkspaceMemberships } from "../lib/workspaceBillingAuthority";
 import { emitWorkspaceProductAnalytics } from "../lib/workspaceProductAnalytics";
-import { getWorkspaceProductStore, isWorkspaceProductStoreFailure } from "../lib/workspaceProductStoreClient";
+import {
+  getWorkspaceProductStore,
+  isWorkspaceProductStoreFailure,
+  type WorkspaceProductStoreRpc,
+} from "../lib/workspaceProductStoreClient";
 import type { AuthContext } from "../lib/auth";
 import type { QueueJobMessage, Workspace } from "../lib/types";
 import type {
   RefundCreditReservationInput,
+  RefundCreditReservationResult,
   RecordEnterpriseUsageChargeInput,
   RecordNoBillingUsageInput,
   ReserveCreditsForDocumentSubmissionInput,
@@ -44,7 +49,7 @@ type BillingLedgerRpc = IncludedCreditGrantLedger & {
   ): Promise<ReserveCreditsForDocumentSubmissionResult>;
   recordNoBillingUsage(input: RecordNoBillingUsageInput): Promise<unknown>;
   recordEnterpriseUsageCharge(input: RecordEnterpriseUsageChargeInput): Promise<unknown>;
-  refundCreditReservation(input: RefundCreditReservationInput): Promise<unknown>;
+  refundCreditReservation(input: RefundCreditReservationInput): Promise<RefundCreditReservationResult | null>;
 };
 
 export async function createExtractionJob(request: Request, env: Env, authContext: AuthContext): Promise<Response> {
@@ -87,7 +92,7 @@ export async function createExtractionJob(request: Request, env: Env, authContex
       }
     });
   } catch (error) {
-    await refundPrepaidSubmissionCredits(env, workspace.id, jobId, "Source file storage failed");
+    await refundPrepaidSubmissionCredits(env, productStore, workspace.id, jobId, "Source file storage failed");
     throw error;
   }
 
@@ -107,7 +112,7 @@ export async function createExtractionJob(request: Request, env: Env, authContex
     }
   } catch (error) {
     await env.SOURCE_FILES_BUCKET.delete(objectKey);
-    await refundPrepaidSubmissionCredits(env, workspace.id, jobId, "Queued Extraction job creation failed");
+    await refundPrepaidSubmissionCredits(env, productStore, workspace.id, jobId, "Queued Extraction job creation failed");
     throw error;
   }
 
@@ -132,10 +137,12 @@ export async function createExtractionJob(request: Request, env: Env, authContex
       });
     } finally {
       await env.SOURCE_FILES_BUCKET.delete(objectKey);
-      await refundPrepaidSubmissionCredits(env, workspace.id, jobId, "Queue send failed");
+      await refundPrepaidSubmissionCredits(env, productStore, workspace.id, jobId, "Queue send failed");
     }
     throw error;
   }
+
+  await emitBillingUsageInvalidation(productStore);
 
   emitWorkspaceProductAnalytics(env, {
     type: "document_submitted",
@@ -326,16 +333,31 @@ async function reservePrepaidSubmissionCredits(
 
 async function refundPrepaidSubmissionCredits(
   env: Env,
+  productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
   workspaceId: string,
   jobId: string,
   reason: string,
 ): Promise<void> {
   const ledger = getWorkspaceBillingLedger(env, workspaceId);
-  await ledger.refundCreditReservation({
+  const refund = await ledger.refundCreditReservation({
     workspaceId,
     extractionJobId: jobId,
     reason,
     idempotencyKey: `refund:${jobId}`,
+    occurredAt: nowIso(),
+  });
+  if (!refund) {
+    return;
+  }
+
+  await emitBillingUsageInvalidation(productStore);
+}
+
+async function emitBillingUsageInvalidation(
+  productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
+): Promise<void> {
+  await productStore.broadcastWorkspaceContextInvalidation({
+    reason: "billing_usage",
     occurredAt: nowIso(),
   });
 }

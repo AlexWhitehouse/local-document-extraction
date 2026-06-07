@@ -10,6 +10,11 @@ import {
   reconcileActivePlanOverrideIncludedCredits,
   type IncludedCreditGrantLedger,
 } from "../lib/workspaceBillingIncludedCredits";
+import {
+  getWorkspaceProductStore,
+  type WorkspaceContextInvalidationReason,
+  type WorkspaceProductStoreRpc,
+} from "../lib/workspaceProductStoreClient";
 import type { Workspace } from "../lib/types";
 
 const OWNER_BILLING_ACTIVITY_PAGE_SIZE = 5;
@@ -731,6 +736,7 @@ export async function startSubscriptionChangeForUser(
       workspaceId,
       now: new Date().toISOString(),
     });
+    await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_entitlement");
     return json({
       subscription_id: String(control?.stripe_subscription_id || "").trim(),
       target_plan: targetPlan,
@@ -767,6 +773,7 @@ export async function startSubscriptionChangeForUser(
       effectiveAt,
       now: new Date().toISOString(),
     });
+    await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_entitlement");
 
     return json({
       subscription_id: subscription.id,
@@ -891,6 +898,7 @@ export async function cancelScheduledSubscriptionChangeForUser(
     workspaceId,
     now: new Date().toISOString(),
   });
+  await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_entitlement");
 
   return json({
     subscription_id: subscription.id,
@@ -932,6 +940,9 @@ export async function handleStripeBillingWebhook(request: Request, env: Env): Pr
     }
 
     processingResult = await processSupportedStripeBillingEvent(env, event);
+    if (processingResult.workspaceId) {
+      await emitStripeBillingWorkspaceContextInvalidations(env, processingResult.workspaceId, processingResult);
+    }
   } catch (error) {
     const failure = error instanceof HttpError
       ? error
@@ -965,6 +976,21 @@ export async function handleStripeBillingWebhook(request: Request, env: Env): Pr
   });
 
   return json({ received: true });
+}
+
+async function emitStripeBillingWorkspaceContextInvalidations(
+  env: Env,
+  workspaceId: string,
+  processingResult: Pick<
+    StripeBillingEventProcessingResult,
+    "workspaceContextInvalidationReason" | "workspaceContextInvalidationReasons"
+  >,
+): Promise<void> {
+  const invalidationReasons = processingResult.workspaceContextInvalidationReasons ||
+    (processingResult.workspaceContextInvalidationReason ? [processingResult.workspaceContextInvalidationReason] : []);
+  for (const reason of new Set(invalidationReasons)) {
+    await emitBillingWorkspaceContextInvalidation(env, workspaceId, reason);
+  }
 }
 
 async function processSupportedStripeBillingEvent(
@@ -1105,7 +1131,11 @@ async function processStripeSubscriptionLifecycleEvent(
       currentPeriodEnd: subscriptionItem.currentPeriodEnd,
       now: new Date().toISOString(),
     });
-    return { workspaceId, relatedStripeObjectId: subscriptionId };
+    return {
+      workspaceId,
+      relatedStripeObjectId: subscriptionId,
+      workspaceContextInvalidationReason: "billing_entitlement",
+    };
   }
 
   const status = String(subscription.status || "").trim() === "active" ? "active" : null;
@@ -1136,7 +1166,11 @@ async function processStripeSubscriptionLifecycleEvent(
     });
   }
 
-  return { workspaceId, relatedStripeObjectId: subscriptionId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: subscriptionId,
+    workspaceContextInvalidationReason: "billing_entitlement",
+  };
 }
 
 async function recordSubscriptionLifecycleDrift(
@@ -1620,6 +1654,7 @@ export async function grantGoodwillCreditsForApplicationAdmin(
     after: { total_available: afterSummary.credits.total_available },
     occurred_at: occurredAt,
   });
+  await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_usage");
 
   return json({
     grant_id: result.grant_id,
@@ -1627,6 +1662,25 @@ export async function grantGoodwillCreditsForApplicationAdmin(
     granted_credits: result.granted_credits,
     available_credits: result.available_credits,
   }, 201);
+}
+
+async function emitBillingWorkspaceContextInvalidation(
+  env: Env,
+  workspaceId: string,
+  reason: WorkspaceContextInvalidationReason,
+): Promise<void> {
+  const productStore = getWorkspaceProductStore(env, workspaceId);
+  await emitBillingWorkspaceContextInvalidationToStore(productStore, reason);
+}
+
+async function emitBillingWorkspaceContextInvalidationToStore(
+  productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
+  reason: WorkspaceContextInvalidationReason,
+): Promise<void> {
+  await productStore.broadcastWorkspaceContextInvalidation({
+    reason,
+    occurredAt: new Date().toISOString(),
+  });
 }
 
 export async function revokeGoodwillCreditGrantForApplicationAdmin(
@@ -1678,6 +1732,7 @@ export async function revokeGoodwillCreditGrantForApplicationAdmin(
     after: { total_available: afterSummary.credits.total_available },
     occurred_at: occurredAt,
   });
+  await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_usage");
 
   return json({
     revocation_id: result.revocation_id,
@@ -1813,6 +1868,7 @@ export async function createNoPaymentPlanOverrideForApplicationAdmin(
     after: planOverrideAuditSnapshot(afterControl),
     occurred_at: now,
   });
+  await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_entitlement");
 
   const planDefinition = NON_ENTERPRISE_BILLING_PLANS[plan];
   return json({
@@ -1927,6 +1983,7 @@ export async function createPaymentRequiredPlanOverrideForApplicationAdmin(
     after: paymentRequiredPlanOverrideAuditSnapshot(afterControl),
     occurred_at: now,
   });
+  await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_entitlement");
 
   const state = buildPaymentRequiredPlanOverrideState(afterControl);
   if (!state) {
@@ -2009,6 +2066,7 @@ export async function createEnterpriseRampUpForApplicationAdmin(
     after: enterpriseRampUpAuditSnapshot(afterControl),
     occurred_at: now,
   });
+  await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_entitlement");
 
   const enterpriseRampUp = buildEnterpriseRampUpState(afterControl);
   if (!enterpriseRampUp) {
@@ -2127,6 +2185,7 @@ export async function createEnterpriseAnnualCommitmentForApplicationAdmin(
     after: enterpriseAnnualCommitmentAuditSnapshot(afterControl),
     occurred_at: now,
   });
+  await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_entitlement");
 
   const enterpriseAnnualCommitment = buildEnterpriseAnnualCommitmentState(afterControl);
   if (!enterpriseAnnualCommitment) {
@@ -2190,6 +2249,7 @@ export async function updateNoBillingModeForApplicationAdmin(
     after: noBillingAuditSnapshot(afterControl),
     occurred_at: now,
   });
+  await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_entitlement");
 
   const summary = summarizeWorkspaceBilling(workspace, afterControl, new Date(now));
   return json({
@@ -4031,6 +4091,8 @@ type StripeBillingEventProcessingResult = {
   workspaceId?: string;
   relatedStripeObjectId?: string;
   diagnosticDetails?: Record<string, unknown> | null;
+  workspaceContextInvalidationReason?: WorkspaceContextInvalidationReason;
+  workspaceContextInvalidationReasons?: WorkspaceContextInvalidationReason[];
 };
 
 type StripeInvoiceReference = {
@@ -4222,7 +4284,11 @@ async function processCreditPackCheckoutCompleted(
     occurredAt: new Date().toISOString(),
   });
 
-  return { workspaceId, relatedStripeObjectId: checkoutSessionId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: checkoutSessionId,
+    workspaceContextInvalidationReason: "billing_usage",
+  };
 }
 
 async function processCreditPackCheckoutAsyncPaymentFailed(
@@ -4312,7 +4378,11 @@ async function processCreditPackInvoicePaid(
     occurredAt: new Date().toISOString(),
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_usage",
+  };
 }
 
 async function repairPaidCreditPackCheckoutSession(
@@ -4900,18 +4970,29 @@ async function processPaymentRequiredPlanOverrideInvoicePaid(
   });
   const afterControl = await getWorkspaceBillingControl(env.DB, workspaceId);
   await grantCurrentOverrideIncludedCredits(env, workspace, afterControl, new Date(now));
-  await recordApplicationAdminBillingAuditEntry(env.DB, {
-    id: createAuditEntryId(),
-    workspace_id: workspaceId,
-    action: "payment_required_plan_override_payment_updated",
-    actor_user_id: String(beforeControl?.payment_required_plan_override_created_by_user_id || "stripe"),
-    reason: String(beforeControl?.payment_required_plan_override_reason || "Payment-required Plan override invoice paid"),
-    before: paymentRequiredPlanOverrideAuditSnapshot(beforeControl),
-    after: paymentRequiredPlanOverrideAuditSnapshot(afterControl),
-    occurred_at: now,
-  });
+  try {
+    await recordApplicationAdminBillingAuditEntry(env.DB, {
+      id: createAuditEntryId(),
+      workspace_id: workspaceId,
+      action: "payment_required_plan_override_payment_updated",
+      actor_user_id: String(beforeControl?.payment_required_plan_override_created_by_user_id || "stripe"),
+      reason: String(beforeControl?.payment_required_plan_override_reason || "Payment-required Plan override invoice paid"),
+      before: paymentRequiredPlanOverrideAuditSnapshot(beforeControl),
+      after: paymentRequiredPlanOverrideAuditSnapshot(afterControl),
+      occurred_at: now,
+    });
+  } catch (error) {
+    await emitStripeBillingWorkspaceContextInvalidations(env, workspaceId, {
+      workspaceContextInvalidationReasons: ["billing_entitlement", "billing_usage"],
+    });
+    throw error;
+  }
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReasons: ["billing_entitlement", "billing_usage"],
+  };
 }
 
 async function processPaymentRequiredPlanOverrideInvoiceStatusUpdated(
@@ -4974,7 +5055,11 @@ async function processPaymentRequiredPlanOverrideInvoiceStatusUpdated(
     occurred_at: now,
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_entitlement",
+  };
 }
 
 async function processEnterpriseAnnualUpfrontInvoicePaid(
@@ -5011,7 +5096,11 @@ async function processEnterpriseAnnualUpfrontInvoicePaid(
     now,
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_entitlement",
+  };
 }
 
 async function processEnterpriseAnnualUpfrontInvoiceStatusUpdated(
@@ -5047,7 +5136,11 @@ async function processEnterpriseAnnualUpfrontInvoiceStatusUpdated(
     now: new Date().toISOString(),
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_entitlement",
+  };
 }
 
 async function processEnterpriseAnnualOverageInvoicePaid(
@@ -5090,7 +5183,11 @@ async function processEnterpriseAnnualOverageInvoicePaid(
     now: now.toISOString(),
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_entitlement",
+  };
 }
 
 async function processEnterpriseAnnualOverageInvoiceUnpaidState(
@@ -5127,7 +5224,11 @@ async function processEnterpriseAnnualOverageInvoiceUnpaidState(
     now: new Date().toISOString(),
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_entitlement",
+  };
 }
 
 async function processEnterpriseRampUpInvoicePaid(
@@ -5170,7 +5271,11 @@ async function processEnterpriseRampUpInvoicePaid(
     now: now.toISOString(),
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_entitlement",
+  };
 }
 
 async function processEnterpriseRampUpInvoiceUnpaidState(
@@ -5207,7 +5312,11 @@ async function processEnterpriseRampUpInvoiceUnpaidState(
     now: new Date().toISOString(),
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_entitlement",
+  };
 }
 
 async function processSubscriptionInvoicePaid(
@@ -5284,7 +5393,11 @@ async function processSubscriptionInvoicePaid(
     });
   }
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReasons: ["billing_entitlement", "billing_usage"],
+  };
 }
 
 async function processSubscriptionManualCollectionInvoiceFinalized(
@@ -5342,7 +5455,11 @@ async function processSubscriptionManualCollectionInvoiceFinalized(
     now: new Date().toISOString(),
   });
 
-  return { workspaceId, relatedStripeObjectId: invoiceId };
+  return {
+    workspaceId,
+    relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_entitlement",
+  };
 }
 
 async function calculateIncludedCreditUpgradeGrant(
@@ -5443,6 +5560,7 @@ async function processSubscriptionInvoiceUnpaidState(
   return {
     workspaceId,
     relatedStripeObjectId: invoiceId,
+    workspaceContextInvalidationReason: "billing_entitlement",
     diagnosticDetails: invoiceDiagnostics
       ? {
           payment_outcome: fallbackInvoiceStatus,
@@ -5505,6 +5623,7 @@ async function scheduleFreeSubscriptionDowngrade(
     effectiveAt,
     now: new Date().toISOString(),
   });
+  await emitBillingWorkspaceContextInvalidation(env, workspaceId, "billing_entitlement");
 
   return {
     subscription_id: subscription.id,

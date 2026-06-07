@@ -19,6 +19,7 @@ import {
   createWorkspaceForUser as createWorkspaceForUserPolicy,
   declineWorkspaceInvitation as declineWorkspaceInvitationPolicy,
   inviteWorkspaceMember as inviteWorkspaceMemberPolicy,
+  getWorkspaceContextForUser as getWorkspaceContextForUserPolicy,
   leaveWorkspaceForUser as leaveWorkspaceForUserPolicy,
   listManageableWorkspaceInvitationsForUser as listManageableWorkspaceInvitationsForUserPolicy,
   listPendingWorkspaceInvitationsForEmail as listPendingWorkspaceInvitationsForEmailPolicy,
@@ -33,6 +34,8 @@ import {
 import type { WorkspaceListing } from "../lib/workspacePolicy";
 import { parseJsonBody } from "../lib/validation";
 import { createWorkspaceProductStarterInvoiceTemplate } from "../lib/starterTemplateAdapter";
+import { getWorkspaceProductStore } from "../lib/workspaceProductStoreClient";
+import type { WorkspaceProductStoreRpc } from "../lib/workspaceProductStoreClient";
 
 type BillingLedgerSummaryRpc = IncludedCreditGrantLedger & {
   summarizeOwnerBilling(input?: {
@@ -103,6 +106,20 @@ export async function listWorkspacesForUser(env: Env, userId: string, userName?:
     workspaces = await listWorkspacesForUserPolicy(env.DB, { userId });
   }
   return json({ workspaces: await attachBillingOperationalStatus(env, workspaces) });
+}
+
+export async function getSelectedWorkspaceContextForUser(
+  env: Env,
+  workspaceId: string,
+  userId: string
+): Promise<Response> {
+  const workspace = await getWorkspaceContextForUserPolicy(env.DB, { workspaceId, userId });
+  if (!workspace) {
+    throw new HttpError(403, "forbidden", "You do not have access to this workspace");
+  }
+
+  const [workspaceWithBillingStatus] = await attachBillingOperationalStatus(env, [workspace]);
+  return json({ workspace: workspaceWithBillingStatus });
 }
 
 async function attachBillingOperationalStatus(env: Env, workspaces: WorkspaceListing[]): Promise<WorkspaceListing[]> {
@@ -348,13 +365,13 @@ async function retainWorkspaceBillingRecordForDeletion(
 
 export async function leaveWorkspaceForUser(env: Env, workspaceId: string, userId: string, userName?: string | null): Promise<Response> {
   try {
-    return json(
-      await leaveWorkspaceForUserPolicy(
-        env.DB,
-        { workspaceId, userId, userName },
-        createWorkspaceProductStarterInvoiceTemplate(env)
-      )
+    const result = await leaveWorkspaceForUserPolicy(
+      env.DB,
+      { workspaceId, userId, userName },
+      createWorkspaceProductStarterInvoiceTemplate(env)
     );
+    await handleWorkspaceMembershipCountChanged(env, workspaceId, userId);
+    return json(result);
   } catch (error) {
     mapWorkspacePolicyError(error);
   }
@@ -469,10 +486,50 @@ export async function updateWorkspaceUserRoleForUser(
     if (action === "make_owner" && "role" in result && result.role === "owner") {
       await updateStripeCustomerContactForNewWorkspaceOwner(env, workspaceId, targetUserId);
     }
+    if ("action" in result && result.action === "remove_user") {
+      await handleWorkspaceMembershipCountChanged(env, workspaceId, targetUserId);
+    }
     return json(result);
   } catch (error) {
     mapWorkspacePolicyError(error);
   }
+}
+
+async function handleWorkspaceMembershipCountChanged(
+  env: Env,
+  workspaceId: string,
+  affectedUserId?: string,
+): Promise<void> {
+  const productStore = getWorkspaceProductStore(env, workspaceId);
+  const userId = String(affectedUserId || "").trim();
+  if (userId) {
+    const closedSockets = await productStore.closeWorkspaceLiveUpdateSocketsForUser({
+      userId,
+      reason: "Workspace access changed",
+    });
+    if (closedSockets === 0) {
+      await emitWorkspaceAccessInvalidation(productStore);
+    }
+  }
+  await emitMemberLimitInvalidation(productStore);
+}
+
+async function emitMemberLimitInvalidation(
+  productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
+): Promise<void> {
+  await productStore.broadcastWorkspaceContextInvalidation({
+    reason: "member_limits",
+    occurredAt: nowIso(),
+  });
+}
+
+async function emitWorkspaceAccessInvalidation(
+  productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
+): Promise<void> {
+  await productStore.broadcastWorkspaceContextInvalidation({
+    reason: "workspace_access",
+    occurredAt: nowIso(),
+  });
 }
 
 async function updateStripeCustomerContactForNewWorkspaceOwner(
@@ -585,7 +642,9 @@ export async function acceptInvitation(
   userEmail: string
 ): Promise<Response> {
   try {
-    return json(await acceptWorkspaceInvitationPolicy(env.DB, { invitationId, userId, userEmail }));
+    const result = await acceptWorkspaceInvitationPolicy(env.DB, { invitationId, userId, userEmail });
+    await handleWorkspaceMembershipCountChanged(env, result.workspace_id);
+    return json(result);
   } catch (error) {
     mapWorkspacePolicyError(error);
   }
