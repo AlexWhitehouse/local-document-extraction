@@ -255,7 +255,9 @@ export type ReserveCreditsForDocumentSubmissionInput = {
   idempotencyKey: string;
 };
 
-export type ReserveCreditsForDocumentSubmissionResult = {
+export type BillingReservationFailureCode = "insufficient_credits" | "plan_page_limit_exceeded";
+
+export type ReserveCreditsForDocumentSubmissionSuccess = {
   entry_id: string;
   reservation_id: string;
   workspace_id: string;
@@ -264,6 +266,17 @@ export type ReserveCreditsForDocumentSubmissionResult = {
   billable_document_pages: number;
   available_credits: number;
 };
+
+export type ReserveCreditsForDocumentSubmissionFailure = {
+  error: {
+    code: BillingReservationFailureCode;
+    message: string;
+  };
+};
+
+export type ReserveCreditsForDocumentSubmissionResult =
+  | ReserveCreditsForDocumentSubmissionSuccess
+  | ReserveCreditsForDocumentSubmissionFailure;
 
 export type RefundCreditReservationInput = {
   workspaceId: string;
@@ -361,7 +374,7 @@ export type EnterpriseUsageChargeSummary = {
 
 export class BillingReservationError extends Error {
   constructor(
-    readonly code: "insufficient_credits" | "plan_page_limit_exceeded",
+    readonly code: BillingReservationFailureCode,
     message: string,
   ) {
     super(message);
@@ -730,7 +743,7 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
     this.ensureSchema();
 
     if (!Number.isInteger(input.billableDocumentPages) || input.billableDocumentPages <= 0) {
-      throw new BillingReservationError("insufficient_credits", "Billable Document page count must be positive");
+      return billingReservationFailure("insufficient_credits", "Billable Document page count must be positive");
     }
 
     const existing = this.findEntryByIdempotencyKey(input.idempotencyKey);
@@ -748,7 +761,7 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
 
     const pagesUsed = this.calculateBillablePagesUsed(input.billingPeriodStart, input.billingPeriodEnd);
     if (pagesUsed + input.billableDocumentPages > input.monthlyPageLimit) {
-      throw new BillingReservationError(
+      return billingReservationFailure(
         "plan_page_limit_exceeded",
         "Workspace has exceeded remaining Plan page capacity",
       );
@@ -759,7 +772,7 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
       billingPeriodEnd: input.billingPeriodEnd,
       monthlyPageLimit: input.monthlyPageLimit,
     }).total_available < input.billableDocumentPages) {
-      throw new BillingReservationError(
+      return billingReservationFailure(
         "insufficient_credits",
         "Workspace has insufficient Credits for this Document",
       );
@@ -1376,7 +1389,7 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
     const currentPeriodKey = billingPeriodKey(input.billingPeriodStart, input.billingPeriodEnd);
     let currentIncludedAvailable = 0;
     for (const periodKey of periodKeys) {
-      const includedGranted = includedByPeriod.get(periodKey) || 0;
+      const includedGranted = Math.max(0, includedByPeriod.get(periodKey) || 0);
       const reservationSpend = Math.max(0, -(reservationNetByPeriod.get(periodKey) || 0));
       const includedAvailable = Math.max(0, includedGranted - reservationSpend);
       if (periodKey === currentPeriodKey) {
@@ -1578,6 +1591,18 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
   }
 }
 
+function billingReservationFailure(
+  code: BillingReservationFailureCode,
+  message: string,
+): ReserveCreditsForDocumentSubmissionFailure {
+  return {
+    error: {
+      code,
+      message,
+    },
+  };
+}
+
 function ownerBillingActivityFromEntry(entry: LedgerEntryRow): OwnerBillingSummary["owner_billing_activity"][number] {
   const base = {
     id: entry.id,
@@ -1610,10 +1635,6 @@ function ownerBillingActivityFromEntry(entry: LedgerEntryRow): OwnerBillingSumma
   }
 
   return baseWithInvoice;
-}
-
-function billingPeriodKey(start: string | null | undefined, end: string | null | undefined): string {
-  return `${String(start || "")}\n${String(end || "")}`;
 }
 
 function ownerBillingInvoiceFromEntry(entry: LedgerEntryRow): OwnerBillingActivity["invoice"] | null {
@@ -1743,6 +1764,10 @@ function addUtcHours(value: Date, hours: number): Date {
 
 function addUtcMonths(value: Date, months: number): Date {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() + months, 1));
+}
+
+function billingPeriodKey(start: string | null | undefined, end: string | null | undefined): string {
+  return `${String(start || "")}::${String(end || "")}`;
 }
 
 function formatUtcDayMonthLabel(value: Date): string {

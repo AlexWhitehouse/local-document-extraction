@@ -3,6 +3,7 @@ import {
   summarizeWorkspaceBilling,
   type WorkspaceBillingControl,
 } from "./workspaceBilling";
+import { disposeRpcResult } from "./rpcDisposal";
 import type { Workspace } from "./types";
 
 type IncludedCreditGrantLookup = {
@@ -85,8 +86,9 @@ export async function reconcileActivePlanOverrideIncludedCredits(
     billingPeriodEnd: summary.current_period.end,
     monthlyPageLimit: summary.current_period.monthly_page_limit,
   });
-  const targetIncludedCredits = Number(planDefinition?.included_credits || 0);
   const includedAvailable = Number(ledgerSummary.credits.included_available || 0);
+  disposeRpcResult(ledgerSummary);
+  const targetIncludedCredits = Number(planDefinition?.included_credits || 0);
   if (includedAvailable === targetIncludedCredits) {
     return null;
   }
@@ -95,7 +97,7 @@ export async function reconcileActivePlanOverrideIncludedCredits(
     `${normalizeIsoDate(input.control?.plan_override_start_at) || summary.current_period.start}:${normalizeIsoDate(input.control?.plan_override_end_at) || summary.current_period.end}`;
   if (includedAvailable > targetIncludedCredits) {
     const creditsToRevoke = includedAvailable - targetIncludedCredits;
-    await input.ledger.revokeIncludedCredits({
+    const result = await input.ledger.revokeIncludedCredits({
       workspaceId: input.workspace.id,
       credits: creditsToRevoke,
       billingPeriodStart: summary.current_period.start,
@@ -103,19 +105,28 @@ export async function reconcileActivePlanOverrideIncludedCredits(
       idempotencyKey: `plan-override-included-revoke:${input.workspace.id}:${plan}:${summary.current_period.start}:${summary.current_period.end}:${overrideIdentity}:${includedAvailable}:to:${targetIncludedCredits}`,
       occurredAt: input.now.toISOString(),
     });
+    disposeRpcResult(result);
     return null;
   }
 
   const idempotencyKey = `plan-override-included:${input.workspace.id}:${plan}:${summary.current_period.start}:${summary.current_period.end}:${overrideIdentity}`;
   const existing = await input.ledger.findIncludedCreditGrant?.({ idempotencyKey });
-  if (existing?.exists) {
-    return null;
+  try {
+    if (existing?.exists) {
+      return null;
+    }
+  } finally {
+    disposeRpcResult(existing);
   }
   const legacyExisting = await input.ledger.findIncludedCreditGrant?.({
     idempotencyKey: `plan-override-included:${input.workspace.id}:${plan}:${summary.current_period.start}:${summary.current_period.end}`,
   });
-  if (isGrantForCurrentOverride(legacyExisting, overrideCreatedAt)) {
-    return null;
+  try {
+    if (isGrantForCurrentOverride(legacyExisting, overrideCreatedAt)) {
+      return null;
+    }
+  } finally {
+    disposeRpcResult(legacyExisting);
   }
   const creditsToGrant = Math.max(
     0,
@@ -133,10 +144,12 @@ export async function reconcileActivePlanOverrideIncludedCredits(
     idempotencyKey,
     occurredAt: input.now.toISOString(),
   });
-  return {
+  const grantResult = {
     granted_credits: result.granted_credits,
     available_credits: result.available_credits,
   };
+  disposeRpcResult(result);
+  return grantResult;
 }
 
 function isGrantForCurrentOverride(

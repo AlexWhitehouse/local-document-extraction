@@ -159,6 +159,8 @@ describe("Extraction submission route", () => {
 
   it("emits billing-usage Workspace context invalidation after accepting a Document submission", async () => {
     const productStore = createQueueingProductStoreStub();
+    const dispose = vi.fn();
+    productStore.broadcastWorkspaceContextInvalidation.mockResolvedValue({ dispose });
     const env = createExtractEnv({
       WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
     });
@@ -170,6 +172,7 @@ describe("Extraction submission route", () => {
       reason: "billing_usage",
       occurredAt: expect.any(String),
     });
+    expect(dispose).toHaveBeenCalledOnce();
   });
 
   it("reserves prepaid Credits and Plan page capacity before accepting a PDF Document submission", async () => {
@@ -460,6 +463,46 @@ describe("Extraction submission route", () => {
     expect(analytics.writeDataPoint).not.toHaveBeenCalled();
   });
 
+  it("maps returned billing reservation Credit failures before durable side effects", async () => {
+    const productStore = createQueueingProductStoreStub();
+    const analytics = createAnalyticsBinding();
+    const dispose = vi.fn();
+    const reserveCreditsForDocumentSubmission = vi.fn(async () => ({
+      error: {
+        code: "insufficient_credits",
+        message: "Workspace has insufficient Credits for this Document",
+      },
+      dispose,
+    }));
+    const env = createExtractEnv({
+      WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+      WORKSPACE_BILLING_LEDGER: {
+        getByName: vi.fn((name: string) => {
+          if (name !== "workspace_test") {
+            throw new Error(`Unexpected billing ledger name: ${name}`);
+          }
+          return { reserveCreditsForDocumentSubmission };
+        }),
+      } as unknown as Env["WORKSPACE_BILLING_LEDGER"],
+      WORKSPACE_PRODUCT_ANALYTICS: analytics,
+    });
+
+    const response = await worker.fetch(createExtractRequest("document"), env);
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "insufficient_credits",
+        message: "Workspace has insufficient Credits for this Document",
+      },
+    });
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(env.SOURCE_FILES_BUCKET.put).not.toHaveBeenCalled();
+    expect(productStore.createQueuedExtractionJob).not.toHaveBeenCalled();
+    expect(env.EXTRACTION_JOBS_QUEUE.send).not.toHaveBeenCalled();
+    expect(analytics.writeDataPoint).not.toHaveBeenCalled();
+  });
+
   it("rejects Document submissions that exceed remaining monthly Plan page capacity", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-31T12:00:00.000Z"));
@@ -719,6 +762,8 @@ describe("Extraction submission route", () => {
 
   it("emits billing-usage Workspace context invalidation after refunding a failed accepted-submission attempt", async () => {
     const productStore = createProductStoreStub();
+    const dispose = vi.fn();
+    productStore.broadcastWorkspaceContextInvalidation.mockResolvedValue({ dispose });
     productStore.validateTemplateForDocumentSubmission.mockResolvedValue({
       template_id: "template_test",
       template_version: 1,
@@ -745,6 +790,7 @@ describe("Extraction submission route", () => {
       reason: "billing_usage",
       occurredAt: expect.any(String),
     });
+    expect(dispose).toHaveBeenCalledOnce();
   });
 
   it("does not emit billing-usage Workspace context invalidation when submission compensation finds no refundable reservation", async () => {

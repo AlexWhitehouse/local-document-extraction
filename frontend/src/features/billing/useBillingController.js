@@ -6,6 +6,7 @@ export function useBillingController({
   isActive,
   hasWorkspaceBillingAuthority,
   addLog,
+  onSummaryLoaded,
 }) {
   const [summary, setSummary] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -20,12 +21,14 @@ export function useBillingController({
   const [activityErrorMessage, setActivityErrorMessage] = useState("");
   const [usageErrorMessage, setUsageErrorMessage] = useState("");
   const addLogRef = useRef(addLog);
+  const onSummaryLoadedRef = useRef(onSummaryLoaded);
   const requestRef = useRef(request);
 
   useEffect(() => {
     addLogRef.current = addLog;
+    onSummaryLoadedRef.current = onSummaryLoaded;
     requestRef.current = request;
-  }, [addLog, request]);
+  }, [addLog, onSummaryLoaded, request]);
 
   const loadBillingSummary = useCallback(async () => {
     const normalizedWorkspaceId = String(workspaceId || "").trim();
@@ -43,10 +46,19 @@ export function useBillingController({
         true,
         false,
       );
-      setSummary(data || null);
+      const nextSummary = data || null;
+      setSummary(nextSummary);
       setActivityErrorMessage("");
       setUsageErrorMessage("");
       addLogRef.current?.(`Loaded billing summary for workspace ${normalizedWorkspaceId}`);
+      const notifySummaryLoaded = onSummaryLoadedRef.current;
+      if (typeof notifySummaryLoaded === "function") {
+        try {
+          await Promise.resolve(notifySummaryLoaded(nextSummary));
+        } catch (error) {
+          addLogRef.current?.(`Refresh workspace capacity after billing summary failed: ${error.message}`);
+        }
+      }
       return data;
     } catch (error) {
       setSummary(null);

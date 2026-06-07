@@ -691,10 +691,22 @@ export function useDocumentController({
     formData.append("document", file);
     formData.append("options", JSON.stringify(DEFAULT_OPTIONS));
 
-    const queued = await request("/extract", {
-      method: "POST",
-      body: formData,
-    });
+    let queued;
+    try {
+      queued = await request("/extract", {
+        method: "POST",
+        body: formData,
+      });
+    } catch (error) {
+      if (sourcePreviewUrl) {
+        URL.revokeObjectURL(sourcePreviewUrl);
+        previewUrlsRef.current.delete(sourcePreviewUrl);
+      }
+      if (isBillingQueueError(error)) {
+        scheduleWorkspaceCapacityRefresh();
+      }
+      throw error;
+    }
 
     const jobId = queued.job_id;
     setQueuedJobs((prev) => ({

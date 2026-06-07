@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("./lib/authClient", () => ({
@@ -219,6 +219,99 @@ describe("Workspace Billing page", () => {
     const creditBreakdownDialog = within(await screen.findByRole("dialog", { name: "Available Credits breakdown" }));
     expect(creditBreakdownDialog.getByText("Goodwill Credits")).toBeTruthy();
     expect(creditBreakdownDialog.getByText("25")).toBeTruthy();
+  });
+
+  it("refreshes the Workspace header and KPI Credits after Billing summary loads ledger Credits", async () => {
+    const billingSummary = {
+      ...freeBillingSummary(),
+      credits: {
+        included_available: 0,
+        purchased_available: 0,
+        goodwill_available: 25,
+        total_available: 25,
+      },
+      owner_billing_activity: [
+        {
+          id: "entry_grant-request-1",
+          type: "goodwill_credit_grant",
+          occurred_at: "2026-05-31T12:00:00.000Z",
+          credits: 25,
+          description: "Goodwill Credits granted",
+        },
+      ],
+    };
+    let hasLoadedBillingSummary = false;
+
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        const hasFreshWorkspaceCapacity = hasLoadedBillingSummary;
+        return Promise.resolve(jsonResponse({
+          workspaces: [
+            {
+              id: "ws_1",
+              name: "Research Workspace",
+              role: "owner",
+              created_at: "2026-05-04T00:00:00.000Z",
+              has_api_key: false,
+              billing_usage_summary: {
+                remaining_credits: hasFreshWorkspaceCapacity ? 25 : 0,
+                remaining_pages: billingSummary.current_period.pages_remaining,
+              },
+              billing_operational_status: hasFreshWorkspaceCapacity
+                ? {
+                    status: "active",
+                    blocking_reasons: [],
+                  }
+                : {
+                    status: "blocked",
+                    blocking_reasons: ["Insufficient Credits"],
+                  },
+            },
+          ],
+        }));
+      }
+      if (url.endsWith("/workspaces/ws_1/context")) {
+        return Promise.resolve(jsonResponse({
+          workspace: {
+            id: "ws_1",
+            name: "Research Workspace",
+            role: "owner",
+            created_at: "2026-05-04T00:00:00.000Z",
+            has_api_key: false,
+            billing_usage_summary: {
+              remaining_credits: 0,
+              remaining_pages: billingSummary.current_period.pages_remaining,
+            },
+            billing_operational_status: {
+              status: "blocked",
+              blocking_reasons: ["Insufficient Credits"],
+            },
+          },
+        }));
+      }
+      if (url.endsWith("/workspaces/ws_1/billing/summary")) {
+        hasLoadedBillingSummary = true;
+        return Promise.resolve(jsonResponse(billingSummary));
+      }
+      return mockBillingFetch({
+        role: "owner",
+        billingSummary,
+      })(input, options);
+    });
+
+    render(<App />);
+
+    const main = await waitForWorkspaceBilling();
+    expect(await main.findByText("Goodwill Credits granted")).toBeTruthy();
+
+    await waitFor(() => {
+      const toolbar = within(
+        main.getByRole("region", { name: "Workspace toolbar" }),
+      );
+      expect(getOperationalMetricValue(main, "Remaining Credits")).toBe("25");
+      expect(toolbar.queryByText("Insufficient Credits")).toBeNull();
+    });
   });
 
   it("shows failed delayed Credit pack payments as payment failures in Owner billing activity", async () => {
@@ -559,7 +652,7 @@ describe("Workspace Billing page", () => {
     expect(main.getByText("30 Jun 2026")).toBeTruthy();
     expect(main.queryByText("Billing attention needed")).toBeNull();
     expect(main.queryByText("Billing operational status")).toBeNull();
-    expect(main.getByText("Plan page capacity reached")).toBeTruthy();
+    expect(main.getAllByText("Plan page capacity reached").length).toBeGreaterThan(0);
     expect(main.queryByText("Payment setup")).toBeNull();
     expect(main.queryByText("Managed securely through Stripe-hosted billing flows.")).toBeNull();
     expect(main.getByText("Purchased Credit pack")).toBeTruthy();
@@ -1633,6 +1726,108 @@ describe("Workspace Billing page", () => {
     expect(screen.queryByRole("dialog", { name: "Upload document" })).toBeNull();
   });
 
+  it("refreshes workspace capacity badges after a billing-rejected Document upload", async () => {
+    const user = userEvent.setup();
+    const template = { id: "tpl_invoice", name: "Invoice Template" };
+    let billingSummary = {
+      ...freeBillingSummary(),
+      credits: {
+        included_available: 0,
+        purchased_available: 0,
+        goodwill_available: 1,
+        total_available: 1,
+      },
+    };
+
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces")) {
+        return Promise.resolve(jsonResponse({
+          workspaces: [
+            {
+              id: "ws_1",
+              name: "Research Workspace",
+              role: "owner",
+              created_at: "2026-05-04T00:00:00.000Z",
+              has_api_key: false,
+              billing_usage_summary: {
+                remaining_credits: billingSummary.credits.total_available,
+                remaining_pages: billingSummary.current_period.pages_remaining,
+              },
+              billing_operational_status: billingSummary.billing_operational_status,
+            },
+          ],
+        }));
+      }
+      if (url.endsWith("/workspaces/ws_1/context")) {
+        return Promise.resolve(jsonResponse({
+          workspace: {
+            id: "ws_1",
+            name: "Research Workspace",
+            role: "owner",
+            created_at: "2026-05-04T00:00:00.000Z",
+            has_api_key: false,
+            billing_usage_summary: {
+              remaining_credits: billingSummary.credits.total_available,
+              remaining_pages: billingSummary.current_period.pages_remaining,
+            },
+            billing_operational_status: billingSummary.billing_operational_status,
+          },
+        }));
+      }
+      if (url.endsWith("/templates")) {
+        return Promise.resolve(jsonResponse({ templates: [template] }));
+      }
+      if (url.endsWith("/extract") && options.method === "POST") {
+        billingSummary = {
+          ...billingSummary,
+          credits: {
+            included_available: 0,
+            purchased_available: 0,
+            goodwill_available: 0,
+            total_available: 0,
+          },
+          billing_operational_status: {
+            status: "blocked",
+            blocking_reasons: ["Insufficient Credits"],
+          },
+        };
+        return Promise.resolve(jsonResponse({
+          error: {
+            code: "insufficient_credits",
+            message: "Workspace has insufficient Credits for this Document",
+          },
+        }, { status: 402 }));
+      }
+      return mockBillingFetch({
+        role: "owner",
+        billingSummary,
+      })(input, options);
+    });
+
+    const { container } = render(<App />);
+
+    const main = await waitForWorkspaceBilling();
+    expect(main.getByLabelText("1 Credits available, 0 Credits used")).toBeTruthy();
+    expect(getOperationalMetricValue(main, "Remaining Credits")).toBe("1");
+
+    await user.click(screen.getByRole("button", { name: "Upload Document" }));
+    fireEvent.change(container.querySelector('input[type="file"]'), {
+      target: {
+        files: [new File(["invoice"], "invoice.pdf", { type: "application/pdf" })],
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Upload Documents" }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("1 blocked by billing");
+    });
+    await waitFor(() => {
+      expect(getOperationalMetricValue(main, "Remaining Credits")).toBe("0");
+      expect(screen.getAllByText("Insufficient Credits").length).toBeGreaterThan(0);
+    });
+  });
+
   it("shows limited blocked-action status without owner-only billing detail leakage", async () => {
     globalThis.fetch = vi.fn(mockBillingFetch({
       role: "admin",
@@ -1820,6 +2015,12 @@ async function openCreditModal(user) {
   const main = within(screen.getByRole("main"));
   await user.click(main.getByRole("button", { name: "Buy Credits" }));
   return within(await screen.findByRole("dialog", { name: /Buy credits/i }));
+}
+
+function getOperationalMetricValue(main, label) {
+  const metrics = within(main.getByRole("region", { name: "Operational metrics" }));
+  const card = metrics.getByText(label).closest("article");
+  return card.querySelector(".kpi-value")?.textContent || "";
 }
 
 function mockBillingFetch({

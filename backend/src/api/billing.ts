@@ -1,4 +1,5 @@
 import { HttpError, json } from "../lib/http";
+import { disposeRpcResult } from "../lib/rpcDisposal";
 import { getWorkspaceBillingAuthorityForSession } from "../lib/workspaceBillingAuthority";
 import { getWorkspaceBillingControl } from "../lib/workspaceBillingControl";
 import {
@@ -1677,10 +1678,11 @@ async function emitBillingWorkspaceContextInvalidationToStore(
   productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
   reason: WorkspaceContextInvalidationReason,
 ): Promise<void> {
-  await productStore.broadcastWorkspaceContextInvalidation({
+  const result = await productStore.broadcastWorkspaceContextInvalidation({
     reason,
     occurredAt: new Date().toISOString(),
   });
+  disposeRpcResult(result);
 }
 
 export async function revokeGoodwillCreditGrantForApplicationAdmin(

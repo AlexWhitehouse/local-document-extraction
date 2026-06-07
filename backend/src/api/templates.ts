@@ -1,5 +1,6 @@
 import { HttpError, json } from "../lib/http";
 import { newId, nowIso } from "../lib/ids";
+import { disposeRpcResult } from "../lib/rpcDisposal";
 import { parseJsonBody, validateTemplatePayload } from "../lib/validation";
 import { emitWorkspaceProductAnalytics } from "../lib/workspaceProductAnalytics";
 import { summarizeTemplatePlanLimitUsage, summarizeWorkspaceBilling } from "../lib/workspaceBilling";
@@ -144,10 +145,11 @@ export async function deleteTemplate(env: Env, workspace: Workspace, id: string)
 async function emitTemplateLimitInvalidation(
   productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
 ): Promise<void> {
-  await productStore.broadcastWorkspaceContextInvalidation({
+  const result = await productStore.broadcastWorkspaceContextInvalidation({
     reason: "template_limits",
     occurredAt: nowIso(),
   });
+  disposeRpcResult(result);
 }
 
 function assertTemplateUsageWithinPlan(
