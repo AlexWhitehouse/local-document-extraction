@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("./lib/authClient", () => ({
@@ -269,6 +269,25 @@ describe("Workspace Billing page", () => {
                   },
             },
           ],
+        }));
+      }
+      if (url.endsWith("/workspaces/ws_1/context")) {
+        return Promise.resolve(jsonResponse({
+          workspace: {
+            id: "ws_1",
+            name: "Research Workspace",
+            role: "owner",
+            created_at: "2026-05-04T00:00:00.000Z",
+            has_api_key: false,
+            billing_usage_summary: {
+              remaining_credits: 25,
+              remaining_pages: billingSummary.current_period.pages_remaining,
+            },
+            billing_operational_status: {
+              status: "active",
+              blocking_reasons: [],
+            },
+          },
         }));
       }
       if (url.endsWith("/workspaces/ws_1/billing/summary")) {
@@ -1740,6 +1759,22 @@ describe("Workspace Billing page", () => {
           ],
         }));
       }
+      if (url.endsWith("/workspaces/ws_1/context")) {
+        return Promise.resolve(jsonResponse({
+          workspace: {
+            id: "ws_1",
+            name: "Research Workspace",
+            role: "owner",
+            created_at: "2026-05-04T00:00:00.000Z",
+            has_api_key: false,
+            billing_usage_summary: {
+              remaining_credits: billingSummary.credits.total_available,
+              remaining_pages: billingSummary.current_period.pages_remaining,
+            },
+            billing_operational_status: billingSummary.billing_operational_status,
+          },
+        }));
+      }
       if (url.endsWith("/templates")) {
         return Promise.resolve(jsonResponse({ templates: [template] }));
       }
@@ -1817,6 +1852,146 @@ describe("Workspace Billing page", () => {
         String(input).includes("/billing/summary"),
       ),
     ).toBe(false);
+  });
+
+  it("updates Template overage badges from selected Workspace context refresh after live invalidation", async () => {
+    const WebSocketStub = installWebSocketStub();
+    const baseFetch = mockBillingFetch({ role: "admin" });
+    globalThis.fetch = vi.fn((input, options) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces/ws_1/context")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspace: {
+              id: "ws_1",
+              name: "Research Workspace",
+              role: "admin",
+              created_at: "2026-05-04T00:00:00.000Z",
+              has_api_key: false,
+              billing_plan_limits: freeBillingSummary().plan_limits,
+              billing_usage_summary: {
+                remaining_credits: 0,
+                remaining_pages: 500,
+              },
+              billing_operational_status: {
+                status: "blocked",
+                blocking_reasons: ["Template schema limit overage"],
+              },
+            },
+          }),
+        );
+      }
+      return baseFetch(input, options);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /Research Workspace/ })).toBeTruthy();
+    expect(screen.queryByText("Template schema limit overage")).toBeNull();
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+    });
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [
+            {
+              type: "workspace_context_invalidated",
+              reason: "template_limits",
+              occurred_at: "2026-05-06T12:02:00.000Z",
+            },
+          ],
+        }),
+      });
+    });
+
+    expect(await screen.findByText("Template schema limit overage")).toBeTruthy();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/v1/workspaces/ws_1/context",
+      expect.objectContaining({
+        credentials: "include",
+        method: "GET",
+      }),
+    );
+  });
+
+  it("updates billing usage metrics from selected Workspace context refresh after live invalidation", async () => {
+    const WebSocketStub = installWebSocketStub();
+    const baseFetch = mockBillingFetch({ role: "admin" });
+    globalThis.fetch = vi.fn((input, options) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces/ws_1/context")) {
+        return Promise.resolve(
+          jsonResponse({
+            workspace: {
+              id: "ws_1",
+              name: "Research Workspace",
+              role: "admin",
+              created_at: "2026-05-04T00:00:00.000Z",
+              has_api_key: false,
+              billing_plan_limits: freeBillingSummary().plan_limits,
+              billing_usage_summary: {
+                remaining_credits: 12,
+                remaining_pages: 488,
+              },
+              billing_operational_status: {
+                status: "blocked",
+                blocking_reasons: ["Payment required"],
+              },
+            },
+          }),
+        );
+      }
+      return baseFetch(input, options);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /Research Workspace/ })).toBeTruthy();
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+    });
+    const fullWorkspaceCallsBefore = globalThis.fetch.mock.calls.filter(
+      ([input]) => String(input) === "/v1/workspaces",
+    ).length;
+    const invitationCallsBefore = globalThis.fetch.mock.calls.filter(
+      ([input]) => String(input) === "/v1/invitations",
+    ).length;
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [
+            {
+              type: "workspace_context_invalidated",
+              reason: "billing_usage",
+              occurred_at: "2026-05-06T12:02:00.000Z",
+            },
+          ],
+        }),
+      });
+    });
+
+    expect(await screen.findByText("Payment required")).toBeTruthy();
+    const metrics = within(screen.getByRole("region", { name: "Operational metrics" }));
+    expect(metrics.getByText("12")).toBeTruthy();
+    expect(metrics.getByText("488")).toBeTruthy();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/v1/workspaces/ws_1/context",
+      expect.objectContaining({
+        credentials: "include",
+        method: "GET",
+      }),
+    );
+    expect(
+      globalThis.fetch.mock.calls.filter(([input]) => String(input) === "/v1/workspaces"),
+    ).toHaveLength(fullWorkspaceCallsBefore);
+    expect(
+      globalThis.fetch.mock.calls.filter(([input]) => String(input) === "/v1/invitations"),
+    ).toHaveLength(invitationCallsBefore);
   });
 });
 
@@ -2060,4 +2235,23 @@ function jsonResponse(body, init = {}) {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
+}
+
+function installWebSocketStub() {
+  class WebSocketStub {
+    static instances = [];
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSING = 2;
+    static CLOSED = 3;
+
+    constructor(url) {
+      this.url = url;
+      this.close = vi.fn();
+      WebSocketStub.instances.push(this);
+    }
+  }
+
+  vi.stubGlobal("WebSocket", WebSocketStub);
+  return WebSocketStub;
 }

@@ -206,6 +206,29 @@ export async function listWorkspacesForUser(
   }));
 }
 
+export async function getWorkspaceContextForUser(
+  db: D1Database,
+  input: { workspaceId: string; userId: string }
+): Promise<WorkspaceListing | null> {
+  const workspace = await db
+    .prepare(
+      `SELECT t.id,
+              t.name,
+              t.created_at,
+              t.max_source_file_bytes,
+              t.api_key_hash IS NOT NULL AS has_api_key,
+              m.role
+       FROM workspace_memberships m
+       JOIN workspaces t ON t.id = m.workspace_id
+       WHERE m.user_id = ? AND t.id = ?
+       LIMIT 1`
+    )
+    .bind(input.userId, input.workspaceId)
+    .first<Omit<WorkspaceListing, "has_api_key"> & { has_api_key: boolean | number }>();
+
+  return workspace ? { ...workspace, has_api_key: Boolean(workspace.has_api_key) } : null;
+}
+
 export async function listWorkspaceUsersForUser(
   db: D1Database,
   input: { workspaceId: string; userId: string }

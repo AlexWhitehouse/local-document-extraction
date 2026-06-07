@@ -16,6 +16,7 @@ export function useApplicationAdminController({
   sessionUserId,
   showActionToast,
   onImpersonationStarted,
+  onWorkspaceBillingMutation,
 }) {
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
@@ -300,6 +301,7 @@ export function useApplicationAdminController({
       setRevokeGrantId(String(result?.grant_id || ""));
       setBillingMessage(`Granted ${formatNumber(result?.granted_credits || credits)} Goodwill Credits.`);
       showActionToast?.("applicationBilling.goodwillGrant", "success", { targetId: workspaceId });
+      notifyWorkspaceBillingMutation(workspaceId);
       return true;
     } catch (error) {
       setBillingError(error.message || "Goodwill Credits could not be granted.");
@@ -452,6 +454,7 @@ export function useApplicationAdminController({
         }));
         setBillingMessage(`Created payment-required ${result?.payment_required_plan_override?.display_name || formatPlanName(plan)} Plan override invoice.`);
         showActionToast?.("applicationBilling.paymentRequiredPlanOverride", "success", { targetId: workspaceId });
+        notifyWorkspaceBillingMutation(workspaceId);
         return true;
       }
 
@@ -480,6 +483,7 @@ export function useApplicationAdminController({
       }));
       setBillingMessage(`Created ${result?.plan_override?.display_name || formatPlanName(plan)} Plan override.`);
       showActionToast?.("applicationBilling.planOverride", "success", { targetId: workspaceId });
+      notifyWorkspaceBillingMutation(workspaceId);
       return true;
     } catch (error) {
       setBillingError(error.message || "Plan override could not be created.");
@@ -599,6 +603,7 @@ export function useApplicationAdminController({
 
       setBillingMessage(`Created ${completed.join(" and ")} terms.`);
       showActionToast?.("applicationBilling.enterpriseTerms", "success", { targetId: workspaceId });
+      notifyWorkspaceBillingMutation(workspaceId);
       return true;
     } catch (error) {
       setBillingError(error.message || "Enterprise terms could not be created.");
@@ -641,6 +646,7 @@ export function useApplicationAdminController({
       }));
       setBillingMessage(enabled ? "Enabled No-billing mode." : "Disabled No-billing mode.");
       showActionToast?.("applicationBilling.noBillingMode", "success", { targetId: workspaceId });
+      notifyWorkspaceBillingMutation(workspaceId);
       return true;
     } catch (error) {
       setBillingError(error.message || "No-billing mode could not be updated.");
@@ -683,6 +689,7 @@ export function useApplicationAdminController({
       );
       setBillingMessage(`Revoked ${formatNumber(result?.revoked_credits || 0)} Goodwill Credits.`);
       showActionToast?.("applicationBilling.goodwillRevoke", "success", { targetId: workspaceId });
+      notifyWorkspaceBillingMutation(workspaceId);
       return true;
     } catch (error) {
       setBillingError(error.message || "Goodwill Credit grant could not be revoked.");
@@ -690,6 +697,13 @@ export function useApplicationAdminController({
     } finally {
       setIsBillingMutating(false);
     }
+  }
+
+  function notifyWorkspaceBillingMutation(workspaceId) {
+    if (!onWorkspaceBillingMutation) {
+      return;
+    }
+    void Promise.resolve(onWorkspaceBillingMutation(workspaceId)).catch(() => {});
   }
 
   return {

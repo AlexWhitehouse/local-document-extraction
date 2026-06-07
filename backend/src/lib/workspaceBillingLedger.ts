@@ -1344,22 +1344,22 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
     const rows = this.ctx.storage.sql
       .exec<{
         type: LedgerEntryType;
+        credits: number | null;
         billing_period_start: string | null;
         billing_period_end: string | null;
-        credits: number | null;
       }>(
         `SELECT type,
+                COALESCE(SUM(credits), 0) AS credits,
                 billing_period_start,
-                billing_period_end,
-                COALESCE(SUM(credits), 0) AS credits
+                billing_period_end
          FROM ledger_entries
          WHERE type IN ('goodwill_credit_grant', 'goodwill_credit_revocation', 'included_credit_grant', 'included_credit_revocation', 'purchased_credit_grant', 'credit_reservation', 'credit_refund')
          GROUP BY type, billing_period_start, billing_period_end`,
       )
       .toArray();
-    const currentPeriodKey = billingPeriodKey(input.billingPeriodStart, input.billingPeriodEnd);
-    const includedCreditsByPeriod = new Map<string, number>();
-    const reservationCreditsByPeriod = new Map<string, number>();
+
+    const includedByPeriod = new Map<string, number>();
+    const reservationNetByPeriod = new Map<string, number>();
     let purchasedGranted = 0;
     let goodwillGranted = 0;
 
@@ -1376,39 +1376,37 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
 
       const periodKey = billingPeriodKey(row.billing_period_start, row.billing_period_end);
       if (row.type === "included_credit_grant" || row.type === "included_credit_revocation") {
-        includedCreditsByPeriod.set(
-          periodKey,
-          (includedCreditsByPeriod.get(periodKey) || 0) + credits,
-        );
+        includedByPeriod.set(periodKey, (includedByPeriod.get(periodKey) || 0) + credits);
         continue;
       }
       if (row.type === "credit_reservation" || row.type === "credit_refund") {
-        reservationCreditsByPeriod.set(
-          periodKey,
-          (reservationCreditsByPeriod.get(periodKey) || 0) + credits,
-        );
+        reservationNetByPeriod.set(periodKey, (reservationNetByPeriod.get(periodKey) || 0) + credits);
       }
     }
 
-    let persistentSpend = 0;
-    for (const [periodKey, reservationCredits] of reservationCreditsByPeriod) {
-      const spend = Math.max(0, -reservationCredits);
-      const periodIncludedCredits = Math.max(0, includedCreditsByPeriod.get(periodKey) || 0);
-      persistentSpend += Math.max(0, spend - periodIncludedCredits);
+    let carryForwardSpend = 0;
+    const periodKeys = new Set([...includedByPeriod.keys(), ...reservationNetByPeriod.keys()]);
+    const currentPeriodKey = billingPeriodKey(input.billingPeriodStart, input.billingPeriodEnd);
+    let currentIncludedAvailable = 0;
+    for (const periodKey of periodKeys) {
+      const includedGranted = Math.max(0, includedByPeriod.get(periodKey) || 0);
+      const reservationSpend = Math.max(0, -(reservationNetByPeriod.get(periodKey) || 0));
+      const includedAvailable = Math.max(0, includedGranted - reservationSpend);
+      if (periodKey === currentPeriodKey) {
+        currentIncludedAvailable = includedAvailable;
+      }
+      carryForwardSpend += Math.max(0, reservationSpend - includedGranted);
     }
 
-    const currentPeriodIncludedCredits = includedCreditsByPeriod.get(currentPeriodKey) || 0;
-    const currentPeriodSpend = Math.max(0, -(reservationCreditsByPeriod.get(currentPeriodKey) || 0));
-    const includedAvailable = Math.max(0, currentPeriodIncludedCredits - currentPeriodSpend);
-    const purchasedAvailable = Math.max(0, purchasedGranted - persistentSpend);
-    const remainingPersistentSpend = Math.max(0, persistentSpend - purchasedGranted);
-    const goodwillAvailable = Math.max(0, goodwillGranted - remainingPersistentSpend);
+    const purchasedAvailable = Math.max(0, purchasedGranted - carryForwardSpend);
+    const remainingSpend = Math.max(0, carryForwardSpend - purchasedGranted);
+    const goodwillAvailable = Math.max(0, goodwillGranted - remainingSpend);
 
     return {
-      included_available: includedAvailable,
+      included_available: currentIncludedAvailable,
       purchased_available: purchasedAvailable,
       goodwill_available: goodwillAvailable,
-      total_available: includedAvailable + purchasedAvailable + goodwillAvailable,
+      total_available: currentIncludedAvailable + purchasedAvailable + goodwillAvailable,
     };
   }
 

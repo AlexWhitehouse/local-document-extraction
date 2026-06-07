@@ -208,10 +208,12 @@ describe("Workspace billing summary route", () => {
         role: "user",
       });
     const billingLedger = createBillingLedgerBinding();
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger,
+      productStore,
     });
 
     const grantResponse = await worker.fetch(
@@ -233,6 +235,10 @@ describe("Workspace billing summary route", () => {
       workspace_id: "workspace_billing",
       granted_credits: 25,
       available_credits: 25,
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_usage",
+      occurredAt: "2026-05-31T12:00:00.000Z",
     });
 
     const summaryResponse = await worker.fetch(
@@ -327,10 +333,12 @@ describe("Workspace billing summary route", () => {
         role: "user",
       });
     const billingLedger = createBillingLedgerBinding();
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger,
+      productStore,
     });
 
     const overrideResponse = await worker.fetch(
@@ -363,6 +371,10 @@ describe("Workspace billing summary route", () => {
         granted_credits: 200,
         available_credits: 200,
       },
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
     });
 
     const summaryResponse = await worker.fetch(
@@ -777,10 +789,12 @@ describe("Workspace billing summary route", () => {
           headers: { "content-type": "application/json" },
         }),
       );
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger: createBillingLedgerBinding(),
+      productStore,
     });
 
     const overrideResponse = await worker.fetch(
@@ -822,6 +836,10 @@ describe("Workspace billing summary route", () => {
           hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_override",
         },
       },
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
     });
 
     expect(stripeFetch).toHaveBeenCalledTimes(4);
@@ -1170,10 +1188,12 @@ describe("Workspace billing summary route", () => {
         name: "Workspace Owner",
         role: "user",
       });
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger: createBillingLedgerBinding(),
+      productStore,
     });
 
     const noBillingResponse = await worker.fetch(
@@ -1201,6 +1221,10 @@ describe("Workspace billing summary route", () => {
         plan: "no_billing",
         display_name: "No-billing",
       },
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
     });
 
     const summaryResponse = await worker.fetch(
@@ -1254,10 +1278,12 @@ describe("Workspace billing summary route", () => {
         name: "Workspace Owner",
         role: "user",
       });
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger: createBillingLedgerBinding(),
+      productStore,
     });
 
     const rampUpResponse = await worker.fetch(
@@ -1290,6 +1316,10 @@ describe("Workspace billing summary route", () => {
         plan: "enterprise_ramp_up",
         display_name: "Enterprise ramp-up",
       },
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
     });
 
     const summaryResponse = await worker.fetch(
@@ -1389,10 +1419,12 @@ describe("Workspace billing summary route", () => {
           headers: { "content-type": "application/json" },
         }),
       );
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger: createBillingLedgerBinding(),
+      productStore,
     });
 
     const annualResponse = await worker.fetch(
@@ -1443,6 +1475,10 @@ describe("Workspace billing summary route", () => {
         plan: "free",
         display_name: "Free",
       },
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
     });
 
     expect(stripeFetch).toHaveBeenCalledTimes(4);
@@ -3688,10 +3724,12 @@ describe("Workspace billing summary route", () => {
         role: "user",
       });
     const billingLedger = createBillingLedgerBinding();
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger,
+      productStore,
     });
 
     await worker.fetch(
@@ -3727,6 +3765,11 @@ describe("Workspace billing summary route", () => {
       revoked_credits: 25,
       available_credits: 0,
     });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledTimes(2);
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenLastCalledWith({
+      reason: "billing_usage",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
 
     const summaryResponse = await worker.fetch(
       new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
@@ -3757,10 +3800,12 @@ describe("Workspace billing summary route", () => {
       role: "user",
     });
     const billingLedger = createBillingLedgerBinding();
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger,
+      productStore,
     });
 
     const response = await worker.fetch(
@@ -3783,6 +3828,7 @@ describe("Workspace billing summary route", () => {
         message: "Only Application admins can manage Workspace billing",
       },
     });
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
   });
 
   it("rejects Workspace API keys from the owner billing summary route", async () => {
@@ -4214,10 +4260,12 @@ describe("Workspace billing summary route", () => {
     );
     const periodStart = "2026-05-31T12:00:00.000Z";
     const periodEnd = "2026-06-30T12:00:00.000Z";
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       stripeCustomerId: "cus_workspace_billing",
+      productStore,
       billingControl: {
         stripe_subscription_id: "sub_pro_workspace_billing",
         stripe_subscription_item_id: "si_pro_workspace_billing",
@@ -4243,6 +4291,7 @@ describe("Workspace billing summary route", () => {
       target_plan: "max",
       payment_url: "https://invoice.stripe.com/i/in_prorated_max_upgrade",
     });
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
     expect(stripeFetch).toHaveBeenCalledTimes(1);
     const [stripeUrl, stripeRequest] = stripeFetch.mock.calls[0] as [string, RequestInit];
     expect(stripeUrl).toBe("https://api.stripe.com/v1/subscriptions/sub_pro_workspace_billing");
@@ -4297,10 +4346,12 @@ describe("Workspace billing summary route", () => {
     );
     const periodStart = "2026-05-31T12:00:00.000Z";
     const periodEnd = "2026-06-30T12:00:00.000Z";
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       stripeCustomerId: "cus_workspace_billing",
+      productStore,
       billingControl: {
         stripe_subscription_id: "sub_pro_workspace_billing",
         stripe_subscription_item_id: "si_pro_workspace_billing",
@@ -4325,6 +4376,10 @@ describe("Workspace billing summary route", () => {
       subscription_id: "sub_pro_workspace_billing",
       scheduled_plan: "free",
       effective_at: periodEnd,
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
     });
     const [stripeUrl, stripeRequest] = stripeFetch.mock.calls[0] as [string, RequestInit];
     expect(stripeUrl).toBe("https://api.stripe.com/v1/subscriptions/sub_pro_workspace_billing");
@@ -4369,10 +4424,12 @@ describe("Workspace billing summary route", () => {
     );
     const periodStart = "2026-05-31T12:00:00.000Z";
     const periodEnd = "2026-06-30T12:00:00.000Z";
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       stripeCustomerId: "cus_workspace_billing",
+      productStore,
       billingControl: {
         stripe_subscription_id: "sub_pro_workspace_billing",
         stripe_subscription_item_id: "si_pro_workspace_billing",
@@ -4398,6 +4455,10 @@ describe("Workspace billing summary route", () => {
       scheduled_plan: "free",
       effective_at: periodEnd,
     });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
     const [, stripeRequest] = stripeFetch.mock.calls[0] as [string, RequestInit];
     const stripeBody = new URLSearchParams(String(stripeRequest.body));
     expect(stripeBody.get("cancel_at_period_end")).toBe("true");
@@ -4416,10 +4477,12 @@ describe("Workspace billing summary route", () => {
     );
     const periodStart = "2026-05-31T12:00:00.000Z";
     const periodEnd = "2026-06-30T12:00:00.000Z";
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       stripeCustomerId: "cus_workspace_billing",
+      productStore,
       billingControl: {
         stripe_subscription_id: "sub_pro_workspace_billing",
         stripe_subscription_item_id: "si_pro_workspace_billing",
@@ -4446,6 +4509,10 @@ describe("Workspace billing summary route", () => {
       subscription_id: "sub_pro_workspace_billing",
       canceled_scheduled_plan: "free",
       active_plan: "pro",
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
     });
     expect(stripeFetch).toHaveBeenCalledTimes(1);
     const [stripeUrl, stripeRequest] = stripeFetch.mock.calls[0] as [string, RequestInit];
@@ -4492,10 +4559,12 @@ describe("Workspace billing summary route", () => {
     );
     const periodStart = "2026-05-31T12:00:00.000Z";
     const periodEnd = "2026-06-30T12:00:00.000Z";
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       stripeCustomerId: "cus_workspace_billing",
+      productStore,
       billingControl: {
         stripe_subscription_id: "sub_pro_workspace_billing",
         stripe_subscription_item_id: "si_pro_workspace_billing",
@@ -4527,6 +4596,10 @@ describe("Workspace billing summary route", () => {
       scheduled_plan: "free",
       effective_at: periodEnd,
     });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
 
     const summaryResponse = await worker.fetch(
       new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
@@ -4551,10 +4624,12 @@ describe("Workspace billing summary route", () => {
     const stripeFetch = vi.spyOn(globalThis, "fetch");
     const periodStart = "2026-05-31T12:00:00.000Z";
     const periodEnd = "2026-06-30T12:00:00.000Z";
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       stripeCustomerId: "cus_workspace_billing",
+      productStore,
       billingControl: {
         stripe_subscription_id: "sub_pro_workspace_billing",
         stripe_subscription_item_id: "si_pro_workspace_billing",
@@ -4586,6 +4661,10 @@ describe("Workspace billing summary route", () => {
       target_plan: "pro",
     });
     expect(stripeFetch).not.toHaveBeenCalled();
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
 
     const summaryResponse = await worker.fetch(
       new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
@@ -4617,10 +4696,12 @@ describe("Workspace billing summary route", () => {
     );
     const periodStart = "2026-05-31T12:00:00.000Z";
     const periodEnd = "2026-06-30T12:00:00.000Z";
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       stripeCustomerId: "cus_workspace_billing",
+      productStore,
       billingControl: {
         stripe_subscription_id: "sub_max_workspace_billing",
         stripe_subscription_item_id: "si_max_workspace_billing",
@@ -4645,6 +4726,10 @@ describe("Workspace billing summary route", () => {
       subscription_id: "sub_max_workspace_billing",
       scheduled_plan: "pro",
       effective_at: periodEnd,
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
     });
     const [stripeUrl, stripeRequest] = stripeFetch.mock.calls[0] as [string, RequestInit];
     expect(stripeUrl).toBe("https://api.stripe.com/v1/subscriptions/sub_max_workspace_billing");
@@ -5061,9 +5146,11 @@ describe("Workspace billing summary route", () => {
   });
 
   it("records unsupported signed Stripe billing events as ignored diagnostics without mutating billing state", async () => {
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
+      productStore,
     });
     const event = {
       id: "evt_future_unknown_billing_event",
@@ -5094,6 +5181,7 @@ describe("Workspace billing summary route", () => {
 
     expect(webhookResponse.status).toBe(200);
     await expect(webhookResponse.json()).resolves.toEqual({ received: true });
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
 
     const summaryResponse = await worker.fetch(
       new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
@@ -5143,10 +5231,12 @@ describe("Workspace billing summary route", () => {
 
   it("grants Purchased Credits from a signed paid Credit pack Checkout event", async () => {
     const billingLedger = createBillingLedgerBinding();
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger,
+      productStore,
       stripeCustomerId: "cus_workspace_billing",
     });
     const event = {
@@ -5186,6 +5276,10 @@ describe("Workspace billing summary route", () => {
 
     expect(webhookResponse.status).toBe(200);
     await expect(webhookResponse.json()).resolves.toEqual({ received: true });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_usage",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
 
     const summaryResponse = await worker.fetch(
       new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
@@ -7518,10 +7612,12 @@ describe("Workspace billing summary route", () => {
 
   it("activates Pro entitlement and grants Included Credits from a signed paid subscription invoice event", async () => {
     const billingLedger = createBillingLedgerBinding();
+    const productStore = createProductStoreStub();
     const env = createBillingEnv({
       workspace: createWorkspace(),
       membershipRole: "owner",
       billingLedger,
+      productStore,
       stripeCustomerId: "cus_workspace_billing",
     });
     const periodStart = "2026-05-31T12:00:00.000Z";
@@ -7573,6 +7669,14 @@ describe("Workspace billing summary route", () => {
     );
 
     expect(webhookResponse.status).toBe(200);
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_usage",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
 
     const summaryResponse = await worker.fetch(
       new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
@@ -8708,6 +8812,95 @@ describe("Workspace billing summary route", () => {
           credits: 200,
         }),
       ],
+    });
+  });
+
+  it("emits invalidation when Stripe event processing fails after a durable billing mutation", async () => {
+    const billingLedger = createBillingLedgerBinding();
+    const productStore = createProductStoreStub();
+    const env = createBillingEnv({
+      workspace: createWorkspace(),
+      membershipRole: "owner",
+      billingLedger,
+      productStore,
+      stripeCustomerId: "cus_workspace_billing",
+      failAdminBillingAuditInsert: true,
+      billingControl: {
+        payment_required_plan_override_plan: "pro",
+        payment_required_plan_override_start_at: "2026-05-31T00:00:00.000Z",
+        payment_required_plan_override_end_at: "2026-06-30T00:00:00.000Z",
+        payment_required_plan_override_reason: "Paid onboarding extension",
+        payment_required_plan_override_created_by_user_id: "user_admin",
+        payment_required_plan_override_created_at: "2026-05-31T12:00:00.000Z",
+        payment_required_plan_override_amount_minor: 12500,
+        payment_required_plan_override_currency: "GBP",
+        payment_required_plan_override_collection_mode: "manual",
+        payment_required_plan_override_invoice_id: "in_payment_required_audit_failure",
+        payment_required_plan_override_invoice_status: "open",
+        payment_required_plan_override_hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_audit_failure",
+      },
+    });
+    const event = {
+      id: "evt_payment_required_audit_failure",
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_payment_required_audit_failure",
+          status: "paid",
+          paid: true,
+          customer: "cus_workspace_billing",
+          hosted_invoice_url: "https://invoice.stripe.com/i/in_payment_required_audit_failure",
+          metadata: {
+            workspace_id: "workspace_billing",
+            billing_action: "payment_required_plan_override",
+            plan: "pro",
+          },
+        },
+      },
+    };
+    const payload = JSON.stringify(event);
+
+    const webhookResponse = await worker.fetch(
+      new Request("https://example.com/v1/billing/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": await createStripeSignature(payload, "stripe-webhook-secret"),
+        },
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(webhookResponse.status).toBe(500);
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_entitlement",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_usage",
+      occurredAt: "2026-05-31T12:00:00.000Z",
+    });
+
+    const summaryResponse = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_billing/billing/summary"),
+      env,
+    );
+
+    expect(summaryResponse.status).toBe(200);
+    await expect(summaryResponse.json()).resolves.toMatchObject({
+      active_entitlement: {
+        plan: "pro",
+      },
+      credits: {
+        included_available: 200,
+        total_available: 200,
+      },
+      payment_required_plan_override: {
+        invoice: {
+          status: "paid",
+        },
+      },
     });
   });
 
@@ -10934,13 +11127,16 @@ function createBillingEnv(input: {
   workspace: Workspace | null;
   membershipRole: "owner" | "admin" | "member" | null;
   billingLedger?: unknown;
+  productStore?: ProductStoreStub;
   stripeCustomerId?: string | null;
   billingControl?: Partial<BillingControlState>;
   stripeWebhookSecretNext?: string | null;
+  failAdminBillingAuditInsert?: boolean;
 }): Env {
   const env = {
     DB: createBillingDb(input),
     WORKSPACE_BILLING_LEDGER: input.billingLedger,
+    WORKSPACE_PRODUCT_STORE: createProductStoreBinding(input.productStore || createProductStoreStub()),
     STRIPE_API_KEY: "stripe-secret-test-key",
     STRIPE_WEBHOOK_SECRET: "stripe-webhook-secret",
     STRIPE_PRO_MONTHLY_PRICE_ID: "price_pro_monthly",
@@ -10954,6 +11150,22 @@ function createBillingEnv(input: {
     } as unknown as Env;
   }
   return env as unknown as Env;
+}
+
+type ProductStoreStub = {
+  broadcastWorkspaceContextInvalidation: ReturnType<typeof vi.fn>;
+};
+
+function createProductStoreStub(): ProductStoreStub {
+  return {
+    broadcastWorkspaceContextInvalidation: vi.fn(),
+  };
+}
+
+function createProductStoreBinding(productStore: ProductStoreStub): Env["WORKSPACE_PRODUCT_STORE"] {
+  return {
+    getByName: vi.fn(() => productStore),
+  } as unknown as Env["WORKSPACE_PRODUCT_STORE"];
 }
 
 function createScheduledRampUpIsolationEnv(): Env {
@@ -11211,6 +11423,7 @@ function createBillingDb(input: {
   membershipRole: "owner" | "admin" | "member" | null;
   stripeCustomerId?: string | null;
   billingControl?: Partial<BillingControlState>;
+  failAdminBillingAuditInsert?: boolean;
 }): D1Database {
   const billingControl: BillingControlState = {
     stripe_customer_id: input.stripeCustomerId || null,
@@ -11602,6 +11815,9 @@ function createBillingDb(input: {
                 return { success: true };
               }
               if (sql.includes("INSERT INTO workspace_billing_admin_audit_log")) {
+                if (input.failAdminBillingAuditInsert) {
+                  throw new Error("Simulated admin billing audit insert failure");
+                }
                 const [
                   id,
                   workspaceId,

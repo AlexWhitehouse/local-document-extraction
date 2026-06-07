@@ -319,14 +319,18 @@ describe("useDocumentController Workspace live updates", () => {
     });
   });
 
-  it("refreshes Workspace capacity when live lifecycle updates arrive", async () => {
+  it("updates Documents UI without refreshing Workspace context when live lifecycle updates arrive", async () => {
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+    let controller = null;
 
     render(
       <DocumentControllerHarness
         workspaceId="ws_1"
         onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
         initialWorkspace={{
           selectedDocumentId: "job_processing_1",
           jobHistory: [
@@ -369,8 +373,460 @@ describe("useDocumentController Workspace live updates", () => {
     });
 
     await waitFor(() => {
+      expect(
+        controller.contextList.documents.find(
+          (document) => document.job_id === "job_processing_1",
+        ),
+      ).toMatchObject({
+        status: "completed",
+        completed_at: "2026-05-06T12:02:00.000Z",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 200);
+      });
+    });
+    expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
+  });
+
+  it("refreshes Workspace context when live invalidation updates arrive", async () => {
+    const WebSocketStub = installWebSocketStub();
+    const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+    });
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [
+            {
+              type: "workspace_context_invalidated",
+              reason: "billing_usage",
+              occurred_at: "2026-05-06T12:02:00.000Z",
+            },
+          ],
+        }),
+      });
+    });
+
+    await waitFor(() => {
       expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
     });
+  });
+
+  it("immediately revalidates Workspace context when Workspace access invalidation arrives", async () => {
+    vi.useFakeTimers();
+    const WebSocketStub = installWebSocketStub();
+    const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+
+    try {
+      render(
+        <DocumentControllerHarness
+          workspaceId="ws_1"
+          onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+        />,
+      );
+
+      expect(WebSocketStub.instances).toHaveLength(1);
+
+      await act(async () => {
+        WebSocketStub.instances[0].onmessage({
+          data: JSON.stringify({
+            version: 1,
+            events: [
+              {
+                type: "workspace_context_invalidated",
+                reason: "workspace_access",
+                occurred_at: "2026-05-06T12:02:00.000Z",
+              },
+            ],
+          }),
+        });
+        await Promise.resolve();
+      });
+
+      expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("blocks useful live update effects until Workspace access revalidation succeeds", async () => {
+    const WebSocketStub = installWebSocketStub();
+    let controller = null;
+    let resolveAccessRevalidation;
+    const accessRevalidation = new Promise((resolve) => {
+      resolveAccessRevalidation = resolve;
+    });
+    const onWorkspaceCapacityRefresh = vi.fn(() => accessRevalidation);
+    const processingJob = {
+      job_id: "job_processing_1",
+      status: "processing",
+      source_name: "invoice.pdf",
+      template_id: "template_test",
+      created_at: "2026-05-06T12:00:00.000Z",
+      updated_at: "2026-05-06T12:01:00.000Z",
+    };
+    const request = vi.fn(async () => ({
+      jobs: [processingJob],
+      next_cursor: null,
+      has_more: false,
+    }));
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        request={request}
+        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+        initialWorkspace={{
+          jobHistory: [processingJob],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+      expect(
+        controller.contextList.documents.find(
+          (document) => document.job_id === "job_processing_1",
+        ),
+      ).toMatchObject({ status: "processing" });
+    });
+
+    await act(async () => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [
+            {
+              type: "workspace_context_invalidated",
+              reason: "workspace_access",
+              occurred_at: "2026-05-06T12:02:00.000Z",
+            },
+          ],
+        }),
+      });
+      await Promise.resolve();
+    });
+    expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [
+            {
+              type: "extraction_job_lifecycle",
+              job: {
+                job_id: "job_processing_1",
+                status: "completed",
+                source_name: "invoice.pdf",
+                template_id: "template_test",
+                updated_at: "2026-05-06T12:03:00.000Z",
+                completed_at: "2026-05-06T12:03:00.000Z",
+              },
+            },
+          ],
+        }),
+      });
+    });
+
+    expect(
+      controller.contextList.documents.find(
+        (document) => document.job_id === "job_processing_1",
+      ),
+    ).toMatchObject({ status: "processing" });
+
+    await act(async () => {
+      resolveAccessRevalidation();
+      await accessRevalidation;
+      await Promise.resolve();
+    });
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [
+            {
+              type: "extraction_job_lifecycle",
+              job: {
+                job_id: "job_processing_1",
+                status: "completed",
+                source_name: "invoice.pdf",
+                template_id: "template_test",
+                updated_at: "2026-05-06T12:04:00.000Z",
+                completed_at: "2026-05-06T12:04:00.000Z",
+              },
+            },
+          ],
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        controller.contextList.documents.find(
+          (document) => document.job_id === "job_processing_1",
+        ),
+      ).toMatchObject({
+        status: "completed",
+        completed_at: "2026-05-06T12:04:00.000Z",
+      });
+    });
+  });
+
+  it("ignores malformed and unknown live update events while applying valid job events", async () => {
+    const WebSocketStub = installWebSocketStub();
+    const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+    let controller = null;
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+        initialWorkspace={{
+          selectedDocumentId: "job_processing_1",
+          jobHistory: [
+            {
+              job_id: "job_processing_1",
+              status: "processing",
+              source_name: "invoice.pdf",
+              template_id: "template_test",
+              created_at: "2026-05-06T12:00:00.000Z",
+              updated_at: "2026-05-06T12:01:00.000Z",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+    });
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [
+            {
+              type: "workspace_context_invalidated",
+              reason: "",
+              occurred_at: "2026-05-06T12:02:00.000Z",
+            },
+            {
+              type: "future_event",
+              payload: { value: "ignored" },
+            },
+            {
+              type: "extraction_job_lifecycle",
+              job: {
+                job_id: "job_processing_1",
+                status: "completed",
+                source_name: "invoice.pdf",
+                template_id: "template_test",
+                updated_at: "2026-05-06T12:03:00.000Z",
+                completed_at: "2026-05-06T12:03:00.000Z",
+              },
+            },
+          ],
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        controller.contextList.documents.find(
+          (document) => document.job_id === "job_processing_1",
+        ),
+      ).toMatchObject({
+        status: "completed",
+        completed_at: "2026-05-06T12:03:00.000Z",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 200);
+      });
+    });
+    expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
+  });
+
+  it("coalesces burst invalidations into a throttled trailing Workspace context refresh", async () => {
+    vi.useFakeTimers();
+    const WebSocketStub = installWebSocketStub();
+    const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+
+    try {
+      render(
+        <DocumentControllerHarness
+          workspaceId="ws_1"
+          onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+        />,
+      );
+
+      expect(WebSocketStub.instances).toHaveLength(1);
+
+      act(() => {
+        WebSocketStub.instances[0].onmessage({
+          data: JSON.stringify({
+            version: 1,
+            events: [
+              {
+                type: "workspace_context_invalidated",
+                reason: "billing_usage",
+                occurred_at: "2026-05-06T12:02:00.000Z",
+              },
+            ],
+          }),
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(150);
+        await Promise.resolve();
+      });
+      expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
+
+      act(() => {
+        WebSocketStub.instances[0].onmessage({
+          data: JSON.stringify({
+            version: 1,
+            events: [
+              {
+                type: "workspace_context_invalidated",
+                reason: "billing_usage",
+                occurred_at: "2026-05-06T12:02:01.000Z",
+              },
+              {
+                type: "workspace_context_invalidated",
+                reason: "template_limits",
+                occurred_at: "2026-05-06T12:02:02.000Z",
+              },
+            ],
+          }),
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(2999);
+        await Promise.resolve();
+      });
+      expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+        await Promise.resolve();
+      });
+      expect(onWorkspaceCapacityRefresh).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores live update events from stale sockets after the accepted Workspace context changes", async () => {
+    vi.useFakeTimers();
+    const WebSocketStub = installWebSocketStub();
+    const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+
+    try {
+      const { rerender } = render(
+        <DocumentControllerHarness
+          workspaceId="ws_1"
+          onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+        />,
+      );
+
+      expect(WebSocketStub.instances).toHaveLength(1);
+      const staleSocket = WebSocketStub.instances[0];
+
+      act(() => {
+        staleSocket.onmessage({
+          data: JSON.stringify({
+            version: 1,
+            events: [
+              {
+                type: "workspace_context_invalidated",
+                reason: "billing_usage",
+                occurred_at: "2026-05-06T12:01:00.000Z",
+              },
+            ],
+          }),
+        });
+      });
+
+      rerender(
+        <DocumentControllerHarness
+          workspaceId="ws_2"
+          onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+        />,
+      );
+
+      expect(WebSocketStub.instances).toHaveLength(2);
+      expect(staleSocket.close).toHaveBeenCalled();
+
+      act(() => {
+        staleSocket.onmessage({
+          data: JSON.stringify({
+            version: 1,
+            events: [
+              {
+                type: "workspace_context_invalidated",
+                reason: "billing_usage",
+                occurred_at: "2026-05-06T12:02:00.000Z",
+              },
+            ],
+          }),
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(150);
+        await Promise.resolve();
+      });
+      expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
+
+      act(() => {
+        WebSocketStub.instances[1].onmessage({
+          data: JSON.stringify({
+            version: 1,
+            events: [
+              {
+                type: "workspace_context_invalidated",
+                reason: "billing_usage",
+                occurred_at: "2026-05-06T12:03:00.000Z",
+              },
+            ],
+          }),
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(150);
+        await Promise.resolve();
+      });
+      expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not refresh Workspace capacity when selecting a document whose status is unchanged", async () => {

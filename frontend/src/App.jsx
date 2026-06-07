@@ -146,11 +146,11 @@ function AuthenticatedApp() {
       isWorkspaceBillingView && workspaceContext.hasWorkspaceBillingAuthority,
     hasWorkspaceBillingAuthority: workspaceContext.hasWorkspaceBillingAuthority,
     addLog,
-    onSummaryLoaded: workspaceController.actions.listWorkspaces,
+    onSummaryLoaded: workspaceController.actions.refreshSelectedWorkspaceContext,
   });
 
   async function handleWorkspaceCapacityRefresh() {
-    const refreshes = [workspaceController.actions.listWorkspaces()];
+    const refreshes = [workspaceController.actions.refreshSelectedWorkspaceContext()];
     if (isWorkspaceBillingView && workspaceContext.hasWorkspaceBillingAuthority) {
       refreshes.push(billingController.onRefresh());
     }
@@ -208,6 +208,13 @@ function AuthenticatedApp() {
     }
   }
 
+  async function handleApplicationAdminWorkspaceBillingMutation(affectedWorkspaceId) {
+    if (String(affectedWorkspaceId || "").trim() !== String(workspaceId || "").trim()) {
+      return null;
+    }
+    return workspaceController.actions.refreshSelectedWorkspaceContext();
+  }
+
   const adminController = useApplicationAdminController({
     authClient,
     request: coreRequest,
@@ -215,6 +222,7 @@ function AuthenticatedApp() {
     sessionUserId,
     showActionToast,
     onImpersonationStarted: handleImpersonationStarted,
+    onWorkspaceBillingMutation: handleApplicationAdminWorkspaceBillingMutation,
   });
   const workspaceSidebar = workspaceController.sidebar;
   const workspaceToolbar = workspaceController.toolbar;

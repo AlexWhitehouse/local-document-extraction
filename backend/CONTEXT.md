@@ -108,6 +108,10 @@ _Avoid_: product data projection, audit log, source of truth
 A realtime notification about changed **Workspace product data** for an accepted **Workspace context**.
 _Avoid_: polling replacement for all data, durable event log, analytics event
 
+**Workspace context invalidation**:
+A freshness hint carried by **Workspace live updates** that tells a session browser its accepted **Workspace context** may need HTTP revalidation after Workspace billing, Template limit, member limit, or access state changes.
+_Avoid_: billing payload, context snapshot, durable event
+
 **Leave Workspace**:
 A self-service action where a non-owner workspace member removes only their own **Workspace membership**.
 _Avoid_: exit group, delete access
@@ -682,10 +686,13 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - **Workspace product analytics** is not authoritative **Workspace product data** and is not part of Workspace deletion hard-erasure.
 - **Workspace live updates** notify clients about **Extraction job lifecycle** changes after authoritative **Workspace product data** has been persisted.
 - **Workspace live updates** cover all **Extraction job lifecycle** changes for the accepted **Workspace context**, not only the currently selected Extraction job.
-- **Workspace live updates** are not durable history; clients revalidate authoritative **Workspace product data** after reconnecting.
+- **Workspace context invalidation** events are freshness hints, not a source of computed Workspace state.
+- **Workspace context invalidation** events carry a reason code and occurrence timestamp so clients can revalidate accepted **Workspace context** over HTTP.
+- **Workspace live updates** are not durable history; clients revalidate authoritative **Workspace product data** and accepted **Workspace context** after reconnecting.
 - The first **Workspace live update** capability is session-only for the SPA; Workspace API keys do not open live update connections.
 - **Workspace live updates** use a versioned batch message envelope.
-- **Workspace live updates** must not include extracted answers, evidence text, Source file binary contents, account emails, API keys, or Document contents.
+- **Extraction job lifecycle** live update events must not include extracted answers, evidence text, Source file binary contents, account emails, API keys, or Document contents.
+- **Workspace context invalidation** live update events must not include computed **Billing operational status**, remaining Credits, remaining Plan page capacity, Stripe details, account identity, API keys, extracted answers, evidence text, Source file binary contents, or Document contents.
 - Creating a **Workspace** and generating a **Workspace API key** are separate user intents.
 - `POST /v1/workspaces` returns the new accepted **Workspace context** with `has_api_key: false` and no **Workspace API key** secret.
 - First-login Workspace bootstrap creates the accepted **Workspace** and starter template, not visible external-client **Workspace API key** material.

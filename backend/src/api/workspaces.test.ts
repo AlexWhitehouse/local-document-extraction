@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  acceptInvitation,
   cancelWorkspaceInvitationForUser,
   createWorkspaceForUser,
   declineInvitation,
   deleteWorkspaceForUser,
   leaveWorkspaceForUser,
   inviteUserToWorkspace,
+  getSelectedWorkspaceContextForUser,
   listWorkspacesForUser,
   rotateWorkspaceApiKeyForUser,
   updateWorkspaceUserRoleForUser
@@ -23,7 +25,9 @@ type WorkspaceInvitationFixture = {
   id: string;
   workspace_id: string;
   email: string;
+  role?: "admin" | "member";
   status: "pending" | "accepted" | "cancelled" | "expired";
+  expires_at?: string;
 };
 
 type CreatedWorkspaceResponse = {
@@ -60,6 +64,10 @@ type WorkspaceListingResponse = {
       blocking_reasons: string[];
     };
   }>;
+};
+
+type SelectedWorkspaceContextResponse = {
+  workspace: WorkspaceListingResponse["workspaces"][number];
 };
 
 type LeftWorkspaceResponse = {
@@ -181,6 +189,7 @@ function createEnvFixture(input: {
   stripeCustomerIdByWorkspace?: Record<string, string>;
   billingControlByWorkspace?: Record<string, BillingControlFixture>;
   users?: Array<{ id: string; email: string; name?: string | null }>;
+  closedLiveUpdateSocketCount?: number;
 }): Env & {
   deletedSourceFileKeys: string[];
   cleanedSourceFiles: ResidualSourceFileFixture[];
@@ -191,6 +200,8 @@ function createEnvFixture(input: {
   createdTemplates: TemplateFixture[];
   createdTemplateFields: TemplateFieldFixture[];
   createdProductStoreTemplates: TemplateFixture[];
+  workspaceContextInvalidations: Array<{ workspace_id: string; reason: string; occurredAt: string }>;
+  closedLiveUpdateSocketRequests: Array<{ workspace_id: string; userId: string; reason?: string }>;
 } {
   const deletedSourceFileKeys: string[] = [];
   const cleanedSourceFiles: ResidualSourceFileFixture[] = [];
@@ -201,6 +212,8 @@ function createEnvFixture(input: {
   const createdTemplates: TemplateFixture[] = [];
   const createdTemplateFields: TemplateFieldFixture[] = [];
   const createdProductStoreTemplates: TemplateFixture[] = [];
+  const workspaceContextInvalidations: Array<{ workspace_id: string; reason: string; occurredAt: string }> = [];
+  const closedLiveUpdateSocketRequests: Array<{ workspace_id: string; userId: string; reason?: string }> = [];
   const residualSourceFiles = [...(input.residualSourceFiles ?? [])];
   return {
     WORKSPACE_PRODUCT_STORE: {
@@ -244,6 +257,21 @@ function createEnvFixture(input: {
             erasedProductStoreWorkspaces.push(workspaceId);
             deletionEvents.push(`product-data-erased:${workspaceId}`);
           },
+          async broadcastWorkspaceContextInvalidation(input: { reason: string; occurredAt: string }) {
+            workspaceContextInvalidations.push({
+              workspace_id: workspaceId,
+              reason: input.reason,
+              occurredAt: input.occurredAt,
+            });
+          },
+          async closeWorkspaceLiveUpdateSocketsForUser(closeInput: { userId: string; reason?: string }) {
+            closedLiveUpdateSocketRequests.push({
+              workspace_id: workspaceId,
+              userId: closeInput.userId,
+              reason: closeInput.reason,
+            });
+            return input.closedLiveUpdateSocketCount ?? 1;
+          },
         };
       },
     } as unknown as DurableObjectNamespace,
@@ -277,10 +305,14 @@ function createEnvFixture(input: {
                 if (sql.includes("INSERT INTO workspace_memberships")) {
                   const [workspaceId, userId] = params;
                   const createdAt = params[params.length - 1];
+                  const role =
+                    typeof params[2] === "string" && (params[2] === "admin" || params[2] === "member")
+                      ? params[2]
+                      : "owner";
                   input.memberships.push({
                     workspace_id: String(workspaceId),
                     user_id: String(userId),
-                    role: "owner"
+                    role
                   });
                   expect(createdAt).toEqual(expect.any(String));
                   return { success: true };
@@ -443,6 +475,17 @@ function createEnvFixture(input: {
                   return { success: true };
                 }
 
+                if (sql.includes("UPDATE workspace_invitations") && sql.includes("status = 'accepted'")) {
+                  const [acceptedByUserId, updatedAt, invitationId] = params;
+                  const invitation = input.invitations?.find((candidate) => candidate.id === invitationId);
+                  if (invitation) {
+                    invitation.status = "accepted";
+                  }
+                  expect(acceptedByUserId).toEqual(expect.any(String));
+                  expect(updatedAt).toEqual(expect.any(String));
+                  return { success: true };
+                }
+
                 if (sql.includes("INSERT INTO workspace_invitations")) {
                   const [id, workspaceId, email] = params;
                   input.invitations?.push({
@@ -481,6 +524,27 @@ function createEnvFixture(input: {
                   const [workspaceId] = params;
                   const count = input.memberships.filter((membership) => membership.workspace_id === workspaceId).length;
                   return { count } as T;
+                }
+
+                if (
+                  sql.includes("JOIN workspaces t ON t.id = m.workspace_id") &&
+                  sql.includes("WHERE m.user_id = ? AND t.id = ?")
+                ) {
+                  const [userId, workspaceId] = params;
+                  const workspace = input.workspaces.find((candidate) => candidate.id === workspaceId);
+                  const membership = input.memberships.find(
+                    (candidate) => candidate.workspace_id === workspaceId && candidate.user_id === userId,
+                  );
+                  return (workspace && membership
+                    ? {
+                        id: workspace.id,
+                        name: workspace.name,
+                        created_at: workspace.created_at,
+                        max_source_file_bytes: workspace.max_source_file_bytes,
+                        has_api_key: workspace.api_key_hash !== null,
+                        role: membership.role,
+                      }
+                    : null) as T | null;
                 }
 
                 if (sql.includes("SELECT stripe_customer_id") && sql.includes("FROM workspace_billing_controls")) {
@@ -627,6 +691,8 @@ function createEnvFixture(input: {
     createdTemplates,
     createdTemplateFields,
     createdProductStoreTemplates,
+    workspaceContextInvalidations,
+    closedLiveUpdateSocketRequests,
   } as unknown as Env & {
     deletedSourceFileKeys: string[];
     cleanedSourceFiles: ResidualSourceFileFixture[];
@@ -637,6 +703,8 @@ function createEnvFixture(input: {
     createdTemplates: TemplateFixture[];
     createdTemplateFields: TemplateFieldFixture[];
     createdProductStoreTemplates: TemplateFixture[];
+    workspaceContextInvalidations: Array<{ workspace_id: string; reason: string; occurredAt: string }>;
+    closedLiveUpdateSocketRequests: Array<{ workspace_id: string; userId: string; reason?: string }>;
   };
 }
 
@@ -736,6 +804,46 @@ describe("Workspace routes", () => {
     });
   });
 
+  it("returns only the selected accepted Workspace context for a signed-in member", async () => {
+    const selectedWorkspace = createWorkspace({
+      id: "workspace_selected",
+      name: "Selected Workspace",
+      created_at: "2026-05-06T12:00:00.000Z",
+      api_key_hash: "hash_selected",
+      max_source_file_bytes: 12345,
+    });
+    const otherWorkspace = createWorkspace({
+      id: "workspace_other",
+      name: "Other Workspace",
+      created_at: "2026-05-07T12:00:00.000Z",
+    });
+    const env = createEnvFixture({
+      workspaces: [selectedWorkspace, otherWorkspace],
+      memberships: [
+        { workspace_id: selectedWorkspace.id, user_id: "user_member", role: "admin" },
+        { workspace_id: otherWorkspace.id, user_id: "user_member", role: "member" },
+      ],
+    });
+
+    const response = await getSelectedWorkspaceContextForUser(env, selectedWorkspace.id, "user_member");
+    const body = await response.json<SelectedWorkspaceContextResponse>();
+
+    expect(body).toEqual({
+      workspace: {
+        id: selectedWorkspace.id,
+        name: "Selected Workspace",
+        created_at: "2026-05-06T12:00:00.000Z",
+        max_source_file_bytes: 12345,
+        has_api_key: true,
+        role: "admin",
+        billing_plan_limits: freePlanLimits(),
+        billing_usage_summary: freeBillingUsageSummary(),
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain(otherWorkspace.id);
+    expect(body.workspace).not.toHaveProperty("api_key");
+  });
+
   it("includes limited plan-overage operational status on Workspace listings", async () => {
     const workspace = createWorkspace({ id: "workspace_limits", name: "Limits Workspace" });
     const env = createEnvFixture({
@@ -788,6 +896,55 @@ describe("Workspace routes", () => {
       }),
     ]);
     expect(JSON.stringify(body)).not.toMatch(/invoice|payment|checkout/i);
+  });
+
+  it("matches Workspace listing Billing operational status on selected Workspace context refresh", async () => {
+    const workspace = createWorkspace({ id: "workspace_limits", name: "Limits Workspace" });
+    const env = createEnvFixture({
+      workspaces: [workspace],
+      memberships: [
+        { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+        { workspace_id: workspace.id, user_id: "user_admin", role: "admin" },
+        { workspace_id: workspace.id, user_id: "user_member", role: "member" },
+        { workspace_id: workspace.id, user_id: "user_extra", role: "member" },
+      ],
+      billingLedgerSummariesByWorkspace: {
+        [workspace.id]: {
+          credits: { total_available: 10 },
+          current_period: { pages_remaining: 100 },
+        },
+      },
+      planLimitUsageByWorkspace: {
+        [workspace.id]: {
+          active_template_count: 4,
+          templates: [
+            {
+              template_id: "tpl_over_limit",
+              top_level_template_fields: 6,
+              table_shaped_fields: 2,
+              max_table_columns_per_field: 6,
+            },
+          ],
+        },
+      },
+    });
+
+    const listBody = await (await listWorkspacesForUser(env, "user_owner")).json<WorkspaceListingResponse>();
+    const selectedBody = await (
+      await getSelectedWorkspaceContextForUser(env, workspace.id, "user_owner")
+    ).json<SelectedWorkspaceContextResponse>();
+
+    expect(selectedBody.workspace.billing_operational_status).toEqual(
+      listBody.workspaces[0]?.billing_operational_status,
+    );
+    expect(selectedBody.workspace.billing_operational_status).toEqual({
+      status: "blocked",
+      blocking_reasons: [
+        "Member limit overage",
+        "Template limit overage",
+        "Template schema limit overage",
+      ],
+    });
   });
 
   it("uses No-billing entitlement for Workspace listing operational status", async () => {
@@ -928,6 +1085,49 @@ describe("Workspace routes", () => {
     expect(invitations).toEqual([]);
   });
 
+  it("emits member-limit invalidation after accepting a Workspace invitation", async () => {
+    const workspace = createWorkspace({ id: "workspace_team" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+    ];
+    const invitations: WorkspaceInvitationFixture[] = [
+      {
+        id: "invite_member",
+        workspace_id: workspace.id,
+        email: "invited@example.com",
+        role: "member",
+        status: "pending",
+        expires_at: "2999-01-01T00:00:00.000Z",
+      },
+    ];
+    const env = createEnvFixture({ workspaces: [workspace], memberships, invitations });
+
+    const response = await acceptInvitation(
+      env,
+      "invite_member",
+      "user_invited",
+      "invited@example.com"
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      workspace_id: workspace.id,
+      role: "member",
+    });
+    expect(memberships).toContainEqual({
+      workspace_id: workspace.id,
+      user_id: "user_invited",
+      role: "member",
+    });
+    expect(env.workspaceContextInvalidations).toEqual([
+      {
+        workspace_id: workspace.id,
+        reason: "member_limits",
+        occurredAt: expect.any(String),
+      },
+    ]);
+  });
+
   it("does not immediately repair another user's accepted Workspace state when removing their last membership", async () => {
     const workspace = createWorkspace({ id: "workspace_team" });
     const memberships: MembershipFixture[] = [
@@ -956,6 +1156,85 @@ describe("Workspace routes", () => {
     });
     expect(memberships).toEqual([{ workspace_id: workspace.id, user_id: "user_owner", role: "owner" }]);
     expect(workspaces.filter((candidate) => candidate.created_by_user_id === "user_member")).toEqual([]);
+  });
+
+  it("closes removed member live update sockets and emits member-limit invalidation", async () => {
+    const workspace = createWorkspace({ id: "workspace_team" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ];
+    const env = createEnvFixture({ workspaces: [workspace], memberships });
+
+    const response = await updateWorkspaceUserRoleForUser(
+      new Request("https://example.test/v1/workspaces/workspace_team/users/user_member", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "remove_user" })
+      }),
+      env,
+      workspace.id,
+      "user_owner",
+      "user_member"
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      workspace_id: workspace.id,
+      target_user_id: "user_member",
+      action: "remove_user",
+    });
+    expect(env.closedLiveUpdateSocketRequests).toEqual([
+      {
+        workspace_id: workspace.id,
+        userId: "user_member",
+        reason: "Workspace access changed",
+      },
+    ]);
+    expect(env.workspaceContextInvalidations).toEqual([
+      {
+        workspace_id: workspace.id,
+        reason: "member_limits",
+        occurredAt: expect.any(String),
+      },
+    ]);
+  });
+
+  it("emits Workspace access invalidation when removed member sockets are not known", async () => {
+    const workspace = createWorkspace({ id: "workspace_team" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_member", role: "member" }
+    ];
+    const env = createEnvFixture({
+      workspaces: [workspace],
+      memberships,
+      closedLiveUpdateSocketCount: 0,
+    });
+
+    const response = await updateWorkspaceUserRoleForUser(
+      new Request("https://example.test/v1/workspaces/workspace_team/users/user_member", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "remove_user" })
+      }),
+      env,
+      workspace.id,
+      "user_owner",
+      "user_member"
+    );
+
+    expect(response.status).toBe(200);
+    expect(env.workspaceContextInvalidations).toEqual([
+      {
+        workspace_id: workspace.id,
+        reason: "workspace_access",
+        occurredAt: expect.any(String),
+      },
+      {
+        workspace_id: workspace.id,
+        reason: "member_limits",
+        occurredAt: expect.any(String),
+      },
+    ]);
   });
 
   it("updates the Stripe Customer billing email when Workspace ownership transfers", async () => {
@@ -1474,6 +1753,35 @@ describe("Workspace routes", () => {
     expect(memberships).toEqual([
       { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
       { workspace_id: otherWorkspace.id, user_id: "user_admin", role: "member" }
+    ]);
+  });
+
+  it("closes leaving member live update sockets and emits member-limit invalidation", async () => {
+    const workspace = createWorkspace({ id: "workspace_leave" });
+    const otherWorkspace = createWorkspace({ id: "workspace_keep" });
+    const memberships: MembershipFixture[] = [
+      { workspace_id: workspace.id, user_id: "user_owner", role: "owner" },
+      { workspace_id: workspace.id, user_id: "user_admin", role: "admin" },
+      { workspace_id: otherWorkspace.id, user_id: "user_admin", role: "member" }
+    ];
+    const env = createEnvFixture({ workspaces: [workspace, otherWorkspace], memberships });
+
+    const response = await leaveWorkspaceForUser(env, workspace.id, "user_admin");
+
+    await expect(response.json()).resolves.toEqual({ ok: true, workspace_id: workspace.id });
+    expect(env.closedLiveUpdateSocketRequests).toEqual([
+      {
+        workspace_id: workspace.id,
+        userId: "user_admin",
+        reason: "Workspace access changed",
+      },
+    ]);
+    expect(env.workspaceContextInvalidations).toEqual([
+      {
+        workspace_id: workspace.id,
+        reason: "member_limits",
+        occurredAt: expect.any(String),
+      },
     ]);
   });
 

@@ -1,7 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import type {
   ClaimedWorkspaceExtractionJob,
+  BroadcastWorkspaceContextInvalidationInput,
   ClaimWorkspaceExtractionJobForProcessingInput,
+  CloseWorkspaceLiveUpdateSocketsForUserInput,
   CompleteWorkspaceExtractionJobInput,
   CreateQueuedWorkspaceExtractionJobInput,
   CreateWorkspaceTemplateInput,
@@ -98,10 +100,19 @@ export class WorkspaceProductStore extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({
+    const userId = String(request.headers.get("x-workspace-live-user-id") || "").trim();
+    const workspaceId = String(request.headers.get("x-workspace-live-workspace-id") || "").trim();
+    const attachment: Record<string, string> = {
       type: "workspace_live_update",
       connected_at: new Date().toISOString(),
-    });
+    };
+    if (userId) {
+      attachment.user_id = userId;
+    }
+    if (workspaceId) {
+      attachment.workspace_id = workspaceId;
+    }
+    server.serializeAttachment(attachment);
 
     return new Response(null, {
       status: 101,
@@ -969,6 +980,52 @@ export class WorkspaceProductStore extends DurableObject<Env> {
 
     await this.ctx.storage.deleteAll();
     this.schemaReady = false;
+  }
+
+  async broadcastWorkspaceContextInvalidation(input: BroadcastWorkspaceContextInvalidationInput): Promise<void> {
+    const reason = String(input.reason || "").trim();
+    const occurredAt = String(input.occurredAt || "").trim();
+    if (!reason || !occurredAt) {
+      return;
+    }
+
+    const message = JSON.stringify({
+      version: 1,
+      events: [
+        {
+          type: "workspace_context_invalidated",
+          reason,
+          occurred_at: occurredAt,
+        },
+      ],
+    });
+
+    for (const socket of this.ctx.getWebSockets()) {
+      socket.send(message);
+    }
+  }
+
+  async closeWorkspaceLiveUpdateSocketsForUser(input: CloseWorkspaceLiveUpdateSocketsForUserInput): Promise<number> {
+    const userId = String(input.userId || "").trim();
+    if (!userId) {
+      return 0;
+    }
+
+    const reason = String(input.reason || "").trim() || "Workspace access changed";
+    let closedCount = 0;
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment?.();
+      const socketUserId =
+        typeof (attachment as { user_id?: unknown } | null)?.user_id === "string"
+          ? String((attachment as { user_id: string }).user_id).trim()
+          : "";
+      if (socketUserId !== userId) {
+        continue;
+      }
+      socket.close(1000, reason);
+      closedCount += 1;
+    }
+    return closedCount;
   }
 
   private broadcastExtractionJobLifecycle(jobId: string): void {
