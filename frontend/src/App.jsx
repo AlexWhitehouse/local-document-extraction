@@ -146,15 +146,14 @@ function AuthenticatedApp() {
       isWorkspaceBillingView && workspaceContext.hasWorkspaceBillingAuthority,
     hasWorkspaceBillingAuthority: workspaceContext.hasWorkspaceBillingAuthority,
     addLog,
-    onSummaryLoaded: workspaceController.actions.refreshSelectedWorkspaceContext,
+    onSummaryLoaded: workspaceController.actions.applyWorkspaceBillingSummary,
   });
 
   async function handleWorkspaceCapacityRefresh() {
-    const refreshes = [workspaceController.actions.refreshSelectedWorkspaceContext()];
+    await workspaceController.actions.refreshSelectedWorkspaceContext();
     if (isWorkspaceBillingView && workspaceContext.hasWorkspaceBillingAuthority) {
-      refreshes.push(billingController.onRefresh());
+      await billingController.onRefresh();
     }
-    await Promise.all(refreshes);
   }
 
   const documentController = useDocumentController({

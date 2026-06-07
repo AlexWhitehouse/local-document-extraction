@@ -280,12 +280,12 @@ describe("Workspace Billing page", () => {
             created_at: "2026-05-04T00:00:00.000Z",
             has_api_key: false,
             billing_usage_summary: {
-              remaining_credits: 25,
+              remaining_credits: 0,
               remaining_pages: billingSummary.current_period.pages_remaining,
             },
             billing_operational_status: {
-              status: "active",
-              blocking_reasons: [],
+              status: "blocked",
+              blocking_reasons: ["Insufficient Credits"],
             },
           },
         }));
@@ -652,7 +652,7 @@ describe("Workspace Billing page", () => {
     expect(main.getByText("30 Jun 2026")).toBeTruthy();
     expect(main.queryByText("Billing attention needed")).toBeNull();
     expect(main.queryByText("Billing operational status")).toBeNull();
-    expect(main.getByText("Plan page capacity reached")).toBeTruthy();
+    expect(main.getAllByText("Plan page capacity reached").length).toBeGreaterThan(0);
     expect(main.queryByText("Payment setup")).toBeNull();
     expect(main.queryByText("Managed securely through Stripe-hosted billing flows.")).toBeNull();
     expect(main.getByText("Purchased Credit pack")).toBeTruthy();
