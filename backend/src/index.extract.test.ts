@@ -34,6 +34,7 @@ type ProductStoreStub = {
   summarizePlanLimitUsage: ReturnType<typeof vi.fn>;
   createQueuedExtractionJob: ReturnType<typeof vi.fn>;
   failQueuedExtractionJob: ReturnType<typeof vi.fn>;
+  broadcastWorkspaceContextInvalidation: ReturnType<typeof vi.fn>;
 };
 
 type AnalyticsBindingStub = Env["WORKSPACE_PRODUCT_ANALYTICS"] & {
@@ -154,6 +155,21 @@ describe("Extraction submission route", () => {
       }),
     );
     expect(JSON.stringify(analytics.writeDataPoint.mock.calls[0]?.[0])).not.toContain("invoice.pdf");
+  });
+
+  it("emits billing-usage Workspace context invalidation after accepting a Document submission", async () => {
+    const productStore = createQueueingProductStoreStub();
+    const env = createExtractEnv({
+      WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+    });
+
+    const response = await worker.fetch(createExtractRequest("document"), env);
+
+    expect(response.status).toBe(202);
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_usage",
+      occurredAt: expect.any(String),
+    });
   });
 
   it("reserves prepaid Credits and Plan page capacity before accepting a PDF Document submission", async () => {
@@ -699,6 +715,78 @@ describe("Extraction submission route", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("emits billing-usage Workspace context invalidation after refunding a failed accepted-submission attempt", async () => {
+    const productStore = createProductStoreStub();
+    productStore.validateTemplateForDocumentSubmission.mockResolvedValue({
+      template_id: "template_test",
+      template_version: 1,
+    });
+    productStore.createQueuedExtractionJob.mockResolvedValue({
+      error: {
+        status: 500,
+        code: "queued_job_create_failed",
+        message: "Could not create queued Extraction job",
+      },
+    });
+    const env = createExtractEnv({
+      WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+      WORKSPACE_BILLING_LEDGER: createWorkspaceBillingLedgerBinding("workspace_test", {
+        goodwillCredits: 1,
+      }),
+    });
+
+    const response = await worker.fetch(createExtractRequest("document"), env);
+
+    expect(response.status).toBe(500);
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledTimes(1);
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "billing_usage",
+      occurredAt: expect.any(String),
+    });
+  });
+
+  it("does not emit billing-usage Workspace context invalidation when submission compensation finds no refundable reservation", async () => {
+    const productStore = createProductStoreStub();
+    productStore.validateTemplateForDocumentSubmission.mockResolvedValue({
+      template_id: "template_test",
+      template_version: 1,
+    });
+    productStore.createQueuedExtractionJob.mockResolvedValue({
+      error: {
+        status: 500,
+        code: "queued_job_create_failed",
+        message: "Could not create queued Extraction job",
+      },
+    });
+    const env = createExtractEnv({
+      WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+      WORKSPACE_BILLING_LEDGER: {
+        getByName: vi.fn((name: string) => {
+          if (name !== "workspace_test") {
+            throw new Error(`Unexpected billing ledger name: ${name}`);
+          }
+          return {
+            reserveCreditsForDocumentSubmission: vi.fn(async () => ({
+              entry_id: "entry_submission_test",
+              reservation_id: "reservation_submission_test",
+              workspace_id: "workspace_test",
+              extraction_job_id: "job_test",
+              reserved_credits: 1,
+              billable_document_pages: 1,
+              available_credits: 0,
+            })),
+            refundCreditReservation: vi.fn(async () => null),
+          };
+        }),
+      } as unknown as Env["WORKSPACE_BILLING_LEDGER"],
+    });
+
+    const response = await worker.fetch(createExtractRequest("document"), env);
+
+    expect(response.status).toBe(500);
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
   });
 
   it("accepts PNG Document submissions without Source file page count", async () => {
@@ -1463,6 +1551,7 @@ function createProductStoreStub(): ProductStoreStub {
     })),
     createQueuedExtractionJob: vi.fn(),
     failQueuedExtractionJob: vi.fn(),
+    broadcastWorkspaceContextInvalidation: vi.fn(),
   };
 }
 

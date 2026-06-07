@@ -56,6 +56,14 @@ _Avoid_: upload alert, document status message
 Browser-local cached details for completed **Extraction jobs**, scoped by accepted **Workspace** and job ID.
 _Avoid_: job history storage, workspace data persistence
 
+**Workspace live update**:
+A session-only realtime message stream for the accepted **Workspace context** that can update visible **Extraction jobs** and carry Workspace context invalidation hints.
+_Avoid_: durable event history, polling replacement for all data, billing payload
+
+**Workspace context invalidation**:
+A freshness hint from **Workspace live updates** that tells the browser to revalidate the selected accepted **Workspace context** over HTTP because Workspace billing, Template limit, member limit, or access state may have changed.
+_Avoid_: billing details, local billing rule, context snapshot
+
 **Document**:
 A user-provided file submitted for extraction.
 _Avoid_: image, upload, input file
@@ -265,6 +273,12 @@ _Avoid_: frontend auth mode, session replacement
 - An **Extraction job** shows results for the **Template version** used when the Document was submitted.
 - A completed **Extraction job** displays **Extraction results** for extracted **Template fields**.
 - **Selected upload Template** is derived from backend Templates after Workspace resolution and does not persist across page refresh.
+- **Workspace live updates** are not durable history; clients revalidate authoritative **Workspace product data** and accepted **Workspace context** over HTTP after reconnecting.
+- **Extraction job** lifecycle live updates update Documents UI state without refreshing **Workspace context**.
+- **Workspace context invalidation** refreshes selected accepted **Workspace context** over HTTP through bounded scheduling so bursts coalesce.
+- **Workspace access** invalidation revalidates selected accepted **Workspace context** immediately and blocks useful live update effects until revalidation succeeds.
+- The common live invalidation path refreshes selected accepted **Workspace context** without fetching pending **Workspace invitations** or unrelated Workspaces.
+- A full Workspace-list refresh remains available for startup, Stored workspace preference recovery, Workspace switching, pending **Workspace invitation** resolution, and access recovery.
 
 ## Example Dialogue
 

@@ -237,6 +237,70 @@ describe("Application admin page gate", () => {
     expect(toast.success).toHaveBeenCalledWith("Goodwill Credits granted: ws_1");
   });
 
+  it("refreshes selected Workspace context after granting Goodwill Credits to the active Workspace", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    authClientMock.listUsers.mockResolvedValue({
+      data: { users: [], total: 0, limit: 25, offset: 0 },
+      error: null,
+    });
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/admin/billing/workspaces/ws_1/goodwill-credits")) {
+        return Promise.resolve(jsonResponse({
+          grant_id: "grant_grant-request-1",
+          workspace_id: "ws_1",
+          granted_credits: 25,
+          available_credits: 25,
+        }, { status: 201 }));
+      }
+      if (url.endsWith("/workspaces/ws_1/context")) {
+        return Promise.resolve(jsonResponse({
+          workspace: {
+            id: "ws_1",
+            name: "Research Workspace",
+            role: "owner",
+            created_at: "2026-01-01T00:00:00.000Z",
+            has_api_key: false,
+            billing_usage_summary: {
+              remaining_credits: 25,
+              remaining_pages: 100,
+            },
+            billing_operational_status: {
+              status: "active",
+              blocking_reasons: [],
+            },
+          },
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+    await openAdminBillingView(user);
+    const dialog = await startBillingFlow(user, "Grant Goodwill Credits");
+
+    await user.clear(within(dialog).getByLabelText("Goodwill Credits"));
+    await user.type(within(dialog).getByLabelText("Goodwill Credits"), "25");
+    await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await user.type(within(dialog).getByLabelText("Grant reason"), "Support adjustment for onboarding");
+    await user.click(within(dialog).getByRole("button", { name: "Grant Goodwill Credits" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/v1/workspaces/ws_1/context",
+        expect.objectContaining({
+          credentials: "include",
+          method: "GET",
+        }),
+      );
+    });
+    await user.click(screen.getByRole("button", { name: /Workspaces/ }));
+    const metrics = within(screen.getByRole("region", { name: "Operational metrics" }));
+    expect(metrics.getByText("25")).toBeTruthy();
+    expect(metrics.getByText("100")).toBeTruthy();
+  });
+
   it("lets Application admins revoke a Goodwill Credit grant from the Application admin billing view", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");

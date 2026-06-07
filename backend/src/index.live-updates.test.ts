@@ -63,7 +63,7 @@ describe("Workspace live update route", () => {
       name: "Ada Lovelace",
     });
     const productStore = {
-      fetch: vi.fn(async () => new Response("live accepted")),
+      fetch: vi.fn(async (_request: Request) => new Response("live accepted")),
     };
     const productStoreBinding = {
       getByName: vi.fn(() => productStore),
@@ -93,7 +93,49 @@ describe("Workspace live update route", () => {
     await expect(response.text()).resolves.toBe("live accepted");
     expect(requireSessionMock).toHaveBeenCalledWith(request, env);
     expect(productStoreBinding.getByName).toHaveBeenCalledWith("workspace_test");
-    expect(productStore.fetch).toHaveBeenCalledWith(request);
+    const proxiedRequest = productStore.fetch.mock.calls[0]?.[0] as Request | undefined;
+    expect(proxiedRequest?.url).toBe(request.url);
+    expect(proxiedRequest?.method).toBe(request.method);
+    expect(proxiedRequest?.headers.get("upgrade")).toBe("websocket");
+  });
+
+  it("proxies accepted Workspace live update sockets with private session identity metadata", async () => {
+    requireSessionMock.mockResolvedValue({
+      id: "user_test",
+      email: "ada@example.com",
+      name: "Ada Lovelace",
+    });
+    const productStore = {
+      fetch: vi.fn(async (_request: Request) => new Response("live accepted")),
+    };
+    const productStoreBinding = {
+      getByName: vi.fn(() => productStore),
+    } as unknown as Env["WORKSPACE_PRODUCT_STORE"];
+    const env = {
+      DB: createWorkspaceMembershipDb({
+        id: "workspace_test",
+        name: "Research",
+        created_at: "2026-05-06T12:00:00.000Z",
+        created_by_user_id: "user_owner",
+        api_key_hash: null,
+        rate_limit_per_minute: null,
+        max_templates: null,
+        max_fields_per_template: null,
+        max_source_file_bytes: null,
+      }),
+      WORKSPACE_PRODUCT_STORE: productStoreBinding,
+    } as Env;
+
+    const request = new Request("https://example.com/v1/workspaces/workspace_test/live", {
+      method: "GET",
+      headers: { upgrade: "websocket" },
+    });
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(200);
+    const proxiedRequest = productStore.fetch.mock.calls[0]?.[0] as Request | undefined;
+    expect(proxiedRequest?.headers.get("x-workspace-live-user-id")).toBe("user_test");
+    expect(proxiedRequest?.headers.get("x-workspace-live-workspace-id")).toBe("workspace_test");
   });
 
   it("rejects Workspace API key live update requests", async () => {
@@ -185,11 +227,96 @@ describe("Workspace live update route", () => {
   });
 });
 
+describe("Selected Workspace context route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns the selected accepted Workspace context for a signed-in session", async () => {
+    requireSessionMock.mockResolvedValue({
+      id: "user_test",
+      email: "ada@example.com",
+      name: "Ada Lovelace",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/workspaces/workspace_test/context", {
+        method: "GET",
+      }),
+      {
+        DB: createSelectedWorkspaceContextDb(),
+      } as Env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      workspace: {
+        id: "workspace_test",
+        name: "Research",
+        created_at: "2026-05-06T12:00:00.000Z",
+        max_source_file_bytes: 2048,
+        has_api_key: true,
+        role: "admin",
+        billing_plan_limits: {
+          templates: 3,
+          top_level_template_fields: 5,
+          table_shaped_fields: 1,
+          table_columns_per_field: 5,
+          members: 3,
+          monthly_pages: 500,
+          api_access: false,
+        },
+        billing_usage_summary: {
+          remaining_credits: 0,
+          remaining_pages: 500,
+        },
+      },
+    });
+  });
+});
+
 function createWorkspaceMembershipDb(workspace: Record<string, unknown> | null): D1Database {
   return {
     prepare: vi.fn(() => ({
       bind: vi.fn(() => ({
         first: vi.fn(async () => workspace),
+      })),
+    })),
+  } as unknown as D1Database;
+}
+
+function createSelectedWorkspaceContextDb(): D1Database {
+  return {
+    prepare: vi.fn((sql: string) => ({
+      bind: vi.fn((...params: unknown[]) => ({
+        first: vi.fn(async () => {
+          if (
+            sql.includes("JOIN workspaces t ON t.id = m.workspace_id") &&
+            sql.includes("WHERE m.user_id = ? AND t.id = ?")
+          ) {
+            const [userId, workspaceId] = params;
+            if (userId !== "user_test" || workspaceId !== "workspace_test") {
+              return null;
+            }
+            return {
+              id: "workspace_test",
+              name: "Research",
+              created_at: "2026-05-06T12:00:00.000Z",
+              max_source_file_bytes: 2048,
+              has_api_key: 1,
+              role: "admin",
+            };
+          }
+
+          if (
+            sql.includes("self_service_subscription_plan") &&
+            sql.includes("FROM workspace_billing_controls")
+          ) {
+            return null;
+          }
+
+          throw new Error(`Unhandled selected Workspace context SQL: ${sql}`);
+        }),
       })),
     })),
   } as unknown as D1Database;

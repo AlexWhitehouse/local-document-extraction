@@ -147,7 +147,8 @@ function AuthenticatedApp() {
     workspaceId,
     latestResponse,
     setLatestResponse,
-    onWorkspaceCapacityRefresh: workspaceController.actions.listWorkspaces,
+    onWorkspaceCapacityRefresh:
+      workspaceController.actions.refreshSelectedWorkspaceContext,
     onActivePageChange: setActivePage,
   });
   const documents = documentController.contextList.documents;
@@ -191,6 +192,12 @@ function AuthenticatedApp() {
     isAcceptedWorkspacePage &&
     workspaceContext.hasWorkspaceBillingAuthority &&
     workspacePageView === "billing";
+  async function handleApplicationAdminWorkspaceBillingMutation(affectedWorkspaceId) {
+    if (String(affectedWorkspaceId || "").trim() !== String(workspaceId || "").trim()) {
+      return null;
+    }
+    return workspaceController.actions.refreshSelectedWorkspaceContext();
+  }
   const adminController = useApplicationAdminController({
     authClient,
     request: coreRequest,
@@ -198,6 +205,7 @@ function AuthenticatedApp() {
     sessionUserId,
     showActionToast,
     onImpersonationStarted: handleImpersonationStarted,
+    onWorkspaceBillingMutation: handleApplicationAdminWorkspaceBillingMutation,
   });
   const workspaceSidebar = workspaceController.sidebar;
   const workspaceToolbar = workspaceController.toolbar;

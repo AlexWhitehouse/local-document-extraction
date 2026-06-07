@@ -48,6 +48,40 @@ describe("WorkspaceProductStore Extraction job lifecycle", () => {
     }
   });
 
+  it("stores backend-only session identity in Workspace live update socket attachments", async () => {
+    const acceptedSockets: TestWebSocket[] = [];
+    const store = createStore({
+      acceptWebSocket(ws) {
+        acceptedSockets.push(ws as unknown as TestWebSocket);
+      },
+    });
+    const { server, restore: restoreWebSocketPair } = installWebSocketPair();
+    const restoreResponse = installCloudflareWebSocketResponse();
+
+    try {
+      await store.fetch(
+        new Request("https://workspace-product-store/live", {
+          headers: {
+            upgrade: "websocket",
+            "x-workspace-live-user-id": "user_test",
+            "x-workspace-live-workspace-id": "workspace_test",
+          },
+        }),
+      );
+
+      expect(acceptedSockets).toEqual([server]);
+      expect(server.serializeAttachment).toHaveBeenCalledWith({
+        type: "workspace_live_update",
+        connected_at: expect.any(String),
+        user_id: "user_test",
+        workspace_id: "workspace_test",
+      });
+    } finally {
+      restoreResponse();
+      restoreWebSocketPair();
+    }
+  });
+
   it("broadcasts queued Extraction job lifecycle envelopes without Source file page count", async () => {
     const liveSocket = new TestWebSocket("live");
     const store = createStore({
@@ -88,6 +122,72 @@ describe("WorkspaceProductStore Extraction job lifecycle", () => {
         },
       ],
     }));
+  });
+
+  it("broadcasts Workspace context invalidation envelopes without computed context data", async () => {
+    const liveSocket = new TestWebSocket("live");
+    const store = createStore({
+      webSockets: [liveSocket as unknown as WebSocket],
+    });
+
+    await store.broadcastWorkspaceContextInvalidation({
+      reason: "billing_usage",
+      occurredAt: "2026-05-06T12:02:00.000Z",
+    });
+
+    expect(liveSocket.send).toHaveBeenCalledWith(JSON.stringify({
+      version: 1,
+      events: [
+        {
+          type: "workspace_context_invalidated",
+          reason: "billing_usage",
+          occurred_at: "2026-05-06T12:02:00.000Z",
+        },
+      ],
+    }));
+
+    const message = String(liveSocket.send.mock.calls[0]?.[0] || "");
+    const envelope = JSON.parse(message);
+    expect(envelope.events[0]).not.toHaveProperty("billing_operational_status");
+    expect(envelope.events[0]).not.toHaveProperty("billing_usage_summary");
+    expect(envelope.events[0]).not.toHaveProperty("billing_plan_limits");
+    expect(envelope.events[0]).not.toHaveProperty("api_key");
+    expect(envelope.events[0]).not.toHaveProperty("has_api_key");
+    expect(envelope.events[0]).not.toHaveProperty("account");
+    expect(envelope.events[0]).not.toHaveProperty("user_id");
+    expect(envelope.events[0]).not.toHaveProperty("workspace_id");
+  });
+
+  it("closes Workspace live update sockets for a known session identity", async () => {
+    const removedMemberSocket = new TestWebSocket("removed-member");
+    removedMemberSocket.serializeAttachment({
+      type: "workspace_live_update",
+      connected_at: "2026-05-06T12:00:00.000Z",
+      user_id: "user_removed",
+      workspace_id: "workspace_test",
+    });
+    const remainingMemberSocket = new TestWebSocket("remaining-member");
+    remainingMemberSocket.serializeAttachment({
+      type: "workspace_live_update",
+      connected_at: "2026-05-06T12:00:00.000Z",
+      user_id: "user_remaining",
+      workspace_id: "workspace_test",
+    });
+    const store = createStore({
+      webSockets: [
+        removedMemberSocket as unknown as WebSocket,
+        remainingMemberSocket as unknown as WebSocket,
+      ],
+    });
+
+    const closedCount = await store.closeWorkspaceLiveUpdateSocketsForUser({
+      userId: "user_removed",
+      reason: "Workspace access changed",
+    });
+
+    expect(closedCount).toBe(1);
+    expect(removedMemberSocket.close).toHaveBeenCalledWith(1000, "Workspace access changed");
+    expect(remainingMemberSocket.close).not.toHaveBeenCalled();
   });
 
   it("persists Source file page count with Source file metadata", async () => {

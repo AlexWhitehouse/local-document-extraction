@@ -7,7 +7,7 @@ import { getWorkspaceBillingControl } from "../lib/workspaceBillingControl";
 import { getWorkspaceProductStore, isWorkspaceProductStoreFailure } from "../lib/workspaceProductStoreClient";
 import type { Workspace } from "../lib/types";
 import type { WorkspaceBillingSummary } from "../lib/workspaceBilling";
-import type { WorkspacePlanLimitTemplateUsage } from "../lib/workspaceProductStoreClient";
+import type { WorkspacePlanLimitTemplateUsage, WorkspaceProductStoreRpc } from "../lib/workspaceProductStoreClient";
 
 export async function createTemplate(request: Request, env: Env, workspace: Workspace): Promise<Response> {
   const payload = validateTemplatePayload(parseJsonBody(await request.text()));
@@ -53,6 +53,7 @@ export async function createTemplate(request: Request, env: Env, workspace: Work
     status: created.status,
     fieldCount: fields.length,
   });
+  await emitTemplateLimitInvalidation(productStore);
 
   return json(created, 201);
 }
@@ -119,6 +120,7 @@ export async function updateTemplate(
     status: updated.status,
     fieldCount: patch.fields?.length || 0,
   });
+  await emitTemplateLimitInvalidation(productStore);
 
   return json(updated);
 }
@@ -134,8 +136,18 @@ export async function deleteTemplate(env: Env, workspace: Workspace, id: string)
   if (!deleted) {
     throw new HttpError(404, "not_found", "Template not found");
   }
+  await emitTemplateLimitInvalidation(productStore);
 
   return new Response(null, { status: 204 });
+}
+
+async function emitTemplateLimitInvalidation(
+  productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
+): Promise<void> {
+  await productStore.broadcastWorkspaceContextInvalidation({
+    reason: "template_limits",
+    occurredAt: nowIso(),
+  });
 }
 
 function assertTemplateUsageWithinPlan(

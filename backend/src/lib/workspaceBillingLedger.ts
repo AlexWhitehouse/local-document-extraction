@@ -1291,30 +1291,18 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
   }
 
   private calculateCreditBucketsAvailable(input?: OwnerBillingSummaryInput): OwnerBillingSummary["credits"] {
-    const rows = input
-      ? this.ctx.storage.sql
-        .exec<{ type: LedgerEntryType; credits: number | null }>(
-          `SELECT type, COALESCE(SUM(credits), 0) AS credits
-           FROM ledger_entries
-           WHERE type IN ('goodwill_credit_grant', 'goodwill_credit_revocation', 'purchased_credit_grant', 'credit_reservation', 'credit_refund')
-              OR (
-                type IN ('included_credit_grant', 'included_credit_revocation')
-                AND billing_period_start = ?
-                AND billing_period_end = ?
-              )
-           GROUP BY type`,
-          input.billingPeriodStart,
-          input.billingPeriodEnd,
-        )
-        .toArray()
-      : this.ctx.storage.sql
-        .exec<{ type: LedgerEntryType; credits: number | null }>(
-          `SELECT type, COALESCE(SUM(credits), 0) AS credits
-           FROM ledger_entries
-           WHERE type IN ('goodwill_credit_grant', 'goodwill_credit_revocation', 'included_credit_grant', 'included_credit_revocation', 'purchased_credit_grant', 'credit_reservation', 'credit_refund')
-           GROUP BY type`,
-        )
-        .toArray();
+    if (input) {
+      return this.calculatePeriodAwareCreditBucketsAvailable(input);
+    }
+
+    const rows = this.ctx.storage.sql
+      .exec<{ type: LedgerEntryType; credits: number | null }>(
+        `SELECT type, COALESCE(SUM(credits), 0) AS credits
+         FROM ledger_entries
+         WHERE type IN ('goodwill_credit_grant', 'goodwill_credit_revocation', 'included_credit_grant', 'included_credit_revocation', 'purchased_credit_grant', 'credit_reservation', 'credit_refund')
+         GROUP BY type`,
+      )
+      .toArray();
     const creditsByType = new Map(rows.map((row) => [row.type, Number(row.credits || 0)]));
     const includedGranted = (creditsByType.get("included_credit_grant") || 0) +
       (creditsByType.get("included_credit_revocation") || 0);
@@ -1336,6 +1324,76 @@ export class WorkspaceBillingLedger extends DurableObject<Env> {
       purchased_available: purchasedAvailable,
       goodwill_available: goodwillAvailable,
       total_available: includedAvailable + purchasedAvailable + goodwillAvailable,
+    };
+  }
+
+  private calculatePeriodAwareCreditBucketsAvailable(input: OwnerBillingSummaryInput): OwnerBillingSummary["credits"] {
+    const rows = this.ctx.storage.sql
+      .exec<{
+        type: LedgerEntryType;
+        credits: number | null;
+        billing_period_start: string | null;
+        billing_period_end: string | null;
+      }>(
+        `SELECT type,
+                COALESCE(SUM(credits), 0) AS credits,
+                billing_period_start,
+                billing_period_end
+         FROM ledger_entries
+         WHERE type IN ('goodwill_credit_grant', 'goodwill_credit_revocation', 'included_credit_grant', 'included_credit_revocation', 'purchased_credit_grant', 'credit_reservation', 'credit_refund')
+         GROUP BY type, billing_period_start, billing_period_end`,
+      )
+      .toArray();
+
+    const includedByPeriod = new Map<string, number>();
+    const reservationNetByPeriod = new Map<string, number>();
+    let purchasedGranted = 0;
+    let goodwillGranted = 0;
+
+    for (const row of rows) {
+      const credits = Number(row.credits || 0);
+      if (row.type === "purchased_credit_grant") {
+        purchasedGranted += credits;
+        continue;
+      }
+      if (row.type === "goodwill_credit_grant" || row.type === "goodwill_credit_revocation") {
+        goodwillGranted += credits;
+        continue;
+      }
+
+      const periodKey = billingPeriodKey(row.billing_period_start, row.billing_period_end);
+      if (row.type === "included_credit_grant" || row.type === "included_credit_revocation") {
+        includedByPeriod.set(periodKey, (includedByPeriod.get(periodKey) || 0) + credits);
+        continue;
+      }
+      if (row.type === "credit_reservation" || row.type === "credit_refund") {
+        reservationNetByPeriod.set(periodKey, (reservationNetByPeriod.get(periodKey) || 0) + credits);
+      }
+    }
+
+    let carryForwardSpend = 0;
+    const periodKeys = new Set([...includedByPeriod.keys(), ...reservationNetByPeriod.keys()]);
+    const currentPeriodKey = billingPeriodKey(input.billingPeriodStart, input.billingPeriodEnd);
+    let currentIncludedAvailable = 0;
+    for (const periodKey of periodKeys) {
+      const includedGranted = includedByPeriod.get(periodKey) || 0;
+      const reservationSpend = Math.max(0, -(reservationNetByPeriod.get(periodKey) || 0));
+      const includedAvailable = Math.max(0, includedGranted - reservationSpend);
+      if (periodKey === currentPeriodKey) {
+        currentIncludedAvailable = includedAvailable;
+      }
+      carryForwardSpend += Math.max(0, reservationSpend - includedGranted);
+    }
+
+    const purchasedAvailable = Math.max(0, purchasedGranted - carryForwardSpend);
+    const remainingSpend = Math.max(0, carryForwardSpend - purchasedGranted);
+    const goodwillAvailable = Math.max(0, goodwillGranted - remainingSpend);
+
+    return {
+      included_available: currentIncludedAvailable,
+      purchased_available: purchasedAvailable,
+      goodwill_available: goodwillAvailable,
+      total_available: currentIncludedAvailable + purchasedAvailable + goodwillAvailable,
     };
   }
 
@@ -1552,6 +1610,10 @@ function ownerBillingActivityFromEntry(entry: LedgerEntryRow): OwnerBillingSumma
   }
 
   return baseWithInvoice;
+}
+
+function billingPeriodKey(start: string | null | undefined, end: string | null | undefined): string {
+  return `${String(start || "")}\n${String(end || "")}`;
 }
 
 function ownerBillingInvoiceFromEntry(entry: LedgerEntryRow): OwnerBillingActivity["invoice"] | null {

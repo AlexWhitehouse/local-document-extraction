@@ -193,6 +193,58 @@ describe("WorkspaceBillingLedger Goodwill Credit grants", () => {
     });
   });
 
+  it("keeps new Goodwill Credits available after previous-period reservations consumed previous Included Credits", async () => {
+    const ledger = createLedger();
+    await ledger.grantIncludedCredits({
+      workspaceId: "workspace_billing",
+      credits: 4,
+      billingPeriodStart: "2026-05-01T00:00:00.000Z",
+      billingPeriodEnd: "2026-06-01T00:00:00.000Z",
+      idempotencyKey: "included-grant-may",
+      occurredAt: "2026-05-01T00:00:00.000Z",
+    });
+    await ledger.reserveCreditsForDocumentSubmission({
+      workspaceId: "workspace_billing",
+      extractionJobId: "job_may_1",
+      templateId: "template_test",
+      templateVersion: 1,
+      billableDocumentPages: 4,
+      billingPeriodStart: "2026-05-01T00:00:00.000Z",
+      billingPeriodEnd: "2026-06-01T00:00:00.000Z",
+      monthlyPageLimit: 500,
+      submittedAt: "2026-05-15T12:00:00.000Z",
+      authMode: "session",
+      actorUserId: "user_owner",
+      idempotencyKey: "submission-job-may-1",
+    });
+
+    await ledger.grantGoodwillCredits({
+      workspaceId: "workspace_billing",
+      credits: 2,
+      reason: "Support adjustment for onboarding",
+      actorUserId: "user_admin",
+      idempotencyKey: "grant-request-june",
+      occurredAt: "2026-06-07T12:00:00.000Z",
+    });
+
+    await expect(ledger.summarizeOwnerBilling({
+      billingPeriodStart: "2026-06-01T00:00:00.000Z",
+      billingPeriodEnd: "2026-07-01T00:00:00.000Z",
+      monthlyPageLimit: 500,
+    })).resolves.toMatchObject({
+      credits: {
+        included_available: 0,
+        purchased_available: 0,
+        goodwill_available: 2,
+        total_available: 2,
+      },
+      current_period: {
+        pages_used: 0,
+        pages_remaining: 500,
+      },
+    });
+  });
+
   it("revokes only unspent Included Credits from the current billing period", async () => {
     const ledger = createLedger();
     const grant = await ledger.grantIncludedCredits({

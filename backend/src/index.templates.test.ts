@@ -28,6 +28,7 @@ type ProductStoreStub = {
   updateTemplate: ReturnType<typeof vi.fn>;
   deleteTemplate: ReturnType<typeof vi.fn>;
   summarizePlanLimitUsage: ReturnType<typeof vi.fn>;
+  broadcastWorkspaceContextInvalidation: ReturnType<typeof vi.fn>;
 };
 
 describe("Template product routes", () => {
@@ -169,6 +170,48 @@ describe("Template product routes", () => {
         maxTemplates: 1,
       }),
     );
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
+  });
+
+  it("emits Template-limit Workspace context invalidation after Template creation", async () => {
+    const productStore = createProductStoreStub();
+    productStore.createTemplate.mockResolvedValue({
+      template_id: "tpl_created",
+      version: 1,
+      status: "active",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates", {
+        method: "POST",
+        headers: {
+          "x-workspace-id": "workspace_1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Invoices",
+          fields: [
+            {
+              name: "Invoice Number",
+              description: "Unique invoice identifier.",
+              data_type: "string",
+            },
+          ],
+        }),
+      }),
+      createEnv({
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        }),
+        WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "template_limits",
+      occurredAt: expect.any(String),
+    });
   });
 
   it("blocks new Template creation when existing Templates exceed the Active entitlement", async () => {
@@ -229,6 +272,7 @@ describe("Template product routes", () => {
       },
     });
     expect(productStore.createTemplate).not.toHaveBeenCalled();
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
   });
 
   it("blocks new Template creation with too many table-shaped fields", async () => {
@@ -281,6 +325,7 @@ describe("Template product routes", () => {
       },
     });
     expect(productStore.createTemplate).not.toHaveBeenCalled();
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
   });
 
   it("lists Templates from the Workspace product store after session Workspace authorization", async () => {
@@ -612,6 +657,52 @@ describe("Template product routes", () => {
         maxFieldsPerTemplate: 1,
       }),
     );
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
+  });
+
+  it("emits Template-limit Workspace context invalidation after Template field updates", async () => {
+    const productStore = createProductStoreStub();
+    productStore.updateTemplate.mockResolvedValue({
+      template_id: "tpl_product",
+      version: 3,
+      status: "active",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates/tpl_product", {
+        method: "PATCH",
+        headers: {
+          "x-workspace-id": "workspace_1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          fields: [
+            {
+              name: "Merchant",
+              description: "Merchant name.",
+              data_type: "string",
+            },
+            {
+              name: "Total",
+              description: "Receipt total.",
+              data_type: "number",
+            },
+          ],
+        }),
+      }),
+      createEnv({
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        }),
+        WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "template_limits",
+      occurredAt: expect.any(String),
+    });
   });
 
   it("blocks Template saves that leave an over-limit Template unchanged", async () => {
@@ -671,6 +762,7 @@ describe("Template product routes", () => {
       },
     });
     expect(productStore.updateTemplate).not.toHaveBeenCalled();
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
   });
 
   it("deletes Templates through the Workspace product store after session Workspace authorization", async () => {
@@ -698,6 +790,57 @@ describe("Template product routes", () => {
     expect(response.status).toBe(204);
     expect(productStore.deleteTemplate).toHaveBeenCalledWith("tpl_product");
     expect(legacyTemplateDelete).not.toHaveBeenCalled();
+  });
+
+  it("emits Template-limit Workspace context invalidation after Template deletion", async () => {
+    const productStore = createProductStoreStub();
+    productStore.deleteTemplate.mockResolvedValue(true);
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates/tpl_product", {
+        method: "DELETE",
+        headers: { "x-workspace-id": "workspace_1" },
+      }),
+      createEnv({
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        }),
+        WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+      }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(productStore.broadcastWorkspaceContextInvalidation).toHaveBeenCalledWith({
+      reason: "template_limits",
+      occurredAt: expect.any(String),
+    });
+  });
+
+  it("does not emit Template-limit Workspace context invalidation when Template deletion finds no Template", async () => {
+    const productStore = createProductStoreStub();
+    productStore.deleteTemplate.mockResolvedValue(false);
+
+    const response = await worker.fetch(
+      new Request("https://example.com/v1/templates/tpl_missing", {
+        method: "DELETE",
+        headers: { "x-workspace-id": "workspace_1" },
+      }),
+      createEnv({
+        DB: createWorkspaceControlDb({
+          sessionWorkspace: createWorkspaceControlRow({ apiKeyHash: null }),
+        }),
+        WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Template not found",
+      },
+    });
+    expect(productStore.broadcastWorkspaceContextInvalidation).not.toHaveBeenCalled();
   });
 
   it("does not route to the Workspace product store before Workspace authorization succeeds", async () => {
@@ -748,6 +891,7 @@ function createProductStoreStub(): ProductStoreStub {
       active_template_count: 0,
       templates: [],
     })),
+    broadcastWorkspaceContextInvalidation: vi.fn(),
   };
 }
 

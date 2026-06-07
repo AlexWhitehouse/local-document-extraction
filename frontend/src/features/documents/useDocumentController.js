@@ -7,6 +7,8 @@ const DEFAULT_OPTIONS = {
 };
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
+const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_DELAY_MS = 150;
+const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_MIN_INTERVAL_MS = 3000;
 
 export function useDocumentController({
   apiBase = "/v1",
@@ -54,7 +56,9 @@ export function useDocumentController({
   const completedDocumentCacheRef = useRef(createCompletedDocumentCache());
   const liveUpdateSocketRef = useRef(null);
   const liveUpdateReconnectTimerRef = useRef(null);
+  const liveUpdateAccessRevalidationPendingRef = useRef(false);
   const workspaceCapacityRefreshTimerRef = useRef(null);
+  const lastWorkspaceCapacityRefreshAtRef = useRef(0);
   const jobDetailsInFlightRef = useRef(new Map());
   const liveCompletedDetailLoadsRef = useRef(new Set());
   const addLogRef = useRef(addLog);
@@ -214,16 +218,45 @@ export function useDocumentController({
       return;
     }
 
+    const now = Date.now();
+    const lastRefreshAt = lastWorkspaceCapacityRefreshAtRef.current;
+    const refreshDelay = lastRefreshAt
+      ? Math.max(
+          WORKSPACE_CONTEXT_INVALIDATION_REFRESH_MIN_INTERVAL_MS - (now - lastRefreshAt),
+          0,
+        )
+      : WORKSPACE_CONTEXT_INVALIDATION_REFRESH_DELAY_MS;
+
     workspaceCapacityRefreshTimerRef.current = window.setTimeout(() => {
       workspaceCapacityRefreshTimerRef.current = null;
+      lastWorkspaceCapacityRefreshAtRef.current = Date.now();
       Promise.resolve(refreshWorkspaceCapacity()).catch((error) => {
         addLogRef.current?.(`Refresh workspace capacity failed: ${error.message}`);
       });
-    }, 150);
+    }, refreshDelay);
   }, []);
+
+  const revalidateWorkspaceAccessNow = useCallback(() => {
+    const refreshWorkspaceCapacity = onWorkspaceCapacityRefreshRef.current;
+    if (typeof refreshWorkspaceCapacity !== "function") {
+      return;
+    }
+
+    clearWorkspaceCapacityRefreshTimer();
+    lastWorkspaceCapacityRefreshAtRef.current = Date.now();
+    liveUpdateAccessRevalidationPendingRef.current = true;
+    Promise.resolve(refreshWorkspaceCapacity())
+      .then(() => {
+        liveUpdateAccessRevalidationPendingRef.current = false;
+      })
+      .catch((error) => {
+        addLogRef.current?.(`Refresh workspace access failed: ${error.message}`);
+      });
+  }, [clearWorkspaceCapacityRefreshTimer]);
 
   const clearWorkspaceScopedDocuments = useCallback(() => {
     clearWorkspaceCapacityRefreshTimer();
+    lastWorkspaceCapacityRefreshAtRef.current = 0;
     setJobHistory([]);
     setQueuedJobs({});
     setJobsNextCursor(null);
@@ -790,6 +823,8 @@ export function useDocumentController({
     if (!canOpenLiveUpdates || liveUpdatesUnavailable) {
       if (!canOpenLiveUpdates) {
         clearLiveUpdateReconnectTimer();
+        clearWorkspaceCapacityRefreshTimer();
+        lastWorkspaceCapacityRefreshAtRef.current = 0;
       }
       liveUpdateSocketRef.current?.close();
       liveUpdateSocketRef.current = null;
@@ -825,9 +860,26 @@ export function useDocumentController({
       scheduleReconnect();
     };
     socket.onmessage = (event) => {
-      const jobs = parseWorkspaceLiveUpdateJobs(event?.data);
-      if (jobs.length) {
+      if (liveUpdateSocketRef.current !== socket) {
+        return;
+      }
+      const { jobs, workspaceContextInvalidations } = parseWorkspaceLiveUpdateMessage(event?.data);
+      if (workspaceContextInvalidations.length) {
+        if (
+          workspaceContextInvalidations.some(
+            (invalidation) => invalidation.reason === "workspace_access",
+          )
+        ) {
+          revalidateWorkspaceAccessNow();
+          return;
+        }
+        if (liveUpdateAccessRevalidationPendingRef.current) {
+          return;
+        }
         scheduleWorkspaceCapacityRefresh();
+      }
+      if (liveUpdateAccessRevalidationPendingRef.current) {
+        return;
       }
       for (const job of jobs) {
         upsertJobHistory(job);
@@ -838,6 +890,9 @@ export function useDocumentController({
       if (liveUpdateSocketRef.current === socket) {
         liveUpdateSocketRef.current = null;
         clearLiveUpdateReconnectTimer();
+        clearWorkspaceCapacityRefreshTimer();
+        lastWorkspaceCapacityRefreshAtRef.current = 0;
+        liveUpdateAccessRevalidationPendingRef.current = false;
       }
       socket.close();
     };
@@ -845,8 +900,10 @@ export function useDocumentController({
     apiBase,
     canOpenLiveUpdates,
     clearLiveUpdateReconnectTimer,
+    clearWorkspaceCapacityRefreshTimer,
     liveUpdatesUnavailable,
     normalizedWorkspaceId,
+    revalidateWorkspaceAccessNow,
     scheduleWorkspaceCapacityRefresh,
     upsertJobHistory,
   ]);
@@ -1003,25 +1060,48 @@ function createWorkspaceLiveUpdateUrl(apiBase, workspaceId) {
   return url.toString();
 }
 
-function parseWorkspaceLiveUpdateJobs(message) {
+function parseWorkspaceLiveUpdateMessage(message) {
   if (typeof message !== "string") {
-    return [];
+    return { jobs: [], workspaceContextInvalidations: [] };
   }
 
   let envelope;
   try {
     envelope = JSON.parse(message);
   } catch {
-    return [];
+    return { jobs: [], workspaceContextInvalidations: [] };
   }
 
   if (Number(envelope?.version) !== 1 || !Array.isArray(envelope?.events)) {
-    return [];
+    return { jobs: [], workspaceContextInvalidations: [] };
   }
 
-  return envelope.events
-    .filter((event) => event?.type === "extraction_job_lifecycle" && event?.job?.job_id)
-    .map((event) => event.job);
+  const jobs = [];
+  const workspaceContextInvalidations = [];
+
+  for (const event of envelope.events) {
+    if (event?.type === "extraction_job_lifecycle" && event?.job?.job_id) {
+      jobs.push(event.job);
+      continue;
+    }
+
+    const invalidationReason =
+      typeof event?.reason === "string" ? event.reason.trim() : "";
+    const invalidationOccurredAt =
+      typeof event?.occurred_at === "string" ? event.occurred_at.trim() : "";
+    if (
+      event?.type === "workspace_context_invalidated" &&
+      invalidationReason &&
+      invalidationOccurredAt
+    ) {
+      workspaceContextInvalidations.push({
+        reason: invalidationReason,
+        occurred_at: invalidationOccurredAt,
+      });
+    }
+  }
+
+  return { jobs, workspaceContextInvalidations };
 }
 
 function hasDocumentStatusChanged(jobHistory, queuedJobs, nextJob) {

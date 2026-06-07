@@ -35,6 +35,7 @@ import {
   inviteUserToWorkspace,
   leaveWorkspaceForUser,
   listInvitationsForUser,
+  getSelectedWorkspaceContextForUser,
   listWorkspaceInvitationsForUser,
   listWorkspaceUsersForUser,
   listWorkspacesForUser,
@@ -128,6 +129,15 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
     return listWorkspacesForUser(env, session.id, session.name);
   }
 
+  if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/context$/.test(url.pathname)) {
+    const session = await requireSession(request, env);
+    const workspaceId = decodeURIComponent(url.pathname.split("/")[3] || "");
+    if (!workspaceId) {
+      throw new HttpError(404, "not_found", "Workspace not found");
+    }
+    return getSelectedWorkspaceContextForUser(env, workspaceId, session.id);
+  }
+
   if (/^\/v1\/workspaces\/[^/]+\/live$/.test(url.pathname)) {
     if (request.method !== "GET") {
       throw new HttpError(405, "method_not_allowed", "Workspace live updates require GET");
@@ -144,7 +154,10 @@ async function handleRequest(request: Request, env: Env, ctx?: ExecutionContext)
     if (!workspace) {
       throw new HttpError(403, "forbidden", "You do not have access to this workspace");
     }
-    return env.WORKSPACE_PRODUCT_STORE.getByName(workspace.id).fetch(request);
+    const liveUpdateRequest = new Request(request);
+    liveUpdateRequest.headers.set("x-workspace-live-user-id", session.id);
+    liveUpdateRequest.headers.set("x-workspace-live-workspace-id", workspace.id);
+    return env.WORKSPACE_PRODUCT_STORE.getByName(workspace.id).fetch(liveUpdateRequest);
   }
 
   if (request.method === "GET" && url.pathname === "/v1/invitations") {

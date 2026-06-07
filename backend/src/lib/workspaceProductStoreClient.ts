@@ -74,6 +74,23 @@ export type WorkspacePlanLimitUsageInput = {
   templateId?: string;
 };
 
+export type WorkspaceContextInvalidationReason =
+  | "billing_usage"
+  | "billing_entitlement"
+  | "template_limits"
+  | "member_limits"
+  | "workspace_access";
+
+export type BroadcastWorkspaceContextInvalidationInput = {
+  reason: WorkspaceContextInvalidationReason;
+  occurredAt: string;
+};
+
+export type CloseWorkspaceLiveUpdateSocketsForUserInput = {
+  userId: string;
+  reason?: string;
+};
+
 export type CreateQueuedWorkspaceExtractionJobInput = {
   jobId: string;
   templateId: string;
@@ -252,6 +269,8 @@ export interface WorkspaceProductStoreRpc {
   deleteExtractionJob(input: DeleteWorkspaceExtractionJobInput): Promise<boolean>;
   markSourceFileCleaned(input: MarkWorkspaceSourceFileCleanedInput): Promise<boolean>;
   listResidualSourceFilesForCleanup(input: ListWorkspaceResidualSourceFilesForCleanupInput): Promise<WorkspaceResidualSourceFile[]>;
+  broadcastWorkspaceContextInvalidation(input: BroadcastWorkspaceContextInvalidationInput): Promise<void>;
+  closeWorkspaceLiveUpdateSocketsForUser(input: CloseWorkspaceLiveUpdateSocketsForUserInput): Promise<number>;
   eraseWorkspaceProductData(): Promise<void>;
 }
 
