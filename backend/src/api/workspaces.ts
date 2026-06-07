@@ -1,5 +1,6 @@
 import { HttpError, json } from "../lib/http";
 import { deleteWorkspaceCascade } from "../lib/cascadeDelete";
+import { disposeRpcResult } from "../lib/rpcDisposal";
 import { getWorkspaceBillingControl } from "../lib/workspaceBillingControl";
 import { summarizeWorkspaceBilling } from "../lib/workspaceBilling";
 import {
@@ -517,19 +518,21 @@ async function handleWorkspaceMembershipCountChanged(
 async function emitMemberLimitInvalidation(
   productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
 ): Promise<void> {
-  await productStore.broadcastWorkspaceContextInvalidation({
+  const result = await productStore.broadcastWorkspaceContextInvalidation({
     reason: "member_limits",
     occurredAt: nowIso(),
   });
+  disposeRpcResult(result);
 }
 
 async function emitWorkspaceAccessInvalidation(
   productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
 ): Promise<void> {
-  await productStore.broadcastWorkspaceContextInvalidation({
+  const result = await productStore.broadcastWorkspaceContextInvalidation({
     reason: "workspace_access",
     occurredAt: nowIso(),
   });
+  disposeRpcResult(result);
 }
 
 async function updateStripeCustomerContactForNewWorkspaceOwner(

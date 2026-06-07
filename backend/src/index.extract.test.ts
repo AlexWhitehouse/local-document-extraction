@@ -159,6 +159,8 @@ describe("Extraction submission route", () => {
 
   it("emits billing-usage Workspace context invalidation after accepting a Document submission", async () => {
     const productStore = createQueueingProductStoreStub();
+    const dispose = vi.fn();
+    productStore.broadcastWorkspaceContextInvalidation.mockResolvedValue({ dispose });
     const env = createExtractEnv({
       WORKSPACE_PRODUCT_STORE: createProductStoreBinding(productStore),
     });
@@ -170,6 +172,7 @@ describe("Extraction submission route", () => {
       reason: "billing_usage",
       occurredAt: expect.any(String),
     });
+    expect(dispose).toHaveBeenCalledOnce();
   });
 
   it("reserves prepaid Credits and Plan page capacity before accepting a PDF Document submission", async () => {
@@ -759,6 +762,8 @@ describe("Extraction submission route", () => {
 
   it("emits billing-usage Workspace context invalidation after refunding a failed accepted-submission attempt", async () => {
     const productStore = createProductStoreStub();
+    const dispose = vi.fn();
+    productStore.broadcastWorkspaceContextInvalidation.mockResolvedValue({ dispose });
     productStore.validateTemplateForDocumentSubmission.mockResolvedValue({
       template_id: "template_test",
       template_version: 1,
@@ -785,6 +790,7 @@ describe("Extraction submission route", () => {
       reason: "billing_usage",
       occurredAt: expect.any(String),
     });
+    expect(dispose).toHaveBeenCalledOnce();
   });
 
   it("does not emit billing-usage Workspace context invalidation when submission compensation finds no refundable reservation", async () => {

@@ -397,10 +397,11 @@ function isBillingReservationFailure(
 async function emitBillingUsageInvalidation(
   productStore: Pick<WorkspaceProductStoreRpc, "broadcastWorkspaceContextInvalidation">,
 ): Promise<void> {
-  await productStore.broadcastWorkspaceContextInvalidation({
+  const result = await productStore.broadcastWorkspaceContextInvalidation({
     reason: "billing_usage",
     occurredAt: nowIso(),
   });
+  disposeRpcResult(result);
 }
 
 function getWorkspaceBillingLedger(env: Env, workspaceId: string): BillingLedgerRpc {
