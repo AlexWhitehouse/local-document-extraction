@@ -10,6 +10,7 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
 
 export type LocalSourceFileStore = {
   delete(sourceFileKey: string): Promise<void>;
+  eraseWorkspace(workspaceId: string): Promise<void>;
   read(sourceFileKey: string): Promise<Uint8Array | null>;
   write(input: {
     workspaceId: string;
@@ -25,6 +26,10 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
   return {
     delete: async (sourceFileKey) => {
       await rm(pathForKey(rootDirectory, sourceFileKey), { force: true });
+    },
+    eraseWorkspace: async (workspaceId) => {
+      assertIdentifier(workspaceId, "Workspace ID");
+      await rm(resolve(rootDirectory, "workspaces", workspaceId), { recursive: true, force: true });
     },
     read: async (sourceFileKey) => readFile(pathForKey(rootDirectory, sourceFileKey)).catch(() => null),
     write: async ({ workspaceId, jobId, mimeType, bytes }) => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createWorkspaceRequestLayer } from "../../lib/appRuntime";
+import { createWorkspaceRequestAdapter } from "./workspaceRequestAdapter";
 import {
   getAcceptWorkspaceInvitationTransition,
   getCancelWorkspaceInvitationTransition,
@@ -101,6 +102,7 @@ export function useWorkspaceController({
   const applyWorkspaceContextUpdateRef = useRef(null);
   const hasSessionRef = useRef(hasSession);
   const requestRef = useRef(null);
+  const workspaceRequestsRef = useRef(null);
   const workspaceIdRef = useRef(workspaceId);
   const workspaceNameRef = useRef(workspaceName);
 
@@ -123,10 +125,12 @@ export function useWorkspaceController({
     workspaceId,
     onForbiddenWorkspaceAccess: recoverForbiddenWorkspaceAccess,
   });
+  const workspaceRequests = createWorkspaceRequestAdapter({ request });
 
   addLogRef.current = addLog;
   hasSessionRef.current = hasSession;
   requestRef.current = request;
+  workspaceRequestsRef.current = workspaceRequests;
   workspaceIdRef.current = workspaceId;
   workspaceNameRef.current = workspaceName;
 
@@ -574,16 +578,11 @@ export function useWorkspaceController({
 
     setIsLoadingWorkspaceUsers(true);
     try {
-      const data = await requestRef.current(
-        `/workspaces/${encodeURIComponent(normalizedTargetWorkspaceId)}/users`,
-        { method: "GET" },
-        true,
-        false,
-      );
+      const users = await workspaceRequestsRef.current.listWorkspaceUsers(normalizedTargetWorkspaceId);
       if (workspaceUsersRequestRef.current !== requestId) {
         return;
       }
-      setWorkspaceUsers(Array.isArray(data?.users) ? data.users : []);
+      setWorkspaceUsers(users);
     } catch (error) {
       if (workspaceUsersRequestRef.current !== requestId) {
         return;
@@ -605,14 +604,8 @@ export function useWorkspaceController({
     }
 
     try {
-      const data = await requestRef.current(
-        `/workspaces/${encodeURIComponent(normalizedTargetWorkspaceId)}/invitations`,
-        { method: "GET" },
-        true,
-        false,
-      );
       setWorkspaceInvitations(
-        Array.isArray(data?.invitations) ? data.invitations : [],
+        await workspaceRequestsRef.current.listWorkspaceInvitations(normalizedTargetWorkspaceId),
       );
     } catch (error) {
       setWorkspaceInvitations([]);
@@ -644,16 +637,11 @@ export function useWorkspaceController({
 
     setBusy(true);
     try {
-      const data = await request(
-        transition.request.path,
-        {
-          method: transition.request.method,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(transition.request.body),
-        },
-        true,
-        false,
-      );
+      const data = await workspaceRequestsRef.current.applyWorkspaceMemberAction({
+        workspaceId: transition.workspaceId,
+        targetUserId: transition.targetUserId,
+        action: transition.request.action,
+      });
       const workspaces = await listWorkspaces();
       const successTransition = getWorkspaceMemberActionTransition({
         workspaceId,
@@ -917,9 +905,7 @@ export function useWorkspaceController({
 
     setIsDeletingWorkspace(true);
     try {
-      await request(`/workspaces/${encodeURIComponent(workspaceId.trim())}`, {
-        method: "DELETE",
-      });
+      await workspaceRequests.deleteWorkspace(workspaceId);
       onClearCompletedDocumentCache?.();
       setWorkspaceId("");
       setWorkspaceName("");
@@ -953,12 +939,7 @@ export function useWorkspaceController({
     const requestTransition = getLeaveWorkspaceTransition({ workspaceId, confirmed: true });
     setIsDeletingWorkspace(true);
     try {
-      const data = await request(
-        requestTransition.request.path,
-        { method: requestTransition.request.method },
-        true,
-        false,
-      );
+      const data = await workspaceRequestsRef.current.leaveWorkspace(requestTransition.workspaceId);
       const leftWorkspaceId = requestTransition.workspaceId;
       const workspaces = await listWorkspaces();
       const successTransition = getLeaveWorkspaceTransition({
@@ -1057,6 +1038,7 @@ export function useWorkspaceController({
       hasWorkspaceContext,
       hasApiAccess,
       hasWorkspaceApiAccess: workspaceSelectionView.hasWorkspaceApiAccess,
+      isDeletingWorkspace,
       isWorkspaceContextLoading,
       hasWorkspaceResolutionError,
       isWorkspaceInvitationSelected,

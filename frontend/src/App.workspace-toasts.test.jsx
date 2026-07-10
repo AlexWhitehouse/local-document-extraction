@@ -1,6 +1,7 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,6 +14,7 @@ import userEvent from "@testing-library/user-event";
 const authClientMock = vi.hoisted(() => ({
   refetchSession: vi.fn(),
   signOut: vi.fn(),
+  updateUser: vi.fn(),
 }));
 
 const toastMock = vi.hoisted(() => ({
@@ -41,6 +43,7 @@ vi.mock("./lib/authClient", () => ({
       email: vi.fn(),
     },
     signOut: authClientMock.signOut,
+    updateUser: authClientMock.updateUser,
   }),
 }));
 
@@ -133,17 +136,9 @@ describe("Workspace action toast feedback", () => {
     );
   });
 
-  it("loads and saves dirty profile edits from the profile menu", async () => {
+  it("saves dirty profile edits through Better Auth without a profile route", async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/profile") && options.method === "PATCH") {
-        return Promise.resolve(
-          jsonResponse({ name: "Ada Byron", email: "ada@example.com" }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
-    });
+    authClientMock.updateUser.mockResolvedValue({ data: { name: "Ada Byron" }, error: null });
 
     render(<App />);
 
@@ -163,10 +158,7 @@ describe("Workspace action toast feedback", () => {
     await user.click(saveButton);
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.stringContaining("/profile"),
-        expect.objectContaining({ method: "PATCH" }),
-      );
+      expect(authClientMock.updateUser).toHaveBeenCalledWith({ name: "Ada Byron" });
     });
     await waitFor(() => {
       expect(authClientMock.refetchSession).toHaveBeenCalledOnce();
@@ -254,6 +246,63 @@ describe("Workspace action toast feedback", () => {
     });
 
     render(<App />);
+
+    expect(await screen.findByRole("button", { name: /Remaining Workspace/ })).toBeTruthy();
+    expect(toastMock.success).toHaveBeenCalledWith(
+      "Workspace access changed. Switched to Remaining Workspace.",
+    );
+  });
+
+  it("revalidates a second browser's Workspace context after a live access invalidation", async () => {
+    const sockets = [];
+    class WebSocketStub {
+      close = vi.fn();
+      onclose = null;
+      onerror = null;
+      onmessage = null;
+      onopen = null;
+
+      constructor(url) {
+        this.url = url;
+        sockets.push(this);
+      }
+    }
+    globalThis.WebSocket = WebSocketStub;
+    let workspaceListCalls = 0;
+    globalThis.fetch = vi.fn((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/workspaces") && options.method === "GET") {
+        workspaceListCalls += 1;
+        return Promise.resolve(
+          jsonResponse({
+            workspaces:
+              workspaceListCalls === 1
+                ? [{ id: "ws_1", name: "Research Workspace", role: "owner" }]
+                : [{ id: "ws_2", name: "Remaining Workspace", role: "owner" }],
+          }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+    await act(async () => {
+      sockets[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [{
+            type: "workspace_context_invalidated",
+            reason: "workspace_access",
+            occurred_at: "2026-07-10T12:00:00.000Z",
+          }],
+        }),
+      });
+      await Promise.resolve();
+    });
 
     expect(await screen.findByRole("button", { name: /Remaining Workspace/ })).toBeTruthy();
     expect(toastMock.success).toHaveBeenCalledWith(
@@ -695,7 +744,6 @@ describe("Workspace action toast feedback", () => {
           jsonResponse({
             replacement_workspace: {
               workspace_id: "ws_personal",
-              api_key: "imgx_live_replacement_key",
             },
           }),
         );
@@ -739,14 +787,46 @@ describe("Workspace action toast feedback", () => {
     });
   });
 
-  it("confirms Workspace deletion", async () => {
+  it("confirms Workspace deletion and selects a remaining Workspace", async () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    let workspaceListCalls = 0;
 
     globalThis.fetch.mockImplementation((input, options = {}) => {
       const url = String(input);
+      if (url.endsWith("/workspaces") && options.method === "GET") {
+        workspaceListCalls += 1;
+        return Promise.resolve(
+          jsonResponse({
+            workspaces:
+              workspaceListCalls === 1
+                ? [
+                    {
+                      id: "ws_1",
+                      name: "Research Workspace",
+                      role: "owner",
+                      created_at: "2026-01-01T00:00:00.000Z",
+                    },
+                    {
+                      id: "ws_2",
+                      name: "Remaining Workspace",
+                      role: "owner",
+                      created_at: "2026-01-02T00:00:00.000Z",
+                    },
+                  ]
+                : [
+                    {
+                      id: "ws_2",
+                      name: "Remaining Workspace",
+                      role: "owner",
+                      created_at: "2026-01-02T00:00:00.000Z",
+                    },
+                  ],
+          }),
+        );
+      }
       if (url.endsWith("/workspaces/ws_1") && options.method === "DELETE") {
-        return Promise.resolve(jsonResponse({ deleted: true }));
+        return Promise.resolve(jsonResponse({ ok: true, workspace_id: "ws_1" }));
       }
       return mockWorkspaceFetch(input, options);
     });
@@ -760,6 +840,7 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace deleted");
     });
+    expect(await screen.findByRole("button", { name: /Remaining Workspace/ })).toBeTruthy();
   });
 
   it("stays quiet when Workspace deletion confirmation is cancelled", async () => {
@@ -2042,7 +2123,7 @@ describe("Workspace action toast feedback", () => {
         );
       }
       if (url.endsWith("/jobs/job_failed_1") && options.method === "DELETE") {
-        return Promise.resolve(jsonResponse({ deleted: true }));
+        return Promise.resolve(jsonResponse({ deleted: true, job_id: "job_failed_1" }));
       }
       return mockWorkspaceFetch(input, options);
     });
@@ -2172,11 +2253,6 @@ function mockWorkspaceFetch(input) {
   }
   if (url.endsWith("/invitations")) {
     return Promise.resolve(jsonResponse({ invitations: [] }));
-  }
-  if (url.endsWith("/profile")) {
-    return Promise.resolve(
-      jsonResponse({ name: "Ada Lovelace", email: "ada@example.com" }),
-    );
   }
   if (url.endsWith("/templates")) {
     return Promise.resolve(jsonResponse({ templates: [] }));

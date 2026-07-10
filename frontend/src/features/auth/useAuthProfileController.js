@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const ACCOUNT_PASSWORD_REQUIREMENTS = [
@@ -14,7 +14,6 @@ const ACCOUNT_PASSWORD_REQUIREMENTS = [
 export function useAuthProfileController({
   authClient,
   refetchSession,
-  request,
   addLog,
   initialAuthMode = "signin",
   hasSession,
@@ -44,7 +43,6 @@ export function useAuthProfileController({
   const [profileDraftName, setProfileDraftName] = useState("");
   const profilePanelRef = useRef(null);
   const addLogRef = useRef(addLog);
-  const requestRef = useRef(request);
 
   const currentProfileName = (profileName.trim() || sessionUserName).trim();
   const currentProfileEmail = (profileEmail.trim() || sessionUserEmail).trim();
@@ -63,8 +61,7 @@ export function useAuthProfileController({
 
   useEffect(() => {
     addLogRef.current = addLog;
-    requestRef.current = request;
-  }, [addLog, request]);
+  }, [addLog]);
 
   useEffect(() => {
     if (!hasSession) {
@@ -279,27 +276,8 @@ export function useAuthProfileController({
     }
   }
 
-  const loadProfile = useCallback(async () => {
-    if (!hasSession) {
-      return;
-    }
-
-    try {
-      const data = await requestRef.current("/profile", { method: "GET" }, true, false);
-      const nextName = String(data?.name || "").trim();
-      const nextEmail = String(data?.email || "").trim();
-      setProfileName(nextName);
-      setProfileEmail(nextEmail);
-      setAuthName(nextName);
-      setAuthEmail(nextEmail);
-    } catch (error) {
-      addLogRef.current(`Load profile failed: ${error.message}`);
-    }
-  }, [hasSession]);
-
   async function saveProfile() {
     const name = profileDraftName.trim();
-    const email = currentProfileEmail.toLowerCase();
 
     if (!name) {
       addLog("Profile update failed: name is required");
@@ -308,22 +286,13 @@ export function useAuthProfileController({
 
     setIsSavingProfile(true);
     try {
-      const data = await request(
-        "/profile",
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, email }),
-        },
-        true,
-        false,
-      );
-      const nextName = String(data?.name || name);
-      const nextEmail = String(data?.email || email);
+      const result = await authClient.updateUser({ name });
+      if (result?.error) {
+        throw new Error(result.error.message || "Profile update failed");
+      }
+      const nextName = String(result?.data?.name || result?.data?.user?.name || name);
       setProfileName(nextName);
-      setProfileEmail(nextEmail);
       setAuthName(nextName);
-      setAuthEmail(nextEmail);
       await refetchSession();
       addLog("Profile updated");
       setIsProfileMenuOpen(false);
@@ -333,14 +302,6 @@ export function useAuthProfileController({
       setIsSavingProfile(false);
     }
   }
-
-  useEffect(() => {
-    if (!hasSession) {
-      return;
-    }
-
-    void loadProfile();
-  }, [hasSession, loadProfile]);
 
   return {
     authScreen: {

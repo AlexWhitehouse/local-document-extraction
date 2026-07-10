@@ -30,6 +30,13 @@ test("owners create in-app Workspace invitations that invitees can list without 
     }));
     expect(created.status).toBe(201);
 
+    const managed = await application(new Request(`http://127.0.0.1:8787/v1/workspaces/${ownerWorkspace.id}/invitations`, {
+      headers: { cookie: owner.cookie },
+    }));
+    await expect(managed.json()).resolves.toMatchObject({
+      invitations: [expect.objectContaining({ workspace_id: ownerWorkspace.id, email: "grace@example.com", status: "pending" })],
+    });
+
     const listed = await application(new Request("http://127.0.0.1:8787/v1/invitations", {
       headers: { cookie: invitee.cookie },
     }));
@@ -117,6 +124,8 @@ test("owners cancel pending Workspace invitations", async () => {
     const invitation = await created.json() as { id: string };
     const cancelled = await application(new Request(`http://127.0.0.1:8787/v1/workspaces/${workspace.id}/invitations/${invitation.id}`, { method: "DELETE", headers: { cookie: owner.cookie } }));
     expect(cancelled.status).toBe(200);
+    const managed = await application(new Request(`http://127.0.0.1:8787/v1/workspaces/${workspace.id}/invitations`, { headers: { cookie: owner.cookie } }));
+    await expect(managed.json()).resolves.toEqual({ invitations: [] });
     const pending = await application(new Request("http://127.0.0.1:8787/v1/invitations", { headers: { cookie: invitee.cookie } }));
     await expect(pending.json()).resolves.toEqual({ invitations: [] });
   } finally { database.close(); }

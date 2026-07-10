@@ -15,10 +15,16 @@ import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { createLocalSourceFileStore, type LocalSourceFileStore } from "./localSourceFileStore";
 import {
-  createLocalWorkspaceProductStore,
+  openLocalWorkspaceProductStore,
   type LocalWorkspaceExtractionJob,
   type LocalWorkspaceProductStore,
 } from "./localWorkspaceProductStore";
+import type { LocalWorkspaceControl } from "./localWorkspaceControl";
+import {
+  LocalWorkspaceOperationError,
+  type LocalWorkspaceProductOperation,
+  type LocalWorkspaceProductOperations,
+} from "./localWorkspaceProductOperations";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -32,6 +38,7 @@ export type LocalExtractionRunner = {
 
 type ExtractionFunction = (input: {
   fields: FieldDefinition[];
+  signal: AbortSignal;
   sourceBytes: ArrayBuffer;
   sourceMimeType: string;
 }) => Promise<ModelFieldResult[]>;
@@ -42,22 +49,26 @@ export function createLocalExtractionRunner({
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   onJobLifecycleChange,
   productAnalytics,
-  productStoreFactory = createLocalWorkspaceProductStore,
+  productStoreOpener = openLocalWorkspaceProductStore,
   scheduleJob = async () => {},
   sourceFileStore,
   staleProcessingAfterMs = DEFAULT_STALE_PROCESSING_AFTER_MS,
   stateDirectory,
+  workspaceControl,
+  workspaceProductOperations,
 }: {
   extract?: ExtractionFunction;
   modelGatewayConfiguration?: ModelGatewayConfiguration;
   maxAttempts?: number;
   onJobLifecycleChange?: (workspaceId: string, job: LocalWorkspaceExtractionJob) => void;
   productAnalytics?: LocalProductAnalytics;
-  productStoreFactory?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
+  productStoreOpener?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore | null;
   scheduleJob?: (job: LocalQueuedExtractionJob) => void | Promise<void>;
   sourceFileStore?: LocalSourceFileStore;
   staleProcessingAfterMs?: number;
   stateDirectory: string;
+  workspaceControl?: Pick<LocalWorkspaceControl, "workspaceExists">;
+  workspaceProductOperations?: LocalWorkspaceProductOperations;
 }): LocalExtractionRunner {
   const localSourceFileStore = sourceFileStore ?? createLocalSourceFileStore({ stateDirectory });
   const runModelExtraction = extract ?? ((input) => runExtraction(
@@ -65,6 +76,7 @@ export function createLocalExtractionRunner({
     input.fields,
     input.sourceBytes,
     input.sourceMimeType,
+    input.signal,
   ));
 
   return {
@@ -75,7 +87,13 @@ export function createLocalExtractionRunner({
         Date.now() - Math.max(0, staleProcessingAfterMs),
       ).toISOString();
       for (const workspaceId of workspaceIds) {
-        const productStore = productStoreFactory({ stateDirectory, workspaceId });
+        if (!workspaceExists(workspaceControl, workspaceId)) {
+          continue;
+        }
+        const productStore = productStoreOpener({ stateDirectory, workspaceId });
+        if (!productStore) {
+          continue;
+        }
         try {
           const recovered = productStore.recoverExtractionJobs({
             maxAttempts,
@@ -83,6 +101,9 @@ export function createLocalExtractionRunner({
             staleProcessingBefore,
           });
           for (const job of recovered) {
+            if (!workspaceExists(workspaceControl, workspaceId)) {
+              break;
+            }
             await scheduleJob({
               job_id: job.job_id,
               workspace_id: workspaceId,
@@ -98,7 +119,26 @@ export function createLocalExtractionRunner({
       }
     },
     run: async (job) => {
-      const productStore = productStoreFactory({ stateDirectory, workspaceId: job.workspace_id });
+      if (!workspaceExists(workspaceControl, job.workspace_id)) {
+        return;
+      }
+      let productOperation: LocalWorkspaceProductOperation | undefined;
+      try {
+        productOperation = workspaceProductOperations?.acquire({
+          workspaceId: job.workspace_id,
+          jobId: job.job_id,
+        });
+      } catch (error) {
+        if (error instanceof LocalWorkspaceOperationError) {
+          return;
+        }
+        throw error;
+      }
+      const productStore = productStoreOpener({ stateDirectory, workspaceId: job.workspace_id });
+      if (!productStore) {
+        productOperation?.release();
+        return;
+      }
       const attempt = job.attempt ?? 1;
       try {
         const claimed = productStore.claimExtractionJobForProcessing({
@@ -107,6 +147,9 @@ export function createLocalExtractionRunner({
           claimedAt: nowIso(),
         });
         if (!claimed) {
+          return;
+        }
+        if (productOperation?.signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
           return;
         }
         notifyJobLifecycle(onJobLifecycleChange, job.workspace_id, productStore, claimed.job_id);
@@ -118,10 +161,14 @@ export function createLocalExtractionRunner({
           }
           const rawResults = await runModelExtraction({
             fields: claimed.fields,
+            signal: productOperation?.signal ?? new AbortController().signal,
             sourceBytes: toArrayBuffer(sourceBytes),
             sourceMimeType: claimed.source_mime_type,
           });
           const results = normalizeModelResults(claimed.fields, rawResults);
+          if (productOperation?.signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
+            return;
+          }
           const completed = productStore.completeExtractionJob({
             jobId: claimed.job_id,
             attempt,
@@ -153,6 +200,9 @@ export function createLocalExtractionRunner({
             });
           }
         } catch (error) {
+          if (productOperation?.signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
+            return;
+          }
           if (error instanceof RetryableError && attempt < maxAttempts) {
             const requeued = productStore.requeueExtractionJob({
               jobId: claimed.job_id,
@@ -200,9 +250,17 @@ export function createLocalExtractionRunner({
         }
       } finally {
         productStore.close();
+        productOperation?.release();
       }
     },
   };
+}
+
+function workspaceExists(
+  workspaceControl: Pick<LocalWorkspaceControl, "workspaceExists"> | undefined,
+  workspaceId: string,
+): boolean {
+  return workspaceControl?.workspaceExists({ workspaceId }) ?? true;
 }
 
 async function cleanupCompletedSourceFile({

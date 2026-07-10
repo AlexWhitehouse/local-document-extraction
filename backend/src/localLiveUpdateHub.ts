@@ -19,6 +19,11 @@ type LocalLiveUpdateJob = {
 };
 
 export type LocalLiveUpdateHub = {
+  broadcastWorkspaceContextInvalidation(input: {
+    workspaceId: string;
+    reason: "workspace_access";
+    occurredAt: string;
+  }): void;
   broadcastJob(workspaceId: string, job: LocalLiveUpdateJob): void;
   subscribe(input: { workspaceId: string; socket: LocalLiveUpdateSocket }): () => void;
   unsubscribe(input: { workspaceId: string; socket: LocalLiveUpdateSocket }): void;
@@ -39,6 +44,27 @@ export function createLocalLiveUpdateHub(): LocalLiveUpdateHub {
   }
 
   return {
+    broadcastWorkspaceContextInvalidation: ({ workspaceId, reason, occurredAt }) => {
+      const sockets = socketsByWorkspace.get(workspaceId);
+      if (!sockets?.size) {
+        return;
+      }
+      const message = JSON.stringify({
+        version: 1,
+        events: [{
+          type: "workspace_context_invalidated",
+          reason,
+          occurred_at: occurredAt,
+        }],
+      });
+      for (const socket of sockets) {
+        try {
+          socket.send(message);
+        } catch {
+          unsubscribe({ workspaceId, socket });
+        }
+      }
+    },
     broadcastJob: (workspaceId, job) => {
       const sockets = socketsByWorkspace.get(workspaceId);
       if (!sockets?.size) {
