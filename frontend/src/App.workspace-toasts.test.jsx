@@ -1051,7 +1051,7 @@ describe("Workspace action toast feedback", () => {
     globalThis.fetch.mockImplementation((input, options = {}) => {
       const url = String(input);
       if (url.endsWith("/workspaces/ws_1/invitations") && options.method === "POST") {
-        return Promise.resolve(jsonResponse({ error: "D1 internal detail" }, { status: 500 }));
+        return Promise.resolve(jsonResponse({ error: "Database internal detail" }, { status: 500 }));
       }
       return mockWorkspaceFetch(input, options);
     });
@@ -1066,7 +1066,7 @@ describe("Workspace action toast feedback", () => {
         "Workspace invitation could not be created. Please try again.",
       );
     });
-    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("D1"));
+    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("Database"));
   });
 
   it("confirms cancelling a pending Workspace invitation", async () => {
@@ -1751,7 +1751,7 @@ describe("Workspace action toast feedback", () => {
     });
   });
 
-  it("does not poll obsolete workflow metadata as an Extraction job lifecycle state", async () => {
+  it("does not poll obsolete lifecycle metadata as an Extraction job lifecycle state", async () => {
     installLocalStorage({
       workspaceId: "ws_1",
       workspaceName: "Research Workspace",
@@ -1759,11 +1759,11 @@ describe("Workspace action toast feedback", () => {
       apiKeysByWorkspace: {
         ws_1: "imgx_live_existing_key",
       },
-      selectedDocumentId: "job_workflow_started_1",
+      selectedDocumentId: "job_legacy_unknown_1",
       jobHistory: [
         {
-          job_id: "job_workflow_started_1",
-          status: "workflow_started",
+          job_id: "job_legacy_unknown_1",
+          status: "legacy_unknown",
           source_name: "invoice.pdf",
           template_id: "tpl_document",
           created_at: "2026-01-03T00:00:00.000Z",
@@ -1789,8 +1789,8 @@ describe("Workspace action toast feedback", () => {
           jsonResponse({
             jobs: [
               {
-                job_id: "job_workflow_started_1",
-                status: "workflow_started",
+                job_id: "job_legacy_unknown_1",
+                status: "legacy_unknown",
                 source_name: "invoice.pdf",
                 template_id: "tpl_document",
                 created_at: "2026-01-03T00:00:00.000Z",
@@ -1801,11 +1801,11 @@ describe("Workspace action toast feedback", () => {
           }),
         );
       }
-      if (url.endsWith("/jobs/job_workflow_started_1")) {
+      if (url.endsWith("/jobs/job_legacy_unknown_1")) {
         return Promise.resolve(
           jsonResponse({
-            job_id: "job_workflow_started_1",
-            status: "workflow_started",
+            job_id: "job_legacy_unknown_1",
+            status: "legacy_unknown",
             source_name: "invoice.pdf",
             template_id: "tpl_document",
             created_at: "2026-01-03T00:00:00.000Z",
@@ -1820,7 +1820,7 @@ describe("Workspace action toast feedback", () => {
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.stringContaining("/jobs/job_workflow_started_1"),
+        expect.stringContaining("/jobs/job_legacy_unknown_1"),
         expect.any(Object),
       );
     });
@@ -2028,62 +2028,6 @@ describe("Workspace action toast feedback", () => {
     expect(toastMock.error).toHaveBeenCalledTimes(1);
     expect(screen.getByText("receipt.pdf")).toBeTruthy();
     expect(screen.getByText(/queue detail/)).toBeTruthy();
-  });
-
-  it("keeps billing-rejected Documents failed after page count with actionable feedback", async () => {
-    const user = userEvent.setup();
-    const template = { id: "tpl_document", name: "Invoice Template" };
-    let queueAttempts = 0;
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/templates")) {
-        return Promise.resolve(jsonResponse({ templates: [template] }));
-      }
-      if (url.endsWith("/extract") && options.method === "POST") {
-        queueAttempts += 1;
-        if (queueAttempts === 1) {
-          return Promise.resolve(jsonResponse({ job_id: "job_upload_1" }));
-        }
-        return Promise.resolve(
-          jsonResponse({
-            error: {
-              code: "billing_insufficient_credits",
-              message: "Billing rejected after detecting 7 Billable Document pages. Buy Credits or ask the Workspace owner to update billing.",
-            },
-          }, { status: 402 }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    const { container } = render(<App />);
-
-    await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
-    fireEvent.change(container.querySelector('input[type="file"]'), {
-      target: {
-        files: [
-          new File(["invoice"], "invoice.pdf", { type: "application/pdf" }),
-          new File(["receipt"], "receipt.pdf", { type: "application/pdf" }),
-        ],
-      },
-    });
-    await user.click(screen.getByRole("button", { name: "Upload Documents" }));
-
-    await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith("1 document queued, 1 blocked by billing");
-    });
-    const uploadDialog = within(screen.getByRole("dialog", { name: "Upload document" }));
-    expect(uploadDialog.getByText("invoice.pdf")).toBeTruthy();
-    expect(uploadDialog.getByText("receipt.pdf")).toBeTruthy();
-    expect(uploadDialog.getByText("Success")).toBeTruthy();
-    expect(uploadDialog.getByText("Failed")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Billing rejected after detecting 7 Billable Document pages. Buy Credits or ask the Workspace owner to update billing.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByText("job_upload_2")).toBeNull();
   });
 
   it("confirms deleting a document", async () => {

@@ -1,42 +1,7 @@
 # Accounts And Workspaces
 
-Users work inside Workspaces. A signed-in user may belong to multiple Workspaces, and the app remembers the last accepted Workspace selected in the browser.
+Email/password accounts verify through the local mail sink before sign-in. Password resets use the same captured-link flow. Google sign-in is available only when local Google OAuth variables are configured.
 
-## Accounts
+Most product actions require an accepted Workspace context. Owners and admins can manage members, invitations, Workspace names, and API keys. Members can use the Workspace product data they are authorized to access.
 
-The app supports:
-
-- Email and password sign-up.
-- Account email verification.
-- Account password reset.
-- Google sign-in when Google OAuth credentials are configured.
-
-Email/password accounts must verify their email before the app bootstraps Workspace access. Passwords must be at least 8 characters and include an uppercase letter, a number, and a special character.
-
-## Workspace Context
-
-Most product actions require an accepted Workspace context. When you select a Workspace in the app, the Templates, Documents, members, billing, and API keys you see all belong to that Workspace.
-
-External clients use a Workspace API key:
-
-```text
-Authorization: Bearer <workspace_api_key>
-```
-
-Workspace API keys are scoped to one Workspace and are shown only immediately after generation or rotation.
-
-## Roles
-
-Workspace memberships use three roles:
-
-| Role | Summary |
-| --- | --- |
-| Owner | Full Workspace control, billing authority, member management, API key rotation. |
-| Admin | Workspace management and API key rotation, without owner billing authority. |
-| Member | Workspace product access, subject to Workspace policy and plan limits. |
-
-## Invitations
-
-Owners and admins can invite users by email. Pending invitations appear as invited Workspace entries until the recipient accepts or declines.
-
-Pending invitation context is locked: invitation details and actions are visible, but product APIs are unavailable until the invitation is accepted.
+Workspace API keys are scoped to one Workspace and shown only at generation or rotation. They are for Template, Document, and job API access; browser-only account, membership, invitation, and live-update flows continue to require a session.

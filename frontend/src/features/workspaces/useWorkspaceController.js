@@ -18,11 +18,6 @@ import {
 const WORKSPACE_STORAGE_KEY = "documentextraction.workspace.v1";
 export const DEFAULT_WORKSPACE_ID = "workspace_local_default";
 const NEW_WORKSPACE_NAME = "New Workspace";
-const CREDIT_LIMITED_BILLING_PLANS = new Set(["free", "pro", "max"]);
-const BILLING_CAPACITY_REASONS = new Set([
-  "Insufficient Credits",
-  "Plan page capacity reached",
-]);
 
 export function loadPersistedWorkspace() {
   if (typeof window === "undefined") {
@@ -172,20 +167,6 @@ export function useWorkspaceController({
   const selectedWorkspaceHasApiKey = Boolean(
     selectedWorkspace?.has_api_key,
   );
-  const billingOperationalStatus = normalizeBillingOperationalStatus(
-    selectedWorkspace?.billing_operational_status,
-  );
-  const billingPlanLimits = normalizeBillingPlanLimits(
-    selectedWorkspace?.billing_plan_limits,
-  );
-  const billingUsageSummary = normalizeBillingUsageSummary(
-    selectedWorkspace?.billing_usage_summary,
-  );
-  const isBillingSubmissionBlocked =
-    billingOperationalStatus.blocking_reasons.length > 0;
-  const hasWorkspaceBillingAuthority =
-    !selectedWorkspaceInvitationId.trim() &&
-    selectedWorkspaceRole.trim().toLowerCase() === "owner";
   const workspaceApiKeyActionLabel = selectedWorkspaceHasApiKey
     ? "Rotate API Key"
     : "Generate API Key";
@@ -558,35 +539,6 @@ export function useWorkspaceController({
       }
       throw error;
     }
-  }
-
-  function applyWorkspaceBillingSummary(summary) {
-    const targetWorkspaceId = workspaceIdRef.current.trim();
-    const usageSummary = billingUsageSummaryFromOwnerBillingSummary(summary);
-    if (!targetWorkspaceId || !usageSummary) {
-      return null;
-    }
-
-    let patchedWorkspace = null;
-    setUserWorkspaces((prev) => {
-      const workspaces = Array.isArray(prev) ? prev : [];
-      return workspaces.map((workspace) => {
-        if (String(workspace?.id || "") !== targetWorkspaceId) {
-          return workspace;
-        }
-        patchedWorkspace = {
-          ...workspace,
-          billing_plan_limits: summary?.plan_limits || workspace.billing_plan_limits,
-          billing_usage_summary: usageSummary,
-          billing_operational_status: billingOperationalStatusFromOwnerBillingSummary(
-            summary,
-            workspace.billing_operational_status,
-          ),
-        };
-        return patchedWorkspace;
-      });
-    });
-    return patchedWorkspace;
   }
 
   async function recoverForbiddenWorkspaceAccess() {
@@ -1105,11 +1057,6 @@ export function useWorkspaceController({
       hasWorkspaceContext,
       hasApiAccess,
       hasWorkspaceApiAccess: workspaceSelectionView.hasWorkspaceApiAccess,
-      canSubmitDocuments:
-        workspaceSelectionView.hasWorkspaceApiAccess &&
-        !isBillingSubmissionBlocked,
-      billingOperationalStatus,
-      isBillingSubmissionBlocked,
       isWorkspaceContextLoading,
       hasWorkspaceResolutionError,
       isWorkspaceInvitationSelected,
@@ -1117,9 +1064,6 @@ export function useWorkspaceController({
       availableWorkspaces,
       workspaceSelectionView,
       selectedWorkspaceRole,
-      billingPlanLimits,
-      billingUsageSummary,
-      hasWorkspaceBillingAuthority,
       canManageWorkspaceInvitations,
     },
     sidebar: {
@@ -1196,7 +1140,6 @@ export function useWorkspaceController({
     actions: {
       clearSessionWorkspaceData,
       recoverForbiddenWorkspaceAccess,
-      applyWorkspaceBillingSummary,
       refreshSelectedWorkspaceContext,
       listWorkspaces,
     },
@@ -1223,108 +1166,6 @@ function getWorkspaceUserActions(userManagement, targetRole) {
     return ["remove_user"];
   }
   return [];
-}
-
-function normalizeBillingOperationalStatus(value) {
-  const blockingReasons = Array.isArray(value?.blocking_reasons)
-    ? value.blocking_reasons
-        .map((reason) => String(reason || "").trim())
-        .filter(Boolean)
-    : [];
-  return {
-    status: blockingReasons.length ? "blocked" : String(value?.status || "active"),
-    blocking_reasons: blockingReasons,
-  };
-}
-
-function normalizeBillingPlanLimits(value) {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  return {
-    templates: normalizePlanLimitCount(value.templates),
-    top_level_template_fields: normalizePlanLimitCount(
-      value.top_level_template_fields,
-    ),
-    table_shaped_fields: normalizePlanLimitCount(value.table_shaped_fields),
-    table_columns_per_field: normalizePlanLimitCount(
-      value.table_columns_per_field,
-    ),
-    members: normalizePlanLimitCount(value.members),
-    monthly_pages: normalizePlanLimitCount(value.monthly_pages),
-    api_access: Boolean(value.api_access),
-  };
-}
-
-function normalizeBillingUsageSummary(value) {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  return {
-    remaining_credits: normalizePlanLimitCount(value.remaining_credits),
-    remaining_pages: normalizePlanLimitCount(value.remaining_pages),
-  };
-}
-
-function billingUsageSummaryFromOwnerBillingSummary(summary) {
-  if (!summary || typeof summary !== "object") {
-    return null;
-  }
-  const plan = String(summary.active_entitlement?.plan || "");
-  const isCreditLimited = CREDIT_LIMITED_BILLING_PLANS.has(plan);
-  return {
-    remaining_credits: isCreditLimited
-      ? normalizePlanLimitCount(summary.credits?.total_available) ?? 0
-      : null,
-    remaining_pages: normalizePlanLimitCount(summary.current_period?.pages_remaining),
-  };
-}
-
-function billingOperationalStatusFromOwnerBillingSummary(summary, existingStatus) {
-  const usageSummary = billingUsageSummaryFromOwnerBillingSummary(summary);
-  const existingReasons = normalizeBillingOperationalStatus(existingStatus)
-    .blocking_reasons
-    .filter((reason) => !BILLING_CAPACITY_REASONS.has(reason));
-  if (!usageSummary) {
-    return {
-      status: existingReasons.length ? "blocked" : "active",
-      blocking_reasons: existingReasons,
-    };
-  }
-
-  const reasons = [...existingReasons];
-  if (
-    usageSummary.remaining_credits !== null &&
-    Number(usageSummary.remaining_credits || 0) <= 0
-  ) {
-    reasons.push("Insufficient Credits");
-  }
-  if (
-    usageSummary.remaining_pages !== null &&
-    usageSummary.remaining_pages !== undefined &&
-    Number(usageSummary.remaining_pages || 0) <= 0
-  ) {
-    reasons.push("Plan page capacity reached");
-  }
-
-  return {
-    status: reasons.length ? "blocked" : "active",
-    blocking_reasons: reasons,
-  };
-}
-
-function normalizePlanLimitCount(value) {
-  if (value === null) {
-    return null;
-  }
-
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0) {
-    return undefined;
-  }
-  return number;
 }
 
 export function workspaceUserActionLabel(action) {

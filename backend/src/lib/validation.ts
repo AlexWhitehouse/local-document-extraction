@@ -17,6 +17,7 @@ const OBJECT_GUIDANCE_END = "[[/OBJECT_TABLE_GUIDANCE]]";
 const OBJECT_SCHEMA_START = "[[OBJECT_SCHEMA]]";
 const OBJECT_SCHEMA_END = "[[/OBJECT_SCHEMA]]";
 const OBJECT_SCHEMA_DATA_TYPES: ReadonlySet<DataType> = new Set(["string", "number", "boolean", "date"]);
+export const MAX_TEMPLATE_OBJECT_COLUMNS = 20;
 
 type TemplateInput = {
   name?: unknown;
@@ -124,6 +125,12 @@ export function validateTemplatePayload(input: TemplateInput, allowPartial = fal
         data_type: dataType as DataType
       };
     });
+    const tableShapedFieldCount = output.fields.filter(
+      (field) => field.data_type === "object" || field.data_type === "array<object>",
+    ).length;
+    if (tableShapedFieldCount > 1) {
+      throw new HttpError(400, "invalid_fields", "A Template may contain at most one table-shaped Template field");
+    }
   } else if (!allowPartial) {
     throw new HttpError(400, "invalid_fields", "fields are required");
   }
@@ -170,6 +177,14 @@ function normalizeObjectMetadata(
       400,
       "invalid_fields",
       `Field ${fieldIndex + 1}: object fields require at least one table column`
+    );
+  }
+
+  if (objectSchema.columns.length > MAX_TEMPLATE_OBJECT_COLUMNS) {
+    throw new HttpError(
+      400,
+      "invalid_fields",
+      `Field ${fieldIndex + 1}: object fields may contain at most ${MAX_TEMPLATE_OBJECT_COLUMNS} table columns`,
     );
   }
 

@@ -1,27 +1,17 @@
-# Frontend
+# Document Extraction Frontend
 
-React UI for the Document Extraction workspace experience.
-
-## Run
-
-1. Start backend in `backend`:
+The production-like local path is the Bun server at `http://127.0.0.1:8787`, which serves the built frontend together with the API and live updates.
 
 ```bash
-npm run start
+bun run build
+bun run start
 ```
 
-2. Start frontend in `frontend`:
+For frontend iteration, run the Bun server in one terminal and Vite in another:
 
 ```bash
-npm install
-npm run start
+bun run dev
+bun run dev:frontend
 ```
 
-The frontend runs on `http://localhost:5173` and proxies `/v1/*` to `http://127.0.0.1:8787`.
-
-## What it can do
-
-- Create/list/update/delete templates (`/v1/templates`)
-- Upload a Document Source file and create an Extraction job (`POST /v1/extract`)
-- Poll latest job (`GET /v1/jobs/:id`)
-- View and update user profile (`GET/PATCH /v1/profile`)
+Vite serves `http://127.0.0.1:5173` and proxies `/api/auth` and `/v1` to the Bun server.

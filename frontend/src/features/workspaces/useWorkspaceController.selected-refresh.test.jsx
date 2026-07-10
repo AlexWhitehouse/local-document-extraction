@@ -11,17 +11,12 @@ describe("useWorkspaceController selected Workspace context refresh", () => {
     vi.restoreAllMocks();
   });
 
-  it("merges selected Workspace context refresh without fetching pending Workspace invitations", async () => {
+  it("refreshes selected Workspace context without fetching pending Workspace invitations", async () => {
     let controller = null;
     const request = vi.fn(async (path) => {
       if (path === "/workspaces") {
         return {
-          workspaces: [
-            workspaceEntry({
-              billing_operational_status: { status: "active", blocking_reasons: [] },
-              billing_usage_summary: { remaining_credits: 10, remaining_pages: 100 },
-            }),
-          ],
+          workspaces: [workspaceEntry()],
         };
       }
       if (path === "/invitations") {
@@ -32,13 +27,7 @@ describe("useWorkspaceController selected Workspace context refresh", () => {
       }
       if (path === "/workspaces/ws_1/context") {
         return {
-          workspace: workspaceEntry({
-            billing_operational_status: {
-              status: "blocked",
-              blocking_reasons: ["Insufficient Credits"],
-            },
-            billing_usage_summary: { remaining_credits: 0, remaining_pages: 100 },
-          }),
+          workspace: workspaceEntry({ name: "Research refreshed" }),
         };
       }
       throw new Error(`Unhandled request path: ${path}`);
@@ -68,14 +57,7 @@ describe("useWorkspaceController selected Workspace context refresh", () => {
       await controller.actions.refreshSelectedWorkspaceContext();
     });
 
-    expect(controller.context.billingOperationalStatus).toEqual({
-      status: "blocked",
-      blocking_reasons: ["Insufficient Credits"],
-    });
-    expect(controller.context.billingUsageSummary).toEqual({
-      remaining_credits: 0,
-      remaining_pages: 100,
-    });
+    expect(controller.context.workspaceName).toBe("Research refreshed");
     expect(request).toHaveBeenCalledWith(
       "/workspaces/ws_1/context",
       expect.objectContaining({ method: "GET" }),
@@ -182,15 +164,6 @@ function workspaceEntry(overrides = {}) {
     max_source_file_bytes: null,
     has_api_key: false,
     role: "member",
-    billing_plan_limits: {
-      templates: 3,
-      top_level_template_fields: 5,
-      table_shaped_fields: 1,
-      table_columns_per_field: 5,
-      members: 3,
-      monthly_pages: 500,
-      api_access: false,
-    },
     ...overrides,
   };
 }

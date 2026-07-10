@@ -8,5 +8,5 @@
 ## Relationships
 
 - **Frontend -> Backend**: Frontend calls `/api/auth/*` for authentication and `/v1/*` for workspace-scoped product APIs.
-- **Backend -> Frontend**: Backend serves the built frontend assets in production for non-`/v1` `GET` and `HEAD` requests.
+- **Backend -> Frontend**: The Bun backend serves built frontend assets for normal local use, including SPA fallback for non-`/v1` `GET` and `HEAD` requests.
 - **Frontend <-> Backend**: **Workspace context** is selected and displayed by the frontend, but accepted access and invitation lifecycle rules are owned by the backend.

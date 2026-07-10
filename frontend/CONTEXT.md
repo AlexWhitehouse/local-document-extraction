@@ -40,14 +40,6 @@ _Avoid_: forgot password flow, password recovery, Workspace password reset
 The application-wide account management UI for **Application admins**, separate from workspace-scoped administration.
 _Avoid_: workspace admin page, owner tools, support panel
 
-**Workspace billing section**:
-The owner-only Workspace page section for viewing and managing Workspace billing.
-_Avoid_: billing tab, payment page, subscription page, sidebar billing page
-
-**Billing operational status**:
-Limited billing state shown to non-owner Workspace members only to explain blocked product actions.
-_Avoid_: billing details, invoice summary, payment status
-
 **Document upload toast**:
 An **Action toast** that summarizes how many uploaded documents were queued and how many failed to queue.
 _Avoid_: upload alert, document status message
@@ -58,11 +50,11 @@ _Avoid_: job history storage, workspace data persistence
 
 **Workspace live update**:
 A session-only realtime message stream for the accepted **Workspace context** that can update visible **Extraction jobs** and carry Workspace context invalidation hints.
-_Avoid_: durable event history, polling replacement for all data, billing payload
+_Avoid_: durable event history, polling replacement for all data, context snapshot
 
 **Workspace context invalidation**:
-A freshness hint from **Workspace live updates** that tells the browser to revalidate the selected accepted **Workspace context** over HTTP because Workspace billing, Template limit, member limit, or access state may have changed.
-_Avoid_: billing details, local billing rule, context snapshot
+A freshness hint from **Workspace live updates** that tells the browser to revalidate the selected accepted **Workspace context** over HTTP because product configuration or access state may have changed.
+_Avoid_: local rule, context snapshot
 
 **Document**:
 A user-provided file submitted for extraction.
@@ -71,6 +63,10 @@ _Avoid_: image, upload, input file
 **Source file**:
 The original uploaded binary for a **Document**.
 _Avoid_: image file, browser file, upload blob
+
+**Product safety limit**:
+A non-commercial guardrail that prevents unsupported or excessive Documents from being submitted.
+_Avoid_: commercial quota, account tier
 
 **Extraction job**:
 The displayed processing item created when a **Document** is submitted with a **Template**.
@@ -165,19 +161,8 @@ _Avoid_: frontend auth mode, session replacement
 - The first **Application admin page** does not expose user name or account email editing.
 - The first **Application admin page** does not show Workspace membership summaries or provide Workspace data management.
 - The **Application admin page** remains available to Application admins during Loading workspace context or Workspace resolution error because it is account-level, not workspace-scoped.
-- The **Workspace billing section** is visible only to the current Workspace owner.
-- The **Workspace billing section** appears at the bottom of the Workspace page, below Workspace users.
-- The **Workspace billing section** shows current plan entitlement, Credits, Included Credit renewal, monthly page usage, invoices, and hosted payment actions.
-- **Billing operational status** appears as compact badges in the Workspace billing section header.
-- Self-service Free, Pro, and Max plan comparison and subscription management live behind the **View/Edit Plan** modal opened from the current Active entitlement card.
-- Credit pack purchase actions live behind the **Buy Credits** modal opened from the current Active entitlement card.
-- The **Workspace billing section** shows the next scheduled entitlement change when one exists.
-- The **Workspace billing section** shows available Credits separately from remaining current-period page capacity.
-- Non-owner Workspace members do not see the **Workspace billing section** or owner-only billing controls.
-- Non-owner Workspace members may see **Billing operational status** when billing state blocks product actions.
-- **Billing operational status** must not expose invoices, payment methods, exact prices paid, or owner-only billing controls.
-- The frontend uses billing entitlement summaries to disable Document upload before file selection when new submission is already blocked.
-- The frontend treats billing entitlement summaries as advisory because final billing enforcement happens after the backend knows exact billable page count.
+- Local-only runtime keeps sign-in, **Workspace selection view**, invitations, **Application admin page**, and **Workspace API key display** behavior.
+- Document upload UI may reflect **Product safety limits**, but not account-tier state.
 - When the **Application admin page** is active, the context sidebar shows admin-specific account-management context rather than Workspace, Template, or Document lists.
 - The **Application admin page** does not render workspace-specific toolbar content, but preserves the app's established page layout and visual structure.
 - **Application admin page** loading and mutation state is local to the admin feature and does not use the app-wide busy flag.
@@ -270,6 +255,7 @@ _Avoid_: frontend auth mode, session replacement
 - The header Documents count represents the total number of durable **Extraction jobs** in the current accepted **Workspace** across `queued`, `processing`, `completed`, and `failed`, regardless of pagination, search, or how many list rows the frontend has loaded.
 - A **Template** has one or more **Template fields** displayed and edited by the frontend.
 - **Template fields** are always requested during extraction; the template editing UI does not offer required/optional field controls.
+- The Template field editor and JSON modal allow at most one table-shaped **Template field** with no more than 20 **Template object columns**.
 - An **Extraction job** shows results for the **Template version** used when the Document was submitted.
 - A completed **Extraction job** displays **Extraction results** for extracted **Template fields**.
 - **Selected upload Template** is derived from backend Templates after Workspace resolution and does not persist across page refresh.

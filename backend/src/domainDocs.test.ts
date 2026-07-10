@@ -13,8 +13,7 @@ describe("Domain documentation", () => {
     }
 
     expect(backendContext).toContain("reason code");
-    expect(backendContext).toContain("computed **Billing operational status**");
-    expect(backendContext).toContain("Stripe details");
+    expect(backendContext).toContain("**Local product analytics log**");
     expect(backendContext).toContain("account identity");
     expect(backendContext).toContain("extracted answers");
     expect(backendContext).toContain("evidence text");
