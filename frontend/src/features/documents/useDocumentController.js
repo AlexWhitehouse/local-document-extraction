@@ -16,13 +16,14 @@ export function useDocumentController({
   templates,
   selectedUploadTemplateId,
   onSelectedUploadTemplateChange,
-  request,
+  documentRequests,
   addLog,
   showActionToast,
   showDocumentUploadToast,
   hasApiAccess,
   hasWorkspaceApiAccess,
   isAppBusy,
+  isWorkspaceDeletionInProgress = false,
   workspaceId,
   latestResponse,
   setLatestResponse,
@@ -42,6 +43,7 @@ export function useDocumentController({
   );
   const [jobsNextCursor, setJobsNextCursor] = useState(null);
   const [jobsHasMore, setJobsHasMore] = useState(false);
+  const [totalDocuments, setTotalDocuments] = useState(0);
   const [isLoadingMoreJobs, setIsLoadingMoreJobs] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState(
     initialWorkspace.selectedDocumentId || "",
@@ -52,9 +54,11 @@ export function useDocumentController({
 
   const previewUrlsRef = useRef(new Set());
   const completedDocumentCacheRef = useRef(createCompletedDocumentCache());
+  const deletedDocumentIdsRef = useRef(new Set());
   const liveUpdateSocketRef = useRef(null);
   const liveUpdateReconnectTimerRef = useRef(null);
   const liveUpdateAccessRevalidationPendingRef = useRef(false);
+  const workspaceDeletionInProgressRef = useRef(isWorkspaceDeletionInProgress);
   const workspaceCapacityRefreshTimerRef = useRef(null);
   const lastWorkspaceCapacityRefreshAtRef = useRef(0);
   const jobDetailsInFlightRef = useRef(new Map());
@@ -66,7 +70,7 @@ export function useDocumentController({
   const listJobsRef = useRef(null);
   const onWorkspaceCapacityRefreshRef = useRef(onWorkspaceCapacityRefresh);
   const queuedJobsRef = useRef(queuedJobs);
-  const requestRef = useRef(request);
+  const documentRequestsRef = useRef(documentRequests);
   const workspaceIdRef = useRef(workspaceId);
   const normalizedWorkspaceId = String(workspaceId || "").trim();
   const canOpenLiveUpdates =
@@ -76,8 +80,8 @@ export function useDocumentController({
   useEffect(() => {
     addLogRef.current = addLog;
     onWorkspaceCapacityRefreshRef.current = onWorkspaceCapacityRefresh;
-    requestRef.current = request;
-  }, [addLog, onWorkspaceCapacityRefresh, request]);
+    documentRequestsRef.current = documentRequests;
+  }, [addLog, documentRequests, onWorkspaceCapacityRefresh]);
 
   useEffect(() => {
     jobHistoryRef.current = jobHistory;
@@ -85,7 +89,8 @@ export function useDocumentController({
     latestResponseRef.current = latestResponse;
     queuedJobsRef.current = queuedJobs;
     workspaceIdRef.current = workspaceId;
-  }, [jobHistory, jobsNextCursor, latestResponse, queuedJobs, workspaceId]);
+    workspaceDeletionInProgressRef.current = isWorkspaceDeletionInProgress;
+  }, [isWorkspaceDeletionInProgress, jobHistory, jobsNextCursor, latestResponse, queuedJobs, workspaceId]);
 
   const documents = useMemo(() => {
     const query = debouncedDocumentSearch.trim().toLowerCase();
@@ -252,13 +257,18 @@ export function useDocumentController({
     setQueuedJobs({});
     setJobsNextCursor(null);
     setJobsHasMore(false);
+    setTotalDocuments(0);
     setSelectedDocumentId("");
     setLatestResponse(null);
     liveCompletedDetailLoadsRef.current.clear();
+    deletedDocumentIdsRef.current.clear();
   }, [clearWorkspaceCapacityRefreshTimer, setLatestResponse]);
 
   const upsertJobHistory = useCallback((job) => {
     if (!job?.job_id) {
+      return;
+    }
+    if (deletedDocumentIdsRef.current.has(String(job.job_id))) {
       return;
     }
 
@@ -342,19 +352,11 @@ export function useDocumentController({
 
   const listJobs = useCallback(async ({ append = false } = {}) => {
     try {
-      const params = new URLSearchParams();
       const search = debouncedDocumentSearch.trim();
-      if (search) {
-        params.set("search", search);
-      }
       const nextCursor = jobsNextCursorRef.current;
-      if (append && nextCursor) {
-        params.set("cursor", nextCursor);
-      }
-
-      const query = params.toString();
-      const data = await requestRef.current(query ? `/jobs?${query}` : "/jobs", {
-        method: "GET",
+      const data = await documentRequestsRef.current.listDocuments({
+        search,
+        cursor: append ? nextCursor : null,
       });
       const list = Array.isArray(data?.jobs) ? data.jobs : [];
       const isFilteredList = Boolean(search);
@@ -388,6 +390,7 @@ export function useDocumentController({
       });
       setJobsNextCursor(data?.next_cursor || null);
       setJobsHasMore(Boolean(data?.has_more));
+      setTotalDocuments(Number.isFinite(data?.total) ? data.total : list.length);
       setSelectedDocumentId((currentSelectedDocumentId) =>
         currentSelectedDocumentId || !hydratedList[0]?.job_id
           ? currentSelectedDocumentId
@@ -419,6 +422,7 @@ export function useDocumentController({
   }
 
   const removeDocumentFromState = useCallback((targetDocumentId, sourcePreviewUrl) => {
+    deletedDocumentIdsRef.current.add(String(targetDocumentId));
     if (sourcePreviewUrl) {
       URL.revokeObjectURL(sourcePreviewUrl);
       previewUrlsRef.current.delete(sourcePreviewUrl);
@@ -471,12 +475,7 @@ export function useDocumentController({
 
     const loadPromise = (async () => {
       try {
-        const data = await requestRef.current(
-          `/jobs/${encodeURIComponent(normalizedJobId)}`,
-          {
-            method: "GET",
-          },
-        );
+        const data = await documentRequestsRef.current.getDocument(normalizedJobId);
         const shouldRefreshWorkspaceCapacity =
           hasDocumentStatusChanged(jobHistoryRef.current, queuedJobsRef.current, data);
         upsertJobHistory(data);
@@ -666,10 +665,7 @@ export function useDocumentController({
 
     let queued;
     try {
-      queued = await request("/extract", {
-        method: "POST",
-        body: formData,
-      });
+      queued = await documentRequestsRef.current.submitDocument(formData);
     } catch (error) {
       if (sourcePreviewUrl) {
         URL.revokeObjectURL(sourcePreviewUrl);
@@ -716,9 +712,7 @@ export function useDocumentController({
 
     setIsDeletingDocument(true);
     try {
-      await request(`/jobs/${encodeURIComponent(targetDocumentId)}`, {
-        method: "DELETE",
-      });
+      await documentRequestsRef.current.deleteDocument(targetDocumentId);
       removeDocumentFromState(
         targetDocumentId,
         selectedDocument.source_preview_url,
@@ -852,7 +846,9 @@ export function useDocumentController({
             (invalidation) => invalidation.reason === "workspace_access",
           )
         ) {
-          revalidateWorkspaceAccessNow();
+          if (!workspaceDeletionInProgressRef.current) {
+            revalidateWorkspaceAccessNow();
+          }
           return;
         }
         if (liveUpdateAccessRevalidationPendingRef.current) {
@@ -994,7 +990,7 @@ export function useDocumentController({
       onSubmit: uploadFromModal,
     },
     toolbar: {
-      documentCount: documents.length,
+      documentCount: totalDocuments,
       isDeletingDocument,
       selectedDocumentId: selectedDocument?.job_id || "",
       onUploadDocument: openUploadModal,

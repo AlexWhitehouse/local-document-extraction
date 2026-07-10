@@ -1053,9 +1053,6 @@ function mockWorkspaceFetch(input) {
   if (url.endsWith("/invitations")) {
     return Promise.resolve(jsonResponse({ invitations: [] }));
   }
-  if (url.endsWith("/profile")) {
-    return Promise.resolve(jsonResponse({ name: "Ada Lovelace", email: "ada@example.com" }));
-  }
   if (url.endsWith("/templates")) {
     return Promise.resolve(jsonResponse({ templates: [] }));
   }

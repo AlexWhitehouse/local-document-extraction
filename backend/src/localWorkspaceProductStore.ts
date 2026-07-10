@@ -1,4 +1,5 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
@@ -79,6 +80,12 @@ export type LocalScheduledExtractionJob = {
   attempt: number;
 };
 
+export type DeletedLocalWorkspaceExtractionJob = {
+  job_id: string;
+  source_file_key: string;
+  status: "queued" | "processing" | "completed" | "failed";
+};
+
 export type LocalWorkspaceProductStore = {
   close(): void;
   createTemplate(input: {
@@ -153,10 +160,16 @@ export type LocalWorkspaceProductStore = {
     staleProcessingBefore: string;
   }): LocalScheduledExtractionJob[];
   getTemplate(templateId: string): LocalWorkspaceTemplateDetail | null;
+  deleteExtractionJob(input: { jobId: string }): DeletedLocalWorkspaceExtractionJob | null;
   getExtractionJob(jobId: string): LocalWorkspaceExtractionJob | null;
   getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
   listTemplates(): LocalWorkspaceTemplate[];
-  listExtractionJobs(): LocalWorkspaceExtractionJobSummary[];
+  countExtractionJobs(): number;
+  listExtractionJobs(input?: {
+    cursor?: { createdAt: string; jobId: string } | null;
+    limit?: number;
+    search?: string;
+  }): LocalWorkspaceExtractionJobSummary[];
   markSourceFileCleaned(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): boolean;
 };
 
@@ -167,13 +180,59 @@ export function createLocalWorkspaceProductStore({
   stateDirectory: string;
   workspaceId: string;
 }): LocalWorkspaceProductStore {
+  return initializeLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+}
+
+export function initializeLocalWorkspaceProductStore({
+  stateDirectory,
+  workspaceId,
+}: {
+  stateDirectory: string;
+  workspaceId: string;
+}): LocalWorkspaceProductStore {
+  const databasePath = workspaceProductDatabasePath({ stateDirectory, workspaceId });
+  mkdirSync(join(stateDirectory, "data", "workspaces"), { recursive: true });
+  return createProductStore(new Database(databasePath));
+}
+
+export function openLocalWorkspaceProductStore({
+  stateDirectory,
+  workspaceId,
+}: {
+  stateDirectory: string;
+  workspaceId: string;
+}): LocalWorkspaceProductStore | null {
+  const databasePath = workspaceProductDatabasePath({ stateDirectory, workspaceId });
+  if (!existsSync(databasePath)) {
+    return null;
+  }
+  return createProductStore(new Database(databasePath));
+}
+
+export async function eraseLocalWorkspaceProductData({
+  stateDirectory,
+  workspaceId,
+}: {
+  stateDirectory: string;
+  workspaceId: string;
+}): Promise<void> {
+  const databasePath = workspaceProductDatabasePath({ stateDirectory, workspaceId });
+  await Promise.all([
+    rm(databasePath, { force: true }),
+    rm(`${databasePath}-journal`, { force: true }),
+    rm(`${databasePath}-shm`, { force: true }),
+    rm(`${databasePath}-wal`, { force: true }),
+  ]);
+}
+
+function workspaceProductDatabasePath({ stateDirectory, workspaceId }: { stateDirectory: string; workspaceId: string }): string {
   if (!/^[a-zA-Z0-9_-]+$/.test(workspaceId)) {
     throw new Error("Workspace ID contains unsupported characters for local product storage.");
   }
+  return join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`);
+}
 
-  const directory = join(stateDirectory, "data", "workspaces");
-  mkdirSync(directory, { recursive: true });
-  const database = new Database(join(directory, `${workspaceId}.sqlite`));
+function createProductStore(database: Database): LocalWorkspaceProductStore {
   database.exec(PRODUCT_SCHEMA);
   ensureProductSchemaColumns(database);
 
@@ -191,10 +250,12 @@ export function createLocalWorkspaceProductStore({
     requeueExtractionJob: (input) => requeueExtractionJob(database, input),
     recoverExtractionJobs: (input) => recoverExtractionJobs(database, input),
     getTemplate: (templateId) => getTemplate(database, templateId),
+    deleteExtractionJob: (input) => deleteExtractionJob(database, input),
     getExtractionJob: (jobId) => getExtractionJob(database, jobId),
     getSubmissionTemplate: (templateId) => getSubmissionTemplate(database, templateId),
     listTemplates: () => listTemplates(database),
-    listExtractionJobs: () => listExtractionJobs(database),
+    countExtractionJobs: () => countExtractionJobs(database),
+    listExtractionJobs: (input) => listExtractionJobs(database, input),
     markSourceFileCleaned: (input) => markSourceFileCleaned(database, input),
   };
 }
@@ -681,6 +742,29 @@ function recoverExtractionJobs(
   return recover();
 }
 
+function deleteExtractionJob(
+  database: Database,
+  input: { jobId: string },
+): DeletedLocalWorkspaceExtractionJob | null {
+  const remove = database.transaction(() => {
+    const job = database.query(
+      "SELECT id, status, source_file_key FROM jobs WHERE id = ? LIMIT 1",
+    ).get(input.jobId) as { id: string; status: string; source_file_key: string } | null;
+    if (!job) {
+      return null;
+    }
+    database.query("DELETE FROM job_results WHERE job_id = ?").run(job.id);
+    database.query("DELETE FROM source_files WHERE job_id = ?").run(job.id);
+    database.query("DELETE FROM jobs WHERE id = ?").run(job.id);
+    return {
+      job_id: job.id,
+      source_file_key: job.source_file_key,
+      status: job.status as DeletedLocalWorkspaceExtractionJob["status"],
+    } as DeletedLocalWorkspaceExtractionJob;
+  });
+  return remove();
+}
+
 function getExtractionJob(database: Database, jobId: string): LocalWorkspaceExtractionJob | null {
   const summary = readExtractionJobSummary(database, jobId);
   if (!summary) {
@@ -720,16 +804,46 @@ function getExtractionJob(database: Database, jobId: string): LocalWorkspaceExtr
   };
 }
 
-function listExtractionJobs(database: Database): LocalWorkspaceExtractionJobSummary[] {
+function countExtractionJobs(database: Database): number {
+  return (database.query("SELECT COUNT(*) AS count FROM jobs").get() as { count: number }).count;
+}
+
+function listExtractionJobs(
+  database: Database,
+  input: {
+    cursor?: { createdAt: string; jobId: string } | null;
+    limit?: number;
+    search?: string;
+  } = {},
+): LocalWorkspaceExtractionJobSummary[] {
+  const select = `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
+                         s.page_count AS source_file_page_count, j.template_id, j.template_version,
+                         j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
+                         j.current_attempt, j.completed_attempt, j.last_failed_attempt
+                  FROM jobs j
+                  JOIN source_files s ON s.job_id = j.id`;
+  const search = String(input.search || "").trim().toLowerCase();
+  const clauses: string[] = [];
+  const parameters: Array<string | number> = [];
+  if (search) {
+    const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+    clauses.push(`(LOWER(COALESCE(j.source_name, '')) LIKE ? ESCAPE '\\'
+        OR LOWER(j.id) LIKE ? ESCAPE '\\'
+        OR LOWER(j.template_id) LIKE ? ESCAPE '\\'
+        OR LOWER(j.status) LIKE ? ESCAPE '\\')`);
+    parameters.push(pattern, pattern, pattern, pattern);
+  }
+  if (input.cursor) {
+    clauses.push("(j.created_at < ? OR (j.created_at = ? AND j.id < ?))");
+    parameters.push(input.cursor.createdAt, input.cursor.createdAt, input.cursor.jobId);
+  }
+  const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+  const limit = Number.isSafeInteger(input.limit) && input.limit! > 0
+    ? ` LIMIT ${input.limit}`
+    : "";
   return database.query(
-    `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
-            s.page_count AS source_file_page_count, j.template_id, j.template_version,
-            j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
-            j.current_attempt, j.completed_attempt, j.last_failed_attempt
-     FROM jobs j
-     JOIN source_files s ON s.job_id = j.id
-     ORDER BY j.updated_at DESC, j.id DESC`,
-  ).all() as LocalWorkspaceExtractionJobSummary[];
+    `${select}${where} ORDER BY j.created_at DESC, j.id DESC${limit}`,
+  ).all(...parameters) as LocalWorkspaceExtractionJobSummary[];
 }
 
 function markSourceFileCleaned(

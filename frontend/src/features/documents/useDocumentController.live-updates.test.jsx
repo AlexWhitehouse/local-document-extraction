@@ -462,6 +462,37 @@ describe("useDocumentController Workspace live updates", () => {
     }
   });
 
+  it("does not duplicate access recovery while this browser is deleting the Workspace", async () => {
+    const WebSocketStub = installWebSocketStub();
+    const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        isWorkspaceDeletionInProgress
+        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+    });
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [{
+            type: "workspace_context_invalidated",
+            reason: "workspace_access",
+            occurred_at: "2026-05-06T12:02:00.000Z",
+          }],
+        }),
+      });
+    });
+
+    expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
+  });
+
   it("blocks useful live update effects until Workspace access revalidation succeeds", async () => {
     const WebSocketStub = installWebSocketStub();
     let controller = null;
@@ -998,22 +1029,167 @@ describe("useDocumentController Workspace live updates", () => {
       vi.useRealTimers();
     }
   });
+
+  it("does not restore a locally deleted Document when a stale lifecycle message arrives", async () => {
+    const WebSocketStub = installWebSocketStub();
+    let controller = null;
+    const job = {
+      job_id: "job_deleted_1",
+      status: "processing",
+      source_name: "invoice.pdf",
+      template_id: "template_test",
+      template_version: 1,
+      created_at: "2026-05-06T12:00:00.000Z",
+      updated_at: "2026-05-06T12:01:00.000Z",
+    };
+    const documentRequests = {
+      deleteDocument: vi.fn(async () => ({ deleted: true, job_id: "job_deleted_1" })),
+    };
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        documentRequests={documentRequests}
+        initialWorkspace={{ selectedDocumentId: "job_deleted_1", jobHistory: [job] }}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+        request={vi.fn(async () => ({ jobs: [job], next_cursor: null, has_more: false }))}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+      expect(controller.contextList.selectedDocumentId).toBe("job_deleted_1");
+    });
+    await act(async () => {
+      await controller.actions.deleteSelectedDocument();
+    });
+    expect(controller.contextList.documents).toEqual([]);
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [{ type: "extraction_job_lifecycle", job }],
+        }),
+      });
+    });
+    expect(controller.contextList.documents).toEqual([]);
+  });
+
+  it("uses the backend's unfiltered total for the Documents count while rendering a filtered collection", async () => {
+    installWebSocketStub();
+    let controller = null;
+    const filteredJob = {
+      job_id: "job_invoice_1",
+      status: "completed",
+      source_name: "invoice.pdf",
+      template_id: "template_invoice",
+      created_at: "2026-05-06T12:00:00.000Z",
+      updated_at: "2026-05-06T12:01:00.000Z",
+    };
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+        request={vi.fn(async () => ({
+          jobs: [filteredJob],
+          total: 4,
+          next_cursor: null,
+          has_more: false,
+        }))}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(controller.contextList.documents).toEqual([expect.objectContaining({ job_id: "job_invoice_1" })]);
+      expect(controller.toolbar.documentCount).toBe(4);
+    });
+  });
+
+  it("appends a cursor page without duplicates while retaining the selected Document", async () => {
+    installWebSocketStub();
+    let controller = null;
+    const firstPage = [
+      { job_id: "job_2", status: "completed", source_name: "two.pdf", template_id: "template_test", created_at: "2026-05-06T12:02:00.000Z", updated_at: "2026-05-06T12:02:00.000Z" },
+      { job_id: "job_1", status: "completed", source_name: "one.pdf", template_id: "template_test", created_at: "2026-05-06T12:01:00.000Z", updated_at: "2026-05-06T12:01:00.000Z" },
+    ];
+    const nextPage = [
+      firstPage[1],
+      { job_id: "job_0", status: "completed", source_name: "zero.pdf", template_id: "template_test", created_at: "2026-05-06T12:00:00.000Z", updated_at: "2026-05-06T12:00:00.000Z" },
+    ];
+    const listDocuments = vi.fn(async ({ cursor } = {}) => (
+      cursor
+        ? { jobs: nextPage, total: 3, next_cursor: null, has_more: false }
+        : { jobs: firstPage, total: 3, next_cursor: "cursor_1", has_more: true }
+    ));
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        documentRequests={{ listDocuments }}
+        initialWorkspace={{ selectedDocumentId: "job_2" }}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(controller.contextList.documents.map((job) => job.job_id)).toEqual(["job_2", "job_1"]);
+      expect(controller.contextList.hasMoreDocuments).toBe(true);
+    });
+    await act(async () => {
+      await controller.actions.listJobs({ append: true });
+    });
+    expect(controller.contextList.documents.map((job) => job.job_id)).toEqual(["job_2", "job_1", "job_0"]);
+    expect(controller.contextList.selectedDocumentId).toBe("job_2");
+    expect(controller.contextList.hasMoreDocuments).toBe(false);
+    expect(controller.toolbar.documentCount).toBe(3);
+  });
 });
 
 function DocumentControllerHarness({
   workspaceId,
   initialWorkspace = {},
+  isWorkspaceDeletionInProgress = false,
+  documentRequests,
   onController,
   onWorkspaceCapacityRefresh,
   request = vi.fn(async () => ({ jobs: [], next_cursor: null, has_more: false })),
 }) {
   const [latestResponse, setLatestResponse] = React.useState(null);
+  const resolvedDocumentRequests = {
+    deleteDocument: vi.fn(async () => ({ deleted: true, job_id: "" })),
+    listDocuments: async ({ search = "", cursor = null } = {}) => {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (cursor) params.set("cursor", cursor);
+      const result = await request(`/jobs${params.size ? `?${params}` : ""}`, { method: "GET" });
+      const jobs = Array.isArray(result?.jobs) ? result.jobs : [];
+      return {
+        jobs,
+        total: Number.isFinite(result?.total) ? result.total : jobs.length,
+        next_cursor: result?.next_cursor || null,
+        has_more: Boolean(result?.has_more),
+      };
+    },
+    getDocument: (documentId) => request(`/jobs/${encodeURIComponent(documentId)}`, { method: "GET" }),
+    submitDocument: (formData) => request("/extract", { method: "POST", body: formData }),
+    ...documentRequests,
+  };
   const controller = useDocumentController({
     apiBase: "/v1",
     initialWorkspace,
     templates: [],
     selectedUploadTemplateId: "",
     onSelectedUploadTemplateChange: vi.fn(),
+    documentRequests: resolvedDocumentRequests,
     request,
     addLog: vi.fn(),
     showActionToast: vi.fn(),
@@ -1021,6 +1197,7 @@ function DocumentControllerHarness({
     hasApiAccess: true,
     hasWorkspaceApiAccess: true,
     isAppBusy: false,
+    isWorkspaceDeletionInProgress,
     workspaceId,
     latestResponse,
     setLatestResponse,

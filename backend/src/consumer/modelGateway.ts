@@ -2,6 +2,7 @@ import type { FieldDefinition } from "../lib/types";
 import type { ModelFieldResult } from "./modelResultNormalizer";
 
 export class RetryableError extends Error {}
+export class ExtractionCancelledError extends Error {}
 
 const DEFAULT_EXTRACTION_MODEL = "claude-opus-4-7";
 const DEFAULT_MODEL_GATEWAY_URL = "https://litellm.t3m.uk";
@@ -52,6 +53,7 @@ export async function runExtraction(
   fields: FieldDefinition[],
   sourceBytes: ArrayBuffer,
   sourceMimeType: string,
+  signal?: AbortSignal,
 ): Promise<ModelFieldResult[]> {
   const model = getExtractionModelName(env);
   const prompt = buildPrompt(fields, sourceMimeType);
@@ -59,7 +61,7 @@ export async function runExtraction(
     "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.";
   const uploadedFileId =
     sourceMimeType === "application/pdf" && shouldUploadPdfToModelGateway(model)
-      ? await uploadSourceFile(env, sourceBytes, sourceMimeType, model)
+      ? await uploadSourceFile(env, sourceBytes, sourceMimeType, model, signal)
       : null;
   const sourceContentPart = uploadedFileId
     ? buildUploadedFileContentPart(uploadedFileId, sourceMimeType)
@@ -72,7 +74,7 @@ export async function runExtraction(
   );
   let runResult: unknown;
   try {
-    runResult = await runViaModelGateway(env, runInput);
+    runResult = await runViaModelGateway(env, runInput, signal);
   } finally {
     if (uploadedFileId) {
       await deleteUploadedSourceFile(env, uploadedFileId);
@@ -237,6 +239,7 @@ function readContentValue(value: unknown): string | null {
 async function runViaModelGateway(
   env: ModelGatewayConfiguration,
   input: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   if (!env.LITELLM_KEY) {
     throw new RetryableError("Model gateway key is not configured");
@@ -247,6 +250,12 @@ async function runViaModelGateway(
     () => controller.abort(),
     getModelGatewayRequestTimeoutMs(env),
   );
+  const abortForWorkspaceDeletion = () => controller.abort();
+  if (signal?.aborted) {
+    controller.abort();
+  } else {
+    signal?.addEventListener("abort", abortForWorkspaceDeletion, { once: true });
+  }
 
   try {
     const response = await fetch(buildChatCompletionsUrl(env), {
@@ -276,6 +285,9 @@ async function runViaModelGateway(
       throw new RetryableError("Model gateway returned invalid JSON");
     }
   } catch (error) {
+    if (signal?.aborted) {
+      throw new ExtractionCancelledError("Model gateway request cancelled");
+    }
     if (error instanceof RetryableError) {
       throw error;
     }
@@ -285,6 +297,7 @@ async function runViaModelGateway(
     throw new RetryableError(`Model gateway request failed: ${errorToMessage(error)}`);
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortForWorkspaceDeletion);
   }
 }
 
@@ -293,6 +306,7 @@ async function uploadSourceFile(
   sourceBytes: ArrayBuffer,
   sourceMimeType: string,
   model: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   if (!env.LITELLM_KEY) {
     throw new RetryableError("Model gateway key is not configured");
@@ -316,8 +330,11 @@ async function uploadSourceFile(
         authorization: `Bearer ${env.LITELLM_KEY}`,
       },
       body: formData,
-    });
+    }, signal);
   } catch (error) {
+    if (signal?.aborted) {
+      throw new ExtractionCancelledError("Model gateway file upload cancelled");
+    }
     if (isAbortError(error)) {
       throw new RetryableError("Model gateway file upload timed out");
     }
@@ -372,12 +389,19 @@ async function fetchWithModelGatewayTimeout(
   env: ModelGatewayConfiguration,
   url: string,
   init: RequestInit,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
     getModelGatewayRequestTimeoutMs(env),
   );
+  const abortForWorkspaceDeletion = () => controller.abort();
+  if (signal?.aborted) {
+    controller.abort();
+  } else {
+    signal?.addEventListener("abort", abortForWorkspaceDeletion, { once: true });
+  }
 
   try {
     return await fetch(url, {
@@ -386,6 +410,7 @@ async function fetchWithModelGatewayTimeout(
     });
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortForWorkspaceDeletion);
   }
 }
 

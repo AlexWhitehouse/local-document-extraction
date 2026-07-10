@@ -167,7 +167,6 @@ test("runner retries transient model failures within bounds and protects termina
         return [{ field_id: "invoice_number", status: "ok", answer: "INV-001" }];
       },
       maxAttempts: 2,
-      productStoreFactory: (input) => createLocalWorkspaceProductStore(input),
       scheduleJob: async (job) => {
         scheduledJobs.push({ job_id: job.job_id, attempt: job.attempt ?? 1 });
       },

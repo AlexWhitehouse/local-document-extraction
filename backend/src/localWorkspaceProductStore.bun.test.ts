@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -10,7 +10,10 @@ import { createLocalExtractionRunner } from "./localExtractionRunner";
 import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import type { FetchApplication } from "./localRuntime";
-import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import {
+  createLocalWorkspaceProductStore,
+  openLocalWorkspaceProductStore,
+} from "./localWorkspaceProductStore";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
 import { validateTemplatePayload } from "./lib/validation";
 
@@ -38,6 +41,24 @@ test("local Workspace product data creates Templates in an isolated per-Workspac
   } finally {
     research.close();
     legal.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("opening missing Workspace product data does not initialize a database", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-product-open-"));
+  const databasePath = join(stateDirectory, "data", "workspaces", "workspace_missing.sqlite");
+
+  try {
+    expect(openLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_missing" })).toBeNull();
+    await expect(stat(databasePath)).rejects.toMatchObject({ code: "ENOENT" });
+
+    const initialized = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_missing" });
+    initialized.close();
+    const opened = openLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_missing" });
+    expect(opened).not.toBeNull();
+    opened?.close();
+  } finally {
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });
@@ -572,7 +593,6 @@ test("authenticated local Document submission queues the selected Template and n
       extract: async () => [
         { field_id: "invoice_number", status: "ok", answer: "INV-001" },
       ],
-      productStoreFactory: (input) => createLocalWorkspaceProductStore(input),
       onJobLifecycleChange: liveUpdateHub.broadcastJob,
       productAnalytics,
       stateDirectory,
@@ -637,6 +657,7 @@ test("local Document submission removes a written Source file when product job c
       delete: async (sourceFileKey) => {
         deletedSourceFileKeys.push(sourceFileKey);
       },
+      eraseWorkspace: async () => {},
       read: async () => null,
       write: async ({ jobId }) => `memory/${jobId}/source.png`,
     },
@@ -672,6 +693,7 @@ test("local Document submission fails the queued job and removes its Source file
       delete: async (sourceFileKey) => {
         deletedSourceFileKeys.push(sourceFileKey);
       },
+      eraseWorkspace: async () => {},
       read: async () => null,
       write: async ({ jobId }) => `memory/${jobId}/source.png`,
     },
@@ -707,6 +729,7 @@ test("local Document submission rejects unsafe input before Source file storage"
   const writtenSourceFiles: string[] = [];
   const sourceFileStore = {
     delete: async () => {},
+    eraseWorkspace: async () => {},
     read: async () => null,
     write: async ({ jobId }: { jobId: string }) => {
       writtenSourceFiles.push(jobId);

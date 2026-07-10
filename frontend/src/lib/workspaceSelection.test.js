@@ -831,9 +831,7 @@ describe("Workspace member action transition", () => {
       targetUserId: "user_123",
       action: "make_admin",
       request: {
-        path: "/workspaces/workspace_123/users/user_123",
-        method: "POST",
-        body: { action: "make_admin" },
+        action: "make_admin",
       },
       refresh: [],
       nextWorkspaceContext: null,
@@ -853,9 +851,7 @@ describe("Workspace member action transition", () => {
       targetUserId: "user_123",
       action: "remove_user",
       request: {
-        path: "/workspaces/workspace_123/users/user_123",
-        method: "POST",
-        body: { action: "remove_user" },
+        action: "remove_user",
       },
     });
   });
@@ -873,9 +869,7 @@ describe("Workspace member action transition", () => {
       targetUserId: "user_123",
       action: "make_owner",
       request: {
-        path: "/workspaces/workspace_123/users/user_123",
-        method: "POST",
-        body: { action: "make_owner" },
+        action: "make_owner",
       },
     });
   });
@@ -976,7 +970,6 @@ describe("Leave Workspace transition", () => {
         replacement_workspace: {
           workspace_id: "workspace_replacement",
           name: "Mina Member Workspace",
-          api_key: "replacement-key",
           role: "owner",
           created_at: "2026-05-05T00:00:00.000Z"
         }

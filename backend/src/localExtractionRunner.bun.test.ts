@@ -45,7 +45,6 @@ test("the local extraction runner completes a queued job with normalized results
       extract: async () => [
         { field_id: "total_amount", status: "ok", answer: "£12.50", confidence: 0.9, evidence: "Total due" },
       ],
-      productStoreFactory: (input) => createLocalWorkspaceProductStore(input),
       sourceFileStore: sourceFiles,
       stateDirectory,
     });
@@ -132,7 +131,6 @@ test("the local extraction runner records durable failures for missing Source fi
       extract: async () => {
         throw new Error("LiteLLM is unavailable");
       },
-      productStoreFactory: (input) => createLocalWorkspaceProductStore(input),
       productAnalytics,
       sourceFileStore: sourceFiles,
       stateDirectory,
@@ -222,11 +220,11 @@ test("a Source file cleanup failure leaves completed results intact", async () =
       extract: async () => [
         { field_id: "total_amount", status: "ok", answer: 12.5 },
       ],
-      productStoreFactory: (input) => createLocalWorkspaceProductStore(input),
       sourceFileStore: {
         delete: async () => {
           throw new Error("Disk unavailable");
         },
+        eraseWorkspace: async () => {},
         read: sourceFiles.read,
         write: sourceFiles.write,
       },

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { FieldDefinition } from "../lib/types";
 import {
+  ExtractionCancelledError,
   getExtractionModelName,
   getModelGatewayRequestTimeoutMs,
   getModelGatewayRouteLabel,
@@ -129,6 +130,28 @@ describe("runExtraction", () => {
       model: "claude-opus-configured",
       response_format: { type: "json_object" },
     });
+  });
+
+  it("aborts model gateway execution when Workspace deletion cancels the caller signal", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      (init.signal as AbortSignal).addEventListener("abort", () => {
+        reject(new DOMException("cancelled", "AbortError"));
+      }, { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const extraction = runExtraction(
+      createEnv(),
+      fields,
+      new Uint8Array([1, 2, 3]).buffer,
+      "image/png",
+      controller.signal,
+    );
+    controller.abort();
+
+    await expect(extraction).rejects.toBeInstanceOf(ExtractionCancelledError);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("falls back to the agreed Bedrock Claude model when no Extraction model is configured", async () => {

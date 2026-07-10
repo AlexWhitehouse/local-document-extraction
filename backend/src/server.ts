@@ -9,6 +9,9 @@ import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
 import { upgradeLocalLiveUpdate } from "./localLiveUpdateUpgrade";
 import { createLocalProductAnalytics } from "./localProductAnalytics";
 import { createLocalRuntimeFetchHandler, ensureLocalStateDirectories } from "./localRuntime";
+import { createLocalSourceFileStore } from "./localSourceFileStore";
+import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
+import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
 
 type BunServer = {
   port: number;
@@ -55,11 +58,24 @@ const localAuth = await createLocalAuthRuntime({
 const localExtractionQueue = createLocalExtractionQueue();
 const localLiveUpdateHub = createLocalLiveUpdateHub();
 const localProductAnalytics = createLocalProductAnalytics({ stateDirectory });
+const localWorkspaceProductOperations = createLocalWorkspaceProductOperations();
+const localSourceFiles = createLocalSourceFileStore({ stateDirectory });
+const localWorkspaceDeletion = createLocalWorkspaceDeletion({
+  sourceFileStore: localSourceFiles,
+  stateDirectory,
+  workspaceControl: localAuth.workspaceControl,
+  workspaceProductOperations: localWorkspaceProductOperations,
+  onWorkspaceAccessRevoked: localLiveUpdateHub.broadcastWorkspaceContextInvalidation,
+});
+await localWorkspaceDeletion.reconcileInterruptedDeletions();
 const localExtractionRunner = createLocalExtractionRunner({
   onJobLifecycleChange: localLiveUpdateHub.broadcastJob,
   productAnalytics: localProductAnalytics,
   scheduleJob: localExtractionQueue.schedule,
+  sourceFileStore: localSourceFiles,
   stateDirectory,
+  workspaceControl: localAuth.workspaceControl,
+  workspaceProductOperations: localWorkspaceProductOperations,
 });
 localExtractionQueue.subscribe((job) => {
   void localExtractionRunner.run(job);
@@ -71,8 +87,11 @@ const application = createLocalApplication({
   maxSourceFileBytes,
   productAnalytics: localProductAnalytics,
   scheduleQueuedJob: localExtractionQueue.schedule,
+  sourceFileStore: localSourceFiles,
   stateDirectory,
   workspaceControl: localAuth.workspaceControl,
+  workspaceDeletion: localWorkspaceDeletion,
+  workspaceProductOperations: localWorkspaceProductOperations,
 });
 const runtimeFetch = createLocalRuntimeFetchHandler({
   api: application,

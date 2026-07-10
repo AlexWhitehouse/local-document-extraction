@@ -38,6 +38,29 @@ export type LocalWorkspaceInvitation = {
   expires_at: string;
 };
 
+export type LocalWorkspaceMember = {
+  user_id: string;
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "member";
+};
+
+export type LocalWorkspaceMemberAction = "remove_user" | "make_admin" | "make_owner";
+
+export type LocalWorkspaceMemberActionResult = {
+  workspace_id: string;
+  user_id: string;
+  action: LocalWorkspaceMemberAction;
+  role: "owner" | "admin" | null;
+};
+
+export type LocalWorkspaceLeaveResult = {
+  ok: true;
+  workspace_id: string;
+  next_workspace: LocalWorkspace;
+  replacement_workspace?: CreatedLocalWorkspace;
+};
+
 export class LocalWorkspaceControlError extends Error {
   constructor(
     public readonly code: "forbidden" | "invite_exists" | "last_workspace" | "not_found",
@@ -49,9 +72,17 @@ export class LocalWorkspaceControlError extends Error {
 
 export type LocalWorkspaceControl = {
   acceptInvitation(input: { invitationId: string; userId: string; userEmail: string }): { ok: true; workspace_id: string; role: "owner" | "admin" | "member" };
+  applyWorkspaceMemberAction(input: {
+    workspaceId: string;
+    actorUserId: string;
+    targetUserId: string;
+    action: string;
+  }): LocalWorkspaceMemberActionResult;
+  assertWorkspaceDeletion(input: { workspaceId: string; userId: string }): void;
   authorizeApiKey(input: { apiKey: string }): LocalApiKeyWorkspace | null;
   createInvitation(input: { workspaceId: string; inviterUserId: string; email: string; role?: string }): LocalWorkspaceInvitation;
   cancelInvitation(input: { workspaceId: string; invitationId: string; userId: string }): { ok: true; invitation_id: string; status: "cancelled" };
+  completeWorkspaceDeletionIntent(input: { workspaceId: string }): void;
   declineInvitation(input: { invitationId: string; userEmail: string }): { ok: true; invitation_id: string; status: "cancelled" };
   completeStarterTemplateBootstrap(input: { workspaceId: string }): void;
   createWorkspace(input: { userId: string; name?: string }): CreatedLocalWorkspace;
@@ -59,6 +90,11 @@ export type LocalWorkspaceControl = {
   getAcceptedWorkspaceContext(input: { workspaceId: string; userId: string }): LocalWorkspace | null;
   hasPendingStarterTemplateBootstrap(input: { workspaceId: string }): boolean;
   listPendingInvitations(input: { email: string }): LocalWorkspaceInvitation[];
+  leaveWorkspace(input: { workspaceId: string; userId: string; userName?: string | null }): LocalWorkspaceLeaveResult;
+  listWorkspaceInvitations(input: { workspaceId: string; userId: string }): LocalWorkspaceInvitation[];
+  listWorkspaceUsers(input: { workspaceId: string; userId: string }): LocalWorkspaceMember[];
+  listWorkspaceDeletionIntents(): string[];
+  recordWorkspaceDeletionIntent(input: { workspaceId: string }): void;
   listAcceptedWorkspaces(input: { userId: string; userName?: string | null }): LocalWorkspace[];
   renameWorkspace(input: { workspaceId: string; userId: string; name: string }): { workspace_id: string; name: string };
   rotateApiKey(input: { workspaceId: string; userId: string }): {
@@ -67,6 +103,7 @@ export type LocalWorkspaceControl = {
     has_api_key: true;
     rotated_at: string;
   };
+  workspaceExists(input: { workspaceId: string }): boolean;
 };
 
 export function createLocalWorkspaceControl(database: Database): LocalWorkspaceControl {
@@ -75,9 +112,14 @@ export function createLocalWorkspaceControl(database: Database): LocalWorkspaceC
 
   return {
     acceptInvitation: (input) => acceptInvitation(database, input),
+    applyWorkspaceMemberAction: (input) => applyWorkspaceMemberAction(database, input),
+    assertWorkspaceDeletion: (input) => assertWorkspaceDeletion(database, input),
     authorizeApiKey: (input) => authorizeApiKey(database, input),
     createInvitation: (input) => createInvitation(database, input),
     cancelInvitation: (input) => cancelInvitation(database, input),
+    completeWorkspaceDeletionIntent: (input) => {
+      database.query("DELETE FROM workspace_deletion_intents WHERE workspace_id = ?").run(input.workspaceId);
+    },
     declineInvitation: (input) => declineInvitation(database, input),
     completeStarterTemplateBootstrap: (input) => {
       database.query("DELETE FROM workspace_product_bootstraps WHERE workspace_id = ?").run(input.workspaceId);
@@ -89,9 +131,23 @@ export function createLocalWorkspaceControl(database: Database): LocalWorkspaceC
       database.query("SELECT 1 FROM workspace_product_bootstraps WHERE workspace_id = ? LIMIT 1").get(input.workspaceId),
     ),
     listPendingInvitations: (input) => listPendingInvitations(database, input),
+    leaveWorkspace: (input) => leaveWorkspace(database, input),
+    listWorkspaceInvitations: (input) => listWorkspaceInvitations(database, input),
+    listWorkspaceUsers: (input) => listWorkspaceUsers(database, input),
+    listWorkspaceDeletionIntents: () => database.query(
+      "SELECT workspace_id FROM workspace_deletion_intents ORDER BY requested_at ASC, workspace_id ASC",
+    ).all().map((row) => (row as { workspace_id: string }).workspace_id),
+    recordWorkspaceDeletionIntent: (input) => {
+      database.query(
+        "INSERT OR IGNORE INTO workspace_deletion_intents (workspace_id, requested_at) VALUES (?, ?)",
+      ).run(input.workspaceId, nowIso());
+    },
     listAcceptedWorkspaces: (input) => listAcceptedWorkspaces(database, input),
     renameWorkspace: (input) => renameWorkspace(database, input),
     rotateApiKey: (input) => rotateApiKey(database, input),
+    workspaceExists: (input) => Boolean(
+      database.query("SELECT 1 FROM workspaces WHERE id = ? LIMIT 1").get(input.workspaceId),
+    ),
   };
 }
 
@@ -181,6 +237,118 @@ function listPendingInvitations(database: Database, input: { email: string }): L
     .all(normalizeEmail(input.email), nowIso()) as LocalWorkspaceInvitation[];
 }
 
+function listWorkspaceInvitations(database: Database, input: { workspaceId: string; userId: string }): LocalWorkspaceInvitation[] {
+  const membership = getMembership(database, input.workspaceId, input.userId);
+  if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+    throw new LocalWorkspaceControlError("forbidden", "Only owners/admins can manage invitations");
+  }
+  return database.query(
+    INVITATION_SELECT + " WHERE i.workspace_id = ? AND i.status = 'pending' AND i.expires_at > ? ORDER BY i.updated_at DESC",
+  ).all(input.workspaceId, nowIso()) as LocalWorkspaceInvitation[];
+}
+
+function leaveWorkspace(
+  database: Database,
+  input: { workspaceId: string; userId: string; userName?: string | null },
+): LocalWorkspaceLeaveResult {
+  const leave = database.transaction(() => {
+    const membership = getMembership(database, input.workspaceId, input.userId);
+    if (!membership) {
+      throw new LocalWorkspaceControlError("not_found", "Workspace not found");
+    }
+    if (membership.role === "owner") {
+      throw new LocalWorkspaceControlError("forbidden", "Workspace owners cannot leave their workspace");
+    }
+
+    const acceptedWorkspaces = listMembershipWorkspaces(database, input.userId);
+    const replacementWorkspace = acceptedWorkspaces.length <= 1
+      ? createWorkspaceRecord(database, {
+          userId: input.userId,
+          name: `${normalizedUserName(input.userName)} Workspace`,
+          bootstrapProductData: true,
+        })
+      : null;
+    database.query("DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?").run(input.workspaceId, input.userId);
+    const nextWorkspace = replacementWorkspace
+      ? getAcceptedWorkspaceContext(database, {
+          workspaceId: replacementWorkspace.workspace_id,
+          userId: input.userId,
+        })!
+      : listMembershipWorkspaces(database, input.userId)[0]!;
+
+    return {
+      ok: true as const,
+      workspace_id: input.workspaceId,
+      next_workspace: nextWorkspace,
+      ...(replacementWorkspace ? { replacement_workspace: replacementWorkspace } : {}),
+    };
+  });
+
+  return leave();
+}
+
+function listWorkspaceUsers(database: Database, input: { workspaceId: string; userId: string }): LocalWorkspaceMember[] {
+  if (!getMembership(database, input.workspaceId, input.userId)) {
+    throw new LocalWorkspaceControlError("forbidden", "You do not have access to this workspace");
+  }
+  return database.query(
+    `SELECT m.user_id, u.name, u.email, m.role
+     FROM workspace_memberships m
+     JOIN user u ON u.id = m.user_id
+     WHERE m.workspace_id = ?
+     ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END ASC,
+              m.created_at ASC,
+              m.user_id ASC`,
+  ).all(input.workspaceId) as LocalWorkspaceMember[];
+}
+
+function applyWorkspaceMemberAction(
+  database: Database,
+  input: { workspaceId: string; actorUserId: string; targetUserId: string; action: string },
+): LocalWorkspaceMemberActionResult {
+  const action = input.action as LocalWorkspaceMemberAction;
+  if (action !== "remove_user" && action !== "make_admin" && action !== "make_owner") {
+    throw new LocalWorkspaceControlError("forbidden", "Workspace member action is not permitted");
+  }
+  const apply = database.transaction(() => {
+    const actor = getMembership(database, input.workspaceId, input.actorUserId);
+    if (!actor || input.actorUserId === input.targetUserId) {
+      throw new LocalWorkspaceControlError("forbidden", "Workspace member action is not permitted");
+    }
+    const target = getMembership(database, input.workspaceId, input.targetUserId);
+    if (!target) {
+      throw new LocalWorkspaceControlError("not_found", "Workspace member not found");
+    }
+
+    if (action === "remove_user" && target.role !== "owner" && (actor.role === "owner" || actor.role === "admin" && target.role === "member")) {
+      database.query(
+        "DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?",
+      ).run(input.workspaceId, input.targetUserId);
+      return { workspace_id: input.workspaceId, user_id: input.targetUserId, action, role: null };
+    }
+
+    if (action === "make_admin" && actor.role === "owner" && target.role === "member") {
+      database.query(
+        "UPDATE workspace_memberships SET role = 'admin' WHERE workspace_id = ? AND user_id = ?",
+      ).run(input.workspaceId, input.targetUserId);
+      return { workspace_id: input.workspaceId, user_id: input.targetUserId, action, role: "admin" as const };
+    }
+
+    if (action === "make_owner" && actor.role === "owner" && target.role !== "owner") {
+      database.query(
+        "UPDATE workspace_memberships SET role = 'admin' WHERE workspace_id = ? AND user_id = ?",
+      ).run(input.workspaceId, input.actorUserId);
+      database.query(
+        "UPDATE workspace_memberships SET role = 'owner' WHERE workspace_id = ? AND user_id = ?",
+      ).run(input.workspaceId, input.targetUserId);
+      return { workspace_id: input.workspaceId, user_id: input.targetUserId, action, role: "owner" as const };
+    }
+
+    throw new LocalWorkspaceControlError("forbidden", "Workspace member action is not permitted");
+  });
+  return apply();
+}
+
 function invitationById(database: Database, invitationId: string): LocalWorkspaceInvitation | null {
   return database.query(INVITATION_SELECT + " WHERE i.id = ? LIMIT 1").get(invitationId) as LocalWorkspaceInvitation | null;
 }
@@ -216,26 +384,31 @@ function createWorkspace(
   database: Database,
   input: { userId: string; name?: string; bootstrapProductData?: boolean },
 ): CreatedLocalWorkspace {
+  const create = database.transaction(() => createWorkspaceRecord(database, input));
+  return create();
+}
+
+function createWorkspaceRecord(
+  database: Database,
+  input: { userId: string; name?: string; bootstrapProductData?: boolean },
+): CreatedLocalWorkspace {
   const workspaceId = newId("workspace");
   const createdAt = nowIso();
   const name = input.name?.trim() || "New Workspace";
-  const create = database.transaction(() => {
+  database.query(
+    `INSERT INTO workspaces (id, name, created_at, created_by_user_id, api_key_hash, max_source_file_bytes)
+     VALUES (?, ?, ?, ?, NULL, NULL)`,
+  ).run(workspaceId, name, createdAt, input.userId);
+  database.query(
+    `INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
+     VALUES (?, ?, 'owner', ?)`,
+  ).run(workspaceId, input.userId, createdAt);
+  if (input.bootstrapProductData) {
     database.query(
-      `INSERT INTO workspaces (id, name, created_at, created_by_user_id, api_key_hash, max_source_file_bytes)
-       VALUES (?, ?, ?, ?, NULL, NULL)`,
-    ).run(workspaceId, name, createdAt, input.userId);
-    database.query(
-      `INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
-       VALUES (?, ?, 'owner', ?)`,
-    ).run(workspaceId, input.userId, createdAt);
-    if (input.bootstrapProductData) {
-      database.query(
-        `INSERT INTO workspace_product_bootstraps (workspace_id, created_at)
-         VALUES (?, ?)`,
-      ).run(workspaceId, createdAt);
-    }
-  });
-  create();
+      `INSERT INTO workspace_product_bootstraps (workspace_id, created_at)
+       VALUES (?, ?)`,
+    ).run(workspaceId, createdAt);
+  }
 
   return {
     workspace_id: workspaceId,
@@ -298,6 +471,11 @@ function rotateApiKey(
 }
 
 function deleteWorkspace(database: Database, input: { workspaceId: string; userId: string }): void {
+  assertWorkspaceDeletion(database, input);
+  database.query("DELETE FROM workspaces WHERE id = ?").run(input.workspaceId);
+}
+
+function assertWorkspaceDeletion(database: Database, input: { workspaceId: string; userId: string }): void {
   const membership = getMembership(database, input.workspaceId, input.userId);
   if (!membership) {
     throw new LocalWorkspaceControlError("not_found", "Workspace not found");
@@ -312,8 +490,6 @@ function deleteWorkspace(database: Database, input: { workspaceId: string; userI
   if (count <= 1) {
     throw new LocalWorkspaceControlError("last_workspace", "You cannot delete your only workspace");
   }
-
-  database.query("DELETE FROM workspaces WHERE id = ?").run(input.workspaceId);
 }
 
 function listMembershipWorkspaces(database: Database, userId: string): LocalWorkspace[] {
@@ -426,4 +602,9 @@ const CONTROL_SCHEMA = `
     ON workspace_invitations(email, status);
   CREATE INDEX IF NOT EXISTS idx_workspace_invitations_workspace_status
     ON workspace_invitations(workspace_id, status);
+
+  CREATE TABLE IF NOT EXISTS workspace_deletion_intents (
+    workspace_id TEXT PRIMARY KEY,
+    requested_at TEXT NOT NULL
+  );
 `;

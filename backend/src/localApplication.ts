@@ -1,3 +1,4 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { evaluateAccountPasswordPolicy } from "./lib/accountPasswordPolicy";
 import { HttpError } from "./lib/http";
 import { newId, nowIso } from "./lib/ids";
@@ -17,11 +18,19 @@ import {
   type LocalWorkspaceProductStore,
 } from "./localWorkspaceProductStore";
 import { createLocalSourceFileStore, type LocalSourceFileStore } from "./localSourceFileStore";
+import { createLocalWorkspaceDeletion, type LocalWorkspaceDeletion } from "./localWorkspaceDeletion";
+import {
+  createLocalWorkspaceProductOperations,
+  LocalWorkspaceOperationError,
+  type LocalWorkspaceProductOperations,
+} from "./localWorkspaceProductOperations";
 
 export const DEFAULT_MAX_SOURCE_FILE_BYTES = 10 * 1024 * 1024;
+export const DEFAULT_JOB_PAGE_SIZE = 50;
 
 export function createLocalApplication({
   auth,
+  jobPageSize = DEFAULT_JOB_PAGE_SIZE,
   maxSourceFileBytes = DEFAULT_MAX_SOURCE_FILE_BYTES,
   liveUpdateHub,
   productAnalytics,
@@ -30,8 +39,11 @@ export function createLocalApplication({
   sourceFileStore,
   stateDirectory,
   workspaceControl,
+  workspaceDeletion,
+  workspaceProductOperations,
 }: {
   auth?: LocalAuth;
+  jobPageSize?: number;
   maxSourceFileBytes?: number;
   liveUpdateHub?: LocalLiveUpdateHub;
   productAnalytics?: LocalProductAnalytics;
@@ -40,8 +52,26 @@ export function createLocalApplication({
   sourceFileStore?: LocalSourceFileStore;
   stateDirectory?: string;
   workspaceControl?: LocalWorkspaceControl;
+  workspaceDeletion?: LocalWorkspaceDeletion;
+  workspaceProductOperations?: LocalWorkspaceProductOperations;
 } = {}): FetchApplication {
+  const localJobPageSize = Number.isSafeInteger(jobPageSize) && jobPageSize > 0
+    ? jobPageSize
+    : DEFAULT_JOB_PAGE_SIZE;
+  const jobCursorSecret = randomBytes(32);
   const localSourceFileStore = sourceFileStore ?? (stateDirectory ? createLocalSourceFileStore({ stateDirectory }) : null);
+  const localWorkspaceProductOperations = workspaceProductOperations ?? (stateDirectory && workspaceControl
+    ? createLocalWorkspaceProductOperations()
+    : null);
+  const localWorkspaceDeletion = workspaceDeletion ?? (stateDirectory && localSourceFileStore && workspaceControl
+    ? createLocalWorkspaceDeletion({
+        sourceFileStore: localSourceFileStore,
+        stateDirectory,
+        workspaceControl,
+        workspaceProductOperations: localWorkspaceProductOperations ?? undefined,
+        onWorkspaceAccessRevoked: liveUpdateHub?.broadcastWorkspaceContextInvalidation,
+      })
+    : null);
   return async (request) => {
     const url = new URL(request.url);
 
@@ -137,6 +167,12 @@ export function createLocalApplication({
       }
 
       const productWorkspaceId = workspace.id;
+      let productOperation;
+      try {
+        productOperation = localWorkspaceProductOperations?.acquire({ workspaceId: productWorkspaceId });
+      } catch (error) {
+        return workspaceProductOperationErrorResponse(error);
+      }
 
       const productStore = productStoreFactory({ stateDirectory, workspaceId: productWorkspaceId });
       try {
@@ -211,6 +247,7 @@ export function createLocalApplication({
         throw error;
       } finally {
         productStore.close();
+        productOperation?.release();
       }
     }
 
@@ -232,12 +269,13 @@ export function createLocalApplication({
         sourceFileStore: localSourceFileStore,
         stateDirectory,
         workspaceControl,
+        workspaceProductOperations: localWorkspaceProductOperations!,
       });
     }
 
     const jobMatch = url.pathname.match(/^\/v1\/jobs(?:\/([^/]+))?$/);
-    if (request.method === "GET" && jobMatch) {
-      if (!auth || !workspaceControl || !stateDirectory) {
+    if ((request.method === "GET" || request.method === "DELETE") && jobMatch) {
+      if (!auth || !workspaceControl || !stateDirectory || !localSourceFileStore) {
         return Response.json(
           { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
           { status: 503 },
@@ -246,10 +284,14 @@ export function createLocalApplication({
       return handleLocalJobRead({
         auth,
         jobId: jobMatch[1] ? decodeURIComponent(jobMatch[1]) : "",
+        jobCursorSecret,
+        jobPageSize: localJobPageSize,
         productStoreFactory,
         request,
+        sourceFileStore: localSourceFileStore,
         stateDirectory,
         workspaceControl,
+        workspaceProductOperations: localWorkspaceProductOperations!,
       });
     }
 
@@ -275,7 +317,7 @@ export function createLocalApplication({
       }
 
       try {
-        return await handleWorkspaceRequest(request, url, workspaceControl, session);
+        return await handleWorkspaceRequest(request, url, localWorkspaceDeletion, workspaceControl, session);
       } catch (error) {
         return workspaceErrorResponse(error);
       }
@@ -304,6 +346,7 @@ async function handleLocalDocumentSubmission({
   sourceFileStore,
   stateDirectory,
   workspaceControl,
+  workspaceProductOperations,
 }: {
   auth: LocalAuth;
   maxSourceFileBytes: number;
@@ -315,12 +358,19 @@ async function handleLocalDocumentSubmission({
   sourceFileStore: LocalSourceFileStore;
   stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
+  workspaceProductOperations: LocalWorkspaceProductOperations;
 }): Promise<Response> {
   const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
   if ("response" in authorization) {
     return authorization.response;
   }
 
+  let productOperation;
+  try {
+    productOperation = workspaceProductOperations.acquire({ workspaceId: authorization.workspace.id });
+  } catch (error) {
+    return workspaceProductOperationErrorResponse(error);
+  }
   const productStore = productStoreFactory({ stateDirectory, workspaceId: authorization.workspace.id });
   try {
     if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: authorization.workspace.id })) {
@@ -431,41 +481,187 @@ async function handleLocalDocumentSubmission({
     );
   } finally {
     productStore.close();
+    productOperation.release();
   }
 }
 
 async function handleLocalJobRead({
   auth,
   jobId,
+  jobCursorSecret,
+  jobPageSize,
   productStoreFactory,
   request,
+  sourceFileStore,
   stateDirectory,
   workspaceControl,
+  workspaceProductOperations,
 }: {
   auth: LocalAuth;
   jobId: string;
+  jobCursorSecret: Uint8Array;
+  jobPageSize: number;
   productStoreFactory: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
   request: Request;
+  sourceFileStore: LocalSourceFileStore;
   stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
+  workspaceProductOperations: LocalWorkspaceProductOperations;
 }): Promise<Response> {
   const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
   if ("response" in authorization) {
     return authorization.response;
   }
 
-  const productStore = productStoreFactory({ stateDirectory, workspaceId: authorization.workspace.id });
+  let productOperation;
   try {
+    productOperation = workspaceProductOperations.acquire({ workspaceId: authorization.workspace.id });
+  } catch (error) {
+    return workspaceProductOperationErrorResponse(error);
+  }
+  const productStore = productStoreFactory({ stateDirectory, workspaceId: authorization.workspace.id });
+  let documentDeletionStarted = false;
+  try {
+    if (request.method === "DELETE") {
+      await workspaceProductOperations.beginDocumentDeletion({
+        workspaceId: authorization.workspace.id,
+        jobId,
+      });
+      documentDeletionStarted = true;
+      const deleted = productStore.deleteExtractionJob({ jobId });
+      if (!deleted) {
+        workspaceProductOperations.completeDocumentDeletion({
+          workspaceId: authorization.workspace.id,
+          jobId,
+        });
+        documentDeletionStarted = false;
+        return Response.json({ error: { code: "not_found", message: "Job not found" } }, { status: 404 });
+      }
+      await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key);
+      workspaceProductOperations.completeDocumentDeletion({
+        workspaceId: authorization.workspace.id,
+        jobId,
+      });
+      documentDeletionStarted = false;
+      return Response.json({ deleted: true, job_id: deleted.job_id });
+    }
     if (!jobId) {
-      return Response.json({ jobs: productStore.listExtractionJobs().map((job) => ({ ...job, results: [] })) , next_cursor: null, has_more: false });
+      const url = new URL(request.url);
+      const search = normalizeJobSearch(url.searchParams.get("search") || "");
+      const cursor = decodeJobCursor({
+        cursor: url.searchParams.get("cursor"),
+        search,
+        secret: jobCursorSecret,
+      });
+      const candidates = productStore.listExtractionJobs({
+        search,
+        cursor,
+        limit: jobPageSize + 1,
+      });
+      const hasMore = candidates.length > jobPageSize;
+      const jobs = hasMore ? candidates.slice(0, jobPageSize) : candidates;
+      const finalJob = jobs.at(-1);
+      return Response.json({
+        jobs: jobs.map((job) => ({ ...job, results: [] })),
+        total: productStore.countExtractionJobs(),
+        next_cursor: hasMore && finalJob
+          ? encodeJobCursor({
+              createdAt: finalJob.created_at,
+              jobId: finalJob.job_id,
+              search,
+              secret: jobCursorSecret,
+            })
+          : null,
+        has_more: hasMore,
+      });
     }
     const job = productStore.getExtractionJob(jobId);
     if (!job) {
       return Response.json({ error: { code: "not_found", message: "Job not found" } }, { status: 404 });
     }
     return Response.json(job);
+  } catch (error) {
+    if (documentDeletionStarted) {
+      workspaceProductOperations.failDocumentDeletion({
+        workspaceId: authorization.workspace.id,
+        jobId,
+      });
+    }
+    if (error instanceof LocalWorkspaceOperationError) {
+      return workspaceProductOperationErrorResponse(error);
+    }
+    if (error instanceof HttpError) {
+      return Response.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    }
+    throw error;
   } finally {
     productStore.close();
+    productOperation.release();
+  }
+}
+
+function normalizeJobSearch(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function encodeJobCursor({
+  createdAt,
+  jobId,
+  search,
+  secret,
+}: {
+  createdAt: string;
+  jobId: string;
+  search: string;
+  secret: Uint8Array;
+}): string {
+  const payload = Buffer.from(JSON.stringify({ created_at: createdAt, job_id: jobId, search }), "utf8").toString("base64url");
+  const signature = createHmac("sha256", secret).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function decodeJobCursor({
+  cursor,
+  search,
+  secret,
+}: {
+  cursor: string | null;
+  search: string;
+  secret: Uint8Array;
+}): { createdAt: string; jobId: string } | null {
+  if (!cursor) {
+    return null;
+  }
+  const [payload, signature, ...extra] = cursor.split(".");
+  if (!payload || !signature || extra.length) {
+    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match this search");
+  }
+  const expectedSignature = createHmac("sha256", secret).update(payload).digest("base64url");
+  const signatureBytes = Buffer.from(signature, "base64url");
+  const expectedBytes = Buffer.from(expectedSignature, "base64url");
+  if (signatureBytes.length !== expectedBytes.length || !timingSafeEqual(signatureBytes, expectedBytes)) {
+    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match this search");
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      created_at?: unknown;
+      job_id?: unknown;
+      search?: unknown;
+    };
+    if (
+      typeof parsed.created_at !== "string" ||
+      typeof parsed.job_id !== "string" ||
+      typeof parsed.search !== "string" ||
+      parsed.search !== search
+    ) {
+      throw new Error("Invalid cursor payload");
+    }
+    return { createdAt: parsed.created_at, jobId: parsed.job_id };
+  } catch {
+    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match this search");
   }
 }
 
@@ -540,6 +736,7 @@ function recordLocalProductAnalytics(
 async function handleWorkspaceRequest(
   request: Request,
   url: URL,
+  workspaceDeletion: LocalWorkspaceDeletion | null,
   workspaceControl: LocalWorkspaceControl,
   session: { id: string; name: string },
 ): Promise<Response> {
@@ -590,7 +787,45 @@ async function handleWorkspaceRequest(
     }));
   }
 
+  const workspaceUsersMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/users$/);
+  if (request.method === "GET" && workspaceUsersMatch) {
+    return Response.json({
+      users: workspaceControl.listWorkspaceUsers({
+        workspaceId: decodeURIComponent(workspaceUsersMatch[1] || ""),
+        userId: session.id,
+      }),
+    });
+  }
+
+  const workspaceUserMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/users\/([^/]+)$/);
+  if (request.method === "POST" && workspaceUserMatch) {
+    const payload = await request.json().catch(() => ({})) as { action?: unknown };
+    return Response.json(workspaceControl.applyWorkspaceMemberAction({
+      workspaceId: decodeURIComponent(workspaceUserMatch[1] || ""),
+      actorUserId: session.id,
+      targetUserId: decodeURIComponent(workspaceUserMatch[2] || ""),
+      action: typeof payload.action === "string" ? payload.action : "",
+    }));
+  }
+
+  const leaveWorkspaceMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/leave$/);
+  if (request.method === "POST" && leaveWorkspaceMatch) {
+    return Response.json(workspaceControl.leaveWorkspace({
+      workspaceId: decodeURIComponent(leaveWorkspaceMatch[1] || ""),
+      userId: session.id,
+      userName: session.name,
+    }));
+  }
+
   const invitationCollectionMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/invitations$/);
+  if (request.method === "GET" && invitationCollectionMatch) {
+    return Response.json({
+      invitations: workspaceControl.listWorkspaceInvitations({
+        workspaceId: decodeURIComponent(invitationCollectionMatch[1] || ""),
+        userId: session.id,
+      }),
+    });
+  }
   if (request.method === "POST" && invitationCollectionMatch) {
     const payload = await request.json().catch(() => ({})) as { email?: unknown; role?: unknown };
     if (typeof payload.email !== "string" || !payload.email.trim()) {
@@ -626,7 +861,13 @@ async function handleWorkspaceRequest(
 
   if (workspaceMatch && request.method === "DELETE") {
     const workspaceId = decodeURIComponent(workspaceMatch[1] || "");
-    workspaceControl.deleteWorkspace({ workspaceId, userId: session.id });
+    if (!workspaceDeletion) {
+      return Response.json(
+        { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
+        { status: 503 },
+      );
+    }
+    await workspaceDeletion.deleteWorkspace({ workspaceId, userId: session.id });
     return Response.json({ ok: true, workspace_id: workspaceId });
   }
 
@@ -643,6 +884,19 @@ function workspaceErrorResponse(error: unknown): Response {
 
   const status = error.code === "last_workspace" || error.code === "invite_exists" ? 409 : error.code === "not_found" ? 404 : 403;
   return Response.json({ error: { code: error.code, message: error.message } }, { status });
+}
+
+function workspaceProductOperationErrorResponse(error: unknown): Response {
+  if (error instanceof LocalWorkspaceOperationError) {
+    return Response.json(
+      { error: { code: error.code, message: error.message } },
+      { status: 409 },
+    );
+  }
+  return Response.json(
+    { error: { code: "internal_error", message: "Unexpected server error" } },
+    { status: 500 },
+  );
 }
 
 function bearerApiKey(request: Request): string | null {

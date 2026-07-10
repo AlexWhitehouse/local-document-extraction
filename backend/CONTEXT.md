@@ -72,6 +72,10 @@ _Avoid_: frontend session key, user token
 The opaque generated string format for **Workspace API keys**.
 _Avoid_: user-facing key schema, guaranteed key length
 
+**Workspace deletion**:
+The owner-only hard-erasure of a **Workspace**'s control access, authoritative **Workspace product data**, and residual **Source file** binaries; **Workspace product analytics** remains retained.
+_Avoid_: soft delete, workspace archive, member departure
+
 **Workspace control data**:
 Durable access and identity records needed to locate and authorize a **Workspace**.
 _Avoid_: global workspace data, aggregate workspace data

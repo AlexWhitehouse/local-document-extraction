@@ -150,6 +150,45 @@ test("unverified accounts stay blocked until their captured verification link is
   }
 });
 
+test("Better Auth updates the signed-in user's profile name and refreshes the session", async () => {
+  const database = new Database(":memory:");
+  const capturedMessages: LocalMailMessage[] = [];
+  const auth = await createLocalAuth({
+    baseURL: "http://127.0.0.1:8787",
+    database,
+    mailSink: { capture: async (message) => { capturedMessages.push(message); } },
+    secret: "01234567890123456789012345678901",
+  });
+
+  try {
+    await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+    }));
+    const verificationUrl = capturedMessages[0]?.text.match(/https?:\/\/\S+/)?.[0];
+    await auth.handler(new Request(verificationUrl!, { redirect: "manual" }));
+    const signIn = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "ada@example.com", password: "Strong1!" }),
+    }));
+    const cookie = signIn.headers.get("set-cookie")?.split(";", 1)[0]!;
+
+    const updated = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/update-user", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ name: "Ada Byron" }),
+    }));
+
+    expect(updated.status).toBe(200);
+    await expect(auth.getSession(new Request("http://127.0.0.1:8787", { headers: { cookie } })))
+      .resolves.toMatchObject({ name: "Ada Byron", email: "ada@example.com" });
+  } finally {
+    database.close();
+  }
+});
+
 test("password reset requests do not disclose account existence and captured reset links change the password", async () => {
   const database = new Database(":memory:");
   const capturedMessages: LocalMailMessage[] = [];

@@ -17,6 +17,7 @@ import {
 import { ContextSidebar } from "./features/context/ContextSidebar.jsx";
 import { DocumentContextList } from "./features/documents/DocumentContextList.jsx";
 import { DocumentUploadModal } from "./features/documents/DocumentUploadModal.jsx";
+import { createDocumentRequestAdapter } from "./features/documents/documentRequestAdapter.js";
 import { useDocumentController } from "./features/documents/useDocumentController.js";
 import {
   MainLayout,
@@ -102,7 +103,7 @@ function AuthenticatedApp() {
       documentController.actions.clearCompletedDocumentCache();
     },
   });
-  const { workspaceId, hasApiAccess, workspaceSelectionView } =
+  const { workspaceId, hasApiAccess, isDeletingWorkspace, workspaceSelectionView } =
     workspaceController.context;
   const { request } = createWorkspaceRequestLayer({
     coreRequest,
@@ -111,6 +112,7 @@ function AuthenticatedApp() {
     onForbiddenWorkspaceAccess:
       workspaceController.actions.recoverForbiddenWorkspaceAccess,
   });
+  const documentRequests = createDocumentRequestAdapter({ request });
   const templateController = useTemplateController({
     initialWorkspace,
     request,
@@ -132,19 +134,22 @@ function AuthenticatedApp() {
     templates,
     selectedUploadTemplateId: templateController.selectedUploadTemplateId,
     onSelectedUploadTemplateChange: templateController.setSelectedUploadTemplateId,
-    request,
+    documentRequests,
     addLog,
     showActionToast,
     showDocumentUploadToast,
     hasApiAccess,
     hasWorkspaceApiAccess: workspaceSelectionView.hasWorkspaceApiAccess,
     isAppBusy: busy,
+    isWorkspaceDeletionInProgress: isDeletingWorkspace,
     workspaceId,
     latestResponse,
     setLatestResponse,
     onActivePageChange: setActivePage,
+    onWorkspaceCapacityRefresh:
+      workspaceController.actions.recoverForbiddenWorkspaceAccess,
   });
-  const documents = documentController.contextList.documents;
+  const documentCount = documentController.toolbar.documentCount;
   const selectedDocument = documentController.documentPage.selectedDocument;
   const { documentStatusMetrics, completionRate } = documentController.metrics;
   async function handleImpersonationStarted() {
@@ -186,7 +191,6 @@ function AuthenticatedApp() {
   const authProfileController = useAuthProfileController({
     authClient,
     refetchSession,
-    request,
     addLog,
     hasSession,
     sessionUserName,
@@ -233,7 +237,7 @@ function AuthenticatedApp() {
         counts={{
           workspace: workspaceContext.availableWorkspaces.length,
           templates: templates.length,
-          documents: documents.length,
+          documents: documentCount,
         }}
         uploadAriaDisabled={busy || !workspaceContext.hasWorkspaceApiAccess}
         isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess}
@@ -398,7 +402,7 @@ function AuthenticatedApp() {
               }
               isWorkspaceInvitationSelected={workspaceContext.isWorkspaceInvitationSelected}
               hasWorkspaceApiAccess={workspaceContext.hasWorkspaceApiAccess}
-              documentCount={documents.length}
+              documentCount={documentCount}
               hasApiAccess={hasApiAccess}
               isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess}
               workspaceId={workspaceToolbar.workspaceId}
@@ -418,7 +422,7 @@ function AuthenticatedApp() {
 
             {!workspaceContext.isWorkspaceInvitationSelected ? (
               <OperationalMetrics
-                documentCount={documents.length}
+                documentCount={documentCount}
                 completionRate={completionRate}
               />
             ) : null}

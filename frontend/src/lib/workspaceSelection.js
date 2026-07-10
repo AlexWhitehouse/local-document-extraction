@@ -451,10 +451,7 @@ export function getLeaveWorkspaceTransition({
   return {
     type: "request",
     workspaceId: targetWorkspaceId,
-    request: {
-      path: `/workspaces/${encodeURIComponent(targetWorkspaceId)}/leave`,
-      method: "POST",
-    },
+    request: {},
     refresh: [],
     nextWorkspaceContext: null,
     removedApiKeyWorkspaceId: null,
@@ -534,9 +531,7 @@ export function getWorkspaceMemberActionTransition({
     targetUserId: targetId,
     action: normalizedAction,
     request: {
-      path: `/workspaces/${encodeURIComponent(targetWorkspaceId)}/users/${encodeURIComponent(targetId)}`,
-      method: "POST",
-      body: { action: normalizedAction },
+      action: normalizedAction,
     },
     refresh: [],
     nextWorkspaceContext: null,
