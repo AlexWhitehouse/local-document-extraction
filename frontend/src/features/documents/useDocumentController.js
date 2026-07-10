@@ -29,6 +29,7 @@ export function useDocumentController({
   setLatestResponse,
   onActivePageChange,
   onWorkspaceCapacityRefresh,
+  onWorkspaceAccessRevalidation,
 }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
@@ -55,6 +56,11 @@ export function useDocumentController({
   const previewUrlsRef = useRef(new Set());
   const completedDocumentCacheRef = useRef(createCompletedDocumentCache());
   const deletedDocumentIdsRef = useRef(new Set());
+  const knownDocumentIdsRef = useRef(new Set(
+    (Array.isArray(initialWorkspace.jobHistory) ? initialWorkspace.jobHistory : [])
+      .map((job) => String(job?.job_id || "").trim())
+      .filter(Boolean),
+  ));
   const liveUpdateSocketRef = useRef(null);
   const liveUpdateReconnectTimerRef = useRef(null);
   const liveUpdateAccessRevalidationPendingRef = useRef(false);
@@ -69,6 +75,9 @@ export function useDocumentController({
   const latestResponseRef = useRef(latestResponse);
   const listJobsRef = useRef(null);
   const onWorkspaceCapacityRefreshRef = useRef(onWorkspaceCapacityRefresh);
+  const onWorkspaceAccessRevalidationRef = useRef(
+    onWorkspaceAccessRevalidation || onWorkspaceCapacityRefresh,
+  );
   const queuedJobsRef = useRef(queuedJobs);
   const documentRequestsRef = useRef(documentRequests);
   const workspaceIdRef = useRef(workspaceId);
@@ -80,8 +89,15 @@ export function useDocumentController({
   useEffect(() => {
     addLogRef.current = addLog;
     onWorkspaceCapacityRefreshRef.current = onWorkspaceCapacityRefresh;
+    onWorkspaceAccessRevalidationRef.current =
+      onWorkspaceAccessRevalidation || onWorkspaceCapacityRefresh;
     documentRequestsRef.current = documentRequests;
-  }, [addLog, documentRequests, onWorkspaceCapacityRefresh]);
+  }, [
+    addLog,
+    documentRequests,
+    onWorkspaceAccessRevalidation,
+    onWorkspaceCapacityRefresh,
+  ]);
 
   useEffect(() => {
     jobHistoryRef.current = jobHistory;
@@ -233,15 +249,15 @@ export function useDocumentController({
   }, []);
 
   const revalidateWorkspaceAccessNow = useCallback(() => {
-    const refreshWorkspaceCapacity = onWorkspaceCapacityRefreshRef.current;
-    if (typeof refreshWorkspaceCapacity !== "function") {
+    const revalidateWorkspaceAccess = onWorkspaceAccessRevalidationRef.current;
+    if (typeof revalidateWorkspaceAccess !== "function") {
       return;
     }
 
     clearWorkspaceCapacityRefreshTimer();
     lastWorkspaceCapacityRefreshAtRef.current = Date.now();
     liveUpdateAccessRevalidationPendingRef.current = true;
-    Promise.resolve(refreshWorkspaceCapacity())
+    Promise.resolve(revalidateWorkspaceAccess())
       .then(() => {
         liveUpdateAccessRevalidationPendingRef.current = false;
       })
@@ -262,14 +278,31 @@ export function useDocumentController({
     setLatestResponse(null);
     liveCompletedDetailLoadsRef.current.clear();
     deletedDocumentIdsRef.current.clear();
+    knownDocumentIdsRef.current.clear();
   }, [clearWorkspaceCapacityRefreshTimer, setLatestResponse]);
 
-  const upsertJobHistory = useCallback((job) => {
+  const registerNewDocument = useCallback((documentId) => {
+    const normalizedDocumentId = String(documentId || "").trim();
+    if (!normalizedDocumentId || knownDocumentIdsRef.current.has(normalizedDocumentId)) {
+      return false;
+    }
+    knownDocumentIdsRef.current.add(normalizedDocumentId);
+    setTotalDocuments((currentTotal) => currentTotal + 1);
+    return true;
+  }, []);
+
+  const upsertJobHistory = useCallback((job, { countIfNew = false } = {}) => {
     if (!job?.job_id) {
       return;
     }
-    if (deletedDocumentIdsRef.current.has(String(job.job_id))) {
+    const jobId = String(job.job_id);
+    if (deletedDocumentIdsRef.current.has(jobId)) {
       return;
+    }
+    if (countIfNew && String(job.status || "").toLowerCase() === "queued") {
+      registerNewDocument(jobId);
+    } else if (!countIfNew) {
+      knownDocumentIdsRef.current.add(jobId);
     }
 
     const queuedMeta = queuedJobsRef.current[job.job_id] || null;
@@ -348,7 +381,7 @@ export function useDocumentController({
         return next;
       });
     }
-  }, []);
+  }, [registerNewDocument]);
 
   const listJobs = useCallback(async ({ append = false } = {}) => {
     try {
@@ -390,6 +423,21 @@ export function useDocumentController({
       });
       setJobsNextCursor(data?.next_cursor || null);
       setJobsHasMore(Boolean(data?.has_more));
+      if (append) {
+        for (const job of hydratedList) {
+          const jobId = String(job?.job_id || "").trim();
+          if (jobId) {
+            knownDocumentIdsRef.current.add(jobId);
+          }
+        }
+      } else {
+        knownDocumentIdsRef.current = new Set([
+          ...hydratedList
+            .map((job) => String(job?.job_id || "").trim())
+            .filter(Boolean),
+          ...Object.keys(queuedJobsRef.current),
+        ]);
+      }
       setTotalDocuments(Number.isFinite(data?.total) ? data.total : list.length);
       setSelectedDocumentId((currentSelectedDocumentId) =>
         currentSelectedDocumentId || !hydratedList[0]?.job_id
@@ -422,7 +470,11 @@ export function useDocumentController({
   }
 
   const removeDocumentFromState = useCallback((targetDocumentId, sourcePreviewUrl) => {
-    deletedDocumentIdsRef.current.add(String(targetDocumentId));
+    const normalizedTargetDocumentId = String(targetDocumentId);
+    deletedDocumentIdsRef.current.add(normalizedTargetDocumentId);
+    if (knownDocumentIdsRef.current.delete(normalizedTargetDocumentId)) {
+      setTotalDocuments((currentTotal) => Math.max(0, currentTotal - 1));
+    }
     if (sourcePreviewUrl) {
       URL.revokeObjectURL(sourcePreviewUrl);
       previewUrlsRef.current.delete(sourcePreviewUrl);
@@ -675,6 +727,8 @@ export function useDocumentController({
     }
 
     const jobId = queued.job_id;
+    deletedDocumentIdsRef.current.delete(String(jobId));
+    registerNewDocument(jobId);
     setQueuedJobs((prev) => ({
       ...prev,
       [jobId]: {
@@ -860,7 +914,7 @@ export function useDocumentController({
         return;
       }
       for (const job of jobs) {
-        upsertJobHistory(job);
+        upsertJobHistory(job, { countIfNew: true });
       }
     };
 

@@ -1720,6 +1720,7 @@ describe("Workspace action toast feedback", () => {
     const user = userEvent.setup();
     const template = { id: "tpl_document", name: "Invoice Template" };
     let extractFormData = null;
+    let workspaceContextRefreshes = 0;
 
     globalThis.fetch.mockImplementation((input, options = {}) => {
       const url = String(input);
@@ -1729,6 +1730,17 @@ describe("Workspace action toast feedback", () => {
       if (url.endsWith("/extract") && options.method === "POST") {
         extractFormData = options.body;
         return Promise.resolve(jsonResponse({ job_id: "job_upload_1" }));
+      }
+      if (url.endsWith("/workspaces/ws_1/context")) {
+        workspaceContextRefreshes += 1;
+        return Promise.resolve(jsonResponse({
+          workspace: {
+            id: "ws_1",
+            name: "Research Workspace",
+            role: "owner",
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
+        }));
       }
       return mockWorkspaceFetch(input, options);
     });
@@ -1750,6 +1762,13 @@ describe("Workspace action toast feedback", () => {
     expect(extractFormData.has("image")).toBe(false);
     expect(extractFormData.has("file")).toBe(false);
     expect(screen.getByText("Success")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Documents1" })).toBeTruthy();
+    await waitFor(() => {
+      expect(workspaceContextRefreshes).toBe(1);
+    });
+    expect(toastMock.success).not.toHaveBeenCalledWith(
+      expect.stringContaining("Workspace access changed"),
+    );
   });
 
   it("uses Source file language in document upload controls", async () => {

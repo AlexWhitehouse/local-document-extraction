@@ -87,6 +87,7 @@ export type LocalWorkspaceControl = {
   completeStarterTemplateBootstrap(input: { workspaceId: string }): void;
   createWorkspace(input: { userId: string; name?: string }): CreatedLocalWorkspace;
   deleteWorkspace(input: { workspaceId: string; userId: string }): void;
+  revokeWorkspaceForDeletion(input: { workspaceId: string }): boolean;
   getAcceptedWorkspaceContext(input: { workspaceId: string; userId: string }): LocalWorkspace | null;
   hasPendingStarterTemplateBootstrap(input: { workspaceId: string }): boolean;
   listPendingInvitations(input: { email: string }): LocalWorkspaceInvitation[];
@@ -126,6 +127,7 @@ export function createLocalWorkspaceControl(database: Database): LocalWorkspaceC
     },
     createWorkspace: (input) => createWorkspace(database, input),
     deleteWorkspace: (input) => deleteWorkspace(database, input),
+    revokeWorkspaceForDeletion: (input) => revokeWorkspaceForDeletion(database, input),
     getAcceptedWorkspaceContext: (input) => getAcceptedWorkspaceContext(database, input),
     hasPendingStarterTemplateBootstrap: (input) => Boolean(
       database.query("SELECT 1 FROM workspace_product_bootstraps WHERE workspace_id = ? LIMIT 1").get(input.workspaceId),
@@ -472,7 +474,14 @@ function rotateApiKey(
 
 function deleteWorkspace(database: Database, input: { workspaceId: string; userId: string }): void {
   assertWorkspaceDeletion(database, input);
-  database.query("DELETE FROM workspaces WHERE id = ?").run(input.workspaceId);
+  revokeWorkspaceForDeletion(database, input);
+}
+
+function revokeWorkspaceForDeletion(database: Database, input: { workspaceId: string }): boolean {
+  if (!database.query("SELECT 1 FROM workspaces WHERE id = ? LIMIT 1").get(input.workspaceId)) {
+    return false;
+  }
+  return database.query("DELETE FROM workspaces WHERE id = ?").run(input.workspaceId).changes > 0;
 }
 
 function assertWorkspaceDeletion(database: Database, input: { workspaceId: string; userId: string }): void {

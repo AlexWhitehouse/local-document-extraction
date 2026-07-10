@@ -78,6 +78,65 @@ test("failed Workspace erasure retains durable cleanup intent that reconciliatio
   }
 });
 
+test("reconciliation revokes a Workspace whose deletion intent was recorded before a crash", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-delete-revoke-recovery-"));
+  const database = new Database(":memory:");
+  const auth = await createLocalAuth({
+    baseURL: "http://127.0.0.1:8787",
+    database,
+    mailSink: { capture: async () => undefined },
+    secret: "01234567890123456789012345678901",
+  });
+  const workspaceControl = createLocalWorkspaceControl(database);
+  const sourceFiles = createLocalSourceFileStore({ stateDirectory });
+
+  try {
+    const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+    }));
+    const user = await signUp.json() as { user: { id: string; name: string } };
+    const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({
+      userId: user.user.id,
+      userName: user.user.name,
+    })[0]!;
+    const remainingWorkspace = workspaceControl.createWorkspace({
+      userId: user.user.id,
+      name: "Remaining Workspace",
+    });
+    const productStore = createLocalWorkspaceProductStore({
+      stateDirectory,
+      workspaceId: deletedWorkspace.id,
+    });
+    productStore.close();
+    await sourceFiles.write({
+      workspaceId: deletedWorkspace.id,
+      jobId: "job_invoice",
+      mimeType: "image/png",
+      bytes: new Uint8Array([137, 80, 78, 71]),
+    });
+
+    workspaceControl.recordWorkspaceDeletionIntent({ workspaceId: deletedWorkspace.id });
+    await createLocalWorkspaceDeletion({ sourceFileStore: sourceFiles, stateDirectory, workspaceControl })
+      .reconcileInterruptedDeletions();
+
+    expect(workspaceControl.workspaceExists({ workspaceId: deletedWorkspace.id })).toBe(false);
+    expect(workspaceControl.listAcceptedWorkspaces({
+      userId: user.user.id,
+      userName: user.user.name,
+    }).map((workspace) => workspace.id)).toEqual([remainingWorkspace.workspace_id]);
+    expect(workspaceControl.listWorkspaceDeletionIntents()).toEqual([]);
+    await expect(stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`)))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(stateDirectory, "source-files", "workspaces", deletedWorkspace.id)))
+      .rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    database.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("reconciliation erases only explicitly recorded Workspace deletion intents", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-delete-reconcile-scope-"));
   const database = new Database(":memory:");
