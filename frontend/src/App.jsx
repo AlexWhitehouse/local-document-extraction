@@ -147,6 +147,8 @@ function AuthenticatedApp() {
     setLatestResponse,
     onActivePageChange: setActivePage,
     onWorkspaceCapacityRefresh:
+      workspaceController.actions.refreshSelectedWorkspaceContext,
+    onWorkspaceAccessRevalidation:
       workspaceController.actions.recoverForbiddenWorkspaceAccess,
   });
   const documentCount = documentController.toolbar.documentCount;

@@ -52,6 +52,14 @@ export function createLocalWorkspaceDeletion({
     },
     async reconcileInterruptedDeletions() {
       for (const workspaceId of workspaceControl.listWorkspaceDeletionIntents()) {
+        const accessRevoked = workspaceControl.revokeWorkspaceForDeletion({ workspaceId });
+        if (accessRevoked) {
+          onWorkspaceAccessRevoked?.({
+            workspaceId,
+            reason: "workspace_access",
+            occurredAt: nowIso(),
+          });
+        }
         await Promise.all([
           eraseLocalWorkspaceProductData({ stateDirectory, workspaceId }),
           sourceFileStore.eraseWorkspace(workspaceId),

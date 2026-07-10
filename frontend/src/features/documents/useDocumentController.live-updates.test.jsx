@@ -390,6 +390,75 @@ describe("useDocumentController Workspace live updates", () => {
     expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
   });
 
+  it("increments the document total once when live updates add a new Document", async () => {
+    const WebSocketStub = installWebSocketStub();
+    let controller = null;
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+        request={vi.fn(async () => ({
+          jobs: [],
+          total: 0,
+          next_cursor: null,
+          has_more: false,
+        }))}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(WebSocketStub.instances).toHaveLength(1);
+      expect(controller.toolbar.documentCount).toBe(0);
+    });
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [{
+            type: "extraction_job_lifecycle",
+            job: {
+              job_id: "job_live_1",
+              status: "queued",
+              source_name: "invoice.pdf",
+              template_id: "template_test",
+              created_at: "2026-05-06T12:00:00.000Z",
+              updated_at: "2026-05-06T12:00:00.000Z",
+            },
+          }],
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(controller.toolbar.documentCount).toBe(1);
+    });
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [{
+            type: "extraction_job_lifecycle",
+            job: {
+              job_id: "job_live_1",
+              status: "processing",
+              source_name: "invoice.pdf",
+              template_id: "template_test",
+              created_at: "2026-05-06T12:00:00.000Z",
+              updated_at: "2026-05-06T12:01:00.000Z",
+            },
+          }],
+        }),
+      });
+    });
+
+    expect(controller.toolbar.documentCount).toBe(1);
+  });
+
   it("refreshes Workspace context when live invalidation updates arrive", async () => {
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
@@ -1062,11 +1131,13 @@ describe("useDocumentController Workspace live updates", () => {
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
       expect(controller.contextList.selectedDocumentId).toBe("job_deleted_1");
+      expect(controller.toolbar.documentCount).toBe(1);
     });
     await act(async () => {
       await controller.actions.deleteSelectedDocument();
     });
     expect(controller.contextList.documents).toEqual([]);
+    expect(controller.toolbar.documentCount).toBe(0);
 
     act(() => {
       WebSocketStub.instances[0].onmessage({
@@ -1160,6 +1231,7 @@ function DocumentControllerHarness({
   isWorkspaceDeletionInProgress = false,
   documentRequests,
   onController,
+  onWorkspaceAccessRevalidation,
   onWorkspaceCapacityRefresh,
   request = vi.fn(async () => ({ jobs: [], next_cursor: null, has_more: false })),
 }) {
@@ -1201,6 +1273,8 @@ function DocumentControllerHarness({
     workspaceId,
     latestResponse,
     setLatestResponse,
+    onWorkspaceAccessRevalidation:
+      onWorkspaceAccessRevalidation || onWorkspaceCapacityRefresh,
     onWorkspaceCapacityRefresh,
     onActivePageChange: vi.fn(),
   });
