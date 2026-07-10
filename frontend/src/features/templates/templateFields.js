@@ -9,6 +9,7 @@ export const DATA_TYPES = [
 ];
 
 export const OBJECT_SCHEMA_DATA_TYPES = ["string", "number", "boolean", "date"];
+export const MAX_TEMPLATE_OBJECT_COLUMNS = 20;
 
 const OBJECT_GUIDANCE_START = "[[OBJECT_TABLE_GUIDANCE]]";
 const OBJECT_GUIDANCE_END = "[[/OBJECT_TABLE_GUIDANCE]]";
@@ -37,7 +38,7 @@ function normalizeFields(fields, options = {}) {
   const ids = new Set();
   const names = new Set();
 
-  return fields.map((field, index) => {
+  const normalizedFields = fields.map((field, index) => {
     if (!field || typeof field !== "object" || Array.isArray(field)) {
       throw new Error(`Field ${index + 1}: must be an object`);
     }
@@ -106,6 +107,15 @@ function normalizeFields(fields, options = {}) {
 
     return normalizedField;
   });
+
+  const tableShapedFieldCount = normalizedFields.filter((field) =>
+    isObjectLikeType(field.data_type),
+  ).length;
+  if (tableShapedFieldCount > 1) {
+    throw new Error("A Template may contain at most one table-shaped Template field");
+  }
+
+  return normalizedFields;
 }
 
 export function isObjectLikeType(dataType) {
@@ -167,6 +177,12 @@ function validateObjectColumns(columns, fieldIndex) {
   if (!Array.isArray(columns) || columns.length === 0) {
     throw new Error(
       `Field ${fieldIndex + 1}: object fields require at least one table column`,
+    );
+  }
+
+  if (columns.length > MAX_TEMPLATE_OBJECT_COLUMNS) {
+    throw new Error(
+      `Field ${fieldIndex + 1}: object fields may contain at most ${MAX_TEMPLATE_OBJECT_COLUMNS} table columns`,
     );
   }
 

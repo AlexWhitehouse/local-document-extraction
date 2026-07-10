@@ -24,8 +24,8 @@ pnpm-debug.log*
 .dev.vars
 .vars
 
-# Cloudflare local state
-.wrangler/
+# Local runtime state
+.local/
 
 # Editor settings
 .idea/

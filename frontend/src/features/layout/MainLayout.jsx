@@ -104,14 +104,11 @@ export function WorkspaceToolbar({
   workspaceLabel,
   isWorkspaceInvitationSelected,
   hasWorkspaceApiAccess,
-  billingOperationalStatus,
   documentCount,
   hasApiAccess,
   isUploadDisabled = false,
   workspaceId,
   workspacePrimaryAction,
-  hasWorkspaceBillingAuthority = false,
-  isWorkspaceBillingView = false,
   isDeletingWorkspace,
   isDeletingTemplate,
   isDeletingDocument,
@@ -120,19 +117,10 @@ export function WorkspaceToolbar({
   onCreateTemplate,
   onCreateWorkspace,
   onUploadDocument,
-  onToggleWorkspaceBillingView,
   onWorkspacePrimaryAction,
   onDeleteTemplate,
   onDeleteDocument,
 }) {
-  const billingBlockingReasons = Array.isArray(
-    billingOperationalStatus?.blocking_reasons,
-  )
-    ? billingOperationalStatus.blocking_reasons
-        .map((reason) => String(reason || "").trim())
-        .filter(Boolean)
-    : [];
-
   return (
     <section className="workspace-toolbar" aria-label="Workspace toolbar">
       <div className="workspace-toolbar-meta">
@@ -150,27 +138,10 @@ export function WorkspaceToolbar({
               API {hasWorkspaceApiAccess ? "Ready" : "Missing Access"}
             </span>
             <span className="status-chip">Jobs {documentCount}</span>
-            {billingBlockingReasons.map((reason) => (
-              <span key={reason} className="status-chip warn">
-                {reason}
-              </span>
-            ))}
           </>
         )}
       </div>
       <div className="actions compact">
-        {activePage === "workspace" &&
-        !isWorkspaceInvitationSelected &&
-        hasWorkspaceBillingAuthority ? (
-          <button
-            type="button"
-            className="secondary"
-            disabled={!String(workspaceId || "").trim()}
-            onClick={onToggleWorkspaceBillingView}
-          >
-            {isWorkspaceBillingView ? "View Dashboard" : "View Billing"}
-          </button>
-        ) : null}
         <button
           type="button"
           className="secondary"
@@ -236,18 +207,11 @@ export function WorkspaceToolbar({
 }
 
 export function OperationalMetrics({
-  remainingCredits,
   documentCount,
   completionRate,
-  remainingPages,
 }) {
   return (
     <section className="kpi-grid" aria-label="Operational metrics">
-      <article className="kpi-card">
-        <p className="kpi-label">Remaining Credits</p>
-        <p className="kpi-value">{formatMetricValue(remainingCredits)}</p>
-        <p className="kpi-meta">Available submission credits</p>
-      </article>
       <article className="kpi-card">
         <p className="kpi-label">Documents</p>
         <p className="kpi-value">{documentCount}</p>
@@ -265,21 +229,6 @@ export function OperationalMetrics({
           <span style={{ width: `${completionRate}%` }} />
         </div>
       </article>
-      <article className="kpi-card">
-        <p className="kpi-label">Remaining Pages</p>
-        <p className="kpi-value">{formatMetricValue(remainingPages)}</p>
-        <p className="kpi-meta">Page quota left this period</p>
-      </article>
     </section>
   );
-}
-
-function formatMetricValue(value) {
-  if (value === null) {
-    return "Unlimited";
-  }
-  if (value === undefined) {
-    return "...";
-  }
-  return Number(value).toLocaleString("en-GB");
 }

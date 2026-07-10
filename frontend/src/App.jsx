@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Toaster, toast } from "sonner";
 import { createRuntimeAuthClient } from "./lib/authClient";
 import {
@@ -7,8 +7,6 @@ import {
 } from "./lib/appRuntime";
 import { AuthScreen } from "./features/auth/AuthScreen.jsx";
 import { useAuthProfileController } from "./features/auth/useAuthProfileController.js";
-import { BillingPage } from "./features/billing/BillingPage.jsx";
-import { useBillingController } from "./features/billing/useBillingController.js";
 import { ApplicationAdminPage } from "./features/admin/ApplicationAdminPage.jsx";
 import { useApplicationAdminController } from "./features/admin/useApplicationAdminController.js";
 import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
@@ -64,8 +62,6 @@ function AuthenticatedApp() {
   const [latestResponse, setLatestResponse] = useState(null);
 
   const [activePage, setActivePage] = useState(() => getInitialActivePage());
-  const [workspacePageView, setWorkspacePageView] = useState("dashboard");
-  const [adminPageView, setAdminPageView] = useState("accounts");
 
   const hasSession = Boolean(session?.user?.id);
   const sessionUserId = String(session?.user?.id || "").trim();
@@ -128,33 +124,7 @@ function AuthenticatedApp() {
   const templates = templateController.templates;
   const isEditingTemplate = templateController.templatePage.isEditingTemplate;
   const workspaceContext = workspaceController.context;
-  const activeVisiblePage =
-    adminVisiblePage === "billing"
-      ? "workspace"
-      : adminVisiblePage;
-  const isAcceptedWorkspacePage =
-    activeVisiblePage === "workspace" &&
-    !workspaceContext.isWorkspaceInvitationSelected;
-  const isWorkspaceBillingView =
-    isAcceptedWorkspacePage &&
-    workspaceContext.hasWorkspaceBillingAuthority &&
-    workspacePageView === "billing";
-  const billingController = useBillingController({
-    request,
-    workspaceId,
-    isActive:
-      isWorkspaceBillingView && workspaceContext.hasWorkspaceBillingAuthority,
-    hasWorkspaceBillingAuthority: workspaceContext.hasWorkspaceBillingAuthority,
-    addLog,
-    onSummaryLoaded: workspaceController.actions.applyWorkspaceBillingSummary,
-  });
-
-  async function handleWorkspaceCapacityRefresh() {
-    await workspaceController.actions.refreshSelectedWorkspaceContext();
-    if (isWorkspaceBillingView && workspaceContext.hasWorkspaceBillingAuthority) {
-      await billingController.onRefresh();
-    }
-  }
+  const activeVisiblePage = adminVisiblePage;
 
   const documentController = useDocumentController({
     apiBase,
@@ -168,14 +138,10 @@ function AuthenticatedApp() {
     showDocumentUploadToast,
     hasApiAccess,
     hasWorkspaceApiAccess: workspaceSelectionView.hasWorkspaceApiAccess,
-    canSubmitDocuments: workspaceController.context.canSubmitDocuments,
-    submissionBlockingReasons:
-      workspaceController.context.billingOperationalStatus.blocking_reasons,
     isAppBusy: busy,
     workspaceId,
     latestResponse,
     setLatestResponse,
-    onWorkspaceCapacityRefresh: handleWorkspaceCapacityRefresh,
     onActivePageChange: setActivePage,
   });
   const documents = documentController.contextList.documents;
@@ -207,21 +173,12 @@ function AuthenticatedApp() {
     }
   }
 
-  async function handleApplicationAdminWorkspaceBillingMutation(affectedWorkspaceId) {
-    if (String(affectedWorkspaceId || "").trim() !== String(workspaceId || "").trim()) {
-      return null;
-    }
-    return workspaceController.actions.refreshSelectedWorkspaceContext();
-  }
-
   const adminController = useApplicationAdminController({
     authClient,
-    request: coreRequest,
     isActive: activeVisiblePage === "admin",
     sessionUserId,
     showActionToast,
     onImpersonationStarted: handleImpersonationStarted,
-    onWorkspaceBillingMutation: handleApplicationAdminWorkspaceBillingMutation,
   });
   const workspaceSidebar = workspaceController.sidebar;
   const workspaceToolbar = workspaceController.toolbar;
@@ -244,32 +201,18 @@ function AuthenticatedApp() {
   });
   const { authScreen, profileMenu } = authProfileController;
 
-  useEffect(() => {
-    setWorkspacePageView("dashboard");
-  }, [workspaceId, workspaceContext.isWorkspaceInvitationSelected]);
-
   function handleSidebarNavigation(pageId) {
     if (pageId === "admin" && !isApplicationAdmin) {
       setActivePage("workspace");
-      setWorkspacePageView("dashboard");
       return;
     }
 
     setActivePage(pageId);
-    if (pageId === "workspace") {
-      setWorkspacePageView("dashboard");
-    }
     if (pageId !== "templates") {
       return;
     }
 
     templateController.actions.handleTemplateNavigation();
-  }
-
-  function handleToggleWorkspaceBillingView() {
-    setWorkspacePageView((currentView) =>
-      currentView === "billing" ? "dashboard" : "billing",
-    );
   }
 
   if (isSessionPending) {
@@ -377,10 +320,7 @@ function AuthenticatedApp() {
             }
           >
             {activeVisiblePage === "admin" ? (
-              <AdminContextList
-                activeView={adminPageView}
-                onViewChange={setAdminPageView}
-              />
+              <AdminContextList />
             ) : activePage === "documents" ? (
               <DocumentContextList {...documentController.contextList} />
             ) : activePage === "templates" ? (
@@ -458,14 +398,11 @@ function AuthenticatedApp() {
               }
               isWorkspaceInvitationSelected={workspaceContext.isWorkspaceInvitationSelected}
               hasWorkspaceApiAccess={workspaceContext.hasWorkspaceApiAccess}
-              billingOperationalStatus={workspaceContext.billingOperationalStatus}
               documentCount={documents.length}
               hasApiAccess={hasApiAccess}
               isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess}
               workspaceId={workspaceToolbar.workspaceId}
               workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
-              hasWorkspaceBillingAuthority={workspaceContext.hasWorkspaceBillingAuthority}
-              isWorkspaceBillingView={isWorkspaceBillingView}
               isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
               isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
               isDeletingDocument={documentController.toolbar.isDeletingDocument}
@@ -474,7 +411,6 @@ function AuthenticatedApp() {
               onCreateTemplate={templateController.toolbar.onCreateTemplate}
               onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
               onUploadDocument={documentController.toolbar.onUploadDocument}
-              onToggleWorkspaceBillingView={handleToggleWorkspaceBillingView}
               onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
               onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
               onDeleteDocument={documentController.toolbar.onDeleteDocument}
@@ -482,21 +418,15 @@ function AuthenticatedApp() {
 
             {!workspaceContext.isWorkspaceInvitationSelected ? (
               <OperationalMetrics
-                remainingCredits={
-                  workspaceContext.billingUsageSummary?.remaining_credits
-                }
                 documentCount={documents.length}
                 completionRate={completionRate}
-                remainingPages={
-                  workspaceContext.billingUsageSummary?.remaining_pages
-                }
               />
             ) : null}
           </>
         ) : null}
 
           {activeVisiblePage === "admin" ? (
-            <ApplicationAdminPage admin={adminController} activeSection={adminPageView} />
+            <ApplicationAdminPage admin={adminController} />
           ) : null}
 
         {activeVisiblePage === "workspace" ? (
@@ -505,13 +435,7 @@ function AuthenticatedApp() {
                 {...workspaceController.invitationPage}
               />
             ) : (
-              isWorkspaceBillingView ? (
-                <BillingPage billing={billingController} isEmbedded />
-              ) : (
-                <AcceptedWorkspacePage
-                  {...workspaceController.acceptedPage}
-                />
-              )
+              <AcceptedWorkspacePage {...workspaceController.acceptedPage} />
             )
           ) : null}
 
@@ -562,7 +486,6 @@ function AuthenticatedApp() {
                   <TemplateFieldEditor
                     fields={templateController.templatePage.templateFields}
                     onChange={templateController.templatePage.onTemplateFieldsChange}
-                    planLimits={workspaceContext.billingPlanLimits}
                     title="Field Designer"
                     subtitle="Move through fields quickly on the left and edit details on the right."
                   />
@@ -854,19 +777,13 @@ function getAccountPasswordResetRoute(location) {
   return { token: params.get("token") };
 }
 
-function AdminContextList({ activeView, onViewChange }) {
+function AdminContextList() {
   const items = [
     {
       id: "accounts",
       title: "Account Management",
       summary: "Users, roles, bans, and impersonation",
       meta: "Application-wide",
-    },
-    {
-      id: "billing",
-      title: "Workspace Billing",
-      summary: "Guided billing flows and Workspace lookup",
-      meta: "Application admin",
     },
   ];
 
@@ -876,8 +793,7 @@ function AdminContextList({ activeView, onViewChange }) {
         <button
           key={item.id}
           type="button"
-          className={item.id === activeView ? "context-item active" : "context-item"}
-          onClick={() => onViewChange(item.id)}
+          className="context-item active"
         >
           <strong>{item.title}</strong>
           <span>{item.summary}</span>
@@ -889,14 +805,6 @@ function AdminContextList({ activeView, onViewChange }) {
 }
 
 function getInitialActivePage() {
-  try {
-    if (window.sessionStorage.getItem("documentextraction.billing.return") === "1") {
-      window.sessionStorage.removeItem("documentextraction.billing.return");
-    }
-  } catch {
-    return "workspace";
-  }
-
   return "workspace";
 }
 

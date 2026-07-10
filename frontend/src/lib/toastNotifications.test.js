@@ -35,37 +35,27 @@ describe("app action toast notifications", () => {
     expect(
       getActionToast("workspace.apiKey.rotate", "failure", {
         apiKey: secret,
-        error: "D1 constraint failed while saving imgx_live_new-secret-key",
+        error: "Database constraint failed while saving imgx_live_new-secret-key",
       }).message,
     ).not.toContain(secret);
   });
 
   it("uses friendly failure copy instead of raw backend errors", () => {
     const notification = getActionToast("workspace.rename", "failure", {
-      error: "D1 constraint failed near secret_table",
+      error: "Database constraint failed near secret_table",
     });
 
     expect(notification).toEqual({
       severity: "error",
       message: "Workspace name could not be saved. Please try again.",
     });
-    expect(notification.message).not.toContain("D1");
+    expect(notification.message).not.toContain("Database");
   });
 
   it("returns validation blockers as error notifications", () => {
     expect(getActionToast("document.upload", "validation", { reason: "template" })).toEqual({
       severity: "error",
       message: "Choose a template before uploading documents.",
-    });
-    expect(
-      getActionToast("document.upload", "validation", {
-        reason: "billing",
-        blockingReasons: ["Insufficient Credits", "Template schema limit overage"],
-      }),
-    ).toEqual({
-      severity: "error",
-      message:
-        "Document uploads are blocked: Insufficient Credits, Template schema limit overage.",
     });
     expect(getActionToast("workspace.create", "validation", { reason: "name" })).toEqual({
       severity: "error",

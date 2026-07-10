@@ -22,8 +22,6 @@ export function useDocumentController({
   showDocumentUploadToast,
   hasApiAccess,
   hasWorkspaceApiAccess,
-  canSubmitDocuments = hasWorkspaceApiAccess,
-  submissionBlockingReasons = [],
   isAppBusy,
   workspaceId,
   latestResponse,
@@ -71,13 +69,6 @@ export function useDocumentController({
   const requestRef = useRef(request);
   const workspaceIdRef = useRef(workspaceId);
   const normalizedWorkspaceId = String(workspaceId || "").trim();
-  const normalizedSubmissionBlockingReasons = Array.isArray(
-    submissionBlockingReasons,
-  )
-    ? submissionBlockingReasons
-        .map((reason) => String(reason || "").trim())
-        .filter(Boolean)
-    : [];
   const canOpenLiveUpdates =
     hasApiAccess && Boolean(normalizedWorkspaceId) && typeof WebSocket === "function";
   const shouldUseLiveUpdates = canOpenLiveUpdates && !liveUpdatesUnavailable;
@@ -525,19 +516,6 @@ export function useDocumentController({
     if (isAppBusy) {
       return;
     }
-    if (!canSubmitDocuments) {
-      if (normalizedSubmissionBlockingReasons.length) {
-        addLog(
-          `Upload blocked: ${normalizedSubmissionBlockingReasons.join(", ")}`,
-        );
-        showActionToast("document.upload", "validation", {
-          reason: "billing",
-          blockingReasons: normalizedSubmissionBlockingReasons,
-        });
-      }
-      return;
-    }
-
     setUploadTemplateId(selectedUploadTemplateId || templates[0]?.id || "");
     setUploadFiles([]);
     setIsUploadDragActive(false);
@@ -629,7 +607,6 @@ export function useDocumentController({
     try {
       let queuedCount = 0;
       let failedCount = 0;
-      let billingFailedCount = 0;
 
       for (const entry of uploadFiles) {
         setUploadFiles((prev) =>
@@ -650,9 +627,6 @@ export function useDocumentController({
           );
         } catch (error) {
           failedCount += 1;
-          if (isBillingQueueError(error)) {
-            billingFailedCount += 1;
-          }
           setUploadFiles((prev) =>
             prev.map((row) =>
               row.id === entry.id
@@ -670,7 +644,6 @@ export function useDocumentController({
       showDocumentUploadToast({
         queued: queuedCount,
         failed: failedCount,
-        billingFailed: billingFailedCount,
       });
       onActivePageChange("documents");
     } finally {
@@ -701,9 +674,6 @@ export function useDocumentController({
       if (sourcePreviewUrl) {
         URL.revokeObjectURL(sourcePreviewUrl);
         previewUrlsRef.current.delete(sourcePreviewUrl);
-      }
-      if (isBillingQueueError(error)) {
-        scheduleWorkspaceCapacityRefresh();
       }
       throw error;
     }
@@ -1013,7 +983,7 @@ export function useDocumentController({
       sourceFiles: uploadFiles,
       isDragActive: isUploadDragActive,
       isUploadingDocuments,
-      hasApiAccess: canSubmitDocuments,
+      hasApiAccess: hasWorkspaceApiAccess,
       onClose: closeUploadModal,
       onSelectTemplate: setUploadTemplateId,
       onSelectSourceFiles: appendUploadFiles,
@@ -1143,9 +1113,4 @@ function getDocumentSortTimestamp(job) {
 
 function fileDedupKey(name, size, lastModified) {
   return `${name}::${size}::${lastModified}`;
-}
-
-function isBillingQueueError(error) {
-  const code = String(error?.code || "").toLowerCase();
-  return Number(error?.status) === 402 || code.startsWith("billing_");
 }

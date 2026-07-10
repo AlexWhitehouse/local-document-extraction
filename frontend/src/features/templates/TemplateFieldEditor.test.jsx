@@ -10,7 +10,7 @@ describe("Template field editor", () => {
     cleanup();
   });
 
-  it("shows Workspace plan limit badges for total fields and table columns", async () => {
+  it("keeps Template field editing focused on field configuration", async () => {
     const user = userEvent.setup();
 
     function TemplateFieldHarness() {
@@ -27,10 +27,6 @@ describe("Template field editor", () => {
         <TemplateFieldEditor
           fields={fields}
           onChange={setFields}
-          planLimits={{
-            top_level_template_fields: 5,
-            table_columns_per_field: 5,
-          }}
           title="Field Designer"
           subtitle="Edit Template fields."
         />
@@ -39,18 +35,13 @@ describe("Template field editor", () => {
 
     render(<TemplateFieldHarness />);
 
-    expect(screen.getByText("Total Field Limit 1/5")).toBeTruthy();
-    expect(screen.queryByText(/^Fields /)).toBeNull();
-    expect(screen.queryByText(/^Ready /)).toBeNull();
+    expect(screen.queryByText(/^Total Field Limit /)).toBeNull();
     expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
 
-    expect(screen.getByText("Table Field Limit 0/5")).toBeTruthy();
-
     await user.click(screen.getByRole("button", { name: "Add Column" }));
-
-    expect(screen.getByText("Table Field Limit 1/5")).toBeTruthy();
+    expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
   });
 
   it("edits object-like Template field columns through the public field change interface", async () => {
@@ -106,5 +97,34 @@ describe("Template field editor", () => {
       },
     });
     expect(within(columnCard).getByLabelText("Column ID").value).toBe("dose_1");
+  });
+
+  it("does not offer a twenty-first object column", () => {
+    render(
+      <TemplateFieldEditor
+        fields={[
+          {
+            id: "line_items",
+            name: "Line Items",
+            description: "Invoice line items",
+            data_type: "array<object>",
+            object_schema: {
+              mode: "table",
+              columns: Array.from({ length: 20 }, (_, index) => ({
+                key: `column_${index + 1}`,
+                heading: `Column ${index + 1}`,
+                data_type: "string",
+                description: `Column ${index + 1} value`,
+              })),
+            },
+          },
+        ]}
+        onChange={() => {}}
+        title="Field Designer"
+        subtitle="Edit Template fields."
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Add Column" }).disabled).toBe(true);
   });
 });

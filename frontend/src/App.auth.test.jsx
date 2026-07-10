@@ -717,7 +717,7 @@ describe("auth sign-up password policy feedback", () => {
   it("shows a generic safe toast when sign-up fails for an unknown reason", async () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({
-      error: { message: "D1 constraint failed near secret_table" },
+      error: { message: "Database constraint failed near secret_table" },
     });
 
     render(<App />);
@@ -734,7 +734,7 @@ describe("auth sign-up password policy feedback", () => {
       "Account creation failed. Please try again.",
     );
     expect(toastMock.error).not.toHaveBeenCalledWith(
-      expect.stringContaining("D1"),
+      expect.stringContaining("Database"),
     );
   });
 });

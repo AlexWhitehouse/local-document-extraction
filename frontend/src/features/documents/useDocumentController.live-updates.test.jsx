@@ -412,7 +412,7 @@ describe("useDocumentController Workspace live updates", () => {
           events: [
             {
               type: "workspace_context_invalidated",
-              reason: "billing_usage",
+              reason: "workspace_product_changed",
               occurred_at: "2026-05-06T12:02:00.000Z",
             },
           ],
@@ -692,7 +692,7 @@ describe("useDocumentController Workspace live updates", () => {
             events: [
               {
                 type: "workspace_context_invalidated",
-                reason: "billing_usage",
+                reason: "workspace_product_changed",
                 occurred_at: "2026-05-06T12:02:00.000Z",
               },
             ],
@@ -713,12 +713,12 @@ describe("useDocumentController Workspace live updates", () => {
             events: [
               {
                 type: "workspace_context_invalidated",
-                reason: "billing_usage",
+                reason: "workspace_product_changed",
                 occurred_at: "2026-05-06T12:02:01.000Z",
               },
               {
                 type: "workspace_context_invalidated",
-                reason: "template_limits",
+                reason: "template_shape_changed",
                 occurred_at: "2026-05-06T12:02:02.000Z",
               },
             ],
@@ -765,7 +765,7 @@ describe("useDocumentController Workspace live updates", () => {
             events: [
               {
                 type: "workspace_context_invalidated",
-                reason: "billing_usage",
+                reason: "workspace_product_changed",
                 occurred_at: "2026-05-06T12:01:00.000Z",
               },
             ],
@@ -790,7 +790,7 @@ describe("useDocumentController Workspace live updates", () => {
             events: [
               {
                 type: "workspace_context_invalidated",
-                reason: "billing_usage",
+                reason: "workspace_product_changed",
                 occurred_at: "2026-05-06T12:02:00.000Z",
               },
             ],
@@ -811,7 +811,7 @@ describe("useDocumentController Workspace live updates", () => {
             events: [
               {
                 type: "workspace_context_invalidated",
-                reason: "billing_usage",
+                reason: "workspace_product_changed",
                 occurred_at: "2026-05-06T12:03:00.000Z",
               },
             ],

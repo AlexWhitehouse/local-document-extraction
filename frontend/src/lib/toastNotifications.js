@@ -30,13 +30,6 @@ const successMessages = {
   "applicationUser.ban": ({ target }) => withTarget("User banned", target),
   "applicationUser.unban": ({ target }) => withTarget("User unbanned", target),
   "applicationUser.stopImpersonating": () => "Impersonation stopped",
-  "applicationBilling.goodwillGrant": ({ target }) => withTarget("Goodwill Credits granted", target),
-  "applicationBilling.goodwillRevoke": ({ target }) => withTarget("Goodwill grant revoked", target),
-  "applicationBilling.planOverride": ({ target }) => withTarget("Plan override created", target),
-  "applicationBilling.paymentRequiredPlanOverride": ({ target }) =>
-    withTarget("Payment-required Plan override invoice created", target),
-  "applicationBilling.enterpriseTerms": ({ target }) => withTarget("Enterprise terms created", target),
-  "applicationBilling.noBillingMode": ({ target }) => withTarget("No-billing mode updated", target),
   "document.delete": ({ target }) => withTarget("Document deleted", target),
   "clipboard.copyTemplateJson": () => "Template JSON copied",
 };
@@ -83,12 +76,6 @@ const validationMessages = {
   "document.upload": {
     template: "Choose a template before uploading documents.",
     files: "Choose at least one document to upload.",
-    billing: ({ blockingReasons }) => {
-      const reasons = formatBlockingReasons(blockingReasons);
-      return reasons
-        ? `Document uploads are blocked: ${reasons}.`
-        : "Document uploads are blocked for this Workspace.";
-    },
   },
   "clipboard.copyTemplateJson": {
     content: "No template JSON is available to copy.",
@@ -145,23 +132,7 @@ export function getActionToast(action, outcome, options = {}) {
   };
 }
 
-export function getDocumentUploadToast({ queued = 0, failed = 0, billingFailed = 0 }) {
-  if (billingFailed > 0) {
-    const otherFailed = Math.max(0, failed - billingFailed);
-    const parts = [];
-    if (queued > 0) {
-      parts.push(`${queued} ${pluralize("document", queued)} queued`);
-    }
-    parts.push(`${billingFailed} blocked by billing`);
-    if (otherFailed > 0) {
-      parts.push(`${otherFailed} failed`);
-    }
-    return {
-      severity: "error",
-      message: parts.join(", "),
-    };
-  }
-
+export function getDocumentUploadToast({ queued = 0, failed = 0 }) {
   if (failed === 0) {
     return {
       severity: "success",
@@ -188,16 +159,6 @@ function getTargetDisplay(options) {
 
 function withTarget(message, target) {
   return target ? `${message}: ${target}` : message;
-}
-
-function formatBlockingReasons(blockingReasons) {
-  if (!Array.isArray(blockingReasons)) {
-    return "";
-  }
-  return blockingReasons
-    .map((reason) => String(reason || "").trim())
-    .filter(Boolean)
-    .join(", ");
 }
 
 function pluralize(word, count) {

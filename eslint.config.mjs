@@ -11,9 +11,7 @@ export default tseslint.config(
       "**/dist/**",
       "**/build/**",
       "**/coverage/**",
-      "**/.wrangler/**",
       "**/*.tsbuildinfo",
-      "backend/worker-configuration.d.ts",
     ],
   },
   {
@@ -22,7 +20,9 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: "latest",
       globals: {
-        ...globals.webworker,
+        ...globals.node,
+        ...globals.browser,
+        Bun: "readonly",
       },
     },
     rules: {
@@ -47,6 +47,12 @@ export default tseslint.config(
       globals: {
         ...globals.node,
       },
+    },
+  },
+  {
+    files: ["backend/**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-non-null-asserted-optional-chain": "off",
     },
   },
   {

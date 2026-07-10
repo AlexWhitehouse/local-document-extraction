@@ -1,25 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ApplicationAdminBillingPage } from "./ApplicationAdminBillingPage.jsx";
 
-export function ApplicationAdminPage({ admin, activeSection = "accounts" }) {
-  const isBillingSection = activeSection === "billing";
-
+export function ApplicationAdminPage({ admin }) {
   return (
     <>
       <header className="page-header">
         <p className="eyebrow">Admin</p>
-        <h2>{isBillingSection ? "Workspace Billing" : "Application Admin"}</h2>
-        <p>
-          {isBillingSection
-            ? "Run guided billing exception flows for selected Workspaces."
-            : "Manage application-wide accounts separately from Workspace access."}
-        </p>
+        <h2>Application Admin</h2>
+        <p>Manage application-wide accounts separately from Workspace access.</p>
       </header>
 
-      {isBillingSection ? (
-        <ApplicationAdminBillingPage admin={admin} />
-      ) : (
-        <section className="content-grid admin-page-grid">
+      <section className="content-grid admin-page-grid">
           <article className="workspace-card admin-user-panel">
             <div className="workspace-head admin-user-panel-head">
               <div>
@@ -131,8 +121,7 @@ export function ApplicationAdminPage({ admin, activeSection = "accounts" }) {
               </div>
             </div>
           </article>
-        </section>
-      )}
+      </section>
 
       {admin.banDialogUser ? <BanUserDialog admin={admin} user={admin.banDialogUser} /> : null}
       {admin.unbanDialogUser ? <UnbanUserDialog admin={admin} user={admin.unbanDialogUser} /> : null}

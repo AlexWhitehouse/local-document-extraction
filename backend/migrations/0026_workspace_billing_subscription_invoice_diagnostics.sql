@@ -1,2 +1,0 @@
-ALTER TABLE workspace_billing_controls
-  ADD COLUMN self_service_subscription_invoice_diagnostics TEXT;

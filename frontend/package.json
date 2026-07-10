@@ -4,10 +4,10 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "start": "vite",
-    "test": "vitest run",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "bunx vite",
+    "test": "bunx vitest run",
+    "build": "bunx vite build",
+    "preview": "bunx vite preview"
   },
   "dependencies": {
     "better-auth": "^1.6.6",
