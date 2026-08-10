@@ -4,8 +4,8 @@ The local extraction runner calls one operator-managed OpenAI-compatible LiteLLM
 
 ## Consequences
 
-- `MODEL_GATEWAY_URL`, `LITELLM_KEY`, `AI_MODEL`, `MODEL_GATEWAY_ROUTE_LABEL`, and `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` configure model access locally.
+- `MODEL_GATEWAY_URL`, `LITELLM_KEY`, `AI_MODEL`, `MODEL_GATEWAY_ROUTE_LABEL`, `MODEL_GATEWAY_REQUEST_TIMEOUT_MS`, and `EXTRACTION_RETRY_DELAY_MS` configure model access and retry timing locally.
 - The runner keeps model invocation separate from persisted Extraction job lifecycle changes.
-- Retryable gateway errors are retried within the runner's bounded retry policy.
+- Retryable gateway errors are retried within the runner's bounded retry policy after the configured durable retry delay.
 - Completed jobs retain the model name and route label as operational metadata.
 - PDF and image Source files use the existing OpenAI-compatible request contract.

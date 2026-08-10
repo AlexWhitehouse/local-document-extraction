@@ -31,6 +31,7 @@ The server reads ordinary environment variables. A local `.env` file is suitable
 | `AI_MODEL` | `claude-opus-4-7` | LiteLLM model name. |
 | `MODEL_GATEWAY_ROUTE_LABEL` | gateway hostname | Stored operational route label. |
 | `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` | `300000` | Model request timeout. |
+| `EXTRACTION_RETRY_DELAY_MS` | `0` | Delay before retrying a failed model request. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | unset | Optional Google sign-in configuration. |
 
 ## Local State

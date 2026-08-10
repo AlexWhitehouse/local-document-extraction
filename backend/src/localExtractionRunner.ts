@@ -47,9 +47,11 @@ export function createLocalExtractionRunner({
   extract,
   modelGatewayConfiguration = localModelGatewayConfiguration(),
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
+  now = nowIso,
   onJobLifecycleChange,
   productAnalytics,
   productStoreOpener = openLocalWorkspaceProductStore,
+  retryDelayMs = 0,
   scheduleJob = async () => {},
   sourceFileStore,
   staleProcessingAfterMs = DEFAULT_STALE_PROCESSING_AFTER_MS,
@@ -60,9 +62,11 @@ export function createLocalExtractionRunner({
   extract?: ExtractionFunction;
   modelGatewayConfiguration?: ModelGatewayConfiguration;
   maxAttempts?: number;
+  now?: () => string;
   onJobLifecycleChange?: (workspaceId: string, job: LocalWorkspaceExtractionJob) => void;
   productAnalytics?: LocalProductAnalytics;
   productStoreOpener?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore | null;
+  retryDelayMs?: number;
   scheduleJob?: (job: LocalQueuedExtractionJob) => void | Promise<void>;
   sourceFileStore?: LocalSourceFileStore;
   staleProcessingAfterMs?: number;
@@ -70,6 +74,9 @@ export function createLocalExtractionRunner({
   workspaceControl?: Pick<LocalWorkspaceControl, "workspaceExists">;
   workspaceProductOperations?: LocalWorkspaceProductOperations;
 }): LocalExtractionRunner {
+  const normalizedRetryDelayMs = Number.isFinite(retryDelayMs)
+    ? Math.max(0, Math.trunc(retryDelayMs))
+    : 0;
   const localSourceFileStore = sourceFileStore ?? createLocalSourceFileStore({ stateDirectory });
   const runModelExtraction = extract ?? ((input) => runExtraction(
     modelGatewayConfiguration,
@@ -82,7 +89,7 @@ export function createLocalExtractionRunner({
   return {
     recover: async () => {
       const workspaceIds = await listLocalWorkspaceIds(stateDirectory);
-      const recoveredAt = nowIso();
+      const recoveredAt = now();
       const staleProcessingBefore = new Date(
         Date.now() - Math.max(0, staleProcessingAfterMs),
       ).toISOString();
@@ -111,6 +118,7 @@ export function createLocalExtractionRunner({
               template_version: job.template_version,
               enqueued_at: recoveredAt,
               attempt: job.attempt,
+              not_before: job.not_before,
             });
           }
         } finally {
@@ -144,7 +152,7 @@ export function createLocalExtractionRunner({
         const claimed = productStore.claimExtractionJobForProcessing({
           jobId: job.job_id,
           attempt,
-          claimedAt: nowIso(),
+          claimedAt: now(),
         });
         if (!claimed) {
           return;
@@ -172,7 +180,7 @@ export function createLocalExtractionRunner({
           const completed = productStore.completeExtractionJob({
             jobId: claimed.job_id,
             attempt,
-            completedAt: nowIso(),
+            completedAt: now(),
             modelName: getExtractionModelName(modelGatewayConfiguration),
             route: getModelGatewayRouteLabel(modelGatewayConfiguration),
             results,
@@ -204,12 +212,17 @@ export function createLocalExtractionRunner({
             return;
           }
           if (error instanceof RetryableError && attempt < maxAttempts) {
+            const requeuedAt = now();
+            const nextRetryAt = new Date(
+              Date.parse(requeuedAt) + normalizedRetryDelayMs,
+            ).toISOString();
             const requeued = productStore.requeueExtractionJob({
               jobId: claimed.job_id,
               attempt,
-              requeuedAt: nowIso(),
+              requeuedAt,
               errorCode: "model_gateway_retry",
               errorMessage: processingErrorMessage(error),
+              nextRetryAt,
             });
             if (requeued) {
               notifyJobLifecycle(onJobLifecycleChange, job.workspace_id, productStore, claimed.job_id);
@@ -218,8 +231,9 @@ export function createLocalExtractionRunner({
                 workspace_id: job.workspace_id,
                 template_id: claimed.template_id,
                 template_version: claimed.template_version,
-                enqueued_at: nowIso(),
+                enqueued_at: requeuedAt,
                 attempt: attempt + 1,
+                not_before: nextRetryAt,
               });
             }
             return;
@@ -228,7 +242,7 @@ export function createLocalExtractionRunner({
           const failed = productStore.failExtractionJob({
             jobId: claimed.job_id,
             attempt,
-            failedAt: nowIso(),
+            failedAt: now(),
             errorCode,
             errorMessage: processingErrorMessage(error),
           });

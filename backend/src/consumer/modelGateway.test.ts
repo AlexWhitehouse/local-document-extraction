@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 
 import type { FieldDefinition } from "../lib/types";
 import {
@@ -132,6 +133,32 @@ describe("runExtraction", () => {
     });
   });
 
+  it("uses JSON Schema output for Gemma 4 model deployments", async () => {
+    const env = createEnv({ AI_MODEL: "google/gemma-4-e4b" });
+    const fetchMock = stubGatewayResponse(successfulGatewayPayload());
+
+    await runExtraction(
+      env,
+      fields,
+      new Uint8Array([1, 2, 3]).buffer,
+      "image/png",
+    );
+
+    expect(readGatewayRequest(fetchMock).body).toMatchObject({
+      model: "google/gemma-4-e4b",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "extraction_results",
+          strict: true,
+          schema: {
+            required: ["results"],
+          },
+        },
+      },
+    });
+  });
+
   it("aborts model gateway execution when Workspace deletion cancels the caller signal", async () => {
     const controller = new AbortController();
     const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
@@ -202,6 +229,185 @@ describe("runExtraction", () => {
       ],
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders PDF Source file pages as images for Gemma 4 model deployments", async () => {
+    const env = createEnv({ AI_MODEL: "google/gemma-4-e4b" });
+    const fetchMock = stubGatewayResponse(successfulGatewayPayload());
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([300, 200]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    page.drawText("Patient: Ada Lovelace", { x: 30, y: 120, size: 18, font });
+    const pdfBytes = await pdf.save();
+
+    await runExtraction(
+      env,
+      fields,
+      Uint8Array.from(pdfBytes).buffer,
+      "application/pdf",
+    );
+
+    const request = readGatewayRequest(fetchMock);
+    expect(request.body).toMatchObject({
+      messages: [
+        expect.any(Object),
+        {
+          role: "user",
+          content: [
+            expect.objectContaining({ type: "text", text: expect.any(String) }),
+            {
+              type: "image_url",
+              image_url: {
+                url: expect.stringMatching(/^data:image\/png;base64,/),
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const requestBody = request.body as Record<string, unknown>;
+    const userMessage = (requestBody.messages as Array<{
+      content: Array<Record<string, unknown>>;
+    }>)[1];
+    expect(userMessage.content[1]).toEqual({
+      type: "image_url",
+      image_url: {
+        url: expect.stringMatching(/^data:image\/png;base64,/),
+      },
+    });
+  });
+
+  it("renders PDF Source file pages as image content accepted by Qwen", async () => {
+    const env = createEnv({ AI_MODEL: "qwen/qwen3.6-27b" });
+    const fetchMock = stubGatewayResponse(successfulGatewayPayload());
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([300, 200]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    page.drawText("Patient: Ada Lovelace", { x: 30, y: 120, size: 18, font });
+    const pdfBytes = await pdf.save();
+
+    await runExtraction(
+      env,
+      fields,
+      Uint8Array.from(pdfBytes).buffer,
+      "application/pdf",
+    );
+
+    const request = readGatewayRequest(fetchMock);
+    expect(request.body).toMatchObject({
+      model: "qwen/qwen3.6-27b",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "extraction_results",
+          strict: true,
+          schema: { required: ["results"] },
+        },
+      },
+      messages: [
+        expect.any(Object),
+        {
+          role: "user",
+          content: [
+            expect.objectContaining({ type: "text", text: expect.any(String) }),
+            {
+              type: "image_url",
+              image_url: {
+                url: expect.stringMatching(/^data:image\/png;base64,/),
+              },
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("builds Qwen JSON Schema answer types from the requested Template fields", async () => {
+    const env = createEnv({ AI_MODEL: "qwen/qwen3.6-27b" });
+    const fetchMock = stubGatewayResponse(successfulGatewayPayload());
+    const typedFields: FieldDefinition[] = [
+      fields[0],
+      {
+        id: "total_amount",
+        name: "Total Amount",
+        description: "Invoice total.",
+        data_type: "number",
+      },
+      {
+        id: "approved",
+        name: "Approved",
+        description: "Whether the invoice was approved.",
+        data_type: "boolean",
+      },
+      {
+        id: "line_items",
+        name: "Line Items",
+        description: [
+          "Invoice line items.",
+          "[[OBJECT_SCHEMA]]",
+          JSON.stringify({
+            mode: "table",
+            data_type: "array<object>",
+            columns: [
+              { key: "description", data_type: "string" },
+              { key: "amount", data_type: "number" },
+            ],
+          }),
+          "[[/OBJECT_SCHEMA]]",
+        ].join("\n"),
+        data_type: "array<object>",
+      },
+    ];
+
+    await runExtraction(
+      env,
+      typedFields,
+      new Uint8Array([1, 2, 3]).buffer,
+      "image/png",
+    );
+
+    const requestBody = readGatewayRequest(fetchMock).body as {
+      response_format: {
+        json_schema: {
+          schema: {
+            properties: {
+              results: {
+                items: {
+                  properties: {
+                    answer: { anyOf: Array<Record<string, unknown>> };
+                  };
+                };
+              };
+            };
+          };
+        };
+      };
+    };
+    const answerSchemas =
+      requestBody.response_format.json_schema.schema.properties.results.items
+        .properties.answer.anyOf;
+    expect(answerSchemas).toEqual(
+      expect.arrayContaining([
+        { type: "string" },
+        { type: "number" },
+        { type: "boolean" },
+        { type: "null" },
+      ]),
+    );
+    expect(answerSchemas.find((schema) => schema.type === "object")).toMatchObject({
+      properties: {
+        rows: {
+          items: {
+            properties: {
+              description: { type: ["string", "null"] },
+              amount: { type: ["number", "null"] },
+            },
+            required: ["description", "amount"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
   });
 
   it("uploads PDF Source files for Azure LiteLLM models and submits the returned file ID", async () => {
@@ -289,7 +495,6 @@ describe("runExtraction", () => {
               type: "image_url",
               image_url: {
                 url: "data:image/png;base64,BAUG",
-                format: "image/png",
               },
             },
           ],
@@ -320,6 +525,30 @@ describe("runExtraction", () => {
         {
           message: {
             content: [{ type: "text", text: successfulModelJson() }],
+          },
+        },
+      ],
+    });
+
+    await expect(
+      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
+    ).resolves.toEqual([
+      {
+        field_id: "patient_name",
+        status: "ok",
+        answer: "Ada Lovelace",
+      },
+    ]);
+  });
+
+  it("parses Qwen reasoning content when assistant content is empty", async () => {
+    const env = createEnv({ AI_MODEL: "qwen/qwen3.6-27b" });
+    stubGatewayResponse({
+      choices: [
+        {
+          message: {
+            content: "",
+            reasoning_content: successfulModelJson(),
           },
         },
       ],

@@ -206,3 +206,91 @@ test("runner retries transient model failures within bounds and protects termina
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });
+
+test("runner schedules a retry no earlier than the configured retry delay", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-retry-delay-"));
+  const workspaceId = "workspace_research";
+  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+  const sourceFiles = createLocalSourceFileStore({ stateDirectory });
+  const scheduledJobs: Array<{ attempt: number; not_before?: string }> = [];
+
+  try {
+    store.createTemplate({
+      templateId: "tpl_invoice",
+      name: "Invoice",
+      description: "Extract invoice details.",
+      fields: [
+        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
+      ],
+      createdAt: "2026-07-10T20:00:00.000Z",
+    });
+    const sourceFileKey = await sourceFiles.write({
+      workspaceId,
+      jobId: "job_retry_delay",
+      mimeType: "image/png",
+      bytes: new Uint8Array([137, 80, 78, 71]),
+    });
+    store.createQueuedExtractionJob({
+      jobId: "job_retry_delay",
+      templateId: "tpl_invoice",
+      templateVersion: 1,
+      sourceFileKey,
+      sourceMimeType: "image/png",
+      sourceName: "invoice.png",
+      sourceFilePageCount: null,
+      submittedAt: "2026-07-10T20:00:00.000Z",
+    });
+    let modelCalls = 0;
+    const runner = createLocalExtractionRunner({
+      extract: async () => {
+        modelCalls += 1;
+        throw new RetryableError("LiteLLM request terminated");
+      },
+      maxAttempts: 2,
+      now: () => "2026-07-10T20:01:00.000Z",
+      retryDelayMs: 15 * 60 * 1000,
+      scheduleJob: async (job) => {
+        scheduledJobs.push({
+          attempt: job.attempt ?? 1,
+          not_before: job.not_before,
+        });
+      },
+      sourceFileStore: sourceFiles,
+      stateDirectory,
+    });
+
+    await runner.run({
+      job_id: "job_retry_delay",
+      workspace_id: workspaceId,
+      template_id: "tpl_invoice",
+      template_version: 1,
+      enqueued_at: "2026-07-10T20:00:00.000Z",
+      attempt: 1,
+    });
+
+    expect(scheduledJobs).toEqual([{
+      attempt: 2,
+      not_before: "2026-07-10T20:16:00.000Z",
+    }]);
+
+    await runner.run({
+      job_id: "job_retry_delay",
+      workspace_id: workspaceId,
+      template_id: "tpl_invoice",
+      template_version: 1,
+      enqueued_at: "2026-07-10T20:01:00.000Z",
+      attempt: 2,
+    });
+    expect(modelCalls).toBe(1);
+
+    scheduledJobs.length = 0;
+    await runner.recover();
+    expect(scheduledJobs).toEqual([{
+      attempt: 2,
+      not_before: "2026-07-10T20:16:00.000Z",
+    }]);
+  } finally {
+    store.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});

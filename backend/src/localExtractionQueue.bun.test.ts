@@ -32,3 +32,34 @@ test("the local extraction queue notifies asynchronous handlers without delaying
   releaseHandler?.();
   await handlerFinished;
 });
+
+test("the local extraction queue does not dispatch a retry before its not-before time", async () => {
+  let dispatchTimer: (() => void) | undefined;
+  let scheduledDelayMs: number | undefined;
+  let started = false;
+  const queue = createLocalExtractionQueue({
+    now: () => Date.parse("2026-07-10T20:00:00.000Z"),
+    scheduleTimer: (handler, delayMs) => {
+      dispatchTimer = handler;
+      scheduledDelayMs = delayMs;
+    },
+  });
+  queue.subscribe(() => {
+    started = true;
+  });
+
+  await queue.schedule({
+    job_id: "job_invoice_retry",
+    workspace_id: "workspace_research",
+    template_id: "tpl_invoice",
+    template_version: 1,
+    enqueued_at: "2026-07-10T20:00:00.000Z",
+    attempt: 2,
+    not_before: "2026-07-10T20:15:00.000Z",
+  });
+
+  expect(started).toBe(false);
+  expect(scheduledDelayMs).toBe(15 * 60 * 1000);
+  dispatchTimer?.();
+  expect(started).toBe(true);
+});

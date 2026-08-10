@@ -78,6 +78,7 @@ export type LocalScheduledExtractionJob = {
   template_id: string;
   template_version: number;
   attempt: number;
+  not_before?: string;
 };
 
 export type DeletedLocalWorkspaceExtractionJob = {
@@ -153,6 +154,7 @@ export type LocalWorkspaceProductStore = {
     requeuedAt: string;
     errorCode: string;
     errorMessage: string;
+    nextRetryAt: string;
   }): boolean;
   recoverExtractionJobs(input: {
     maxAttempts: number;
@@ -526,7 +528,7 @@ function claimExtractionJobForProcessing(
 ): LocalClaimedExtractionJob | null {
   const claim = database.transaction(() => {
     const job = database.query(
-      `SELECT id, template_id, template_version, source_file_key, source_mime_type, status, current_attempt
+      `SELECT id, template_id, template_version, source_file_key, source_mime_type, status, current_attempt, next_retry_at
        FROM jobs
        WHERE id = ?`,
     ).get(input.jobId) as {
@@ -537,16 +539,29 @@ function claimExtractionJobForProcessing(
       source_mime_type: string;
       status: string;
       current_attempt: number;
+      next_retry_at: string | null;
     } | null;
-    if (!job || job.status !== "queued" || job.current_attempt >= input.attempt) {
+    if (
+      !job ||
+      job.status !== "queued" ||
+      job.current_attempt >= input.attempt ||
+      (job.next_retry_at !== null && job.next_retry_at > input.claimedAt)
+    ) {
       return null;
     }
 
     const result = database.query(
       `UPDATE jobs
        SET status = 'processing', updated_at = ?, error_code = NULL, error_message = NULL, next_retry_at = NULL, current_attempt = ?
-       WHERE id = ? AND status = 'queued' AND current_attempt < ?`,
-    ).run(input.claimedAt, input.attempt, input.jobId, input.attempt);
+       WHERE id = ? AND status = 'queued' AND current_attempt < ?
+         AND (next_retry_at IS NULL OR next_retry_at <= ?)`,
+    ).run(
+      input.claimedAt,
+      input.attempt,
+      input.jobId,
+      input.attempt,
+      input.claimedAt,
+    );
     if (result.changes < 1) {
       return null;
     }
@@ -662,16 +677,24 @@ function failExtractionJob(
 
 function requeueExtractionJob(
   database: Database,
-  input: { jobId: string; attempt: number; requeuedAt: string; errorCode: string; errorMessage: string },
+  input: {
+    jobId: string;
+    attempt: number;
+    requeuedAt: string;
+    errorCode: string;
+    errorMessage: string;
+    nextRetryAt: string;
+  },
 ): boolean {
   const result = database.query(
     `UPDATE jobs
-     SET status = 'queued', error_code = ?, error_message = ?, updated_at = ?, next_retry_at = NULL, last_failed_attempt = ?
+     SET status = 'queued', error_code = ?, error_message = ?, updated_at = ?, next_retry_at = ?, last_failed_attempt = ?
      WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
   ).run(
     input.errorCode,
     input.errorMessage.slice(0, 2000),
     input.requeuedAt,
+    input.nextRetryAt,
     input.attempt,
     input.jobId,
     input.attempt,
@@ -686,11 +709,17 @@ function recoverExtractionJobs(
   const recover = database.transaction(() => {
     const scheduled: LocalScheduledExtractionJob[] = [];
     const queued = database.query(
-      `SELECT id, template_id, template_version, current_attempt
+      `SELECT id, template_id, template_version, current_attempt, next_retry_at
        FROM jobs
        WHERE status = 'queued'
        ORDER BY updated_at ASC, id ASC`,
-    ).all() as Array<{ id: string; template_id: string; template_version: number; current_attempt: number }>;
+    ).all() as Array<{
+      id: string;
+      template_id: string;
+      template_version: number;
+      current_attempt: number;
+      next_retry_at: string | null;
+    }>;
     for (const job of queued) {
       if (job.current_attempt >= input.maxAttempts) {
         database.query(
@@ -705,6 +734,7 @@ function recoverExtractionJobs(
         template_id: job.template_id,
         template_version: job.template_version,
         attempt: job.current_attempt + 1,
+        ...(job.next_retry_at ? { not_before: job.next_retry_at } : {}),
       });
     }
 

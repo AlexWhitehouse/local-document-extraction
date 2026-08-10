@@ -1,5 +1,6 @@
 import type { FieldDefinition } from "../lib/types";
 import type { ModelFieldResult } from "./modelResultNormalizer";
+import { renderPdfPagesToPng } from "./pdfPageRenderer";
 
 export class RetryableError extends Error {}
 export class ExtractionCancelledError extends Error {}
@@ -56,20 +57,37 @@ export async function runExtraction(
   signal?: AbortSignal,
 ): Promise<ModelFieldResult[]> {
   const model = getExtractionModelName(env);
-  const prompt = buildPrompt(fields, sourceMimeType);
+  const renderPdfAsImages =
+    sourceMimeType === "application/pdf" && shouldRenderPdfAsImages(model);
+  const prompt = buildPrompt(fields, sourceMimeType, renderPdfAsImages);
   const systemPrompt =
     "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.";
   const uploadedFileId =
     sourceMimeType === "application/pdf" && shouldUploadPdfToModelGateway(model)
       ? await uploadSourceFile(env, sourceBytes, sourceMimeType, model, signal)
       : null;
-  const sourceContentPart = uploadedFileId
-    ? buildUploadedFileContentPart(uploadedFileId, sourceMimeType)
-    : buildInlineSourceContentPart(sourceBytes, sourceMimeType);
+  let sourceContentParts: Record<string, unknown>[];
+  try {
+    sourceContentParts = uploadedFileId
+      ? [buildUploadedFileContentPart(uploadedFileId, sourceMimeType)]
+      : renderPdfAsImages
+        ? (await renderPdfPagesToPng(sourceBytes, signal)).map((pageBytes) =>
+            buildInlineImageContentPart(pageBytes, "image/png"),
+          )
+        : [buildInlineSourceContentPart(sourceBytes, sourceMimeType)];
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new ExtractionCancelledError("PDF page rendering cancelled");
+    }
+    throw new RetryableError(
+      `PDF Source file could not be prepared for the model: ${errorToMessage(error)}`,
+    );
+  }
   const runInput = buildChatCompletionsInput(
     model,
+    fields,
     prompt,
-    sourceContentPart,
+    sourceContentParts,
     systemPrompt,
   );
   let runResult: unknown;
@@ -99,8 +117,9 @@ export async function runExtraction(
 
 function buildChatCompletionsInput(
   model: string,
+  fields: FieldDefinition[],
   prompt: string,
-  sourceContentPart: Record<string, unknown>,
+  sourceContentParts: Record<string, unknown>[],
   systemPrompt: string,
 ): Record<string, unknown> {
   return {
@@ -114,12 +133,193 @@ function buildChatCompletionsInput(
         role: "user",
         content: [
           { type: "text", text: prompt },
-          sourceContentPart,
+          ...sourceContentParts,
         ],
       },
     ],
-    response_format: { type: "json_object" },
+    response_format: buildResponseFormat(model, fields),
   };
+}
+
+function buildResponseFormat(
+  model: string,
+  fields: FieldDefinition[],
+): Record<string, unknown> {
+  const normalizedModel = model.toLowerCase();
+  if (
+    !normalizedModel.includes("gemma-4") &&
+    !isQwenMultimodalModel(normalizedModel)
+  ) {
+    return { type: "json_object" };
+  }
+
+  return {
+    type: "json_schema",
+    json_schema: {
+      name: "extraction_results",
+      strict: true,
+      schema: {
+        type: "object",
+        properties: {
+          results: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                field_id: { type: "string" },
+                status: {
+                  type: "string",
+                  enum: [
+                    "ok",
+                    "not_found",
+                    "invalid_type",
+                    "unreadable",
+                    "error",
+                  ],
+                },
+                answer: buildAnswerSchema(fields),
+                confidence: { type: ["number", "null"] },
+                evidence: { type: ["string", "null"] },
+              },
+              required: [
+                "field_id",
+                "status",
+                "answer",
+                "confidence",
+                "evidence",
+              ],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["results"],
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
+function buildAnswerSchema(fields: FieldDefinition[]): Record<string, unknown> {
+  const schemas = fields.map(buildFieldAnswerSchema);
+  schemas.push({ type: "null" });
+
+  const uniqueSchemas = [
+    ...new Map(schemas.map((schema) => [JSON.stringify(schema), schema])).values(),
+  ];
+  return { anyOf: uniqueSchemas };
+}
+
+function buildFieldAnswerSchema(field: FieldDefinition): Record<string, unknown> {
+  switch (field.data_type) {
+    case "string":
+    case "date":
+      return { type: "string" };
+    case "number":
+      return { type: "number" };
+    case "boolean":
+      return { type: "boolean" };
+    case "array":
+      return {
+        type: "array",
+        items: {
+          anyOf: [
+            { type: "string" },
+            { type: "number" },
+            { type: "boolean" },
+            { type: "null" },
+          ],
+        },
+      };
+    case "object":
+    case "array<object>":
+      return buildObjectAnswerSchema(field);
+  }
+}
+
+function buildObjectAnswerSchema(field: FieldDefinition): Record<string, unknown> {
+  const columns = readObjectSchemaColumns(field.description);
+  if (columns.length === 0) {
+    const emptyObjectSchema = {
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    };
+    return field.data_type === "array<object>"
+      ? { type: "array", items: emptyObjectSchema }
+      : emptyObjectSchema;
+  }
+
+  const rowProperties = Object.fromEntries(
+    columns.map((column) => [
+      column.key,
+      { type: [schemaTypeForDataType(column.dataType), "null"] },
+    ]),
+  );
+  return {
+    type: "object",
+    properties: {
+      columns: { type: "array", items: { type: "string" } },
+      rows: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: rowProperties,
+          required: columns.map((column) => column.key),
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["columns", "rows"],
+    additionalProperties: false,
+  };
+}
+
+function readObjectSchemaColumns(
+  description: string,
+): Array<{ key: string; dataType: FieldDefinition["data_type"] }> {
+  const match = description.match(
+    /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/,
+  );
+  if (!match?.[1]) {
+    return [];
+  }
+
+  try {
+    const schema = JSON.parse(match[1]) as { columns?: unknown };
+    if (!Array.isArray(schema.columns)) {
+      return [];
+    }
+    return schema.columns.flatMap((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return [];
+      }
+      const column = value as Record<string, unknown>;
+      const key = typeof column.key === "string" ? column.key : "";
+      const dataType = column.data_type;
+      if (
+        !key ||
+        (dataType !== "string" &&
+          dataType !== "number" &&
+          dataType !== "boolean" &&
+          dataType !== "date")
+      ) {
+        return [];
+      }
+      return [{ key, dataType }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function schemaTypeForDataType(
+  dataType: FieldDefinition["data_type"],
+): "string" | "number" | "boolean" {
+  if (dataType === "number" || dataType === "boolean") {
+    return dataType;
+  }
+  return "string";
 }
 
 function buildUploadedFileContentPart(
@@ -149,11 +349,17 @@ function buildInlineSourceContentPart(
     };
   }
 
+  return buildInlineImageContentPart(sourceBytes, sourceMimeType);
+}
+
+function buildInlineImageContentPart(
+  sourceBytes: ArrayBuffer,
+  sourceMimeType: string,
+): Record<string, unknown> {
   return {
     type: "image_url",
     image_url: {
       url: `data:${sourceMimeType};base64,${toBase64(sourceBytes)}`,
-      format: sourceMimeType,
     },
   };
 }
@@ -162,9 +368,22 @@ function shouldUploadPdfToModelGateway(model: string): boolean {
   return model.startsWith("azure/") || model.startsWith("azure_ai/");
 }
 
+function shouldRenderPdfAsImages(model: string): boolean {
+  const normalizedModel = model.toLowerCase();
+  return (
+    normalizedModel.includes("gemma-4") ||
+    isQwenMultimodalModel(normalizedModel)
+  );
+}
+
+function isQwenMultimodalModel(normalizedModel: string): boolean {
+  return /qwen3\.(?:5|6)/.test(normalizedModel);
+}
+
 function buildPrompt(
   fields: FieldDefinition[],
   sourceMimeType: string,
+  pdfRenderedAsImages: boolean,
 ): string {
   const serializedFields = fields.map((field) => ({
     id: field.id,
@@ -173,8 +392,9 @@ function buildPrompt(
     data_type: field.data_type,
   }));
 
-  const sourceGuidance =
-    sourceMimeType === "application/pdf"
+  const sourceGuidance = pdfRenderedAsImages
+    ? "The attached images are the PDF pages in order; read all pages."
+    : sourceMimeType === "application/pdf"
       ? "For PDF inputs, read the attached PDF file directly."
       : "For image inputs, read the attached image.";
 
@@ -210,6 +430,11 @@ function readRunResultContent(payload: unknown): string {
   const messageContent = readContentValue(message?.content);
   if (messageContent) {
     return messageContent;
+  }
+
+  const reasoningContent = readContentValue(message?.reasoning_content);
+  if (reasoningContent) {
+    return reasoningContent;
   }
 
   throw new RetryableError(

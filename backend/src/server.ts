@@ -45,6 +45,11 @@ const maxSourceFileBytes = readPositiveInteger(
   "MAX_SOURCE_FILE_BYTES",
   DEFAULT_MAX_SOURCE_FILE_BYTES,
 );
+const extractionRetryDelayMs = readPositiveInteger(
+  process.env.EXTRACTION_RETRY_DELAY_MS,
+  "EXTRACTION_RETRY_DELAY_MS",
+  0,
+);
 
 await ensureLocalStateDirectories(stateDirectory);
 
@@ -71,6 +76,7 @@ await localWorkspaceDeletion.reconcileInterruptedDeletions();
 const localExtractionRunner = createLocalExtractionRunner({
   onJobLifecycleChange: localLiveUpdateHub.broadcastJob,
   productAnalytics: localProductAnalytics,
+  retryDelayMs: extractionRetryDelayMs,
   scheduleJob: localExtractionQueue.schedule,
   sourceFileStore: localSourceFiles,
   stateDirectory,
