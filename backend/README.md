@@ -34,6 +34,13 @@ The server reads ordinary environment variables. A local `.env` file is suitable
 | `EXTRACTION_RETRY_DELAY_MS` | `0` | Delay before retrying a failed model request. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | unset | Optional Google sign-in configuration. |
 
+Signed-in users can override `MODEL_GATEWAY_URL`, `AI_MODEL`, and `LITELLM_KEY`
+from **Settings → Model**. UI overrides take effect for new extraction attempts
+without a server restart and are stored in
+`.local/data/model-gateway.json` (or the configured state directory) with
+owner-only file permissions. The saved token is write-only in the UI; removing
+it explicitly also overrides any `LITELLM_KEY` environment fallback.
+
 ## Local State
 
 `bun run migrate` is idempotent. It creates the control database, Better Auth schema, local secret, and required state directories. Workspace product databases initialize when the Workspace first uses Templates or Documents.

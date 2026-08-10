@@ -46,6 +46,7 @@ type ExtractionFunction = (input: {
 export function createLocalExtractionRunner({
   extract,
   modelGatewayConfiguration = localModelGatewayConfiguration(),
+  modelGatewayConfigurationProvider,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   now = nowIso,
   onJobLifecycleChange,
@@ -61,6 +62,7 @@ export function createLocalExtractionRunner({
 }: {
   extract?: ExtractionFunction;
   modelGatewayConfiguration?: ModelGatewayConfiguration;
+  modelGatewayConfigurationProvider?: () => ModelGatewayConfiguration;
   maxAttempts?: number;
   now?: () => string;
   onJobLifecycleChange?: (workspaceId: string, job: LocalWorkspaceExtractionJob) => void;
@@ -78,13 +80,8 @@ export function createLocalExtractionRunner({
     ? Math.max(0, Math.trunc(retryDelayMs))
     : 0;
   const localSourceFileStore = sourceFileStore ?? createLocalSourceFileStore({ stateDirectory });
-  const runModelExtraction = extract ?? ((input) => runExtraction(
-    modelGatewayConfiguration,
-    input.fields,
-    input.sourceBytes,
-    input.sourceMimeType,
-    input.signal,
-  ));
+  const getModelGatewayConfiguration = modelGatewayConfigurationProvider
+    ?? (() => modelGatewayConfiguration);
 
   return {
     recover: async () => {
@@ -167,12 +164,22 @@ export function createLocalExtractionRunner({
           if (!sourceBytes) {
             throw new MissingSourceFileError();
           }
-          const rawResults = await runModelExtraction({
+          const activeModelGatewayConfiguration = getModelGatewayConfiguration();
+          const extractionInput = {
             fields: claimed.fields,
             signal: productOperation?.signal ?? new AbortController().signal,
             sourceBytes: toArrayBuffer(sourceBytes),
             sourceMimeType: claimed.source_mime_type,
-          });
+          };
+          const rawResults = extract
+            ? await extract(extractionInput)
+            : await runExtraction(
+                activeModelGatewayConfiguration,
+                extractionInput.fields,
+                extractionInput.sourceBytes,
+                extractionInput.sourceMimeType,
+                extractionInput.signal,
+              );
           const results = normalizeModelResults(claimed.fields, rawResults);
           if (productOperation?.signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
             return;
@@ -181,8 +188,8 @@ export function createLocalExtractionRunner({
             jobId: claimed.job_id,
             attempt,
             completedAt: now(),
-            modelName: getExtractionModelName(modelGatewayConfiguration),
-            route: getModelGatewayRouteLabel(modelGatewayConfiguration),
+            modelName: getExtractionModelName(activeModelGatewayConfiguration),
+            route: getModelGatewayRouteLabel(activeModelGatewayConfiguration),
             results,
           });
           if (completed) {
@@ -197,7 +204,7 @@ export function createLocalExtractionRunner({
               attempt,
               sourceMimeType: claimed.source_mime_type,
               sourceByteSize: sourceBytes.byteLength,
-              modelName: getExtractionModelName(modelGatewayConfiguration),
+              modelName: getExtractionModelName(activeModelGatewayConfiguration),
               fieldCount: claimed.fields.length,
             });
             await cleanupCompletedSourceFile({

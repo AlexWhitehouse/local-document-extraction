@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 
+import type { ModelGatewayConfiguration } from "./consumer/modelGateway";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
@@ -73,6 +75,100 @@ test("the local extraction runner completes a queued job with normalized results
       ],
     });
     expect(await sourceFiles.read(sourceFileKey)).toBeNull();
+  } finally {
+    productStore.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("the local extraction runner resolves current model settings for each extraction attempt", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-dynamic-model-"));
+  const workspaceId = "workspace_dynamic_model";
+  const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+  const sourceFiles = createLocalSourceFileStore({ stateDirectory });
+  const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
+  let activeModelConfiguration: ModelGatewayConfiguration = {
+    AI_MODEL: "initial/model",
+    MODEL_GATEWAY_URL: "https://initial-gateway.example/v1",
+  };
+
+  try {
+    productStore.createTemplate({
+      templateId: "tpl_dynamic",
+      name: "Dynamic model",
+      description: null,
+      fields: [
+        { id: "reference", name: "Reference", description: "Document reference.", data_type: "string" },
+      ],
+      createdAt: "2026-07-09T12:00:00.000Z",
+    });
+    const sourceFileKey = await sourceFiles.write({
+      workspaceId,
+      jobId: "job_dynamic",
+      mimeType: "image/png",
+      bytes: new Uint8Array([137, 80, 78, 71]),
+    });
+    productStore.createQueuedExtractionJob({
+      jobId: "job_dynamic",
+      templateId: "tpl_dynamic",
+      templateVersion: 1,
+      sourceFileKey,
+      sourceMimeType: "image/png",
+      sourceName: "dynamic.png",
+      sourceFilePageCount: null,
+      submittedAt: "2026-07-09T12:01:00.000Z",
+    });
+
+    const runner = createLocalExtractionRunner({
+      extract: async () => [
+        { field_id: "reference", status: "ok", answer: "REF-1", confidence: 1, evidence: "REF-1" },
+      ],
+      modelGatewayConfiguration: {
+        AI_MODEL: "captured/model",
+        MODEL_GATEWAY_URL: "https://captured-gateway.example/v1",
+      },
+      modelGatewayConfigurationProvider: () => activeModelConfiguration,
+      productAnalytics: {
+        flush: async () => {},
+        record: (event) => analyticsEvents.push(event),
+      },
+      sourceFileStore: sourceFiles,
+      stateDirectory,
+    });
+
+    activeModelConfiguration = {
+      AI_MODEL: "updated/model",
+      MODEL_GATEWAY_URL: "http://127.0.0.1:11434/v1",
+    };
+    await runner.run({
+      job_id: "job_dynamic",
+      workspace_id: workspaceId,
+      template_id: "tpl_dynamic",
+      template_version: 1,
+      enqueued_at: "2026-07-09T12:01:00.000Z",
+    });
+
+    expect(analyticsEvents).toEqual([
+      expect.objectContaining({
+        type: "extraction_completed",
+        extractionJobId: "job_dynamic",
+        modelName: "updated/model",
+      }),
+    ]);
+    const database = new Database(
+      join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`),
+      { readonly: true },
+    );
+    try {
+      expect(database.query(
+        "SELECT model_name, model_gateway_route FROM jobs WHERE id = ?",
+      ).get("job_dynamic")).toEqual({
+        model_name: "updated/model",
+        model_gateway_route: "127.0.0.1",
+      });
+    } finally {
+      database.close();
+    }
   } finally {
     productStore.close();
     await rm(stateDirectory, { recursive: true, force: true });

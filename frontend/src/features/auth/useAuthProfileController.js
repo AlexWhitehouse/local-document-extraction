@@ -85,23 +85,14 @@ export function useAuthProfileController({
       return;
     }
 
-    function handlePointerDown(event) {
-      if (profilePanelRef.current?.contains(event.target)) {
-        return;
-      }
-      setIsProfileMenuOpen(false);
-    }
-
     function handleKeyDown(event) {
       if (event.key === "Escape") {
         setIsProfileMenuOpen(false);
       }
     }
 
-    window.addEventListener("mousedown", handlePointerDown);
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isProfileMenuOpen]);

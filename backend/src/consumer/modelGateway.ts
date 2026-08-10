@@ -669,7 +669,7 @@ function buildFileDeleteUrl(env: ModelGatewayConfiguration, fileId: string): str
   }
 }
 
-function getModelGatewayBaseUrl(env: ModelGatewayConfiguration): string {
+export function getModelGatewayBaseUrl(env: ModelGatewayConfiguration): string {
   return env.MODEL_GATEWAY_URL || DEFAULT_MODEL_GATEWAY_URL;
 }
 

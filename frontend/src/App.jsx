@@ -10,6 +10,7 @@ import { useAuthProfileController } from "./features/auth/useAuthProfileControll
 import { ApplicationAdminPage } from "./features/admin/ApplicationAdminPage.jsx";
 import { useApplicationAdminController } from "./features/admin/useApplicationAdminController.js";
 import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
+import { useModelSettingsController } from "./features/profile/useModelSettingsController.js";
 import {
   ExtractionJobStatusDisplay,
   ExtractionResultDisplay,
@@ -206,6 +207,11 @@ function AuthenticatedApp() {
     onClearSessionWorkspaceData: workspaceController.actions.clearSessionWorkspaceData,
   });
   const { authScreen, profileMenu } = authProfileController;
+  const modelSettings = useModelSettingsController({
+    coreRequest,
+    hasSession,
+    addLog,
+  });
 
   function handleSidebarNavigation(pageId) {
     if (pageId === "admin" && !isApplicationAdmin) {
@@ -269,6 +275,7 @@ function AuthenticatedApp() {
           <ProfileMenu
             ref={profileMenu.panelRef}
             {...profileMenu}
+            modelSettings={modelSettings}
           />
         }
         contextSidebar={

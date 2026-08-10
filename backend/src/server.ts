@@ -7,6 +7,7 @@ import { createLocalExtractionQueue } from "./localExtractionQueue";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
 import { upgradeLocalLiveUpdate } from "./localLiveUpdateUpgrade";
+import { createLocalModelSettings } from "./localModelSettings";
 import { createLocalProductAnalytics } from "./localProductAnalytics";
 import { createLocalRuntimeFetchHandler, ensureLocalStateDirectories } from "./localRuntime";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
@@ -62,6 +63,7 @@ const localAuth = await createLocalAuthRuntime({
 });
 const localExtractionQueue = createLocalExtractionQueue();
 const localLiveUpdateHub = createLocalLiveUpdateHub();
+const localModelSettings = await createLocalModelSettings({ stateDirectory });
 const localProductAnalytics = createLocalProductAnalytics({ stateDirectory });
 const localWorkspaceProductOperations = createLocalWorkspaceProductOperations();
 const localSourceFiles = createLocalSourceFileStore({ stateDirectory });
@@ -74,6 +76,7 @@ const localWorkspaceDeletion = createLocalWorkspaceDeletion({
 });
 await localWorkspaceDeletion.reconcileInterruptedDeletions();
 const localExtractionRunner = createLocalExtractionRunner({
+  modelGatewayConfigurationProvider: localModelSettings.getConfiguration,
   onJobLifecycleChange: localLiveUpdateHub.broadcastJob,
   productAnalytics: localProductAnalytics,
   retryDelayMs: extractionRetryDelayMs,
@@ -91,6 +94,7 @@ const application = createLocalApplication({
   auth: localAuth.auth,
   liveUpdateHub: localLiveUpdateHub,
   maxSourceFileBytes,
+  modelSettings: localModelSettings,
   productAnalytics: localProductAnalytics,
   scheduleQueuedJob: localExtractionQueue.schedule,
   sourceFileStore: localSourceFiles,

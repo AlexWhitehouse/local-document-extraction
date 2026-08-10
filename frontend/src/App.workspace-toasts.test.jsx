@@ -144,7 +144,7 @@ describe("Workspace action toast feedback", () => {
 
     await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
 
-    const profileMenu = screen.getByText("Save Profile").closest(".sidebar-profile");
+    const profileMenu = screen.getByRole("dialog", { name: "Settings" });
     const saveButton = within(profileMenu).getByRole("button", {
       name: "Save Profile",
     });
@@ -164,6 +164,74 @@ describe("Workspace action toast feedback", () => {
       expect(authClientMock.refetchSession).toHaveBeenCalledOnce();
     });
     expect(screen.queryByText("Save Profile")).toBeNull();
+  });
+
+  it("opens centered Account and Model settings and saves write-only model credentials", async () => {
+    const user = userEvent.setup();
+    const modelUpdates = [];
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/settings/model") && options.method === "GET") {
+        return Promise.resolve(jsonResponse({
+          gateway_url: "https://gateway.example/v1",
+          model_name: "provider/default-model",
+          has_api_key: false,
+        }));
+      }
+      if (url.endsWith("/settings/model") && options.method === "PATCH") {
+        const update = JSON.parse(options.body);
+        modelUpdates.push(update);
+        return Promise.resolve(jsonResponse({
+          gateway_url: update.gateway_url,
+          model_name: update.model_name,
+          has_api_key: update.api_key !== null,
+        }));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
+
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    expect(within(dialog).getByRole("button", { name: "Account" })).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Model" }));
+
+    const gatewayInput = await within(dialog).findByLabelText("Gateway URL");
+    const modelInput = within(dialog).getByLabelText("Model name");
+    const apiKeyInput = within(dialog).getByLabelText(/API key \/ bearer token/);
+    expect(gatewayInput.value).toBe("https://gateway.example/v1");
+    expect(modelInput.value).toBe("provider/default-model");
+    expect(within(dialog).getByText("No token stored")).toBeTruthy();
+
+    await user.clear(gatewayInput);
+    await user.type(gatewayInput, "http://127.0.0.1:11434/v1");
+    await user.clear(modelInput);
+    await user.type(modelInput, "local/vision-model");
+    await user.type(apiKeyInput, "local-secret-token");
+    await user.click(within(dialog).getByRole("button", { name: "Save Model Settings" }));
+
+    await waitFor(() => {
+      expect(modelUpdates).toEqual([{
+        gateway_url: "http://127.0.0.1:11434/v1",
+        model_name: "local/vision-model",
+        api_key: "local-secret-token",
+      }]);
+    });
+    expect(apiKeyInput.value).toBe("");
+    expect(apiKeyInput.placeholder).toContain("Saved");
+    expect(toastMock.success).toHaveBeenCalledWith("Model settings saved.");
+
+    await user.click(within(dialog).getByRole("button", { name: "Remove saved token" }));
+    await waitFor(() => {
+      expect(modelUpdates.at(-1)).toEqual({
+        gateway_url: "http://127.0.0.1:11434/v1",
+        model_name: "local/vision-model",
+        api_key: null,
+      });
+    });
+    expect(within(dialog).getByText("No token stored")).toBeTruthy();
   });
 
   it("shows Loading workspace context without stored Workspace details while startup resolution is pending", async () => {

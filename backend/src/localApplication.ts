@@ -7,6 +7,7 @@ import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
+import type { LocalModelSettings } from "./localModelSettings";
 import type { FetchApplication } from "./localRuntime";
 import type { LocalAuth } from "./localAuth";
 import {
@@ -33,6 +34,7 @@ export function createLocalApplication({
   jobPageSize = DEFAULT_JOB_PAGE_SIZE,
   maxSourceFileBytes = DEFAULT_MAX_SOURCE_FILE_BYTES,
   liveUpdateHub,
+  modelSettings,
   productAnalytics,
   productStoreFactory = createLocalWorkspaceProductStore,
   scheduleQueuedJob = async () => {},
@@ -46,6 +48,7 @@ export function createLocalApplication({
   jobPageSize?: number;
   maxSourceFileBytes?: number;
   liveUpdateHub?: LocalLiveUpdateHub;
+  modelSettings?: LocalModelSettings;
   productAnalytics?: LocalProductAnalytics;
   productStoreFactory?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
   scheduleQueuedJob?: (job: LocalQueuedExtractionJob) => void | Promise<void>;
@@ -98,6 +101,50 @@ export function createLocalApplication({
 
     if (request.method === "GET" && url.pathname === "/v1/health") {
       return Response.json({ ok: true, service: "document-extraction-api" });
+    }
+
+    if (url.pathname === "/v1/settings/model") {
+      if (!auth || !modelSettings) {
+        return Response.json(
+          {
+            error: {
+              code: "local_model_settings_unavailable",
+              message: "Local model settings have not finished initializing.",
+            },
+          },
+          { status: 503 },
+        );
+      }
+      const session = await auth.getSession(request);
+      if (!session) {
+        return Response.json(
+          { error: { code: "unauthorized", message: "Authentication required" } },
+          { status: 401 },
+        );
+      }
+      if (request.method === "GET") {
+        return Response.json(modelSettings.getPublicSettings());
+      }
+      if (request.method === "PATCH") {
+        try {
+          const input = validateModelSettingsPayload(
+            parseJsonBody(await request.text()),
+          );
+          return Response.json(await modelSettings.update(input));
+        } catch (error) {
+          if (error instanceof HttpError) {
+            return Response.json(
+              { error: { code: error.code, message: error.message } },
+              { status: error.status },
+            );
+          }
+          throw error;
+        }
+      }
+      return Response.json(
+        { error: { code: "method_not_allowed", message: "Method not allowed" } },
+        { status: 405, headers: { allow: "GET, PATCH" } },
+      );
     }
 
     if (url.pathname === "/v1/invitations") {
@@ -333,6 +380,78 @@ export function createLocalApplication({
       { status: 404 },
     );
   };
+}
+
+function validateModelSettingsPayload(input: unknown): {
+  gatewayUrl: string;
+  modelName: string;
+  apiKey?: string | null;
+} {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new HttpError(400, "invalid_model_settings", "Model settings must be an object");
+  }
+  const payload = input as Record<string, unknown>;
+  const gatewayUrl = typeof payload.gateway_url === "string"
+    ? payload.gateway_url.trim()
+    : "";
+  const modelName = typeof payload.model_name === "string"
+    ? payload.model_name.trim()
+    : "";
+
+  if (!gatewayUrl || gatewayUrl.length > 2_048) {
+    throw new HttpError(
+      400,
+      "invalid_gateway_url",
+      "Gateway URL is required and must be 2,048 characters or fewer",
+    );
+  }
+  let parsedGatewayUrl: URL;
+  try {
+    parsedGatewayUrl = new URL(gatewayUrl);
+  } catch {
+    throw new HttpError(400, "invalid_gateway_url", "Gateway URL must be a valid URL");
+  }
+  if (
+    (parsedGatewayUrl.protocol !== "http:" && parsedGatewayUrl.protocol !== "https:") ||
+    parsedGatewayUrl.username ||
+    parsedGatewayUrl.password
+  ) {
+    throw new HttpError(
+      400,
+      "invalid_gateway_url",
+      "Gateway URL must use HTTP or HTTPS and must not contain credentials",
+    );
+  }
+  if (!modelName || modelName.length > 255) {
+    throw new HttpError(
+      400,
+      "invalid_model_name",
+      "Model name is required and must be 255 characters or fewer",
+    );
+  }
+
+  if (!("api_key" in payload)) {
+    return { gatewayUrl, modelName };
+  }
+  if (payload.api_key === null) {
+    return { gatewayUrl, modelName, apiKey: null };
+  }
+  if (typeof payload.api_key !== "string" || !payload.api_key.trim()) {
+    throw new HttpError(
+      400,
+      "invalid_api_key",
+      "API key must be a non-empty string or null",
+    );
+  }
+  if (payload.api_key.length > 16_384) {
+    throw new HttpError(
+      400,
+      "invalid_api_key",
+      "API key must be 16,384 characters or fewer",
+    );
+  }
+
+  return { gatewayUrl, modelName, apiKey: payload.api_key.trim() };
 }
 
 async function handleLocalDocumentSubmission({
