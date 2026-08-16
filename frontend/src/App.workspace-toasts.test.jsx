@@ -2394,7 +2394,12 @@ describe("Workspace action toast feedback", () => {
       href: "blob:job-export",
       filename: "research-workspace-job-export-2026-08-16-1430.xlsx",
     });
-    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    const [downloadBlob] = createObjectURL.mock.calls[0];
+    expect(downloadBlob.size).toBe(10);
+    expect(downloadBlob.type).toBe(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:job-export");
     expect(screen.getByRole("button", { name: "Export 2 Jobs" }).disabled).toBe(false);
     expect(screen.getByRole("checkbox", { name: "Select job job_completed_1" }).checked).toBe(
