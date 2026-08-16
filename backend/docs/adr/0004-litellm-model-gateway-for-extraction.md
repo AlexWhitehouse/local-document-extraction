@@ -10,4 +10,6 @@ The local extraction runner calls one OpenAI-compatible model gateway endpoint. 
 - The runner keeps model invocation separate from persisted Extraction job lifecycle changes.
 - Retryable gateway errors are retried within the runner's bounded retry policy after the configured durable retry delay.
 - Completed jobs retain the model name and route label as operational metadata.
-- PDF and image Source files use the existing OpenAI-compatible request contract.
+- Image Source files and compatibility-mode PDFs use the existing inline OpenAI-compatible request contract.
+- A verified PDF-capable model alias may opt into LiteLLM managed-file upload with `MODEL_GATEWAY_USE_MANAGED_FILES`; the runner passes a lazy local `Blob`, submits the returned file ID, and deletes the remote file in `finally`.
+- Managed-file upload remains disabled for aliases whose gateway capability has not been verified; configuration failures do not silently switch to page rendering.

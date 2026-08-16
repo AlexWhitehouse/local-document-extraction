@@ -93,8 +93,20 @@ export type DeletedLocalWorkspaceExtractionJob = {
   status: "queued" | "processing" | "completed" | "failed";
 };
 
+export type LocalRetainedTerminalSourceFile = {
+  job_id: string;
+  source_file_key: string;
+};
+
 export type LocalWorkspaceProductStore = {
   close(): void;
+  diagnostics(): {
+    busyTimeoutMs: number;
+    foreignKeys: boolean;
+    journalMode: string;
+    sqliteVersion: string;
+    synchronous: number;
+  };
   createTemplate(input: {
     templateId: string;
     name: string;
@@ -173,6 +185,7 @@ export type LocalWorkspaceProductStore = {
     nextRetryAt: string;
   }): boolean;
   recoverExtractionJobs(input: {
+    limit?: number;
     maxAttempts: number;
     recoveredAt: string;
     staleProcessingBefore: string;
@@ -180,6 +193,8 @@ export type LocalWorkspaceProductStore = {
   getTemplate(templateId: string): LocalWorkspaceTemplateDetail | null;
   deleteExtractionJob(input: { jobId: string }): DeletedLocalWorkspaceExtractionJob | null;
   getExtractionJob(jobId: string): LocalWorkspaceExtractionJob | null;
+  getExtractionJobResults(jobId: string): LocalWorkspaceExtractionResult[];
+  getExtractionJobSummary(jobId: string): LocalWorkspaceExtractionJobSummary | null;
   getExtractionJobExport(jobId: string): LocalWorkspaceExtractionJobExport | null;
   getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
   listTemplates(): LocalWorkspaceTemplate[];
@@ -193,6 +208,10 @@ export type LocalWorkspaceProductStore = {
     model?: string;
     search?: string;
   }): LocalWorkspaceExtractionJobSummary[];
+  listRetainedTerminalSourceFiles(input: {
+    failedBefore: string;
+    limit?: number;
+  }): LocalRetainedTerminalSourceFile[];
   markSourceFileCleaned(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): boolean;
 };
 
@@ -256,11 +275,16 @@ function workspaceProductDatabasePath({ stateDirectory, workspaceId }: { stateDi
 }
 
 function createProductStore(database: Database): LocalWorkspaceProductStore {
+  database.exec("PRAGMA foreign_keys = ON");
+  database.exec("PRAGMA busy_timeout = 250");
+  database.exec("PRAGMA synchronous = FULL");
   database.exec(PRODUCT_SCHEMA);
   ensureProductSchemaColumns(database);
+  migrateProductSchema(database);
 
   return {
     close: () => database.close(),
+    diagnostics: () => productStoreDiagnostics(database),
     createTemplate: (input) => createTemplate(database, input),
     updateTemplate: (input) => updateTemplate(database, input),
     deleteTemplate: (input) => deleteTemplate(database, input),
@@ -276,12 +300,15 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     getTemplate: (templateId) => getTemplate(database, templateId),
     deleteExtractionJob: (input) => deleteExtractionJob(database, input),
     getExtractionJob: (jobId) => getExtractionJob(database, jobId),
+    getExtractionJobResults: (jobId) => readExtractionJobResults(database, jobId),
+    getExtractionJobSummary: (jobId) => readExtractionJobSummary(database, jobId),
     getExtractionJobExport: (jobId) => getExtractionJobExport(database, jobId),
     getSubmissionTemplate: (templateId) => getSubmissionTemplate(database, templateId),
     listTemplates: () => listTemplates(database),
     countExtractionJobs: () => countExtractionJobs(database),
     listExtractionJobModels: () => listExtractionJobModels(database),
     listExtractionJobs: (input) => listExtractionJobs(database, input),
+    listRetainedTerminalSourceFiles: (input) => listRetainedTerminalSourceFiles(database, input),
     markSourceFileCleaned: (input) => markSourceFileCleaned(database, input),
   };
 }
@@ -302,6 +329,59 @@ function ensureProductSchemaColumns(database: Database): void {
     `CREATE INDEX IF NOT EXISTS idx_jobs_model_created_id
      ON jobs(model_name, created_at DESC, id DESC)`,
   );
+}
+
+function migrateProductSchema(database: Database): void {
+  database.transaction(() => {
+    const applied = new Set(
+      (database.query("SELECT version FROM product_schema_version").all() as Array<{ version: number }>)
+        .map((row) => row.version),
+    );
+    if (!applied.has(1)) {
+      database.exec("DROP INDEX IF EXISTS idx_source_files_job");
+      database.exec("DROP INDEX IF EXISTS idx_job_results_job");
+      database.exec("DROP INDEX IF EXISTS idx_jobs_status_updated");
+      database.exec(
+        `CREATE INDEX IF NOT EXISTS idx_jobs_active_updated_id
+         ON jobs(status, updated_at, id)
+         WHERE status = 'queued' OR status = 'processing'`,
+      );
+      database.query(
+        `INSERT INTO product_schema_version(version, applied_at) VALUES (1, ?)`,
+      ).run(new Date().toISOString());
+    }
+    if (!applied.has(2)) {
+      database.exec(
+        `CREATE INDEX IF NOT EXISTS idx_jobs_terminal_cleanup_updated_id
+         ON jobs(status, updated_at, id)
+         WHERE status = 'completed' OR status = 'failed'`,
+      );
+      database.query(
+        `INSERT INTO product_schema_version(version, applied_at) VALUES (2, ?)`,
+      ).run(new Date().toISOString());
+    }
+  }).immediate();
+}
+
+function productStoreDiagnostics(database: Database): {
+  busyTimeoutMs: number;
+  foreignKeys: boolean;
+  journalMode: string;
+  sqliteVersion: string;
+  synchronous: number;
+} {
+  const sqliteVersion = database.query("SELECT sqlite_version() AS value").get() as { value: string };
+  const journalMode = database.query("PRAGMA journal_mode").get() as { journal_mode: string };
+  const synchronous = database.query("PRAGMA synchronous").get() as { synchronous: number };
+  const foreignKeys = database.query("PRAGMA foreign_keys").get() as { foreign_keys: number };
+  const busyTimeout = database.query("PRAGMA busy_timeout").get() as { timeout: number };
+  return {
+    busyTimeoutMs: busyTimeout.timeout,
+    foreignKeys: foreignKeys.foreign_keys === 1,
+    journalMode: journalMode.journal_mode,
+    sqliteVersion: sqliteVersion.value,
+    synchronous: synchronous.synchronous,
+  };
 }
 
 function ensureStarterInvoiceTemplate(database: Database, input: { createdAt: string }): void {
@@ -534,20 +614,12 @@ function failQueuedExtractionJob(
   database: Database,
   input: { jobId: string; failedAt: string; errorCode: string; errorMessage: string },
 ): boolean {
-  const fail = database.transaction(() => {
-    const result = database.query(
-      `UPDATE jobs
-       SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = 1
-       WHERE id = ? AND status = 'queued'`,
-    ).run(input.errorCode, input.errorMessage.slice(0, 2000), input.failedAt, input.jobId);
-    if (result.changes > 0) {
-      database.query(
-        "UPDATE source_files SET deleted_at = ? WHERE job_id = ? AND deleted_at IS NULL",
-      ).run(input.failedAt, input.jobId);
-    }
-    return result.changes > 0;
-  });
-  return fail();
+  const result = database.query(
+    `UPDATE jobs
+     SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = 1
+     WHERE id = ? AND status = 'queued'`,
+  ).run(input.errorCode, input.errorMessage.slice(0, 2000), input.failedAt, input.jobId);
+  return result.changes > 0;
 }
 
 function claimExtractionJobForProcessing(
@@ -760,16 +832,21 @@ function requeueExtractionJob(
 
 function recoverExtractionJobs(
   database: Database,
-  input: { maxAttempts: number; recoveredAt: string; staleProcessingBefore: string },
+  input: { limit?: number; maxAttempts: number; recoveredAt: string; staleProcessingBefore: string },
 ): LocalScheduledExtractionJob[] {
+  const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? input.limit! : 1_000;
   const recover = database.transaction(() => {
     const scheduled: LocalScheduledExtractionJob[] = [];
     const queued = database.query(
       `SELECT id, template_id, template_version, current_attempt, next_retry_at
        FROM jobs
        WHERE status = 'queued'
-       ORDER BY updated_at ASC, id ASC`,
-    ).all() as Array<{
+       ORDER BY
+         CASE WHEN next_retry_at IS NULL OR next_retry_at <= ? THEN 0 ELSE 1 END ASC,
+         CASE WHEN next_retry_at IS NULL OR next_retry_at <= ? THEN updated_at ELSE next_retry_at END ASC,
+         id ASC
+       LIMIT ?`,
+    ).all(input.recoveredAt, input.recoveredAt, limit) as Array<{
       id: string;
       template_id: string;
       template_version: number;
@@ -798,8 +875,9 @@ function recoverExtractionJobs(
       `SELECT id, template_id, template_version, current_attempt
        FROM jobs
        WHERE status = 'processing' AND updated_at <= ?
-       ORDER BY updated_at ASC, id ASC`,
-    ).all(input.staleProcessingBefore) as Array<{ id: string; template_id: string; template_version: number; current_attempt: number }>;
+       ORDER BY updated_at ASC, id ASC
+       LIMIT ?`,
+    ).all(input.staleProcessingBefore, limit) as Array<{ id: string; template_id: string; template_version: number; current_attempt: number }>;
     for (const job of stale) {
       if (job.current_attempt >= input.maxAttempts) {
         database.query(
@@ -857,6 +935,13 @@ function getExtractionJob(database: Database, jobId: string): LocalWorkspaceExtr
     return null;
   }
 
+  return {
+    ...summary,
+    results: summary.status === "completed" ? readExtractionJobResults(database, jobId) : [],
+  };
+}
+
+function readExtractionJobResults(database: Database, jobId: string): LocalWorkspaceExtractionResult[] {
   const results = database.query(
     `SELECT r.field_id, f.name, f.data_type, r.status, r.answer_json, r.confidence, r.evidence_text
      FROM job_results r
@@ -876,18 +961,15 @@ function getExtractionJob(database: Database, jobId: string): LocalWorkspaceExtr
     evidence_text: string | null;
   }>;
 
-  return {
-    ...summary,
-    results: results.map((result) => ({
-      field_id: result.field_id,
-      name: result.name,
-      data_type: result.data_type,
-      status: result.status,
-      answer: parseStoredAnswer(result.answer_json),
-      confidence: result.confidence,
-      evidence: result.evidence_text,
-    })),
-  };
+  return results.map((result) => ({
+    field_id: result.field_id,
+    name: result.name,
+    data_type: result.data_type,
+    status: result.status,
+    answer: parseStoredAnswer(result.answer_json),
+    confidence: result.confidence,
+    evidence: result.evidence_text,
+  }));
 }
 
 function getExtractionJobExport(
@@ -996,6 +1078,22 @@ function markSourceFileCleaned(
   return result.changes > 0;
 }
 
+function listRetainedTerminalSourceFiles(
+  database: Database,
+  input: { failedBefore: string; limit?: number },
+): LocalRetainedTerminalSourceFile[] {
+  const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? input.limit! : 1_000;
+  return database.query(
+    `SELECT j.id AS job_id, s.key AS source_file_key
+     FROM jobs j
+     JOIN source_files s ON s.job_id = j.id
+     WHERE s.deleted_at IS NULL
+       AND (j.status = 'completed' OR (j.status = 'failed' AND j.updated_at <= ?))
+     ORDER BY j.updated_at ASC, j.id ASC
+     LIMIT ?`,
+  ).all(input.failedBefore, limit) as LocalRetainedTerminalSourceFile[];
+}
+
 function readExtractionJobSummary(database: Database, jobId: string): LocalWorkspaceExtractionJobSummary | null {
   return database.query(
     `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
@@ -1062,9 +1160,6 @@ const PRODUCT_SCHEMA = `
     deleted_at TEXT
   );
 
-  CREATE INDEX IF NOT EXISTS idx_source_files_job
-    ON source_files(job_id);
-
   CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
     template_id TEXT NOT NULL,
@@ -1086,8 +1181,12 @@ const PRODUCT_SCHEMA = `
     next_retry_at TEXT
   );
 
-  CREATE INDEX IF NOT EXISTS idx_jobs_status_updated
-    ON jobs(status, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_jobs_active_updated_id
+    ON jobs(status, updated_at, id)
+    WHERE status = 'queued' OR status = 'processing';
+  CREATE INDEX IF NOT EXISTS idx_jobs_terminal_cleanup_updated_id
+    ON jobs(status, updated_at, id)
+    WHERE status = 'completed' OR status = 'failed';
   CREATE INDEX IF NOT EXISTS idx_jobs_created_id
     ON jobs(created_at DESC, id DESC);
 
@@ -1104,8 +1203,6 @@ const PRODUCT_SCHEMA = `
     PRIMARY KEY (job_id, field_id)
   );
 
-  CREATE INDEX IF NOT EXISTS idx_job_results_job
-    ON job_results(job_id);
 `;
 
 const STARTER_INVOICE_FIELDS: FieldDefinition[] = [

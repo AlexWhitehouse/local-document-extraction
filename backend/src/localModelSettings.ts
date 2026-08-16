@@ -107,6 +107,8 @@ function configurationFromEnvironment(
     MODEL_GATEWAY_ROUTE_LABEL: environment.MODEL_GATEWAY_ROUTE_LABEL,
     MODEL_GATEWAY_SEQUENTIAL_CALLS:
       environment.MODEL_GATEWAY_SEQUENTIAL_CALLS?.trim() || undefined,
+    MODEL_GATEWAY_USE_MANAGED_FILES:
+      environment.MODEL_GATEWAY_USE_MANAGED_FILES?.trim() || undefined,
     MODEL_GATEWAY_URL: environment.MODEL_GATEWAY_URL?.trim() || undefined,
     MODEL_SUPPORTS_PDF_INPUT:
       environment.MODEL_SUPPORTS_PDF_INPUT?.trim() || undefined,

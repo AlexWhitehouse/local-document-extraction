@@ -1,10 +1,12 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { evaluateAccountPasswordPolicy } from "./lib/accountPasswordPolicy";
 import { HttpError } from "./lib/http";
 import { newId, nowIso } from "./lib/ids";
 import { InvalidPdfSourceFileError, countPdfSourceFilePages } from "./lib/sourceFilePageCount";
 import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "./lib/validation";
 import { buildJobExportWorkbook } from "./jobExportWorkbook";
+import { parseLocalMultipartSubmission } from "./localMultipartSubmission";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
@@ -15,15 +17,23 @@ import {
   LocalWorkspaceControlError,
   type LocalWorkspaceControl,
 } from "./localWorkspaceControl";
-import {
-  createLocalWorkspaceProductStore,
-  type LocalWorkspaceProductStore,
+import type {
+  LocalWorkspaceExtractionJobSummary,
+  LocalWorkspaceProductStore,
 } from "./localWorkspaceProductStore";
+import {
+  createEphemeralLocalWorkspaceProductStoreRegistry,
+  createLocalWorkspaceProductStoreRegistry,
+  LocalWorkspaceProductStoreRegistryError,
+  type LocalWorkspaceProductStoreLease,
+  type LocalWorkspaceProductStoreRegistry,
+} from "./localWorkspaceProductStoreRegistry";
 import { createLocalSourceFileStore, type LocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceDeletion, type LocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import {
   createLocalWorkspaceProductOperations,
   LocalWorkspaceOperationError,
+  type LocalWorkspaceProductOperation,
   type LocalWorkspaceProductOperations,
 } from "./localWorkspaceProductOperations";
 
@@ -32,12 +42,14 @@ export const DEFAULT_JOB_PAGE_SIZE = 50;
 
 export function createLocalApplication({
   auth,
+  diagnostics,
   jobPageSize = DEFAULT_JOB_PAGE_SIZE,
   maxSourceFileBytes = DEFAULT_MAX_SOURCE_FILE_BYTES,
   liveUpdateHub,
   modelSettings,
   productAnalytics,
-  productStoreFactory = createLocalWorkspaceProductStore,
+  productStoreFactory,
+  productStoreRegistry,
   scheduleQueuedJob = async () => {},
   sourceFileStore,
   stateDirectory,
@@ -46,12 +58,14 @@ export function createLocalApplication({
   workspaceProductOperations,
 }: {
   auth?: LocalAuth;
+  diagnostics?: () => Record<string, unknown>;
   jobPageSize?: number;
   maxSourceFileBytes?: number;
   liveUpdateHub?: LocalLiveUpdateHub;
   modelSettings?: LocalModelSettings;
   productAnalytics?: LocalProductAnalytics;
   productStoreFactory?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
+  productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
   scheduleQueuedJob?: (job: LocalQueuedExtractionJob) => void | Promise<void>;
   sourceFileStore?: LocalSourceFileStore;
   stateDirectory?: string;
@@ -64,6 +78,11 @@ export function createLocalApplication({
     : DEFAULT_JOB_PAGE_SIZE;
   const jobCursorSecret = randomBytes(32);
   const localSourceFileStore = sourceFileStore ?? (stateDirectory ? createLocalSourceFileStore({ stateDirectory }) : null);
+  const localProductStoreRegistry = productStoreRegistry ?? (stateDirectory
+    ? productStoreFactory
+      ? createEphemeralLocalWorkspaceProductStoreRegistry({ stateDirectory, createStore: productStoreFactory })
+      : createLocalWorkspaceProductStoreRegistry({ stateDirectory })
+    : null);
   const localWorkspaceProductOperations = workspaceProductOperations ?? (stateDirectory && workspaceControl
     ? createLocalWorkspaceProductOperations()
     : null);
@@ -73,6 +92,7 @@ export function createLocalApplication({
         stateDirectory,
         workspaceControl,
         workspaceProductOperations: localWorkspaceProductOperations ?? undefined,
+        productStoreRegistry: localProductStoreRegistry ?? undefined,
         onWorkspaceAccessRevoked: liveUpdateHub?.broadcastWorkspaceContextInvalidation,
       })
     : null);
@@ -101,7 +121,11 @@ export function createLocalApplication({
     }
 
     if (request.method === "GET" && url.pathname === "/v1/health") {
-      return Response.json({ ok: true, service: "document-extraction-api" });
+      return Response.json({
+        ok: true,
+        service: "document-extraction-api",
+        ...(diagnostics ? { diagnostics: diagnostics() } : {}),
+      });
     }
 
     if (url.pathname === "/v1/settings/model") {
@@ -222,7 +246,16 @@ export function createLocalApplication({
         return workspaceProductOperationErrorResponse(error);
       }
 
-      const productStore = productStoreFactory({ stateDirectory, workspaceId: productWorkspaceId });
+      const productStoreAcquisition = acquireWorkspaceProductStore({
+        operation: productOperation,
+        registry: localProductStoreRegistry!,
+        workspaceId: productWorkspaceId,
+      });
+      if ("response" in productStoreAcquisition) {
+        return productStoreAcquisition.response;
+      }
+      const productStoreLease = productStoreAcquisition.lease;
+      const productStore = productStoreLease.store;
       try {
         if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: productWorkspaceId })) {
           productStore.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
@@ -294,7 +327,7 @@ export function createLocalApplication({
         }
         throw error;
       } finally {
-        productStore.close();
+        productStoreLease.release();
         productOperation?.release();
       }
     }
@@ -311,7 +344,7 @@ export function createLocalApplication({
         maxSourceFileBytes,
         liveUpdateHub,
         productAnalytics,
-        productStoreFactory,
+        productStoreRegistry: localProductStoreRegistry!,
         request,
         scheduleQueuedJob,
         sourceFileStore: localSourceFileStore,
@@ -330,9 +363,8 @@ export function createLocalApplication({
       }
       return handleLocalJobExport({
         auth,
-        productStoreFactory,
+        productStoreRegistry: localProductStoreRegistry!,
         request,
-        stateDirectory,
         workspaceControl,
         workspaceProductOperations: localWorkspaceProductOperations,
       });
@@ -347,9 +379,8 @@ export function createLocalApplication({
       }
       return handleLocalJobFilterOptions({
         auth,
-        productStoreFactory,
+        productStoreRegistry: localProductStoreRegistry!,
         request,
-        stateDirectory,
         workspaceControl,
         workspaceProductOperations: localWorkspaceProductOperations,
       });
@@ -368,10 +399,9 @@ export function createLocalApplication({
         jobId: jobMatch[1] ? decodeURIComponent(jobMatch[1]) : "",
         jobCursorSecret,
         jobPageSize: localJobPageSize,
-        productStoreFactory,
+        productStoreRegistry: localProductStoreRegistry!,
         request,
         sourceFileStore: localSourceFileStore,
-        stateDirectory,
         workspaceControl,
         workspaceProductOperations: localWorkspaceProductOperations!,
       });
@@ -526,7 +556,7 @@ async function handleLocalDocumentSubmission({
   maxSourceFileBytes,
   liveUpdateHub,
   productAnalytics,
-  productStoreFactory,
+  productStoreRegistry,
   request,
   scheduleQueuedJob,
   sourceFileStore,
@@ -538,7 +568,7 @@ async function handleLocalDocumentSubmission({
   maxSourceFileBytes: number;
   liveUpdateHub?: LocalLiveUpdateHub;
   productAnalytics?: LocalProductAnalytics;
-  productStoreFactory: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
+  productStoreRegistry: LocalWorkspaceProductStoreRegistry;
   request: Request;
   scheduleQueuedJob: (job: LocalQueuedExtractionJob) => void | Promise<void>;
   sourceFileStore: LocalSourceFileStore;
@@ -557,7 +587,16 @@ async function handleLocalDocumentSubmission({
   } catch (error) {
     return workspaceProductOperationErrorResponse(error);
   }
-  const productStore = productStoreFactory({ stateDirectory, workspaceId: authorization.workspace.id });
+  const productStoreAcquisition = acquireWorkspaceProductStore({
+    operation: productOperation,
+    registry: productStoreRegistry,
+    workspaceId: authorization.workspace.id,
+  });
+  if ("response" in productStoreAcquisition) {
+    return productStoreAcquisition.response;
+  }
+  const productStoreLease = productStoreAcquisition.lease;
+  const productStore = productStoreLease.store;
   try {
     if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: authorization.workspace.id })) {
       productStore.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
@@ -565,98 +604,143 @@ async function handleLocalDocumentSubmission({
     }
 
     const maximumBytes = authorization.workspace.max_source_file_bytes ?? maxSourceFileBytes;
-    const { templateId, source } = await validateExtractRequest(request, maximumBytes);
-    const template = productStore.getSubmissionTemplate(templateId);
-    if (!template) {
-      throw new HttpError(404, "template_not_found", "Template not found");
-    }
-
-    const sourceBytes = await source.arrayBuffer();
-    const sourceFilePageCount = await countLocalSourceFilePages(source.type, sourceBytes);
-    const templateFieldCount = productStore.getTemplate(template.template_id)?.fields.length ?? 0;
-    const jobId = newId("job");
-    const submittedAt = nowIso();
-    const sourceFileKey = await sourceFileStore.write({
-      workspaceId: authorization.workspace.id,
-      jobId,
-      mimeType: source.type,
-      bytes: sourceBytes,
-    });
-    const sourceName = source.name.trim() || null;
-
-    let queued;
-    try {
-      queued = productStore.createQueuedExtractionJob({
-        jobId,
-        templateId: template.template_id,
-        templateVersion: template.template_version,
-        sourceFileKey,
-        sourceMimeType: source.type,
-        sourceName,
-        sourceFilePageCount,
-        submittedAt,
+    let sourceMimeType: string;
+    let sourceName: string | null;
+    let sourceByteSize: number;
+    let sourceBytes: ArrayBuffer;
+    let temporaryPath: string | null = null;
+    let templateId: string;
+    if (sourceFileStore.promoteTemporary) {
+      const streamed = await parseLocalMultipartSubmission({
+        maxSourceFileBytes: maximumBytes,
+        request,
+        stateDirectory,
       });
-      const queuedJob = productStore.getExtractionJob(jobId);
-      if (queuedJob) {
-        liveUpdateHub?.broadcastJob(authorization.workspace.id, queuedJob);
+      templateId = streamed.templateId;
+      sourceMimeType = streamed.source.mimeType;
+      sourceName = streamed.source.name.trim() || null;
+      sourceByteSize = streamed.source.size;
+      temporaryPath = streamed.source.temporaryPath;
+    } else {
+      const validated = await validateExtractRequest(request, maximumBytes);
+      templateId = validated.templateId;
+      sourceMimeType = validated.source.type;
+      sourceName = validated.source.name.trim() || null;
+      sourceByteSize = validated.source.size;
+      sourceBytes = await validated.source.arrayBuffer();
+    }
+    try {
+      const template = productStore.getSubmissionTemplate(templateId);
+      if (!template) {
+        throw new HttpError(404, "template_not_found", "Template not found");
       }
-      recordLocalProductAnalytics(productAnalytics, {
-        type: "document_submitted",
-        workspaceId: authorization.workspace.id,
-        templateId: template.template_id,
-        templateVersion: template.template_version,
-        extractionJobId: jobId,
-        status: "queued",
-        attempt: 1,
-        sourceMimeType: source.type,
-        sourceByteSize: sourceBytes.byteLength,
-      });
-    } catch (error) {
-      await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
-      throw error;
-    }
-
-    try {
-      await scheduleQueuedJob({
-        job_id: jobId,
-        workspace_id: authorization.workspace.id,
-        template_id: template.template_id,
-        template_version: template.template_version,
-        enqueued_at: submittedAt,
-      });
-    } catch (error) {
-      try {
-        const failed = productStore.failQueuedExtractionJob({
-          jobId,
-          failedAt: nowIso(),
-          errorCode: "local_runner_schedule_failed",
-          errorMessage: errorMessage(error),
-        });
-        if (failed) {
-          const failedJob = productStore.getExtractionJob(jobId);
-          if (failedJob) {
-            liveUpdateHub?.broadcastJob(authorization.workspace.id, failedJob);
-          }
-          recordLocalProductAnalytics(productAnalytics, {
-            type: "extraction_failed",
+      if (temporaryPath) sourceBytes = await Bun.file(temporaryPath).arrayBuffer();
+      const sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!);
+      const templateFieldCount = productStore.getTemplate(template.template_id)?.fields.length ?? 0;
+      const jobId = newId("job");
+      const submittedAt = nowIso();
+      const sourceFileKey = temporaryPath
+        ? await sourceFileStore.promoteTemporary!({
             workspaceId: authorization.workspace.id,
-            templateId: template.template_id,
-            templateVersion: template.template_version,
-            extractionJobId: jobId,
-            status: "failed",
-            attempt: 1,
-            sourceMimeType: source.type,
-            errorCode: "local_runner_schedule_failed",
-            fieldCount: templateFieldCount,
+            jobId,
+            mimeType: sourceMimeType,
+            temporaryPath,
+          })
+        : await sourceFileStore.write({
+            workspaceId: authorization.workspace.id,
+            jobId,
+            mimeType: sourceMimeType,
+            bytes: sourceBytes!,
           });
-        }
-      } finally {
-        await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
-      }
-      throw error;
-    }
+      temporaryPath = null;
+      sourceBytes = new ArrayBuffer(0);
 
-    return Response.json(queued, { status: 202 });
+      let queued;
+      try {
+        queued = productStore.createQueuedExtractionJob({
+          jobId,
+          templateId: template.template_id,
+          templateVersion: template.template_version,
+          sourceFileKey,
+          sourceMimeType,
+          sourceName,
+          sourceFilePageCount,
+          submittedAt,
+        });
+        const queuedJob = productStore.getExtractionJob(jobId);
+        if (queuedJob) {
+          liveUpdateHub?.broadcastJob(authorization.workspace.id, queuedJob);
+        }
+        recordLocalProductAnalytics(productAnalytics, {
+          type: "document_submitted",
+          workspaceId: authorization.workspace.id,
+          templateId: template.template_id,
+          templateVersion: template.template_version,
+          extractionJobId: jobId,
+          status: "queued",
+          attempt: 1,
+          sourceMimeType,
+          sourceByteSize,
+        });
+      } catch (error) {
+        await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
+        throw error;
+      }
+
+      try {
+        await scheduleQueuedJob({
+          job_id: jobId,
+          workspace_id: authorization.workspace.id,
+          template_id: template.template_id,
+          template_version: template.template_version,
+          enqueued_at: submittedAt,
+        });
+      } catch (error) {
+        let failed = false;
+        try {
+          failed = productStore.failQueuedExtractionJob({
+            jobId,
+            failedAt: nowIso(),
+            errorCode: "local_runner_schedule_failed",
+            errorMessage: errorMessage(error),
+          });
+          if (failed) {
+            const failedJob = productStore.getExtractionJob(jobId);
+            if (failedJob) {
+              liveUpdateHub?.broadcastJob(authorization.workspace.id, failedJob);
+            }
+            recordLocalProductAnalytics(productAnalytics, {
+              type: "extraction_failed",
+              workspaceId: authorization.workspace.id,
+              templateId: template.template_id,
+              templateVersion: template.template_version,
+              extractionJobId: jobId,
+              status: "failed",
+              attempt: 1,
+              sourceMimeType,
+              errorCode: "local_runner_schedule_failed",
+              fieldCount: templateFieldCount,
+            });
+          }
+        } finally {
+          if (!failed) {
+            await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
+          }
+        }
+        throw error;
+      }
+
+      return Response.json(queued, {
+        status: 202,
+        headers: {
+          "cache-control": "no-store",
+          location: `/v1/jobs/${encodeURIComponent(queued.job_id)}`,
+          "retry-after": "2",
+        },
+      });
+    } finally {
+      if (temporaryPath) await rm(temporaryPath, { force: true });
+    }
   } catch (error) {
     if (error instanceof HttpError) {
       return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
@@ -666,7 +750,7 @@ async function handleLocalDocumentSubmission({
       { status: 500 },
     );
   } finally {
-    productStore.close();
+    productStoreLease.release();
     productOperation.release();
   }
 }
@@ -676,10 +760,9 @@ async function handleLocalJobRead({
   jobId,
   jobCursorSecret,
   jobPageSize,
-  productStoreFactory,
+  productStoreRegistry,
   request,
   sourceFileStore,
-  stateDirectory,
   workspaceControl,
   workspaceProductOperations,
 }: {
@@ -687,10 +770,9 @@ async function handleLocalJobRead({
   jobId: string;
   jobCursorSecret: Uint8Array;
   jobPageSize: number;
-  productStoreFactory: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
+  productStoreRegistry: LocalWorkspaceProductStoreRegistry;
   request: Request;
   sourceFileStore: LocalSourceFileStore;
-  stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
   workspaceProductOperations: LocalWorkspaceProductOperations;
 }): Promise<Response> {
@@ -705,7 +787,16 @@ async function handleLocalJobRead({
   } catch (error) {
     return workspaceProductOperationErrorResponse(error);
   }
-  const productStore = productStoreFactory({ stateDirectory, workspaceId: authorization.workspace.id });
+  const productStoreAcquisition = acquireWorkspaceProductStore({
+    operation: productOperation,
+    registry: productStoreRegistry,
+    workspaceId: authorization.workspace.id,
+  });
+  if ("response" in productStoreAcquisition) {
+    return productStoreAcquisition.response;
+  }
+  const productStoreLease = productStoreAcquisition.lease;
+  const productStore = productStoreLease.store;
   let documentDeletionStarted = false;
   try {
     if (request.method === "DELETE") {
@@ -769,11 +860,24 @@ async function handleLocalJobRead({
         has_more: hasMore,
       });
     }
-    const job = productStore.getExtractionJob(jobId);
-    if (!job) {
-      return Response.json({ error: { code: "not_found", message: "Job not found" } }, { status: 404 });
+    const jobSummary = productStore.getExtractionJobSummary(jobId);
+    if (!jobSummary) {
+      return Response.json(
+        { error: { code: "not_found", message: "Job not found" } },
+        { status: 404, headers: { "cache-control": "no-store" } },
+      );
     }
-    return Response.json(job);
+    const entityTag = extractionJobEntityTag(authorization.workspace.id, jobSummary);
+    const headers = extractionJobPollingHeaders(jobSummary.status, entityTag);
+    if (ifNoneMatchIncludes(request.headers.get("if-none-match"), entityTag)) {
+      return new Response(null, { status: 304, headers });
+    }
+    return Response.json({
+      ...jobSummary,
+      results: jobSummary.status === "completed"
+        ? productStore.getExtractionJobResults(jobId)
+        : [],
+    }, { headers });
   } catch (error) {
     if (documentDeletionStarted) {
       workspaceProductOperations.failDocumentDeletion({
@@ -792,23 +896,21 @@ async function handleLocalJobRead({
     }
     throw error;
   } finally {
-    productStore.close();
+    productStoreLease.release();
     productOperation.release();
   }
 }
 
 async function handleLocalJobFilterOptions({
   auth,
-  productStoreFactory,
+  productStoreRegistry,
   request,
-  stateDirectory,
   workspaceControl,
   workspaceProductOperations,
 }: {
   auth: LocalAuth;
-  productStoreFactory: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
+  productStoreRegistry: LocalWorkspaceProductStoreRegistry;
   request: Request;
-  stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
   workspaceProductOperations: LocalWorkspaceProductOperations;
 }): Promise<Response> {
@@ -823,32 +925,36 @@ async function handleLocalJobFilterOptions({
   } catch (error) {
     return workspaceProductOperationErrorResponse(error);
   }
-  const productStore = productStoreFactory({
-    stateDirectory,
+  const productStoreAcquisition = acquireWorkspaceProductStore({
+    operation: productOperation,
+    registry: productStoreRegistry,
     workspaceId: authorization.workspace.id,
   });
+  if ("response" in productStoreAcquisition) {
+    return productStoreAcquisition.response;
+  }
+  const productStoreLease = productStoreAcquisition.lease;
+  const productStore = productStoreLease.store;
   try {
     return Response.json({
       available_models: productStore.listExtractionJobModels(),
     });
   } finally {
-    productStore.close();
+    productStoreLease.release();
     productOperation.release();
   }
 }
 
 async function handleLocalJobExport({
   auth,
-  productStoreFactory,
+  productStoreRegistry,
   request,
-  stateDirectory,
   workspaceControl,
   workspaceProductOperations,
 }: {
   auth: LocalAuth;
-  productStoreFactory: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
+  productStoreRegistry: LocalWorkspaceProductStoreRegistry;
   request: Request;
-  stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
   workspaceProductOperations: LocalWorkspaceProductOperations;
 }): Promise<Response> {
@@ -863,10 +969,16 @@ async function handleLocalJobExport({
   } catch (error) {
     return workspaceProductOperationErrorResponse(error);
   }
-  const productStore = productStoreFactory({
-    stateDirectory,
+  const productStoreAcquisition = acquireWorkspaceProductStore({
+    operation: productOperation,
+    registry: productStoreRegistry,
     workspaceId: authorization.workspace.id,
   });
+  if ("response" in productStoreAcquisition) {
+    return productStoreAcquisition.response;
+  }
+  const productStoreLease = productStoreAcquisition.lease;
+  const productStore = productStoreLease.store;
 
   try {
     const jobIds = validateJobExportPayload(
@@ -913,9 +1025,60 @@ async function handleLocalJobExport({
       { status: 500 },
     );
   } finally {
-    productStore.close();
+    productStoreLease.release();
     productOperation.release();
   }
+}
+
+function extractionJobEntityTag(
+  workspaceId: string,
+  job: LocalWorkspaceExtractionJobSummary,
+): string {
+  const visibleRepresentation = JSON.stringify([
+    "job-v1",
+    workspaceId,
+    job.job_id,
+    job.status,
+    job.source_name,
+    job.source_mime_type,
+    job.source_file_page_count,
+    job.template_id,
+    job.template_version,
+    job.model_name,
+    job.error_code,
+    job.error_message,
+    job.created_at,
+    job.updated_at,
+    job.completed_at,
+    job.current_attempt,
+    job.completed_attempt,
+    job.last_failed_attempt,
+  ]);
+  const digest = createHash("sha256").update(visibleRepresentation).digest("hex");
+  return `W/"job-v1-${digest}"`;
+}
+
+function extractionJobPollingHeaders(
+  status: LocalWorkspaceExtractionJobSummary["status"],
+  entityTag: string,
+): Headers {
+  const headers = new Headers({
+    "cache-control": "private, no-cache",
+    etag: entityTag,
+  });
+  if (status === "queued" || status === "processing") {
+    headers.set("retry-after", "5");
+  }
+  return headers;
+}
+
+function ifNoneMatchIncludes(value: string | null, currentEntityTag: string): boolean {
+  if (!value) return false;
+  const candidates = value.match(/(?:W\/)?"[^"\r\n]*"|\*/g) ?? [];
+  const normalizedCurrent = currentEntityTag.replace(/^W\//, "");
+  return candidates.some((candidate) =>
+    candidate === "*" || candidate.replace(/^W\//, "") === normalizedCurrent
+  );
 }
 
 function validateJobExportPayload(input: unknown): string[] {
@@ -1288,6 +1451,62 @@ function workspaceErrorResponse(error: unknown): Response {
 
   const status = error.code === "last_workspace" || error.code === "invite_exists" ? 409 : error.code === "not_found" ? 404 : 403;
   return Response.json({ error: { code: error.code, message: error.message } }, { status });
+}
+
+function acquireWorkspaceProductStore({
+  operation,
+  registry,
+  workspaceId,
+}: {
+  operation?: LocalWorkspaceProductOperation;
+  registry: LocalWorkspaceProductStoreRegistry;
+  workspaceId: string;
+}): { lease: LocalWorkspaceProductStoreLease } | { response: Response } {
+  try {
+    const lease = registry.acquire({ workspaceId });
+    if (lease) {
+      return { lease };
+    }
+    operation?.release();
+    return {
+      response: Response.json(
+        {
+          error: {
+            code: "local_product_store_unavailable",
+            message: "Local Workspace product storage is unavailable.",
+          },
+        },
+        { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
+      ),
+    };
+  } catch (error) {
+    operation?.release();
+    return { response: workspaceProductStoreRegistryErrorResponse(error) };
+  }
+}
+
+function workspaceProductStoreRegistryErrorResponse(error: unknown): Response {
+  if (error instanceof LocalWorkspaceProductStoreRegistryError) {
+    if (error.code === "capacity_exhausted") {
+      return Response.json(
+        {
+          error: {
+            code: "local_product_store_capacity_unavailable",
+            message: "Local Workspace product-store capacity is temporarily full",
+          },
+        },
+        { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
+      );
+    }
+    return Response.json(
+      { error: { code: "workspace_deleting", message: "Workspace deletion is in progress" } },
+      { status: 409 },
+    );
+  }
+  return Response.json(
+    { error: { code: "internal_error", message: "Unexpected server error" } },
+    { status: 500 },
+  );
 }
 
 function workspaceProductOperationErrorResponse(error: unknown): Response {

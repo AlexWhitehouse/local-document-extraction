@@ -1,4 +1,5 @@
 export function createDocumentRequestAdapter({ request }) {
+  const documentValidators = new Map();
   function normalizedDocumentId(documentId) {
     const value = String(documentId || "").trim();
     if (!value) {
@@ -16,12 +17,29 @@ export function createDocumentRequestAdapter({ request }) {
           : [],
       };
     },
-    getDocument(documentId) {
+    async getDocument(documentId) {
       const normalizedId = normalizedDocumentId(documentId);
-      return request(
+      const cached = documentValidators.get(normalizedId) || null;
+      const headers = new Headers();
+      if (cached?.etag) {
+        headers.set("if-none-match", cached.etag);
+      }
+      const result = await request(
         `/jobs/${encodeURIComponent(normalizedId)}`,
-        { method: "GET" },
+        { method: "GET", headers, responseType: "conditional-json" },
       );
+      if (result?.notModified) {
+        if (!cached?.data) {
+          throw new Error("Conditional Document response has no cached representation");
+        }
+        return cached.data;
+      }
+      const data = result?.data ?? result;
+      const etag = result?.headers?.get?.("etag") || "";
+      if (data && etag) {
+        documentValidators.set(normalizedId, { data, etag });
+      }
+      return data;
     },
     async listDocuments({ search = "", cursor = null, filters = {} } = {}) {
       const params = new URLSearchParams();
@@ -67,6 +85,7 @@ export function createDocumentRequestAdapter({ request }) {
       if (result?.deleted !== true || result.job_id !== normalizedId) {
         throw new Error("Document deletion returned an invalid response");
       }
+      documentValidators.delete(normalizedId);
       return { deleted: true, job_id: normalizedId };
     },
     async exportDocuments(documentIds) {

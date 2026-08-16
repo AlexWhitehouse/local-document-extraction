@@ -9,13 +9,18 @@ import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
 import { upgradeLocalLiveUpdate } from "./localLiveUpdateUpgrade";
 import { createLocalModelSettings } from "./localModelSettings";
 import { createLocalProductAnalytics } from "./localProductAnalytics";
+import { createLocalResourceController } from "./localResourceController";
 import { createLocalRuntimeFetchHandler, ensureLocalStateDirectories } from "./localRuntime";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
+import { createLocalSourceFileRetention } from "./localSourceFileRetention";
+import { createLocalSubmissionAdmission } from "./localSubmissionAdmission";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
+import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 
 type BunServer = {
   port: number;
+  stop(closeActiveConnections?: boolean): void;
   upgrade(request: Request, options: { data: { workspaceId: string } }): boolean;
 };
 
@@ -49,7 +54,58 @@ const maxSourceFileBytes = readPositiveInteger(
 const extractionRetryDelayMs = readPositiveInteger(
   process.env.EXTRACTION_RETRY_DELAY_MS,
   "EXTRACTION_RETRY_DELAY_MS",
-  0,
+  1_000,
+);
+const extractionMaxConcurrency = readPositiveInteger(
+  process.env.EXTRACTION_MAX_CONCURRENCY,
+  "EXTRACTION_MAX_CONCURRENCY",
+  8,
+);
+const extractionMaxBuffered = readPositiveInteger(
+  process.env.EXTRACTION_MAX_BUFFERED,
+  "EXTRACTION_MAX_BUFFERED",
+  10_000,
+);
+const extractionReconcileIntervalMs = readPositiveInteger(
+  process.env.EXTRACTION_RECONCILE_INTERVAL_MS,
+  "EXTRACTION_RECONCILE_INTERVAL_MS",
+  5_000,
+);
+const submissionMaxConcurrency = readPositiveInteger(
+  process.env.SUBMISSION_MAX_CONCURRENCY,
+  "SUBMISSION_MAX_CONCURRENCY",
+  8,
+);
+const submissionMaxReservedBytes = readPositiveInteger(
+  process.env.SUBMISSION_MAX_RESERVED_BYTES,
+  "SUBMISSION_MAX_RESERVED_BYTES",
+  128 * 1024 * 1024,
+);
+const extractionAdaptiveConcurrency = readBoolean(
+  process.env.EXTRACTION_ADAPTIVE_CONCURRENCY,
+  true,
+);
+const extractionMaximumConcurrency = readPositiveInteger(
+  process.env.EXTRACTION_MAX_CONCURRENCY_LIMIT,
+  "EXTRACTION_MAX_CONCURRENCY_LIMIT",
+  32,
+);
+const localCpuLimitRatio = readRatio(process.env.LOCAL_CPU_LIMIT_RATIO, "LOCAL_CPU_LIMIT_RATIO", 0.85);
+const localMemoryLimitRatio = readRatio(process.env.LOCAL_MEMORY_LIMIT_RATIO, "LOCAL_MEMORY_LIMIT_RATIO", 0.8);
+const localDiskReserveBytes = readNonNegativeInteger(
+  process.env.LOCAL_DISK_RESERVE_BYTES,
+  "LOCAL_DISK_RESERVE_BYTES",
+  1024 * 1024 * 1024,
+);
+const sourceRetentionSweepIntervalMs = readPositiveInteger(
+  process.env.SOURCE_RETENTION_SWEEP_INTERVAL_MS,
+  "SOURCE_RETENTION_SWEEP_INTERVAL_MS",
+  60 * 60 * 1_000,
+);
+const failedSourceRetentionMs = readNonNegativeInteger(
+  process.env.FAILED_SOURCE_RETENTION_MS,
+  "FAILED_SOURCE_RETENTION_MS",
+  7 * 24 * 60 * 60 * 1_000,
 );
 
 await ensureLocalStateDirectories(stateDirectory);
@@ -61,23 +117,56 @@ const localAuth = await createLocalAuthRuntime({
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
   stateDirectory,
 });
-const localExtractionQueue = createLocalExtractionQueue();
+const localExtractionQueue = createLocalExtractionQueue({
+  maxBuffered: extractionMaxBuffered,
+  maxConcurrent: extractionMaxConcurrency,
+});
 const localLiveUpdateHub = createLocalLiveUpdateHub();
 const localModelSettings = await createLocalModelSettings({ stateDirectory });
 const localProductAnalytics = createLocalProductAnalytics({ stateDirectory });
 const localWorkspaceProductOperations = createLocalWorkspaceProductOperations();
+const localProductStoreRegistry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
 const localSourceFiles = createLocalSourceFileStore({ stateDirectory });
+const localResourceController = createLocalResourceController({
+  adaptive: extractionAdaptiveConcurrency,
+  cpuLimitRatio: localCpuLimitRatio,
+  diskReserveBytes: localDiskReserveBytes,
+  getQueueSnapshot: localExtractionQueue.snapshot,
+  initialPermits: extractionMaxConcurrency,
+  maximumPermits: extractionMaximumConcurrency,
+  memoryLimitRatio: localMemoryLimitRatio,
+  setPermits: localExtractionQueue.setMaxConcurrent,
+  stateDirectory,
+});
+const localSubmissionAdmission = createLocalSubmissionAdmission({
+  canReserve: localResourceController.canReserveSubmission,
+  maxConcurrent: submissionMaxConcurrency,
+  maxReservedBytes: submissionMaxReservedBytes,
+  unknownRequestBytes: maxSourceFileBytes + 1024 * 1024,
+});
+const localSourceFileRetention = createLocalSourceFileRetention({
+  failedSourceRetentionMs,
+  productStoreRegistry: localProductStoreRegistry,
+  sourceFileStore: localSourceFiles,
+  stateDirectory,
+  workspaceControl: localAuth.workspaceControl,
+});
 const localWorkspaceDeletion = createLocalWorkspaceDeletion({
   sourceFileStore: localSourceFiles,
   stateDirectory,
   workspaceControl: localAuth.workspaceControl,
   workspaceProductOperations: localWorkspaceProductOperations,
+  productStoreRegistry: localProductStoreRegistry,
   onWorkspaceAccessRevoked: localLiveUpdateHub.broadcastWorkspaceContextInvalidation,
 });
 await localWorkspaceDeletion.reconcileInterruptedDeletions();
 const localExtractionRunner = createLocalExtractionRunner({
   modelGatewayConfigurationProvider: localModelSettings.getConfiguration,
-  onJobLifecycleChange: localLiveUpdateHub.broadcastJob,
+  onGatewayOutcome: localResourceController.recordGatewayOutcome,
+  onJobLifecycleChange: (workspaceId, job) => {
+    localLiveUpdateHub.broadcastJob(workspaceId, job);
+    if (job.status === "completed") localResourceController.recordCompletedJob();
+  },
   productAnalytics: localProductAnalytics,
   retryDelayMs: extractionRetryDelayMs,
   scheduleJob: localExtractionQueue.schedule,
@@ -85,13 +174,33 @@ const localExtractionRunner = createLocalExtractionRunner({
   stateDirectory,
   workspaceControl: localAuth.workspaceControl,
   workspaceProductOperations: localWorkspaceProductOperations,
+  productStoreRegistry: localProductStoreRegistry,
 });
-localExtractionQueue.subscribe((job) => {
-  void localExtractionRunner.run(job);
-});
+localExtractionQueue.subscribe((job) => localExtractionRunner.run(job));
 await localExtractionRunner.recover();
+localResourceController.start();
+void localSourceFileRetention.run().catch((error) => {
+  console.error("Local Source retention sweep failed", error);
+});
+const extractionReconcileTimer = setInterval(() => {
+  void localExtractionRunner.recover().catch((error) => {
+    console.error("Local extraction reconciliation failed", error);
+  });
+}, extractionReconcileIntervalMs);
+const sourceRetentionTimer = setInterval(() => {
+  void localSourceFileRetention.run().catch((error) => {
+    console.error("Local Source retention sweep failed", error);
+  });
+}, sourceRetentionSweepIntervalMs);
 const application = createLocalApplication({
   auth: localAuth.auth,
+  diagnostics: () => ({
+    admission: localSubmissionAdmission.snapshot(),
+    extractionQueue: localExtractionQueue.snapshot(),
+    productStores: localProductStoreRegistry.diagnostics(),
+    resources: localResourceController.snapshot(),
+    sourceRetention: localSourceFileRetention.snapshot(),
+  }),
   liveUpdateHub: localLiveUpdateHub,
   maxSourceFileBytes,
   modelSettings: localModelSettings,
@@ -102,6 +211,7 @@ const application = createLocalApplication({
   workspaceControl: localAuth.workspaceControl,
   workspaceDeletion: localWorkspaceDeletion,
   workspaceProductOperations: localWorkspaceProductOperations,
+  productStoreRegistry: localProductStoreRegistry,
 });
 const runtimeFetch = createLocalRuntimeFetchHandler({
   api: application,
@@ -122,6 +232,9 @@ const server = bun.serve({
         server: bunServer as never,
         workspaceControl: localAuth.workspaceControl,
       });
+    }
+    if (request.method === "POST" && new URL(request.url).pathname === "/v1/extract") {
+      return localSubmissionAdmission.run(request, () => runtimeFetch(request));
     }
     return runtimeFetch(request);
   },
@@ -145,6 +258,20 @@ const server = bun.serve({
 });
 console.log(`Document Extraction local server listening on http://127.0.0.1:${server.port}`);
 
+let shuttingDown = false;
+const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  clearInterval(extractionReconcileTimer);
+  clearInterval(sourceRetentionTimer);
+  localResourceController.stop();
+  server.stop(false);
+  localProductStoreRegistry.closeAll();
+};
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);
+process.once("beforeExit", shutdown);
+
 function readPort(value: string | undefined): number {
   if (!value) {
     return 8787;
@@ -167,6 +294,32 @@ function readPositiveInteger(value: string | undefined, name: string, fallback: 
     throw new Error(`${name} must be a positive integer.`);
   }
   return parsed;
+}
+
+function readNonNegativeInteger(value: string | undefined, name: string, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer.`);
+  }
+  return parsed;
+}
+
+function readRatio(value: string | undefined, name: string, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
+    throw new Error(`${name} must be greater than zero and no greater than one.`);
+  }
+  return parsed;
+}
+
+function readBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
 }
 
 function isWorkspaceLiveUpdatePath(request: Request): boolean {

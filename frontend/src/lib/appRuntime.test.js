@@ -71,4 +71,26 @@ describe("app runtime requests", () => {
     expect(result.headers.get("x-exported-job-count")).toBe("2");
     expect(setLatestResponse).not.toHaveBeenCalled();
   });
+
+  it("treats a conditional 304 as a successful header-only response", async () => {
+    const setLatestResponse = vi.fn();
+    const core = createAppRuntimeCore({
+      apiBase: "/v1",
+      setLatestResponse,
+      setLogLines: vi.fn(),
+      toast: { success: vi.fn(), error: vi.fn() },
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(null, { status: 304, headers: { etag: 'W/"job-v1-tag"' } }),
+    );
+
+    const result = await core.request("/jobs/job_1", {
+      method: "GET",
+      responseType: "conditional-json",
+    });
+
+    expect(result).toMatchObject({ data: null, notModified: true, status: 304 });
+    expect(result.headers.get("etag")).toBe('W/"job-v1-tag"');
+    expect(setLatestResponse).not.toHaveBeenCalled();
+  });
 });

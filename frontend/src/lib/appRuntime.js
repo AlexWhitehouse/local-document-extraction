@@ -37,6 +37,15 @@ export function createAppRuntimeCore({
       credentials: "include",
     });
 
+    if (response.status === 304 && responseType === "conditional-json") {
+      return {
+        data: null,
+        headers: response.headers,
+        notModified: true,
+        status: response.status,
+      };
+    }
+
     if (response.status === 204) {
       return null;
     }
@@ -64,6 +73,14 @@ export function createAppRuntimeCore({
     }
 
     setLatestResponse(data ?? rawText);
+    if (responseType === "conditional-json") {
+      return {
+        data,
+        headers: response.headers,
+        notModified: false,
+        status: response.status,
+      };
+    }
     return data;
   }
 

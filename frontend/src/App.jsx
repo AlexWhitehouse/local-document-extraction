@@ -73,12 +73,12 @@ function AuthenticatedApp() {
   const impersonatedUserLabel = sessionUserEmail || sessionUserName || "this user";
   const isApplicationAdmin = String(session?.user?.role || "").trim() === "admin";
   const adminVisiblePage = activePage === "admin" && !isApplicationAdmin ? "workspace" : activePage;
-  const runtimeCore = createAppRuntimeCore({
+  const runtimeCore = useMemo(() => createAppRuntimeCore({
     apiBase,
     setLatestResponse,
     setLogLines,
     toast,
-  });
+  }), [apiBase]);
   const {
     addLog,
     request: coreRequest,
@@ -106,14 +106,22 @@ function AuthenticatedApp() {
   });
   const { workspaceId, hasApiAccess, isDeletingWorkspace, workspaceSelectionView } =
     workspaceController.context;
-  const { request } = createWorkspaceRequestLayer({
+  const { request } = useMemo(() => createWorkspaceRequestLayer({
     coreRequest,
     hasSession,
     workspaceId,
     onForbiddenWorkspaceAccess:
       workspaceController.actions.recoverForbiddenWorkspaceAccess,
-  });
-  const documentRequests = createDocumentRequestAdapter({ request });
+  }), [
+    coreRequest,
+    hasSession,
+    workspaceController.actions.recoverForbiddenWorkspaceAccess,
+    workspaceId,
+  ]);
+  const documentRequests = useMemo(
+    () => createDocumentRequestAdapter({ request }),
+    [request],
+  );
   const templateController = useTemplateController({
     initialWorkspace,
     request,

@@ -359,10 +359,15 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - A persisted queued **Extraction job** notifies the local runner asynchronously, so Document acceptance is not delayed by Model gateway processing.
 - After the **Extraction processor** receives a **Model gateway** response, **Extraction results** should be persisted and the **Extraction job** should be marked `completed`.
 - A completed **Extraction job** should not retain its **Source file** binary after processing cleanup succeeds.
-- **Product safety limits** are checked before an accepted **Source file** is written to local storage whenever the input can be validated in memory.
+- Multipart **Document** admission streams a bounded `document` part to temporary local storage, validates required metadata and PDF page count, then atomically promotes the **Source file** before the **Extraction job** is accepted.
+- Admission count, reserved bytes, process memory, and disk reserve are local capacity limits; shared pressure returns retry guidance without creating an **Extraction job**.
 - If local **Workspace product data** rejects a queued **Extraction job** after its **Source file** is written, the local Source file binary is deleted.
-- If queuing an **Extraction processor** fails during Document submission, the **Extraction job** is marked `failed` and the uploaded **Source file** is deleted.
-- A processing failure marks the **Extraction job** `failed` with durable error details and retains its **Source file** for recovery or inspection.
+- If queuing an **Extraction processor** fails during Document submission, the **Extraction job** is marked `failed` and its **Source file** follows the failed-source retention window.
+- A processing failure marks the **Extraction job** `failed` with durable error details and retains its **Source file** for recovery or inspection for seven days by default.
+- Completed **Source files** are deleted immediately; a restart-safe sweep also removes interrupted completed cleanup and expired failed-source binaries without deleting retained job metadata, errors, or results.
+- The in-memory extraction queue is a bounded, Workspace-fair metadata accelerator over authoritative queued **Workspace product data**; periodic reconciliation recovers work left only in SQLite.
+- Individual **Extraction job** retrieval uses entity validators and server-directed retry timing so unchanged polls do not hydrate or serialize **Extraction results**.
+- Each active **Workspace product data** database has one lease-aware process owner; SQLite write transactions remain short and journal mode stays on the safe rollback journal until the bundled SQLite passes the WAL safety gate.
 - **Workspace** deletion cleanup sweeps residual **Source files** that normal **Extraction job lifecycle** cleanup did not delete.
 - A **Template** must have at least one **Template field** before it can be used for extraction.
 - Changing **Template fields** creates a new **Template version**.
