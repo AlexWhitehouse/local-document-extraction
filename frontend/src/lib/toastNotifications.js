@@ -31,6 +31,14 @@ const successMessages = {
   "applicationUser.unban": ({ target }) => withTarget("User unbanned", target),
   "applicationUser.stopImpersonating": () => "Impersonation stopped",
   "document.delete": ({ target }) => withTarget("Document deleted", target),
+  "document.bulkDelete": ({ target }) =>
+    target ? `${target} deleted` : "Selected documents deleted",
+  "document.export": ({ exportedCount = 0, skippedCount = 0 }) => {
+    const exported = `Exported ${exportedCount} ${pluralize("job", exportedCount)}`;
+    return skippedCount
+      ? `${exported}; skipped ${skippedCount} unavailable or in-progress ${pluralize("job", skippedCount)}`
+      : exported;
+  },
   "clipboard.copyTemplateJson": () => "Template JSON copied",
 };
 
@@ -56,6 +64,9 @@ const failureMessages = {
   "applicationUser.stopImpersonating": "Impersonation could not be stopped. Please try again.",
   "document.upload": "Document could not be queued. Please try again.",
   "document.delete": "Document could not be deleted. Please try again.",
+  "document.bulkDelete":
+    "Some selected documents could not be deleted. Try again.",
+  "document.export": "Selected jobs could not be exported. Please try again.",
   "clipboard.copyTemplateJson": "Template JSON could not be copied. Please try again.",
 };
 
@@ -94,6 +105,8 @@ export function getActionToast(action, outcome, options = {}) {
       severity: "success",
       message: successMessages[action]({
         target,
+        exportedCount: options.exportedCount,
+        skippedCount: options.skippedCount,
         replacementPersonalWorkspaceCreated:
           options.replacementPersonalWorkspaceCreated,
       }),

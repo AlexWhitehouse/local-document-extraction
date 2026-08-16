@@ -292,6 +292,11 @@ function AuthenticatedApp() {
             footer={
               activeVisiblePage === "admin" ? null : activePage === "documents" ? (
                 <>
+                  {documentController.toolbar.selectedDocumentCount ? (
+                    <span className="status-chip good">
+                      Selected {documentController.toolbar.selectedDocumentCount}
+                    </span>
+                  ) : null}
                   <span className="status-chip">
                     Queued {documentStatusMetrics.queued}
                   </span>
@@ -419,10 +424,18 @@ function AuthenticatedApp() {
               isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
               isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
               isDeletingDocument={documentController.toolbar.isDeletingDocument}
+              isExportingDocuments={documentController.toolbar.isExportingDocuments}
               selectedDocumentId={documentController.toolbar.selectedDocumentId}
+              selectedDocumentCount={
+                documentController.toolbar.selectedDocumentCount
+              }
+              exportableDocumentCount={
+                documentController.toolbar.exportableDocumentCount
+              }
               updateTemplateId={templateController.toolbar.selectedTemplateId}
               onCreateTemplate={templateController.toolbar.onCreateTemplate}
               onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
+              onExportDocuments={documentController.toolbar.onExportDocuments}
               onUploadDocument={documentController.toolbar.onUploadDocument}
               onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
               onDeleteTemplate={templateController.toolbar.onDeleteTemplate}

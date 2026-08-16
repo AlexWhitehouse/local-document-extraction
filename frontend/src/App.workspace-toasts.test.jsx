@@ -176,6 +176,8 @@ describe("Workspace action toast feedback", () => {
           gateway_url: "https://gateway.example/v1",
           model_name: "provider/default-model",
           has_api_key: false,
+          sequential_calls: false,
+          supports_pdf_input: true,
         }));
       }
       if (url.endsWith("/settings/model") && options.method === "PATCH") {
@@ -185,6 +187,8 @@ describe("Workspace action toast feedback", () => {
           gateway_url: update.gateway_url,
           model_name: update.model_name,
           has_api_key: update.api_key !== null,
+          sequential_calls: update.sequential_calls,
+          supports_pdf_input: update.supports_pdf_input,
         }));
       }
       return mockWorkspaceFetch(input, options);
@@ -201,15 +205,25 @@ describe("Workspace action toast feedback", () => {
     const gatewayInput = await within(dialog).findByLabelText("Gateway URL");
     const modelInput = within(dialog).getByLabelText("Model name");
     const apiKeyInput = within(dialog).getByLabelText(/API key \/ bearer token/);
+    const sequentialCallsInput = within(dialog).getByRole("checkbox", {
+      name: /Sequential calls/,
+    });
+    const directPdfInput = within(dialog).getByRole("checkbox", {
+      name: /Direct PDF input/,
+    });
     expect(gatewayInput.value).toBe("https://gateway.example/v1");
     expect(modelInput.value).toBe("provider/default-model");
     expect(within(dialog).getByText("No token stored")).toBeTruthy();
+    expect(sequentialCallsInput.checked).toBe(false);
+    expect(directPdfInput.checked).toBe(true);
 
     await user.clear(gatewayInput);
     await user.type(gatewayInput, "http://127.0.0.1:11434/v1");
     await user.clear(modelInput);
     await user.type(modelInput, "local/vision-model");
     await user.type(apiKeyInput, "local-secret-token");
+    await user.click(sequentialCallsInput);
+    await user.click(directPdfInput);
     await user.click(within(dialog).getByRole("button", { name: "Save Model Settings" }));
 
     await waitFor(() => {
@@ -217,6 +231,8 @@ describe("Workspace action toast feedback", () => {
         gateway_url: "http://127.0.0.1:11434/v1",
         model_name: "local/vision-model",
         api_key: "local-secret-token",
+        sequential_calls: true,
+        supports_pdf_input: false,
       }]);
     });
     expect(apiKeyInput.value).toBe("");
@@ -228,6 +244,8 @@ describe("Workspace action toast feedback", () => {
       expect(modelUpdates.at(-1)).toEqual({
         gateway_url: "http://127.0.0.1:11434/v1",
         model_name: "local/vision-model",
+        sequential_calls: true,
+        supports_pdf_input: false,
         api_key: null,
       });
     });
@@ -2224,6 +2242,175 @@ describe("Workspace action toast feedback", () => {
       expect(toastMock.success).toHaveBeenCalledWith("Document deleted: invoice.pdf");
     });
     expect(screen.queryByText("job_failed_1")).toBeNull();
+  });
+
+  it("deletes all ticked documents as one bulk action", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const deletedDocumentIds = [];
+
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            jobs: [
+              failedDocument(),
+              failedDocument({ job_id: "job_failed_2", source_name: "receipt.pdf" }),
+            ],
+            next_cursor: null,
+          }),
+        );
+      }
+      const deletedDocumentId = ["job_failed_1", "job_failed_2"].find(
+        (documentId) =>
+          url.endsWith(`/jobs/${documentId}`) && options.method === "DELETE",
+      );
+      if (deletedDocumentId) {
+        deletedDocumentIds.push(deletedDocumentId);
+        return Promise.resolve(
+          jsonResponse({ deleted: true, job_id: deletedDocumentId }),
+        );
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select all available jobs" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete 2 Documents" }));
+
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith("2 documents deleted");
+    });
+    expect(confirm).toHaveBeenCalledWith(
+      "Delete 2 selected documents? This will permanently remove them from the workspace.",
+    );
+    expect(deletedDocumentIds.sort()).toEqual(["job_failed_1", "job_failed_2"]);
+    expect(screen.queryByRole("checkbox", { name: "Select job job_failed_1" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Select job job_failed_2" })).toBeNull();
+  });
+
+  it("exports checked terminal jobs while skipping and locking in-progress selections", async () => {
+    const user = userEvent.setup();
+    const NativeURL = globalThis.URL;
+    const createObjectURL = vi.fn(() => "blob:job-export");
+    const revokeObjectURL = vi.fn();
+    class ExportURL extends NativeURL {}
+    ExportURL.createObjectURL = createObjectURL;
+    ExportURL.revokeObjectURL = revokeObjectURL;
+    vi.stubGlobal("URL", ExportURL);
+    let downloaded = null;
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function click() {
+      downloaded = { href: this.href, filename: this.download };
+    });
+
+    let resolveExport;
+    const exportResponse = new Promise((resolve) => {
+      resolveExport = resolve;
+    });
+    const requestedExportIds = [];
+    globalThis.fetch.mockImplementation((input, options = {}) => {
+      const url = String(input);
+      if (url.endsWith("/jobs/export") && options.method === "POST") {
+        requestedExportIds.push(...JSON.parse(options.body).job_ids);
+        return exportResponse;
+      }
+      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            jobs: [
+              completedDocument(),
+              completedDocument({
+                job_id: "job_processing_1",
+                source_name: "processing.pdf",
+                status: "processing",
+                completed_at: null,
+              }),
+              failedDocument({ job_id: "job_failed_1" }),
+            ],
+            next_cursor: null,
+          }),
+        );
+      }
+      if (url.endsWith("/jobs/job_completed_1") && options.method === "GET") {
+        return Promise.resolve(jsonResponse(completedDocument()));
+      }
+      return mockWorkspaceFetch(input, options);
+    });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(
+      await screen.findByRole("checkbox", { name: "Select all available jobs" }),
+    );
+    const exportButton = screen.getByRole("button", { name: "Export 2 Jobs" });
+    expect(screen.getByRole("button", { name: "Delete 3 Documents" }).disabled).toBe(
+      false,
+    );
+
+    await user.click(exportButton);
+
+    expect(requestedExportIds).toEqual([
+      "job_completed_1",
+      "job_processing_1",
+      "job_failed_1",
+    ]);
+    expect(screen.getByRole("button", { name: "Exporting..." }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Delete 3 Documents" }).disabled).toBe(
+      true,
+    );
+    expect(screen.getByRole("checkbox", { name: "Select job job_completed_1" }).disabled).toBe(
+      true,
+    );
+
+    await act(async () => {
+      resolveExport(
+        new Response("xlsx-bytes", {
+          status: 200,
+          headers: {
+            "content-disposition":
+              'attachment; filename="research-workspace-job-export-2026-08-16-1430.xlsx"',
+            "content-type":
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "x-exported-job-count": "2",
+            "x-skipped-job-count": "1",
+          },
+        }),
+      );
+      await exportResponse;
+    });
+
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "Exported 2 jobs; skipped 1 unavailable or in-progress job",
+      );
+    });
+    expect(downloaded).toEqual({
+      href: "blob:job-export",
+      filename: "research-workspace-job-export-2026-08-16-1430.xlsx",
+    });
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    const [downloadBlob] = createObjectURL.mock.calls[0];
+    expect(downloadBlob.size).toBe(10);
+    expect(downloadBlob.type).toBe(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:job-export");
+    expect(screen.getByRole("button", { name: "Export 2 Jobs" }).disabled).toBe(false);
+    expect(screen.getByRole("checkbox", { name: "Select job job_completed_1" }).checked).toBe(
+      true,
+    );
+    expect(screen.getByRole("checkbox", { name: "Select job job_processing_1" }).checked).toBe(
+      true,
+    );
+    expect(screen.getByRole("checkbox", { name: "Select job job_failed_1" }).checked).toBe(
+      true,
+    );
   });
 
   it("treats delete 404 cleanup as already removed", async () => {

@@ -159,12 +159,22 @@ export function createLocalExtractionRunner({
         }
         notifyJobLifecycle(onJobLifecycleChange, job.workspace_id, productStore, claimed.job_id);
 
+        let activeModelGatewayConfiguration: ModelGatewayConfiguration | null = null;
         try {
           const sourceBytes = await localSourceFileStore.read(claimed.source_file_key);
           if (!sourceBytes) {
             throw new MissingSourceFileError();
           }
-          const activeModelGatewayConfiguration = getModelGatewayConfiguration();
+          activeModelGatewayConfiguration = getModelGatewayConfiguration();
+          const recordedModel = productStore.recordExtractionJobModel({
+            jobId: claimed.job_id,
+            attempt,
+            modelName: getExtractionModelName(activeModelGatewayConfiguration),
+            route: getModelGatewayRouteLabel(activeModelGatewayConfiguration),
+          });
+          if (!recordedModel) {
+            return;
+          }
           const extractionInput = {
             fields: claimed.fields,
             signal: productOperation?.signal ?? new AbortController().signal,
@@ -229,6 +239,12 @@ export function createLocalExtractionRunner({
               requeuedAt,
               errorCode: "model_gateway_retry",
               errorMessage: processingErrorMessage(error),
+              modelName: activeModelGatewayConfiguration
+                ? getExtractionModelName(activeModelGatewayConfiguration)
+                : null,
+              route: activeModelGatewayConfiguration
+                ? getModelGatewayRouteLabel(activeModelGatewayConfiguration)
+                : null,
               nextRetryAt,
             });
             if (requeued) {
@@ -252,6 +268,12 @@ export function createLocalExtractionRunner({
             failedAt: now(),
             errorCode,
             errorMessage: processingErrorMessage(error),
+            modelName: activeModelGatewayConfiguration
+              ? getExtractionModelName(activeModelGatewayConfiguration)
+              : null,
+            route: activeModelGatewayConfiguration
+              ? getModelGatewayRouteLabel(activeModelGatewayConfiguration)
+              : null,
           });
           if (failed) {
             notifyJobLifecycle(onJobLifecycleChange, job.workspace_id, productStore, claimed.job_id);

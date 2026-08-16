@@ -31,13 +31,21 @@ export function createAppRuntimeCore({
   }
 
   async function request(path, options = {}) {
+    const { responseType, ...fetchOptions } = options;
     const response = await fetch(endpoint(path), {
-      ...options,
+      ...fetchOptions,
       credentials: "include",
     });
 
     if (response.status === 204) {
       return null;
+    }
+
+    if (response.ok && responseType === "blob") {
+      return {
+        blob: await response.blob(),
+        headers: response.headers,
+      };
     }
 
     const rawText = await response.text();

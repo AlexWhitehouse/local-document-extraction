@@ -185,6 +185,31 @@ describe("app action toast notifications", () => {
       severity: "success",
       message: "Document already removed: invoice.pdf",
     });
+    expect(
+      getActionToast("document.bulkDelete", "success", {
+        targetName: "3 documents",
+      }),
+    ).toEqual({
+      severity: "success",
+      message: "3 documents deleted",
+    });
+    expect(getActionToast("document.bulkDelete", "failure")).toEqual({
+      severity: "error",
+      message: "Some selected documents could not be deleted. Try again.",
+    });
+    expect(
+      getActionToast("document.export", "success", {
+        exportedCount: 2,
+        skippedCount: 1,
+      }),
+    ).toEqual({
+      severity: "success",
+      message: "Exported 2 jobs; skipped 1 unavailable or in-progress job",
+    });
+    expect(getActionToast("document.export", "failure")).toEqual({
+      severity: "error",
+      message: "Selected jobs could not be exported. Please try again.",
+    });
     expect(getActionToast("clipboard.copyTemplateJson", "success")).toEqual({
       severity: "success",
       message: "Template JSON copied",

@@ -155,6 +155,9 @@ test("the local extraction runner resolves current model settings for each extra
         modelName: "updated/model",
       }),
     ]);
+    expect(productStore.getExtractionJob("job_dynamic")).toMatchObject({
+      model_name: "updated/model",
+    });
     const database = new Database(
       join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`),
       { readonly: true },
@@ -227,6 +230,10 @@ test("the local extraction runner records durable failures for missing Source fi
       extract: async () => {
         throw new Error("LiteLLM is unavailable");
       },
+      modelGatewayConfiguration: {
+        AI_MODEL: "failure/model",
+        MODEL_GATEWAY_URL: "https://failure-gateway.example/v1",
+      },
       productAnalytics,
       sourceFileStore: sourceFiles,
       stateDirectory,
@@ -250,12 +257,14 @@ test("the local extraction runner records durable failures for missing Source fi
       status: "failed",
       error_code: "missing_source_file",
       error_message: "Source file is missing from local storage",
+      model_name: null,
       results: [],
     });
     expect(productStore.getExtractionJob("job_model_failure")).toMatchObject({
       status: "failed",
       error_code: "processing_error",
       error_message: "LiteLLM is unavailable",
+      model_name: "failure/model",
       results: [],
     });
     expect(await sourceFiles.read(modelSourceFileKey)).not.toBeNull();

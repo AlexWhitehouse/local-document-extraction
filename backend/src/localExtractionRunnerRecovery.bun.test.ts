@@ -166,6 +166,10 @@ test("runner retries transient model failures within bounds and protects termina
         }
         return [{ field_id: "invoice_number", status: "ok", answer: "INV-001" }];
       },
+      modelGatewayConfiguration: {
+        AI_MODEL: "retry/model",
+        MODEL_GATEWAY_URL: "https://retry-gateway.example/v1",
+      },
       maxAttempts: 2,
       scheduleJob: async (job) => {
         scheduledJobs.push({ job_id: job.job_id, attempt: job.attempt ?? 1 });
@@ -187,6 +191,7 @@ test("runner retries transient model failures within bounds and protects termina
       current_attempt: 1,
       last_failed_attempt: 1,
       error_code: "model_gateway_retry",
+      model_name: "retry/model",
     });
     expect(scheduledJobs).toEqual([{ job_id: "job_retry", attempt: 2 }]);
 
