@@ -22,6 +22,7 @@ import {
 import {
   createEphemeralLocalWorkspaceProductStoreRegistry,
   createLocalWorkspaceProductStoreRegistry,
+  LocalWorkspaceProductStoreRegistryError,
   type LocalWorkspaceProductStoreHandle,
   type LocalWorkspaceProductStoreRegistry,
 } from "./localWorkspaceProductStoreRegistry";
@@ -129,7 +130,15 @@ export function createLocalExtractionRunner({
       if (!workspaceExists(workspaceControl, workspaceId)) {
         continue;
       }
-      const productStoreLease = localProductStoreRegistry.acquire({ workspaceId, mode: "existing" });
+      let productStoreLease;
+      try {
+        productStoreLease = localProductStoreRegistry.acquire({ workspaceId, mode: "existing" });
+      } catch (error) {
+        if (error instanceof LocalWorkspaceProductStoreRegistryError) {
+          continue;
+        }
+        throw error;
+      }
       if (!productStoreLease) {
         continue;
       }
@@ -185,7 +194,16 @@ export function createLocalExtractionRunner({
         }
         throw error;
       }
-      const productStoreLease = localProductStoreRegistry.acquire({ workspaceId: job.workspace_id, mode: "existing" });
+      let productStoreLease;
+      try {
+        productStoreLease = localProductStoreRegistry.acquire({ workspaceId: job.workspace_id, mode: "existing" });
+      } catch (error) {
+        productOperation?.release();
+        if (error instanceof LocalWorkspaceProductStoreRegistryError) {
+          return;
+        }
+        throw error;
+      }
       if (!productStoreLease) {
         productOperation?.release();
         return;

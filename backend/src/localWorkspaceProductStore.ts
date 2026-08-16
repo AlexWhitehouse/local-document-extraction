@@ -841,9 +841,12 @@ function recoverExtractionJobs(
       `SELECT id, template_id, template_version, current_attempt, next_retry_at
        FROM jobs
        WHERE status = 'queued'
-       ORDER BY updated_at ASC, id ASC
+       ORDER BY
+         CASE WHEN next_retry_at IS NULL OR next_retry_at <= ? THEN 0 ELSE 1 END ASC,
+         CASE WHEN next_retry_at IS NULL OR next_retry_at <= ? THEN updated_at ELSE next_retry_at END ASC,
+         id ASC
        LIMIT ?`,
-    ).all(limit) as Array<{
+    ).all(input.recoveredAt, input.recoveredAt, limit) as Array<{
       id: string;
       template_id: string;
       template_version: number;

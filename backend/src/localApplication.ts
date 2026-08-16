@@ -24,6 +24,8 @@ import type {
 import {
   createEphemeralLocalWorkspaceProductStoreRegistry,
   createLocalWorkspaceProductStoreRegistry,
+  LocalWorkspaceProductStoreRegistryError,
+  type LocalWorkspaceProductStoreLease,
   type LocalWorkspaceProductStoreRegistry,
 } from "./localWorkspaceProductStoreRegistry";
 import { createLocalSourceFileStore, type LocalSourceFileStore } from "./localSourceFileStore";
@@ -31,6 +33,7 @@ import { createLocalWorkspaceDeletion, type LocalWorkspaceDeletion } from "./loc
 import {
   createLocalWorkspaceProductOperations,
   LocalWorkspaceOperationError,
+  type LocalWorkspaceProductOperation,
   type LocalWorkspaceProductOperations,
 } from "./localWorkspaceProductOperations";
 
@@ -243,7 +246,15 @@ export function createLocalApplication({
         return workspaceProductOperationErrorResponse(error);
       }
 
-      const productStoreLease = localProductStoreRegistry!.acquire({ workspaceId: productWorkspaceId })!;
+      const productStoreAcquisition = acquireWorkspaceProductStore({
+        operation: productOperation,
+        registry: localProductStoreRegistry!,
+        workspaceId: productWorkspaceId,
+      });
+      if ("response" in productStoreAcquisition) {
+        return productStoreAcquisition.response;
+      }
+      const productStoreLease = productStoreAcquisition.lease;
       const productStore = productStoreLease.store;
       try {
         if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: productWorkspaceId })) {
@@ -576,7 +587,15 @@ async function handleLocalDocumentSubmission({
   } catch (error) {
     return workspaceProductOperationErrorResponse(error);
   }
-  const productStoreLease = productStoreRegistry.acquire({ workspaceId: authorization.workspace.id })!;
+  const productStoreAcquisition = acquireWorkspaceProductStore({
+    operation: productOperation,
+    registry: productStoreRegistry,
+    workspaceId: authorization.workspace.id,
+  });
+  if ("response" in productStoreAcquisition) {
+    return productStoreAcquisition.response;
+  }
+  const productStoreLease = productStoreAcquisition.lease;
   const productStore = productStoreLease.store;
   try {
     if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: authorization.workspace.id })) {
@@ -768,7 +787,15 @@ async function handleLocalJobRead({
   } catch (error) {
     return workspaceProductOperationErrorResponse(error);
   }
-  const productStoreLease = productStoreRegistry.acquire({ workspaceId: authorization.workspace.id })!;
+  const productStoreAcquisition = acquireWorkspaceProductStore({
+    operation: productOperation,
+    registry: productStoreRegistry,
+    workspaceId: authorization.workspace.id,
+  });
+  if ("response" in productStoreAcquisition) {
+    return productStoreAcquisition.response;
+  }
+  const productStoreLease = productStoreAcquisition.lease;
   const productStore = productStoreLease.store;
   let documentDeletionStarted = false;
   try {
@@ -898,7 +925,15 @@ async function handleLocalJobFilterOptions({
   } catch (error) {
     return workspaceProductOperationErrorResponse(error);
   }
-  const productStoreLease = productStoreRegistry.acquire({ workspaceId: authorization.workspace.id })!;
+  const productStoreAcquisition = acquireWorkspaceProductStore({
+    operation: productOperation,
+    registry: productStoreRegistry,
+    workspaceId: authorization.workspace.id,
+  });
+  if ("response" in productStoreAcquisition) {
+    return productStoreAcquisition.response;
+  }
+  const productStoreLease = productStoreAcquisition.lease;
   const productStore = productStoreLease.store;
   try {
     return Response.json({
@@ -934,7 +969,15 @@ async function handleLocalJobExport({
   } catch (error) {
     return workspaceProductOperationErrorResponse(error);
   }
-  const productStoreLease = productStoreRegistry.acquire({ workspaceId: authorization.workspace.id })!;
+  const productStoreAcquisition = acquireWorkspaceProductStore({
+    operation: productOperation,
+    registry: productStoreRegistry,
+    workspaceId: authorization.workspace.id,
+  });
+  if ("response" in productStoreAcquisition) {
+    return productStoreAcquisition.response;
+  }
+  const productStoreLease = productStoreAcquisition.lease;
   const productStore = productStoreLease.store;
 
   try {
@@ -1408,6 +1451,62 @@ function workspaceErrorResponse(error: unknown): Response {
 
   const status = error.code === "last_workspace" || error.code === "invite_exists" ? 409 : error.code === "not_found" ? 404 : 403;
   return Response.json({ error: { code: error.code, message: error.message } }, { status });
+}
+
+function acquireWorkspaceProductStore({
+  operation,
+  registry,
+  workspaceId,
+}: {
+  operation?: LocalWorkspaceProductOperation;
+  registry: LocalWorkspaceProductStoreRegistry;
+  workspaceId: string;
+}): { lease: LocalWorkspaceProductStoreLease } | { response: Response } {
+  try {
+    const lease = registry.acquire({ workspaceId });
+    if (lease) {
+      return { lease };
+    }
+    operation?.release();
+    return {
+      response: Response.json(
+        {
+          error: {
+            code: "local_product_store_unavailable",
+            message: "Local Workspace product storage is unavailable.",
+          },
+        },
+        { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
+      ),
+    };
+  } catch (error) {
+    operation?.release();
+    return { response: workspaceProductStoreRegistryErrorResponse(error) };
+  }
+}
+
+function workspaceProductStoreRegistryErrorResponse(error: unknown): Response {
+  if (error instanceof LocalWorkspaceProductStoreRegistryError) {
+    if (error.code === "capacity_exhausted") {
+      return Response.json(
+        {
+          error: {
+            code: "local_product_store_capacity_unavailable",
+            message: "Local Workspace product-store capacity is temporarily full",
+          },
+        },
+        { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
+      );
+    }
+    return Response.json(
+      { error: { code: "workspace_deleting", message: "Workspace deletion is in progress" } },
+      { status: 409 },
+    );
+  }
+  return Response.json(
+    { error: { code: "internal_error", message: "Unexpected server error" } },
+    { status: 500 },
+  );
 }
 
 function workspaceProductOperationErrorResponse(error: unknown): Response {

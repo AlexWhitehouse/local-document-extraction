@@ -38,32 +38,24 @@ export function createLocalSubmissionAdmission({
       const localCapacityFull =
         active >= normalizedMaxConcurrent
         || reservedBytes + reservation > normalizedMaxReservedBytes;
-      const resourcesAvailable = localCapacityFull
-        ? false
-        : await canReserve({ requestBytes: reservation, reservedBytes });
-      if (localCapacityFull || !resourcesAvailable) {
+      if (localCapacityFull) {
         rejected += 1;
-        await drainRequestBody(request.body);
-        return Response.json(
-          {
-            error: {
-              code: "local_submission_capacity_unavailable",
-              message: "Local Document submission capacity is temporarily full",
-            },
-          },
-          {
-            status: 503,
-            headers: {
-              "cache-control": "no-store",
-              "retry-after": String(normalizedRetryAfterSeconds),
-            },
-          },
-        );
+        return rejectSubmission(request, normalizedRetryAfterSeconds);
       }
 
+      // Reserve synchronously before filesystem sampling yields. Otherwise a burst of
+      // callers can all observe the same counters and over-admit work.
       active += 1;
       reservedBytes += reservation;
       try {
+        const resourcesAvailable = await canReserve({
+          requestBytes: reservation,
+          reservedBytes: reservedBytes - reservation,
+        });
+        if (!resourcesAvailable) {
+          rejected += 1;
+          return await rejectSubmission(request, normalizedRetryAfterSeconds);
+        }
         return await handle();
       } finally {
         active -= 1;
@@ -78,6 +70,25 @@ export function createLocalSubmissionAdmission({
       reservedBytes,
     }),
   };
+}
+
+async function rejectSubmission(request: Request, retryAfterSeconds: number): Promise<Response> {
+  await drainRequestBody(request.body);
+  return Response.json(
+    {
+      error: {
+        code: "local_submission_capacity_unavailable",
+        message: "Local Document submission capacity is temporarily full",
+      },
+    },
+    {
+      status: 503,
+      headers: {
+        "cache-control": "no-store",
+        "retry-after": String(retryAfterSeconds),
+      },
+    },
+  );
 }
 
 async function drainRequestBody(body: ReadableStream<Uint8Array> | null): Promise<void> {

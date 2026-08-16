@@ -7,8 +7,13 @@ import { Database } from "bun:sqlite";
 import { createLocalApplication } from "./localApplication";
 import { createLocalAuth } from "./localAuth";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
-import { createLocalWorkspaceControl } from "./localWorkspaceControl";
+import { createLocalWorkspaceControl, type LocalWorkspaceControl } from "./localWorkspaceControl";
 import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import {
+  LocalWorkspaceProductStoreRegistryError,
+  type LocalWorkspaceProductStoreRegistry,
+} from "./localWorkspaceProductStoreRegistry";
+import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
 
 test("Workspace deletion drains admitted product work and rejects new product HTTP requests", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-operation-coordination-"));
@@ -135,6 +140,75 @@ test("Workspace deletion drains admitted product work and rejects new product HT
   } finally {
     releaseSourceWrite();
     database.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("product-store capacity failure releases the admitted Workspace operation", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-store-capacity-"));
+  const workspaceId = "workspace_capacity";
+  const workspaceProductOperations = createLocalWorkspaceProductOperations();
+  const productStoreRegistry: LocalWorkspaceProductStoreRegistry = {
+    acquire: () => {
+      throw new LocalWorkspaceProductStoreRegistryError(
+        "capacity_exhausted",
+        "Workspace product-store capacity is temporarily exhausted",
+      );
+    },
+    closeAll: () => {},
+    diagnostics: () => ({
+      activeLeases: 64,
+      invalidatedWorkspaces: 0,
+      maxOpenStores: 64,
+      openStores: 64,
+    }),
+    invalidate: async () => {},
+  };
+  const workspaceControl = {
+    getAcceptedWorkspaceContext: () => ({
+      id: workspaceId,
+      name: "Capacity Workspace",
+      created_at: "2026-08-16T12:00:00.000Z",
+      max_source_file_bytes: null,
+      has_api_key: false,
+      role: "owner",
+    }),
+  } as unknown as LocalWorkspaceControl;
+  const application = createLocalApplication({
+    auth: {
+      getSession: async () => ({ id: "user_1", email: "ada@example.com", name: "Ada Lovelace" }),
+      handler: async () => new Response(null, { status: 404 }),
+    },
+    productStoreRegistry,
+    sourceFileStore: createLocalSourceFileStore({ stateDirectory }),
+    stateDirectory,
+    workspaceControl,
+    workspaceProductOperations,
+  });
+
+  try {
+    const response = await application(new Request("http://127.0.0.1:8787/v1/jobs", {
+      headers: { "x-workspace-id": workspaceId },
+    }));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("1");
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "local_product_store_capacity_unavailable",
+        message: "Local Workspace product-store capacity is temporarily full",
+      },
+    });
+
+    let deletionStarted = false;
+    await Promise.race([
+      workspaceProductOperations.beginDeletion({ workspaceId }).then(() => {
+        deletionStarted = true;
+      }),
+      Bun.sleep(50),
+    ]);
+    expect(deletionStarted).toBe(true);
+    workspaceProductOperations.failDeletion({ workspaceId });
+  } finally {
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });

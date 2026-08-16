@@ -58,6 +58,62 @@ describe("useDocumentController Workspace live updates", () => {
     });
   });
 
+  it("backs off and retries fallback polling after a transient detail failure", async () => {
+    globalThis.WebSocket = undefined;
+    const nativeSetTimeout = window.setTimeout;
+    const polls = [];
+    vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args) => {
+      if (delay >= 5000) {
+        polls.push({ callback, delay });
+        return 123;
+      }
+      return nativeSetTimeout(callback, delay, ...args);
+    });
+    const processingDetails = {
+      job_id: "job_processing_1",
+      status: "processing",
+      source_name: "invoice.pdf",
+      template_id: "template_test",
+      created_at: "2026-05-06T12:00:00.000Z",
+      updated_at: "2026-05-06T12:01:00.000Z",
+    };
+    let failDetailRequest = false;
+    const request = vi.fn(async (path) => {
+      if (path === "/jobs/job_processing_1") {
+        if (failDetailRequest) {
+          throw new TypeError("Temporary network failure");
+        }
+        return processingDetails;
+      }
+      return { jobs: [processingDetails], next_cursor: null, has_more: false };
+    });
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        request={request}
+        initialWorkspace={{
+          selectedDocumentId: "job_processing_1",
+          jobHistory: [processingDetails],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(polls).toHaveLength(1);
+      expect(request).toHaveBeenCalledWith("/jobs/job_processing_1", { method: "GET" });
+    });
+    const firstPoll = polls.shift();
+    failDetailRequest = true;
+    await act(async () => {
+      await firstPoll.callback();
+    });
+
+    expect(polls).toHaveLength(1);
+    expect(polls[0].delay).toBeGreaterThanOrEqual(10000);
+    expect(polls[0].delay).toBeLessThanOrEqual(12000);
+  });
+
   it("hydrates selected document details when a live lifecycle update completes", async () => {
     const WebSocketStub = installWebSocketStub();
     let controller = null;

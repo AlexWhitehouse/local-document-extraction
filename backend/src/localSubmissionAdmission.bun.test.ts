@@ -95,6 +95,39 @@ test("submission admission rejects and drains when local memory or disk cannot r
   expect(admission.snapshot()).toMatchObject({ active: 0, rejected: 1 });
 });
 
+test("submission admission reserves counters before asynchronous resource sampling", async () => {
+  let finishSampling: (() => void) | undefined;
+  let samplingCalls = 0;
+  const admission = createLocalSubmissionAdmission({
+    maxConcurrent: 1,
+    maxReservedBytes: 20,
+    canReserve: async () => {
+      samplingCalls += 1;
+      await new Promise<void>((resolve) => {
+        finishSampling = resolve;
+      });
+      return true;
+    },
+  });
+
+  const first = admission.run(requestWithBody(10), () => new Response(null, { status: 202 }));
+  await Promise.resolve();
+  expect(admission.snapshot()).toMatchObject({ active: 1, reservedBytes: 10 });
+
+  let handledSecond = false;
+  const second = await admission.run(requestWithBody(10), () => {
+    handledSecond = true;
+    return new Response(null, { status: 202 });
+  });
+  expect(second.status).toBe(503);
+  expect(handledSecond).toBe(false);
+  expect(samplingCalls).toBe(1);
+
+  finishSampling?.();
+  expect((await first).status).toBe(202);
+  expect(admission.snapshot()).toMatchObject({ active: 0, rejected: 1, reservedBytes: 0 });
+});
+
 function requestWithBody(contentLength: number | null): Request {
   const headers = new Headers({ "content-type": "application/octet-stream" });
   if (contentLength !== null) headers.set("content-length", String(contentLength));

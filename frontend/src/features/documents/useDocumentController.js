@@ -14,6 +14,9 @@ const EMPTY_DOCUMENT_FILTERS = Object.freeze({
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 const EXPORTABLE_DOCUMENT_STATUSES = new Set(["completed", "failed"]);
+const FALLBACK_POLL_INITIAL_DELAY_MS = 5000;
+const FALLBACK_POLL_ACTIVE_DELAY_MS = 8000;
+const FALLBACK_POLL_MAX_FAILURE_DELAY_MS = 30000;
 const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_DELAY_MS = 150;
 const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_MIN_INTERVAL_MS = 3000;
 
@@ -725,6 +728,7 @@ export function useDocumentController({
         if (Number(error?.status) === 404) {
           completedDocumentCacheRef.current.remove(workspaceId, normalizedJobId);
           removeDocumentFromState(normalizedJobId);
+          return;
         }
         if (!silent) {
           addLogRef.current(`Load job details failed: ${error.message}`);
@@ -1236,16 +1240,27 @@ export function useDocumentController({
 
     let cancelled = false;
     let timeoutId = null;
-    let nextDelayMs = 5000;
+    let nextDelayMs = FALLBACK_POLL_INITIAL_DELAY_MS;
 
     const schedulePoll = () => {
       const jitteredDelayMs = Math.ceil(nextDelayMs * (1 + Math.random() * 0.2));
       timeoutId = window.setTimeout(async () => {
         const job = await loadJobDetails(selectedDocumentId, { silent: true });
-        if (cancelled || !LIVE_DOCUMENT_STATUSES.has(String(job?.status || "").toLowerCase())) {
+        if (cancelled) {
           return;
         }
-        nextDelayMs = 8000;
+        if (job === null) {
+          nextDelayMs = Math.min(
+            FALLBACK_POLL_MAX_FAILURE_DELAY_MS,
+            Math.max(FALLBACK_POLL_ACTIVE_DELAY_MS, nextDelayMs * 2),
+          );
+          schedulePoll();
+          return;
+        }
+        if (!LIVE_DOCUMENT_STATUSES.has(String(job?.status || "").toLowerCase())) {
+          return;
+        }
+        nextDelayMs = FALLBACK_POLL_ACTIVE_DELAY_MS;
         schedulePoll();
       }, jitteredDelayMs);
     };

@@ -124,6 +124,74 @@ test("runner startup requeues stale processing work and stops jobs that exhaust 
   }
 });
 
+test("recovery selects ready queued jobs ahead of older deferred retries", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-ready-recovery-"));
+  const workspaceId = "workspace_research";
+  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+
+  try {
+    store.createTemplate({
+      templateId: "tpl_invoice",
+      name: "Invoice",
+      description: "Extract invoice details.",
+      fields: [
+        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
+      ],
+      createdAt: "2026-07-09T12:00:00.000Z",
+    });
+    for (const [jobId, requeuedAt, nextRetryAt] of [
+      ["job_deferred_first", "2026-07-09T12:03:00.000Z", "2026-07-09T20:00:00.000Z"],
+      ["job_deferred_second", "2026-07-09T12:04:00.000Z", "2026-07-09T21:00:00.000Z"],
+    ] as const) {
+      store.createQueuedExtractionJob({
+        jobId,
+        templateId: "tpl_invoice",
+        templateVersion: 1,
+        sourceFileKey: `workspaces/${workspaceId}/jobs/${jobId}/source.png`,
+        sourceMimeType: "image/png",
+        sourceName: "invoice.png",
+        sourceFilePageCount: null,
+        submittedAt: "2026-07-09T12:01:00.000Z",
+      });
+      store.claimExtractionJobForProcessing({
+        jobId,
+        attempt: 1,
+        claimedAt: "2026-07-09T12:02:00.000Z",
+      });
+      store.requeueExtractionJob({
+        jobId,
+        attempt: 1,
+        requeuedAt,
+        errorCode: "model_gateway_retry",
+        errorMessage: "Temporary failure",
+        nextRetryAt,
+      });
+    }
+    store.createQueuedExtractionJob({
+      jobId: "job_ready",
+      templateId: "tpl_invoice",
+      templateVersion: 1,
+      sourceFileKey: `workspaces/${workspaceId}/jobs/job_ready/source.png`,
+      sourceMimeType: "image/png",
+      sourceName: "invoice.png",
+      sourceFilePageCount: null,
+      submittedAt: "2026-07-09T12:05:00.000Z",
+    });
+
+    const recovered = store.recoverExtractionJobs({
+      limit: 2,
+      maxAttempts: 3,
+      recoveredAt: "2026-07-09T13:00:00.000Z",
+      staleProcessingBefore: "2026-07-09T11:00:00.000Z",
+    });
+
+    expect(recovered.map((job) => job.job_id)).toEqual(["job_ready", "job_deferred_first"]);
+  } finally {
+    store.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("runner retries transient model failures within bounds and protects terminal jobs from duplicate attempts", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-retry-runner-"));
   const workspaceId = "workspace_research";
