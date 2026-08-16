@@ -8,6 +8,14 @@ export function createDocumentRequestAdapter({ request }) {
   }
 
   return {
+    async getFilterOptions() {
+      const result = await request("/jobs/filter-options", { method: "GET" });
+      return {
+        available_models: Array.isArray(result?.available_models)
+          ? result.available_models.map((model) => String(model)).filter(Boolean)
+          : [],
+      };
+    },
     getDocument(documentId) {
       const normalizedId = normalizedDocumentId(documentId);
       return request(
@@ -15,12 +23,24 @@ export function createDocumentRequestAdapter({ request }) {
         { method: "GET" },
       );
     },
-    async listDocuments({ search = "", cursor = null } = {}) {
+    async listDocuments({ search = "", cursor = null, filters = {} } = {}) {
       const params = new URLSearchParams();
       const normalizedSearch = String(search || "").trim();
       const normalizedCursor = String(cursor || "").trim();
+      const normalizedDateFrom = String(filters?.dateFrom || "").trim();
+      const normalizedDateTo = String(filters?.dateTo || "").trim();
+      const normalizedModel = String(filters?.model || "").trim();
       if (normalizedSearch) {
         params.set("search", normalizedSearch);
+      }
+      if (normalizedDateFrom) {
+        params.set("date_from", normalizedDateFrom);
+      }
+      if (normalizedDateTo) {
+        params.set("date_to", normalizedDateTo);
+      }
+      if (normalizedModel) {
+        params.set("model", normalizedModel);
       }
       if (normalizedCursor) {
         params.set("cursor", normalizedCursor);

@@ -63,6 +63,29 @@ test("opening missing Workspace product data does not initialize a database", as
   }
 });
 
+test("local Workspace job storage creates indexes for chronological and model-filtered pagination", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-job-indexes-"));
+  const workspaceId = "workspace_indexed_jobs";
+  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+  store.close();
+  const database = new Database(
+    join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`),
+    { readonly: true },
+  );
+
+  try {
+    const indexNames = new Set(
+      (database.query("PRAGMA index_list(jobs)").all() as Array<{ name: string }>)
+        .map((index) => index.name),
+    );
+    expect(indexNames).toContain("idx_jobs_created_id");
+    expect(indexNames).toContain("idx_jobs_model_created_id");
+  } finally {
+    database.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("local Workspace product data reads a Template's current version and fields", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-template-detail-"));
   const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_research" });

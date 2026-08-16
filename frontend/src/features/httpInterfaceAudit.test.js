@@ -13,6 +13,9 @@ describe("in-scope HTTP interface audit", () => {
       if (path === "/jobs" || path.startsWith("/jobs?")) {
         return { jobs: [], total: 0, next_cursor: null, has_more: false };
       }
+      if (path === "/jobs/filter-options") {
+        return { available_models: ["provider/model"] };
+      }
       if (path === "/jobs/job_1" && options.method === "DELETE") {
         return { deleted: true, job_id: "job_1" };
       }
@@ -46,8 +49,19 @@ describe("in-scope HTTP interface audit", () => {
     const documentRequests = createDocumentRequestAdapter({ request });
     const workspaceRequests = createWorkspaceRequestAdapter({ request });
 
+    await expect(documentRequests.getFilterOptions()).resolves.toEqual({
+      available_models: ["provider/model"],
+    });
     await documentRequests.getDocument("job_1");
-    await documentRequests.listDocuments({ search: "invoice", cursor: "cursor_1" });
+    await documentRequests.listDocuments({
+      search: "invoice",
+      cursor: "cursor_1",
+      filters: {
+        dateFrom: "2026-08-01",
+        dateTo: "2026-08-16",
+        model: "provider/model",
+      },
+    });
     await documentRequests.deleteDocument("job_1");
     await expect(documentRequests.exportDocuments(["job_1", "job_1"])).resolves.toMatchObject({
       filename: "workspace-job-export.xlsx",
@@ -62,8 +76,9 @@ describe("in-scope HTTP interface audit", () => {
     await workspaceRequests.leaveWorkspace("ws_1");
 
     expect(request.mock.calls.map(([path, options]) => [path, options.method])).toEqual([
+      ["/jobs/filter-options", "GET"],
       ["/jobs/job_1", "GET"],
-      ["/jobs?search=invoice&cursor=cursor_1", "GET"],
+      ["/jobs?search=invoice&date_from=2026-08-01&date_to=2026-08-16&model=provider%2Fmodel&cursor=cursor_1", "GET"],
       ["/jobs/job_1", "DELETE"],
       ["/jobs/export", "POST"],
       ["/extract", "POST"],

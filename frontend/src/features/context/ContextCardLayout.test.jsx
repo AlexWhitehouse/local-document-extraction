@@ -77,10 +77,14 @@ describe("context card layouts", () => {
         ".context-item-card:not(.context-item-workspace):not(.context-item-document)",
       );
       const documentSearchRow = container.querySelector(".context-search-row");
+      const documentSearchShell = container.querySelector(".context-search-shell");
       const workspaceSearchInput = container.querySelector(
         'input[placeholder="Workspace name or ID"]',
       );
       const documentSearchInput = container.querySelector("#document-job-search");
+      const documentFilterTrigger = container.querySelector(
+        ".context-filter-trigger",
+      );
       const selectAllControl = container.querySelector(
         ".context-select-all-control",
       );
@@ -95,6 +99,11 @@ describe("context card layouts", () => {
       expect(getComputedStyle(documentSearchRow).gridTemplateColumns).toBe(
         "36px minmax(0, 1fr)",
       );
+      expect(getComputedStyle(documentSearchRow).paddingRight).toBe("2px");
+      expect(getComputedStyle(documentSearchShell).gridTemplateColumns).toBe(
+        "minmax(0, 1fr) 36px",
+      );
+      expect(getComputedStyle(documentFilterTrigger).width).toBe("36px");
       expect(getComputedStyle(documentSearchInput).height).toBe("34px");
       expect(getComputedStyle(selectAllControl).height).toBe("34px");
       for (const property of [

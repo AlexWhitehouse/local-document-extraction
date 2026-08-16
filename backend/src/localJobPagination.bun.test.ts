@@ -78,6 +78,16 @@ test("the Document adapter traverses stable, opaque, search-bound job pages with
     });
     await expect(adapter.listDocuments({ search: "report", cursor: filteredFirstPage.next_cursor }))
       .rejects.toMatchObject({ code: "invalid_cursor", status: 400 });
+    const dateFilteredFirstPage = await adapter.listDocuments({
+      filters: { dateFrom: "2026-07-10" },
+    });
+    expect(dateFilteredFirstPage).toMatchObject({ has_more: true });
+    await expect(adapter.listDocuments({
+      cursor: dateFilteredFirstPage.next_cursor,
+      filters: { dateFrom: "2026-07-10" },
+    })).resolves.toMatchObject({ has_more: true });
+    await expect(adapter.listDocuments({ cursor: dateFilteredFirstPage.next_cursor }))
+      .rejects.toMatchObject({ code: "invalid_cursor", status: 400 });
     await expect(adapter.listDocuments({ cursor: "not-a-valid-cursor" }))
       .rejects.toMatchObject({ code: "invalid_cursor", status: 400 });
   } finally {
