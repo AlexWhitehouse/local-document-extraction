@@ -1907,8 +1907,7 @@ describe("Workspace action toast feedback", () => {
       ],
       userWorkspaceInvitations: [],
     });
-    const intervalSpy = vi.spyOn(window, "setInterval").mockReturnValue(123);
-    vi.spyOn(window, "clearInterval").mockImplementation(() => {});
+    const timeoutSpy = vi.spyOn(window, "setTimeout");
     globalThis.fetch.mockImplementation((input, options = {}) => {
       const url = String(input);
       if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
@@ -1933,7 +1932,7 @@ describe("Workspace action toast feedback", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+      expect(timeoutSpy.mock.calls.some(([, delay]) => delay >= 5000 && delay <= 6000)).toBe(true);
     });
   });
 

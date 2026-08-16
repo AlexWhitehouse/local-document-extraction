@@ -1234,12 +1234,28 @@ export function useDocumentController({
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      void loadJobDetails(selectedDocumentId, { silent: true });
-    }, 1000);
+    let cancelled = false;
+    let timeoutId = null;
+    let nextDelayMs = 5000;
+
+    const schedulePoll = () => {
+      const jitteredDelayMs = Math.ceil(nextDelayMs * (1 + Math.random() * 0.2));
+      timeoutId = window.setTimeout(async () => {
+        const job = await loadJobDetails(selectedDocumentId, { silent: true });
+        if (cancelled || !LIVE_DOCUMENT_STATUSES.has(String(job?.status || "").toLowerCase())) {
+          return;
+        }
+        nextDelayMs = 8000;
+        schedulePoll();
+      }, jitteredDelayMs);
+    };
+    schedulePoll();
 
     return () => {
-      window.clearInterval(intervalId);
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [
     hasApiAccess,

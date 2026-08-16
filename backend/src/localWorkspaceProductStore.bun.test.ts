@@ -701,7 +701,7 @@ test("local Document submission removes a written Source file when product job c
   }
 });
 
-test("local Document submission fails the queued job and removes its Source file when scheduling fails", async () => {
+test("local Document submission fails the queued job and retains its Source file when scheduling fails", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-submit-schedule-failure-"));
   const fixture = await createAuthenticatedLocalWorkspace(stateDirectory);
   const deletedSourceFileKeys: string[] = [];
@@ -727,7 +727,7 @@ test("local Document submission fails the queued job and removes its Source file
     const response = await submitPngDocument(application, fixture.headers, templateId);
 
     expect(response.status).toBe(500);
-    expect(deletedSourceFileKeys).toEqual([expect.stringMatching(/^memory\/job_/)]);
+    expect(deletedSourceFileKeys).toEqual([]);
     const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: fixture.workspace.id });
     try {
       expect(productStore.listExtractionJobs()).toEqual([
@@ -736,6 +736,11 @@ test("local Document submission fails the queued job and removes its Source file
           error_code: "local_runner_schedule_failed",
           error_message: "Local runner is unavailable",
         }),
+      ]);
+      expect(productStore.listRetainedTerminalSourceFiles({
+        failedBefore: new Date(Date.now() + 1_000).toISOString(),
+      })).toEqual([
+        expect.objectContaining({ source_file_key: expect.stringMatching(/^memory\/job_/) }),
       ]);
     } finally {
       productStore.close();

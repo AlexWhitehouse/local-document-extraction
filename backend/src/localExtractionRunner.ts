@@ -2,6 +2,7 @@ import {
   getExtractionModelName,
   getModelGatewayRouteLabel,
   runExtraction,
+  usesManagedPdfFileUpload,
   type ModelGatewayConfiguration,
   RetryableError,
 } from "./consumer/modelGateway";
@@ -15,10 +16,15 @@ import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { createLocalSourceFileStore, type LocalSourceFileStore } from "./localSourceFileStore";
 import {
-  openLocalWorkspaceProductStore,
   type LocalWorkspaceExtractionJob,
   type LocalWorkspaceProductStore,
 } from "./localWorkspaceProductStore";
+import {
+  createEphemeralLocalWorkspaceProductStoreRegistry,
+  createLocalWorkspaceProductStoreRegistry,
+  type LocalWorkspaceProductStoreHandle,
+  type LocalWorkspaceProductStoreRegistry,
+} from "./localWorkspaceProductStoreRegistry";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import {
   LocalWorkspaceOperationError,
@@ -30,6 +36,8 @@ import { join } from "node:path";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_STALE_PROCESSING_AFTER_MS = 5 * 60 * 1000;
+const DEFAULT_RECOVERY_BATCH_SIZE = 1_000;
+const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 
 export type LocalExtractionRunner = {
   recover(): Promise<void>;
@@ -48,10 +56,15 @@ export function createLocalExtractionRunner({
   modelGatewayConfiguration = localModelGatewayConfiguration(),
   modelGatewayConfigurationProvider,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
+  maxRetryDelayMs = DEFAULT_MAX_RETRY_DELAY_MS,
   now = nowIso,
+  onGatewayOutcome,
   onJobLifecycleChange,
   productAnalytics,
-  productStoreOpener = openLocalWorkspaceProductStore,
+  productStoreOpener,
+  productStoreRegistry,
+  recoveryBatchSize = DEFAULT_RECOVERY_BATCH_SIZE,
+  random = Math.random,
   retryDelayMs = 0,
   scheduleJob = async () => {},
   sourceFileStore,
@@ -64,10 +77,15 @@ export function createLocalExtractionRunner({
   modelGatewayConfiguration?: ModelGatewayConfiguration;
   modelGatewayConfigurationProvider?: () => ModelGatewayConfiguration;
   maxAttempts?: number;
+  maxRetryDelayMs?: number;
   now?: () => string;
+  onGatewayOutcome?: (outcome: "failed" | "success" | "throttled" | "timeout") => void;
   onJobLifecycleChange?: (workspaceId: string, job: LocalWorkspaceExtractionJob) => void;
   productAnalytics?: LocalProductAnalytics;
   productStoreOpener?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore | null;
+  productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
+  recoveryBatchSize?: number;
+  random?: () => number;
   retryDelayMs?: number;
   scheduleJob?: (job: LocalQueuedExtractionJob) => void | Promise<void>;
   sourceFileStore?: LocalSourceFileStore;
@@ -79,49 +97,77 @@ export function createLocalExtractionRunner({
   const normalizedRetryDelayMs = Number.isFinite(retryDelayMs)
     ? Math.max(0, Math.trunc(retryDelayMs))
     : 0;
+  const normalizedMaxRetryDelayMs = Number.isFinite(maxRetryDelayMs)
+    ? Math.max(normalizedRetryDelayMs, Math.trunc(maxRetryDelayMs))
+    : DEFAULT_MAX_RETRY_DELAY_MS;
   const localSourceFileStore = sourceFileStore ?? createLocalSourceFileStore({ stateDirectory });
+  const localProductStoreRegistry = productStoreRegistry ?? (productStoreOpener
+    ? createEphemeralLocalWorkspaceProductStoreRegistry({
+        stateDirectory,
+        createStore: (input) => {
+          const store = productStoreOpener(input);
+          if (!store) throw new Error("Workspace product store does not exist");
+          return store;
+        },
+        openStore: productStoreOpener,
+      })
+    : createLocalWorkspaceProductStoreRegistry({ stateDirectory }));
   const getModelGatewayConfiguration = modelGatewayConfigurationProvider
     ?? (() => modelGatewayConfiguration);
+  const normalizedRecoveryBatchSize = Number.isSafeInteger(recoveryBatchSize) && recoveryBatchSize > 0
+    ? recoveryBatchSize
+    : DEFAULT_RECOVERY_BATCH_SIZE;
+  let activeRecovery: Promise<void> | null = null;
+
+  const recover = async () => {
+    const workspaceIds = await listLocalWorkspaceIds(stateDirectory);
+    const recoveredAt = now();
+    const staleProcessingBefore = new Date(
+      Date.now() - Math.max(0, staleProcessingAfterMs),
+    ).toISOString();
+    for (const workspaceId of workspaceIds) {
+      if (!workspaceExists(workspaceControl, workspaceId)) {
+        continue;
+      }
+      const productStoreLease = localProductStoreRegistry.acquire({ workspaceId, mode: "existing" });
+      if (!productStoreLease) {
+        continue;
+      }
+      const productStore = productStoreLease.store;
+      try {
+        const recovered = productStore.recoverExtractionJobs({
+          limit: normalizedRecoveryBatchSize,
+          maxAttempts,
+          recoveredAt,
+          staleProcessingBefore,
+        });
+        for (const job of recovered) {
+          if (!workspaceExists(workspaceControl, workspaceId)) {
+            break;
+          }
+          await scheduleJob({
+            job_id: job.job_id,
+            workspace_id: workspaceId,
+            template_id: job.template_id,
+            template_version: job.template_version,
+            enqueued_at: recoveredAt,
+            attempt: job.attempt,
+            not_before: job.not_before,
+          });
+        }
+      } finally {
+        productStoreLease.release();
+      }
+    }
+  };
 
   return {
     recover: async () => {
-      const workspaceIds = await listLocalWorkspaceIds(stateDirectory);
-      const recoveredAt = now();
-      const staleProcessingBefore = new Date(
-        Date.now() - Math.max(0, staleProcessingAfterMs),
-      ).toISOString();
-      for (const workspaceId of workspaceIds) {
-        if (!workspaceExists(workspaceControl, workspaceId)) {
-          continue;
-        }
-        const productStore = productStoreOpener({ stateDirectory, workspaceId });
-        if (!productStore) {
-          continue;
-        }
-        try {
-          const recovered = productStore.recoverExtractionJobs({
-            maxAttempts,
-            recoveredAt,
-            staleProcessingBefore,
-          });
-          for (const job of recovered) {
-            if (!workspaceExists(workspaceControl, workspaceId)) {
-              break;
-            }
-            await scheduleJob({
-              job_id: job.job_id,
-              workspace_id: workspaceId,
-              template_id: job.template_id,
-              template_version: job.template_version,
-              enqueued_at: recoveredAt,
-              attempt: job.attempt,
-              not_before: job.not_before,
-            });
-          }
-        } finally {
-          productStore.close();
-        }
-      }
+      if (activeRecovery) return activeRecovery;
+      activeRecovery = recover().finally(() => {
+        activeRecovery = null;
+      });
+      return activeRecovery;
     },
     run: async (job) => {
       if (!workspaceExists(workspaceControl, job.workspace_id)) {
@@ -139,11 +185,12 @@ export function createLocalExtractionRunner({
         }
         throw error;
       }
-      const productStore = productStoreOpener({ stateDirectory, workspaceId: job.workspace_id });
-      if (!productStore) {
+      const productStoreLease = localProductStoreRegistry.acquire({ workspaceId: job.workspace_id, mode: "existing" });
+      if (!productStoreLease) {
         productOperation?.release();
         return;
       }
+      const productStore = productStoreLease.store;
       const attempt = job.attempt ?? 1;
       try {
         const claimed = productStore.claimExtractionJobForProcessing({
@@ -160,12 +207,26 @@ export function createLocalExtractionRunner({
         notifyJobLifecycle(onJobLifecycleChange, job.workspace_id, productStore, claimed.job_id);
 
         let activeModelGatewayConfiguration: ModelGatewayConfiguration | null = null;
+        let gatewayStarted = false;
+        let modelRecorded = false;
         try {
-          const sourceBytes = await localSourceFileStore.read(claimed.source_file_key);
-          if (!sourceBytes) {
+          activeModelGatewayConfiguration = getModelGatewayConfiguration();
+          let sourceBytes: Uint8Array | null = null;
+          let sourceBlob: Blob | null = null;
+          if (
+            !extract
+            && localSourceFileStore.open
+            && usesManagedPdfFileUpload(activeModelGatewayConfiguration, claimed.source_mime_type)
+          ) {
+            sourceBlob = await localSourceFileStore.open(claimed.source_file_key);
+          }
+          if (!sourceBlob) {
+            sourceBytes = await localSourceFileStore.read(claimed.source_file_key);
+          }
+          if (!sourceBlob && !sourceBytes) {
             throw new MissingSourceFileError();
           }
-          activeModelGatewayConfiguration = getModelGatewayConfiguration();
+          const sourceByteSize = sourceBlob?.size ?? sourceBytes!.byteLength;
           const recordedModel = productStore.recordExtractionJobModel({
             jobId: claimed.job_id,
             attempt,
@@ -175,21 +236,27 @@ export function createLocalExtractionRunner({
           if (!recordedModel) {
             return;
           }
-          const extractionInput = {
-            fields: claimed.fields,
-            signal: productOperation?.signal ?? new AbortController().signal,
-            sourceBytes: toArrayBuffer(sourceBytes),
-            sourceMimeType: claimed.source_mime_type,
-          };
+          modelRecorded = true;
+          const extractionSignal = productOperation?.signal ?? new AbortController().signal;
+          if (!extract) gatewayStarted = true;
           const rawResults = extract
-            ? await extract(extractionInput)
+            ? await extract({
+                fields: claimed.fields,
+                signal: extractionSignal,
+                sourceBytes: toArrayBuffer(sourceBytes!),
+                sourceMimeType: claimed.source_mime_type,
+              })
             : await runExtraction(
                 activeModelGatewayConfiguration,
-                extractionInput.fields,
-                extractionInput.sourceBytes,
-                extractionInput.sourceMimeType,
-                extractionInput.signal,
+                claimed.fields,
+                sourceBlob ?? toArrayBuffer(sourceBytes!),
+                claimed.source_mime_type,
+                extractionSignal,
               );
+          if (gatewayStarted) {
+            notifyGatewayOutcome(onGatewayOutcome, "success");
+            gatewayStarted = false;
+          }
           const results = normalizeModelResults(claimed.fields, rawResults);
           if (productOperation?.signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
             return;
@@ -213,7 +280,7 @@ export function createLocalExtractionRunner({
               status: "completed",
               attempt,
               sourceMimeType: claimed.source_mime_type,
-              sourceByteSize: sourceBytes.byteLength,
+              sourceByteSize,
               modelName: getExtractionModelName(activeModelGatewayConfiguration),
               fieldCount: claimed.fields.length,
             });
@@ -225,13 +292,27 @@ export function createLocalExtractionRunner({
             });
           }
         } catch (error) {
+          if (gatewayStarted) {
+            notifyGatewayOutcome(onGatewayOutcome, gatewayOutcomeForError(error));
+          }
           if (productOperation?.signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
             return;
           }
           if (error instanceof RetryableError && attempt < maxAttempts) {
             const requeuedAt = now();
+            const exponentialCeilingMs = Math.min(
+              normalizedMaxRetryDelayMs,
+              normalizedRetryDelayMs * 2 ** Math.max(0, attempt - 1),
+            );
+            const jitteredDelayMs = Math.floor(
+              Math.max(0, Math.min(1, random())) * exponentialCeilingMs,
+            );
+            const retryDelayForAttemptMs = Math.max(
+              jitteredDelayMs,
+              error.retryAfterMs ?? 0,
+            );
             const nextRetryAt = new Date(
-              Date.parse(requeuedAt) + normalizedRetryDelayMs,
+              Date.parse(requeuedAt) + retryDelayForAttemptMs,
             ).toISOString();
             const requeued = productStore.requeueExtractionJob({
               jobId: claimed.job_id,
@@ -239,10 +320,10 @@ export function createLocalExtractionRunner({
               requeuedAt,
               errorCode: "model_gateway_retry",
               errorMessage: processingErrorMessage(error),
-              modelName: activeModelGatewayConfiguration
+              modelName: modelRecorded && activeModelGatewayConfiguration
                 ? getExtractionModelName(activeModelGatewayConfiguration)
                 : null,
-              route: activeModelGatewayConfiguration
+              route: modelRecorded && activeModelGatewayConfiguration
                 ? getModelGatewayRouteLabel(activeModelGatewayConfiguration)
                 : null,
               nextRetryAt,
@@ -268,10 +349,10 @@ export function createLocalExtractionRunner({
             failedAt: now(),
             errorCode,
             errorMessage: processingErrorMessage(error),
-            modelName: activeModelGatewayConfiguration
+            modelName: modelRecorded && activeModelGatewayConfiguration
               ? getExtractionModelName(activeModelGatewayConfiguration)
               : null,
-            route: activeModelGatewayConfiguration
+            route: modelRecorded && activeModelGatewayConfiguration
               ? getModelGatewayRouteLabel(activeModelGatewayConfiguration)
               : null,
           });
@@ -292,7 +373,7 @@ export function createLocalExtractionRunner({
           }
         }
       } finally {
-        productStore.close();
+        productStoreLease.release();
         productOperation?.release();
       }
     },
@@ -313,7 +394,7 @@ async function cleanupCompletedSourceFile({
   sourceFileStore,
 }: {
   jobId: string;
-  productStore: LocalWorkspaceProductStore;
+  productStore: LocalWorkspaceProductStoreHandle;
   sourceFileKey: string;
   sourceFileStore: LocalSourceFileStore;
 }): Promise<void> {
@@ -349,7 +430,31 @@ function processingErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown processing failure";
 }
 
+function gatewayOutcomeForError(error: unknown): "failed" | "throttled" | "timeout" {
+  if (error instanceof RetryableError && error.status === 429) return "throttled";
+  const message = processingErrorMessage(error).toLowerCase();
+  return message.includes("timed out") || message.includes("timeout") ? "timeout" : "failed";
+}
+
+function notifyGatewayOutcome(
+  observer: ((outcome: "failed" | "success" | "throttled" | "timeout") => void) | undefined,
+  outcome: "failed" | "success" | "throttled" | "timeout",
+): void {
+  try {
+    observer?.(outcome);
+  } catch (error) {
+    console.warn("Local gateway outcome observer failed", error);
+  }
+}
+
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (
+    bytes.buffer instanceof ArrayBuffer
+    && bytes.byteOffset === 0
+    && bytes.byteLength === bytes.buffer.byteLength
+  ) {
+    return bytes.buffer;
+  }
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
   return copy.buffer;
@@ -361,6 +466,7 @@ function localModelGatewayConfiguration(): ModelGatewayConfiguration {
     LITELLM_KEY: process.env.LITELLM_KEY,
     MODEL_GATEWAY_REQUEST_TIMEOUT_MS: process.env.MODEL_GATEWAY_REQUEST_TIMEOUT_MS,
     MODEL_GATEWAY_ROUTE_LABEL: process.env.MODEL_GATEWAY_ROUTE_LABEL,
+    MODEL_GATEWAY_USE_MANAGED_FILES: process.env.MODEL_GATEWAY_USE_MANAGED_FILES,
     MODEL_GATEWAY_URL: process.env.MODEL_GATEWAY_URL,
   };
 }
@@ -368,7 +474,7 @@ function localModelGatewayConfiguration(): ModelGatewayConfiguration {
 function notifyJobLifecycle(
   onJobLifecycleChange: ((workspaceId: string, job: LocalWorkspaceExtractionJob) => void) | undefined,
   workspaceId: string,
-  productStore: LocalWorkspaceProductStore,
+  productStore: LocalWorkspaceProductStoreHandle,
   jobId: string,
 ): void {
   if (!onJobLifecycleChange) {

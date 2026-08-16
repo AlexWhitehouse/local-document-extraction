@@ -253,6 +253,7 @@ test("runner schedules a retry no earlier than the configured retry delay", asyn
       },
       maxAttempts: 2,
       now: () => "2026-07-10T20:01:00.000Z",
+      random: () => 1,
       retryDelayMs: 15 * 60 * 1000,
       scheduleJob: async (job) => {
         scheduledJobs.push({

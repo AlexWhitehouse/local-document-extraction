@@ -11,6 +11,7 @@
     "dev": "bun --watch backend/src/server.ts",
     "dev:frontend": "bun run --cwd frontend dev",
     "migrate": "bun run --cwd backend migrate",
+    "prototype:throughput": "bun .scratch/high-throughput-local-pdf-extraction/prototype/throughput.ts",
     "start": "bun backend/src/server.ts",
     "lint": "bunx eslint .",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",

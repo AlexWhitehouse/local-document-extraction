@@ -386,35 +386,56 @@ export async function validateExtractRequest(
   }
 
   const form = await request.formData();
-  if (form.has("fields")) {
-    throw new HttpError(400, "inline_fields_forbidden", "Inline fields are not allowed");
-  }
-
-  const templateIdRaw = form.get("template_id");
-  if (typeof templateIdRaw !== "string" || templateIdRaw.trim().length === 0) {
-    throw new HttpError(400, "invalid_template_id", "template_id is required");
-  }
-
   const sourcePart = form.get("document");
   if (!(sourcePart instanceof File)) {
     throw new HttpError(400, "invalid_document", "document is required");
   }
-
-  if (!ALLOWED_MIME_TYPES.has(sourcePart.type)) {
-    throw new HttpError(400, "invalid_document", `Unsupported Document MIME type: ${sourcePart.type}`);
-  }
-
-  if (sourcePart.size > maxSourceFileBytes) {
-    throw new HttpError(400, "source_file_too_large", `Source file exceeds max size of ${maxSourceFileBytes} bytes`);
-  }
-
-  const optionsRaw = form.get("options");
-  const options = parseOptions(optionsRaw);
+  const { templateId, options } = validateExtractSubmissionMetadata({
+    hasInlineFields: form.has("fields"),
+    maxSourceFileBytes,
+    optionsRaw: form.get("options"),
+    sourceMimeType: sourcePart.type,
+    sourceSize: sourcePart.size,
+    templateIdRaw: form.get("template_id"),
+  });
 
   return {
-    templateId: templateIdRaw.trim(),
+    templateId,
     source: sourcePart,
     options
+  };
+}
+
+export function validateExtractSubmissionMetadata({
+  hasInlineFields,
+  maxSourceFileBytes,
+  optionsRaw,
+  sourceMimeType,
+  sourceSize,
+  templateIdRaw,
+}: {
+  hasInlineFields: boolean;
+  maxSourceFileBytes: number;
+  optionsRaw: FormDataEntryValue | null;
+  sourceMimeType: string;
+  sourceSize: number;
+  templateIdRaw: FormDataEntryValue | null;
+}): { templateId: string; options: ExtractOptions } {
+  if (hasInlineFields) {
+    throw new HttpError(400, "inline_fields_forbidden", "Inline fields are not allowed");
+  }
+  if (typeof templateIdRaw !== "string" || templateIdRaw.trim().length === 0) {
+    throw new HttpError(400, "invalid_template_id", "template_id is required");
+  }
+  if (!ALLOWED_MIME_TYPES.has(sourceMimeType)) {
+    throw new HttpError(400, "invalid_document", `Unsupported Document MIME type: ${sourceMimeType}`);
+  }
+  if (sourceSize > maxSourceFileBytes) {
+    throw new HttpError(400, "source_file_too_large", `Source file exceeds max size of ${maxSourceFileBytes} bytes`);
+  }
+  return {
+    templateId: templateIdRaw.trim(),
+    options: parseOptions(optionsRaw),
   };
 }
 

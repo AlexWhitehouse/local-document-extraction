@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 
 const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
@@ -11,6 +11,13 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
 export type LocalSourceFileStore = {
   delete(sourceFileKey: string): Promise<void>;
   eraseWorkspace(workspaceId: string): Promise<void>;
+  open?(sourceFileKey: string): Promise<Blob | null>;
+  promoteTemporary?(input: {
+    workspaceId: string;
+    jobId: string;
+    mimeType: string;
+    temporaryPath: string;
+  }): Promise<string>;
   read(sourceFileKey: string): Promise<Uint8Array | null>;
   write(input: {
     workspaceId: string;
@@ -22,6 +29,7 @@ export type LocalSourceFileStore = {
 
 export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory: string }): LocalSourceFileStore {
   const rootDirectory = resolve(stateDirectory, "source-files");
+  const temporaryDirectory = resolve(stateDirectory, "temporary", "submissions");
 
   return {
     delete: async (sourceFileKey) => {
@@ -30,6 +38,22 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
     eraseWorkspace: async (workspaceId) => {
       assertIdentifier(workspaceId, "Workspace ID");
       await rm(resolve(rootDirectory, "workspaces", workspaceId), { recursive: true, force: true });
+    },
+    open: async (sourceFileKey) => {
+      const file = Bun.file(pathForKey(rootDirectory, sourceFileKey));
+      return await file.exists() ? file : null;
+    },
+    promoteTemporary: async ({ workspaceId, jobId, mimeType, temporaryPath }) => {
+      assertIdentifier(workspaceId, "Workspace ID");
+      assertIdentifier(jobId, "Extraction job ID");
+      const extension = EXTENSION_BY_MIME_TYPE[mimeType];
+      if (!extension) throw new Error("Unsupported Source file MIME type");
+      assertPathWithinRoot(temporaryDirectory, temporaryPath, "Temporary Source file");
+      const sourceFileKey = `workspaces/${workspaceId}/jobs/${jobId}/source.${extension}`;
+      const destination = pathForKey(rootDirectory, sourceFileKey);
+      await mkdir(dirname(destination), { recursive: true });
+      await rename(temporaryPath, destination);
+      return sourceFileKey;
     },
     read: async (sourceFileKey) => readFile(pathForKey(rootDirectory, sourceFileKey)).catch(() => null),
     write: async ({ workspaceId, jobId, mimeType, bytes }) => {
@@ -57,9 +81,13 @@ function assertIdentifier(value: string, label: string): void {
 
 function pathForKey(rootDirectory: string, sourceFileKey: string): string {
   const path = resolve(rootDirectory, sourceFileKey);
-  const pathRelativeToRoot = relative(rootDirectory, path);
-  if (!pathRelativeToRoot || pathRelativeToRoot.startsWith("..")) {
-    throw new Error("Source file key is outside local Source file storage.");
-  }
+  assertPathWithinRoot(rootDirectory, path, "Source file key");
   return path;
+}
+
+function assertPathWithinRoot(rootDirectory: string, path: string, label: string): void {
+  const pathRelativeToRoot = relative(rootDirectory, resolve(path));
+  if (!pathRelativeToRoot || pathRelativeToRoot.startsWith("..")) {
+    throw new Error(`${label} is outside local Source file storage.`);
+  }
 }

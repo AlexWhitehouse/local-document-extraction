@@ -46,6 +46,12 @@ test("Workspace deletion drains admitted product work and rejects new product HT
   });
   const sourceFiles = {
     ...localSourceFiles,
+    promoteTemporary: async (input: Parameters<NonNullable<typeof localSourceFiles.promoteTemporary>>[0]) => {
+      const sourceFileKey = await localSourceFiles.promoteTemporary!(input);
+      sourceWriteReached();
+      await releaseSourceWritePromise;
+      return sourceFileKey;
+    },
     write: async (input: Parameters<typeof localSourceFiles.write>[0]) => {
       const sourceFileKey = await localSourceFiles.write(input);
       sourceWriteReached();

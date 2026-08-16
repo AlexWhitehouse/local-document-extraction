@@ -7,6 +7,7 @@ import {
   getExtractionModelName,
   getModelGatewayRequestTimeoutMs,
   getModelGatewayRouteLabel,
+  ModelGatewayRequestError,
   RetryableError,
   runExtraction,
   type ModelGatewayConfiguration,
@@ -482,6 +483,41 @@ describe("runExtraction", () => {
     });
   });
 
+  it("uses LiteLLM managed files for an explicitly verified model alias", async () => {
+    const env = createEnv({
+      AI_MODEL: "gpt-5.6-luna",
+      MODEL_GATEWAY_USE_MANAGED_FILES: "true",
+    });
+    const fetchMock = stubGatewayResponses([
+      { payload: { id: "file_verified_alias" } },
+      { payload: successfulGatewayPayload() },
+      { payload: { deleted: true } },
+    ]);
+
+    await runExtraction(
+      env,
+      fields,
+      new Uint8Array([1, 2, 3]).buffer,
+      "application/pdf",
+    );
+
+    expect(readGatewayRequest(fetchMock, 0).url).toBe("https://litellm.example/proxy/files");
+    expect(readGatewayRequest(fetchMock, 1).body).toMatchObject({
+      model: "gpt-5.6-luna",
+      messages: [
+        expect.any(Object),
+        {
+          role: "user",
+          content: [
+            expect.any(Object),
+            { type: "file", file: { file_id: "file_verified_alias", format: "application/pdf" } },
+          ],
+        },
+      ],
+    });
+    expect(readGatewayRequest(fetchMock, 2).url).toContain("/files/file_verified_alias");
+  });
+
   it("submits image Source files to LiteLLM as inline image content", async () => {
     const env = createEnv();
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
@@ -575,13 +611,13 @@ describe("runExtraction", () => {
     ]);
   });
 
-  it("treats missing LiteLLM credentials as a retryable extraction failure", async () => {
+  it("treats missing LiteLLM credentials as a non-retryable configuration failure", async () => {
     const env = createEnv({ LITELLM_KEY: undefined });
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
 
     await expect(
       runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf"),
-    ).rejects.toThrow(RetryableError);
+    ).rejects.toThrow(ModelGatewayRequestError);
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -631,15 +667,33 @@ describe("runExtraction", () => {
     const env = createEnv();
     stubGatewayResponse(
       { error: { message: "rate limited" } },
-      { status: 429 },
+      { status: 429, headers: { "retry-after": "7" } },
+    );
+
+    const failure = await runExtraction(
+      env,
+      fields,
+      new Uint8Array([1, 2, 3]).buffer,
+      "image/png",
+    ).catch((error) => error);
+    expect(failure).toBeInstanceOf(RetryableError);
+    expect(failure).toMatchObject({ status: 429, retryAfterMs: 7_000 });
+    expect(failure.message).toContain("Model gateway request failed with HTTP 429: rate limited");
+  });
+
+  it("does not retry deterministic Model gateway request failures", async () => {
+    const env = createEnv();
+    stubGatewayResponse(
+      { error: { message: "invalid request" } },
+      { status: 400 },
     );
 
     await expect(
       runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-    ).rejects.toThrow("Model gateway request failed with HTTP 429: rate limited");
+    ).rejects.toThrow(ModelGatewayRequestError);
   });
 
-  it("treats LiteLLM PDF upload failures as retryable extraction failures", async () => {
+  it("treats deterministic LiteLLM PDF upload failures as non-retryable", async () => {
     const env = createEnv({ AI_MODEL: "azure_ai/gpt-configured" });
     const fetchMock = stubGatewayResponse(
       { error: { message: "file upload rejected" } },
@@ -648,7 +702,7 @@ describe("runExtraction", () => {
 
     await expect(
       runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf"),
-    ).rejects.toThrow("Model gateway file upload failed with HTTP 400: file upload rejected");
+    ).rejects.toThrow(ModelGatewayRequestError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

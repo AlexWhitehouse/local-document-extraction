@@ -2,7 +2,24 @@ import type { FieldDefinition } from "../lib/types";
 import type { ModelFieldResult } from "./modelResultNormalizer";
 import { renderPdfPagesToPng } from "./pdfPageRenderer";
 
-export class RetryableError extends Error {}
+export class RetryableError extends Error {
+  readonly retryAfterMs: number | null;
+  readonly status: number | null;
+
+  constructor(
+    message: string,
+    options: { retryAfterMs?: number | null; status?: number | null } = {},
+  ) {
+    super(message);
+    this.retryAfterMs = options.retryAfterMs ?? null;
+    this.status = options.status ?? null;
+  }
+}
+export class ModelGatewayRequestError extends Error {
+  constructor(message: string, public readonly status: number | null = null) {
+    super(message);
+  }
+}
 export class ExtractionCancelledError extends Error {}
 
 const DEFAULT_EXTRACTION_MODEL = "claude-opus-4-7";
@@ -17,6 +34,7 @@ export type ModelGatewayConfiguration = {
   MODEL_GATEWAY_REQUEST_TIMEOUT_MS?: string;
   MODEL_GATEWAY_ROUTE_LABEL?: string;
   MODEL_GATEWAY_SEQUENTIAL_CALLS?: string;
+  MODEL_GATEWAY_USE_MANAGED_FILES?: string;
   MODEL_GATEWAY_URL?: string;
   MODEL_SUPPORTS_PDF_INPUT?: string;
 };
@@ -61,34 +79,47 @@ export function supportsPdfInput(env: ModelGatewayConfiguration): boolean {
   return readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT, true);
 }
 
+export function usesManagedPdfFileUpload(
+  env: ModelGatewayConfiguration,
+  sourceMimeType: string,
+): boolean {
+  return sourceMimeType === "application/pdf"
+    && supportsPdfInput(env)
+    && shouldUploadPdfToModelGateway(env, getExtractionModelName(env));
+}
+
 export async function runExtraction(
   env: ModelGatewayConfiguration,
   fields: FieldDefinition[],
-  sourceBytes: ArrayBuffer,
+  source: ArrayBuffer | Blob,
   sourceMimeType: string,
   signal?: AbortSignal,
 ): Promise<ModelFieldResult[]> {
   const model = getExtractionModelName(env);
   const renderPdfAsImages =
     sourceMimeType === "application/pdf" && !supportsPdfInput(env);
+  const uploadPdf = usesManagedPdfFileUpload(env, sourceMimeType);
+  const sourceBytes = uploadPdf
+    ? null
+    : source instanceof Blob
+      ? await source.arrayBuffer()
+      : source;
   const prompt = buildPrompt(fields, sourceMimeType, renderPdfAsImages);
   const systemPrompt =
     "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.";
   const uploadedFileId =
-    sourceMimeType === "application/pdf" &&
-    !renderPdfAsImages &&
-    shouldUploadPdfToModelGateway(model)
-      ? await uploadSourceFile(env, sourceBytes, sourceMimeType, model, signal)
+    uploadPdf
+      ? await uploadSourceFile(env, source, sourceMimeType, model, signal)
       : null;
   let sourceContentParts: Record<string, unknown>[];
   try {
     sourceContentParts = uploadedFileId
       ? [buildUploadedFileContentPart(uploadedFileId, sourceMimeType)]
       : renderPdfAsImages
-        ? (await renderPdfPagesToPng(sourceBytes, signal)).map((pageBytes) =>
+        ? (await renderPdfPagesToPng(sourceBytes!, signal)).map((pageBytes) =>
             buildInlineImageContentPart(pageBytes, "image/png"),
           )
-        : [buildInlineSourceContentPart(sourceBytes, sourceMimeType)];
+        : [buildInlineSourceContentPart(sourceBytes!, sourceMimeType)];
   } catch (error) {
     if (signal?.aborted) {
       throw new ExtractionCancelledError("PDF page rendering cancelled");
@@ -381,8 +412,13 @@ function buildInlineImageContentPart(
   };
 }
 
-function shouldUploadPdfToModelGateway(model: string): boolean {
-  return model.startsWith("azure/") || model.startsWith("azure_ai/");
+function shouldUploadPdfToModelGateway(
+  env: ModelGatewayConfiguration,
+  model: string,
+): boolean {
+  return readBooleanConfiguration(env.MODEL_GATEWAY_USE_MANAGED_FILES, false)
+    || model.startsWith("azure/")
+    || model.startsWith("azure_ai/");
 }
 
 function isQwenMultimodalModel(normalizedModel: string): boolean {
@@ -406,6 +442,20 @@ function scheduleModelCall<T>(
     () => undefined,
   );
   return result;
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function retryAfterDelayMs(value: string | null, now = Date.now()): number | null {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+  if (/^\d+$/.test(normalized)) {
+    return Math.max(0, Number(normalized) * 1_000);
+  }
+  const retryAt = Date.parse(normalized);
+  return Number.isFinite(retryAt) ? Math.max(0, retryAt - now) : null;
 }
 
 function readBooleanConfiguration(
@@ -509,7 +559,7 @@ async function runViaModelGateway(
   signal?: AbortSignal,
 ): Promise<unknown> {
   if (!env.LITELLM_KEY) {
-    throw new RetryableError("Model gateway key is not configured");
+    throw new ModelGatewayRequestError("Model gateway key is not configured");
   }
 
   const controller = new AbortController();
@@ -537,9 +587,14 @@ async function runViaModelGateway(
     const bodyText = await response.text();
 
     if (!response.ok) {
-      throw new RetryableError(
-        `Model gateway request failed with HTTP ${response.status}${formatErrorBody(bodyText)}`,
-      );
+      const message = `Model gateway request failed with HTTP ${response.status}${formatErrorBody(bodyText)}`;
+      if (isRetryableHttpStatus(response.status)) {
+        throw new RetryableError(message, {
+          retryAfterMs: retryAfterDelayMs(response.headers.get("retry-after")),
+          status: response.status,
+        });
+      }
+      throw new ModelGatewayRequestError(message, response.status);
     }
 
     if (!bodyText.trim()) {
@@ -555,7 +610,7 @@ async function runViaModelGateway(
     if (signal?.aborted) {
       throw new ExtractionCancelledError("Model gateway request cancelled");
     }
-    if (error instanceof RetryableError) {
+    if (error instanceof RetryableError || error instanceof ModelGatewayRequestError) {
       throw error;
     }
     if (isAbortError(error)) {
@@ -570,19 +625,19 @@ async function runViaModelGateway(
 
 async function uploadSourceFile(
   env: ModelGatewayConfiguration,
-  sourceBytes: ArrayBuffer,
+  source: ArrayBuffer | Blob,
   sourceMimeType: string,
   model: string,
   signal?: AbortSignal,
 ): Promise<string> {
   if (!env.LITELLM_KEY) {
-    throw new RetryableError("Model gateway key is not configured");
+    throw new ModelGatewayRequestError("Model gateway key is not configured");
   }
 
   const formData = new FormData();
   formData.append(
     "file",
-    new Blob([sourceBytes], { type: sourceMimeType }),
+    source instanceof Blob ? source : new Blob([source], { type: sourceMimeType }),
     sourceMimeType === "application/pdf" ? "source.pdf" : "source",
   );
   formData.append("purpose", "user_data");
@@ -612,9 +667,14 @@ async function uploadSourceFile(
   const bodyText = await response.text();
 
   if (!response.ok) {
-    throw new RetryableError(
-      `Model gateway file upload failed with HTTP ${response.status}${formatErrorBody(bodyText)}`,
-    );
+    const message = `Model gateway file upload failed with HTTP ${response.status}${formatErrorBody(bodyText)}`;
+    if (isRetryableHttpStatus(response.status)) {
+      throw new RetryableError(message, {
+        retryAfterMs: retryAfterDelayMs(response.headers.get("retry-after")),
+        status: response.status,
+      });
+    }
+    throw new ModelGatewayRequestError(message, response.status);
   }
 
   let payload: unknown;

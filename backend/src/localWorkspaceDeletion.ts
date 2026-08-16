@@ -2,6 +2,7 @@ import type { LocalSourceFileStore } from "./localSourceFileStore";
 import { eraseLocalWorkspaceProductData } from "./localWorkspaceProductStore";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
+import type { LocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 import { nowIso } from "./lib/ids";
 
 export type LocalWorkspaceDeletion = {
@@ -14,12 +15,14 @@ export function createLocalWorkspaceDeletion({
   stateDirectory,
   workspaceControl,
   workspaceProductOperations,
+  productStoreRegistry,
   onWorkspaceAccessRevoked,
 }: {
   sourceFileStore: LocalSourceFileStore;
   stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
   workspaceProductOperations?: LocalWorkspaceProductOperations;
+  productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
   onWorkspaceAccessRevoked?: (input: { workspaceId: string; reason: "workspace_access"; occurredAt: string }) => void;
 }): LocalWorkspaceDeletion {
   return {
@@ -36,6 +39,7 @@ export function createLocalWorkspaceDeletion({
           reason: "workspace_access",
           occurredAt: nowIso(),
         });
+        await productStoreRegistry?.invalidate({ workspaceId: input.workspaceId });
         await Promise.all([
           eraseLocalWorkspaceProductData({ stateDirectory, workspaceId: input.workspaceId }),
           sourceFileStore.eraseWorkspace(input.workspaceId),
@@ -60,6 +64,7 @@ export function createLocalWorkspaceDeletion({
             occurredAt: nowIso(),
           });
         }
+        await productStoreRegistry?.invalidate({ workspaceId });
         await Promise.all([
           eraseLocalWorkspaceProductData({ stateDirectory, workspaceId }),
           sourceFileStore.eraseWorkspace(workspaceId),
