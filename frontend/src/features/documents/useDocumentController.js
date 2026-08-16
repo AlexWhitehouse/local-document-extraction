@@ -6,6 +6,12 @@ const DEFAULT_OPTIONS = {
   include_evidence: true,
 };
 
+const EMPTY_DOCUMENT_FILTERS = Object.freeze({
+  dateFrom: "",
+  dateTo: "",
+  model: "",
+});
+
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 const EXPORTABLE_DOCUMENT_STATUSES = new Set(["completed", "failed"]);
 const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_DELAY_MS = 150;
@@ -54,11 +60,15 @@ export function useDocumentController({
   const [selectedDocumentIds, setSelectedDocumentIds] = useState([]);
   const [documentSearch, setDocumentSearch] = useState("");
   const [debouncedDocumentSearch, setDebouncedDocumentSearch] = useState("");
+  const [documentFilters, setDocumentFilters] = useState(EMPTY_DOCUMENT_FILTERS);
+  const [availableDocumentModels, setAvailableDocumentModels] = useState([]);
   const [liveUpdatesUnavailable, setLiveUpdatesUnavailable] = useState(false);
 
   const previewUrlsRef = useRef(new Set());
   const completedDocumentCacheRef = useRef(createCompletedDocumentCache());
   const deletedDocumentIdsRef = useRef(new Set());
+  const filterOptionsCacheRef = useRef(new Map());
+  const filterOptionsInFlightRef = useRef(new Map());
   const knownDocumentIdsRef = useRef(new Set(
     (Array.isArray(initialWorkspace.jobHistory) ? initialWorkspace.jobHistory : [])
       .map((job) => String(job?.job_id || "").trim())
@@ -83,6 +93,7 @@ export function useDocumentController({
   );
   const queuedJobsRef = useRef(queuedJobs);
   const documentRequestsRef = useRef(documentRequests);
+  const hasApiAccessRef = useRef(hasApiAccess);
   const workspaceIdRef = useRef(workspaceId);
   const normalizedWorkspaceId = String(workspaceId || "").trim();
   const canOpenLiveUpdates =
@@ -107,9 +118,10 @@ export function useDocumentController({
     jobsNextCursorRef.current = jobsNextCursor;
     latestResponseRef.current = latestResponse;
     queuedJobsRef.current = queuedJobs;
+    hasApiAccessRef.current = hasApiAccess;
     workspaceIdRef.current = workspaceId;
     workspaceDeletionInProgressRef.current = isWorkspaceDeletionInProgress;
-  }, [isWorkspaceDeletionInProgress, jobHistory, jobsNextCursor, latestResponse, queuedJobs, workspaceId]);
+  }, [hasApiAccess, isWorkspaceDeletionInProgress, jobHistory, jobsNextCursor, latestResponse, queuedJobs, workspaceId]);
 
   const documents = useMemo(() => {
     const query = debouncedDocumentSearch.trim().toLowerCase();
@@ -127,23 +139,26 @@ export function useDocumentController({
         queued_at: meta.queued_at || null,
         updated_at: meta.queued_at || null,
         results: [],
-      }))
-      .filter((job) => {
-        if (!query) {
-          return true;
-        }
+      }));
 
-        return [job.job_id, job.source_name, job.template_id, job.status]
-          .map((value) => String(value || "").toLowerCase())
-          .some((value) => value.includes(query));
+    return [...jobHistory, ...queuedOnly]
+      .filter((job) => documentMatchesFilters(job, query, documentFilters))
+      .sort((a, b) => {
+        const left = getDocumentSortTimestamp(b);
+        const right = getDocumentSortTimestamp(a);
+        return left - right;
       });
+  }, [
+    debouncedDocumentSearch,
+    documentFilters,
+    jobHistory,
+    queuedJobs,
+    selectedUploadTemplateId,
+  ]);
 
-    return [...jobHistory, ...queuedOnly].sort((a, b) => {
-      const left = getDocumentSortTimestamp(b);
-      const right = getDocumentSortTimestamp(a);
-      return left - right;
-    });
-  }, [debouncedDocumentSearch, jobHistory, queuedJobs, selectedUploadTemplateId]);
+  const hasActiveDocumentFilters = Boolean(
+    documentFilters.dateFrom || documentFilters.dateTo || documentFilters.model,
+  );
 
   const selectedDocument = useMemo(() => {
     if (!documents.length) {
@@ -294,6 +309,73 @@ export function useDocumentController({
       });
   }, [clearWorkspaceCapacityRefreshTimer]);
 
+  const rememberDocumentModel = useCallback((modelName) => {
+    const normalizedModelName = String(modelName || "").trim();
+    const currentWorkspaceId = String(workspaceIdRef.current || "").trim();
+    if (!normalizedModelName || !currentWorkspaceId) {
+      return;
+    }
+
+    setAvailableDocumentModels((currentModels) => {
+      if (currentModels.includes(normalizedModelName)) {
+        return currentModels;
+      }
+      const nextModels = normalizeAvailableDocumentModels([
+        ...currentModels,
+        normalizedModelName,
+      ]);
+      if (filterOptionsCacheRef.current.has(currentWorkspaceId)) {
+        filterOptionsCacheRef.current.set(currentWorkspaceId, nextModels);
+      }
+      return nextModels;
+    });
+  }, []);
+
+  const loadDocumentFilterOptions = useCallback(async ({ force = false } = {}) => {
+    const targetWorkspaceId = normalizedWorkspaceId;
+    if (!hasApiAccessRef.current || !targetWorkspaceId) {
+      return [];
+    }
+
+    if (!force && filterOptionsCacheRef.current.has(targetWorkspaceId)) {
+      const cachedModels = filterOptionsCacheRef.current.get(targetWorkspaceId);
+      if (String(workspaceIdRef.current || "").trim() === targetWorkspaceId) {
+        setAvailableDocumentModels(cachedModels);
+      }
+      return cachedModels;
+    }
+
+    const existingRequest = filterOptionsInFlightRef.current.get(targetWorkspaceId);
+    if (existingRequest) {
+      return existingRequest;
+    }
+
+    const requestPromise = (async () => {
+      try {
+        const data = await documentRequestsRef.current.getFilterOptions();
+        const models = normalizeAvailableDocumentModels(data?.available_models);
+        if (!hasApiAccessRef.current) {
+          return [];
+        }
+        filterOptionsCacheRef.current.set(targetWorkspaceId, models);
+        if (
+          hasApiAccessRef.current &&
+          String(workspaceIdRef.current || "").trim() === targetWorkspaceId
+        ) {
+          setAvailableDocumentModels(models);
+        }
+        return models;
+      } catch (error) {
+        addLogRef.current(`Load job filter options failed: ${error.message}`);
+        return [];
+      } finally {
+        filterOptionsInFlightRef.current.delete(targetWorkspaceId);
+      }
+    })();
+    filterOptionsInFlightRef.current.set(targetWorkspaceId, requestPromise);
+    return requestPromise;
+  }, [normalizedWorkspaceId]);
+
   const clearWorkspaceScopedDocuments = useCallback(() => {
     clearWorkspaceCapacityRefreshTimer();
     lastWorkspaceCapacityRefreshAtRef.current = 0;
@@ -302,6 +384,7 @@ export function useDocumentController({
     setJobsNextCursor(null);
     setJobsHasMore(false);
     setTotalDocuments(0);
+    setAvailableDocumentModels([]);
     setSelectedDocumentId("");
     setSelectedDocumentIds([]);
     setLatestResponse(null);
@@ -328,6 +411,7 @@ export function useDocumentController({
     if (deletedDocumentIdsRef.current.has(jobId)) {
       return;
     }
+    rememberDocumentModel(job.model_name);
     if (countIfNew && String(job.status || "").toLowerCase() === "queued") {
       registerNewDocument(jobId);
     } else if (!countIfNew) {
@@ -410,7 +494,7 @@ export function useDocumentController({
         return next;
       });
     }
-  }, [registerNewDocument]);
+  }, [registerNewDocument, rememberDocumentModel]);
 
   const listJobs = useCallback(async ({ append = false } = {}) => {
     try {
@@ -418,10 +502,11 @@ export function useDocumentController({
       const nextCursor = jobsNextCursorRef.current;
       const data = await documentRequestsRef.current.listDocuments({
         search,
+        filters: documentFilters,
         cursor: append ? nextCursor : null,
       });
       const list = Array.isArray(data?.jobs) ? data.jobs : [];
-      const isFilteredList = Boolean(search);
+      const isFilteredList = Boolean(search || hasActiveDocumentFilters);
       const hydratedList = list.map((job) => {
         if (String(job?.status || "") !== "completed") {
           return job;
@@ -474,16 +559,46 @@ export function useDocumentController({
           : String(hydratedList[0].job_id),
       );
       addLogRef.current(
-        `${append ? "Loaded" : "Loaded"} ${list.length} document${list.length === 1 ? "" : "s"}${search ? ` matching "${search}"` : ""}`,
+        `${append ? "Loaded" : "Loaded"} ${list.length} document${list.length === 1 ? "" : "s"}${search ? ` matching "${search}"` : ""}${hasActiveDocumentFilters ? " with advanced filters" : ""}`,
       );
     } catch (error) {
       addLogRef.current(`List documents failed: ${error.message}`);
     }
-  }, [debouncedDocumentSearch, workspaceId]);
+  }, [
+    debouncedDocumentSearch,
+    documentFilters,
+    hasActiveDocumentFilters,
+    workspaceId,
+  ]);
+
+  const applyDocumentFilters = useCallback((nextFilters) => {
+    setDocumentFilters(normalizeDocumentFilters(nextFilters));
+  }, []);
 
   useEffect(() => {
     listJobsRef.current = listJobs;
   }, [listJobs]);
+
+  useEffect(() => {
+    if (!hasApiAccess || !normalizedWorkspaceId) {
+      setAvailableDocumentModels([]);
+      if (!hasApiAccess) {
+        filterOptionsCacheRef.current.clear();
+        filterOptionsInFlightRef.current.clear();
+      }
+      return;
+    }
+
+    if (filterOptionsCacheRef.current.has(normalizedWorkspaceId)) {
+      setAvailableDocumentModels(
+        filterOptionsCacheRef.current.get(normalizedWorkspaceId),
+      );
+      return;
+    }
+
+    setAvailableDocumentModels([]);
+    void loadDocumentFilterOptions();
+  }, [hasApiAccess, loadDocumentFilterOptions, normalizedWorkspaceId]);
 
   async function loadMoreJobs() {
     if (!jobsHasMore || !jobsNextCursor || isLoadingMoreJobs) {
@@ -880,9 +995,19 @@ export function useDocumentController({
           .map((result) => result.documentId),
       );
       const failedCount = deletionResults.length - removedDocumentIds.size;
+      const removedDocumentUsedModel = targetDocuments.some(
+        (document) =>
+          removedDocumentIds.has(String(document.job_id || "")) &&
+          String(document.model_name || "").trim(),
+      );
       const activeDocumentWasRemoved = removedDocumentIds.has(
         String(selectedDocument?.job_id || ""),
       );
+
+      if (removedDocumentUsedModel && normalizedWorkspaceId) {
+        filterOptionsCacheRef.current.delete(normalizedWorkspaceId);
+        void loadDocumentFilterOptions({ force: true });
+      }
 
       if (activeDocumentWasRemoved) {
         const nextDocumentId =
@@ -1169,11 +1294,15 @@ export function useDocumentController({
       selectedDocumentId: selectedDocument?.job_id || "",
       selectedDocumentIds,
       debouncedSearch: debouncedDocumentSearch,
+      filters: documentFilters,
+      availableModels: availableDocumentModels,
+      hasActiveFilters: hasActiveDocumentFilters,
       hasMoreDocuments: jobsHasMore,
       isLoadingMoreDocuments: isLoadingMoreJobs,
       isDeletingDocuments: isDeletingDocument,
       isExportingDocuments,
       onSearchChange: setDocumentSearch,
+      onFiltersChange: applyDocumentFilters,
       onSelectDocument: setSelectedDocumentId,
       onToggleAllDocumentSelections: toggleAllDocumentSelections,
       onToggleDocumentSelection: toggleDocumentSelection,
@@ -1332,6 +1461,45 @@ function getDocumentSortTimestamp(job) {
   }
 
   return Date.parse(job.created_at || job.queued_at || "") || 0;
+}
+
+function normalizeDocumentFilters(filters) {
+  return {
+    dateFrom: String(filters?.dateFrom || "").trim(),
+    dateTo: String(filters?.dateTo || "").trim(),
+    model: String(filters?.model || "").trim(),
+  };
+}
+
+function normalizeAvailableDocumentModels(models) {
+  return [...new Set(
+    (Array.isArray(models) ? models : [])
+      .map((model) => String(model || "").trim())
+      .filter(Boolean),
+  )].sort((left, right) => left.localeCompare(right));
+}
+
+function documentMatchesFilters(job, query, filters) {
+  if (query) {
+    const matchesQuery = [job.job_id, job.source_name, job.template_id, job.status]
+      .map((value) => String(value || "").toLowerCase())
+      .some((value) => value.includes(query));
+    if (!matchesQuery) {
+      return false;
+    }
+  }
+
+  const createdDate = String(job.created_at || job.queued_at || "").slice(0, 10);
+  if (filters.dateFrom && (!createdDate || createdDate < filters.dateFrom)) {
+    return false;
+  }
+  if (filters.dateTo && (!createdDate || createdDate > filters.dateTo)) {
+    return false;
+  }
+  if (filters.model && String(job.model_name || "") !== filters.model) {
+    return false;
+  }
+  return true;
 }
 
 function fileDedupKey(name, size, lastModified) {

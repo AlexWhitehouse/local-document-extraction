@@ -338,6 +338,23 @@ export function createLocalApplication({
       });
     }
 
+    if (request.method === "GET" && url.pathname === "/v1/jobs/filter-options") {
+      if (!auth || !workspaceControl || !stateDirectory || !localWorkspaceProductOperations) {
+        return Response.json(
+          { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
+          { status: 503 },
+        );
+      }
+      return handleLocalJobFilterOptions({
+        auth,
+        productStoreFactory,
+        request,
+        stateDirectory,
+        workspaceControl,
+        workspaceProductOperations: localWorkspaceProductOperations,
+      });
+    }
+
     const jobMatch = url.pathname.match(/^\/v1\/jobs(?:\/([^/]+))?$/);
     if ((request.method === "GET" || request.method === "DELETE") && jobMatch) {
       if (!auth || !workspaceControl || !stateDirectory || !localSourceFileStore) {
@@ -717,13 +734,20 @@ async function handleLocalJobRead({
     if (!jobId) {
       const url = new URL(request.url);
       const search = normalizeJobSearch(url.searchParams.get("search") || "");
+      const filters = normalizeJobFilters({
+        dateFrom: url.searchParams.get("date_from"),
+        dateTo: url.searchParams.get("date_to"),
+        model: url.searchParams.get("model"),
+      });
       const cursor = decodeJobCursor({
         cursor: url.searchParams.get("cursor"),
+        filters,
         search,
         secret: jobCursorSecret,
       });
       const candidates = productStore.listExtractionJobs({
         search,
+        ...filters,
         cursor,
         limit: jobPageSize + 1,
       });
@@ -736,6 +760,7 @@ async function handleLocalJobRead({
         next_cursor: hasMore && finalJob
           ? encodeJobCursor({
               createdAt: finalJob.created_at,
+              filters,
               jobId: finalJob.job_id,
               search,
               secret: jobCursorSecret,
@@ -766,6 +791,46 @@ async function handleLocalJobRead({
       );
     }
     throw error;
+  } finally {
+    productStore.close();
+    productOperation.release();
+  }
+}
+
+async function handleLocalJobFilterOptions({
+  auth,
+  productStoreFactory,
+  request,
+  stateDirectory,
+  workspaceControl,
+  workspaceProductOperations,
+}: {
+  auth: LocalAuth;
+  productStoreFactory: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
+  request: Request;
+  stateDirectory: string;
+  workspaceControl: LocalWorkspaceControl;
+  workspaceProductOperations: LocalWorkspaceProductOperations;
+}): Promise<Response> {
+  const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
+  if ("response" in authorization) {
+    return authorization.response;
+  }
+
+  let productOperation;
+  try {
+    productOperation = workspaceProductOperations.acquire({ workspaceId: authorization.workspace.id });
+  } catch (error) {
+    return workspaceProductOperationErrorResponse(error);
+  }
+  const productStore = productStoreFactory({
+    stateDirectory,
+    workspaceId: authorization.workspace.id,
+  });
+  try {
+    return Response.json({
+      available_models: productStore.listExtractionJobModels(),
+    });
   } finally {
     productStore.close();
     productOperation.release();
@@ -882,28 +947,86 @@ function normalizeJobSearch(value: string): string {
   return value.trim().toLowerCase();
 }
 
+type JobFilters = {
+  dateFrom: string;
+  dateTo: string;
+  model: string;
+};
+
+function normalizeJobFilters({
+  dateFrom,
+  dateTo,
+  model,
+}: {
+  dateFrom: string | null;
+  dateTo: string | null;
+  model: string | null;
+}): JobFilters {
+  const normalizedDateFrom = normalizeJobFilterDate(dateFrom, "date_from");
+  const normalizedDateTo = normalizeJobFilterDate(dateTo, "date_to");
+  const normalizedModel = String(model || "").trim();
+  if (normalizedModel.length > 255) {
+    throw new HttpError(400, "invalid_job_filters", "model must be 255 characters or fewer");
+  }
+  if (normalizedDateFrom && normalizedDateTo && normalizedDateFrom > normalizedDateTo) {
+    throw new HttpError(400, "invalid_job_filters", "date_from must be on or before date_to");
+  }
+  return {
+    dateFrom: normalizedDateFrom,
+    dateTo: normalizedDateTo,
+    model: normalizedModel,
+  };
+}
+
+function normalizeJobFilterDate(value: string | null, parameterName: string): string {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+  if (!match) {
+    throw new HttpError(400, "invalid_job_filters", `${parameterName} must use YYYY-MM-DD`);
+  }
+  const date = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== normalized) {
+    throw new HttpError(400, "invalid_job_filters", `${parameterName} must be a valid date`);
+  }
+  return normalized;
+}
+
 function encodeJobCursor({
   createdAt,
+  filters,
   jobId,
   search,
   secret,
 }: {
   createdAt: string;
+  filters: JobFilters;
   jobId: string;
   search: string;
   secret: Uint8Array;
 }): string {
-  const payload = Buffer.from(JSON.stringify({ created_at: createdAt, job_id: jobId, search }), "utf8").toString("base64url");
+  const payload = Buffer.from(JSON.stringify({
+    created_at: createdAt,
+    date_from: filters.dateFrom,
+    date_to: filters.dateTo,
+    job_id: jobId,
+    model: filters.model,
+    search,
+  }), "utf8").toString("base64url");
   const signature = createHmac("sha256", secret).update(payload).digest("base64url");
   return `${payload}.${signature}`;
 }
 
 function decodeJobCursor({
   cursor,
+  filters,
   search,
   secret,
 }: {
   cursor: string | null;
+  filters: JobFilters;
   search: string;
   secret: Uint8Array;
 }): { createdAt: string; jobId: string } | null {
@@ -912,23 +1035,29 @@ function decodeJobCursor({
   }
   const [payload, signature, ...extra] = cursor.split(".");
   if (!payload || !signature || extra.length) {
-    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match this search");
+    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match these filters");
   }
   const expectedSignature = createHmac("sha256", secret).update(payload).digest("base64url");
   const signatureBytes = Buffer.from(signature, "base64url");
   const expectedBytes = Buffer.from(expectedSignature, "base64url");
   if (signatureBytes.length !== expectedBytes.length || !timingSafeEqual(signatureBytes, expectedBytes)) {
-    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match this search");
+    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match these filters");
   }
   try {
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
       created_at?: unknown;
+      date_from?: unknown;
+      date_to?: unknown;
       job_id?: unknown;
+      model?: unknown;
       search?: unknown;
     };
     if (
       typeof parsed.created_at !== "string" ||
+      parsed.date_from !== filters.dateFrom ||
+      parsed.date_to !== filters.dateTo ||
       typeof parsed.job_id !== "string" ||
+      parsed.model !== filters.model ||
       typeof parsed.search !== "string" ||
       parsed.search !== search
     ) {
@@ -936,7 +1065,7 @@ function decodeJobCursor({
     }
     return { createdAt: parsed.created_at, jobId: parsed.job_id };
   } catch {
-    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match this search");
+    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match these filters");
   }
 }
 

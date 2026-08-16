@@ -1183,6 +1183,91 @@ describe("useDocumentController Workspace live updates", () => {
     });
   });
 
+  it("reloads paginated Documents with applied advanced filters and exposes model choices", async () => {
+    const WebSocketStub = installWebSocketStub();
+    let controller = null;
+    const listDocuments = vi.fn(async () => ({
+      jobs: [],
+      total: 4,
+      next_cursor: null,
+      has_more: false,
+    }));
+    const getFilterOptions = vi.fn(async () => ({
+      available_models: ["provider/model-b", "provider/model-a", "provider/model-a"],
+    }));
+
+    render(
+      <DocumentControllerHarness
+        workspaceId="ws_1"
+        documentRequests={{ getFilterOptions, listDocuments }}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(listDocuments).toHaveBeenCalledWith({
+        search: "",
+        filters: { dateFrom: "", dateTo: "", model: "" },
+        cursor: null,
+      });
+      expect(controller.contextList.availableModels).toEqual([
+        "provider/model-a",
+        "provider/model-b",
+      ]);
+      expect(getFilterOptions).toHaveBeenCalledOnce();
+    });
+
+    act(() => {
+      controller.contextList.onFiltersChange({
+        dateFrom: "2026-08-01",
+        dateTo: "2026-08-16",
+        model: "provider/model-b",
+      });
+    });
+
+    await waitFor(() => {
+      expect(listDocuments).toHaveBeenLastCalledWith({
+        search: "",
+        filters: {
+          dateFrom: "2026-08-01",
+          dateTo: "2026-08-16",
+          model: "provider/model-b",
+        },
+        cursor: null,
+      });
+      expect(controller.contextList.hasActiveFilters).toBe(true);
+      expect(getFilterOptions).toHaveBeenCalledOnce();
+    });
+
+    act(() => {
+      WebSocketStub.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [{
+            type: "extraction_job_lifecycle",
+            job: {
+              job_id: "job_new_model",
+              status: "completed",
+              source_name: "new-model.pdf",
+              template_id: "template_test",
+              model_name: "provider/model-c",
+              created_at: "2026-08-16T12:00:00.000Z",
+              updated_at: "2026-08-16T12:01:00.000Z",
+            },
+          }],
+        }),
+      });
+    });
+    expect(controller.contextList.availableModels).toEqual([
+      "provider/model-a",
+      "provider/model-b",
+      "provider/model-c",
+    ]);
+    expect(getFilterOptions).toHaveBeenCalledOnce();
+  });
+
   it("appends a cursor page without duplicates while retaining the selected Document", async () => {
     installWebSocketStub();
     let controller = null;
@@ -1238,6 +1323,7 @@ function DocumentControllerHarness({
   const [latestResponse, setLatestResponse] = React.useState(null);
   const resolvedDocumentRequests = {
     deleteDocument: vi.fn(async () => ({ deleted: true, job_id: "" })),
+    getFilterOptions: () => request("/jobs/filter-options", { method: "GET" }),
     listDocuments: async ({ search = "", cursor = null } = {}) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);

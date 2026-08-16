@@ -184,9 +184,13 @@ export type LocalWorkspaceProductStore = {
   getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
   listTemplates(): LocalWorkspaceTemplate[];
   countExtractionJobs(): number;
+  listExtractionJobModels(): string[];
   listExtractionJobs(input?: {
     cursor?: { createdAt: string; jobId: string } | null;
+    dateFrom?: string;
+    dateTo?: string;
     limit?: number;
+    model?: string;
     search?: string;
   }): LocalWorkspaceExtractionJobSummary[];
   markSourceFileCleaned(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): boolean;
@@ -276,6 +280,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     getSubmissionTemplate: (templateId) => getSubmissionTemplate(database, templateId),
     listTemplates: () => listTemplates(database),
     countExtractionJobs: () => countExtractionJobs(database),
+    listExtractionJobModels: () => listExtractionJobModels(database),
     listExtractionJobs: (input) => listExtractionJobs(database, input),
     markSourceFileCleaned: (input) => markSourceFileCleaned(database, input),
   };
@@ -293,6 +298,10 @@ function ensureProductSchemaColumns(database: Database): void {
   if (!knownColumns.has("next_retry_at")) {
     database.exec("ALTER TABLE jobs ADD COLUMN next_retry_at TEXT");
   }
+  database.exec(
+    `CREATE INDEX IF NOT EXISTS idx_jobs_model_created_id
+     ON jobs(model_name, created_at DESC, id DESC)`,
+  );
 }
 
 function ensureStarterInvoiceTemplate(database: Database, input: { createdAt: string }): void {
@@ -913,11 +922,23 @@ function countExtractionJobs(database: Database): number {
   return (database.query("SELECT COUNT(*) AS count FROM jobs").get() as { count: number }).count;
 }
 
+function listExtractionJobModels(database: Database): string[] {
+  return database.query(
+    `SELECT DISTINCT model_name
+     FROM jobs
+     WHERE model_name IS NOT NULL AND TRIM(model_name) != ''
+     ORDER BY model_name COLLATE NOCASE ASC`,
+  ).all().map((row) => String((row as { model_name: string }).model_name));
+}
+
 function listExtractionJobs(
   database: Database,
   input: {
     cursor?: { createdAt: string; jobId: string } | null;
+    dateFrom?: string;
+    dateTo?: string;
     limit?: number;
+    model?: string;
     search?: string;
   } = {},
 ): LocalWorkspaceExtractionJobSummary[] {
@@ -937,6 +958,18 @@ function listExtractionJobs(
         OR LOWER(j.template_id) LIKE ? ESCAPE '\\'
         OR LOWER(j.status) LIKE ? ESCAPE '\\')`);
     parameters.push(pattern, pattern, pattern, pattern);
+  }
+  if (input.dateFrom) {
+    clauses.push("j.created_at >= ?");
+    parameters.push(`${input.dateFrom}T00:00:00.000Z`);
+  }
+  if (input.dateTo) {
+    clauses.push("j.created_at <= ?");
+    parameters.push(`${input.dateTo}T23:59:59.999Z`);
+  }
+  if (input.model) {
+    clauses.push("j.model_name = ?");
+    parameters.push(input.model);
   }
   if (input.cursor) {
     clauses.push("(j.created_at < ? OR (j.created_at = ? AND j.id < ?))");
@@ -1055,6 +1088,8 @@ const PRODUCT_SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS idx_jobs_status_updated
     ON jobs(status, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_jobs_created_id
+    ON jobs(created_at DESC, id DESC);
 
   CREATE TABLE IF NOT EXISTS job_results (
     job_id TEXT NOT NULL,

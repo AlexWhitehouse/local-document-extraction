@@ -310,6 +310,7 @@ button.danger:hover:not(:disabled) {
   font-size: 0.82rem;
   font-weight: 500;
   letter-spacing: 0.015em;
+  position: relative;
 }
 
 .context-search-row {
@@ -318,13 +319,185 @@ button.danger:hover:not(:disabled) {
   grid-template-columns: 36px minmax(0, 1fr);
   gap: 6px;
   align-items: stretch;
+  padding-right: 2px;
 }
 
-.context-search-row > input {
+.context-search-shell {
+  min-width: 0;
+  height: 34px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: stretch;
+  border-radius: 8px;
+  transition: box-shadow 140ms ease;
+}
+
+.context-search-shell > input {
   min-width: 0;
   height: 34px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: 8px 0 0 8px;
+  border-right: 0;
+}
+
+.context-search-shell > input:focus {
+  box-shadow: none;
+}
+
+.context-search-shell:focus-within {
+  box-shadow: 0 0 0 3px rgba(25, 193, 180, 0.2);
+}
+
+.context-search-shell:focus-within > input,
+.context-search-shell:focus-within .context-filter-trigger {
+  border-color: var(--accent);
+}
+
+.context-filter-control {
+  min-width: 0;
+  width: 36px;
+  height: 34px;
+}
+
+.context-filter-trigger {
+  position: relative;
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-1);
+  border-radius: 0 8px 8px 0;
+  background: var(--bg-3);
+  color: var(--text-3);
+  transform: none;
+}
+
+.context-filter-trigger:hover:not(:disabled) {
+  transform: none;
+  border-color: var(--line-2);
+  background: var(--bg-4);
+  color: var(--text-1);
+}
+
+.context-filter-trigger.active {
+  border-color: rgba(25, 193, 180, 0.5);
+  background: rgba(25, 193, 180, 0.13);
+  color: var(--accent-strong);
+}
+
+.context-filter-trigger svg {
+  display: block;
+}
+
+.context-filter-count {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 3px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #083b37;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  color: #03110f;
+  font-size: 0.52rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.context-filter-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(292px, calc(100vw - 40px));
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background:
+    linear-gradient(145deg, rgba(25, 193, 180, 0.055), transparent 45%),
+    #0d151f;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.46), 0 0 0 1px rgba(5, 9, 15, 0.8);
+  color-scheme: dark;
+}
+
+.context-filter-popover-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.context-filter-popover-head > div {
+  display: grid;
+  gap: 2px;
+}
+
+.context-filter-popover-head strong {
+  color: var(--text-0);
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+}
+
+.context-filter-active-label {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid rgba(25, 193, 180, 0.32);
+  border-radius: 999px;
+  background: rgba(25, 193, 180, 0.09);
+  color: var(--accent-strong);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.context-filter-date-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.context-filter-popover label {
+  min-width: 0;
+  font-size: 0.7rem;
+}
+
+.context-filter-popover input,
+.context-filter-popover select {
+  min-width: 0;
+  height: 34px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 0.75rem;
+}
+
+.context-filter-popover input[aria-invalid="true"] {
+  border-color: var(--rose);
+}
+
+.context-filter-error {
+  margin: -4px 0 0;
+  color: #ff9ab0;
+  font-size: 0.68rem;
+}
+
+.context-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.context-filter-actions button {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 0.72rem;
 }
 
 .context-select-all-control {

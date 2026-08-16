@@ -55,6 +55,27 @@ test("the Document adapter searches one Workspace's stable job metadata and retu
       jobs: [expect.objectContaining({ job_id: "job_receipt_failed", status: "failed" })],
       total: 4,
     });
+    await expect(adapter.listDocuments({
+      filters: { dateFrom: "2026-07-10", dateTo: "2026-07-10" },
+    })).resolves.toMatchObject({
+      jobs: [expect.objectContaining({ job_id: "job_receipt_failed" })],
+      total: 4,
+    });
+    await expect(adapter.listDocuments({
+      filters: { model: "test-model" },
+    })).resolves.toMatchObject({
+      jobs: [expect.objectContaining({ job_id: "job_completed", model_name: "test-model" })],
+      total: 4,
+    });
+    await expect(adapter.getFilterOptions()).resolves.toEqual({
+      available_models: ["test-model"],
+    });
+    await expect(adapter.listDocuments({
+      filters: { dateFrom: "2026-02-30" },
+    })).rejects.toMatchObject({ code: "invalid_job_filters", status: 400 });
+    await expect(adapter.listDocuments({
+      filters: { dateFrom: "2026-07-11", dateTo: "2026-07-10" },
+    })).rejects.toMatchObject({ code: "invalid_job_filters", status: 400 });
     await expect(adapter.listDocuments({ search: "isolated" })).resolves.toEqual({
       jobs: [],
       total: 4,
@@ -88,11 +109,11 @@ function createSearchableJobs({ stateDirectory, workspaceId }: { stateDirectory:
       fields: [{ id: "reference", name: "Reference", description: "Reference", data_type: "string" }],
       createdAt: "2026-07-10T12:00:00.000Z",
     });
-    for (const [jobId, templateId, sourceName] of [
-      ["job_invoice", "tpl_invoices", "invoice-2026.pdf"],
-      ["job_report", "tpl_invoices", "report.png"],
-      ["job_receipt_failed", "tpl_receipts", "receipt.jpg"],
-      ["job_completed", "tpl_invoices", "completed.png"],
+    for (const [jobId, templateId, sourceName, submittedAt] of [
+      ["job_invoice", "tpl_invoices", "invoice-2026.pdf", "2026-07-08T12:00:00.000Z"],
+      ["job_report", "tpl_invoices", "report.png", "2026-07-09T12:00:00.000Z"],
+      ["job_receipt_failed", "tpl_receipts", "receipt.jpg", "2026-07-10T12:00:00.000Z"],
+      ["job_completed", "tpl_invoices", "completed.png", "2026-07-11T12:00:00.000Z"],
     ]) {
       store.createQueuedExtractionJob({
         jobId,
@@ -102,16 +123,16 @@ function createSearchableJobs({ stateDirectory, workspaceId }: { stateDirectory:
         sourceMimeType: "image/png",
         sourceName,
         sourceFilePageCount: null,
-        submittedAt: "2026-07-10T12:00:00.000Z",
+        submittedAt,
       });
     }
     store.claimExtractionJobForProcessing({ jobId: "job_report", attempt: 1, claimedAt: "2026-07-10T12:01:00.000Z" });
     store.failQueuedExtractionJob({ jobId: "job_receipt_failed", failedAt: "2026-07-10T12:01:00.000Z", errorCode: "test_failure", errorMessage: "Test failure" });
-    store.claimExtractionJobForProcessing({ jobId: "job_completed", attempt: 1, claimedAt: "2026-07-10T12:01:00.000Z" });
+    store.claimExtractionJobForProcessing({ jobId: "job_completed", attempt: 1, claimedAt: "2026-07-11T12:01:00.000Z" });
     store.completeExtractionJob({
       jobId: "job_completed",
       attempt: 1,
-      completedAt: "2026-07-10T12:02:00.000Z",
+      completedAt: "2026-07-11T12:02:00.000Z",
       modelName: "test-model",
       route: "test-route",
       results: [{ field_id: "reference", status: "completed", answer: "COMPLETE", normalized_value: "COMPLETE", confidence: 1, evidence: null }],
@@ -140,6 +161,26 @@ function createIsolatedJob({ stateDirectory, workspaceId }: { stateDirectory: st
       sourceName: "isolated.pdf",
       sourceFilePageCount: null,
       submittedAt: "2026-07-10T12:00:00.000Z",
+    });
+    store.claimExtractionJobForProcessing({
+      jobId: "job_isolated",
+      attempt: 1,
+      claimedAt: "2026-07-10T12:01:00.000Z",
+    });
+    store.completeExtractionJob({
+      jobId: "job_isolated",
+      attempt: 1,
+      completedAt: "2026-07-10T12:02:00.000Z",
+      modelName: "isolated-model",
+      route: "isolated-route",
+      results: [{
+        field_id: "value",
+        status: "completed",
+        answer: "ISOLATED",
+        normalized_value: "ISOLATED",
+        confidence: 1,
+        evidence: null,
+      }],
     });
   } finally {
     store.close();
