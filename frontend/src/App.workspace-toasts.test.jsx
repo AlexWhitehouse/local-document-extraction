@@ -2370,7 +2370,7 @@ describe("Workspace action toast feedback", () => {
 
     await act(async () => {
       resolveExport(
-        new Response(new Blob(["xlsx-bytes"]), {
+        new Response("xlsx-bytes", {
           status: 200,
           headers: {
             "content-disposition":
