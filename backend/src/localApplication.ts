@@ -4,6 +4,7 @@ import { HttpError } from "./lib/http";
 import { newId, nowIso } from "./lib/ids";
 import { InvalidPdfSourceFileError, countPdfSourceFilePages } from "./lib/sourceFilePageCount";
 import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "./lib/validation";
+import { buildJobExportWorkbook } from "./jobExportWorkbook";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
@@ -320,6 +321,23 @@ export function createLocalApplication({
       });
     }
 
+    if (request.method === "POST" && url.pathname === "/v1/jobs/export") {
+      if (!auth || !workspaceControl || !stateDirectory || !localWorkspaceProductOperations) {
+        return Response.json(
+          { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
+          { status: 503 },
+        );
+      }
+      return handleLocalJobExport({
+        auth,
+        productStoreFactory,
+        request,
+        stateDirectory,
+        workspaceControl,
+        workspaceProductOperations: localWorkspaceProductOperations,
+      });
+    }
+
     const jobMatch = url.pathname.match(/^\/v1\/jobs(?:\/([^/]+))?$/);
     if ((request.method === "GET" || request.method === "DELETE") && jobMatch) {
       if (!auth || !workspaceControl || !stateDirectory || !localSourceFileStore) {
@@ -386,6 +404,8 @@ function validateModelSettingsPayload(input: unknown): {
   gatewayUrl: string;
   modelName: string;
   apiKey?: string | null;
+  sequentialCalls?: boolean;
+  supportsPdfInput?: boolean;
 } {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new HttpError(400, "invalid_model_settings", "Model settings must be an object");
@@ -430,11 +450,36 @@ function validateModelSettingsPayload(input: unknown): {
     );
   }
 
+  const behaviorSettings: {
+    sequentialCalls?: boolean;
+    supportsPdfInput?: boolean;
+  } = {};
+  if ("sequential_calls" in payload) {
+    if (typeof payload.sequential_calls !== "boolean") {
+      throw new HttpError(
+        400,
+        "invalid_sequential_calls",
+        "Sequential calls must be a boolean",
+      );
+    }
+    behaviorSettings.sequentialCalls = payload.sequential_calls;
+  }
+  if ("supports_pdf_input" in payload) {
+    if (typeof payload.supports_pdf_input !== "boolean") {
+      throw new HttpError(
+        400,
+        "invalid_supports_pdf_input",
+        "PDF input support must be a boolean",
+      );
+    }
+    behaviorSettings.supportsPdfInput = payload.supports_pdf_input;
+  }
+
   if (!("api_key" in payload)) {
-    return { gatewayUrl, modelName };
+    return { gatewayUrl, modelName, ...behaviorSettings };
   }
   if (payload.api_key === null) {
-    return { gatewayUrl, modelName, apiKey: null };
+    return { gatewayUrl, modelName, ...behaviorSettings, apiKey: null };
   }
   if (typeof payload.api_key !== "string" || !payload.api_key.trim()) {
     throw new HttpError(
@@ -451,7 +496,12 @@ function validateModelSettingsPayload(input: unknown): {
     );
   }
 
-  return { gatewayUrl, modelName, apiKey: payload.api_key.trim() };
+  return {
+    gatewayUrl,
+    modelName,
+    ...behaviorSettings,
+    apiKey: payload.api_key.trim(),
+  };
 }
 
 async function handleLocalDocumentSubmission({
@@ -722,6 +772,112 @@ async function handleLocalJobRead({
   }
 }
 
+async function handleLocalJobExport({
+  auth,
+  productStoreFactory,
+  request,
+  stateDirectory,
+  workspaceControl,
+  workspaceProductOperations,
+}: {
+  auth: LocalAuth;
+  productStoreFactory: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
+  request: Request;
+  stateDirectory: string;
+  workspaceControl: LocalWorkspaceControl;
+  workspaceProductOperations: LocalWorkspaceProductOperations;
+}): Promise<Response> {
+  const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
+  if ("response" in authorization) {
+    return authorization.response;
+  }
+
+  let productOperation;
+  try {
+    productOperation = workspaceProductOperations.acquire({ workspaceId: authorization.workspace.id });
+  } catch (error) {
+    return workspaceProductOperationErrorResponse(error);
+  }
+  const productStore = productStoreFactory({
+    stateDirectory,
+    workspaceId: authorization.workspace.id,
+  });
+
+  try {
+    const jobIds = validateJobExportPayload(
+      parseJsonBody<unknown>(await request.text()),
+    );
+    const jobs = jobIds.flatMap((jobId) => {
+      const job = productStore.getExtractionJobExport(jobId);
+      return job && (job.status === "completed" || job.status === "failed")
+        ? [job]
+        : [];
+    });
+    const skippedCount = jobIds.length - jobs.length;
+    if (!jobs.length) {
+      throw new HttpError(
+        409,
+        "no_exportable_jobs",
+        "None of the selected jobs are completed or failed",
+      );
+    }
+
+    const exportWorkbook = await buildJobExportWorkbook({
+      jobs,
+      workspaceName: authorization.workspace.name,
+    });
+    return new Response(Uint8Array.from(exportWorkbook.bytes).buffer, {
+      status: 200,
+      headers: {
+        "cache-control": "no-store",
+        "content-disposition": `attachment; filename="${exportWorkbook.filename}"`,
+        "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "x-exported-job-count": String(jobs.length),
+        "x-skipped-job-count": String(skippedCount),
+      },
+    });
+  } catch (error) {
+    if (error instanceof HttpError) {
+      return Response.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    }
+    return Response.json(
+      { error: { code: "job_export_failed", message: "Selected jobs could not be exported" } },
+      { status: 500 },
+    );
+  } finally {
+    productStore.close();
+    productOperation.release();
+  }
+}
+
+function validateJobExportPayload(input: unknown): string[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new HttpError(400, "invalid_job_export", "Job export must be an object");
+  }
+  const jobIds = (input as { job_ids?: unknown }).job_ids;
+  if (!Array.isArray(jobIds) || jobIds.length === 0) {
+    throw new HttpError(
+      400,
+      "invalid_job_export",
+      "Select at least one job to export",
+    );
+  }
+  const normalized = jobIds.map((jobId) =>
+    typeof jobId === "string" ? jobId.trim() : ""
+  );
+  if (normalized.some((jobId) => !jobId)) {
+    throw new HttpError(
+      400,
+      "invalid_job_export",
+      "Every exported job ID must be a non-empty string",
+    );
+  }
+  return [...new Set(normalized)];
+}
+
 function normalizeJobSearch(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -792,7 +948,7 @@ async function authorizeLocalProductRequest({
   auth: LocalAuth;
   request: Request;
   workspaceControl: LocalWorkspaceControl;
-}): Promise<{ workspace: { id: string; max_source_file_bytes: number | null } } | { response: Response }> {
+}): Promise<{ workspace: { id: string; name: string; max_source_file_bytes: number | null } } | { response: Response }> {
   const apiKey = bearerApiKey(request);
   const session = apiKey ? null : await auth.getSession(request);
   const workspaceId = request.headers.get("x-workspace-id")?.trim() || "";

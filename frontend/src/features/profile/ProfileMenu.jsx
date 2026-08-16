@@ -220,11 +220,15 @@ function ModelSettings({
   isLoading,
   isSaving,
   modelName,
+  sequentialCalls,
+  supportsPdfInput,
   onApiKeyChange,
   onApiKeyVisibilityToggle,
   onGatewayUrlChange,
   onLoad,
   onModelNameChange,
+  onSequentialCallsChange,
+  onSupportsPdfInputChange,
   onRemoveApiKey,
   onSave,
 }) {
@@ -251,7 +255,7 @@ function ModelSettings({
   }
 
   return (
-    <div className="settings-section-body">
+    <div className="settings-section-body settings-model-section">
       <div className="settings-section-intro">
         <h4>OpenAI-compatible gateway</h4>
         <p>
@@ -260,30 +264,33 @@ function ModelSettings({
         </p>
       </div>
       <div className="settings-form-card settings-model-form">
-        <label>
-          Gateway URL
-          <input
-            type="url"
-            aria-label="Gateway URL"
-            value={gatewayUrl}
-            onChange={(event) => onGatewayUrlChange(event.target.value)}
-            placeholder="http://127.0.0.1:11434/v1"
-            spellCheck="false"
-          />
-          <span className="field-note">
-            Base URL; the app calls <code>chat/completions</code>.
-          </span>
-        </label>
-        <label>
-          Model name
-          <input
-            aria-label="Model name"
-            value={modelName}
-            onChange={(event) => onModelNameChange(event.target.value)}
-            placeholder="openai/gpt-5-mini"
-            spellCheck="false"
-          />
-        </label>
+        <div className="settings-model-primary-grid">
+          <label>
+            Gateway URL
+            <input
+              type="url"
+              aria-label="Gateway URL"
+              value={gatewayUrl}
+              onChange={(event) => onGatewayUrlChange(event.target.value)}
+              placeholder="http://127.0.0.1:11434/v1"
+              spellCheck="false"
+            />
+            <span className="field-note">
+              Calls <code>chat/completions</code> on this base URL.
+            </span>
+          </label>
+          <label>
+            Model name
+            <input
+              aria-label="Model name"
+              value={modelName}
+              onChange={(event) => onModelNameChange(event.target.value)}
+              placeholder="openai/gpt-5-mini"
+              spellCheck="false"
+            />
+            <span className="field-note">Gateway model identifier.</span>
+          </label>
+        </div>
         <label>
           <span className="settings-label-line">
             API key / bearer token
@@ -321,30 +328,68 @@ function ModelSettings({
             {hasApiKey ? "A token is stored locally" : "No token stored"}
           </span>
         </label>
-        {error ? (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <div className="settings-form-actions settings-model-actions">
+      </div>
+      <div className="settings-behavior-group">
+        <div className="settings-behavior-heading">
+          <strong>Model capabilities</strong>
+          <span>Request handling and document input</span>
+        </div>
+        <div className="settings-behavior-options">
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={sequentialCalls}
+              onChange={(event) =>
+                onSequentialCallsChange(event.target.checked)
+              }
+            />
+            <span>
+              <strong>Sequential calls</strong>
+              <small>
+                One active request at a time for memory-limited models.
+              </small>
+            </span>
+          </label>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={supportsPdfInput}
+              onChange={(event) =>
+                onSupportsPdfInputChange(event.target.checked)
+              }
+            />
+            <span>
+              <strong>Direct PDF input</strong>
+              <small>
+                Send the PDF as a file; otherwise render pages to PNGs.
+              </small>
+            </span>
+          </label>
+        </div>
+      </div>
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="settings-form-actions settings-model-actions">
+        <button
+          type="button"
+          disabled={isSaving || !isDirty}
+          onClick={onSave}
+        >
+          {isSaving ? "Saving..." : "Save Model Settings"}
+        </button>
+        {hasApiKey ? (
           <button
             type="button"
-            disabled={isSaving || !isDirty}
-            onClick={onSave}
+            className="ghost"
+            disabled={isSaving}
+            onClick={onRemoveApiKey}
           >
-            {isSaving ? "Saving..." : "Save Model Settings"}
+            Remove saved token
           </button>
-          {hasApiKey ? (
-            <button
-              type="button"
-              className="ghost"
-              disabled={isSaving}
-              onClick={onRemoveApiKey}
-            >
-              Remove saved token
-            </button>
-          ) : null}
-        </div>
+        ) : null}
       </div>
     </div>
   );

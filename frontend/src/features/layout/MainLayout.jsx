@@ -112,10 +112,14 @@ export function WorkspaceToolbar({
   isDeletingWorkspace,
   isDeletingTemplate,
   isDeletingDocument,
+  isExportingDocuments = false,
   selectedDocumentId,
+  selectedDocumentCount = 0,
+  exportableDocumentCount = 0,
   updateTemplateId,
   onCreateTemplate,
   onCreateWorkspace,
+  onExportDocuments,
   onUploadDocument,
   onWorkspacePrimaryAction,
   onDeleteTemplate,
@@ -142,6 +146,32 @@ export function WorkspaceToolbar({
         )}
       </div>
       <div className="actions compact">
+        {activePage === "documents" ? (
+          <button
+            type="button"
+            className="secondary"
+            disabled={
+              !hasApiAccess ||
+              isDeletingDocument ||
+              isExportingDocuments ||
+              exportableDocumentCount === 0
+            }
+            onClick={onExportDocuments}
+            title={
+              exportableDocumentCount === 0
+                ? "Select at least one completed or failed job to export"
+                : undefined
+            }
+          >
+            {isExportingDocuments
+              ? "Exporting..."
+              : exportableDocumentCount
+                ? `Export ${exportableDocumentCount} Job${
+                    exportableDocumentCount === 1 ? "" : "s"
+                  }`
+                : "Export"}
+          </button>
+        ) : null}
         <button
           type="button"
           className="secondary"
@@ -195,10 +225,22 @@ export function WorkspaceToolbar({
           <button
             type="button"
             className="danger"
-            disabled={isDeletingDocument || !selectedDocumentId}
+            disabled={
+              isDeletingDocument ||
+              isExportingDocuments ||
+              (!selectedDocumentCount && !selectedDocumentId)
+            }
             onClick={onDeleteDocument}
           >
-            {isDeletingDocument ? "Deleting..." : "Delete Document"}
+            {isDeletingDocument
+              ? selectedDocumentCount > 1
+                ? `Deleting ${selectedDocumentCount}...`
+                : "Deleting..."
+              : selectedDocumentCount
+                ? `Delete ${selectedDocumentCount} Document${
+                    selectedDocumentCount === 1 ? "" : "s"
+                  }`
+                : "Delete Document"}
           </button>
         ) : null}
       </div>

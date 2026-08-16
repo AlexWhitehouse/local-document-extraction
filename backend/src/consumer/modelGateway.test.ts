@@ -231,8 +231,11 @@ describe("runExtraction", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("renders PDF Source file pages as images for Gemma 4 model deployments", async () => {
-    const env = createEnv({ AI_MODEL: "google/gemma-4-e4b" });
+  it("renders PDF Source file pages as images when direct PDF input is disabled", async () => {
+    const env = createEnv({
+      AI_MODEL: "google/gemma-4-e4b",
+      MODEL_SUPPORTS_PDF_INPUT: "false",
+    });
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
     const pdf = await PDFDocument.create();
     const page = pdf.addPage([300, 200]);
@@ -277,8 +280,15 @@ describe("runExtraction", () => {
     });
   });
 
-  it("renders PDF Source file pages as image content accepted by Qwen", async () => {
-    const env = createEnv({ AI_MODEL: "qwen/qwen3.6-27b" });
+  it.each([
+    "qwen/qwen3.6-27b",
+    "qwen3.8-27b-mlx",
+    "qwen3-vl-32b-instruct-mlx",
+  ])("renders PDF Source file pages as image content accepted by Qwen model %s", async (model) => {
+    const env = createEnv({
+      AI_MODEL: model,
+      MODEL_SUPPORTS_PDF_INPUT: "false",
+    });
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
     const pdf = await PDFDocument.create();
     const page = pdf.addPage([300, 200]);
@@ -295,7 +305,7 @@ describe("runExtraction", () => {
 
     const request = readGatewayRequest(fetchMock);
     expect(request.body).toMatchObject({
-      model: "qwen/qwen3.6-27b",
+      model,
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -574,6 +584,47 @@ describe("runExtraction", () => {
     ).rejects.toThrow(RetryableError);
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("runs configured model calls sequentially", async () => {
+    let releaseFirstRequest: (() => void) | undefined;
+    const firstRequestGate = new Promise<void>((resolve) => {
+      releaseFirstRequest = resolve;
+    });
+    let requestCount = 0;
+    const fetchMock = vi.fn(async () => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        await firstRequestGate;
+      }
+      return new Response(JSON.stringify(successfulGatewayPayload()), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const env = createEnv({ MODEL_GATEWAY_SEQUENTIAL_CALLS: "true" });
+
+    const first = runExtraction(
+      env,
+      fields,
+      new Uint8Array([1, 2, 3]).buffer,
+      "image/png",
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const second = runExtraction(
+      env,
+      fields,
+      new Uint8Array([4, 5, 6]).buffer,
+      "image/png",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    releaseFirstRequest?.();
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("treats LiteLLM HTTP failures as retryable extraction failures", async () => {

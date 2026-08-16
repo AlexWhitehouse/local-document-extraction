@@ -5,22 +5,28 @@ import { dirname, join } from "node:path";
 import {
   getExtractionModelName,
   getModelGatewayBaseUrl,
+  supportsPdfInput,
+  usesSequentialModelCalls,
   type ModelGatewayConfiguration,
 } from "./consumer/modelGateway";
 
 const MODEL_SETTINGS_FILENAME = "model-gateway.json";
 
 type StoredModelSettings = {
-  version: 1;
+  version: 1 | 2;
   gateway_url: string;
   model_name: string;
   api_key: string | null;
+  sequential_calls?: boolean;
+  supports_pdf_input?: boolean;
 };
 
 export type PublicLocalModelSettings = {
   gateway_url: string;
   model_name: string;
   has_api_key: boolean;
+  sequential_calls: boolean;
+  supports_pdf_input: boolean;
 };
 
 export type LocalModelSettings = {
@@ -30,6 +36,8 @@ export type LocalModelSettings = {
     gatewayUrl: string;
     modelName: string;
     apiKey?: string | null;
+    sequentialCalls?: boolean;
+    supportsPdfInput?: boolean;
   }): Promise<PublicLocalModelSettings>;
 };
 
@@ -50,21 +58,35 @@ export async function createLocalModelSettings({
   return {
     getConfiguration: () => ({ ...configuration }),
     getPublicSettings: () => publicSettings(configuration),
-    update: async ({ gatewayUrl, modelName, apiKey }) => {
+    update: async ({
+      gatewayUrl,
+      modelName,
+      apiKey,
+      sequentialCalls,
+      supportsPdfInput: nextSupportsPdfInput,
+    }) => {
       const nextConfiguration: ModelGatewayConfiguration = {
         ...configuration,
         AI_MODEL: modelName,
         MODEL_GATEWAY_ROUTE_LABEL: undefined,
+        MODEL_GATEWAY_SEQUENTIAL_CALLS: String(
+          sequentialCalls ?? usesSequentialModelCalls(configuration),
+        ),
         MODEL_GATEWAY_URL: gatewayUrl,
+        MODEL_SUPPORTS_PDF_INPUT: String(
+          nextSupportsPdfInput ?? supportsPdfInput(configuration),
+        ),
         ...(apiKey !== undefined
           ? { LITELLM_KEY: apiKey === null ? undefined : apiKey }
           : {}),
       };
       const nextStoredSettings: StoredModelSettings = {
-        version: 1,
+        version: 2,
         gateway_url: gatewayUrl,
         model_name: modelName,
         api_key: nextConfiguration.LITELLM_KEY || null,
+        sequential_calls: usesSequentialModelCalls(nextConfiguration),
+        supports_pdf_input: supportsPdfInput(nextConfiguration),
       };
 
       await writeStoredSettings(settingsPath, nextStoredSettings);
@@ -83,7 +105,11 @@ function configurationFromEnvironment(
     MODEL_GATEWAY_REQUEST_TIMEOUT_MS:
       environment.MODEL_GATEWAY_REQUEST_TIMEOUT_MS,
     MODEL_GATEWAY_ROUTE_LABEL: environment.MODEL_GATEWAY_ROUTE_LABEL,
+    MODEL_GATEWAY_SEQUENTIAL_CALLS:
+      environment.MODEL_GATEWAY_SEQUENTIAL_CALLS?.trim() || undefined,
     MODEL_GATEWAY_URL: environment.MODEL_GATEWAY_URL?.trim() || undefined,
+    MODEL_SUPPORTS_PDF_INPUT:
+      environment.MODEL_SUPPORTS_PDF_INPUT?.trim() || undefined,
   };
 }
 
@@ -96,7 +122,13 @@ function configurationFromStoredSettings(
     AI_MODEL: stored.model_name,
     LITELLM_KEY: stored.api_key || undefined,
     MODEL_GATEWAY_ROUTE_LABEL: undefined,
+    MODEL_GATEWAY_SEQUENTIAL_CALLS: String(
+      stored.sequential_calls ?? usesSequentialModelCalls(environment),
+    ),
     MODEL_GATEWAY_URL: stored.gateway_url,
+    MODEL_SUPPORTS_PDF_INPUT: String(
+      stored.supports_pdf_input ?? supportsPdfInput(environment),
+    ),
   };
 }
 
@@ -107,6 +139,8 @@ function publicSettings(
     gateway_url: getModelGatewayBaseUrl(configuration),
     model_name: getExtractionModelName(configuration),
     has_api_key: Boolean(configuration.LITELLM_KEY),
+    sequential_calls: usesSequentialModelCalls(configuration),
+    supports_pdf_input: supportsPdfInput(configuration),
   };
 }
 
@@ -123,21 +157,27 @@ async function readStoredSettings(path: string): Promise<StoredModelSettings | n
 
   const parsed = JSON.parse(contents) as Partial<StoredModelSettings>;
   if (
-    parsed.version !== 1 ||
+    (parsed.version !== 1 && parsed.version !== 2) ||
     typeof parsed.gateway_url !== "string" ||
     !parsed.gateway_url.trim() ||
     typeof parsed.model_name !== "string" ||
     !parsed.model_name.trim() ||
-    (parsed.api_key !== null && typeof parsed.api_key !== "string")
+    (parsed.api_key !== null && typeof parsed.api_key !== "string") ||
+    (parsed.sequential_calls !== undefined &&
+      typeof parsed.sequential_calls !== "boolean") ||
+    (parsed.supports_pdf_input !== undefined &&
+      typeof parsed.supports_pdf_input !== "boolean")
   ) {
     throw new Error("Local model settings file is invalid.");
   }
 
   return {
-    version: 1,
+    version: parsed.version,
     gateway_url: parsed.gateway_url.trim(),
     model_name: parsed.model_name.trim(),
     api_key: parsed.api_key?.trim() || null,
+    sequential_calls: parsed.sequential_calls,
+    supports_pdf_input: parsed.supports_pdf_input,
   };
 }
 

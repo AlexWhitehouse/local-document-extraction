@@ -18,7 +18,9 @@ test("local model settings persist UI overrides without exposing the saved token
         AI_MODEL: "environment/model",
         LITELLM_KEY: "environment-token",
         MODEL_GATEWAY_ROUTE_LABEL: "environment-route.example",
+        MODEL_GATEWAY_SEQUENTIAL_CALLS: "true",
         MODEL_GATEWAY_URL: "https://environment.example/v1",
+        MODEL_SUPPORTS_PDF_INPUT: "false",
       },
     });
 
@@ -26,25 +28,33 @@ test("local model settings persist UI overrides without exposing the saved token
       gateway_url: "https://environment.example/v1",
       model_name: "environment/model",
       has_api_key: true,
+      sequential_calls: true,
+      supports_pdf_input: false,
     });
 
     const updated = await settings.update({
       gatewayUrl: "http://127.0.0.1:11434/v1",
       modelName: "local/vision-model",
       apiKey: "local-secret-token",
+      sequentialCalls: false,
+      supportsPdfInput: true,
     });
 
     expect(updated).toEqual({
       gateway_url: "http://127.0.0.1:11434/v1",
       model_name: "local/vision-model",
       has_api_key: true,
+      sequential_calls: false,
+      supports_pdf_input: true,
     });
     expect(updated).not.toHaveProperty("api_key");
     expect(settings.getConfiguration()).toMatchObject({
       AI_MODEL: "local/vision-model",
       LITELLM_KEY: "local-secret-token",
       MODEL_GATEWAY_ROUTE_LABEL: undefined,
+      MODEL_GATEWAY_SEQUENTIAL_CALLS: "false",
       MODEL_GATEWAY_URL: "http://127.0.0.1:11434/v1",
+      MODEL_SUPPORTS_PDF_INPUT: "true",
     });
     expect((await stat(settingsPath)).mode & 0o777).toBe(0o600);
 
@@ -71,6 +81,8 @@ test("local model settings persist UI overrides without exposing the saved token
     expect(reopenedWithoutToken.getConfiguration().LITELLM_KEY).toBeUndefined();
     expect(JSON.parse(await readFile(settingsPath, "utf8"))).toMatchObject({
       api_key: null,
+      sequential_calls: false,
+      supports_pdf_input: true,
     });
   } finally {
     await rm(stateDirectory, { recursive: true, force: true });
@@ -110,6 +122,8 @@ test("the authenticated model settings API validates updates and keeps tokens wr
           gateway_url: "http://localhost:1234/v1",
           model_name: "local/model",
           api_key: "write-only-token",
+          sequential_calls: true,
+          supports_pdf_input: false,
         }),
       },
     ));
@@ -118,6 +132,8 @@ test("the authenticated model settings API validates updates and keeps tokens wr
       gateway_url: "http://localhost:1234/v1",
       model_name: "local/model",
       has_api_key: true,
+      sequential_calls: true,
+      supports_pdf_input: false,
     });
 
     const read = await application(new Request(
@@ -129,6 +145,8 @@ test("the authenticated model settings API validates updates and keeps tokens wr
       gateway_url: "http://localhost:1234/v1",
       model_name: "local/model",
       has_api_key: true,
+      sequential_calls: true,
+      supports_pdf_input: false,
     });
     expect(JSON.stringify(readBody)).not.toContain("write-only-token");
 
@@ -146,6 +164,23 @@ test("the authenticated model settings API validates updates and keeps tokens wr
     expect(invalid.status).toBe(400);
     await expect(invalid.json()).resolves.toMatchObject({
       error: { code: "invalid_gateway_url" },
+    });
+
+    const invalidCapability = await application(new Request(
+      "http://127.0.0.1:8787/v1/settings/model",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: "session=local" },
+        body: JSON.stringify({
+          gateway_url: "http://localhost:1234/v1",
+          model_name: "local/model",
+          supports_pdf_input: "sometimes",
+        }),
+      },
+    ));
+    expect(invalidCapability.status).toBe(400);
+    await expect(invalidCapability.json()).resolves.toMatchObject({
+      error: { code: "invalid_supports_pdf_input" },
     });
   } finally {
     await rm(stateDirectory, { recursive: true, force: true });

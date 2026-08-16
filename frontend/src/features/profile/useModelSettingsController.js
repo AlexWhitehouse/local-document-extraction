@@ -9,8 +9,12 @@ export function useModelSettingsController({
   const [gatewayUrl, setGatewayUrl] = useState("");
   const [modelName, setModelName] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [sequentialCalls, setSequentialCalls] = useState(false);
+  const [supportsPdfInput, setSupportsPdfInput] = useState(true);
   const [savedGatewayUrl, setSavedGatewayUrl] = useState("");
   const [savedModelName, setSavedModelName] = useState("");
+  const [savedSequentialCalls, setSavedSequentialCalls] = useState(false);
+  const [savedSupportsPdfInput, setSavedSupportsPdfInput] = useState(true);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -24,8 +28,12 @@ export function useModelSettingsController({
     setGatewayUrl("");
     setModelName("");
     setApiKey("");
+    setSequentialCalls(false);
+    setSupportsPdfInput(true);
     setSavedGatewayUrl("");
     setSavedModelName("");
+    setSavedSequentialCalls(false);
+    setSavedSupportsPdfInput(true);
     setHasApiKey(false);
     setIsLoaded(false);
     setError("");
@@ -67,6 +75,8 @@ export function useModelSettingsController({
         body: JSON.stringify({
           gateway_url: normalizedGatewayUrl,
           model_name: normalizedModelName,
+          sequential_calls: sequentialCalls,
+          supports_pdf_input: supportsPdfInput,
           ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
         }),
       });
@@ -98,6 +108,8 @@ export function useModelSettingsController({
         body: JSON.stringify({
           gateway_url: gatewayUrl.trim(),
           model_name: modelName.trim(),
+          sequential_calls: sequentialCalls,
+          supports_pdf_input: supportsPdfInput,
           api_key: null,
         }),
       });
@@ -118,10 +130,16 @@ export function useModelSettingsController({
   function applySettings(settings) {
     const nextGatewayUrl = String(settings?.gateway_url || "");
     const nextModelName = String(settings?.model_name || "");
+    const nextSequentialCalls = Boolean(settings?.sequential_calls);
+    const nextSupportsPdfInput = settings?.supports_pdf_input !== false;
     setGatewayUrl(nextGatewayUrl);
     setModelName(nextModelName);
+    setSequentialCalls(nextSequentialCalls);
+    setSupportsPdfInput(nextSupportsPdfInput);
     setSavedGatewayUrl(nextGatewayUrl);
     setSavedModelName(nextModelName);
+    setSavedSequentialCalls(nextSequentialCalls);
+    setSavedSupportsPdfInput(nextSupportsPdfInput);
     setHasApiKey(Boolean(settings?.has_api_key));
   }
 
@@ -129,10 +147,14 @@ export function useModelSettingsController({
     gatewayUrl,
     modelName,
     apiKey,
+    sequentialCalls,
+    supportsPdfInput,
     hasApiKey,
     isDirty:
       gatewayUrl.trim() !== savedGatewayUrl ||
       modelName.trim() !== savedModelName ||
+      sequentialCalls !== savedSequentialCalls ||
+      supportsPdfInput !== savedSupportsPdfInput ||
       Boolean(apiKey.trim()),
     isLoaded,
     isLoading,
@@ -141,6 +163,8 @@ export function useModelSettingsController({
     onGatewayUrlChange: setGatewayUrl,
     onModelNameChange: setModelName,
     onApiKeyChange: setApiKey,
+    onSequentialCallsChange: setSequentialCalls,
+    onSupportsPdfInputChange: setSupportsPdfInput,
     onLoad: loadSettings,
     onSave: saveSettings,
     onRemoveApiKey: removeApiKey,

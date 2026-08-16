@@ -7,6 +7,7 @@ const DEFAULT_OPTIONS = {
 };
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
+const EXPORTABLE_DOCUMENT_STATUSES = new Set(["completed", "failed"]);
 const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_DELAY_MS = 150;
 const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_MIN_INTERVAL_MS = 3000;
 
@@ -34,6 +35,7 @@ export function useDocumentController({
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
+  const [isExportingDocuments, setIsExportingDocuments] = useState(false);
   const [loadingDocumentDetailsId, setLoadingDocumentDetailsId] = useState("");
   const [uploadTemplateId, setUploadTemplateId] = useState("");
   const [uploadFiles, setUploadFiles] = useState([]);
@@ -49,6 +51,7 @@ export function useDocumentController({
   const [selectedDocumentId, setSelectedDocumentId] = useState(
     initialWorkspace.selectedDocumentId || "",
   );
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState([]);
   const [documentSearch, setDocumentSearch] = useState("");
   const [debouncedDocumentSearch, setDebouncedDocumentSearch] = useState("");
   const [liveUpdatesUnavailable, setLiveUpdatesUnavailable] = useState(false);
@@ -154,6 +157,31 @@ export function useDocumentController({
       documents[0]
     );
   }, [documents, selectedDocumentId]);
+
+  const exportableSelectedDocumentIds = useMemo(() => {
+    const selectedIds = new Set(selectedDocumentIds);
+    return documents
+      .filter(
+        (document) =>
+          selectedIds.has(String(document.job_id || "")) &&
+          EXPORTABLE_DOCUMENT_STATUSES.has(String(document.status || "")),
+      )
+      .map((document) => String(document.job_id));
+  }, [documents, selectedDocumentIds]);
+
+  useEffect(() => {
+    const availableDocumentIds = new Set(
+      documents.map((document) => String(document.job_id || "")),
+    );
+    setSelectedDocumentIds((currentDocumentIds) => {
+      const nextDocumentIds = currentDocumentIds.filter((documentId) =>
+        availableDocumentIds.has(documentId),
+      );
+      return nextDocumentIds.length === currentDocumentIds.length
+        ? currentDocumentIds
+        : nextDocumentIds;
+    });
+  }, [documents]);
 
   const selectedDocumentTemplateName = useMemo(() => {
     if (!selectedDocument?.template_id) {
@@ -275,6 +303,7 @@ export function useDocumentController({
     setJobsHasMore(false);
     setTotalDocuments(0);
     setSelectedDocumentId("");
+    setSelectedDocumentIds([]);
     setLatestResponse(null);
     liveCompletedDetailLoadsRef.current.clear();
     deletedDocumentIdsRef.current.clear();
@@ -493,10 +522,51 @@ export function useDocumentController({
     setSelectedDocumentId((currentSelectedDocumentId) =>
       currentSelectedDocumentId === targetDocumentId ? "" : currentSelectedDocumentId,
     );
+    setSelectedDocumentIds((currentDocumentIds) =>
+      currentDocumentIds.filter((documentId) => documentId !== targetDocumentId),
+    );
     if (latestResponseRef.current?.job_id === targetDocumentId) {
       setLatestResponse(null);
     }
   }, [setLatestResponse]);
+
+  const toggleDocumentSelection = useCallback((documentId, isSelected) => {
+    const normalizedDocumentId = String(documentId || "").trim();
+    if (!normalizedDocumentId) {
+      return;
+    }
+
+    setSelectedDocumentIds((currentDocumentIds) => {
+      if (isSelected) {
+        return currentDocumentIds.includes(normalizedDocumentId)
+          ? currentDocumentIds
+          : [...currentDocumentIds, normalizedDocumentId];
+      }
+      return currentDocumentIds.filter(
+        (currentDocumentId) => currentDocumentId !== normalizedDocumentId,
+      );
+    });
+  }, []);
+
+  const toggleAllDocumentSelections = useCallback((documentIds, isSelected) => {
+    const availableDocumentIds = new Set(
+      documentIds
+        .map((documentId) => String(documentId || "").trim())
+        .filter(Boolean),
+    );
+    if (!availableDocumentIds.size) {
+      return;
+    }
+
+    setSelectedDocumentIds((currentDocumentIds) => {
+      if (isSelected) {
+        return [...new Set([...currentDocumentIds, ...availableDocumentIds])];
+      }
+      return currentDocumentIds.filter(
+        (documentId) => !availableDocumentIds.has(documentId),
+      );
+    });
+  }, []);
 
   const loadJobDetails = useCallback(async (
     jobId,
@@ -746,65 +816,143 @@ export function useDocumentController({
   }
 
   async function deleteSelectedDocument() {
-    if (!selectedDocument?.job_id) {
+    const isBulkDelete = selectedDocumentIds.length > 0;
+    const targetDocuments = isBulkDelete
+      ? selectedDocumentIds
+          .map((documentId) =>
+            documents.find(
+              (document) => String(document.job_id || "") === documentId,
+            ),
+          )
+          .filter(Boolean)
+      : selectedDocument
+        ? [selectedDocument]
+        : [];
+
+    if (!targetDocuments.length) {
       addLog("Delete document failed: select a document first");
       return;
     }
-    if (isDeletingDocument) {
+    if (isDeletingDocument || isExportingDocuments) {
       return;
     }
 
-    const targetDocumentId = String(selectedDocument.job_id);
-    const targetDocumentName = selectedDocument.source_name || targetDocumentId;
-    if (
-      !window.confirm(
-        `Delete document ${targetDocumentId}? This will permanently remove it from the workspace.`,
-      )
-    ) {
+    const targetDocument = targetDocuments[0];
+    const targetDocumentId = String(targetDocument.job_id);
+    const targetDocumentName = targetDocument.source_name || targetDocumentId;
+    const confirmationMessage = isBulkDelete
+      ? `Delete ${targetDocuments.length} selected document${
+          targetDocuments.length === 1 ? "" : "s"
+        }? This will permanently remove ${
+          targetDocuments.length === 1 ? "it" : "them"
+        } from the workspace.`
+      : `Delete document ${targetDocumentId}? This will permanently remove it from the workspace.`;
+    if (!window.confirm(confirmationMessage)) {
       return;
     }
 
     setIsDeletingDocument(true);
     try {
-      await documentRequestsRef.current.deleteDocument(targetDocumentId);
-      removeDocumentFromState(
-        targetDocumentId,
-        selectedDocument.source_preview_url,
+      const deletionResults = await Promise.all(
+        targetDocuments.map(async (document) => {
+          const documentId = String(document.job_id);
+          try {
+            await documentRequestsRef.current.deleteDocument(documentId);
+            removeDocumentFromState(documentId, document.source_preview_url);
+            addLog(`Deleted document ${documentId}`);
+            return { documentId, removed: true, alreadyRemoved: false };
+          } catch (error) {
+            if (Number(error?.status) === 404) {
+              removeDocumentFromState(documentId, document.source_preview_url);
+              addLog(`Document ${documentId} was already removed`);
+              return { documentId, removed: true, alreadyRemoved: true };
+            }
+
+            addLog(`Delete document ${documentId} failed: ${error.message}`);
+            return { documentId, removed: false, alreadyRemoved: false };
+          }
+        }),
       );
-      const nextDocumentId =
-        documents.find((job) => String(job.job_id || "") !== targetDocumentId)
-          ?.job_id || "";
-      setSelectedDocumentId(nextDocumentId);
-      if (nextDocumentId) {
-        void loadJobDetails(nextDocumentId, { silent: true });
-      }
-      addLog(`Deleted document ${targetDocumentId}`);
-      showActionToast("document.delete", "success", {
-        targetName: targetDocumentName,
-      });
-    } catch (error) {
-      if (Number(error?.status) === 404) {
-        removeDocumentFromState(
-          targetDocumentId,
-          selectedDocument.source_preview_url,
-        );
+
+      const removedDocumentIds = new Set(
+        deletionResults
+          .filter((result) => result.removed)
+          .map((result) => result.documentId),
+      );
+      const failedCount = deletionResults.length - removedDocumentIds.size;
+      const activeDocumentWasRemoved = removedDocumentIds.has(
+        String(selectedDocument?.job_id || ""),
+      );
+
+      if (activeDocumentWasRemoved) {
         const nextDocumentId =
-          documents.find((job) => String(job.job_id || "") !== targetDocumentId)
-            ?.job_id || "";
+          documents.find(
+            (document) => !removedDocumentIds.has(String(document.job_id || "")),
+          )?.job_id || "";
         setSelectedDocumentId(nextDocumentId);
         if (nextDocumentId) {
           void loadJobDetails(nextDocumentId, { silent: true });
         }
-        addLog(`Document ${targetDocumentId} was already removed`);
-        showActionToast("document.delete", "alreadyRemoved", {
-          targetName: targetDocumentName,
-        });
-        return;
       }
-      addLog(`Delete document failed: ${error.message}`);
-      showActionToast("document.delete", "failure");
+
+      if (isBulkDelete) {
+        if (failedCount) {
+          showActionToast("document.bulkDelete", "failure");
+        } else {
+          showActionToast("document.bulkDelete", "success", {
+            targetName: `${removedDocumentIds.size} document${
+              removedDocumentIds.size === 1 ? "" : "s"
+            }`,
+          });
+        }
+      } else if (deletionResults[0]?.removed) {
+        showActionToast(
+          "document.delete",
+          deletionResults[0].alreadyRemoved ? "alreadyRemoved" : "success",
+          {
+            targetName: targetDocumentName,
+          },
+        );
+      } else {
+        showActionToast("document.delete", "failure");
+      }
     } finally {
       setIsDeletingDocument(false);
+    }
+  }
+
+  async function exportSelectedDocuments() {
+    if (!exportableSelectedDocumentIds.length || isExportingDocuments) {
+      return;
+    }
+
+    const selectedIdsSnapshot = [...selectedDocumentIds];
+    setIsExportingDocuments(true);
+    try {
+      const exported = await documentRequestsRef.current.exportDocuments(
+        selectedIdsSnapshot,
+      );
+      downloadBlob(exported.blob, exported.filename);
+      addLog(
+        `Exported ${exported.exportedCount} selected job${
+          exported.exportedCount === 1 ? "" : "s"
+        }${
+          exported.skippedCount
+            ? `; skipped ${exported.skippedCount} unavailable or in-progress job${
+                exported.skippedCount === 1 ? "" : "s"
+              }`
+            : ""
+        }`,
+      );
+      showActionToast("document.export", "success", {
+        exportedCount: exported.exportedCount,
+        skippedCount: exported.skippedCount,
+      });
+    } catch (error) {
+      addLog(`Export selected jobs failed: ${error.message}`);
+      showActionToast("document.export", "failure");
+    } finally {
+      setIsExportingDocuments(false);
     }
   }
 
@@ -1019,11 +1167,16 @@ export function useDocumentController({
       search: documentSearch,
       documents,
       selectedDocumentId: selectedDocument?.job_id || "",
+      selectedDocumentIds,
       debouncedSearch: debouncedDocumentSearch,
       hasMoreDocuments: jobsHasMore,
       isLoadingMoreDocuments: isLoadingMoreJobs,
+      isDeletingDocuments: isDeletingDocument,
+      isExportingDocuments,
       onSearchChange: setDocumentSearch,
       onSelectDocument: setSelectedDocumentId,
+      onToggleAllDocumentSelections: toggleAllDocumentSelections,
+      onToggleDocumentSelection: toggleDocumentSelection,
       onLoadMoreDocuments: loadMoreJobs,
     },
     uploadModal: {
@@ -1046,7 +1199,11 @@ export function useDocumentController({
     toolbar: {
       documentCount: totalDocuments,
       isDeletingDocument,
+      isExportingDocuments,
       selectedDocumentId: selectedDocument?.job_id || "",
+      selectedDocumentCount: selectedDocumentIds.length,
+      exportableDocumentCount: exportableSelectedDocumentIds.length,
+      onExportDocuments: exportSelectedDocuments,
       onUploadDocument: openUploadModal,
       onDeleteDocument: deleteSelectedDocument,
     },
@@ -1063,10 +1220,26 @@ export function useDocumentController({
       clearCompletedDocumentCache,
       clearWorkspaceScopedDocuments,
       deleteSelectedDocument,
+      exportSelectedDocuments,
       listJobs,
       openUploadModal,
     },
   };
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
 }
 
 function defaultUploadedName(sourceMimeType) {

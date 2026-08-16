@@ -42,4 +42,33 @@ describe("app runtime requests", () => {
     expect(data).toEqual({ templates: [{ id: "tpl_1" }] });
     expect(setLatestResponse).toHaveBeenCalledWith({ templates: [{ id: "tpl_1" }] });
   });
+
+  it("returns binary responses without decoding or recording workbook bytes", async () => {
+    const setLatestResponse = vi.fn();
+    const core = createAppRuntimeCore({
+      apiBase: "/v1",
+      setLatestResponse,
+      setLogLines: vi.fn(),
+      toast: { success: vi.fn(), error: vi.fn() },
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response("xlsx-bytes", {
+        status: 200,
+        headers: { "x-exported-job-count": "2" },
+      }),
+    );
+
+    const result = await core.request("/jobs/export", {
+      method: "POST",
+      responseType: "blob",
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith("/v1/jobs/export", {
+      method: "POST",
+      credentials: "include",
+    });
+    expect(await result.blob.text()).toBe("xlsx-bytes");
+    expect(result.headers.get("x-exported-job-count")).toBe("2");
+    expect(setLatestResponse).not.toHaveBeenCalled();
+  });
 });

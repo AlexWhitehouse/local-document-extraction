@@ -16,8 +16,12 @@ export type ModelGatewayConfiguration = {
   LITELLM_KEY?: string;
   MODEL_GATEWAY_REQUEST_TIMEOUT_MS?: string;
   MODEL_GATEWAY_ROUTE_LABEL?: string;
+  MODEL_GATEWAY_SEQUENTIAL_CALLS?: string;
   MODEL_GATEWAY_URL?: string;
+  MODEL_SUPPORTS_PDF_INPUT?: string;
 };
+
+let sequentialModelCallTail: Promise<void> = Promise.resolve();
 
 export function getExtractionModelName(env: ModelGatewayConfiguration): string {
   return env.AI_MODEL || DEFAULT_EXTRACTION_MODEL;
@@ -49,6 +53,14 @@ export function getModelGatewayRequestTimeoutMs(env: ModelGatewayConfiguration):
   return Math.trunc(configured);
 }
 
+export function usesSequentialModelCalls(env: ModelGatewayConfiguration): boolean {
+  return readBooleanConfiguration(env.MODEL_GATEWAY_SEQUENTIAL_CALLS, false);
+}
+
+export function supportsPdfInput(env: ModelGatewayConfiguration): boolean {
+  return readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT, true);
+}
+
 export async function runExtraction(
   env: ModelGatewayConfiguration,
   fields: FieldDefinition[],
@@ -58,12 +70,14 @@ export async function runExtraction(
 ): Promise<ModelFieldResult[]> {
   const model = getExtractionModelName(env);
   const renderPdfAsImages =
-    sourceMimeType === "application/pdf" && shouldRenderPdfAsImages(model);
+    sourceMimeType === "application/pdf" && !supportsPdfInput(env);
   const prompt = buildPrompt(fields, sourceMimeType, renderPdfAsImages);
   const systemPrompt =
     "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.";
   const uploadedFileId =
-    sourceMimeType === "application/pdf" && shouldUploadPdfToModelGateway(model)
+    sourceMimeType === "application/pdf" &&
+    !renderPdfAsImages &&
+    shouldUploadPdfToModelGateway(model)
       ? await uploadSourceFile(env, sourceBytes, sourceMimeType, model, signal)
       : null;
   let sourceContentParts: Record<string, unknown>[];
@@ -92,7 +106,10 @@ export async function runExtraction(
   );
   let runResult: unknown;
   try {
-    runResult = await runViaModelGateway(env, runInput, signal);
+    runResult = await scheduleModelCall(
+      env,
+      () => runViaModelGateway(env, runInput, signal),
+    );
   } finally {
     if (uploadedFileId) {
       await deleteUploadedSourceFile(env, uploadedFileId);
@@ -368,16 +385,41 @@ function shouldUploadPdfToModelGateway(model: string): boolean {
   return model.startsWith("azure/") || model.startsWith("azure_ai/");
 }
 
-function shouldRenderPdfAsImages(model: string): boolean {
-  const normalizedModel = model.toLowerCase();
+function isQwenMultimodalModel(normalizedModel: string): boolean {
   return (
-    normalizedModel.includes("gemma-4") ||
-    isQwenMultimodalModel(normalizedModel)
+    /qwen3\.(?:5|6|8)/.test(normalizedModel) ||
+    normalizedModel.includes("qwen3-vl")
   );
 }
 
-function isQwenMultimodalModel(normalizedModel: string): boolean {
-  return /qwen3\.(?:5|6)/.test(normalizedModel);
+function scheduleModelCall<T>(
+  env: ModelGatewayConfiguration,
+  task: () => Promise<T>,
+): Promise<T> {
+  if (!usesSequentialModelCalls(env)) {
+    return task();
+  }
+
+  const result = sequentialModelCallTail.then(task, task);
+  sequentialModelCallTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+function readBooleanConfiguration(
+  value: string | undefined,
+  fallback: boolean,
+): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized || "")) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized || "")) {
+    return false;
+  }
+  return fallback;
 }
 
 function buildPrompt(

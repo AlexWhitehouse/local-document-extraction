@@ -40,6 +40,7 @@ export type LocalWorkspaceExtractionJobSummary = {
   source_file_page_count: number | null;
   template_id: string;
   template_version: number;
+  model_name: string | null;
   error_code: string | null;
   error_message: string | null;
   created_at: string;
@@ -62,6 +63,11 @@ export type LocalWorkspaceExtractionResult = {
 
 export type LocalWorkspaceExtractionJob = LocalWorkspaceExtractionJobSummary & {
   results: LocalWorkspaceExtractionResult[];
+};
+
+export type LocalWorkspaceExtractionJobExport = LocalWorkspaceExtractionJob & {
+  template_name: string;
+  fields: Array<FieldDefinition & { position: number }>;
 };
 
 export type LocalClaimedExtractionJob = {
@@ -126,6 +132,12 @@ export type LocalWorkspaceProductStore = {
     attempt: number;
     claimedAt: string;
   }): LocalClaimedExtractionJob | null;
+  recordExtractionJobModel(input: {
+    jobId: string;
+    attempt: number;
+    modelName: string;
+    route: string;
+  }): boolean;
   completeExtractionJob(input: {
     jobId: string;
     attempt: number;
@@ -147,6 +159,8 @@ export type LocalWorkspaceProductStore = {
     failedAt: string;
     errorCode: string;
     errorMessage: string;
+    modelName?: string | null;
+    route?: string | null;
   }): boolean;
   requeueExtractionJob(input: {
     jobId: string;
@@ -154,6 +168,8 @@ export type LocalWorkspaceProductStore = {
     requeuedAt: string;
     errorCode: string;
     errorMessage: string;
+    modelName?: string | null;
+    route?: string | null;
     nextRetryAt: string;
   }): boolean;
   recoverExtractionJobs(input: {
@@ -164,6 +180,7 @@ export type LocalWorkspaceProductStore = {
   getTemplate(templateId: string): LocalWorkspaceTemplateDetail | null;
   deleteExtractionJob(input: { jobId: string }): DeletedLocalWorkspaceExtractionJob | null;
   getExtractionJob(jobId: string): LocalWorkspaceExtractionJob | null;
+  getExtractionJobExport(jobId: string): LocalWorkspaceExtractionJobExport | null;
   getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
   listTemplates(): LocalWorkspaceTemplate[];
   countExtractionJobs(): number;
@@ -247,6 +264,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     createQueuedExtractionJob: (input) => createQueuedExtractionJob(database, input),
     failQueuedExtractionJob: (input) => failQueuedExtractionJob(database, input),
     claimExtractionJobForProcessing: (input) => claimExtractionJobForProcessing(database, input),
+    recordExtractionJobModel: (input) => recordExtractionJobModel(database, input),
     completeExtractionJob: (input) => completeExtractionJob(database, input),
     failExtractionJob: (input) => failExtractionJob(database, input),
     requeueExtractionJob: (input) => requeueExtractionJob(database, input),
@@ -254,6 +272,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     getTemplate: (templateId) => getTemplate(database, templateId),
     deleteExtractionJob: (input) => deleteExtractionJob(database, input),
     getExtractionJob: (jobId) => getExtractionJob(database, jobId),
+    getExtractionJobExport: (jobId) => getExtractionJobExport(database, jobId),
     getSubmissionTemplate: (templateId) => getSubmissionTemplate(database, templateId),
     listTemplates: () => listTemplates(database),
     countExtractionJobs: () => countExtractionJobs(database),
@@ -656,19 +675,42 @@ function completeExtractionJob(
   return complete();
 }
 
-function failExtractionJob(
+function recordExtractionJobModel(
   database: Database,
-  input: { jobId: string; attempt: number; failedAt: string; errorCode: string; errorMessage: string },
+  input: { jobId: string; attempt: number; modelName: string; route: string },
 ): boolean {
   const result = database.query(
     `UPDATE jobs
-     SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ?
+     SET model_name = ?, model_gateway_route = ?
+     WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
+  ).run(input.modelName, input.route, input.jobId, input.attempt);
+  return result.changes > 0;
+}
+
+function failExtractionJob(
+  database: Database,
+  input: {
+    jobId: string;
+    attempt: number;
+    failedAt: string;
+    errorCode: string;
+    errorMessage: string;
+    modelName?: string | null;
+    route?: string | null;
+  },
+): boolean {
+  const result = database.query(
+    `UPDATE jobs
+     SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ?,
+         model_name = COALESCE(?, model_name), model_gateway_route = COALESCE(?, model_gateway_route)
      WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
   ).run(
     input.errorCode,
     input.errorMessage.slice(0, 2000),
     input.failedAt,
     input.attempt,
+    input.modelName ?? null,
+    input.route ?? null,
     input.jobId,
     input.attempt,
   );
@@ -683,12 +725,15 @@ function requeueExtractionJob(
     requeuedAt: string;
     errorCode: string;
     errorMessage: string;
+    modelName?: string | null;
+    route?: string | null;
     nextRetryAt: string;
   },
 ): boolean {
   const result = database.query(
     `UPDATE jobs
-     SET status = 'queued', error_code = ?, error_message = ?, updated_at = ?, next_retry_at = ?, last_failed_attempt = ?
+     SET status = 'queued', error_code = ?, error_message = ?, updated_at = ?, next_retry_at = ?, last_failed_attempt = ?,
+         model_name = COALESCE(?, model_name), model_gateway_route = COALESCE(?, model_gateway_route)
      WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
   ).run(
     input.errorCode,
@@ -696,6 +741,8 @@ function requeueExtractionJob(
     input.requeuedAt,
     input.nextRetryAt,
     input.attempt,
+    input.modelName ?? null,
+    input.route ?? null,
     input.jobId,
     input.attempt,
   );
@@ -834,6 +881,34 @@ function getExtractionJob(database: Database, jobId: string): LocalWorkspaceExtr
   };
 }
 
+function getExtractionJobExport(
+  database: Database,
+  jobId: string,
+): LocalWorkspaceExtractionJobExport | null {
+  const job = getExtractionJob(database, jobId);
+  if (!job) {
+    return null;
+  }
+
+  const template = database.query(
+    "SELECT name FROM templates WHERE id = ?",
+  ).get(job.template_id) as { name: string } | null;
+  const fields = database.query(
+    `SELECT field_id AS id, name, description, data_type, position
+     FROM template_fields
+     WHERE template_id = ? AND version = ?
+     ORDER BY position ASC`,
+  ).all(job.template_id, job.template_version) as Array<
+    FieldDefinition & { position: number }
+  >;
+
+  return {
+    ...job,
+    template_name: template?.name || job.template_id,
+    fields,
+  };
+}
+
 function countExtractionJobs(database: Database): number {
   return (database.query("SELECT COUNT(*) AS count FROM jobs").get() as { count: number }).count;
 }
@@ -848,7 +923,7 @@ function listExtractionJobs(
 ): LocalWorkspaceExtractionJobSummary[] {
   const select = `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
                          s.page_count AS source_file_page_count, j.template_id, j.template_version,
-                         j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
+                         j.model_name, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
                          j.current_attempt, j.completed_attempt, j.last_failed_attempt
                   FROM jobs j
                   JOIN source_files s ON s.job_id = j.id`;
@@ -892,7 +967,7 @@ function readExtractionJobSummary(database: Database, jobId: string): LocalWorks
   return database.query(
     `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
             s.page_count AS source_file_page_count, j.template_id, j.template_version,
-            j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
+            j.model_name, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
             j.current_attempt, j.completed_attempt, j.last_failed_attempt
      FROM jobs j
      JOIN source_files s ON s.job_id = j.id
