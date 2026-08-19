@@ -453,6 +453,7 @@ function validateModelSettingsPayload(input: unknown): {
   apiKey?: string | null;
   sequentialCalls?: boolean;
   supportsPdfInput?: boolean;
+  supportsStructuredOutput?: boolean;
 } {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new HttpError(400, "invalid_model_settings", "Model settings must be an object");
@@ -500,6 +501,7 @@ function validateModelSettingsPayload(input: unknown): {
   const behaviorSettings: {
     sequentialCalls?: boolean;
     supportsPdfInput?: boolean;
+    supportsStructuredOutput?: boolean;
   } = {};
   if ("sequential_calls" in payload) {
     if (typeof payload.sequential_calls !== "boolean") {
@@ -520,6 +522,16 @@ function validateModelSettingsPayload(input: unknown): {
       );
     }
     behaviorSettings.supportsPdfInput = payload.supports_pdf_input;
+  }
+  if ("supports_structured_output" in payload) {
+    if (typeof payload.supports_structured_output !== "boolean") {
+      throw new HttpError(
+        400,
+        "invalid_supports_structured_output",
+        "Structured output support must be a boolean",
+      );
+    }
+    behaviorSettings.supportsStructuredOutput = payload.supports_structured_output;
   }
 
   if (!("api_key" in payload)) {

@@ -178,6 +178,7 @@ describe("Workspace action toast feedback", () => {
           has_api_key: false,
           sequential_calls: false,
           supports_pdf_input: true,
+          supports_structured_output: true,
         }));
       }
       if (url.endsWith("/settings/model") && options.method === "PATCH") {
@@ -189,6 +190,7 @@ describe("Workspace action toast feedback", () => {
           has_api_key: update.api_key !== null,
           sequential_calls: update.sequential_calls,
           supports_pdf_input: update.supports_pdf_input,
+          supports_structured_output: update.supports_structured_output,
         }));
       }
       return mockWorkspaceFetch(input, options);
@@ -211,11 +213,15 @@ describe("Workspace action toast feedback", () => {
     const directPdfInput = within(dialog).getByRole("checkbox", {
       name: /Direct PDF input/,
     });
+    const structuredOutputInput = within(dialog).getByRole("checkbox", {
+      name: /Structured output/,
+    });
     expect(gatewayInput.value).toBe("https://gateway.example/v1");
     expect(modelInput.value).toBe("provider/default-model");
     expect(within(dialog).getByText("No token stored")).toBeTruthy();
     expect(sequentialCallsInput.checked).toBe(false);
     expect(directPdfInput.checked).toBe(true);
+    expect(structuredOutputInput.checked).toBe(true);
 
     await user.clear(gatewayInput);
     await user.type(gatewayInput, "http://127.0.0.1:11434/v1");
@@ -224,6 +230,7 @@ describe("Workspace action toast feedback", () => {
     await user.type(apiKeyInput, "local-secret-token");
     await user.click(sequentialCallsInput);
     await user.click(directPdfInput);
+    await user.click(structuredOutputInput);
     await user.click(within(dialog).getByRole("button", { name: "Save Model Settings" }));
 
     await waitFor(() => {
@@ -233,6 +240,7 @@ describe("Workspace action toast feedback", () => {
         api_key: "local-secret-token",
         sequential_calls: true,
         supports_pdf_input: false,
+        supports_structured_output: false,
       }]);
     });
     expect(apiKeyInput.value).toBe("");
@@ -246,6 +254,7 @@ describe("Workspace action toast feedback", () => {
         model_name: "local/vision-model",
         sequential_calls: true,
         supports_pdf_input: false,
+        supports_structured_output: false,
         api_key: null,
       });
     });

@@ -11,10 +11,12 @@ export function useModelSettingsController({
   const [apiKey, setApiKey] = useState("");
   const [sequentialCalls, setSequentialCalls] = useState(false);
   const [supportsPdfInput, setSupportsPdfInput] = useState(true);
+  const [supportsStructuredOutput, setSupportsStructuredOutput] = useState(true);
   const [savedGatewayUrl, setSavedGatewayUrl] = useState("");
   const [savedModelName, setSavedModelName] = useState("");
   const [savedSequentialCalls, setSavedSequentialCalls] = useState(false);
   const [savedSupportsPdfInput, setSavedSupportsPdfInput] = useState(true);
+  const [savedSupportsStructuredOutput, setSavedSupportsStructuredOutput] = useState(true);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -30,10 +32,12 @@ export function useModelSettingsController({
     setApiKey("");
     setSequentialCalls(false);
     setSupportsPdfInput(true);
+    setSupportsStructuredOutput(true);
     setSavedGatewayUrl("");
     setSavedModelName("");
     setSavedSequentialCalls(false);
     setSavedSupportsPdfInput(true);
+    setSavedSupportsStructuredOutput(true);
     setHasApiKey(false);
     setIsLoaded(false);
     setError("");
@@ -77,6 +81,7 @@ export function useModelSettingsController({
           model_name: normalizedModelName,
           sequential_calls: sequentialCalls,
           supports_pdf_input: supportsPdfInput,
+          supports_structured_output: supportsStructuredOutput,
           ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
         }),
       });
@@ -110,6 +115,7 @@ export function useModelSettingsController({
           model_name: modelName.trim(),
           sequential_calls: sequentialCalls,
           supports_pdf_input: supportsPdfInput,
+          supports_structured_output: supportsStructuredOutput,
           api_key: null,
         }),
       });
@@ -132,14 +138,17 @@ export function useModelSettingsController({
     const nextModelName = String(settings?.model_name || "");
     const nextSequentialCalls = Boolean(settings?.sequential_calls);
     const nextSupportsPdfInput = settings?.supports_pdf_input !== false;
+    const nextSupportsStructuredOutput = settings?.supports_structured_output !== false;
     setGatewayUrl(nextGatewayUrl);
     setModelName(nextModelName);
     setSequentialCalls(nextSequentialCalls);
     setSupportsPdfInput(nextSupportsPdfInput);
+    setSupportsStructuredOutput(nextSupportsStructuredOutput);
     setSavedGatewayUrl(nextGatewayUrl);
     setSavedModelName(nextModelName);
     setSavedSequentialCalls(nextSequentialCalls);
     setSavedSupportsPdfInput(nextSupportsPdfInput);
+    setSavedSupportsStructuredOutput(nextSupportsStructuredOutput);
     setHasApiKey(Boolean(settings?.has_api_key));
   }
 
@@ -149,12 +158,14 @@ export function useModelSettingsController({
     apiKey,
     sequentialCalls,
     supportsPdfInput,
+    supportsStructuredOutput,
     hasApiKey,
     isDirty:
       gatewayUrl.trim() !== savedGatewayUrl ||
       modelName.trim() !== savedModelName ||
       sequentialCalls !== savedSequentialCalls ||
       supportsPdfInput !== savedSupportsPdfInput ||
+      supportsStructuredOutput !== savedSupportsStructuredOutput ||
       Boolean(apiKey.trim()),
     isLoaded,
     isLoading,
@@ -165,6 +176,7 @@ export function useModelSettingsController({
     onApiKeyChange: setApiKey,
     onSequentialCallsChange: setSequentialCalls,
     onSupportsPdfInputChange: setSupportsPdfInput,
+    onSupportsStructuredOutputChange: setSupportsStructuredOutput,
     onLoad: loadSettings,
     onSave: saveSettings,
     onRemoveApiKey: removeApiKey,

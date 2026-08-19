@@ -6,6 +6,7 @@ import {
   getExtractionModelName,
   getModelGatewayBaseUrl,
   supportsPdfInput,
+  supportsStructuredOutput,
   usesSequentialModelCalls,
   type ModelGatewayConfiguration,
 } from "./consumer/modelGateway";
@@ -19,6 +20,7 @@ type StoredModelSettings = {
   api_key: string | null;
   sequential_calls?: boolean;
   supports_pdf_input?: boolean;
+  supports_structured_output?: boolean;
 };
 
 export type PublicLocalModelSettings = {
@@ -27,6 +29,7 @@ export type PublicLocalModelSettings = {
   has_api_key: boolean;
   sequential_calls: boolean;
   supports_pdf_input: boolean;
+  supports_structured_output: boolean;
 };
 
 export type LocalModelSettings = {
@@ -38,6 +41,7 @@ export type LocalModelSettings = {
     apiKey?: string | null;
     sequentialCalls?: boolean;
     supportsPdfInput?: boolean;
+    supportsStructuredOutput?: boolean;
   }): Promise<PublicLocalModelSettings>;
 };
 
@@ -64,6 +68,7 @@ export async function createLocalModelSettings({
       apiKey,
       sequentialCalls,
       supportsPdfInput: nextSupportsPdfInput,
+      supportsStructuredOutput: nextSupportsStructuredOutput,
     }) => {
       const nextConfiguration: ModelGatewayConfiguration = {
         ...configuration,
@@ -76,6 +81,9 @@ export async function createLocalModelSettings({
         MODEL_SUPPORTS_PDF_INPUT: String(
           nextSupportsPdfInput ?? supportsPdfInput(configuration),
         ),
+        MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(
+          nextSupportsStructuredOutput ?? supportsStructuredOutput(configuration),
+        ),
         ...(apiKey !== undefined
           ? { LITELLM_KEY: apiKey === null ? undefined : apiKey }
           : {}),
@@ -87,6 +95,7 @@ export async function createLocalModelSettings({
         api_key: nextConfiguration.LITELLM_KEY || null,
         sequential_calls: usesSequentialModelCalls(nextConfiguration),
         supports_pdf_input: supportsPdfInput(nextConfiguration),
+        supports_structured_output: supportsStructuredOutput(nextConfiguration),
       };
 
       await writeStoredSettings(settingsPath, nextStoredSettings);
@@ -112,6 +121,8 @@ function configurationFromEnvironment(
     MODEL_GATEWAY_URL: environment.MODEL_GATEWAY_URL?.trim() || undefined,
     MODEL_SUPPORTS_PDF_INPUT:
       environment.MODEL_SUPPORTS_PDF_INPUT?.trim() || undefined,
+    MODEL_SUPPORTS_STRUCTURED_OUTPUT:
+      environment.MODEL_SUPPORTS_STRUCTURED_OUTPUT?.trim() || undefined,
   };
 }
 
@@ -131,6 +142,9 @@ function configurationFromStoredSettings(
     MODEL_SUPPORTS_PDF_INPUT: String(
       stored.supports_pdf_input ?? supportsPdfInput(environment),
     ),
+    MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(
+      stored.supports_structured_output ?? supportsStructuredOutput(environment),
+    ),
   };
 }
 
@@ -143,6 +157,7 @@ function publicSettings(
     has_api_key: Boolean(configuration.LITELLM_KEY),
     sequential_calls: usesSequentialModelCalls(configuration),
     supports_pdf_input: supportsPdfInput(configuration),
+    supports_structured_output: supportsStructuredOutput(configuration),
   };
 }
 
@@ -168,7 +183,9 @@ async function readStoredSettings(path: string): Promise<StoredModelSettings | n
     (parsed.sequential_calls !== undefined &&
       typeof parsed.sequential_calls !== "boolean") ||
     (parsed.supports_pdf_input !== undefined &&
-      typeof parsed.supports_pdf_input !== "boolean")
+      typeof parsed.supports_pdf_input !== "boolean") ||
+    (parsed.supports_structured_output !== undefined &&
+      typeof parsed.supports_structured_output !== "boolean")
   ) {
     throw new Error("Local model settings file is invalid.");
   }
@@ -180,6 +197,7 @@ async function readStoredSettings(path: string): Promise<StoredModelSettings | n
     api_key: parsed.api_key?.trim() || null,
     sequential_calls: parsed.sequential_calls,
     supports_pdf_input: parsed.supports_pdf_input,
+    supports_structured_output: parsed.supports_structured_output,
   };
 }
 

@@ -134,6 +134,22 @@ describe("runExtraction", () => {
     });
   });
 
+  it("omits structured output for models that do not support response formats", async () => {
+    const env = createEnv({ MODEL_SUPPORTS_STRUCTURED_OUTPUT: "false" });
+    const fetchMock = stubGatewayResponse(successfulGatewayPayload());
+
+    await runExtraction(
+      env,
+      fields,
+      new Uint8Array([1, 2, 3]).buffer,
+      "image/png",
+    );
+
+    const request = readGatewayRequest(fetchMock);
+    expect(request.body).toMatchObject({ model: "claude-opus-configured" });
+    expect(request.body).not.toHaveProperty("response_format");
+  });
+
   it("uses JSON Schema output for Gemma 4 model deployments", async () => {
     const env = createEnv({ AI_MODEL: "google/gemma-4-e4b" });
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());

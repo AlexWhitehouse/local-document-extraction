@@ -1820,13 +1820,6 @@ button.danger:hover:not(:disabled) {
   color: var(--text-1);
 }
 
-.invitation-page-header {
-  border-color: rgba(244, 184, 79, 0.44);
-  background:
-    radial-gradient(circle at 100% 0%, rgba(244, 184, 79, 0.16), transparent 34%),
-    linear-gradient(180deg, rgba(22, 18, 11, 0.98), rgba(12, 15, 22, 0.98));
-}
-
 .content-grid,
 .result-cards {
   display: grid;

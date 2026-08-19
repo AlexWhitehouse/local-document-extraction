@@ -222,6 +222,7 @@ function ModelSettings({
   modelName,
   sequentialCalls,
   supportsPdfInput,
+  supportsStructuredOutput,
   onApiKeyChange,
   onApiKeyVisibilityToggle,
   onGatewayUrlChange,
@@ -229,6 +230,7 @@ function ModelSettings({
   onModelNameChange,
   onSequentialCallsChange,
   onSupportsPdfInputChange,
+  onSupportsStructuredOutputChange,
   onRemoveApiKey,
   onSave,
 }) {
@@ -362,6 +364,21 @@ function ModelSettings({
               <strong>Direct PDF input</strong>
               <small>
                 Send the PDF as a file; otherwise render pages to PNGs.
+              </small>
+            </span>
+          </label>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={supportsStructuredOutput}
+              onChange={(event) =>
+                onSupportsStructuredOutputChange(event.target.checked)
+              }
+            />
+            <span>
+              <strong>Structured output</strong>
+              <small>
+                Send a response format; disable for incompatible models.
               </small>
             </span>
           </label>

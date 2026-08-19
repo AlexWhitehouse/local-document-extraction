@@ -37,6 +37,7 @@ export type ModelGatewayConfiguration = {
   MODEL_GATEWAY_USE_MANAGED_FILES?: string;
   MODEL_GATEWAY_URL?: string;
   MODEL_SUPPORTS_PDF_INPUT?: string;
+  MODEL_SUPPORTS_STRUCTURED_OUTPUT?: string;
 };
 
 let sequentialModelCallTail: Promise<void> = Promise.resolve();
@@ -77,6 +78,10 @@ export function usesSequentialModelCalls(env: ModelGatewayConfiguration): boolea
 
 export function supportsPdfInput(env: ModelGatewayConfiguration): boolean {
   return readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT, true);
+}
+
+export function supportsStructuredOutput(env: ModelGatewayConfiguration): boolean {
+  return readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT, true);
 }
 
 export function usesManagedPdfFileUpload(
@@ -134,6 +139,7 @@ export async function runExtraction(
     prompt,
     sourceContentParts,
     systemPrompt,
+    supportsStructuredOutput(env),
   );
   let runResult: unknown;
   try {
@@ -169,6 +175,7 @@ function buildChatCompletionsInput(
   prompt: string,
   sourceContentParts: Record<string, unknown>[],
   systemPrompt: string,
+  useStructuredOutput: boolean,
 ): Record<string, unknown> {
   return {
     model,
@@ -185,7 +192,9 @@ function buildChatCompletionsInput(
         ],
       },
     ],
-    response_format: buildResponseFormat(model, fields),
+    ...(useStructuredOutput
+      ? { response_format: buildResponseFormat(model, fields) }
+      : {}),
   };
 }
 

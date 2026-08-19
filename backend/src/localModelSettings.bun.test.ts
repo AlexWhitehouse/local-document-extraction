@@ -21,6 +21,7 @@ test("local model settings persist UI overrides without exposing the saved token
         MODEL_GATEWAY_SEQUENTIAL_CALLS: "true",
         MODEL_GATEWAY_URL: "https://environment.example/v1",
         MODEL_SUPPORTS_PDF_INPUT: "false",
+        MODEL_SUPPORTS_STRUCTURED_OUTPUT: "false",
       },
     });
 
@@ -30,6 +31,7 @@ test("local model settings persist UI overrides without exposing the saved token
       has_api_key: true,
       sequential_calls: true,
       supports_pdf_input: false,
+      supports_structured_output: false,
     });
 
     const updated = await settings.update({
@@ -38,6 +40,7 @@ test("local model settings persist UI overrides without exposing the saved token
       apiKey: "local-secret-token",
       sequentialCalls: false,
       supportsPdfInput: true,
+      supportsStructuredOutput: true,
     });
 
     expect(updated).toEqual({
@@ -46,6 +49,7 @@ test("local model settings persist UI overrides without exposing the saved token
       has_api_key: true,
       sequential_calls: false,
       supports_pdf_input: true,
+      supports_structured_output: true,
     });
     expect(updated).not.toHaveProperty("api_key");
     expect(settings.getConfiguration()).toMatchObject({
@@ -55,6 +59,7 @@ test("local model settings persist UI overrides without exposing the saved token
       MODEL_GATEWAY_SEQUENTIAL_CALLS: "false",
       MODEL_GATEWAY_URL: "http://127.0.0.1:11434/v1",
       MODEL_SUPPORTS_PDF_INPUT: "true",
+      MODEL_SUPPORTS_STRUCTURED_OUTPUT: "true",
     });
     expect((await stat(settingsPath)).mode & 0o777).toBe(0o600);
 
@@ -83,6 +88,7 @@ test("local model settings persist UI overrides without exposing the saved token
       api_key: null,
       sequential_calls: false,
       supports_pdf_input: true,
+      supports_structured_output: true,
     });
   } finally {
     await rm(stateDirectory, { recursive: true, force: true });
@@ -124,6 +130,7 @@ test("the authenticated model settings API validates updates and keeps tokens wr
           api_key: "write-only-token",
           sequential_calls: true,
           supports_pdf_input: false,
+          supports_structured_output: false,
         }),
       },
     ));
@@ -134,6 +141,7 @@ test("the authenticated model settings API validates updates and keeps tokens wr
       has_api_key: true,
       sequential_calls: true,
       supports_pdf_input: false,
+      supports_structured_output: false,
     });
 
     const read = await application(new Request(
@@ -147,6 +155,7 @@ test("the authenticated model settings API validates updates and keeps tokens wr
       has_api_key: true,
       sequential_calls: true,
       supports_pdf_input: false,
+      supports_structured_output: false,
     });
     expect(JSON.stringify(readBody)).not.toContain("write-only-token");
 
@@ -181,6 +190,23 @@ test("the authenticated model settings API validates updates and keeps tokens wr
     expect(invalidCapability.status).toBe(400);
     await expect(invalidCapability.json()).resolves.toMatchObject({
       error: { code: "invalid_supports_pdf_input" },
+    });
+
+    const invalidStructuredOutput = await application(new Request(
+      "http://127.0.0.1:8787/v1/settings/model",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: "session=local" },
+        body: JSON.stringify({
+          gateway_url: "http://localhost:1234/v1",
+          model_name: "local/model",
+          supports_structured_output: "sometimes",
+        }),
+      },
+    ));
+    expect(invalidStructuredOutput.status).toBe(400);
+    await expect(invalidStructuredOutput.json()).resolves.toMatchObject({
+      error: { code: "invalid_supports_structured_output" },
     });
   } finally {
     await rm(stateDirectory, { recursive: true, force: true });

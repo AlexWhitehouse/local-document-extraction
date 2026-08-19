@@ -475,15 +475,6 @@ function AuthenticatedApp() {
 
           {activeVisiblePage === "templates" ? (
             <>
-              <header className="page-header">
-                <p className="eyebrow">Templates</p>
-                <h2>Template Builder</h2>
-                <p>
-                  Build reusable extraction schemas and update existing
-                  templates.
-                </p>
-              </header>
-
               <section className="content-grid templates-grid">
                 <article className="workspace-card create-template-panel">
                   <div className="workspace-head">
@@ -559,23 +550,18 @@ function AuthenticatedApp() {
 
           {activeVisiblePage === "documents" ? (
             <>
-              <header className="page-header">
-                <p className="eyebrow">Documents</p>
-                <h2>Upload and Review</h2>
-                <p>
-                  Inspect extraction jobs and review results from previously
-                  uploaded files.
-                </p>
-              </header>
-
               <section className="content-grid documents-grid">
-                <article className="workspace-card job-status-panel">
-                  <div className="workspace-head">
-                    <h2>Job Status</h2>
-                    <p>Track the selected extraction stage in real time.</p>
-                  </div>
-                  <ExtractionJobStatusDisplay job={selectedDocument} />
-                </article>
+                {selectedDocument &&
+                  String(selectedDocument.status || "").toLowerCase() !==
+                    "completed" ? (
+                  <article className="workspace-card job-status-panel">
+                    <div className="workspace-head">
+                      <h2>Job Status</h2>
+                      <p>Track the selected extraction stage in real time.</p>
+                    </div>
+                    <ExtractionJobStatusDisplay job={selectedDocument} />
+                  </article>
+                ) : null}
 
                 <article className="workspace-card result-view">
                   <div className="workspace-head result-view-head">

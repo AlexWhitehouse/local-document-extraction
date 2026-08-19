@@ -13,15 +13,6 @@ export function WorkspaceInvitationPage({
 
   return (
     <>
-      <header className="page-header invitation-page-header">
-        <p className="eyebrow">Workspace Invitation</p>
-        <h2>{invitation.workspaceName}</h2>
-        <p>
-          This invitation is a pending offer. You do not have workspace access
-          until you accept it.
-        </p>
-      </header>
-
       <section className="content-grid invitation-detail-grid">
         <article className="workspace-card invitation-detail-card">
           <div className="workspace-head">
@@ -126,15 +117,6 @@ export function AcceptedWorkspacePage({
 }) {
   return (
     <>
-      <header className="page-header">
-        <p className="eyebrow">Workspace</p>
-        <h2>Environment and Access</h2>
-        <p>
-          Manage API connection details, workspace credentials, and workspace
-          state from one place.
-        </p>
-      </header>
-
       <section className="content-grid workspace-page-grid">
         <article className="workspace-card">
           <div className="workspace-head">
