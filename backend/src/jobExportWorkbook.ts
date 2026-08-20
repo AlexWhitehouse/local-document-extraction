@@ -11,6 +11,8 @@ const OBJECT_SCHEMA_START = "[[OBJECT_SCHEMA]]";
 const OBJECT_SCHEMA_END = "[[/OBJECT_SCHEMA]]";
 const TABLE_DATA_TYPE = "array<object>";
 const HEADER_SEPARATOR = " — ";
+const EXCEL_MAX_CELL_TEXT_LENGTH = 32_767;
+const TRUNCATED_CELL_SUFFIX = "… [truncated]";
 
 type ExportField = FieldDefinition & { position: number };
 
@@ -529,10 +531,10 @@ function cellValue(value: unknown, dataType?: DataType): unknown {
     return null;
   }
   if (Array.isArray(value) || isPlainObject(value)) {
-    return JSON.stringify(value);
+    return limitCellText(safeStringify(value));
   }
   if (dataType === "date" && typeof value === "string") {
-    return isoDateText(value);
+    return limitCellText(isoDateText(value));
   }
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : String(value);
@@ -540,7 +542,37 @@ function cellValue(value: unknown, dataType?: DataType): unknown {
   if (typeof value === "boolean") {
     return value;
   }
-  return String(value);
+  return limitCellText(String(value));
+}
+
+function safeStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  const serialized = JSON.stringify(value, (_key, nestedValue: unknown) => {
+    if (typeof nestedValue === "bigint") {
+      return nestedValue.toString();
+    }
+    if (nestedValue && typeof nestedValue === "object") {
+      if (seen.has(nestedValue)) {
+        return "[Circular]";
+      }
+      seen.add(nestedValue);
+    }
+    return nestedValue;
+  });
+  return serialized ?? String(value);
+}
+
+function limitCellText(value: string): string {
+  if (value.length <= EXCEL_MAX_CELL_TEXT_LENGTH) {
+    return value;
+  }
+  const maximumPrefixLength = EXCEL_MAX_CELL_TEXT_LENGTH - TRUNCATED_CELL_SUFFIX.length;
+  let prefix = value.slice(0, maximumPrefixLength);
+  const finalCodeUnit = prefix.charCodeAt(prefix.length - 1);
+  if (finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff) {
+    prefix = prefix.slice(0, -1);
+  }
+  return `${prefix}${TRUNCATED_CELL_SUFFIX}`;
 }
 
 function isoDateText(value: string): string {

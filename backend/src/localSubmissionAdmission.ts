@@ -1,4 +1,5 @@
 export type LocalSubmissionAdmissionSnapshot = {
+  accepting: boolean;
   active: number;
   maxConcurrent: number;
   maxReservedBytes: number;
@@ -7,6 +8,7 @@ export type LocalSubmissionAdmissionSnapshot = {
 };
 
 export type LocalSubmissionAdmission = {
+  close(): Promise<void>;
   run(request: Request, handle: () => Response | Promise<Response>): Promise<Response>;
   snapshot(): LocalSubmissionAdmissionSnapshot;
 };
@@ -29,14 +31,27 @@ export function createLocalSubmissionAdmission({
   const normalizedUnknownRequestBytes = positiveInteger(unknownRequestBytes, 11 * 1024 * 1024);
   const normalizedRetryAfterSeconds = positiveInteger(retryAfterSeconds, 1);
   let active = 0;
+  let accepting = true;
+  const closeWaiters: Array<() => void> = [];
   let rejected = 0;
   let reservedBytes = 0;
 
+  const settleClose = () => {
+    if (accepting || active !== 0) return;
+    for (const resolve of closeWaiters.splice(0)) resolve();
+  };
+
   return {
+    close: async () => {
+      accepting = false;
+      if (active === 0) return;
+      await new Promise<void>((resolve) => closeWaiters.push(resolve));
+    },
     run: async (request, handle) => {
       const reservation = requestReservationBytes(request, normalizedUnknownRequestBytes);
       const localCapacityFull =
-        active >= normalizedMaxConcurrent
+        !accepting
+        || active >= normalizedMaxConcurrent
         || reservedBytes + reservation > normalizedMaxReservedBytes;
       if (localCapacityFull) {
         rejected += 1;
@@ -60,9 +75,11 @@ export function createLocalSubmissionAdmission({
       } finally {
         active -= 1;
         reservedBytes -= reservation;
+        settleClose();
       }
     },
     snapshot: () => ({
+      accepting,
       active,
       maxConcurrent: normalizedMaxConcurrent,
       maxReservedBytes: normalizedMaxReservedBytes,

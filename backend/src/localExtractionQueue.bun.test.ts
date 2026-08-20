@@ -157,6 +157,41 @@ test("the local extraction queue leaves overflow in the durable store for reconc
   });
 });
 
+test("closing the local extraction queue stops new claims and waits only for active handlers", async () => {
+  const queue = createLocalExtractionQueue({ maxConcurrent: 1 });
+  const activeHandler = deferred();
+  const started: string[] = [];
+  queue.subscribe(async (queued) => {
+    started.push(queued.job_id);
+    await activeHandler.promise;
+  });
+  await queue.schedule(job("job_active", "workspace_one"));
+  await queue.schedule(job("job_durable_pending", "workspace_two"));
+  expect(started).toEqual(["job_active"]);
+
+  let closed = false;
+  const closing = queue.close().then(() => {
+    closed = true;
+  });
+  expect(queue.snapshot()).toMatchObject({
+    accepting: false,
+    active: 1,
+    deferred: 0,
+    maxConcurrent: 0,
+    pending: 0,
+  });
+  expect(closed).toBe(false);
+
+  await queue.schedule(job("job_after_close", "workspace_three"));
+  expect(started).toEqual(["job_active"]);
+  expect(queue.snapshot().durableDeferrals).toBe(1);
+
+  activeHandler.resolve();
+  await closing;
+  expect(closed).toBe(true);
+  expect(queue.snapshot()).toMatchObject({ accepting: false, active: 0, pending: 0 });
+});
+
 function job(jobId: string, workspaceId: string) {
   return {
     job_id: jobId,
@@ -173,4 +208,12 @@ async function waitFor(condition: () => boolean): Promise<void> {
     await Bun.sleep(1);
   }
   throw new Error("Timed out waiting for queue state");
+}
+
+function deferred(): { promise: Promise<void>; resolve(): void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }

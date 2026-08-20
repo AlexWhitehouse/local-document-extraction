@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, realpath, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 
 export type FetchApplication = (request: Request) => Response | Promise<Response>;
@@ -22,6 +22,17 @@ export function createLocalRuntimeFetchHandler({
   api,
   assetsDirectory,
 }: LocalRuntimeOptions): FetchApplication {
+  let canonicalAssetsDirectory: Promise<string | null> | null = null;
+  const getCanonicalAssetsDirectory = () => {
+    canonicalAssetsDirectory ??= realpath(assetsDirectory)
+      .catch(() => null)
+      .then((directory) => {
+        if (!directory) canonicalAssetsDirectory = null;
+        return directory;
+      });
+    return canonicalAssetsDirectory;
+  };
+
   return async (request) => {
     const url = new URL(request.url);
 
@@ -33,12 +44,13 @@ export function createLocalRuntimeFetchHandler({
       return new Response("Not found", { status: 404 });
     }
 
-    const assetResponse = await readAssetResponse(assetsDirectory, url.pathname, request.method);
+    const assetsRoot = getCanonicalAssetsDirectory();
+    const assetResponse = await readAssetResponse(assetsRoot, url.pathname, request);
     if (assetResponse) {
       return assetResponse;
     }
 
-    const spaResponse = await readAssetResponse(assetsDirectory, "/index.html", request.method);
+    const spaResponse = await readAssetResponse(assetsRoot, "/index.html", request);
     return spaResponse ?? new Response("Frontend build not found", { status: 503 });
   };
 }
@@ -48,11 +60,16 @@ function isApiPath(pathname: string): boolean {
 }
 
 async function readAssetResponse(
-  assetsDirectory: string,
+  canonicalAssetsDirectory: Promise<string | null>,
   pathname: string,
-  method: "GET" | "HEAD",
+  request: Request,
 ): Promise<Response | null> {
-  const assetPath = resolveAssetPath(assetsDirectory, pathname);
+  const assetsDirectory = await canonicalAssetsDirectory;
+  if (!assetsDirectory) {
+    return null;
+  }
+
+  const assetPath = await resolveAssetPath(assetsDirectory, pathname);
   if (!assetPath) {
     return null;
   }
@@ -62,12 +79,46 @@ async function readAssetResponse(
     return null;
   }
 
-  return new Response(method === "HEAD" ? null : await readFile(assetPath), {
-    headers: { "content-type": contentTypeFor(assetPath) },
+  const etag = createWeakEtag(details.size, details.mtimeMs);
+  const headers = new Headers({
+    "accept-ranges": "bytes",
+    "content-length": String(details.size),
+    "content-type": contentTypeFor(assetPath),
+    etag,
+    "last-modified": details.mtime.toUTCString(),
+  });
+  if (isNotModified(request.headers, etag, details.mtimeMs)) {
+    return new Response(null, { status: 304, headers });
+  }
+
+  const rangeHeader = request.headers.get("range");
+  const range = rangeHeader && isRangeAllowed(request.headers, etag, details.mtimeMs)
+    ? parseByteRange(rangeHeader, details.size)
+    : null;
+  if (rangeHeader && range?.kind === "invalid") {
+    headers.set("content-range", `bytes */${details.size}`);
+    headers.set("content-length", "0");
+    return new Response(null, { status: 416, headers });
+  }
+
+  const selectedRange = range?.kind === "valid" ? range : null;
+  const file = Bun.file(assetPath);
+  const body = selectedRange
+    ? file.slice(selectedRange.start, selectedRange.end + 1)
+    : rangeHeader
+      ? file.stream().pipeThrough(new TransformStream())
+      : file;
+  if (selectedRange) {
+    headers.set("content-range", `bytes ${selectedRange.start}-${selectedRange.end}/${details.size}`);
+    headers.set("content-length", String(selectedRange.end - selectedRange.start + 1));
+  }
+  return new Response(request.method === "HEAD" ? null : body, {
+    status: selectedRange ? 206 : 200,
+    headers,
   });
 }
 
-function resolveAssetPath(assetsDirectory: string, pathname: string): string | null {
+async function resolveAssetPath(assetsDirectory: string, pathname: string): Promise<string | null> {
   let decodedPathname: string;
   try {
     decodedPathname = decodeURIComponent(pathname);
@@ -75,9 +126,83 @@ function resolveAssetPath(assetsDirectory: string, pathname: string): string | n
     return null;
   }
 
-  const root = resolve(assetsDirectory);
-  const assetPath = resolve(root, decodedPathname.replace(/^\/+/, ""));
-  return assetPath.startsWith(`${root}${sep}`) ? assetPath : null;
+  const normalizedPathname = decodedPathname.replaceAll("\\", "/");
+  const assetPath = resolve(assetsDirectory, normalizedPathname.replace(/^\/+/, ""));
+  if (!isInsideRoot(assetsDirectory, assetPath)) {
+    return null;
+  }
+
+  const canonicalAssetPath = await realpath(assetPath).catch(() => null);
+  return canonicalAssetPath && isInsideRoot(assetsDirectory, canonicalAssetPath)
+    ? canonicalAssetPath
+    : null;
+}
+
+function isInsideRoot(root: string, candidate: string): boolean {
+  return candidate.startsWith(`${root}${sep}`);
+}
+
+function createWeakEtag(size: number, mtimeMs: number): string {
+  return `W/"${size.toString(16)}-${Math.trunc(mtimeMs).toString(16)}"`;
+}
+
+function isNotModified(headers: Headers, etag: string, mtimeMs: number): boolean {
+  const ifNoneMatch = headers.get("if-none-match");
+  if (ifNoneMatch) {
+    return ifNoneMatch.split(",").some((candidate) => {
+      const normalized = candidate.trim();
+      return normalized === "*" || normalized === etag || normalized.replace(/^W\//, "") === etag.replace(/^W\//, "");
+    });
+  }
+
+  const ifModifiedSince = headers.get("if-modified-since");
+  if (!ifModifiedSince) return false;
+  const modifiedSinceMs = Date.parse(ifModifiedSince);
+  return Number.isFinite(modifiedSinceMs) && Math.floor(mtimeMs / 1_000) <= Math.floor(modifiedSinceMs / 1_000);
+}
+
+function isRangeAllowed(headers: Headers, etag: string, mtimeMs: number): boolean {
+  const ifRange = headers.get("if-range");
+  if (!ifRange) return true;
+  if (ifRange.startsWith('"') || ifRange.startsWith("W/")) {
+    return ifRange === etag;
+  }
+  const ifRangeMs = Date.parse(ifRange);
+  return Number.isFinite(ifRangeMs) && Math.floor(mtimeMs / 1_000) <= Math.floor(ifRangeMs / 1_000);
+}
+
+type ParsedByteRange =
+  | { kind: "invalid" }
+  | { kind: "valid"; start: number; end: number };
+
+function parseByteRange(header: string, size: number): ParsedByteRange {
+  const match = header.trim().match(/^bytes=(\d*)-(\d*)$/i);
+  if (!match || size < 1) return { kind: "invalid" };
+  const [, startText = "", endText = ""] = match;
+  if (!startText && !endText) return { kind: "invalid" };
+
+  if (!startText) {
+    const suffixLength = Number(endText);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength < 1) return { kind: "invalid" };
+    return {
+      kind: "valid",
+      start: Math.max(0, size - suffixLength),
+      end: size - 1,
+    };
+  }
+
+  const start = Number(startText);
+  const requestedEnd = endText ? Number(endText) : size - 1;
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(requestedEnd) ||
+    start < 0 ||
+    start >= size ||
+    requestedEnd < start
+  ) {
+    return { kind: "invalid" };
+  }
+  return { kind: "valid", start, end: Math.min(requestedEnd, size - 1) };
 }
 
 function contentTypeFor(pathname: string): string {

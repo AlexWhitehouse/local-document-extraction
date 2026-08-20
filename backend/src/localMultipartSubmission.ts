@@ -6,6 +6,11 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import Busboy from "busboy";
 
+import {
+  LOCAL_MULTIPART_FIELD_BYTES,
+  LOCAL_MULTIPART_MAX_FIELDS,
+  localDocumentRequestBodyLimit,
+} from "./localDocumentBodyLimit";
 import { HttpError } from "./lib/http";
 import { validateExtractSubmissionMetadata } from "./lib/validation";
 
@@ -54,9 +59,11 @@ export async function parseLocalMultipartSubmission({
       fileHwm: 64 * 1024,
       limits: {
         fieldNameSize: 64,
-        fieldSize: 8 * 1024,
-        fields: 3,
-        fileSize: maxSourceFileBytes,
+        fieldSize: LOCAL_MULTIPART_FIELD_BYTES,
+        fields: LOCAL_MULTIPART_MAX_FIELDS,
+        // Busboy emits `limit` when this value is reached. Use one sentinel
+        // byte so a Source exactly at the documented maximum remains valid.
+        fileSize: Math.min(Number.MAX_SAFE_INTEGER, maxSourceFileBytes + 1),
         files: 1,
         headerPairs: 32,
         parts: 4,
@@ -109,7 +116,7 @@ export async function parseLocalMultipartSubmission({
   parser.once("fieldsLimit", () => fail(new HttpError(400, "invalid_multipart", "Too many multipart fields")));
   parser.once("partsLimit", () => fail(new HttpError(400, "invalid_multipart", "Too many multipart parts")));
 
-  const totalLimitBytes = maxSourceFileBytes + 1024 * 1024;
+  const totalLimitBytes = localDocumentRequestBodyLimit(maxSourceFileBytes);
   let totalBytes = 0;
   const requestLimit = new Transform({
     transform(chunk: Buffer, _encoding, callback) {

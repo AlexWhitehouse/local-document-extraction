@@ -1,0 +1,5 @@
+[install]
+linker = "isolated"
+globalStore = true
+minimumReleaseAge = 259200
+minimumReleaseAgeExcludes = ["bun-types"]

@@ -15,7 +15,7 @@ export default tseslint.config(
     ],
   },
   {
-    files: ["backend/**/*.ts"],
+    files: ["backend/**/*.ts", "scripts/**/*.ts"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       ecmaVersion: "latest",
@@ -27,6 +27,28 @@ export default tseslint.config(
     },
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          caughtErrors: "none",
+          caughtErrorsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
+  {
+    files: ["e2e/**/*.ts", "playwright.config.ts"],
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    languageOptions: {
+      ecmaVersion: "latest",
+      globals: {
+        ...globals.node,
+        Bun: "readonly",
+      },
+    },
+    rules: {
       "@typescript-eslint/no-unused-vars": [
         "error",
         {

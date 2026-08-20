@@ -1,0 +1,265 @@
+[
+  {
+    "phase": "isolated",
+    "method": "GET",
+    "resourceType": "stylesheet",
+    "url": "https://fonts.googleapis.com/css2"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "request",
+    "method": "POST",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/api/auth/sign-up/email"
+  },
+  {
+    "phase": "response",
+    "method": "POST",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/api/auth/sign-up/email"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "isolated",
+    "method": "GET",
+    "resourceType": "stylesheet",
+    "url": "https://fonts.googleapis.com/css2"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "request",
+    "method": "POST",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/api/auth/sign-in/email"
+  },
+  {
+    "phase": "response",
+    "method": "POST",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/api/auth/sign-in/email"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/workspaces"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/invitations"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/workspaces"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/invitations"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/workspaces/workspace_0292b6067f984b63ba8ae7fce6158851/users"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/workspaces/workspace_0292b6067f984b63ba8ae7fce6158851/invitations"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/templates"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/jobs/filter-options"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/jobs"
+  },
+  {
+    "phase": "websocket",
+    "url": "ws://127.0.0.1:55343/v1/workspaces/workspace_0292b6067f984b63ba8ae7fce6158851/live"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/api/auth/get-session"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/workspaces/workspace_0292b6067f984b63ba8ae7fce6158851/users"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/workspaces/workspace_0292b6067f984b63ba8ae7fce6158851/invitations"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/templates"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/jobs/filter-options"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/jobs"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/templates/tpl_starter_invoice"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/templates/tpl_starter_invoice"
+  },
+  {
+    "phase": "request",
+    "method": "POST",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/templates"
+  },
+  {
+    "phase": "response",
+    "method": "POST",
+    "resourceType": "fetch",
+    "status": 201,
+    "url": "http://127.0.0.1:55343/v1/templates"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/templates"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/templates"
+  },
+  {
+    "phase": "request",
+    "method": "POST",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/extract"
+  },
+  {
+    "phase": "response",
+    "method": "POST",
+    "resourceType": "fetch",
+    "status": 202,
+    "url": "http://127.0.0.1:55343/v1/extract"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:55343/v1/jobs/job_6d30a977d23b41bc9a3de670346228a6"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:55343/v1/jobs/job_6d30a977d23b41bc9a3de670346228a6"
+  }
+]

@@ -1,28 +1,43 @@
 {
   "name": "document-extraction",
   "private": true,
+  "packageManager": "bun@1.4.0",
   "workspaces": [
     "backend",
     "frontend"
   ],
   "scripts": {
+    "benchmark:global-store": "bun scripts/benchmarkGlobalStore.ts",
+    "benchmark:bun-runtime": "bun run --cwd backend benchmark:bun-runtime",
     "build": "bun run --cwd frontend build",
-    "ci": "bun run typecheck && bun run lint && bun run test && bun run build",
+    "check:agent": "bun backend/scripts/runAgentChecks.ts",
+    "ci": "bun run typecheck && bun run lint && bun run test && bun run --cwd frontend test:coverage && bun run build",
     "dev": "bun --watch backend/src/server.ts",
     "dev:frontend": "bun run --cwd frontend dev",
     "migrate": "bun run --cwd backend migrate",
+    "package:diff-evidence": "bun scripts/generatePackageDiffEvidence.ts",
+    "package:hygiene": "bun scripts/packageHygiene.ts",
     "prototype:throughput": "bun .scratch/high-throughput-local-pdf-extraction/prototype/throughput.ts",
     "start": "bun backend/src/server.ts",
     "lint": "bunx eslint .",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",
-    "typecheck": "bun run --cwd backend typecheck"
+    "test:e2e": "bun test e2e/support/browserEvidence.bun.test.ts && playwright test",
+    "typecheck": "bun run --cwd backend typecheck && bun run typecheck:e2e",
+    "typecheck:e2e": "bunx tsc --noEmit -p e2e/tsconfig.json"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.2.0",
+    "bun-types": "1.4.0",
     "eslint": "^10.4.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "typescript": "5.9.3",
     "typescript-eslint": "^8.60.1"
   }
 }

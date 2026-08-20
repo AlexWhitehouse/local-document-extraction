@@ -3,14 +3,20 @@ import { fileURLToPath } from "node:url";
 
 import { DEFAULT_MAX_SOURCE_FILE_BYTES, createLocalApplication } from "./localApplication";
 import { createLocalAuthRuntime } from "./localAuthRuntime";
+import { localDocumentRequestBodyLimit, localDocumentServerBodyLimit } from "./localDocumentBodyLimit";
 import { createLocalExtractionQueue } from "./localExtractionQueue";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
+import { LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY } from "./localLiveUpdatePolicy";
 import { upgradeLocalLiveUpdate } from "./localLiveUpdateUpgrade";
+import { registerLocalMemoryPressureListener } from "./localMemoryPressure";
 import { createLocalModelSettings } from "./localModelSettings";
 import { createLocalProductAnalytics } from "./localProductAnalytics";
 import { createLocalResourceController } from "./localResourceController";
 import { createLocalRuntimeFetchHandler, ensureLocalStateDirectories } from "./localRuntime";
+import { createLocalRuntimeRequestDrain } from "./localRuntimeRequestDrain";
+import { readLocalRuntimePort } from "./localRuntimePort";
+import { createLocalRuntimeShutdown } from "./localRuntimeShutdown";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalSourceFileRetention } from "./localSourceFileRetention";
 import { createLocalSubmissionAdmission } from "./localSubmissionAdmission";
@@ -18,34 +24,10 @@ import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 
-type BunServer = {
-  port: number;
-  stop(closeActiveConnections?: boolean): void;
-  upgrade(request: Request, options: { data: { workspaceId: string } }): boolean;
-};
-
-type BunLiveSocket = {
-  data: { workspaceId: string };
-  send(message: string): void;
-};
-
-type BunRuntime = {
-  serve(options: {
-    fetch(request: Request, server: BunServer): Response | Promise<Response | undefined> | undefined;
-    hostname: string;
-    port: number;
-    websocket: {
-      close(socket: BunLiveSocket): void;
-      message(socket: BunLiveSocket, message: string | Buffer): void;
-      open(socket: BunLiveSocket): void;
-    };
-  }): BunServer;
-};
-
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const assetsDirectory = process.env.DOCUMENT_EXTRACTION_ASSETS_DIR || resolve(repositoryRoot, "frontend", "dist");
 const stateDirectory = process.env.DOCUMENT_EXTRACTION_STATE_DIR || resolve(repositoryRoot, ".local");
-const port = readPort(process.env.PORT);
+const port = readLocalRuntimePort(process.env.PORT);
 const maxSourceFileBytes = readPositiveInteger(
   process.env.MAX_SOURCE_FILE_BYTES,
   "MAX_SOURCE_FILE_BYTES",
@@ -92,6 +74,11 @@ const extractionMaximumConcurrency = readPositiveInteger(
 );
 const localCpuLimitRatio = readRatio(process.env.LOCAL_CPU_LIMIT_RATIO, "LOCAL_CPU_LIMIT_RATIO", 0.85);
 const localMemoryLimitRatio = readRatio(process.env.LOCAL_MEMORY_LIMIT_RATIO, "LOCAL_MEMORY_LIMIT_RATIO", 0.8);
+const memoryPressureLargeSubmissionBytes = readPositiveInteger(
+  process.env.MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES,
+  "MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES",
+  4 * 1024 * 1024,
+);
 const localDiskReserveBytes = readNonNegativeInteger(
   process.env.LOCAL_DISK_RESERVE_BYTES,
   "LOCAL_DISK_RESERVE_BYTES",
@@ -107,12 +94,75 @@ const failedSourceRetentionMs = readNonNegativeInteger(
   "FAILED_SOURCE_RETENTION_MS",
   7 * 24 * 60 * 60 * 1_000,
 );
+const shutdownTimeoutMs = readPositiveInteger(
+  process.env.LOCAL_SHUTDOWN_TIMEOUT_MS,
+  "LOCAL_SHUTDOWN_TIMEOUT_MS",
+  10_000,
+);
+const bun = (globalThis as typeof globalThis & { Bun?: typeof Bun }).Bun;
+
+if (!bun) {
+  throw new Error("The local server must run with Bun.");
+}
 
 await ensureLocalStateDirectories(stateDirectory);
 
+let runtimeReady = false;
+const server = bun.serve<{ workspaceId: string }>({
+  fetch: async (request, bunServer) => {
+    if (!runtimeReady) {
+      return Response.json(
+        { error: { code: "runtime_starting", message: "Local Bun Runtime is starting" } },
+        { status: 503, headers: { "retry-after": "1" } },
+      );
+    }
+    if (request.method === "POST" && new URL(request.url).pathname === "/v1/extract") {
+      return localSubmissionAdmission.run(request, () => runtimeFetch(request));
+    }
+    return localRuntimeRequestDrain.run(() => {
+      if (isWorkspaceLiveUpdatePath(request)) {
+        return upgradeLocalLiveUpdate({
+          auth: localAuth.auth,
+          request,
+          server: bunServer,
+          workspaceControl: localAuth.workspaceControl,
+        });
+      }
+      return runtimeFetch(request);
+    });
+  },
+  hostname: "127.0.0.1",
+  maxRequestBodySize: localDocumentServerBodyLimit(maxSourceFileBytes),
+  port,
+  websocket: {
+    ...LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY,
+    close: (socket) => {
+      if (!runtimeReady) return;
+      const workspaceId = socket.data?.workspaceId;
+      if (workspaceId) {
+        localLiveUpdateHub.unsubscribe({ workspaceId, socket });
+      }
+    },
+    drain: (socket) => {
+      localLiveUpdateHub.drain(socket);
+    },
+    open: (socket) => {
+      if (!runtimeReady) return;
+      const workspaceId = socket.data?.workspaceId;
+      if (workspaceId) {
+        localLiveUpdateHub.subscribe({ workspaceId, socket });
+      }
+    },
+    message: (socket) => {
+      socket.close(1008, "Workspace live updates are receive-only");
+    },
+  },
+});
+const serverOrigin = `http://127.0.0.1:${server.port}`;
+
 const localAuth = await createLocalAuthRuntime({
   adminEmails: (process.env.DOCUMENT_EXTRACTION_ADMIN_EMAILS || "").split(","),
-  baseURL: process.env.BETTER_AUTH_URL || `http://127.0.0.1:${port}`,
+  baseURL: process.env.BETTER_AUTH_URL || serverOrigin,
   googleClientId: process.env.GOOGLE_CLIENT_ID,
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
   stateDirectory,
@@ -131,19 +181,25 @@ const localResourceController = createLocalResourceController({
   adaptive: extractionAdaptiveConcurrency,
   cpuLimitRatio: localCpuLimitRatio,
   diskReserveBytes: localDiskReserveBytes,
+  evictIdleStores: localProductStoreRegistry.evictIdleStores,
   getQueueSnapshot: localExtractionQueue.snapshot,
   initialPermits: extractionMaxConcurrency,
   maximumPermits: extractionMaximumConcurrency,
   memoryLimitRatio: localMemoryLimitRatio,
+  memoryPressureLargeSubmissionBytes,
   setPermits: localExtractionQueue.setMaxConcurrent,
   stateDirectory,
+});
+const removeMemoryPressureListener = registerLocalMemoryPressureListener({
+  onPressure: localResourceController.handleMemoryPressure,
 });
 const localSubmissionAdmission = createLocalSubmissionAdmission({
   canReserve: localResourceController.canReserveSubmission,
   maxConcurrent: submissionMaxConcurrency,
   maxReservedBytes: submissionMaxReservedBytes,
-  unknownRequestBytes: maxSourceFileBytes + 1024 * 1024,
+  unknownRequestBytes: localDocumentRequestBodyLimit(maxSourceFileBytes),
 });
+const localRuntimeRequestDrain = createLocalRuntimeRequestDrain();
 const localSourceFileRetention = createLocalSourceFileRetention({
   failedSourceRetentionMs,
   productStoreRegistry: localProductStoreRegistry,
@@ -179,26 +235,40 @@ const localExtractionRunner = createLocalExtractionRunner({
 localExtractionQueue.subscribe((job) => localExtractionRunner.run(job));
 await localExtractionRunner.recover();
 localResourceController.start();
-void localSourceFileRetention.run().catch((error) => {
-  console.error("Local Source retention sweep failed", error);
-});
+const recurringWork = new Set<Promise<void>>();
+const runRecurringWork = (description: string, work: () => Promise<void>) => {
+  const tracked = work()
+    .catch((error) => {
+      console.error(`${description} failed`, error);
+    })
+    .finally(() => {
+      recurringWork.delete(tracked);
+    });
+  recurringWork.add(tracked);
+};
+runRecurringWork("Local Source retention sweep", localSourceFileRetention.run);
 const extractionReconcileTimer = setInterval(() => {
-  void localExtractionRunner.recover().catch((error) => {
-    console.error("Local extraction reconciliation failed", error);
-  });
+  runRecurringWork("Local extraction reconciliation", localExtractionRunner.recover);
 }, extractionReconcileIntervalMs);
 const sourceRetentionTimer = setInterval(() => {
-  void localSourceFileRetention.run().catch((error) => {
-    console.error("Local Source retention sweep failed", error);
-  });
+  runRecurringWork("Local Source retention sweep", localSourceFileRetention.run);
 }, sourceRetentionSweepIntervalMs);
 const application = createLocalApplication({
   auth: localAuth.auth,
   diagnostics: () => ({
     admission: localSubmissionAdmission.snapshot(),
     extractionQueue: localExtractionQueue.snapshot(),
+    liveUpdates: {
+      ...localLiveUpdateHub.diagnostics(),
+      runtimePendingWebSockets: server.pendingWebSockets,
+    },
     productStores: localProductStoreRegistry.diagnostics(),
     resources: localResourceController.snapshot(),
+    runtime: {
+      bunRevision: bun.revision,
+      bunVersion: bun.version,
+      nodeVersion: process.versions.node,
+    },
     sourceRetention: localSourceFileRetention.snapshot(),
   }),
   liveUpdateHub: localLiveUpdateHub,
@@ -217,73 +287,46 @@ const runtimeFetch = createLocalRuntimeFetchHandler({
   api: application,
   assetsDirectory,
 });
-const bun = (globalThis as typeof globalThis & { Bun?: BunRuntime }).Bun;
 
-if (!bun) {
-  throw new Error("The local server must run with Bun.");
-}
+runtimeReady = true;
+console.log(`LOCAL_RUNTIME_READY ${JSON.stringify({ origin: serverOrigin })}`);
 
-const server = bun.serve({
-  fetch: async (request, bunServer) => {
-    if (isWorkspaceLiveUpdatePath(request)) {
-      return upgradeLocalLiveUpdate({
-        auth: localAuth.auth,
-        request,
-        server: bunServer as never,
-        workspaceControl: localAuth.workspaceControl,
-      });
-    }
-    if (request.method === "POST" && new URL(request.url).pathname === "/v1/extract") {
-      return localSubmissionAdmission.run(request, () => runtimeFetch(request));
-    }
-    return runtimeFetch(request);
+const runtimeShutdown = createLocalRuntimeShutdown({
+  closeAdmission: async () => {
+    const admissionClosed = localSubmissionAdmission.close();
+    const requestsClosed = localRuntimeRequestDrain.close();
+    await Promise.all([admissionClosed, requestsClosed]);
   },
-  hostname: "127.0.0.1",
-  port,
-  websocket: {
-    close: (socket) => {
-      const workspaceId = (socket.data as unknown as { workspaceId?: string } | undefined)?.workspaceId;
-      if (workspaceId) {
-        localLiveUpdateHub.unsubscribe({ workspaceId, socket });
-      }
-    },
-    open: (socket) => {
-      const workspaceId = (socket.data as unknown as { workspaceId?: string } | undefined)?.workspaceId;
-      if (workspaceId) {
-        localLiveUpdateHub.subscribe({ workspaceId, socket });
-      }
-    },
-    message: () => {},
+  closeAuth: localAuth.close,
+  closeProductStores: localProductStoreRegistry.closeAll,
+  closeQueue: localExtractionQueue.close,
+  flushAnalytics: localProductAnalytics.flush,
+  forceAfterMs: shutdownTimeoutMs,
+  stopRecurringWork: async () => {
+    clearInterval(extractionReconcileTimer);
+    clearInterval(sourceRetentionTimer);
+    removeMemoryPressureListener();
+    localResourceController.stop();
+    await Promise.all([...recurringWork]);
+  },
+  stopServer: (force) => {
+    if (force) localLiveUpdateHub.closeAll();
+    return server.stop(force);
   },
 });
-console.log(`Document Extraction local server listening on http://127.0.0.1:${server.port}`);
-
-let shuttingDown = false;
-const shutdown = () => {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  clearInterval(extractionReconcileTimer);
-  clearInterval(sourceRetentionTimer);
-  localResourceController.stop();
-  server.stop(false);
-  localProductStoreRegistry.closeAll();
+let shutdownObserved = false;
+const requestShutdown = () => {
+  const completion = runtimeShutdown.request();
+  if (shutdownObserved) return;
+  shutdownObserved = true;
+  void completion.catch((error) => {
+    console.error("Local Bun Runtime shutdown failed", error);
+    process.exitCode = 1;
+  });
 };
-process.once("SIGINT", shutdown);
-process.once("SIGTERM", shutdown);
-process.once("beforeExit", shutdown);
-
-function readPort(value: string | undefined): number {
-  if (!value) {
-    return 8787;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65_535) {
-    throw new Error("PORT must be an integer between 1 and 65535.");
-  }
-
-  return parsed;
-}
+process.on("SIGINT", requestShutdown);
+process.on("SIGTERM", requestShutdown);
+process.once("beforeExit", requestShutdown);
 
 function readPositiveInteger(value: string | undefined, name: string, fallback: number): number {
   if (!value) {

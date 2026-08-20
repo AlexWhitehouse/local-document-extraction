@@ -1,5 +1,6 @@
 import type { FieldDefinition } from "../lib/types";
 import type { ModelFieldResult } from "./modelResultNormalizer";
+import { encodeModelPayloadBase64 } from "./modelPayloadBase64";
 import { renderPdfPagesToPng } from "./pdfPageRenderer";
 
 export class RetryableError extends Error {
@@ -400,7 +401,7 @@ function buildInlineSourceContentPart(
     return {
       type: "file",
       file: {
-        file_data: `data:${sourceMimeType};base64,${toBase64(sourceBytes)}`,
+        file_data: `data:${sourceMimeType};base64,${encodeModelPayloadBase64(sourceBytes)}`,
         format: sourceMimeType,
       },
     };
@@ -416,7 +417,7 @@ function buildInlineImageContentPart(
   return {
     type: "image_url",
     image_url: {
-      url: `data:${sourceMimeType};base64,${toBase64(sourceBytes)}`,
+      url: `data:${sourceMimeType};base64,${encodeModelPayloadBase64(sourceBytes)}`,
     },
   };
 }
@@ -816,19 +817,6 @@ function isAbortError(error: unknown): boolean {
     error instanceof DOMException &&
     error.name === "AbortError"
   );
-}
-
-function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 0x8000;
-
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-
-  return btoa(binary);
 }
 
 function errorToMessage(error: unknown): string {

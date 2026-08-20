@@ -1,6 +1,6 @@
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import {
   ExtractionJobStatusDisplay,
@@ -8,10 +8,6 @@ import {
 } from "./ExtractionResultDisplay.jsx";
 
 describe("Extraction job status display", () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   it("shows queued, processing, completed, and failed Extraction job states", () => {
     const { rerender } = render(
       <ExtractionJobStatusDisplay job={{ status: "queued" }} />,
@@ -44,10 +40,6 @@ describe("Extraction job status display", () => {
 });
 
 describe("Extraction result display", () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   it("shows scalar Extraction results with confidence cues and hides ok status", () => {
     render(
       <ExtractionResultDisplay

@@ -1,6 +1,6 @@
 import React from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const authClientMock = vi.hoisted(() => ({
@@ -45,10 +45,6 @@ vi.mock("sonner", () => ({
 import { App } from "./App.jsx";
 
 describe("auth sign-in feedback", () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
     authClientMock.useSession.mockReturnValue({
@@ -421,10 +417,6 @@ describe("auth sign-in feedback", () => {
 });
 
 describe("auth sign-up password policy feedback", () => {
-  afterEach(() => {
-    cleanup();
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
     authClientMock.useSession.mockReturnValue({

@@ -1,3 +1,6 @@
+import { cleanup } from "@testing-library/react";
+import { afterEach, vi } from "vitest";
+
 function createMemoryStorage() {
   const values = new Map();
 
@@ -13,16 +16,54 @@ function createMemoryStorage() {
   };
 }
 
-let browserStorage;
-try {
-  browserStorage = window.localStorage;
-} catch {
-  browserStorage = null;
-}
-
-if (!browserStorage) {
-  Object.defineProperty(window, "localStorage", {
+for (const storageName of ["localStorage", "sessionStorage"]) {
+  Object.defineProperty(window, storageName, {
     configurable: true,
     value: createMemoryStorage(),
   });
+}
+
+const capturedDescriptors = [
+  ...["fetch", "WebSocket", "URL"].map((key) => captureDescriptor(globalThis, key)),
+  ...["localStorage", "sessionStorage", "location"].map((key) => captureDescriptor(window, key)),
+  captureDescriptor(navigator, "clipboard"),
+];
+
+afterEach(() => {
+  cleanup();
+  clearStorage(window.localStorage);
+  clearStorage(window.sessionStorage);
+  if (vi.isFakeTimers()) {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
+  vi.clearAllMocks();
+  vi.restoreAllMocks();
+  vi.resetAllMocks();
+  vi.unstubAllGlobals();
+  for (const captured of capturedDescriptors) restoreDescriptor(captured);
+});
+
+function captureDescriptor(object, key) {
+  return {
+    descriptor: Object.getOwnPropertyDescriptor(object, key),
+    key,
+    object,
+  };
+}
+
+function restoreDescriptor({ descriptor, key, object }) {
+  if (descriptor) {
+    Object.defineProperty(object, key, descriptor);
+  } else {
+    delete object[key];
+  }
+}
+
+function clearStorage(storage) {
+  try {
+    storage?.clear();
+  } catch {
+    // A test may deliberately replace storage with an unavailable browser shim.
+  }
 }

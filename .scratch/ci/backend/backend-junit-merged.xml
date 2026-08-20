@@ -1,0 +1,321 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="178" assertions="774" failures="0" skipped="0" time="7.664734">
+  <testsuite name="src/localAuth.bun.test.ts" file="src/localAuth.bun.test.ts" tests="18" assertions="66" failures="0" skipped="0" time="2.276599" hostname="synthetic-test-host">
+    <testcase name="Application admins can impersonate a regular local account and stop impersonating" classname="" time="0.167619" file="src/localAuth.bun.test.ts" line="401" assertions="8" />
+    <testcase name="unverified accounts stay blocked until their captured verification link is consumed" classname="" time="0.104592" file="src/localAuth.bun.test.ts" line="109" assertions="4" />
+    <testcase name="the local Fetch application applies the Account password policy before Better Auth" classname="" time="0.002038" file="src/localAuth.bun.test.ts" line="80" assertions="2" />
+    <testcase name="Application admins can unban a local account so it can sign in again" classname="" time="0.174079" file="src/localAuth.bun.test.ts" line="376" assertions="5" />
+    <testcase name="Application admins can search local accounts through Better Auth" classname="" time="0.207963" file="src/localAuth.bun.test.ts" line="283" assertions="2" />
+    <testcase name="Application admins can ban a local account with a reason" classname="" time="0.14425" file="src/localAuth.bun.test.ts" line="339" assertions="4" />
+    <testcase name="Application admins can only assign local Application roles" classname="" time="0.144008" file="src/localAuth.bun.test.ts" line="458" assertions="4" />
+    <testcase name="password reset requests do not disclose account existence and captured reset links change the password" classname="" time="0.105437" file="src/localAuth.bun.test.ts" line="192" assertions="4" />
+    <testcase name="Application admins can promote and demote another local account" classname="" time="0.140486" file="src/localAuth.bun.test.ts" line="302" assertions="6" />
+    <testcase name="Application admins cannot change their own local role" classname="" time="0.069019" file="src/localAuth.bun.test.ts" line="321" assertions="4" />
+    <testcase name="Application admins can only impersonate active regular local accounts" classname="" time="0.139997" file="src/localAuth.bun.test.ts" line="439" assertions="6" />
+    <testcase name="Better Auth admin routes authorize persisted Application admins and reject regular users" classname="" time="0.138838" file="src/localAuth.bun.test.ts" line="269" assertions="2" />
+    <testcase name="configured local admin emails receive persisted Application admin sessions" classname="" time="0.06864" file="src/localAuth.bun.test.ts" line="249" assertions="1" />
+    <testcase name="Application admins must give a reason when banning a local account" classname="" time="0.139252" file="src/localAuth.bun.test.ts" line="357" assertions="4" />
+    <testcase name="Better Auth updates the signed-in user&apos;s profile name and refreshes the session" classname="" time="0.069254" file="src/localAuth.bun.test.ts" line="153" assertions="2" />
+    <testcase name="regular local accounts cannot perform Application admin actions" classname="" time="0.137254" file="src/localAuth.bun.test.ts" line="424" assertions="3" />
+    <testcase name="the local Fetch application delegates email/password sign-up to Better Auth" classname="" time="0.035235" file="src/localAuth.bun.test.ts" line="47" assertions="2" />
+    <testcase name="email/password sign-up captures an Account email verification link" classname="" time="0.034161" file="src/localAuth.bun.test.ts" line="8" assertions="3" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceProductStore.bun.test.ts" file="src/localWorkspaceProductStore.bun.test.ts" tests="15" assertions="64" failures="0" skipped="0" time="0.744852" hostname="synthetic-test-host">
+    <testcase name="Template validation keeps local table shape constraints" classname="" time="0.000464" file="src/localWorkspaceProductStore.bun.test.ts" line="258" assertions="3" />
+    <testcase name="authenticated Template create/list routes use the authorized Workspace product store" classname="" time="0.091363" file="src/localWorkspaceProductStore.bun.test.ts" line="290" assertions="15" />
+    <testcase name="local Workspace job storage creates indexes for chronological and model-filtered pagination" classname="" time="0.004081" file="src/localWorkspaceProductStore.bun.test.ts" line="66" assertions="2" />
+    <testcase name="local Workspace product data supports multiple Templates" classname="" time="0.005514" file="src/localWorkspaceProductStore.bun.test.ts" line="203" assertions="1" />
+    <testcase name="local Workspace product data updates Templates with many fields" classname="" time="0.004246" file="src/localWorkspaceProductStore.bun.test.ts" line="225" assertions="2" />
+    <testcase name="local Workspace product data versions Template fields while retaining the prior version" classname="" time="0.004264" file="src/localWorkspaceProductStore.bun.test.ts" line="128" assertions="3" />
+    <testcase name="Template routes reject sessions without accepted Workspace membership before product routing" classname="" time="0.141631" file="src/localWorkspaceProductStore.bun.test.ts" line="447" assertions="2" />
+    <testcase name="local Document submission removes a written Source file when product job creation fails" classname="" time="0.082324" file="src/localWorkspaceProductStore.bun.test.ts" line="662" assertions="3" />
+    <testcase name="opening missing Workspace product data does not initialize a database" classname="" time="0.004593" file="src/localWorkspaceProductStore.bun.test.ts" line="48" assertions="3" />
+    <testcase name="local Workspace product data creates Templates in an isolated per-Workspace database" classname="" time="0.007199" file="src/localWorkspaceProductStore.bun.test.ts" line="20" assertions="3" />
+    <testcase name="local Workspace product data reads a Template&apos;s current version and fields" classname="" time="0.003838" file="src/localWorkspaceProductStore.bun.test.ts" line="89" assertions="1" />
+    <testcase name="local Workspace product data soft-deletes Templates without exposing them again" classname="" time="0.004078" file="src/localWorkspaceProductStore.bun.test.ts" line="172" assertions="4" />
+    <testcase name="local Document submission rejects unsafe input before Source file storage" classname="" time="0.07822" file="src/localWorkspaceProductStore.bun.test.ts" line="754" assertions="7" />
+    <testcase name="local Document submission fails the queued job and retains its Source file when scheduling fails" classname="" time="0.075759" file="src/localWorkspaceProductStore.bun.test.ts" line="704" assertions="4" />
+    <testcase name="authenticated local Document submission queues the selected Template and notifies the local runner" classname="" time="0.087104" file="src/localWorkspaceProductStore.bun.test.ts" line="503" assertions="11" />
+  </testsuite>
+  <testsuite name="src/testSupport/localRuntimeProcess.bun.test.ts" file="src/testSupport/localRuntimeProcess.bun.test.ts" tests="1" assertions="1" failures="0" skipped="0" time="0.381353" hostname="synthetic-test-host">
+    <testcase name="smoke startup failures include bounded readiness diagnostics" classname="" time="0.378393" file="src/testSupport/localRuntimeProcess.bun.test.ts" line="11" assertions="1" />
+  </testsuite>
+  <testsuite name="src/localDocumentDeletion.bun.test.ts" file="src/localDocumentDeletion.bun.test.ts" tests="1" assertions="17" failures="0" skipped="0" time="0.205317" hostname="synthetic-test-host">
+    <testcase name="terminal Document deletion crosses the adapter and Fetch application without affecting other product data" classname="" time="0.168618" file="src/localDocumentDeletion.bun.test.ts" line="15" assertions="17" />
+  </testsuite>
+  <testsuite name="src/localLiveUpdateUpgrade.bun.test.ts" file="src/localLiveUpdateUpgrade.bun.test.ts" tests="1" assertions="6" failures="0" skipped="0" time="0.000704" hostname="synthetic-test-host">
+    <testcase name="local live updates require an accepted session Workspace and reject API keys" classname="" time="0.000298" file="src/localLiveUpdateUpgrade.bun.test.ts" line="5" assertions="6" />
+  </testsuite>
+  <testsuite name="src/consumer/modelResultNormalizer.bun.test.ts" file="src/consumer/modelResultNormalizer.bun.test.ts" tests="3" assertions="3" failures="0" skipped="0" time="0.000279" hostname="synthetic-test-host">
+    <testsuite name="normalizeModelResults" file="src/consumer/modelResultNormalizer.bun.test.ts" line="6" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="synthetic-test-host">
+      <testcase name="preserves date field answers that are already dd/mm/yyyy" classname="normalizeModelResults" time="0.000071" file="src/consumer/modelResultNormalizer.bun.test.ts" line="58" assertions="1" />
+      <testcase name="normalizes ISO date-time field answers to dd/mm/yyyy before persistence" classname="normalizeModelResults" time="0.000023" file="src/consumer/modelResultNormalizer.bun.test.ts" line="37" assertions="1" />
+      <testcase name="normalizes date field answers to dd/mm/yyyy before persistence" classname="normalizeModelResults" time="0.000015" file="src/consumer/modelResultNormalizer.bun.test.ts" line="7" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localWorkspaceHardErase.bun.test.ts" file="src/localWorkspaceHardErase.bun.test.ts" tests="1" assertions="11" failures="0" skipped="0" time="0.121814" hostname="synthetic-test-host">
+    <testcase name="the Workspace deletion adapter preserves policy errors and hard-erases an idle Workspace before success" classname="" time="0.084699" file="src/localWorkspaceHardErase.bun.test.ts" line="16" assertions="11" />
+  </testsuite>
+  <testsuite name="src/localRuntimeRequestDrain.bun.test.ts" file="src/localRuntimeRequestDrain.bun.test.ts" tests="1" assertions="10" failures="0" skipped="0" time="0.000607" hostname="synthetic-test-host">
+    <testcase name="closing runtime request handling waits for active work and rejects new handlers" classname="" time="0.000221" file="src/localRuntimeRequestDrain.bun.test.ts" line="5" assertions="10" />
+  </testsuite>
+  <testsuite name="src/localExtractionRunnerRecovery.bun.test.ts" file="src/localExtractionRunnerRecovery.bun.test.ts" tests="5" assertions="12" failures="0" skipped="0" time="0.048039" hostname="synthetic-test-host">
+    <testcase name="runner startup recovers queued jobs across local Workspace product stores" classname="" time="0.010512" file="src/localExtractionRunnerRecovery.bun.test.ts" line="11" assertions="1" />
+    <testcase name="runner schedules a retry no earlier than the configured retry delay" classname="" time="0.007056" file="src/localExtractionRunnerRecovery.bun.test.ts" line="283" assertions="3" />
+    <testcase name="runner retries transient model failures within bounds and protects terminal jobs from duplicate attempts" classname="" time="0.007684" file="src/localExtractionRunnerRecovery.bun.test.ts" line="195" assertions="4" />
+    <testcase name="runner startup requeues stale processing work and stops jobs that exhaust their retry attempts" classname="" time="0.007035" file="src/localExtractionRunnerRecovery.bun.test.ts" line="61" assertions="3" />
+    <testcase name="recovery selects ready queued jobs ahead of older deferred retries" classname="" time="0.005883" file="src/localExtractionRunnerRecovery.bun.test.ts" line="127" assertions="1" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceMemberActions.bun.test.ts" file="src/localWorkspaceMemberActions.bun.test.ts" tests="1" assertions="6" failures="0" skipped="0" time="0.134423" hostname="synthetic-test-host">
+    <testcase name="Workspace control atomically removes, promotes, and transfers ownership under member policy" classname="" time="0.110542" file="src/localWorkspaceMemberActions.bun.test.ts" line="7" assertions="6" />
+  </testsuite>
+  <testsuite name="src/localRuntimeSmoke.bun.test.ts" file="src/localRuntimeSmoke.bun.test.ts" tests="1" assertions="29" failures="0" skipped="0" time="0.505559" hostname="synthetic-test-host">
+    <testcase name="the Bun server supports the complete local product path" classname="" time="0.499397" file="src/localRuntimeSmoke.bun.test.ts" line="13" assertions="29" />
+  </testsuite>
+  <testsuite name="src/consumer/pdfPageRenderer.bun.test.ts" file="src/consumer/pdfPageRenderer.bun.test.ts" tests="2" assertions="3" failures="0" skipped="0" time="0.143213" hostname="synthetic-test-host">
+    <testsuite name="renderPdfPagesToPng" file="src/consumer/pdfPageRenderer.bun.test.ts" line="13" tests="2" assertions="3" failures="0" skipped="0" time="0.123" hostname="synthetic-test-host">
+      <testcase name="renders JBIG2-compressed images" classname="renderPdfPagesToPng" time="0.116549" file="src/consumer/pdfPageRenderer.bun.test.ts" line="14" assertions="1" />
+      <testcase name="does not execute JavaScript embedded in a PDF" classname="renderPdfPagesToPng" time="0.007439" file="src/consumer/pdfPageRenderer.bun.test.ts" line="41" assertions="2" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localWorkspaceInvitations.bun.test.ts" file="src/localWorkspaceInvitations.bun.test.ts" tests="4" assertions="13" failures="0" skipped="0" time="0.622004" hostname="synthetic-test-host">
+    <testcase name="owners create in-app Workspace invitations that invitees can list without mail delivery" classname="" time="0.148688" file="src/localWorkspaceInvitations.bun.test.ts" line="8" assertions="4" />
+    <testcase name="accepting an in-app invitation grants Workspace membership and clears the pending entry" classname="" time="0.14166" file="src/localWorkspaceInvitations.bun.test.ts" line="52" assertions="3" />
+    <testcase name="owners cancel pending Workspace invitations" classname="" time="0.143302" file="src/localWorkspaceInvitations.bun.test.ts" line="113" assertions="3" />
+    <testcase name="declining an in-app invitation removes it from the invitee Workspace list" classname="" time="0.140866" file="src/localWorkspaceInvitations.bun.test.ts" line="92" assertions="3" />
+  </testsuite>
+  <testsuite name="src/localAuthRuntime.bun.test.ts" file="src/localAuthRuntime.bun.test.ts" tests="1" assertions="4" failures="0" skipped="0" time="0.071662" hostname="synthetic-test-host">
+    <testcase name="the local auth runtime persists auth data and captured mail under the local state directory" classname="" time="0.047305" file="src/localAuthRuntime.bun.test.ts" line="8" assertions="4" />
+  </testsuite>
+  <testsuite name="src/localLiveDocumentDeletion.bun.test.ts" file="src/localLiveDocumentDeletion.bun.test.ts" tests="1" assertions="14" failures="0" skipped="0" time="0.0937" hostname="synthetic-test-host">
+    <testcase name="live Document deletion aborts and drains only its target job before erasure" classname="" time="0.052463" file="src/localLiveDocumentDeletion.bun.test.ts" line="16" assertions="14" />
+  </testsuite>
+  <testsuite name="src/localRuntimeShutdownBunServer.bun.test.ts" file="src/localRuntimeShutdownBunServer.bun.test.ts" tests="1" assertions="4" failures="0" skipped="0" time="0.00251" hostname="synthetic-test-host">
+    <testcase name="runtime shutdown settles an in-flight request after closing idle server connections" classname="" time="0.002042" file="src/localRuntimeShutdownBunServer.bun.test.ts" line="6" assertions="4" />
+  </testsuite>
+  <testsuite name="src/consumer/dependencySecurity.bun.test.ts" file="src/consumer/dependencySecurity.bun.test.ts" tests="2" assertions="2" failures="0" skipped="0" time="0.003735" hostname="synthetic-test-host">
+    <testsuite name="security-sensitive parser dependencies" file="src/consumer/dependencySecurity.bun.test.ts" line="7" tests="2" assertions="2" failures="0" skipped="0" time="0" hostname="synthetic-test-host">
+      <testcase name="uses a UUID release containing the buffer-bounds fix" classname="security-sensitive parser dependencies" time="0.000222" file="src/consumer/dependencySecurity.bun.test.ts" line="17" assertions="1" />
+      <testcase name="uses a PDF.js release containing the malicious-PDF execution fix" classname="security-sensitive parser dependencies" time="0.000058" file="src/consumer/dependencySecurity.bun.test.ts" line="8" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localJobExport.bun.test.ts" file="src/localJobExport.bun.test.ts" tests="1" assertions="13" failures="0" skipped="0" time="0.110479" hostname="synthetic-test-host">
+    <testcase name="job export returns a best-effort authenticated workbook for terminal jobs" classname="" time="0.071357" file="src/localJobExport.bun.test.ts" line="13" assertions="13" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceMemberListing.bun.test.ts" file="src/localWorkspaceMemberListing.bun.test.ts" tests="1" assertions="7" failures="0" skipped="0" time="0.26205" hostname="synthetic-test-host">
+    <testcase name="the Workspace member-list adapter uses the real session-only HTTP interface" classname="" time="0.22563" file="src/localWorkspaceMemberListing.bun.test.ts" line="10" assertions="7" />
+  </testsuite>
+  <testsuite name="src/localSubmissionAdmission.bun.test.ts" file="src/localSubmissionAdmission.bun.test.ts" tests="5" assertions="28" failures="0" skipped="0" time="0.002287" hostname="synthetic-test-host">
+    <testcase name="submission admission reserves counters before asynchronous resource sampling" classname="" time="0.000389" file="src/localSubmissionAdmission.bun.test.ts" line="98" assertions="6" />
+    <testcase name="submission admission bounds active multipart work and safely drains overload" classname="" time="0.000151" file="src/localSubmissionAdmission.bun.test.ts" line="5" assertions="8" />
+    <testcase name="submission admission reserves a bounded fallback for unknown body sizes" classname="" time="0.00009" file="src/localSubmissionAdmission.bun.test.ts" line="50" assertions="2" />
+    <testcase name="closing submission admission rejects new Documents and waits for admitted work" classname="" time="0.000161" file="src/localSubmissionAdmission.bun.test.ts" line="131" assertions="8" />
+    <testcase name="submission admission rejects and drains when local memory or disk cannot reserve the upload" classname="" time="0.000049" file="src/localSubmissionAdmission.bun.test.ts" line="71" assertions="4" />
+  </testsuite>
+  <testsuite name="src/localResourceController.bun.test.ts" file="src/localResourceController.bun.test.ts" tests="1" assertions="7" failures="0" skipped="0" time="0.004739" hostname="synthetic-test-host">
+    <testcase name="the resource controller exposes storage/process telemetry and backs off on gateway throttling" classname="" time="0.002036" file="src/localResourceController.bun.test.ts" line="8" assertions="7" />
+  </testsuite>
+  <testsuite name="src/localLiveUpdateBunServer.bun.test.ts" file="src/localLiveUpdateBunServer.bun.test.ts" tests="1" assertions="1" failures="0" skipped="0" time="0.003768" hostname="synthetic-test-host">
+    <testcase name="the Bun server upgrades the session Workspace live update route and delivers lifecycle messages" classname="" time="0.003555" file="src/localLiveUpdateBunServer.bun.test.ts" line="6" assertions="1" />
+  </testsuite>
+  <testsuite name="src/localMultipartSubmission.bun.test.ts" file="src/localMultipartSubmission.bun.test.ts" tests="2" assertions="10" failures="0" skipped="0" time="0.013478" hostname="synthetic-test-host">
+    <testcase name="multipart submission rejects duplicate fields and oversized files without retaining temporary data" classname="" time="0.00622" file="src/localMultipartSubmission.bun.test.ts" line="43" assertions="6" />
+    <testcase name="multipart submission streams the document to a promotable temporary file" classname="" time="0.001789" file="src/localMultipartSubmission.bun.test.ts" line="10" assertions="4" />
+  </testsuite>
+  <testsuite name="src/localExtractionQueue.bun.test.ts" file="src/localExtractionQueue.bun.test.ts" tests="8" assertions="23" failures="0" skipped="0" time="0.006213" hostname="synthetic-test-host">
+    <testcase name="the local extraction queue notifies asynchronous handlers without delaying submission scheduling" classname="" time="0.00028" file="src/localExtractionQueue.bun.test.ts" line="5" assertions="1" />
+    <testcase name="the local extraction queue deduplicates the same job attempt" classname="" time="0.000161" file="src/localExtractionQueue.bun.test.ts" line="112" assertions="2" />
+    <testcase name="the local extraction queue leaves overflow in the durable store for reconciliation" classname="" time="0.000047" file="src/localExtractionQueue.bun.test.ts" line="147" assertions="1" />
+    <testcase name="the local extraction queue bounds active handlers and keeps only metadata pending" classname="" time="0.001457" file="src/localExtractionQueue.bun.test.ts" line="67" assertions="3" />
+    <testcase name="the local extraction queue does not dispatch a retry before its not-before time" classname="" time="0.000147" file="src/localExtractionQueue.bun.test.ts" line="36" assertions="3" />
+    <testcase name="closing the local extraction queue stops new claims and waits only for active handlers" classname="" time="0.000134" file="src/localExtractionQueue.bun.test.ts" line="160" assertions="7" />
+    <testcase name="the local extraction queue pauses and resumes dispatch without losing pending work" classname="" time="0.000043" file="src/localExtractionQueue.bun.test.ts" line="131" assertions="3" />
+    <testcase name="the local extraction queue rotates Workspaces while preserving FIFO inside each Workspace" classname="" time="0.002673" file="src/localExtractionQueue.bun.test.ts" line="89" assertions="3" />
+  </testsuite>
+  <testsuite name="src/lib/email/accountEmailVerification.bun.test.ts" file="src/lib/email/accountEmailVerification.bun.test.ts" tests="1" assertions="6" failures="0" skipped="0" time="0.000184" hostname="synthetic-test-host">
+    <testsuite name="Account email verification email" file="src/lib/email/accountEmailVerification.bun.test.ts" line="5" tests="1" assertions="6" failures="0" skipped="0" time="0" hostname="synthetic-test-host">
+      <testcase name="renders the agreed sender, subject, verification URL, and unexpected-recipient guidance" classname="Account email verification email" time="0.00002" file="src/lib/email/accountEmailVerification.bun.test.ts" line="6" assertions="6" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localJobConditionalPolling.bun.test.ts" file="src/localJobConditionalPolling.bun.test.ts" tests="2" assertions="28" failures="0" skipped="0" time="0.145286" hostname="synthetic-test-host">
+    <testcase name="individual job reads use validators and hydrate results only for changed completed jobs" classname="" time="0.058388" file="src/localJobConditionalPolling.bun.test.ts" line="16" assertions="24" />
+    <testcase name="accepted submissions direct clients to the job resource and initial delay" classname="" time="0.047313" file="src/localJobConditionalPolling.bun.test.ts" line="155" assertions="4" />
+  </testsuite>
+  <testsuite name="src/jobExportWorkbook.bun.test.ts" file="src/jobExportWorkbook.bun.test.ts" tests="3" assertions="33" failures="0" skipped="0" time="0.041554" hostname="synthetic-test-host">
+    <testsuite name="job export workbook" file="src/jobExportWorkbook.bun.test.ts" line="7" tests="3" assertions="33" failures="0" skipped="0" time="0.026" hostname="synthetic-test-host">
+      <testcase name="preserves empty objects and shortens duplicate worksheet names safely" classname="job export workbook" time="0.013164" file="src/jobExportWorkbook.bun.test.ts" line="166" assertions="5" />
+      <testcase name="round-trips formula-like, Unicode, oversized, and malformed values safely" classname="job export workbook" time="0.006656" file="src/jobExportWorkbook.bun.test.ts" line="201" assertions="7" />
+      <testcase name="creates typed header and table sheets grouped by template version" classname="job export workbook" time="0.007283" file="src/jobExportWorkbook.bun.test.ts" line="8" assertions="21" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localRuntime.bun.test.ts" file="src/localRuntime.bun.test.ts" tests="4" assertions="17" failures="0" skipped="0" time="0.028961" hostname="synthetic-test-host">
+    <testsuite name="local Bun runtime" file="src/localRuntime.bun.test.ts" line="24" tests="4" assertions="17" failures="0" skipped="0" time="0.001" hostname="synthetic-test-host">
+      <testcase name="serves built assets and falls back to the SPA for non-API reads" classname="local Bun runtime" time="0.001368" file="src/localRuntime.bun.test.ts" line="65" assertions="6" />
+      <testcase name="creates the local state directory structure" classname="local Bun runtime" time="0.000938" file="src/localRuntime.bun.test.ts" line="34" assertions="5" />
+      <testcase name="routes API Requests to the Fetch-style application handler" classname="local Bun runtime" time="0.000258" file="src/localRuntime.bun.test.ts" line="52" assertions="4" />
+      <testcase name="exposes the health endpoint through the local Fetch application" classname="local Bun runtime" time="0.000091" file="src/localRuntime.bun.test.ts" line="25" assertions="2" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localExtractionRunner.bun.test.ts" file="src/localExtractionRunner.bun.test.ts" tests="4" assertions="11" failures="0" skipped="0" time="0.044172" hostname="synthetic-test-host">
+    <testcase name="the local extraction runner records durable failures for missing Source files and model errors" classname="" time="0.008827" file="src/localExtractionRunner.bun.test.ts" line="181" assertions="4" />
+    <testcase name="the local extraction runner completes a queued job with normalized results and Source file cleanup" classname="" time="0.012127" file="src/localExtractionRunner.bun.test.ts" line="13" assertions="2" />
+    <testcase name="a Source file cleanup failure leaves completed results intact" classname="" time="0.006457" file="src/localExtractionRunner.bun.test.ts" line="289" assertions="2" />
+    <testcase name="the local extraction runner resolves current model settings for each extraction attempt" classname="" time="0.006905" file="src/localExtractionRunner.bun.test.ts" line="84" assertions="3" />
+  </testsuite>
+  <testsuite name="src/testSupport/backendTestLane.bun.test.ts" file="src/testSupport/backendTestLane.bun.test.ts" tests="1" assertions="21" failures="0" skipped="0" time="0.0032" hostname="synthetic-test-host">
+    <testcase name="backend Bun scripts isolate a capped lane and serialize real-process smoke" classname="" time="0.000175" file="src/testSupport/backendTestLane.bun.test.ts" line="6" assertions="21" />
+  </testsuite>
+  <testsuite name="src/localRuntimeShutdown.bun.test.ts" file="src/localRuntimeShutdown.bun.test.ts" tests="5" assertions="14" failures="0" skipped="0" time="0.001219" hostname="synthetic-test-host">
+    <testcase name="shutdown waits for recurring runtime work before flushing analytics" classname="" time="0.000158" file="src/localRuntimeShutdown.bun.test.ts" line="161" assertions="2" />
+    <testcase name="Local Bun Runtime shutdown drains active work before durable resources close" classname="" time="0.000104" file="src/localRuntimeShutdown.bun.test.ts" line="5" assertions="5" />
+    <testcase name="the shutdown deadline forces a stalled network stop" classname="" time="0.00009" file="src/localRuntimeShutdown.bun.test.ts" line="132" assertions="1" />
+    <testcase name="shutdown attempts every durable cleanup and reports all failures" classname="" time="0.000167" file="src/localRuntimeShutdown.bun.test.ts" line="185" assertions="3" />
+    <testcase name="a repeated shutdown request forces the server without duplicating cleanup" classname="" time="0.000088" file="src/localRuntimeShutdown.bun.test.ts" line="71" assertions="3" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceProductStoreRegistry.bun.test.ts" file="src/localWorkspaceProductStoreRegistry.bun.test.ts" tests="3" assertions="19" failures="0" skipped="0" time="0.021703" hostname="synthetic-test-host">
+    <testcase name="registry invalidation waits for leases, closes once, and prevents reopening" classname="" time="0.004449" file="src/localWorkspaceProductStoreRegistry.bun.test.ts" line="63" assertions="5" />
+    <testcase name="Workspace product stores apply the safe SQLite policy and focused indexes" classname="" time="0.003994" file="src/localWorkspaceProductStoreRegistry.bun.test.ts" line="103" assertions="7" />
+    <testcase name="the Workspace product-store registry reuses one owner and evicts only idle owners" classname="" time="0.009903" file="src/localWorkspaceProductStoreRegistry.bun.test.ts" line="16" assertions="7" />
+  </testsuite>
+  <testsuite name="src/localJobPagination.bun.test.ts" file="src/localJobPagination.bun.test.ts" tests="1" assertions="12" failures="0" skipped="0" time="0.096159" hostname="synthetic-test-host">
+    <testcase name="the Document adapter traverses stable, opaque, search-bound job pages without duplicates" classname="" time="0.054579" file="src/localJobPagination.bun.test.ts" line="14" assertions="12" />
+  </testsuite>
+  <testsuite name="src/localMailSink.bun.test.ts" file="src/localMailSink.bun.test.ts" tests="1" assertions="2" failures="0" skipped="0" time="0.003011" hostname="synthetic-test-host">
+    <testcase name="the Local mail sink records transactional messages in a daily JSONL file and logs their action link" classname="" time="0.00053" file="src/localMailSink.bun.test.ts" line="8" assertions="2" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceInFlightDeletion.bun.test.ts" file="src/localWorkspaceInFlightDeletion.bun.test.ts" tests="1" assertions="5" failures="0" skipped="0" time="0.080292" hostname="synthetic-test-host">
+    <testcase name="Workspace deletion aborts and drains in-flight extraction before hard erasure" classname="" time="0.051867" file="src/localWorkspaceInFlightDeletion.bun.test.ts" line="17" assertions="5" />
+  </testsuite>
+  <testsuite name="src/localLiveUpdateHub.bun.test.ts" file="src/localLiveUpdateHub.bun.test.ts" tests="2" assertions="7" failures="0" skipped="0" time="0.000529" hostname="synthetic-test-host">
+    <testcase name="the local live update hub closes every Workspace connection during forced shutdown" classname="" time="0.000108" file="src/localLiveUpdateHub.bun.test.ts" line="64" assertions="2" />
+    <testcase name="the local live update hub isolates Workspace broadcasts and strips private job data" classname="" time="0.000067" file="src/localLiveUpdateHub.bun.test.ts" line="5" assertions="5" />
+  </testsuite>
+  <testsuite name="src/domainDocs.bun.test.ts" file="src/domainDocs.bun.test.ts" tests="1" assertions="16" failures="0" skipped="0" time="0.002587" hostname="synthetic-test-host">
+    <testsuite name="Domain documentation" file="src/domainDocs.bun.test.ts" line="4" tests="1" assertions="16" failures="0" skipped="0" time="0" hostname="synthetic-test-host">
+      <testcase name="documents Workspace context invalidation as a live update HTTP revalidation contract" classname="Domain documentation" time="0.000259" file="src/domainDocs.bun.test.ts" line="5" assertions="16" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localWorkspaceControl.bun.test.ts" file="src/localWorkspaceControl.bun.test.ts" tests="4" assertions="14" failures="0" skipped="0" time="0.230104" hostname="synthetic-test-host">
+    <testcase name="Workspace API key rotation stores only the current hash and invalidates the prior key" classname="" time="0.039457" file="src/localWorkspaceControl.bun.test.ts" line="142" assertions="3" />
+    <testcase name="Workspace rename and deletion retain the accepted-Workspace policy" classname="" time="0.041023" file="src/localWorkspaceControl.bun.test.ts" line="105" assertions="3" />
+    <testcase name="the Bun API creates and resolves accepted Workspace context for a signed-in user" classname="" time="0.07458" file="src/localWorkspaceControl.bun.test.ts" line="44" assertions="6" />
+    <testcase name="local Workspace control repairs a user&apos;s zero-accepted-Workspace invariant" classname="" time="0.035654" file="src/localWorkspaceControl.bun.test.ts" line="11" assertions="2" />
+  </testsuite>
+  <testsuite name="src/lib/email/accountPasswordReset.bun.test.ts" file="src/lib/email/accountPasswordReset.bun.test.ts" tests="1" assertions="6" failures="0" skipped="0" time="0.000385" hostname="synthetic-test-host">
+    <testsuite name="Account password reset email" file="src/lib/email/accountPasswordReset.bun.test.ts" line="5" tests="1" assertions="6" failures="0" skipped="0" time="0" hostname="synthetic-test-host">
+      <testcase name="renders the agreed sender, subject, reset URL, and unexpected-recipient guidance" classname="Account password reset email" time="0.000027" file="src/lib/email/accountPasswordReset.bun.test.ts" line="6" assertions="6" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localSourceFileStore.bun.test.ts" file="src/localSourceFileStore.bun.test.ts" tests="2" assertions="4" failures="0" skipped="0" time="0.005655" hostname="synthetic-test-host">
+    <testcase name="local Source file storage writes, reads, and deletes binaries through its public interface" classname="" time="0.001581" file="src/localSourceFileStore.bun.test.ts" line="8" assertions="2" />
+    <testcase name="local Source file storage hard-erases one Workspace idempotently without affecting another Workspace" classname="" time="0.001583" file="src/localSourceFileStore.bun.test.ts" line="28" assertions="2" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceDeletionRecovery.bun.test.ts" file="src/localWorkspaceDeletionRecovery.bun.test.ts" tests="3" assertions="16" failures="0" skipped="0" time="0.120683" hostname="synthetic-test-host">
+    <testcase name="reconciliation erases only explicitly recorded Workspace deletion intents" classname="" time="0.009963" file="src/localWorkspaceDeletionRecovery.bun.test.ts" line="140" assertions="4" />
+    <testcase name="failed Workspace erasure retains durable cleanup intent that reconciliation completes idempotently" classname="" time="0.045173" file="src/localWorkspaceDeletionRecovery.bun.test.ts" line="13" assertions="7" />
+    <testcase name="reconciliation revokes a Workspace whose deletion intent was recorded before a crash" classname="" time="0.040766" file="src/localWorkspaceDeletionRecovery.bun.test.ts" line="81" assertions="5" />
+  </testsuite>
+  <testsuite name="src/testSupport/backendTestEvidence.bun.test.ts" file="src/testSupport/backendTestEvidence.bun.test.ts" tests="3" assertions="5" failures="0" skipped="0" time="0.00069" hostname="synthetic-test-host">
+    <testsuite name="backend test evidence" file="src/testSupport/backendTestEvidence.bun.test.ts" line="10" tests="3" assertions="5" failures="0" skipped="0" time="0" hostname="synthetic-test-host">
+      <testcase name="summarizes loaded LCOV modules and names production modules with no record" classname="backend test evidence" time="0.000127" file="src/testSupport/backendTestEvidence.bun.test.ts" line="11" assertions="2" />
+      <testcase name="redacts sensitive values before diagnostics become artifacts" classname="backend test evidence" time="0.000037" file="src/testSupport/backendTestEvidence.bun.test.ts" line="52" assertions="1" />
+      <testcase name="rejects coverage below the checked line or function baseline" classname="backend test evidence" time="0.000049" file="src/testSupport/backendTestEvidence.bun.test.ts" line="33" assertions="2" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localSourceFileRetention.bun.test.ts" file="src/localSourceFileRetention.bun.test.ts" tests="1" assertions="7" failures="0" skipped="0" time="0.013394" hostname="synthetic-test-host">
+    <testcase name="Source retention deletes completed and expired failed binaries but preserves durable jobs" classname="" time="0.010115" file="src/localSourceFileRetention.bun.test.ts" line="12" assertions="7" />
+  </testsuite>
+  <testsuite name="src/consumer/modelGateway.bun.test.ts" file="src/consumer/modelGateway.bun.test.ts" tests="28" assertions="60" failures="0" skipped="0" time="0.080847" hostname="synthetic-test-host">
+    <testsuite name="model gateway configuration" file="src/consumer/modelGateway.bun.test.ts" line="780" tests="3" assertions="7" failures="0" skipped="0" time="0" hostname="synthetic-test-host">
+      <testcase name="defaults to the agreed Bedrock Claude extraction model" classname="model gateway configuration" time="0.000023" file="src/consumer/modelGateway.bun.test.ts" line="793" assertions="1" />
+      <testcase name="normalizes model gateway timeout configuration" classname="model gateway configuration" time="0.000025" file="src/consumer/modelGateway.bun.test.ts" line="787" assertions="3" />
+      <testcase name="derives the model gateway route label from configured label or URL host" classname="model gateway configuration" time="0.000031" file="src/consumer/modelGateway.bun.test.ts" line="781" assertions="3" />
+    </testsuite>
+    <testsuite name="runExtraction" file="src/consumer/modelGateway.bun.test.ts" line="126" tests="25" assertions="53" failures="0" skipped="0" time="0.059" hostname="synthetic-test-host">
+      <testcase name="submits image Source files to LiteLLM as inline image content" classname="runExtraction" time="0.000699" file="src/consumer/modelGateway.bun.test.ts" line="562" assertions="1" />
+      <testcase name="uses the configured Extraction model and LiteLLM gateway" classname="runExtraction" time="0.00008" file="src/consumer/modelGateway.bun.test.ts" line="131" assertions="4" />
+      <testcase name="uses JSON Schema output for Gemma 4 model deployments" classname="runExtraction" time="0.000107" file="src/consumer/modelGateway.bun.test.ts" line="176" assertions="1" />
+      <testcase name="renders PDF Source file pages as images when direct PDF input is disabled" classname="runExtraction" time="0.028653" file="src/consumer/modelGateway.bun.test.ts" line="274" assertions="3" />
+      <testcase name="parses Qwen reasoning content when assistant content is empty" classname="runExtraction" time="0.000084" file="src/consumer/modelGateway.bun.test.ts" line="631" assertions="1" />
+      <testcase name="omits structured output for models that do not support response formats" classname="runExtraction" time="0.000061" file="src/consumer/modelGateway.bun.test.ts" line="160" assertions="2" />
+      <testcase name="falls back to the agreed Bedrock Claude model when no Extraction model is configured" classname="runExtraction" time="0.000052" file="src/consumer/modelGateway.bun.test.ts" line="224" assertions="1" />
+      <testcase name="uses LiteLLM managed files for an explicitly verified model alias" classname="runExtraction" time="0.000359" file="src/consumer/modelGateway.bun.test.ts" line="527" assertions="3" />
+      <testcase name="parses OpenAI content-part model responses into raw model field results" classname="runExtraction" time="0.000052" file="src/consumer/modelGateway.bun.test.ts" line="608" assertions="1" />
+      <testcase name="aborts model gateway execution when Workspace deletion cancels the caller signal" classname="runExtraction" time="0.000221" file="src/consumer/modelGateway.bun.test.ts" line="202" assertions="2" />
+      <testcase name="treats model JSON without results as retryable output" classname="runExtraction" time="0.00005" file="src/consumer/modelGateway.bun.test.ts" line="770" assertions="1" />
+      <testcase name="treats missing LiteLLM credentials as a non-retryable configuration failure" classname="runExtraction" time="0.00006" file="src/consumer/modelGateway.bun.test.ts" line="655" assertions="2" />
+      <testcase name="does not retry deterministic Model gateway request failures" classname="runExtraction" time="0.000065" file="src/consumer/modelGateway.bun.test.ts" line="725" assertions="1" />
+      <testcase name="renders PDF Source file pages as image content accepted by Qwen model qwen/qwen3.6-27b" classname="runExtraction" time="0.009907" file="src/consumer/modelGateway.bun.test.ts" line="329" assertions="1" />
+      <testcase name="treats invalid model JSON content as retryable output" classname="runExtraction" time="0.000101" file="src/consumer/modelGateway.bun.test.ts" line="761" assertions="1" />
+      <testcase name="uploads PDF Source files for Azure LiteLLM models and submits the returned file ID" classname="runExtraction" time="0.00015" file="src/consumer/modelGateway.bun.test.ts" line="465" assertions="11" />
+      <testcase name="runs configured model calls sequentially" classname="runExtraction" time="0.006492" file="src/consumer/modelGateway.bun.test.ts" line="666" assertions="3" />
+      <testcase name="builds Qwen JSON Schema answer types from the requested Template fields" classname="runExtraction" time="0.000213" file="src/consumer/modelGateway.bun.test.ts" line="377" assertions="2" />
+      <testcase name="treats deterministic LiteLLM PDF upload failures as non-retryable" classname="runExtraction" time="0.000061" file="src/consumer/modelGateway.bun.test.ts" line="737" assertions="2" />
+      <testcase name="renders PDF Source file pages as image content accepted by Qwen model qwen3-vl-32b-instruct-mlx" classname="runExtraction" time="0.008921" file="src/consumer/modelGateway.bun.test.ts" line="329" assertions="1" />
+      <testcase name="treats LiteLLM HTTP failures as retryable extraction failures" classname="runExtraction" time="0.000167" file="src/consumer/modelGateway.bun.test.ts" line="707" assertions="3" />
+      <testcase name="parses OpenAI-style model responses into raw model field results" classname="runExtraction" time="0.000047" file="src/consumer/modelGateway.bun.test.ts" line="593" assertions="1" />
+      <testcase name="renders PDF Source file pages as image content accepted by Qwen model qwen3.8-27b-mlx" classname="runExtraction" time="0.008416" file="src/consumer/modelGateway.bun.test.ts" line="329" assertions="1" />
+      <testcase name="treats invalid gateway JSON as retryable output" classname="runExtraction" time="0.000107" file="src/consumer/modelGateway.bun.test.ts" line="750" assertions="1" />
+      <testcase name="submits PDF Source files to Bedrock-compatible LiteLLM models as inline file content" classname="runExtraction" time="0.000087" file="src/consumer/modelGateway.bun.test.ts" line="240" assertions="3" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/lib/sourceFilePageCount.bun.test.ts" file="src/lib/sourceFilePageCount.bun.test.ts" tests="3" assertions="3" failures="0" skipped="0" time="0.010235" hostname="synthetic-test-host">
+    <testsuite name="Source file page count" file="src/lib/sourceFilePageCount.bun.test.ts" line="6" tests="3" assertions="3" failures="0" skipped="0" time="0.004" hostname="synthetic-test-host">
+      <testcase name="returns the page count for a valid multi-page PDF Source file" classname="Source file page count" time="0.003849" file="src/lib/sourceFilePageCount.bun.test.ts" line="15" assertions="1" />
+      <testcase name="rejects malformed PDF bytes with a stable invalid-PDF failure" classname="Source file page count" time="0.000071" file="src/lib/sourceFilePageCount.bun.test.ts" line="25" assertions="1" />
+      <testcase name="returns 1 for a valid one-page PDF Source file" classname="Source file page count" time="0.00102" file="src/lib/sourceFilePageCount.bun.test.ts" line="7" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localJobSearch.bun.test.ts" file="src/localJobSearch.bun.test.ts" tests="1" assertions="11" failures="0" skipped="0" time="0.090636" hostname="synthetic-test-host">
+    <testcase name="the Document adapter searches one Workspace&apos;s stable job metadata and returns its unfiltered total" classname="" time="0.053916" file="src/localJobSearch.bun.test.ts" line="14" assertions="11" />
+  </testsuite>
+  <testsuite name="src/localRuntimePort.bun.test.ts" file="src/localRuntimePort.bun.test.ts" tests="1" assertions="6" failures="0" skipped="0" time="0.000345" hostname="synthetic-test-host">
+    <testcase name="the Local Bun Runtime accepts an operating-system-selected port" classname="" time="0.000042" file="src/localRuntimePort.bun.test.ts" line="5" assertions="6" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceLateWork.bun.test.ts" file="src/localWorkspaceLateWork.bun.test.ts" tests="2" assertions="10" failures="0" skipped="0" time="0.120095" hostname="synthetic-test-host">
+    <testcase name="late queue deliveries after hard deletion do not recreate a Workspace product database" classname="" time="0.047767" file="src/localWorkspaceLateWork.bun.test.ts" line="17" assertions="6" />
+    <testcase name="a retryable extraction failure does not requeue work after its Workspace is deleted" classname="" time="0.042414" file="src/localWorkspaceLateWork.bun.test.ts" line="127" assertions="4" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceLeave.bun.test.ts" file="src/localWorkspaceLeave.bun.test.ts" tests="2" assertions="23" failures="0" skipped="0" time="0.423411" hostname="synthetic-test-host">
+    <testcase name="leaving a final Workspace creates one bootstrapped replacement without erasing the departed Workspace" classname="" time="0.165549" file="src/localWorkspaceLeave.bun.test.ts" line="169" assertions="12" />
+    <testcase name="a member can leave a non-final Workspace through the session-only adapter without erasing its resources" classname="" time="0.220227" file="src/localWorkspaceLeave.bun.test.ts" line="18" assertions="11" />
+  </testsuite>
+  <testsuite name="src/consumer/modelPayloadBase64.bun.test.ts" file="src/consumer/modelPayloadBase64.bun.test.ts" tests="8" assertions="8" failures="0" skipped="0" time="0.063563" hostname="synthetic-test-host">
+    <testsuite name="encodeModelPayloadBase64" file="src/consumer/modelPayloadBase64.bun.test.ts" line="5" tests="8" assertions="8" failures="0" skipped="0" time="0.06" hostname="synthetic-test-host">
+      <testcase name="matches the legacy gateway encoder for 1 bytes" classname="encodeModelPayloadBase64" time="0.000127" file="src/consumer/modelPayloadBase64.bun.test.ts" line="15" assertions="1" />
+      <testcase name="matches the legacy gateway encoder for 2 bytes" classname="encodeModelPayloadBase64" time="0.00002" file="src/consumer/modelPayloadBase64.bun.test.ts" line="15" assertions="1" />
+      <testcase name="matches the legacy gateway encoder for 0 bytes" classname="encodeModelPayloadBase64" time="0.000002" file="src/consumer/modelPayloadBase64.bun.test.ts" line="15" assertions="1" />
+      <testcase name="matches the legacy gateway encoder for 32769 bytes" classname="encodeModelPayloadBase64" time="0.001729" file="src/consumer/modelPayloadBase64.bun.test.ts" line="15" assertions="1" />
+      <testcase name="matches the legacy gateway encoder for 32768 bytes" classname="encodeModelPayloadBase64" time="0.000943" file="src/consumer/modelPayloadBase64.bun.test.ts" line="15" assertions="1" />
+      <testcase name="matches the legacy gateway encoder for 2097153 bytes" classname="encodeModelPayloadBase64" time="0.059464" file="src/consumer/modelPayloadBase64.bun.test.ts" line="15" assertions="1" />
+      <testcase name="matches the legacy gateway encoder for 3 bytes" classname="encodeModelPayloadBase64" time="0.000008" file="src/consumer/modelPayloadBase64.bun.test.ts" line="15" assertions="1" />
+      <testcase name="matches the legacy gateway encoder for 32767 bytes" classname="encodeModelPayloadBase64" time="0.000885" file="src/consumer/modelPayloadBase64.bun.test.ts" line="15" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/lib/accountPasswordPolicy.bun.test.ts" file="src/lib/accountPasswordPolicy.bun.test.ts" tests="3" assertions="3" failures="0" skipped="0" time="0.000357" hostname="synthetic-test-host">
+    <testsuite name="Account password policy" file="src/lib/accountPasswordPolicy.bun.test.ts" line="5" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="synthetic-test-host">
+      <testcase name="treats any non-alphanumeric character as the special-character requirement" classname="Account password policy" time="0.00002" file="src/lib/accountPasswordPolicy.bun.test.ts" line="20" assertions="1" />
+      <testcase name="reports all unmet requirements for a weak account password" classname="Account password policy" time="0.000015" file="src/lib/accountPasswordPolicy.bun.test.ts" line="6" assertions="1" />
+      <testcase name="accepts an account password that satisfies the full policy" classname="Account password policy" time="0.000008" file="src/lib/accountPasswordPolicy.bun.test.ts" line="13" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="src/localProductAnalytics.bun.test.ts" file="src/localProductAnalytics.bun.test.ts" tests="3" assertions="12" failures="0" skipped="0" time="0.004498" hostname="synthetic-test-host">
+    <testcase name="local product analytics appends whitelisted events to daily JSONL files" classname="" time="0.001018" file="src/localProductAnalytics.bun.test.ts" line="8" assertions="4" />
+    <testcase name="local product analytics serializes only the approved privacy-safe fields" classname="" time="0.00055" file="src/localProductAnalytics.bun.test.ts" line="75" assertions="6" />
+    <testcase name="local product analytics warnings do not fail the product operation that emitted an event" classname="" time="0.000093" file="src/localProductAnalytics.bun.test.ts" line="127" assertions="2" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceDeletionInvalidation.bun.test.ts" file="src/localWorkspaceDeletionInvalidation.bun.test.ts" tests="1" assertions="4" failures="0" skipped="0" time="0.06686" hostname="synthetic-test-host">
+    <testcase name="Workspace deletion emits a privacy-safe Workspace access invalidation after revocation" classname="" time="0.040784" file="src/localWorkspaceDeletionInvalidation.bun.test.ts" line="13" assertions="4" />
+  </testsuite>
+  <testsuite name="src/localWorkspaceOperationCoordination.bun.test.ts" file="src/localWorkspaceOperationCoordination.bun.test.ts" tests="2" assertions="14" failures="0" skipped="0" time="0.141247" hostname="synthetic-test-host">
+    <testcase name="product-store capacity failure releases the admitted Workspace operation" classname="" time="0.000773" file="src/localWorkspaceOperationCoordination.bun.test.ts" line="147" assertions="4" />
+    <testcase name="Workspace deletion drains admitted product work and rejects new product HTTP requests" classname="" time="0.101604" file="src/localWorkspaceOperationCoordination.bun.test.ts" line="18" assertions="10" />
+  </testsuite>
+  <testsuite name="src/testSupport/independentChecks.bun.test.ts" file="src/testSupport/independentChecks.bun.test.ts" tests="1" assertions="3" failures="0" skipped="0" time="0.000574" hostname="synthetic-test-host">
+    <testcase name="aggregate agent checks start every independent check and retain a failing status" classname="" time="0.000186" file="src/testSupport/independentChecks.bun.test.ts" line="5" assertions="3" />
+  </testsuite>
+  <testsuite name="src/localModelSettings.bun.test.ts" file="src/localModelSettings.bun.test.ts" tests="2" assertions="20" failures="0" skipped="0" time="0.027175" hostname="synthetic-test-host">
+    <testcase name="the authenticated model settings API validates updates and keeps tokens write-only" classname="" time="0.001592" file="src/localModelSettings.bun.test.ts" line="98" assertions="11" />
+    <testcase name="local model settings persist UI overrides without exposing the saved token" classname="" time="0.001163" file="src/localModelSettings.bun.test.ts" line="10" assertions="9" />
+  </testsuite>
+</testsuites>

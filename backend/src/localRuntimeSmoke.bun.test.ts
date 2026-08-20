@@ -6,46 +6,71 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { AsyncCleanupStack, startLocalRuntimeSmokeProcess } from "./testSupport/localRuntimeProcess";
+
 const backendDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("the Bun server supports the complete local product path", async () => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-local-smoke-"));
-  const modelGateway = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch: (request) => {
-      if (new URL(request.url).pathname !== "/chat/completions") {
-        return new Response("Not found", { status: 404 });
-      }
-      return Response.json({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              results: [{ field_id: "invoice_number", status: "ok", answer: "INV-SMOKE-001" }],
-            }),
-          },
-        }],
-      });
-    },
-  });
-  const port = await availablePort();
-  const origin = `http://127.0.0.1:${port}`;
-  const serverProcess = Bun.spawn([process.execPath, "src/server.ts"], {
-    cwd: backendDirectory,
-    env: {
-      ...process.env,
-      BETTER_AUTH_URL: origin,
-      DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
-      LITELLM_KEY: "smoke-test-key",
-      MODEL_GATEWAY_URL: `http://127.0.0.1:${modelGateway.port}`,
-      PORT: String(port),
-    },
-    stderr: "pipe",
-    stdout: "pipe",
-  });
+  const cleanup = new AsyncCleanupStack();
 
   try {
-    await waitForServer(origin);
+    const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-local-smoke-"));
+    cleanup.defer(() => rm(stateDirectory, { recursive: true, force: true }));
+    const modelGateway = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: (request) => {
+        if (new URL(request.url).pathname !== "/chat/completions") {
+          return new Response("Not found", { status: 404 });
+        }
+        return Response.json({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                results: [{ field_id: "invoice_number", status: "ok", answer: "INV-SMOKE-001" }],
+              }),
+            },
+          }],
+        });
+      },
+    });
+    cleanup.defer(() => modelGateway.stop(true));
+    const runtime = await startLocalRuntimeSmokeProcess({
+      backendDirectory,
+      env: {
+        ...process.env,
+        DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
+        LITELLM_KEY: "smoke-test-key",
+        LOCAL_SHUTDOWN_TIMEOUT_MS: "50",
+        MODEL_GATEWAY_URL: `http://127.0.0.1:${modelGateway.port}`,
+      },
+    });
+    cleanup.defer(async () => {
+      await runtime.stop();
+    });
+    const origin = runtime.origin;
+    const port = Number(new URL(origin).port);
+
+    const health = await fetchJson<{
+      diagnostics: {
+        liveUpdates: {
+          connections: { open: number; pending: number };
+          runtimePendingWebSockets: number;
+          workspaces: { total: number; totalSubscribers: number };
+        };
+        runtime: { bunRevision: string; bunVersion: string; nodeVersion: string };
+      };
+    }>(`${origin}/v1/health`);
+    expect(health.diagnostics.runtime).toMatchObject({
+      bunVersion: Bun.version,
+      nodeVersion: process.versions.node,
+    });
+    expect(health.diagnostics.runtime.bunRevision).toBe(Bun.revision);
+    expect(health.diagnostics.liveUpdates).toMatchObject({
+      connections: { open: 0, pending: 0 },
+      runtimePendingWebSockets: 0,
+      workspaces: { total: 0, totalSubscribers: 0 },
+    });
 
     const signUp = await fetch(`${origin}/api/auth/sign-up/email`, {
       method: "POST",
@@ -89,8 +114,27 @@ test("the Bun server supports the complete local product path", async () => {
     }, 201);
 
     const liveSocket = await openAuthenticatedLiveSocket({ cookie: cookie!, port, workspaceId: workspaceId! });
+    cleanup.defer(async () => {
+      liveSocket.close();
+      await liveSocket.closed;
+    });
     const lifecycleMessages: string[] = [];
     liveSocket.onMessage = (message) => lifecycleMessages.push(message);
+    const liveHealth = await fetchJson<{
+      diagnostics: {
+        liveUpdates: {
+          connections: { open: number; pending: number };
+          runtimePendingWebSockets: number;
+          workspaces: { total: number; totalSubscribers: number };
+        };
+      };
+    }>(`${origin}/v1/health`);
+    expect(liveHealth.diagnostics.liveUpdates).toMatchObject({
+      connections: { open: 1, pending: 0 },
+      runtimePendingWebSockets: 1,
+      workspaces: { total: 1, totalSubscribers: 1 },
+    });
+    expect(JSON.stringify(liveHealth.diagnostics.liveUpdates)).not.toContain(workspaceId!);
 
     const form = new FormData();
     form.append("template_id", createdTemplate.template_id);
@@ -110,8 +154,6 @@ test("the Bun server supports the complete local product path", async () => {
     await waitFor(() => lifecycleMessages.some((message) => message.includes('"status":"completed"')));
     expect(lifecycleMessages.join("\n")).not.toContain("smoke.png");
     expect(lifecycleMessages.join("\n")).not.toContain("INV-SMOKE-001");
-    liveSocket.close();
-
     const key = await fetchJson<{ api_key: string }>(`${origin}/v1/workspaces/${workspaceId}/api-key`, {
       method: "POST",
       headers: { cookie: cookie! },
@@ -128,30 +170,13 @@ test("the Bun server supports the complete local product path", async () => {
     expect(analytics).toContain("extraction_completed");
     expect(analytics).not.toContain("smoke.png");
     expect(analytics).not.toContain("INV-SMOKE-001");
+
+    expect(await runtime.stop()).toBe(0);
+    await liveSocket.closed;
   } finally {
-    serverProcess.kill();
-    await serverProcess.exited;
-    modelGateway.stop(true);
-    await rm(stateDirectory, { recursive: true, force: true });
+    await cleanup.dispose();
   }
 }, 30_000);
-
-async function availablePort(): Promise<number> {
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = server.port;
-  server.stop(true);
-  if (!port) {
-    throw new Error("Could not reserve a local port");
-  }
-  return port;
-}
-
-async function waitForServer(origin: string): Promise<void> {
-  await waitFor(async () => {
-    const response = await fetch(`${origin}/v1/health`).catch(() => null);
-    return response?.ok;
-  });
-}
 
 async function waitForMail(stateDirectory: string): Promise<{ type: string; action_url: string }> {
   return waitFor(async () => {
@@ -199,6 +224,7 @@ async function waitFor<T>(read: () => T | Promise<T>): Promise<NonNullable<T>> {
 
 type LiveSocket = {
   close(): void;
+  closed: Promise<void>;
   onMessage: (message: string) => void;
 };
 
@@ -215,10 +241,15 @@ async function openAuthenticatedLiveSocket({
   let handshake = "";
   let frameBuffer = Buffer.alloc(0);
   let settled = false;
+  let resolveClosed!: () => void;
   const liveSocket: LiveSocket = {
     close: () => socket.end(),
+    closed: new Promise<void>((resolve) => {
+      resolveClosed = resolve;
+    }),
     onMessage: () => {},
   };
+  socket.once("close", () => resolveClosed());
 
   await new Promise<void>((resolvePromise, reject) => {
     socket.on("connect", () => {

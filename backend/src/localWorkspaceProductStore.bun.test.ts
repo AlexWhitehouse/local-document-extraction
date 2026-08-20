@@ -8,6 +8,7 @@ import { createLocalApplication } from "./localApplication";
 import { createLocalAuth } from "./localAuth";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
+import { localDocumentRequestBodyLimit } from "./localDocumentBodyLimit";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import type { FetchApplication } from "./localRuntime";
 import {
@@ -803,6 +804,66 @@ test("local Document submission rejects unsafe input before Source file storage"
     expect(oversized.status).toBe(400);
     await expect(oversized.json()).resolves.toMatchObject({ error: { code: "source_file_too_large" } });
     expect(writtenSourceFiles).toEqual([]);
+  } finally {
+    fixture.database.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("known oversized bodies use the same authenticated preflight for sessions and Workspace API keys", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-body-preflight-"));
+  const fixture = await createAuthenticatedLocalWorkspace(stateDirectory);
+  let scheduledJobs = 0;
+  const maximumSourceBytes = 100;
+  const application = createLocalApplication({
+    auth: fixture.auth,
+    maxSourceFileBytes: maximumSourceBytes,
+    scheduleQueuedJob: () => {
+      scheduledJobs += 1;
+    },
+    stateDirectory,
+    workspaceControl: fixture.control,
+  });
+  const session = await fixture.auth.getSession(new Request("http://127.0.0.1", {
+    headers: fixture.headers,
+  }));
+  const rotated = fixture.control.rotateApiKey({
+    userId: session!.id,
+    workspaceId: fixture.workspace.id,
+  });
+  const limit = localDocumentRequestBodyLimit(maximumSourceBytes);
+
+  try {
+    for (const headers of [
+      fixture.headers,
+      { authorization: `Bearer ${rotated.api_key}` },
+    ]) {
+      const form = new FormData();
+      form.set("template_id", "template_unused");
+      form.set("document", new File([new Uint8Array([1])], "source.png", { type: "image/png" }));
+      const requestHeaders = new Headers(headers);
+      requestHeaders.set("content-length", String(limit + 1));
+      const response = await application(new Request("http://127.0.0.1/v1/extract", {
+        method: "POST",
+        headers: requestHeaders,
+        body: form,
+      }));
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "source_file_too_large",
+          message: `Request exceeds max size of ${limit} bytes`,
+        },
+      });
+    }
+    expect(scheduledJobs).toBe(0);
+    await expect(stat(join(
+      stateDirectory,
+      "data",
+      "workspaces",
+      `${fixture.workspace.id}.sqlite`,
+    ))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     fixture.database.close();
     await rm(stateDirectory, { recursive: true, force: true });
