@@ -158,6 +158,52 @@ test("the shutdown deadline forces a stalled network stop", async () => {
   expect(events).toEqual(["server:graceful", "server:forced"]);
 });
 
+test("the shutdown deadline releases every stalled draining barrier", async () => {
+  const events: string[] = [];
+  const stalled = deferred();
+  let forceDeadline: (() => void) | undefined;
+  let settled = false;
+  const shutdown = createLocalRuntimeShutdown({
+    closeAdmission: () => stalled.promise,
+    closeAuth: () => {
+      events.push("auth:closed");
+    },
+    closeProductStores: () => {
+      events.push("stores:closed");
+    },
+    closeQueue: () => stalled.promise,
+    flushAnalytics: async () => {
+      events.push("analytics:flushed");
+    },
+    forceAfterMs: 500,
+    scheduleTimeout: (handler) => {
+      forceDeadline = handler;
+      return Symbol("deadline");
+    },
+    stopRecurringWork: () => stalled.promise,
+    stopServer: (force) => {
+      events.push(force ? "server:forced" : "server:graceful");
+      return force ? undefined : stalled.promise;
+    },
+  });
+
+  const completed = shutdown.request().then(() => {
+    settled = true;
+  });
+  forceDeadline?.();
+  await drainMicrotasks();
+
+  expect(settled).toBe(true);
+  expect(events).toEqual([
+    "server:graceful",
+    "server:forced",
+    "analytics:flushed",
+    "auth:closed",
+    "stores:closed",
+  ]);
+  await completed;
+});
+
 test("shutdown waits for recurring runtime work before flushing analytics", async () => {
   const recurring = deferred();
   let analyticsFlushed = false;

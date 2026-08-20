@@ -33,8 +33,12 @@ export function createLocalRuntimeShutdown({
   let deadline: unknown = null;
   let finished = false;
   let forced = false;
+  let releaseDrainingBarriers: (() => void) | null = null;
   let resolveServerStopped: (() => void) | null = null;
   let rejectServerStopped: ((error: unknown) => void) | null = null;
+  const drainingBarriersReleased = new Promise<void>((resolve) => {
+    releaseDrainingBarriers = resolve;
+  });
 
   const forceServerStop = () => {
     if (finished || forced || !completion) return;
@@ -46,6 +50,8 @@ export function createLocalRuntimeShutdown({
       );
     } catch (error) {
       rejectServerStopped?.(error);
+    } finally {
+      releaseDrainingBarriers?.();
     }
   };
 
@@ -74,10 +80,10 @@ export function createLocalRuntimeShutdown({
       completion = (async () => {
         const failures: unknown[] = [];
         const barriers = await Promise.allSettled([
-          admissionClosed,
-          queueClosed,
-          recurringWorkStopped,
-          serverStopped,
+          stopWaitingWhenForced(admissionClosed, drainingBarriersReleased),
+          stopWaitingWhenForced(queueClosed, drainingBarriersReleased),
+          stopWaitingWhenForced(recurringWorkStopped, drainingBarriersReleased),
+          stopWaitingWhenForced(serverStopped, drainingBarriersReleased),
         ]);
         for (const result of barriers) {
           if (result.status === "rejected") failures.push(result.reason);
@@ -111,4 +117,11 @@ function callBoundary(action: () => void | Promise<void>): Promise<void> {
   } catch (error) {
     return Promise.reject(error);
   }
+}
+
+function stopWaitingWhenForced(
+  barrier: Promise<void>,
+  drainingBarriersReleased: Promise<void>,
+) {
+  return Promise.race([barrier, drainingBarriersReleased]);
 }
