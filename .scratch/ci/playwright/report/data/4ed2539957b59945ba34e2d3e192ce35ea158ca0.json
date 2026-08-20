@@ -1,0 +1,17 @@
+[
+  {
+    "type": "extraction_job_lifecycle",
+    "jobId": "job_6d30a977d23b41bc9a3de670346228a6",
+    "status": "queued"
+  },
+  {
+    "type": "extraction_job_lifecycle",
+    "jobId": "job_6d30a977d23b41bc9a3de670346228a6",
+    "status": "processing"
+  },
+  {
+    "type": "extraction_job_lifecycle",
+    "jobId": "job_6d30a977d23b41bc9a3de670346228a6",
+    "status": "completed"
+  }
+]

@@ -6,9 +6,9 @@
  * material completed-job throughput?
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { availableParallelism, tmpdir, totalmem } from "node:os";
+import { cpus, tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { PDFDocument } from "../../../backend/node_modules/pdf-lib";
@@ -61,11 +61,16 @@ type ServerReport = {
   baselineRssBytes: number;
   peakRssFraction: number;
   normalizedCpuFraction: number;
+  cpuUserMicroseconds: number;
+  cpuSystemMicroseconds: number;
+  machineParallelism: number;
   maxEventLoopLagMs: number;
   queue: QueueSnapshot;
   gatewayPeakActive: number;
   pollNotModified: number;
   pollOk: number;
+  sqliteBusyOutcomes: number;
+  sqliteBusyRetries: number;
 };
 
 type ClientReport = {
@@ -76,6 +81,7 @@ type ClientReport = {
   pollRequests: number;
   submissionLatencyMs: number[];
   pollLatencyMs: number[];
+  lifecycleLatencyMs: number[];
   elapsedMs: number;
 };
 
@@ -90,49 +96,58 @@ if (childProfile) {
 async function runComparison(): Promise<void> {
   const configuration = readConfiguration();
   const fixtures = await createWorkloadFixtures();
+  const fixtureBytes = fixtures.map((fixture) => fixture.byteLength);
+  const fixtureSha256 = fixtures.map((fixture) => createHash("sha256").update(fixture).digest("hex"));
+  const structuredOnly = process.env.PROTOTYPE_STRUCTURED_ONLY === "1";
   const profiles: Profile[] = process.env.PROTOTYPE_PROFILE === "baseline"
     ? ["baseline"]
     : process.env.PROTOTYPE_PROFILE === "bounded"
       ? ["bounded"]
       : ["baseline", "bounded"];
 
-  console.log("PROTOTYPE — high-throughput local PDF extraction");
-  console.log(JSON.stringify({ configuration, fixtureBytes: fixtures.map((fixture) => fixture.byteLength) }, null, 2));
+  if (!structuredOnly) {
+    console.log("PROTOTYPE — high-throughput local PDF extraction");
+    console.log(JSON.stringify({ configuration, fixtureBytes, fixtureSha256 }, null, 2));
+  }
 
   const results: Array<{ profile: Profile; server: ServerReport; client: ClientReport }> = [];
   for (const profile of profiles) {
-    console.log(`\nRunning ${profile} profile...`);
+    if (!structuredOnly) console.log(`\nRunning ${profile} profile...`);
     results.push(await runProfileClient(profile, configuration, fixtures));
   }
 
-  console.log("\nResults");
-  console.table(results.map(({ profile, server, client }) => ({
-    profile,
-    completed: client.completed,
-    failed: client.failed,
-    "jobs/s": round(client.completed / (client.elapsedMs / 1_000)),
-    "submit p95 ms": round(percentile(client.submissionLatencyMs, 0.95)),
-    "poll p95 ms": round(percentile(client.pollLatencyMs, 0.95)),
-    polls: client.pollRequests,
-    "503 retries": client.submissionRetries,
-    "server peak RSS MiB": round(server.peakRssBytes / 1024 / 1024),
-    "server RSS delta MiB": round((server.peakRssBytes - server.baselineRssBytes) / 1024 / 1024),
-    "memory %": round(server.peakRssFraction * 100),
-    "CPU % of machine": round(server.normalizedCpuFraction * 100),
-    "event-loop max lag ms": round(server.maxEventLoopLagMs),
-    "runner peak": server.queue.peakActive,
-    "queue peak": server.queue.peakPending,
-    "gateway peak": server.gatewayPeakActive,
-    "poll 304": server.pollNotModified,
-  })));
-  for (const { profile, client } of results) {
-    if (client.errors.length > 0) {
-      console.log(`${profile} sample errors:`);
-      console.log(client.errors.join("\n"));
+  if (!structuredOnly) {
+    console.log("\nResults");
+    console.table(results.map(({ profile, server, client }) => ({
+      profile,
+      completed: client.completed,
+      failed: client.failed,
+      "jobs/s": round(client.completed / (client.elapsedMs / 1_000)),
+      "lifecycle p95 ms": round(percentile(client.lifecycleLatencyMs, 0.95)),
+      "submit p95 ms": round(percentile(client.submissionLatencyMs, 0.95)),
+      "poll p95 ms": round(percentile(client.pollLatencyMs, 0.95)),
+      polls: client.pollRequests,
+      "503 retries": client.submissionRetries,
+      "server peak RSS MiB": round(server.peakRssBytes / 1024 / 1024),
+      "server RSS delta MiB": round((server.peakRssBytes - server.baselineRssBytes) / 1024 / 1024),
+      "memory %": round(server.peakRssFraction * 100),
+      "CPU % of machine": round(server.normalizedCpuFraction * 100),
+      "event-loop max lag ms": round(server.maxEventLoopLagMs),
+      "runner peak": server.queue.peakActive,
+      "queue peak": server.queue.peakPending,
+      "gateway peak": server.gatewayPeakActive,
+      "SQLite busy/retry": `${server.sqliteBusyOutcomes}/${server.sqliteBusyRetries}`,
+      "poll 304": server.pollNotModified,
+    })));
+    for (const { profile, client } of results) {
+      if (client.errors.length > 0) {
+        console.log(`${profile} sample errors:`);
+        console.log(client.errors.join("\n"));
+      }
     }
   }
 
-  if (results.length === 2) {
+  if (!structuredOnly && results.length === 2) {
     const baseline = results[0]!;
     const bounded = results[1]!;
     console.log("\nPrototype verdict inputs");
@@ -151,6 +166,14 @@ async function runComparison(): Promise<void> {
       boundedWithinEnvelope: bounded.server.peakRssFraction < 0.8 && bounded.server.normalizedCpuFraction < 0.85,
     }, null, 2));
   }
+  console.log(`${resultPrefix()}${JSON.stringify({
+    bunRevision: Bun.revision,
+    bunVersion: Bun.version,
+    configuration,
+    fixtureBytes,
+    fixtureSha256,
+    results,
+  })}`);
 }
 
 async function runProfileClient(
@@ -162,6 +185,7 @@ async function runProfileClient(
   const readyFile = join(coordinationDirectory, "ready.json");
   const serverProcess = Bun.spawn([
     process.execPath,
+    ...serverRuntimeFlags(),
     import.meta.path,
     "--server",
     profile,
@@ -207,6 +231,7 @@ async function runProfileClient(
         pollRequests: sum(reports.map((report) => report.pollRequests)),
         submissionLatencyMs: reports.map((report) => report.submissionLatencyMs),
         pollLatencyMs: reports.flatMap((report) => report.pollLatencyMs),
+        lifecycleLatencyMs: reports.map((report) => report.lifecycleLatencyMs),
         elapsedMs,
       },
     };
@@ -239,11 +264,13 @@ async function runExternalWorker({
   error?: string;
   submissionRetries: number;
   submissionLatencyMs: number;
+  lifecycleLatencyMs: number;
   pollRequests: number;
   pollLatencyMs: number[];
 }> {
   let submissionRetries = 0;
-  const submissionStartedAt = performance.now();
+  const lifecycleStartedAt = performance.now();
+  const submissionStartedAt = lifecycleStartedAt;
   let jobId = "";
   while (!jobId) {
     const form = new FormData();
@@ -264,11 +291,12 @@ async function runExternalWorker({
           error: `Submission ${index} exhausted network retries`,
           submissionRetries,
           submissionLatencyMs: performance.now() - submissionStartedAt,
+          lifecycleLatencyMs: performance.now() - lifecycleStartedAt,
           pollRequests: 0,
           pollLatencyMs: [],
         };
       }
-      await Bun.sleep(Math.min(500, 20 * 2 ** Math.min(4, submissionRetries)) * (1 + Math.random() * 0.2));
+      await Bun.sleep(Math.min(500, 20 * 2 ** Math.min(4, submissionRetries)) * jitterMultiplier());
       continue;
     }
     if (response.status === 503) {
@@ -278,7 +306,7 @@ async function runExternalWorker({
       await Bun.sleep(Math.max(
         retryAfterMs,
         Math.min(1_000, 25 * 2 ** Math.min(5, submissionRetries)),
-      ) * (1 + Math.random() * 0.2));
+      ) * jitterMultiplier());
       continue;
     }
     if (response.status !== 202) {
@@ -287,6 +315,7 @@ async function runExternalWorker({
         error: `Submission ${index} failed (${response.status}): ${await response.text()}`,
         submissionRetries,
         submissionLatencyMs: performance.now() - submissionStartedAt,
+        lifecycleLatencyMs: performance.now() - lifecycleStartedAt,
         pollRequests: 0,
         pollLatencyMs: [],
       };
@@ -316,11 +345,12 @@ async function runExternalWorker({
           error: `Poll ${jobId} exhausted network retries`,
           submissionRetries,
           submissionLatencyMs,
+          lifecycleLatencyMs: performance.now() - lifecycleStartedAt,
           pollRequests,
           pollLatencyMs,
         };
       }
-      await Bun.sleep(Math.min(1000, 50 * 2 ** pollNetworkFailures) * (1 + Math.random() * 0.2));
+      await Bun.sleep(Math.min(1000, 50 * 2 ** pollNetworkFailures) * jitterMultiplier());
       continue;
     }
     pollLatencyMs.push(performance.now() - pollStartedAt);
@@ -328,7 +358,7 @@ async function runExternalWorker({
     nextPollDelayMs = Math.max(
       pollIntervalMs,
       Math.max(0, Number(response.headers.get("retry-after")) * 1_000 || 0),
-    ) * (1 + Math.random() * 0.2);
+    ) * jitterMultiplier();
     if (response.status === 304) {
       continue;
     }
@@ -338,6 +368,7 @@ async function runExternalWorker({
         error: `Poll ${jobId} failed (${response.status}): ${await response.text()}`,
         submissionRetries,
         submissionLatencyMs,
+        lifecycleLatencyMs: performance.now() - lifecycleStartedAt,
         pollRequests,
         pollLatencyMs,
       };
@@ -345,7 +376,14 @@ async function runExternalWorker({
     entityTag = response.headers.get("etag") || entityTag;
     const job = await response.json() as { status: string };
     if (job.status === "completed") {
-      return { completed: true, submissionRetries, submissionLatencyMs, pollRequests, pollLatencyMs };
+      return {
+        completed: true,
+        submissionRetries,
+        submissionLatencyMs,
+        lifecycleLatencyMs: performance.now() - lifecycleStartedAt,
+        pollRequests,
+        pollLatencyMs,
+      };
     }
     if (job.status === "failed") {
       return {
@@ -353,6 +391,7 @@ async function runExternalWorker({
         error: `Prototype job ${jobId} failed`,
         submissionRetries,
         submissionLatencyMs,
+        lifecycleLatencyMs: performance.now() - lifecycleStartedAt,
         pollRequests,
         pollLatencyMs,
       };
@@ -436,6 +475,8 @@ async function runServer(profile: Profile): Promise<void> {
   let completed = 0;
   let pollNotModified = 0;
   let pollOk = 0;
+  let sqliteBusyOutcomes = 0;
+  const sqliteBusyRetries = 0;
   const sampler = createResourceSampler();
   let server: ReturnType<typeof Bun.serve>;
   server = Bun.serve({
@@ -455,6 +496,8 @@ async function runServer(profile: Profile): Promise<void> {
           gatewayPeakActive: gateway.peakActive(),
           pollNotModified,
           pollOk,
+          sqliteBusyOutcomes,
+          sqliteBusyRetries,
         } satisfies ServerReport);
       }
       if (pathname === "/__prototype/shutdown" && request.method === "POST") {
@@ -481,7 +524,13 @@ async function runServer(profile: Profile): Promise<void> {
         peakAdmission = Math.max(peakAdmission, admissionActive);
       }
       try {
-        const response = await application(request);
+        let response: Response;
+        try {
+          response = await application(request);
+        } catch (error) {
+          if (isSqliteBusy(error)) sqliteBusyOutcomes += 1;
+          throw error;
+        }
         if (isSubmission && response.status === 202) {
           accepted += 1;
         }
@@ -616,13 +665,17 @@ function createResourceSampler() {
       const elapsedMs = performance.now() - startedAt;
       const cpu = process.cpuUsage(startedCpu);
       const cpuMs = (cpu.user + cpu.system) / 1_000;
+      const machineParallelism = Math.max(1, cpus().length);
       peakRssBytes = Math.max(peakRssBytes, process.memoryUsage.rss());
       return {
         elapsedMs,
         peakRssBytes,
         baselineRssBytes,
         peakRssFraction: peakRssBytes / totalmem(),
-        normalizedCpuFraction: cpuMs / elapsedMs / availableParallelism(),
+        normalizedCpuFraction: cpuMs / elapsedMs / machineParallelism,
+        cpuUserMicroseconds: cpu.user,
+        cpuSystemMicroseconds: cpu.system,
+        machineParallelism,
         maxEventLoopLagMs,
       };
     },
@@ -631,6 +684,12 @@ function createResourceSampler() {
 }
 
 async function createWorkloadFixtures(): Promise<Uint8Array[]> {
+  const fixtureDirectory = process.env.PROTOTYPE_FIXTURE_DIRECTORY;
+  if (fixtureDirectory) {
+    return Promise.all([0, 1, 2].map(async (index) => new Uint8Array(
+      await readFile(join(fixtureDirectory, `fixture-${index}.pdf`)),
+    )));
+  }
   return Promise.all([
     createPdfFixture(2, Math.floor(1.8 * 1024 * 1024)),
     createPdfFixture(4, Math.floor(4.8 * 1024 * 1024)),
@@ -708,4 +767,29 @@ function sum(values: number[]): number {
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function jitterMultiplier(): number {
+  return process.env.PROTOTYPE_DISABLE_JITTER === "1" ? 1 : 1 + Math.random() * 0.2;
+}
+
+function serverRuntimeFlags(): string[] {
+  const raw = process.env.PROTOTYPE_SERVER_RUNTIME_FLAGS;
+  if (!raw) return [];
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string")) {
+    throw new Error("PROTOTYPE_SERVER_RUNTIME_FLAGS must be a JSON string array");
+  }
+  return parsed;
+}
+
+function isSqliteBusy(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === "SQLITE_BUSY"
+    || (typeof candidate.message === "string" && /\bSQLITE_BUSY\b|database is locked/i.test(candidate.message));
+}
+
+function resultPrefix(): string {
+  return "PROTOTYPE_RESULT ";
 }

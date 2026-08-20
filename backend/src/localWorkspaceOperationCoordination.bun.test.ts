@@ -156,6 +156,7 @@ test("product-store capacity failure releases the admitted Workspace operation",
       );
     },
     closeAll: () => {},
+    evictIdleStores: () => 0,
     diagnostics: () => ({
       activeLeases: 64,
       invalidatedWorkspaces: 0,

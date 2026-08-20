@@ -20,6 +20,7 @@ export function TemplateFieldEditor({
   subtitle,
 }) {
   const [activeFieldIndex, setActiveFieldIndex] = useState(0);
+  const [schemaEditorFieldIndex, setSchemaEditorFieldIndex] = useState(null);
 
   useEffect(() => {
     if (!fields.length) {
@@ -31,6 +32,27 @@ export function TemplateFieldEditor({
       setActiveFieldIndex(fields.length - 1);
     }
   }, [activeFieldIndex, fields.length]);
+
+  useEffect(() => {
+    if (schemaEditorFieldIndex === null) {
+      return undefined;
+    }
+
+    const schemaField = fields[schemaEditorFieldIndex];
+    if (!schemaField || !isObjectLikeType(schemaField.data_type)) {
+      setSchemaEditorFieldIndex(null);
+      return undefined;
+    }
+
+    function closeOnEscape(event) {
+      if (event.key === "Escape") {
+        setSchemaEditorFieldIndex(null);
+      }
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [fields, schemaEditorFieldIndex]);
 
   function addField() {
     onChange((prev) => [...prev, { ...EMPTY_FIELD }]);
@@ -189,6 +211,11 @@ export function TemplateFieldEditor({
   const objectColumns = activeField
     ? normalizeObjectSchema(activeField.object_schema).columns
     : [];
+  const schemaEditorField =
+    schemaEditorFieldIndex === null ? null : fields[schemaEditorFieldIndex];
+  const schemaEditorColumns = schemaEditorField
+    ? normalizeObjectSchema(schemaEditorField.object_schema).columns
+    : [];
 
   return (
     <div className="field-editor">
@@ -341,147 +368,234 @@ export function TemplateFieldEditor({
               </div>
 
               {isObjectLikeType(activeField.data_type) ? (
-                <div className="object-schema-editor">
-                  <div className="object-schema-head">
-                    <div>
-                      <strong>Object Schema Builder</strong>
-                      <p className="hint">
-                        Define output columns and ordering for table-style
-                        object extraction.
-                      </p>
-                    </div>
-                    <div className="actions compact">
-                      <button
-                        type="button"
-                        onClick={() => addObjectColumn(activeFieldIndex)}
-                        disabled={objectColumns.length >= MAX_TEMPLATE_OBJECT_COLUMNS}
-                        title={`Maximum ${MAX_TEMPLATE_OBJECT_COLUMNS} columns`}
-                      >
-                        Add Column
-                      </button>
-                    </div>
-                  </div>
-                  {!objectColumns.length ? (
-                    <p className="muted">
-                      No columns yet. Add one to start defining the object
-                      shape.
+                <div className="object-schema-launch">
+                  <div>
+                    <strong>Object Schema</strong>
+                    <p className="hint">
+                      {objectColumns.length
+                        ? `${objectColumns.length} column${
+                            objectColumns.length === 1 ? "" : "s"
+                          } defined`
+                        : "No columns defined yet"}
                     </p>
-                  ) : (
-                    <div className="object-column-list">
-                      {objectColumns.map((column, columnIndex) => (
-                        <div className="object-column-card" key={columnIndex}>
-                          <p className="hint object-column-index">
-                            Column {columnIndex + 1}
-                          </p>
-                          <div className="row object-columns-grid">
-                            <label>
-                              Column Name
-                              <input
-                                value={column.heading}
-                                onChange={(event) =>
-                                  updateObjectColumn(
-                                    activeFieldIndex,
-                                    columnIndex,
-                                    "heading",
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder="Line Total"
-                              />
-                            </label>
-                            <label>
-                              Column ID
-                              <input
-                                value={column.key}
-                                readOnly
-                                placeholder="auto_generated_from_name"
-                              />
-                            </label>
-                            <label>
-                              Type
-                              <select
-                                value={column.data_type}
-                                onChange={(event) =>
-                                  updateObjectColumn(
-                                    activeFieldIndex,
-                                    columnIndex,
-                                    "data_type",
-                                    event.target.value,
-                                  )
-                                }
-                              >
-                                {OBJECT_SCHEMA_DATA_TYPES.map((dataType) => (
-                                  <option key={dataType} value={dataType}>
-                                    {dataType}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label>
-                              Column Description
-                              <input
-                                value={column.description}
-                                onChange={(event) =>
-                                  updateObjectColumn(
-                                    activeFieldIndex,
-                                    columnIndex,
-                                    "description",
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder="What this column contains"
-                              />
-                            </label>
-                          </div>
-                          <div className="actions compact">
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() =>
-                                moveObjectColumn(
-                                  activeFieldIndex,
-                                  columnIndex,
-                                  -1,
-                                )
-                              }
-                              disabled={columnIndex === 0}
-                            >
-                              Move Up
-                            </button>
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() =>
-                                moveObjectColumn(
-                                  activeFieldIndex,
-                                  columnIndex,
-                                  1,
-                                )
-                              }
-                              disabled={columnIndex === objectColumns.length - 1}
-                            >
-                              Move Down
-                            </button>
-                            <button
-                              className="danger"
-                              type="button"
-                              onClick={() =>
-                                removeObjectColumn(activeFieldIndex, columnIndex)
-                              }
-                            >
-                              Remove Column
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setSchemaEditorFieldIndex(activeFieldIndex)}
+                  >
+                    Edit Schema
+                  </button>
                 </div>
               ) : null}
             </div>
           ) : null}
         </div>
       )}
+
+      {schemaEditorField && isObjectLikeType(schemaEditorField.data_type) ? (
+        <ObjectSchemaModal
+          fieldName={schemaEditorField.name}
+          columns={schemaEditorColumns}
+          onAddColumn={() => addObjectColumn(schemaEditorFieldIndex)}
+          onUpdateColumn={(columnIndex, key, value) =>
+            updateObjectColumn(schemaEditorFieldIndex, columnIndex, key, value)
+          }
+          onMoveColumn={(columnIndex, direction) =>
+            moveObjectColumn(schemaEditorFieldIndex, columnIndex, direction)
+          }
+          onRemoveColumn={(columnIndex) =>
+            removeObjectColumn(schemaEditorFieldIndex, columnIndex)
+          }
+          onClose={() => setSchemaEditorFieldIndex(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ObjectSchemaModal({
+  fieldName,
+  columns,
+  onAddColumn,
+  onUpdateColumn,
+  onMoveColumn,
+  onRemoveColumn,
+  onClose,
+}) {
+  return (
+    <div
+      className="modal-backdrop object-schema-modal-backdrop"
+      onClick={onClose}
+    >
+      <div
+        className="modal-card object-schema-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="object-schema-modal-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="object-schema-modal-head">
+          <div>
+            <p className="eyebrow">{fieldName || "Object Field"}</p>
+            <h2 id="object-schema-modal-title">Object Schema Builder</h2>
+            <p>
+              Define output columns and their order for table-style object
+              extraction.
+            </p>
+          </div>
+          <div className="actions compact object-schema-modal-head-actions">
+            <button
+              type="button"
+              onClick={onAddColumn}
+              disabled={columns.length >= MAX_TEMPLATE_OBJECT_COLUMNS}
+              title={`Maximum ${MAX_TEMPLATE_OBJECT_COLUMNS} columns`}
+            >
+              Add Column
+            </button>
+            <button
+              type="button"
+              className="icon-action-button object-schema-modal-close"
+              aria-label="Close object schema editor"
+              title="Close"
+              onClick={onClose}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="object-schema-table-wrap">
+          <table
+            className="object-schema-table"
+            aria-label="Object schema columns"
+          >
+            <thead>
+              <tr>
+                <th scope="col">Order</th>
+                <th scope="col">Column Name</th>
+                <th scope="col">Column ID</th>
+                <th scope="col">Type</th>
+                <th scope="col">Description</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!columns.length ? (
+                <tr>
+                  <td className="object-schema-empty" colSpan="6">
+                    No columns yet. Add one to start defining the object shape.
+                  </td>
+                </tr>
+              ) : (
+                columns.map((column, columnIndex) => (
+                  <tr className="object-column-card" key={columnIndex}>
+                    <td>
+                      <span className="object-schema-row-number">
+                        Column {columnIndex + 1}
+                      </span>
+                    </td>
+                    <td>
+                      <input
+                        aria-label="Column Name"
+                        value={column.heading}
+                        onChange={(event) =>
+                          onUpdateColumn(
+                            columnIndex,
+                            "heading",
+                            event.target.value,
+                          )
+                        }
+                        placeholder="Line Total"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label="Column ID"
+                        value={column.key}
+                        readOnly
+                        placeholder="auto_generated_from_name"
+                      />
+                    </td>
+                    <td>
+                      <select
+                        aria-label="Type"
+                        value={column.data_type}
+                        onChange={(event) =>
+                          onUpdateColumn(
+                            columnIndex,
+                            "data_type",
+                            event.target.value,
+                          )
+                        }
+                      >
+                        {OBJECT_SCHEMA_DATA_TYPES.map((dataType) => (
+                          <option key={dataType} value={dataType}>
+                            {dataType}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        aria-label="Column Description"
+                        value={column.description}
+                        onChange={(event) =>
+                          onUpdateColumn(
+                            columnIndex,
+                            "description",
+                            event.target.value,
+                          )
+                        }
+                        placeholder="What this column contains"
+                      />
+                    </td>
+                    <td>
+                      <div className="object-schema-row-actions">
+                        <button
+                          type="button"
+                          className="secondary"
+                          aria-label={`Move Column ${columnIndex + 1} Up`}
+                          onClick={() => onMoveColumn(columnIndex, -1)}
+                          disabled={columnIndex === 0}
+                        >
+                          Up
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          aria-label={`Move Column ${columnIndex + 1} Down`}
+                          onClick={() => onMoveColumn(columnIndex, 1)}
+                          disabled={columnIndex === columns.length - 1}
+                        >
+                          Down
+                        </button>
+                        <button
+                          className="danger"
+                          type="button"
+                          aria-label={`Remove Column ${columnIndex + 1}`}
+                          onClick={() => onRemoveColumn(columnIndex)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="object-schema-modal-footer">
+          <p className="hint">
+            Changes are applied to the current template draft as you edit.
+          </p>
+          <button type="button" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

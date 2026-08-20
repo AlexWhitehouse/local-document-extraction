@@ -2,6 +2,9 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
 
 permissions:
   contents: read
@@ -12,7 +15,93 @@ concurrency:
 
 jobs:
   quality:
+    if: github.event_name != 'schedule'
     name: Quality, Tests, and Build
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Report Bun runtime
+        run: |
+          bun --version
+          bun --revision
+
+      - name: Install dependencies
+        run: bun ci
+
+      - name: Prove frozen lockfile stability
+        run: git diff --exit-code -- bun.lock
+
+      - name: Check production package hygiene
+        run: bun run package:hygiene
+
+      - name: Upload package hygiene evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-hygiene-${{ runner.os }}-${{ github.job }}
+          if-no-files-found: error
+          path: .scratch/ci/package-hygiene/
+
+      - name: Run CI
+        run: bun run ci
+
+      - name: Generate backend test evidence
+        if: always()
+        run: bun run --cwd backend test:evidence
+
+      - name: Upload backend test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-evidence-${{ runner.os }}
+          if-no-files-found: error
+          path: |
+            .scratch/ci/backend/backend-junit-merged.xml
+            .scratch/ci/backend/backend-test-timings.json
+            .scratch/ci/backend/backend-test-output.txt
+            .scratch/ci/backend/backend-coverage-summary.md
+            .scratch/ci/backend/coverage/lcov.info
+
+      - name: Generate frontend coverage evidence
+        if: always()
+        run: bun run --cwd frontend test:coverage
+
+      - name: Upload frontend coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-${{ runner.os }}
+          if-no-files-found: error
+          path: |
+            .scratch/ci/frontend/frontend-coverage-summary.md
+            .scratch/ci/frontend/coverage/coverage-summary.json
+            .scratch/ci/frontend/coverage/lcov.info
+
+      - name: Measure backend Bun worker caps
+        run: bun run --cwd backend benchmark:test-parallel | tee backend-test-parallel-${{ runner.os }}.md
+
+      - name: Upload backend worker-cap evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-parallel-${{ runner.os }}
+          path: backend-test-parallel-${{ runner.os }}.md
+
+  backend-flake:
+    name: Backend randomized repetition lane
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:
@@ -21,11 +110,67 @@ jobs:
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
 
-      - name: Run CI
-        run: bun run ci
+      - name: Prove frozen lockfile stability
+        run: git diff --exit-code -- bun.lock
+
+      - name: Check production package hygiene
+        run: bun run package:hygiene
+
+      - name: Upload package hygiene evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-hygiene-${{ runner.os }}-${{ github.job }}
+          if-no-files-found: error
+          path: .scratch/ci/package-hygiene/
+
+      - name: Run randomized repeated backend tests
+        run: bun run --cwd backend test:bun:flake
+
+      - name: Upload backend flake evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-flake-${{ runner.os }}
+          if-no-files-found: error
+          path: .scratch/ci/backend/backend-flake.md
+
+  browser-journey:
+    name: Built SPA Chromium journey
+    if: github.event_name != 'schedule'
+    needs: quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun ci
+
+      - name: Prove frozen lockfile stability
+        run: git diff --exit-code -- bun.lock
+
+      - name: Install Chromium and system dependencies
+        run: bunx playwright install --with-deps chromium
+
+      - name: Build production SPA
+        run: bun run build
+
+      - name: Run isolated browser journey
+        run: bun run test:e2e
+
+      - name: Upload Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-extraction-journey
+          if-no-files-found: error
+          path: .scratch/ci/playwright/

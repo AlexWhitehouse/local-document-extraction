@@ -128,6 +128,46 @@ test("submission admission reserves counters before asynchronous resource sampli
   expect(admission.snapshot()).toMatchObject({ active: 0, rejected: 1, reservedBytes: 0 });
 });
 
+test("closing submission admission rejects new Documents and waits for admitted work", async () => {
+  const admission = createLocalSubmissionAdmission({
+    maxConcurrent: 2,
+    maxReservedBytes: 20,
+  });
+  const activeHandler = deferred();
+  const first = admission.run(requestWithBody(10), async () => {
+    await activeHandler.promise;
+    return new Response(null, { status: 202 });
+  });
+  await Promise.resolve();
+
+  let closed = false;
+  const closing = admission.close().then(() => {
+    closed = true;
+  });
+  expect(admission.snapshot()).toMatchObject({ accepting: false, active: 1 });
+  expect(closed).toBe(false);
+
+  const rejectedBody = trackedBody();
+  const rejected = await admission.run(
+    new Request("http://127.0.0.1/v1/extract", {
+      method: "POST",
+      headers: { "content-length": "3" },
+      body: rejectedBody.stream,
+      duplex: "half",
+    } as RequestInit),
+    () => new Response(null, { status: 202 }),
+  );
+  expect(rejected.status).toBe(503);
+  expect(rejectedBody.consumed()).toBe(3);
+  expect(closed).toBe(false);
+
+  activeHandler.resolve();
+  expect((await first).status).toBe(202);
+  await closing;
+  expect(closed).toBe(true);
+  expect(admission.snapshot()).toMatchObject({ accepting: false, active: 0, reservedBytes: 0 });
+});
+
 function requestWithBody(contentLength: number | null): Request {
   const headers = new Headers({ "content-type": "application/octet-stream" });
   if (contentLength !== null) headers.set("content-length", String(contentLength));
@@ -153,4 +193,12 @@ function trackedBody() {
       },
     }),
   };
+}
+
+function deferred(): { promise: Promise<void>; resolve(): void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }

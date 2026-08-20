@@ -1,6 +1,6 @@
 import React from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 let currentSession;
@@ -81,11 +81,6 @@ describe("Application admin page gate", () => {
       data: { users: [], total: 0, limit: 25, offset: 0 },
       error: null,
     });
-  });
-
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
   });
 
   it("does not show the Admin sidebar item to a regular user", async () => {

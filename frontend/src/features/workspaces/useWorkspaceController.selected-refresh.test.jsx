@@ -1,16 +1,10 @@
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { act, render, waitFor } from "@testing-library/react";
 
-import { clearPersistedWorkspace, useWorkspaceController } from "./useWorkspaceController";
+import { useWorkspaceController } from "./useWorkspaceController";
 
 describe("useWorkspaceController selected Workspace context refresh", () => {
-  afterEach(() => {
-    cleanup();
-    clearPersistedWorkspace();
-    vi.restoreAllMocks();
-  });
-
   it("refreshes selected Workspace context without fetching pending Workspace invitations", async () => {
     let controller = null;
     const request = vi.fn(async (path) => {

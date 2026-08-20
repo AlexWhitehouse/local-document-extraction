@@ -39,7 +39,12 @@ describe("Template field editor", () => {
     expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
+    expect(
+      screen.queryByRole("dialog", { name: "Object Schema Builder" }),
+    ).toBeNull();
 
+    await user.click(screen.getByRole("button", { name: "Edit Schema" }));
+    expect(screen.getByRole("table", { name: "Object schema columns" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Add Column" }));
     expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
   });
@@ -72,6 +77,7 @@ describe("Template field editor", () => {
     render(<TemplateFieldHarness />);
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
+    await user.click(screen.getByRole("button", { name: "Edit Schema" }));
     await user.click(screen.getByRole("button", { name: "Add Column" }));
 
     const columnCard = screen.getByText("Column 1").closest(".object-column-card");
@@ -99,7 +105,9 @@ describe("Template field editor", () => {
     expect(within(columnCard).getByLabelText("Column ID").value).toBe("dose_1");
   });
 
-  it("does not offer a twenty-first object column", () => {
+  it("does not offer a twenty-first object column", async () => {
+    const user = userEvent.setup();
+
     render(
       <TemplateFieldEditor
         fields={[
@@ -125,6 +133,53 @@ describe("Template field editor", () => {
       />,
     );
 
+    await user.click(screen.getByRole("button", { name: "Edit Schema" }));
     expect(screen.getByRole("button", { name: "Add Column" }).disabled).toBe(true);
+  });
+
+  it("closes the schema table with Done while retaining draft edits", async () => {
+    const user = userEvent.setup();
+    let latestFields = [];
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([
+        {
+          id: "line_items",
+          name: "Line Items",
+          description: "Invoice line items",
+          data_type: "array<object>",
+          object_schema: {
+            mode: "table",
+            columns: [],
+          },
+        },
+      ]);
+      latestFields = fields;
+
+      return (
+        <TemplateFieldEditor
+          fields={fields}
+          onChange={setFields}
+          title="Field Designer"
+          subtitle="Edit Template fields."
+        />
+      );
+    }
+
+    render(<TemplateFieldHarness />);
+
+    await user.click(screen.getByRole("button", { name: "Edit Schema" }));
+    await user.click(screen.getByRole("button", { name: "Add Column" }));
+    await user.type(screen.getByLabelText("Column Name"), "Quantity");
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(
+      screen.queryByRole("dialog", { name: "Object Schema Builder" }),
+    ).toBeNull();
+    expect(screen.getByText("1 column defined")).toBeTruthy();
+    expect(latestFields[0].object_schema.columns[0]).toMatchObject({
+      heading: "Quantity",
+      key: "quantity",
+    });
   });
 });

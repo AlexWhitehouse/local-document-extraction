@@ -1,8 +1,7 @@
 import React from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   act,
-  cleanup,
   fireEvent,
   render,
   screen,
@@ -78,12 +77,6 @@ describe("Workspace action toast feedback", () => {
       userWorkspaceInvitations: [],
     });
     globalThis.fetch = vi.fn(mockWorkspaceFetch);
-  });
-
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
   });
 
   it("stores only accepted Workspace ID and display name in Stored workspace preference", async () => {

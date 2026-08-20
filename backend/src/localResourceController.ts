@@ -3,6 +3,7 @@ import { cpus, totalmem } from "node:os";
 import { join } from "node:path";
 
 import type { LocalExtractionQueueSnapshot } from "./localExtractionQueue";
+import type { LocalMemoryPressureLevel } from "./localMemoryPressure";
 
 type GatewayOutcome = "failed" | "success" | "throttled" | "timeout";
 
@@ -31,6 +32,18 @@ export type LocalResourceControllerSnapshot = {
     rssBytes: number;
     totalBytes: number;
   };
+  memoryPressure: {
+    activeLevel: LocalMemoryPressureLevel | null;
+    evictedIdleStores: number;
+    healthySamples: number;
+    lastLevel: LocalMemoryPressureLevel | null;
+    permitAfter: number | null;
+    permitBefore: number | null;
+    policyReason: string | null;
+    recoveredAt: string | null;
+    recoveryDurationMs: number | null;
+    signaledAt: string | null;
+  };
   permits: {
     current: number;
     initial: number;
@@ -42,6 +55,7 @@ export type LocalResourceControllerSnapshot = {
 
 export type LocalResourceController = {
   canReserveSubmission(input: { requestBytes: number; reservedBytes: number }): Promise<boolean>;
+  handleMemoryPressure(level: LocalMemoryPressureLevel): Promise<void>;
   recordCompletedJob(): void;
   recordGatewayOutcome(outcome: GatewayOutcome): void;
   sampleNow(): Promise<void>;
@@ -54,10 +68,13 @@ export function createLocalResourceController({
   adaptive = true,
   cpuLimitRatio = 0.85,
   diskReserveBytes = 1024 * 1024 * 1024,
+  evictIdleStores = () => 0,
   getQueueSnapshot,
   initialPermits = 8,
   maximumPermits = Math.max(8, Math.min(32, cpus().length * 4)),
   memoryLimitRatio = 0.8,
+  memoryPressureLargeSubmissionBytes = 4 * 1024 * 1024,
+  now = Date.now,
   sampleIntervalMs = 5_000,
   setPermits,
   stateDirectory,
@@ -65,10 +82,13 @@ export function createLocalResourceController({
   adaptive?: boolean;
   cpuLimitRatio?: number;
   diskReserveBytes?: number;
+  evictIdleStores?: () => number;
   getQueueSnapshot: () => LocalExtractionQueueSnapshot;
   initialPermits?: number;
   maximumPermits?: number;
   memoryLimitRatio?: number;
+  memoryPressureLargeSubmissionBytes?: number;
+  now?: () => number;
   sampleIntervalMs?: number;
   setPermits: (permits: number) => void;
   stateDirectory: string;
@@ -80,14 +100,20 @@ export function createLocalResourceController({
     positiveInteger(maximumPermits, normalizedInitialPermits),
   );
   const normalizedSampleIntervalMs = positiveInteger(sampleIntervalMs, 5_000);
+  const normalizedLargeSubmissionBytes = positiveInteger(
+    memoryPressureLargeSubmissionBytes,
+    4 * 1024 * 1024,
+  );
   const totalMemoryBytes = totalmem();
   let currentPermits = normalizedInitialPermits;
   let timer: ReturnType<typeof setInterval> | null = null;
   let sampling: Promise<void> | null = null;
-  let expectedSampleAt = Date.now() + normalizedSampleIntervalMs;
+  let expectedSampleAt = now() + normalizedSampleIntervalMs;
   let previousCpu = process.cpuUsage();
-  let previousCpuSampleAt = Date.now();
+  let previousCpuSampleAt = now();
   let healthySamples = 0;
+  let memoryPressureRecoveryPermits = currentPermits;
+  let memoryPressureSignaledAtMs: number | null = null;
   let storageSampledAt = 0;
   let completedJobs = 0;
   const completedAt: number[] = [];
@@ -116,6 +142,18 @@ export function createLocalResourceController({
       rssBytes: memory.rss,
       totalBytes: totalMemoryBytes,
     },
+    memoryPressure: {
+      activeLevel: null,
+      evictedIdleStores: 0,
+      healthySamples: 0,
+      lastLevel: null,
+      permitAfter: null,
+      permitBefore: null,
+      policyReason: null,
+      recoveredAt: null,
+      recoveryDurationMs: null,
+      signaledAt: null,
+    },
     permits: {
       current: currentPermits,
       initial: normalizedInitialPermits,
@@ -135,7 +173,7 @@ export function createLocalResourceController({
   };
 
   const sample = async () => {
-    const sampledAt = Date.now();
+    const sampledAt = now();
     const elapsedMicros = Math.max(1, (sampledAt - previousCpuSampleAt) * 1_000);
     const cpu = process.cpuUsage(previousCpu);
     previousCpu = process.cpuUsage();
@@ -163,7 +201,24 @@ export function createLocalResourceController({
 
     const hardPressure = state.memory.ratio >= memoryLimitRatio || state.eventLoopLagMs >= 250;
     const resumePressure = state.memory.ratio < memoryLimitRatio * 0.9 && state.eventLoopLagMs < 100;
-    if (hardPressure) {
+    if (state.memoryPressure.activeLevel) {
+      if (hardPressure || !resumePressure) {
+        state.memoryPressure.healthySamples = 0;
+        if (hardPressure) {
+          updatePermits(0, state.memory.ratio >= memoryLimitRatio ? "memory_limit" : "event_loop_limit");
+        }
+      } else {
+        state.memoryPressure.healthySamples += 1;
+        if (state.memoryPressure.healthySamples >= 3) {
+          state.memoryPressure.activeLevel = null;
+          state.memoryPressure.recoveredAt = new Date(sampledAt).toISOString();
+          state.memoryPressure.recoveryDurationMs = memoryPressureSignaledAtMs === null
+            ? null
+            : Math.max(0, sampledAt - memoryPressureSignaledAtMs);
+          updatePermits(memoryPressureRecoveryPermits, "os_memory_pressure_recovered");
+        }
+      }
+    } else if (hardPressure) {
       healthySamples = 0;
       updatePermits(0, state.memory.ratio >= memoryLimitRatio ? "memory_limit" : "event_loop_limit");
     } else if (currentPermits === 0 && resumePressure) {
@@ -207,7 +262,7 @@ export function createLocalResourceController({
   };
 
   const refreshStorageSample = async () => {
-    storageSampledAt = Date.now();
+    storageSampledAt = now();
     const fileSystem = await statfs(stateDirectory).catch(() => null);
     if (fileSystem) {
       state.disk.availableBytes = Number(fileSystem.bavail) * Number(fileSystem.bsize);
@@ -223,7 +278,10 @@ export function createLocalResourceController({
 
   return {
     canReserveSubmission: async ({ requestBytes, reservedBytes }) => {
-      if (Date.now() - storageSampledAt >= 2_000) await refreshStorageSample();
+      const pressureLevel = state.memoryPressure.activeLevel;
+      if (pressureLevel === "critical") return false;
+      if (pressureLevel === "warning" && requestBytes >= normalizedLargeSubmissionBytes) return false;
+      if (now() - storageSampledAt >= 2_000) await refreshStorageSample();
       const usage = process.memoryUsage();
       const withinMemory = usage.rss + Math.max(0, requestBytes) < totalMemoryBytes * memoryLimitRatio;
       const availableBytes = state.disk.availableBytes;
@@ -233,17 +291,48 @@ export function createLocalResourceController({
     },
     recordCompletedJob: () => {
       completedJobs += 1;
-      completedAt.push(Date.now());
+      completedAt.push(now());
     },
     recordGatewayOutcome: (outcome) => {
       gateway[outcome] += 1;
       gatewayWindow[outcome] += 1;
     },
+    handleMemoryPressure: async (level) => {
+      const signaledAt = now();
+      if (!state.memoryPressure.activeLevel) {
+        memoryPressureRecoveryPermits = currentPermits;
+      }
+      const effectiveLevel = state.memoryPressure.activeLevel === "critical" || level === "critical"
+        ? "critical"
+        : "warning";
+      const permitBefore = currentPermits;
+      const policyReason = `os_memory_pressure_${effectiveLevel}`;
+      const evicted = effectiveLevel === "critical" ? evictIdleStores() : 0;
+      memoryPressureSignaledAtMs = signaledAt;
+      state.memoryPressure = {
+        activeLevel: effectiveLevel,
+        evictedIdleStores: evicted,
+        healthySamples: 0,
+        lastLevel: effectiveLevel,
+        permitAfter: permitBefore,
+        permitBefore,
+        policyReason,
+        recoveredAt: null,
+        recoveryDurationMs: null,
+        signaledAt: new Date(signaledAt).toISOString(),
+      };
+      updatePermits(
+        effectiveLevel === "critical" ? 0 : Math.max(1, Math.floor(currentPermits / 2)),
+        policyReason,
+      );
+      state.memoryPressure.permitAfter = currentPermits;
+      await sampleNow();
+    },
     sampleNow,
     snapshot: () => structuredClone(state),
     start: () => {
       if (timer) return;
-      expectedSampleAt = Date.now() + normalizedSampleIntervalMs;
+      expectedSampleAt = now() + normalizedSampleIntervalMs;
       void sampleNow();
       timer = setInterval(() => void sampleNow(), normalizedSampleIntervalMs);
     },

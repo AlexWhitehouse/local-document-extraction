@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "bunx vite",
     "test": "bunx vitest run",
+    "test:coverage": "bun scripts/runFrontendCoverage.js",
+    "test:isolation": "bun scripts/runIsolationStress.js",
     "build": "bunx vite build",
     "preview": "bunx vite preview"
   },
@@ -18,8 +20,9 @@
   "devDependencies": {
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@vitest/coverage-v8": "4.1.10",
     "jsdom": "^29.1.1",
-    "vite": "^5.4.11",
+    "vite": "^8.2.2",
     "vitest": "^4.1.5"
   }
 }

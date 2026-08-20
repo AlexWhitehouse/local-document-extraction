@@ -9,6 +9,7 @@ export type LocalQueuedExtractionJob = {
 };
 
 export type LocalExtractionQueueSnapshot = {
+  accepting: boolean;
   active: number;
   deferred: number;
   durableDeferrals: number;
@@ -20,6 +21,7 @@ export type LocalExtractionQueueSnapshot = {
 };
 
 export type LocalExtractionQueue = {
+  close(): Promise<void>;
   schedule(job: LocalQueuedExtractionJob): Promise<void>;
   setMaxConcurrent(maxConcurrent: number): void;
   snapshot(): LocalExtractionQueueSnapshot;
@@ -59,7 +61,9 @@ export function createLocalExtractionQueue({
   const readyWorkspaceSet = new Set<string>();
   const knownJobs = new Set<string>();
   const deferredJobs: DeferredJob[] = [];
+  const closeWaiters: Array<() => void> = [];
   const idleWaiters: Array<() => void> = [];
+  let accepting = true;
   let active = 0;
   let durableDeferrals = 0;
   let deferredTimer: unknown = null;
@@ -68,6 +72,11 @@ export function createLocalExtractionQueue({
   const settleIdle = () => {
     if (active !== 0 || pendingCount(workspaceQueues) !== 0 || deferredJobs.length !== 0) return;
     for (const resolve of idleWaiters.splice(0)) resolve();
+  };
+
+  const settleClose = () => {
+    if (accepting || active !== 0) return;
+    for (const resolve of closeWaiters.splice(0)) resolve();
   };
 
   const enqueueReady = (job: LocalQueuedExtractionJob) => {
@@ -106,6 +115,7 @@ export function createLocalExtractionQueue({
           knownJobs.delete(jobKey(job));
           pump();
           settleIdle();
+          settleClose();
         });
     }
   };
@@ -136,7 +146,28 @@ export function createLocalExtractionQueue({
   };
 
   return {
+    close: async () => {
+      if (accepting) {
+        accepting = false;
+        currentMaxConcurrent = 0;
+        if (deferredTimer !== null) cancelTimer(deferredTimer);
+        deferredTimer = null;
+        deferredTimerDueAt = null;
+        deferredJobs.splice(0);
+        workspaceQueues.clear();
+        readyWorkspaces.splice(0);
+        readyWorkspaceSet.clear();
+        knownJobs.clear();
+        settleIdle();
+      }
+      if (active === 0) return;
+      await new Promise<void>((resolve) => closeWaiters.push(resolve));
+    },
     schedule: async (job) => {
+      if (!accepting) {
+        durableDeferrals += 1;
+        return;
+      }
       const key = jobKey(job);
       if (knownJobs.has(key)) return;
       if (pendingCount(workspaceQueues) + deferredJobs.length >= normalizedMaxBuffered) {
@@ -157,10 +188,11 @@ export function createLocalExtractionQueue({
       if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error("Extraction concurrency must be a non-negative integer");
       }
-      currentMaxConcurrent = value;
+      currentMaxConcurrent = accepting ? value : 0;
       pump();
     },
     snapshot: () => ({
+      accepting,
       active,
       deferred: deferredJobs.length,
       durableDeferrals,
@@ -171,6 +203,7 @@ export function createLocalExtractionQueue({
       readyWorkspaces: readyWorkspaces.length,
     }),
     subscribe: (handler) => {
+      if (!accepting) return () => {};
       handlers.add(handler);
       pump();
       return () => handlers.delete(handler);

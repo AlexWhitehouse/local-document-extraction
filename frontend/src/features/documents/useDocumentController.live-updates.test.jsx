@@ -1,15 +1,9 @@
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { act, render, waitFor } from "@testing-library/react";
 import { useDocumentController } from "./useDocumentController";
 
 describe("useDocumentController Workspace live updates", () => {
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-    delete globalThis.WebSocket;
-  });
-
   it("opens one session-only live update connection for the accepted Workspace context", async () => {
     const WebSocketStub = installWebSocketStub();
 
@@ -279,9 +273,8 @@ describe("useDocumentController Workspace live updates", () => {
       ).toHaveLength(1);
     });
     await act(async () => {
-      await new Promise((resolve) => {
-        window.setTimeout(resolve, 20);
-      });
+      await Promise.resolve();
+      await Promise.resolve();
     });
     expect(
       request.mock.calls.filter(([path]) => path === "/jobs/job_completed_1"),
@@ -378,6 +371,7 @@ describe("useDocumentController Workspace live updates", () => {
   it("updates Documents UI without refreshing Workspace context when live lifecycle updates arrive", async () => {
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+    const timeoutSpy = vi.spyOn(window, "setTimeout");
     let controller = null;
 
     render(
@@ -438,11 +432,7 @@ describe("useDocumentController Workspace live updates", () => {
         completed_at: "2026-05-06T12:02:00.000Z",
       });
     });
-    await act(async () => {
-      await new Promise((resolve) => {
-        window.setTimeout(resolve, 200);
-      });
-    });
+    expect(timeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 150);
     expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
   });
 
@@ -749,6 +739,7 @@ describe("useDocumentController Workspace live updates", () => {
   it("ignores malformed and unknown live update events while applying valid job events", async () => {
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+    const timeoutSpy = vi.spyOn(window, "setTimeout");
     let controller = null;
 
     render(
@@ -818,11 +809,7 @@ describe("useDocumentController Workspace live updates", () => {
         completed_at: "2026-05-06T12:03:00.000Z",
       });
     });
-    await act(async () => {
-      await new Promise((resolve) => {
-        window.setTimeout(resolve, 200);
-      });
-    });
+    expect(timeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 150);
     expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
   });
 
@@ -987,6 +974,7 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("does not refresh Workspace capacity when selecting a document whose status is unchanged", async () => {
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+    const timeoutSpy = vi.spyOn(window, "setTimeout");
     const completedJob = {
       job_id: "job_completed_1",
       status: "completed",
@@ -1022,12 +1010,7 @@ describe("useDocumentController Workspace live updates", () => {
       });
     });
 
-    await act(async () => {
-      await new Promise((resolve) => {
-        window.setTimeout(resolve, 200);
-      });
-    });
-
+    expect(timeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 150);
     expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
   });
 

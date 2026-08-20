@@ -6,6 +6,7 @@ import { newId, nowIso } from "./lib/ids";
 import { InvalidPdfSourceFileError, countPdfSourceFilePages } from "./lib/sourceFilePageCount";
 import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "./lib/validation";
 import { buildJobExportWorkbook } from "./jobExportWorkbook";
+import { assertKnownDocumentRequestBodyLength } from "./localDocumentBodyLimit";
 import { parseLocalMultipartSubmission } from "./localMultipartSubmission";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
@@ -593,6 +594,16 @@ async function handleLocalDocumentSubmission({
     return authorization.response;
   }
 
+  const maximumBytes = authorization.workspace.max_source_file_bytes ?? maxSourceFileBytes;
+  try {
+    assertKnownDocumentRequestBodyLength(request, maximumBytes);
+  } catch (error) {
+    if (error instanceof HttpError) {
+      return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+    }
+    throw error;
+  }
+
   let productOperation;
   try {
     productOperation = workspaceProductOperations.acquire({ workspaceId: authorization.workspace.id });
@@ -615,7 +626,6 @@ async function handleLocalDocumentSubmission({
       workspaceControl.completeStarterTemplateBootstrap({ workspaceId: authorization.workspace.id });
     }
 
-    const maximumBytes = authorization.workspace.max_source_file_bytes ?? maxSourceFileBytes;
     let sourceMimeType: string;
     let sourceName: string | null;
     let sourceByteSize: number;

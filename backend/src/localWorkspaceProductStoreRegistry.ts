@@ -17,6 +17,7 @@ export type LocalWorkspaceProductStoreRegistry = {
     mode?: "create" | "existing";
   }): LocalWorkspaceProductStoreLease | null;
   closeAll(): void;
+  evictIdleStores(): number;
   diagnostics(): {
     activeLeases: number;
     invalidatedWorkspaces: number;
@@ -136,6 +137,11 @@ export function createLocalWorkspaceProductStoreRegistry({
         closeEntry(workspaceId, entry);
       }
     },
+    evictIdleStores: () => {
+      let evicted = 0;
+      while (evictOneIdleStore()) evicted += 1;
+      return evicted;
+    },
     diagnostics: () => ({
       activeLeases: [...entries.values()].reduce((total, entry) => total + entry.activeLeases, 0),
       invalidatedWorkspaces: invalidatedWorkspaces.size,
@@ -182,8 +188,8 @@ export function createEphemeralLocalWorkspaceProductStoreRegistry({
       };
     },
     closeAll: () => {},
+    evictIdleStores: () => 0,
     diagnostics: () => ({ activeLeases: 0, invalidatedWorkspaces: 0, maxOpenStores: 0, openStores: 0 }),
     invalidate: async () => {},
   };
 }
-

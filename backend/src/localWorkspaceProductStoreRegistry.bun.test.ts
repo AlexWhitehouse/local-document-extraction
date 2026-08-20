@@ -100,6 +100,43 @@ test("registry invalidation waits for leases, closes once, and prevents reopenin
   }
 });
 
+test("critical pressure evicts idle owners without closing an actively leased store", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-store-pressure-"));
+  const closedWorkspaces: string[] = [];
+  const registry = createLocalWorkspaceProductStoreRegistry({
+    stateDirectory,
+    createStore: (input) => {
+      const store = createLocalWorkspaceProductStore(input);
+      return {
+        ...store,
+        close: () => {
+          closedWorkspaces.push(input.workspaceId);
+          store.close();
+        },
+      };
+    },
+  });
+
+  try {
+    const active = registry.acquire({ workspaceId: "workspace_active" })!;
+    const idle = registry.acquire({ workspaceId: "workspace_idle" })!;
+    idle.release();
+
+    expect(registry.evictIdleStores()).toBe(1);
+    expect(closedWorkspaces).toEqual(["workspace_idle"]);
+    expect(registry.diagnostics()).toMatchObject({ activeLeases: 1, openStores: 1 });
+    expect(active.store.diagnostics().foreignKeys).toBe(true);
+
+    active.release();
+    expect(registry.evictIdleStores()).toBe(1);
+    expect(closedWorkspaces).toEqual(["workspace_idle", "workspace_active"]);
+    expect(registry.diagnostics()).toMatchObject({ activeLeases: 0, openStores: 0 });
+  } finally {
+    registry.closeAll();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("Workspace product stores apply the safe SQLite policy and focused indexes", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-store-policy-"));
   const workspaceId = "workspace_policy";
