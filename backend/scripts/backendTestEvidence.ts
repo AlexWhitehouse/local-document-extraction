@@ -15,14 +15,32 @@ export interface LcovSummary {
   loadedModules: string[];
 }
 
-export function parseLcovSummary(lcov: string): LcovSummary {
+export interface ParseLcovSummaryOptions {
+  includedModules?: readonly string[];
+  normalizeModule?: (module: string) => string;
+}
+
+export function parseLcovSummary(
+  lcov: string,
+  options: ParseLcovSummaryOptions = {},
+): LcovSummary {
   let functionsFound = 0;
   let functionsHit = 0;
   let linesFound = 0;
   let linesHit = 0;
+  const includedModules = options.includedModules === undefined
+    ? undefined
+    : new Set(options.includedModules.map(normalizePath));
   const loadedModules: string[] = [];
+  let includeCurrentModule = includedModules === undefined;
   for (const line of lcov.split(/\r?\n/)) {
-    if (line.startsWith("SF:")) loadedModules.push(normalizePath(line.slice(3)));
+    if (line.startsWith("SF:")) {
+      const rawModule = normalizePath(line.slice(3));
+      const module = normalizePath(options.normalizeModule?.(rawModule) ?? rawModule);
+      loadedModules.push(module);
+      includeCurrentModule = includedModules === undefined || includedModules.has(module);
+    }
+    if (!includeCurrentModule) continue;
     if (line.startsWith("FNF:")) functionsFound += parseCount(line.slice(4));
     if (line.startsWith("FNH:")) functionsHit += parseCount(line.slice(4));
     if (line.startsWith("LF:")) linesFound += parseCount(line.slice(3));

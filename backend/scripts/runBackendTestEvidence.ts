@@ -80,13 +80,17 @@ if (!await Bun.file(lcovPath).exists()) await writeFile(lcovPath, "");
 let coverageExitCode = 0;
 let coverageFailure: string | undefined;
 const lcov = await readFile(lcovPath, "utf8");
-const parsedSummary = parseLcovSummary(lcov);
-const loadedModules = parsedSummary.loadedModules.map((module) =>
-  module.startsWith("/") ? normalizePath(relative(backendDirectory, module)) : normalizePath(module)
-);
-const coverageSummary = { ...parsedSummary, loadedModules };
 const productionModules = await discoverProductionModules();
-const missingModules = findMissingProductionModules(productionModules, loadedModules);
+const coverageSummary = parseLcovSummary(lcov, {
+  includedModules: productionModules,
+  normalizeModule: (module) => module.startsWith("/")
+    ? normalizePath(relative(backendDirectory, module))
+    : normalizePath(module),
+});
+const missingModules = findMissingProductionModules(
+  productionModules,
+  coverageSummary.loadedModules,
+);
 const baseline = JSON.parse(
   await readFile(resolve(backendDirectory, "coverage-baseline.json"), "utf8"),
 ) as CoverageBaseline;

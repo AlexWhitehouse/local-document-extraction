@@ -30,6 +30,32 @@ describe("backend test evidence", () => {
     )).toEqual(["src/not-loaded.ts"]);
   });
 
+  test("excludes non-production LCOV records from the production coverage gate", () => {
+    const summary = parseLcovSummary([
+      "SF:src/covered.ts",
+      "FNF:2",
+      "FNH:2",
+      "LF:4",
+      "LH:4",
+      "end_of_record",
+      "SF:benchmarks/uncovered.ts",
+      "FNF:8",
+      "FNH:0",
+      "LF:16",
+      "LH:0",
+      "end_of_record",
+      "",
+    ].join("\n"), {
+      includedModules: ["src/covered.ts"],
+    });
+
+    expect(summary).toEqual({
+      functions: { found: 2, hit: 2, percentage: 100 },
+      lines: { found: 4, hit: 4, percentage: 100 },
+      loadedModules: ["benchmarks/uncovered.ts", "src/covered.ts"],
+    });
+  });
+
   test("rejects coverage below the checked line or function baseline", () => {
     expect(() => assertCoverageBaseline(
       {
