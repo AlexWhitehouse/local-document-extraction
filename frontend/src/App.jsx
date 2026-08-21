@@ -39,9 +39,16 @@ import {
   workspaceUserActionLabel,
 } from "./features/workspaces/useWorkspaceController.js";
 export function App() {
-  const resetPasswordRoute = getAccountPasswordResetRoute(window.location);
+  const [resetPasswordRoute, setResetPasswordRoute] = useState(() =>
+    getAccountPasswordResetRoute(window.location),
+  );
   if (resetPasswordRoute) {
-    return <AccountPasswordResetRoute resetState={resetPasswordRoute} />;
+    return (
+      <AccountPasswordResetRoute
+        resetState={resetPasswordRoute}
+        onResetComplete={() => setResetPasswordRoute(null)}
+      />
+    );
   }
 
   return <AuthenticatedApp />;
@@ -595,13 +602,12 @@ function AuthenticatedApp() {
   );
 }
 
-function AccountPasswordResetRoute({ resetState }) {
+function AccountPasswordResetRoute({ resetState, onResetComplete }) {
   const [isRequestingNewLink, setIsRequestingNewLink] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
-  const [isComplete, setIsComplete] = useState(false);
   const [busy, setBusy] = useState(false);
   const authClient = useMemo(() => createRuntimeAuthClient("/v1"), []);
   const authProfileController = useAuthProfileController({
@@ -621,10 +627,6 @@ function AccountPasswordResetRoute({ resetState }) {
   });
 
   if (isRequestingNewLink) {
-    return <AuthScreen {...authProfileController.authScreen} />;
-  }
-
-  if (isComplete) {
     return <AuthScreen {...authProfileController.authScreen} />;
   }
 
@@ -665,8 +667,7 @@ function AccountPasswordResetRoute({ resetState }) {
         setPasswordTouched(false);
         setSubmitAttempted(false);
         window.history.replaceState(null, "", "/");
-        authProfileController.authScreen.onSwitchMode("signin");
-        setIsComplete(true);
+        onResetComplete();
       } catch (error) {
         toast.error("Password reset failed. Please request a new reset link.");
       } finally {

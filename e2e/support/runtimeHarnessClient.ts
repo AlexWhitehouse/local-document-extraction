@@ -101,6 +101,11 @@ export async function startRuntimeHarness({ timeoutMs = 20_000 } = {}) {
       origin: payload.origin,
       stateDirectory: payload.stateDirectory,
     }),
+    waitForPasswordResetMail: (email: string) => waitForPasswordResetMail({
+      email,
+      origin: payload.origin,
+      stateDirectory: payload.stateDirectory,
+    }),
     stop(): Promise<void> {
       stopPromise ??= stopHarness(child, exited, payload.controlOrigin, () => ({ stderr, stdout }));
       return stopPromise;
@@ -117,6 +122,49 @@ async function waitForVerificationMail({
   origin: string;
   stateDirectory: string;
 }): Promise<{ actionUrl: string }> {
+  return waitForTransactionalMail({
+    email,
+    expectedPath: "/api/auth/verify-email",
+    origin,
+    stateDirectory,
+    type: "account_email_verification",
+  });
+}
+
+async function waitForPasswordResetMail({
+  email,
+  origin,
+  stateDirectory,
+}: {
+  email: string;
+  origin: string;
+  stateDirectory: string;
+}): Promise<{ actionUrl: string }> {
+  return waitForTransactionalMail({
+    email,
+    expectedPath: "/api/auth/reset-password/",
+    pathMatch: "prefix",
+    origin,
+    stateDirectory,
+    type: "account_password_reset",
+  });
+}
+
+async function waitForTransactionalMail({
+  email,
+  expectedPath,
+  origin,
+  pathMatch = "exact",
+  stateDirectory,
+  type,
+}: {
+  email: string;
+  expectedPath: string;
+  origin: string;
+  stateDirectory: string;
+  type: "account_email_verification" | "account_password_reset";
+  pathMatch?: "exact" | "prefix";
+}): Promise<{ actionUrl: string }> {
   const mailDirectory = join(stateDirectory, "mail");
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
@@ -129,17 +177,20 @@ async function waitForVerificationMail({
           to?: unknown;
           type?: unknown;
         };
-        if (record.type !== "account_email_verification" || record.to !== email) continue;
+        if (record.type !== type || record.to !== email) continue;
         const actionUrl = new URL(String(record.action_url || ""));
-        if (actionUrl.origin !== origin || actionUrl.pathname !== "/api/auth/verify-email") {
-          throw new Error("Local verification mail contained an unexpected action origin or path");
+        const pathMatches = pathMatch === "prefix"
+          ? actionUrl.pathname.startsWith(expectedPath)
+          : actionUrl.pathname === expectedPath;
+        if (actionUrl.origin !== origin || !pathMatches) {
+          throw new Error(`Local ${type} mail contained an unexpected action origin or path`);
         }
         return { actionUrl: actionUrl.toString() };
       }
     }
     await delay(25);
   }
-  throw new Error("Timed out waiting for the isolated Local verification mail");
+  throw new Error(`Timed out waiting for isolated ${type} mail`);
 }
 
 function validateReadyPayload(input: unknown): ReadyPayload {

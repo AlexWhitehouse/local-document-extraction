@@ -11,7 +11,8 @@
     "benchmark:bun-runtime": "bun run --cwd backend benchmark:bun-runtime",
     "build": "bun run --cwd frontend build",
     "check:agent": "bun backend/scripts/runAgentChecks.ts",
-    "ci": "bun run typecheck && bun run lint && bun run test && bun run --cwd frontend test:coverage && bun run build",
+    "ci": "bun run ci:quality && bun run test:e2e",
+    "ci:quality": "bun run typecheck && bun run lint && bun run test && bun run --cwd frontend test:coverage && bun run build",
     "dev": "bun --watch backend/src/server.ts",
     "dev:frontend": "bun run --cwd frontend dev",
     "migrate": "bun run --cwd backend migrate",
@@ -21,7 +22,7 @@
     "start": "bun backend/src/server.ts",
     "lint": "bunx eslint .",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",
-    "test:e2e": "bun test e2e/support/browserEvidence.bun.test.ts && playwright test",
+    "test:e2e": "bun run build && bun test e2e/support/browserEvidence.bun.test.ts && playwright test",
     "typecheck": "bun run --cwd backend typecheck && bun run typecheck:e2e",
     "typecheck:e2e": "bunx tsc --noEmit -p e2e/tsconfig.json"
   },

@@ -24,6 +24,7 @@ jobs:
           - ubuntu-latest
           - macos-latest
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -54,8 +55,8 @@ jobs:
           if-no-files-found: error
           path: .scratch/ci/package-hygiene/
 
-      - name: Run CI
-        run: bun run ci
+      - name: Run platform-neutral CI
+        run: bun run ci:quality
 
       - name: Generate backend test evidence
         if: always()
@@ -144,6 +145,7 @@ jobs:
     if: github.event_name != 'schedule'
     needs: quality
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -160,9 +162,6 @@ jobs:
 
       - name: Install Chromium and system dependencies
         run: bunx playwright install --with-deps chromium
-
-      - name: Build production SPA
-        run: bun run build
 
       - name: Run isolated browser journey
         run: bun run test:e2e

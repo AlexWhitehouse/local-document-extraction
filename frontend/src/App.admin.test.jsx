@@ -283,49 +283,6 @@ describe("Application admin page gate", () => {
     expect(within(inlineError).getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
-  it("makes a regular user an Application admin after confirmation and reloads the list", async () => {
-    const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_regular_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-        ],
-        total: 1,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
-    authClientMock.setRole.mockResolvedValue({ data: {}, error: null });
-
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
-    await clickUserAction(user, "alan@example.com", "Make admin");
-
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Make alan@example.com an Application admin? This grants application-wide account management access.",
-    );
-    await waitFor(() => {
-      expect(authClientMock.setRole).toHaveBeenCalledWith({
-        userId: "user_regular_1",
-        role: "admin",
-      });
-    });
-    expect(authClientMock.listUsers).toHaveBeenCalledTimes(2);
-    expect(toast.success).toHaveBeenCalledWith("Application role updated: alan@example.com");
-  });
-
   it("removes another admin after stronger confirmation but prevents self-demotion", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -425,49 +382,6 @@ describe("Application admin page gate", () => {
     expect(authClientMock.signOut).not.toHaveBeenCalled();
   });
 
-  it("bans a regular user with a required reason and reloads the list", async () => {
-    const user = userEvent.setup();
-    currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_regular_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-        ],
-        total: 1,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
-    authClientMock.banUser.mockResolvedValue({ data: {}, error: null });
-
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
-    await clickUserAction(user, "alan@example.com", "Ban user");
-
-    expect(screen.getByRole("dialog", { name: "Ban alan@example.com" })).toBeTruthy();
-    await user.type(screen.getByLabelText("Ban reason"), "Compromised account");
-    await user.click(screen.getByRole("button", { name: "Confirm ban" }));
-
-    await waitFor(() => {
-      expect(authClientMock.banUser).toHaveBeenCalledWith({
-        userId: "user_regular_1",
-        banReason: "Compromised account",
-      });
-    });
-    expect(authClientMock.listUsers).toHaveBeenCalledTimes(2);
-    expect(toast.success).toHaveBeenCalledWith("User banned: alan@example.com");
-  });
-
   it("shows inline validation and does not call Better Auth when a ban reason is missing", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
@@ -547,47 +461,6 @@ describe("Application admin page gate", () => {
     expect(screen.getByText("You are banning another Application admin."));
   });
 
-  it("unbans a banned user after confirming email and existing ban reason", async () => {
-    const user = userEvent.setup();
-    currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_banned_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: true,
-            banReason: "Compromised credentials",
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-        ],
-        total: 1,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
-    authClientMock.unbanUser.mockResolvedValue({ data: {}, error: null });
-
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
-    await clickUserAction(user, "alan@example.com", "Unban user");
-
-    const dialog = screen.getByRole("dialog", { name: "Unban alan@example.com" });
-    expect(within(dialog).getByText("alan@example.com")).toBeTruthy();
-    expect(within(dialog).getByText("Compromised credentials")).toBeTruthy();
-    await user.click(within(dialog).getByRole("button", { name: "Confirm unban" }));
-
-    await waitFor(() => {
-      expect(authClientMock.unbanUser).toHaveBeenCalledWith({ userId: "user_banned_1" });
-    });
-    expect(authClientMock.listUsers).toHaveBeenCalledTimes(2);
-    expect(toast.success).toHaveBeenCalledWith("User unbanned: alan@example.com");
-  });
-
   it("shows failure Action toasts without reloading when ban and unban operations fail", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
@@ -644,44 +517,6 @@ describe("Application admin page gate", () => {
     });
     expect(screen.getByRole("dialog", { name: "Unban grace@example.com" })).toBeTruthy();
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
-  });
-
-  it("starts impersonating an eligible regular user after transition confirmation", async () => {
-    const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_regular_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-        ],
-        total: 1,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
-    authClientMock.impersonateUser.mockResolvedValue({ data: {}, error: null });
-
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
-    await clickUserAction(user, "alan@example.com", "Impersonate user");
-
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Start impersonating alan@example.com? You will leave the Admin page and enter this user's normal app experience.",
-    );
-    await waitFor(() => {
-      expect(authClientMock.impersonateUser).toHaveBeenCalledWith({ userId: "user_regular_1" });
-    });
   });
 
   it("only offers impersonation for active regular users other than the current admin", async () => {

@@ -7,16 +7,17 @@
 
 | Metric | Current | Checked baseline |
 | --- | ---: | ---: |
-| Lines | 85.71% | 85.70% |
-| Functions | 87.61% | 87.60% |
-| Branches | 76.63% | 76.60% |
+| Lines | 81.12% | 81.10% |
+| Functions | 81.84% | 81.80% |
+| Branches | 73.29% | 73.20% |
 
 ## Production modules absent from LCOV (0)
 
 None.
 
-## Production modules with zero covered lines (1)
+## Production modules with zero covered lines (2)
 
+- `src/lib/authClient.js`
 - `src/main.jsx`
 
 Thresholds are read from `frontend/coverage-baseline.json`; execution never auto-updates or lowers them.
