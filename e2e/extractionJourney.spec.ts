@@ -64,6 +64,10 @@ test("a verified user completes a Document Extraction job through Workspace live
     expect((await templateCreated).status()).toBe(201);
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
+    await page.getByLabel("Description", { exact: true }).fill("Extract the visible invoice reference.");
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
+
     await page.getByRole("button", { name: "Upload Document", exact: true }).first().click();
     const uploadDialog = page.getByRole("dialog", { name: "Upload document" });
     await uploadDialog.getByLabel("Template").selectOption({ label: TEMPLATE.name });
@@ -89,6 +93,26 @@ test("a verified user completes a Document Extraction job through Workspace live
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
     expect(evidence.completedWorkspaceFrames()).not.toEqual([]);
     expect(evidence.externalWebSockets()).toEqual([]);
+
+    const jobSelection = page.getByRole("checkbox", { name: /^Select job / });
+    await jobSelection.click();
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export 1 Job" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(
+      /^browser-journey-workspace-job-export-\d{4}-\d{2}-\d{2}-\d{4}\.xlsx$/,
+    );
+
+    await jobSelection.click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Delete Document" }).click();
+    await expect(page.getByText(/Document deleted:/)).toBeVisible();
+    await expect(page.getByText("INV-E2E-001", { exact: true })).toHaveCount(0);
+
+    await navigation.getByRole("button", { name: /Templates/ }).click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Delete Template" }).click();
+    await expect(page.getByText(`Template deleted: ${TEMPLATE.name}`)).toBeVisible();
   } finally {
     try {
       await evidence.attach(testInfo);

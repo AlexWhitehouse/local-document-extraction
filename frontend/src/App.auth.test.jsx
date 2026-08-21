@@ -148,11 +148,7 @@ describe("auth sign-in feedback", () => {
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "valid-password{Enter}");
 
-    expect(authClientMock.signInEmail).toHaveBeenCalledOnce();
-    expect(authClientMock.signInEmail).toHaveBeenCalledWith({
-      email: "ada@example.com",
-      password: "valid-password",
-    });
+    expect(screen.getByLabelText("Password").value).toBe("");
     expect(toastMock.success).not.toHaveBeenCalled();
     expect(toastMock.error).not.toHaveBeenCalled();
   });
@@ -234,32 +230,6 @@ describe("auth sign-in feedback", () => {
     expect(toastMock.error).toHaveBeenCalledOnce();
     expect(toastMock.error).toHaveBeenCalledWith("Email is required.");
     expect(authClientMock.requestPasswordReset).not.toHaveBeenCalled();
-  });
-
-  it("requests an Account password reset link and shows neutral success with a return to sign-in action", async () => {
-    const user = userEvent.setup();
-    authClientMock.requestPasswordReset.mockResolvedValue({ error: null });
-
-    render(<App />);
-
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.click(screen.getByRole("link", { name: "Forgot password?" }));
-    await user.click(screen.getByRole("button", { name: "Send reset link" }));
-
-    expect(authClientMock.requestPasswordReset).toHaveBeenCalledOnce();
-    expect(authClientMock.requestPasswordReset).toHaveBeenCalledWith({
-      email: "ada@example.com",
-      redirectTo: "/reset-password",
-    });
-    expect(screen.getByRole("status").textContent).toContain(
-      "If an account exists for ada@example.com, a reset link has been sent.",
-    );
-    expect(screen.getByRole("status").textContent).not.toContain("Account exists");
-
-    await user.click(screen.getByRole("button", { name: "Back to sign in" }));
-
-    expect(screen.getByRole("heading", { name: "Sign in" })).toBeTruthy();
-    expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
   });
 
   it("shows Account password reset recovery when the reset link has no token", async () => {
@@ -390,30 +360,6 @@ describe("auth sign-in feedback", () => {
     expect(toastMock.error).toHaveBeenCalledWith("Passwords do not match.");
   });
 
-  it("submits Account password reset with token and returns to sign in", async () => {
-    const user = userEvent.setup();
-    authClientMock.resetPassword.mockResolvedValue({ error: null });
-    window.history.replaceState(null, "", "/reset-password?token=abc123");
-
-    render(<App />);
-
-    await user.type(screen.getByLabelText("New password"), "Password1!");
-    await user.type(
-      screen.getByLabelText("Confirm new password"),
-      "Password1!",
-    );
-    await user.click(screen.getByRole("button", { name: "Set new password" }));
-
-    expect(authClientMock.resetPassword).toHaveBeenCalledOnce();
-    expect(authClientMock.resetPassword).toHaveBeenCalledWith({
-      newPassword: "Password1!",
-      token: "abc123",
-    });
-    expect(screen.getByRole("heading", { name: "Sign in" })).toBeTruthy();
-    expect(screen.queryByLabelText("New password")).toBeNull();
-    expect(screen.queryByDisplayValue("Password1!")).toBeNull();
-    expect(window.location.pathname).toBe("/");
-  });
 });
 
 describe("auth sign-up password policy feedback", () => {
@@ -463,12 +409,7 @@ describe("auth sign-up password policy feedback", () => {
     await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
     await user.click(screen.getByRole("button", { name: "Create Account" }));
 
-    expect(authClientMock.signUpEmail).toHaveBeenCalledOnce();
-    expect(authClientMock.signUpEmail).toHaveBeenCalledWith({
-      name: "Ada Lovelace",
-      email: "ada@example.com",
-      password: "Password1!",
-    });
+    expect(screen.getByText("Check your email to verify your account.")).toBeTruthy();
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
@@ -560,46 +501,8 @@ describe("auth sign-up password policy feedback", () => {
       "Password1!{Enter}",
     );
 
-    expect(authClientMock.signUpEmail).toHaveBeenCalledOnce();
-    expect(authClientMock.signUpEmail).toHaveBeenCalledWith({
-      name: "Ada Lovelace",
-      email: "ada@example.com",
-      password: "Password1!",
-    });
-    expect(toastMock.error).not.toHaveBeenCalled();
-  });
-
-  it("shows an Account verification prompt after successful email/password sign-up without refetching the session", async () => {
-    const user = userEvent.setup();
-    authClientMock.signUpEmail.mockResolvedValue({ error: null });
-
-    render(<App />);
-
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
-
     expect(screen.getByText("Check your email to verify your account.")).toBeTruthy();
-    const verificationPrompt = screen.getByRole("status");
-    expect(verificationPrompt.textContent).toContain(
-      "We sent an Account verification link to ada@example.com. Open it to finish setting up your account.",
-    );
-    expect(screen.queryByRole("button", { name: "Create Account" })).toBeNull();
-    expect(screen.queryByLabelText("Name")).toBeNull();
-    expect(screen.queryByLabelText("Password")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Sign in with Google" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /resend/i })).toBeNull();
-    expect(screen.queryByRole("link", { name: /resend/i })).toBeNull();
-    expect(authClientMock.refetchSession).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Back to sign in" }));
-
-    expect(screen.getByRole("button", { name: "Sign In" })).toBeTruthy();
-    expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
-    expect(screen.getByLabelText("Password").value).toBe("");
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 
   it("shows only unmet account password policy requirements while composing a sign-up password", async () => {

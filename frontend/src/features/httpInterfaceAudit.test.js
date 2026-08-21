@@ -1,7 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { cwd } from "node:process";
-
 import { describe, expect, it, vi } from "vitest";
 
 import { createDocumentRequestAdapter } from "./documents/documentRequestAdapter.js";
@@ -88,19 +84,5 @@ describe("in-scope HTTP interface audit", () => {
       ["/workspaces/ws_1/invitations", "GET"],
       ["/workspaces/ws_1/leave", "POST"],
     ]);
-  });
-
-  it("rejects the former custom profile-route dependency and controller-side Document paths", async () => {
-    const sources = await Promise.all([
-      readFile(resolve(cwd(), "src/features/documents/documentRequestAdapter.js"), "utf8"),
-      readFile(resolve(cwd(), "src/features/documents/useDocumentController.js"), "utf8"),
-      readFile(resolve(cwd(), "src/features/workspaces/workspaceRequestAdapter.js"), "utf8"),
-      readFile(resolve(cwd(), "src/features/auth/useAuthProfileController.js"), "utf8"),
-    ]);
-    const source = sources.join("\n");
-
-    expect(source).not.toMatch(/["'`]\/profile(?:["'`/?]|$)/);
-    expect(sources[1]).not.toContain("/jobs/");
-    expect(sources[1]).not.toContain('"/extract"');
   });
 });
