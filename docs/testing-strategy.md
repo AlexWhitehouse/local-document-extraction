@@ -51,5 +51,8 @@ model gateway.
   report, so the baseline is adjusted only when a deliberate suite change is
   reviewed; it must never update itself.
 - `bun run test:e2e` builds the SPA and runs the real browser journeys.
-- `bun run ci` runs typechecking, linting, both test suites, coverage, and all
-  browser journeys.
+- `bun run ci:quality` runs the platform-neutral typechecking, linting, test,
+  coverage, and build checks used by the Ubuntu/macOS quality matrix.
+- `bun run ci` adds the browser journeys for a complete local verification. In
+  GitHub Actions those journeys run once in the separately provisioned
+  Ubuntu-only browser job.

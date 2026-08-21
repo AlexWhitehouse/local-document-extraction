@@ -7,7 +7,7 @@
 
 | Metric | Current | Checked baseline |
 | --- | ---: | ---: |
-| Lines | 81.15% | 81.10% |
+| Lines | 81.12% | 81.10% |
 | Functions | 81.84% | 81.80% |
 | Branches | 73.29% | 73.20% |
 
