@@ -9,6 +9,7 @@
     "benchmark:memory-pressure": "bun benchmarks/memoryPressureBackpressure.bench.ts",
     "benchmark:document-body-limit": "bun benchmarks/documentBodyLimitStress.bench.ts",
     "benchmark:live-update-fanout": "bun benchmarks/liveUpdateFanout.bench.ts",
+    "benchmark:loopback-saturation": "bun --no-env-file benchmarks/loopbackGatewaySaturation.bench.ts",
     "benchmark:static-assets": "bun benchmarks/staticAssetConcurrency.bench.ts",
     "benchmark:test-parallel": "bun benchmarks/backendNativeParallel.bench.ts",
     "dev": "bun --watch src/server.ts",

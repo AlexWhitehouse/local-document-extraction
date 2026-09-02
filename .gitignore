@@ -34,3 +34,4 @@ pnpm-debug.log*
 # Local agent metadata
 .agents/
 .scratch/bun-1-4-review/raw/
+.scratch/loopback-gateway-saturation/runs/

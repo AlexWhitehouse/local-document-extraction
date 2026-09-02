@@ -9,6 +9,7 @@
   "scripts": {
     "benchmark:global-store": "bun scripts/benchmarkGlobalStore.ts",
     "benchmark:bun-runtime": "bun run --cwd backend benchmark:bun-runtime",
+    "benchmark:loopback-saturation": "bun run --cwd backend benchmark:loopback-saturation",
     "build": "bun run --cwd frontend build",
     "check:agent": "bun backend/scripts/runAgentChecks.ts",
     "ci": "bun run ci:quality && bun run test:e2e",
