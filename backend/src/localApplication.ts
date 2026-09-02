@@ -11,7 +11,8 @@ import { parseLocalMultipartSubmission } from "./localMultipartSubmission";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
-import type { LocalModelSettings } from "./localModelSettings";
+import { handleWorkspaceModelConfiguration } from "./workspaceModelConfigurationHttp";
+import { configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 import type { FetchApplication } from "./localRuntime";
 import type { LocalAuth } from "./localAuth";
 import {
@@ -47,7 +48,6 @@ export function createLocalApplication({
   jobPageSize = DEFAULT_JOB_PAGE_SIZE,
   maxSourceFileBytes = DEFAULT_MAX_SOURCE_FILE_BYTES,
   liveUpdateHub,
-  modelSettings,
   productAnalytics,
   productStoreFactory,
   productStoreRegistry,
@@ -63,7 +63,6 @@ export function createLocalApplication({
   jobPageSize?: number;
   maxSourceFileBytes?: number;
   liveUpdateHub?: LocalLiveUpdateHub;
-  modelSettings?: LocalModelSettings;
   productAnalytics?: LocalProductAnalytics;
   productStoreFactory?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
   productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
@@ -129,48 +128,15 @@ export function createLocalApplication({
       });
     }
 
-    if (url.pathname === "/v1/settings/model") {
-      if (!auth || !modelSettings) {
-        return Response.json(
-          {
-            error: {
-              code: "local_model_settings_unavailable",
-              message: "Local model settings have not finished initializing.",
-            },
-          },
-          { status: 503 },
-        );
+    const modelConfigurationMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/model-configuration(\/test)?$/);
+    if (modelConfigurationMatch) {
+      if (!auth || !workspaceControl || !stateDirectory || !localProductStoreRegistry || !localWorkspaceProductOperations) {
+        return Response.json({ error: { code: "local_product_store_unavailable", message: "Workspace product storage is unavailable." } }, { status: 503, headers: { "cache-control": "no-store" } });
       }
-      const session = await auth.getSession(request);
-      if (!session) {
-        return Response.json(
-          { error: { code: "unauthorized", message: "Authentication required" } },
-          { status: 401 },
-        );
-      }
-      if (request.method === "GET") {
-        return Response.json(modelSettings.getPublicSettings());
-      }
-      if (request.method === "PATCH") {
-        try {
-          const input = validateModelSettingsPayload(
-            parseJsonBody(await request.text()),
-          );
-          return Response.json(await modelSettings.update(input));
-        } catch (error) {
-          if (error instanceof HttpError) {
-            return Response.json(
-              { error: { code: error.code, message: error.message } },
-              { status: error.status },
-            );
-          }
-          throw error;
-        }
-      }
-      return Response.json(
-        { error: { code: "method_not_allowed", message: "Method not allowed" } },
-        { status: 405, headers: { allow: "GET, PATCH" } },
-      );
+      return handleWorkspaceModelConfiguration({
+        request, workspaceId: decodeURIComponent(modelConfigurationMatch[1]!), test: Boolean(modelConfigurationMatch[2]),
+        auth, workspaceControl, stateDirectory, registry: localProductStoreRegistry, operations: localWorkspaceProductOperations, liveUpdateHub,
+      });
     }
 
     if (url.pathname === "/v1/invitations") {
@@ -448,122 +414,6 @@ export function createLocalApplication({
   };
 }
 
-function validateModelSettingsPayload(input: unknown): {
-  gatewayUrl: string;
-  modelName: string;
-  apiKey?: string | null;
-  sequentialCalls?: boolean;
-  supportsPdfInput?: boolean;
-  supportsStructuredOutput?: boolean;
-} {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new HttpError(400, "invalid_model_settings", "Model settings must be an object");
-  }
-  const payload = input as Record<string, unknown>;
-  const gatewayUrl = typeof payload.gateway_url === "string"
-    ? payload.gateway_url.trim()
-    : "";
-  const modelName = typeof payload.model_name === "string"
-    ? payload.model_name.trim()
-    : "";
-
-  if (!gatewayUrl || gatewayUrl.length > 2_048) {
-    throw new HttpError(
-      400,
-      "invalid_gateway_url",
-      "Gateway URL is required and must be 2,048 characters or fewer",
-    );
-  }
-  let parsedGatewayUrl: URL;
-  try {
-    parsedGatewayUrl = new URL(gatewayUrl);
-  } catch {
-    throw new HttpError(400, "invalid_gateway_url", "Gateway URL must be a valid URL");
-  }
-  if (
-    (parsedGatewayUrl.protocol !== "http:" && parsedGatewayUrl.protocol !== "https:") ||
-    parsedGatewayUrl.username ||
-    parsedGatewayUrl.password
-  ) {
-    throw new HttpError(
-      400,
-      "invalid_gateway_url",
-      "Gateway URL must use HTTP or HTTPS and must not contain credentials",
-    );
-  }
-  if (!modelName || modelName.length > 255) {
-    throw new HttpError(
-      400,
-      "invalid_model_name",
-      "Model name is required and must be 255 characters or fewer",
-    );
-  }
-
-  const behaviorSettings: {
-    sequentialCalls?: boolean;
-    supportsPdfInput?: boolean;
-    supportsStructuredOutput?: boolean;
-  } = {};
-  if ("sequential_calls" in payload) {
-    if (typeof payload.sequential_calls !== "boolean") {
-      throw new HttpError(
-        400,
-        "invalid_sequential_calls",
-        "Sequential calls must be a boolean",
-      );
-    }
-    behaviorSettings.sequentialCalls = payload.sequential_calls;
-  }
-  if ("supports_pdf_input" in payload) {
-    if (typeof payload.supports_pdf_input !== "boolean") {
-      throw new HttpError(
-        400,
-        "invalid_supports_pdf_input",
-        "PDF input support must be a boolean",
-      );
-    }
-    behaviorSettings.supportsPdfInput = payload.supports_pdf_input;
-  }
-  if ("supports_structured_output" in payload) {
-    if (typeof payload.supports_structured_output !== "boolean") {
-      throw new HttpError(
-        400,
-        "invalid_supports_structured_output",
-        "Structured output support must be a boolean",
-      );
-    }
-    behaviorSettings.supportsStructuredOutput = payload.supports_structured_output;
-  }
-
-  if (!("api_key" in payload)) {
-    return { gatewayUrl, modelName, ...behaviorSettings };
-  }
-  if (payload.api_key === null) {
-    return { gatewayUrl, modelName, ...behaviorSettings, apiKey: null };
-  }
-  if (typeof payload.api_key !== "string" || !payload.api_key.trim()) {
-    throw new HttpError(
-      400,
-      "invalid_api_key",
-      "API key must be a non-empty string or null",
-    );
-  }
-  if (payload.api_key.length > 16_384) {
-    throw new HttpError(
-      400,
-      "invalid_api_key",
-      "API key must be 16,384 characters or fewer",
-    );
-  }
-
-  return {
-    gatewayUrl,
-    modelName,
-    ...behaviorSettings,
-    apiKey: payload.api_key.trim(),
-  };
-}
-
 async function handleLocalDocumentSubmission({
   auth,
   maxSourceFileBytes,
@@ -595,14 +445,6 @@ async function handleLocalDocumentSubmission({
   }
 
   const maximumBytes = authorization.workspace.max_source_file_bytes ?? maxSourceFileBytes;
-  try {
-    assertKnownDocumentRequestBodyLength(request, maximumBytes);
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
-    }
-    throw error;
-  }
 
   let productOperation;
   try {
@@ -621,6 +463,10 @@ async function handleLocalDocumentSubmission({
   const productStoreLease = productStoreAcquisition.lease;
   const productStore = productStoreLease.store;
   try {
+    const configuration = productStore.getModelConfiguration();
+    if (!configuration) throw configurationMissing();
+    createWorkspaceCredentialVault(stateDirectory).decrypt(authorization.workspace.id, configuration.credential_ciphertext);
+    assertKnownDocumentRequestBodyLength(request, maximumBytes);
     if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: authorization.workspace.id })) {
       productStore.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
       workspaceControl.completeStarterTemplateBootstrap({ workspaceId: authorization.workspace.id });

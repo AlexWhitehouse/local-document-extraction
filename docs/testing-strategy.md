@@ -24,7 +24,7 @@ model gateway, time, or a resource signal that cannot be reproduced reliably.
 
 | Journey | Browser coverage | Supporting coverage |
 | --- | --- | --- |
-| Sign-up, verification, profile and model settings, sign-out, password reset, sign-in | `e2e/accountRecoveryJourney.spec.ts` | Better Auth and model-settings HTTP tests |
+| Sign-up, verification, profile, Workspace Model gateway setup/replacement/clear, sign-out, password reset, sign-in | `e2e/accountRecoveryJourney.spec.ts` | Better Auth and Workspace model-configuration HTTP tests |
 | Workspace creation, settings, API-key rotation, invitations, roles, leaving, deletion | `e2e/workspaceCollaborationJourney.spec.ts` | Workspace policy and storage tests |
 | Template editing, upload, extraction, live updates, export, document and template deletion | `e2e/extractionJourney.spec.ts` | Job orchestration, persistence, and recovery tests |
 | Admin search, role changes, banning, and impersonation | `e2e/applicationAdminJourney.spec.ts` | Admin authorization tests |

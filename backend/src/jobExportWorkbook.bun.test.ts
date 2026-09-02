@@ -275,6 +275,7 @@ function job(
     template_name: "Invoice",
     template_version: 1,
     model_name: "provider/extraction-model",
+    model_configuration_revision: null,
     fields: [],
     results: [],
     error_code: null,

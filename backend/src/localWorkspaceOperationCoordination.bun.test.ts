@@ -1,3 +1,4 @@
+import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -86,6 +87,7 @@ test("Workspace deletion drains admitted product work and rejects new product HT
     const cookie = signIn.headers.get("set-cookie")?.split(";", 1)[0]!;
     const session = await auth.getSession(new Request("http://127.0.0.1:8787", { headers: { cookie } }));
     const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({ userId: session!.id, userName: session!.name })[0]!;
+    configureTestWorkspace({ stateDirectory, workspaceId: deletedWorkspace.id });
     workspaceControl.createWorkspace({ userId: session!.id, name: "Remaining Workspace" });
     const headers = { cookie, "x-workspace-id": deletedWorkspace.id };
     const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: deletedWorkspace.id });

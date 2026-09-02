@@ -259,13 +259,24 @@ async function runMode({
     assertLoopbackOrigin(gateway.origin);
     app = await startApplication({
       fixtureBytes: fixture.byteLength,
-      gatewayOrigin: gateway.origin,
-      mode,
       profileDirectory,
       settings,
       stateDirectory,
     });
     assertLoopbackOrigin(app.origin);
+    const configuration = await fetch(new URL(`/v1/workspaces/${workspace.workspaceId}/model-configuration`, app.origin), {
+      method: "PUT",
+      headers: { cookie: workspace.sessionCookie, "content-type": "application/json", "if-none-match": "*" },
+      body: JSON.stringify({
+        gateway_url: new URL("/v1/", gateway.origin).toString(),
+        model_name: "benchmark/loopback",
+        credential: gatewayToken,
+        sequential_calls: false,
+        supports_pdf_input: mode === "inline-pdf",
+        supports_structured_output: true,
+      }),
+    });
+    if (configuration.status !== 201) throw new Error(`Benchmark Workspace configuration failed (${configuration.status}).`);
     const load = await generateLoad({
       apiKey: workspace.apiKey,
       app,
@@ -716,15 +727,11 @@ async function startGateway(latencyMs: number): Promise<{
 
 async function startApplication({
   fixtureBytes,
-  gatewayOrigin,
-  mode,
   profileDirectory,
   settings,
   stateDirectory,
 }: {
   fixtureBytes: number;
-  gatewayOrigin: string;
-  mode: BenchmarkMode;
   profileDirectory: string;
   settings: BenchmarkSettings;
   stateDirectory: string;
@@ -733,8 +740,6 @@ async function startApplication({
   origin: string;
   process: CapturedChild;
 }> {
-  const gatewayUrl = new URL("/v1/", gatewayOrigin).toString();
-  assertLoopbackOrigin(gatewayUrl);
   let readyResolve!: (origin: string) => void;
   let readyReject!: (error: Error) => void;
   const ready = new Promise<string>((resolve, reject) => {
@@ -753,7 +758,6 @@ async function startApplication({
   ], {
     cwd: backendDirectory,
     env: minimalEnvironment({
-      AI_MODEL: "benchmark/loopback",
       DOCUMENT_EXTRACTION_ASSETS_DIR: resolve(repositoryRoot, "frontend", "dist"),
       DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
       EXTRACTION_ADAPTIVE_CONCURRENCY: "false",
@@ -763,19 +767,12 @@ async function startApplication({
       EXTRACTION_RECONCILE_INTERVAL_MS: "60000",
       EXTRACTION_RETRY_DELAY_MS: "100",
       FAILED_SOURCE_RETENTION_MS: "0",
-      LITELLM_KEY: gatewayToken,
       LOCAL_CPU_LIMIT_RATIO: "1",
       LOCAL_DISK_RESERVE_BYTES: "0",
       LOCAL_MEMORY_LIMIT_RATIO: "0.95",
       LOCAL_SHUTDOWN_TIMEOUT_MS: "30000",
       MAX_SOURCE_FILE_BYTES: String(maxSourceBytes),
       MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "30000",
-      MODEL_GATEWAY_ROUTE_LABEL: "loopback-benchmark",
-      MODEL_GATEWAY_SEQUENTIAL_CALLS: "false",
-      MODEL_GATEWAY_URL: gatewayUrl,
-      MODEL_GATEWAY_USE_MANAGED_FILES: "false",
-      MODEL_SUPPORTS_PDF_INPUT: String(mode === "inline-pdf"),
-      MODEL_SUPPORTS_STRUCTURED_OUTPUT: "true",
       PORT: "0",
       SOURCE_RETENTION_SWEEP_INTERVAL_MS: "60000",
       SUBMISSION_MAX_CONCURRENCY: String(settings.submitters),

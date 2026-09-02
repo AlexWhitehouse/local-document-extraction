@@ -9,40 +9,40 @@
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "request",
     "method": "POST",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/api/auth/sign-up/email"
+    "url": "http://127.0.0.1:61732/api/auth/sign-up/email"
   },
   {
     "phase": "response",
     "method": "POST",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/api/auth/sign-up/email"
+    "url": "http://127.0.0.1:61732/api/auth/sign-up/email"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "isolated",
@@ -54,329 +54,394 @@
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "request",
     "method": "POST",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/api/auth/sign-in/email"
+    "url": "http://127.0.0.1:61732/api/auth/sign-in/email"
   },
   {
     "phase": "response",
     "method": "POST",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/api/auth/sign-in/email"
+    "url": "http://127.0.0.1:61732/api/auth/sign-in/email"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/workspaces"
+    "url": "http://127.0.0.1:61732/v1/workspaces"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/invitations"
+    "url": "http://127.0.0.1:61732/v1/invitations"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/workspaces"
+    "url": "http://127.0.0.1:61732/v1/workspaces"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/invitations"
+    "url": "http://127.0.0.1:61732/v1/invitations"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/workspaces/workspace_0d056f84b7754af1aaf4b47ada224359/users"
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/users"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/workspaces/workspace_0d056f84b7754af1aaf4b47ada224359/invitations"
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/invitations"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/templates"
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/model-configuration"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/jobs/filter-options"
+    "url": "http://127.0.0.1:61732/v1/templates"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/jobs"
+    "url": "http://127.0.0.1:61732/v1/jobs/filter-options"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:61732/v1/jobs"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/api/auth/get-session"
   },
   {
     "phase": "websocket",
-    "url": "ws://127.0.0.1:56640/v1/workspaces/workspace_0d056f84b7754af1aaf4b47ada224359/live"
-  },
-  {
-    "phase": "response",
-    "method": "GET",
-    "resourceType": "fetch",
-    "status": 200,
-    "url": "http://127.0.0.1:56640/api/auth/get-session"
-  },
-  {
-    "phase": "response",
-    "method": "GET",
-    "resourceType": "fetch",
-    "status": 200,
-    "url": "http://127.0.0.1:56640/v1/workspaces/workspace_0d056f84b7754af1aaf4b47ada224359/users"
-  },
-  {
-    "phase": "response",
-    "method": "GET",
-    "resourceType": "fetch",
-    "status": 200,
-    "url": "http://127.0.0.1:56640/v1/workspaces/workspace_0d056f84b7754af1aaf4b47ada224359/invitations"
-  },
-  {
-    "phase": "response",
-    "method": "GET",
-    "resourceType": "fetch",
-    "status": 200,
-    "url": "http://127.0.0.1:56640/v1/templates"
-  },
-  {
-    "phase": "response",
-    "method": "GET",
-    "resourceType": "fetch",
-    "status": 200,
-    "url": "http://127.0.0.1:56640/v1/jobs/filter-options"
-  },
-  {
-    "phase": "response",
-    "method": "GET",
-    "resourceType": "fetch",
-    "status": 200,
-    "url": "http://127.0.0.1:56640/v1/jobs"
+    "url": "ws://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/live"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/templates/tpl_starter_invoice"
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/model-configuration"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/templates/tpl_starter_invoice"
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/users"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/invitations"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/model-configuration"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/v1/templates"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/v1/jobs/filter-options"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/v1/jobs"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/model-configuration"
+  },
+  {
+    "phase": "request",
+    "method": "PUT",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/model-configuration"
+  },
+  {
+    "phase": "response",
+    "method": "PUT",
+    "resourceType": "fetch",
+    "status": 201,
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/model-configuration"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/model-configuration"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/model-configuration"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_starter_invoice"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_starter_invoice"
   },
   {
     "phase": "request",
     "method": "POST",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/templates"
+    "url": "http://127.0.0.1:61732/v1/templates"
   },
   {
     "phase": "response",
     "method": "POST",
     "resourceType": "fetch",
     "status": 201,
-    "url": "http://127.0.0.1:56640/v1/templates"
+    "url": "http://127.0.0.1:61732/v1/templates"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/templates"
+    "url": "http://127.0.0.1:61732/v1/templates"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/templates"
+    "url": "http://127.0.0.1:61732/v1/templates"
   },
   {
     "phase": "request",
     "method": "PATCH",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/templates/tpl_2ffe492377e946afa3a98f7a39878978"
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_37e6d710555544138e640cc3ed16a40e"
   },
   {
     "phase": "response",
     "method": "PATCH",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/templates/tpl_2ffe492377e946afa3a98f7a39878978"
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_37e6d710555544138e640cc3ed16a40e"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/templates"
+    "url": "http://127.0.0.1:61732/v1/templates"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/templates"
+    "url": "http://127.0.0.1:61732/v1/templates"
   },
   {
     "phase": "request",
     "method": "POST",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/extract"
+    "url": "http://127.0.0.1:61732/v1/extract"
   },
   {
     "phase": "response",
     "method": "POST",
     "resourceType": "fetch",
     "status": 202,
-    "url": "http://127.0.0.1:56640/v1/extract"
+    "url": "http://127.0.0.1:61732/v1/extract"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/jobs/job_cb41954c85044b5a84ae36234b40d835"
+    "url": "http://127.0.0.1:61732/v1/jobs/job_8308c3e6b19a498eb9a5615a1a0e883d"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/jobs/job_cb41954c85044b5a84ae36234b40d835"
+    "url": "http://127.0.0.1:61732/v1/jobs/job_8308c3e6b19a498eb9a5615a1a0e883d"
   },
   {
     "phase": "request",
     "method": "POST",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/jobs/export"
+    "url": "http://127.0.0.1:61732/v1/jobs/export"
   },
   {
     "phase": "response",
     "method": "POST",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/jobs/export"
+    "url": "http://127.0.0.1:61732/v1/jobs/export"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/workspaces/workspace_0d056f84b7754af1aaf4b47ada224359/context"
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/context"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/workspaces/workspace_0d056f84b7754af1aaf4b47ada224359/context"
+    "url": "http://127.0.0.1:61732/v1/workspaces/workspace_82bbf50e7dc442bc886a6c13d58fe75a/context"
   },
   {
     "phase": "request",
     "method": "DELETE",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/jobs/job_cb41954c85044b5a84ae36234b40d835"
+    "url": "http://127.0.0.1:61732/v1/jobs/job_8308c3e6b19a498eb9a5615a1a0e883d"
   },
   {
     "phase": "response",
     "method": "DELETE",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/jobs/job_cb41954c85044b5a84ae36234b40d835"
+    "url": "http://127.0.0.1:61732/v1/jobs/job_8308c3e6b19a498eb9a5615a1a0e883d"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/jobs/filter-options"
+    "url": "http://127.0.0.1:61732/v1/jobs/filter-options"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/jobs/filter-options"
+    "url": "http://127.0.0.1:61732/v1/jobs/filter-options"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/templates/tpl_2ffe492377e946afa3a98f7a39878978"
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_37e6d710555544138e640cc3ed16a40e"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/templates/tpl_2ffe492377e946afa3a98f7a39878978"
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_37e6d710555544138e640cc3ed16a40e"
   },
   {
     "phase": "request",
     "method": "DELETE",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/templates/tpl_2ffe492377e946afa3a98f7a39878978"
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_37e6d710555544138e640cc3ed16a40e"
   },
   {
     "phase": "response",
     "method": "DELETE",
     "resourceType": "fetch",
     "status": 204,
-    "url": "http://127.0.0.1:56640/v1/templates/tpl_2ffe492377e946afa3a98f7a39878978"
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_37e6d710555544138e640cc3ed16a40e"
   },
   {
     "phase": "request",
     "method": "GET",
     "resourceType": "fetch",
-    "url": "http://127.0.0.1:56640/v1/templates"
+    "url": "http://127.0.0.1:61732/v1/templates"
   },
   {
     "phase": "response",
     "method": "GET",
     "resourceType": "fetch",
     "status": 200,
-    "url": "http://127.0.0.1:56640/v1/templates"
+    "url": "http://127.0.0.1:61732/v1/templates"
+  },
+  {
+    "phase": "request",
+    "method": "GET",
+    "resourceType": "fetch",
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_starter_invoice"
+  },
+  {
+    "phase": "response",
+    "method": "GET",
+    "resourceType": "fetch",
+    "status": 200,
+    "url": "http://127.0.0.1:61732/v1/templates/tpl_starter_invoice"
   }
 ]

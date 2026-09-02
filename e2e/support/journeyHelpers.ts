@@ -28,7 +28,7 @@ export async function signUpAndVerify(
 
   const verificationMail = await harness.waitForVerificationMail(account.email);
   await page.goto(verificationMail.actionUrl);
-  await expect(page.getByRole("heading", { name: "Connection Settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace details & API access" })).toBeVisible();
   await expect(page.getByText("API Ready", { exact: true }).first()).toBeVisible();
 }
 
@@ -44,7 +44,7 @@ export async function signIn(page: Page, account: BrowserAccount): Promise<void>
   if (!response.ok()) {
     throw new Error(`Sign in failed (${response.status()}): ${await response.text()}`);
   }
-  await expect(page.getByRole("heading", { name: "Connection Settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace details & API access" })).toBeVisible();
 }
 
 export async function signOut(page: Page, account: BrowserAccount): Promise<void> {

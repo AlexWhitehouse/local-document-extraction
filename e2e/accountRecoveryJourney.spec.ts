@@ -55,30 +55,33 @@ async function updateLocalSettings(page: Page) {
   const updatedAccount = { ...ACCOUNT, name: "Recovered Account" };
   await page.getByRole("button", { name: new RegExp(ACCOUNT.email) }).click();
 
-  let settings = page.getByRole("dialog", { name: "Settings" });
+  const settings = page.getByRole("dialog", { name: "Settings" });
   await settings.getByLabel("Name").fill(updatedAccount.name);
   await settings.getByRole("button", { name: "Save Profile" }).click();
   await expect(settings).toHaveCount(0);
   await expect(page.getByRole("button", { name: new RegExp(updatedAccount.name) })).toBeVisible();
 
-  await page.getByRole("button", { name: new RegExp(updatedAccount.email) }).click();
-  settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("button", { name: "Model" }).click();
-  await settings.getByLabel("Gateway URL").fill("http://127.0.0.1:11434/v1");
-  await settings.getByLabel("Model name").fill("browser/vision-model");
-  const apiKey = settings.getByLabel("API key / bearer token");
+  await page.getByRole("button", { name: "Set up", exact: true }).click();
+  const gateway = page.getByRole("article", { name: "Workspace Model gateway" });
+  await gateway.getByLabel("Gateway URL", { exact: true }).fill("http://127.0.0.1:11434/v1");
+  await gateway.getByLabel("Model name", { exact: true }).fill("browser/vision-model");
+  const apiKey = gateway.getByLabel("Gateway API key", { exact: true });
   await apiKey.fill("local-browser-token");
-  await settings.getByRole("checkbox", { name: /Sequential calls/ }).check();
-  await settings.getByRole("checkbox", { name: /Direct PDF input/ }).uncheck();
-  await settings.getByRole("checkbox", { name: /Structured output/ }).uncheck();
-  await settings.getByRole("button", { name: "Save Model Settings" }).click();
-
-  await expect(page.getByText("Model settings saved.")).toBeVisible();
+  await gateway.getByText("Capabilities & call behavior", { exact: true }).click();
+  await gateway.getByRole("checkbox", { name: /Sequential calls/ }).check();
+  await expect(gateway.getByRole("checkbox", { name: /Direct PDF input/ })).not.toBeChecked();
+  await expect(gateway.getByRole("checkbox", { name: /Structured output/ })).not.toBeChecked();
+  await gateway.getByRole("button", { name: "Save configuration" }).click();
+  await expect(gateway.getByText("Model gateway saved.", { exact: true })).toBeVisible();
   await expect(apiKey).toHaveValue("");
   await expect(apiKey).toHaveAttribute("placeholder", /Saved/);
-  await settings.getByRole("button", { name: "Remove saved token" }).click();
-  await expect(settings.getByText("No token stored")).toBeVisible();
-  await settings.getByRole("button", { name: "Close settings" }).click();
+  await apiKey.fill("replacement-browser-token");
+  await gateway.getByRole("button", { name: "Save configuration" }).click();
+  await expect(apiKey).toHaveValue("");
+  await gateway.getByRole("button", { name: "Clear configuration" }).click();
+  await gateway.getByRole("button", { name: "Confirm clear" }).click();
+  await expect(gateway.getByText("Not configured", { exact: true })).toBeVisible();
+  await expect(gateway.getByLabel("Gateway URL", { exact: true })).toHaveValue("");
 
   return updatedAccount;
 }

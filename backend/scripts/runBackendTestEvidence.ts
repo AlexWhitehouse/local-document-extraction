@@ -178,8 +178,6 @@ function sanitizedTestEnvironment() {
   ];
   const environment: Record<string, string> = {
     DOCUMENT_EXTRACTION_STATE_DIR: resolve(artifactDirectory, "synthetic-state"),
-    LITELLM_KEY: "synthetic-test-key",
-    MODEL_GATEWAY_URL: "https://gateway.example.invalid",
     NODE_ENV: "test",
   };
   for (const name of allowlistedNames) {

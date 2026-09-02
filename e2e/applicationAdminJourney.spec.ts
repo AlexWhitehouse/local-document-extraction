@@ -66,7 +66,7 @@ test("an Application admin manages account access through the frontend", async (
     await chooseUserAction(adminPage, "Impersonate user");
     const impersonation = adminPage.getByRole("status", { name: "Impersonation mode" });
     await expect(impersonation).toContainText(`Impersonating ${REGULAR_USER.email}`);
-    await expect(adminPage.getByRole("heading", { name: "Connection Settings" })).toBeVisible();
+    await expect(adminPage.getByRole("heading", { name: "Workspace details & API access" })).toBeVisible();
 
     await impersonation.getByRole("button", { name: "Stop impersonating" }).click();
     await expect(adminPage.getByRole("heading", { name: "Application Admin" })).toBeVisible();

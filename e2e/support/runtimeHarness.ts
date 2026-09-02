@@ -71,9 +71,7 @@ try {
       BETTER_AUTH_SECRET: "browser-journey-auth-secret-at-least-32-characters",
       DOCUMENT_EXTRACTION_ADMIN_EMAILS: "browser-admin@example.test",
       DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
-      LITELLM_KEY: "browser-journey-key",
       LOCAL_SHUTDOWN_TIMEOUT_MS: "5000",
-      MODEL_GATEWAY_URL: `http://127.0.0.1:${modelGateway.port}`,
       NODE_ENV: "test",
     },
   });

@@ -108,5 +108,7 @@ function gatewayEnvironment(): ModelGatewayConfiguration {
     AI_MODEL: "benchmark/model",
     LITELLM_KEY: "benchmark-only",
     MODEL_GATEWAY_URL: "https://benchmark.invalid",
+    MODEL_SUPPORTS_PDF_INPUT: "true",
+    MODEL_SUPPORTS_STRUCTURED_OUTPUT: "true",
   };
 }

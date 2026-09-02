@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import type { FieldDefinition } from "./lib/types";
+import type { StoredWorkspaceModelConfiguration } from "./workspaceModelConfiguration";
 
 export type LocalWorkspaceTemplate = {
   id: string;
@@ -41,6 +42,7 @@ export type LocalWorkspaceExtractionJobSummary = {
   template_id: string;
   template_version: number;
   model_name: string | null;
+  model_configuration_revision: number | null;
   error_code: string | null;
   error_message: string | null;
   created_at: string;
@@ -100,6 +102,13 @@ export type LocalRetainedTerminalSourceFile = {
 
 export type LocalWorkspaceProductStore = {
   close(): void;
+  getModelConfiguration(): StoredWorkspaceModelConfiguration | null;
+  putModelConfiguration(input: {
+    expectedRevision: number | null;
+    configuration: Omit<StoredWorkspaceModelConfiguration, "revision" | "created_at" | "updated_at">;
+    updatedAt: string;
+  }): StoredWorkspaceModelConfiguration | null;
+  clearModelConfiguration(expectedRevision: number): boolean;
   diagnostics(): {
     busyTimeoutMs: number;
     foreignKeys: boolean;
@@ -149,6 +158,7 @@ export type LocalWorkspaceProductStore = {
     attempt: number;
     modelName: string;
     route: string;
+    configurationRevision?: number;
   }): boolean;
   completeExtractionJob(input: {
     jobId: string;
@@ -233,7 +243,11 @@ export function initializeLocalWorkspaceProductStore({
   workspaceId: string;
 }): LocalWorkspaceProductStore {
   const databasePath = workspaceProductDatabasePath({ stateDirectory, workspaceId });
-  mkdirSync(join(stateDirectory, "data", "workspaces"), { recursive: true });
+  const directory = join(stateDirectory, "data", "workspaces");
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  chmodSync(directory, 0o700);
+  closeSync(openSync(databasePath, "a", 0o600));
+  protectProductFiles(databasePath);
   return createProductStore(new Database(databasePath));
 }
 
@@ -248,7 +262,17 @@ export function openLocalWorkspaceProductStore({
   if (!existsSync(databasePath)) {
     return null;
   }
+  protectProductFiles(databasePath);
   return createProductStore(new Database(databasePath));
+}
+
+function protectProductFiles(path: string): void {
+  chmodSync(dirname(path), 0o700);
+  for (const file of [path, `${path}-journal`, `${path}-shm`, `${path}-wal`]) {
+    try { chmodSync(file, 0o600); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
 }
 
 export async function eraseLocalWorkspaceProductData({
@@ -284,6 +308,26 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
 
   return {
     close: () => database.close(),
+    getModelConfiguration: () => readModelConfiguration(database),
+    putModelConfiguration: (input) => database.transaction(() => {
+      const current = readModelConfiguration(database);
+      if ((current?.revision ?? null) !== input.expectedRevision) return null;
+      const revision = nextModelRevision(database);
+      const config = input.configuration;
+      database.query(`INSERT OR REPLACE INTO workspace_model_configuration
+        (singleton, gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output, revision, created_at, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        config.gateway_url, config.model_name, config.credential_ciphertext,
+        Number(config.sequential_calls), Number(config.supports_pdf_input), Number(config.supports_structured_output),
+        revision, current?.created_at ?? input.updatedAt, input.updatedAt,
+      );
+      return readModelConfiguration(database);
+    }).immediate(),
+    clearModelConfiguration: (expectedRevision) => database.transaction(() => {
+      if (readModelConfiguration(database)?.revision !== expectedRevision) return false;
+      database.query("DELETE FROM workspace_model_configuration WHERE singleton = 1").run();
+      return true;
+    }).immediate(),
     diagnostics: () => productStoreDiagnostics(database),
     createTemplate: (input) => createTemplate(database, input),
     updateTemplate: (input) => updateTemplate(database, input),
@@ -313,6 +357,17 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   };
 }
 
+function readModelConfiguration(database: Database): StoredWorkspaceModelConfiguration | null {
+  const row = database.query("SELECT gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output, revision, created_at, updated_at FROM workspace_model_configuration WHERE singleton = 1").get() as StoredWorkspaceModelConfiguration | null;
+  return row ? { ...row, sequential_calls: Boolean(row.sequential_calls), supports_pdf_input: Boolean(row.supports_pdf_input), supports_structured_output: Boolean(row.supports_structured_output) } : null;
+}
+
+function nextModelRevision(database: Database): number {
+  // This counter survives a clear, so an old conditional update cannot match a recreated configuration.
+  return (database.query(`INSERT INTO workspace_model_revision(singleton, revision) VALUES (1, 1)
+    ON CONFLICT(singleton) DO UPDATE SET revision = revision + 1 RETURNING revision`).get() as { revision: number }).revision;
+}
+
 function ensureProductSchemaColumns(database: Database): void {
   const jobColumns = database.query("PRAGMA table_info(jobs)").all() as Array<{ name: string }>;
   const knownColumns = new Set(jobColumns.map((column) => column.name));
@@ -324,6 +379,9 @@ function ensureProductSchemaColumns(database: Database): void {
   }
   if (!knownColumns.has("next_retry_at")) {
     database.exec("ALTER TABLE jobs ADD COLUMN next_retry_at TEXT");
+  }
+  if (!knownColumns.has("model_configuration_revision")) {
+    database.exec("ALTER TABLE jobs ADD COLUMN model_configuration_revision INTEGER");
   }
   database.exec(
     `CREATE INDEX IF NOT EXISTS idx_jobs_model_created_id
@@ -337,6 +395,18 @@ function migrateProductSchema(database: Database): void {
       (database.query("SELECT version FROM product_schema_version").all() as Array<{ version: number }>)
         .map((row) => row.version),
     );
+    if (!applied.has(3)) {
+      database.exec(`CREATE TABLE workspace_model_configuration (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        gateway_url TEXT NOT NULL, model_name TEXT NOT NULL, credential_ciphertext TEXT NOT NULL,
+        sequential_calls INTEGER NOT NULL CHECK (sequential_calls IN (0, 1)),
+        supports_pdf_input INTEGER NOT NULL CHECK (supports_pdf_input IN (0, 1)),
+        supports_structured_output INTEGER NOT NULL CHECK (supports_structured_output IN (0, 1)),
+        revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE workspace_model_revision (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), revision INTEGER NOT NULL);`);
+      database.query("INSERT INTO product_schema_version(version, applied_at) VALUES (3, ?)").run(new Date().toISOString());
+    }
     if (!applied.has(1)) {
       database.exec("DROP INDEX IF EXISTS idx_source_files_job");
       database.exec("DROP INDEX IF EXISTS idx_job_results_job");
@@ -652,7 +722,7 @@ function claimExtractionJobForProcessing(
 
     const result = database.query(
       `UPDATE jobs
-       SET status = 'processing', updated_at = ?, error_code = NULL, error_message = NULL, next_retry_at = NULL, current_attempt = ?
+       SET status = 'processing', updated_at = ?, error_code = NULL, error_message = NULL, next_retry_at = NULL, current_attempt = ?, model_name = NULL, model_gateway_route = NULL, model_configuration_revision = NULL
        WHERE id = ? AND status = 'queued' AND current_attempt < ?
          AND (next_retry_at IS NULL OR next_retry_at <= ?)`,
     ).run(
@@ -758,13 +828,13 @@ function completeExtractionJob(
 
 function recordExtractionJobModel(
   database: Database,
-  input: { jobId: string; attempt: number; modelName: string; route: string },
+  input: { jobId: string; attempt: number; modelName: string; route: string; configurationRevision?: number },
 ): boolean {
   const result = database.query(
     `UPDATE jobs
-     SET model_name = ?, model_gateway_route = ?
+     SET model_name = ?, model_gateway_route = ?, model_configuration_revision = ?
      WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
-  ).run(input.modelName, input.route, input.jobId, input.attempt);
+  ).run(input.modelName, input.route, input.configurationRevision ?? null, input.jobId, input.attempt);
   return result.changes > 0;
 }
 
@@ -1026,7 +1096,7 @@ function listExtractionJobs(
 ): LocalWorkspaceExtractionJobSummary[] {
   const select = `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
                          s.page_count AS source_file_page_count, j.template_id, j.template_version,
-                         j.model_name, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
+                         j.model_name, j.model_configuration_revision, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
                          j.current_attempt, j.completed_attempt, j.last_failed_attempt
                   FROM jobs j
                   JOIN source_files s ON s.job_id = j.id`;
@@ -1098,7 +1168,7 @@ function readExtractionJobSummary(database: Database, jobId: string): LocalWorks
   return database.query(
     `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
             s.page_count AS source_file_page_count, j.template_id, j.template_version,
-            j.model_name, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
+            j.model_name, j.model_configuration_revision, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
             j.current_attempt, j.completed_attempt, j.last_failed_attempt
      FROM jobs j
      JOIN source_files s ON s.job_id = j.id

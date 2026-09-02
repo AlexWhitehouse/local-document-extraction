@@ -2367,6 +2367,7 @@ function installLocalStorage(initialValue, extraEntries = {}) {
 }
 
 function mockWorkspaceFetch(input) {
+  if (String(input).endsWith("/model-configuration")) return Promise.resolve(jsonResponse({ configured: true, credential_status: "configured", gateway_url: "http://localhost:1/v1", model_name: "test/model", revision: 1 }));
   const url = String(input);
 
   if (url.endsWith("/workspaces")) {

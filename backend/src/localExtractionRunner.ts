@@ -2,7 +2,6 @@ import {
   getExtractionModelName,
   getModelGatewayRouteLabel,
   runExtraction,
-  usesManagedPdfFileUpload,
   type ModelGatewayConfiguration,
   RetryableError,
 } from "./consumer/modelGateway";
@@ -10,6 +9,8 @@ import {
   normalizeModelResults,
   type ModelFieldResult,
 } from "./consumer/modelResultNormalizer";
+import { HttpError } from "./lib/http";
+import { configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 import { nowIso } from "./lib/ids";
 import type { FieldDefinition } from "./lib/types";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
@@ -54,8 +55,7 @@ type ExtractionFunction = (input: {
 
 export function createLocalExtractionRunner({
   extract,
-  modelGatewayConfiguration = localModelGatewayConfiguration(),
-  modelGatewayConfigurationProvider,
+  modelGatewayRequestTimeoutMs,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   maxRetryDelayMs = DEFAULT_MAX_RETRY_DELAY_MS,
   now = nowIso,
@@ -75,8 +75,7 @@ export function createLocalExtractionRunner({
   workspaceProductOperations,
 }: {
   extract?: ExtractionFunction;
-  modelGatewayConfiguration?: ModelGatewayConfiguration;
-  modelGatewayConfigurationProvider?: () => ModelGatewayConfiguration;
+  modelGatewayRequestTimeoutMs?: string;
   maxAttempts?: number;
   maxRetryDelayMs?: number;
   now?: () => string;
@@ -113,8 +112,7 @@ export function createLocalExtractionRunner({
         openStore: productStoreOpener,
       })
     : createLocalWorkspaceProductStoreRegistry({ stateDirectory }));
-  const getModelGatewayConfiguration = modelGatewayConfigurationProvider
-    ?? (() => modelGatewayConfiguration);
+  const credentialVault = createWorkspaceCredentialVault(stateDirectory);
   const normalizedRecoveryBatchSize = Number.isSafeInteger(recoveryBatchSize) && recoveryBatchSize > 0
     ? recoveryBatchSize
     : DEFAULT_RECOVERY_BATCH_SIZE;
@@ -228,27 +226,26 @@ export function createLocalExtractionRunner({
         let gatewayStarted = false;
         let modelRecorded = false;
         try {
-          activeModelGatewayConfiguration = getModelGatewayConfiguration();
-          let sourceBytes: Uint8Array | null = null;
-          let sourceBlob: Blob | null = null;
-          if (
-            !extract
-            && localSourceFileStore.open
-            && usesManagedPdfFileUpload(activeModelGatewayConfiguration, claimed.source_mime_type)
-          ) {
-            sourceBlob = await localSourceFileStore.open(claimed.source_file_key);
-          }
-          if (!sourceBlob) {
-            sourceBytes = await localSourceFileStore.read(claimed.source_file_key);
-          }
-          if (!sourceBlob && !sourceBytes) {
-            throw new MissingSourceFileError();
-          }
-          const sourceByteSize = sourceBlob?.size ?? sourceBytes!.byteLength;
+          const configuration = productStore.getModelConfiguration();
+          if (!configuration) throw configurationMissing();
+          activeModelGatewayConfiguration = {
+            AI_MODEL: configuration.model_name,
+            MODEL_GATEWAY_URL: configuration.gateway_url,
+            LITELLM_KEY: credentialVault.decrypt(job.workspace_id, configuration.credential_ciphertext),
+            MODEL_GATEWAY_SEQUENTIAL_CALLS: String(configuration.sequential_calls),
+            MODEL_SUPPORTS_PDF_INPUT: String(configuration.supports_pdf_input),
+            MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(configuration.supports_structured_output),
+            MODEL_GATEWAY_REQUEST_TIMEOUT_MS: modelGatewayRequestTimeoutMs,
+            MODEL_GATEWAY_WORKSPACE_ID: job.workspace_id,
+          };
+          const sourceBytes = await localSourceFileStore.read(claimed.source_file_key);
+          if (!sourceBytes) throw new MissingSourceFileError();
+          const sourceByteSize = sourceBytes.byteLength;
           const recordedModel = productStore.recordExtractionJobModel({
             jobId: claimed.job_id,
             attempt,
             modelName: getExtractionModelName(activeModelGatewayConfiguration),
+            configurationRevision: configuration.revision,
             route: getModelGatewayRouteLabel(activeModelGatewayConfiguration),
           });
           if (!recordedModel) {
@@ -267,7 +264,7 @@ export function createLocalExtractionRunner({
             : await runExtraction(
                 activeModelGatewayConfiguration,
                 claimed.fields,
-                sourceBlob ?? toArrayBuffer(sourceBytes!),
+                toArrayBuffer(sourceBytes),
                 claimed.source_mime_type,
                 extractionSignal,
               );
@@ -435,6 +432,7 @@ class MissingSourceFileError extends Error {
 }
 
 function processingErrorCode(error: unknown, attempt: number, maxAttempts: number): string {
+  if (error instanceof HttpError) return error.code;
   if (error instanceof MissingSourceFileError) {
     return "missing_source_file";
   }
@@ -476,17 +474,6 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
   return copy.buffer;
-}
-
-function localModelGatewayConfiguration(): ModelGatewayConfiguration {
-  return {
-    AI_MODEL: process.env.AI_MODEL,
-    LITELLM_KEY: process.env.LITELLM_KEY,
-    MODEL_GATEWAY_REQUEST_TIMEOUT_MS: process.env.MODEL_GATEWAY_REQUEST_TIMEOUT_MS,
-    MODEL_GATEWAY_ROUTE_LABEL: process.env.MODEL_GATEWAY_ROUTE_LABEL,
-    MODEL_GATEWAY_USE_MANAGED_FILES: process.env.MODEL_GATEWAY_USE_MANAGED_FILES,
-    MODEL_GATEWAY_URL: process.env.MODEL_GATEWAY_URL,
-  };
 }
 
 function notifyJobLifecycle(

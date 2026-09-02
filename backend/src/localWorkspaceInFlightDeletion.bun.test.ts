@@ -11,7 +11,7 @@ import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalWorkspaceExtractionJob } from "./localWorkspaceProductStore";
-import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import { createConfiguredTestProductStore as createLocalWorkspaceProductStore } from "./testing/workspaceModelFixture";
 import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
 
 test("Workspace deletion aborts and drains in-flight extraction before hard erasure", async () => {

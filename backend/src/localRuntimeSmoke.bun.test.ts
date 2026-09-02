@@ -40,9 +40,7 @@ test("the Bun server supports the complete local product path", async () => {
       env: {
         ...process.env,
         DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
-        LITELLM_KEY: "smoke-test-key",
         LOCAL_SHUTDOWN_TIMEOUT_MS: "50",
-        MODEL_GATEWAY_URL: `http://127.0.0.1:${modelGateway.port}`,
       },
     });
     cleanup.defer(async () => {
@@ -98,6 +96,11 @@ test("the Bun server supports the complete local product path", async () => {
     const workspaceId = workspaces.workspaces[0]?.id;
     expect(workspaceId).toBeTruthy();
     const sessionHeaders = { cookie: cookie!, "x-workspace-id": workspaceId! };
+    await fetchJson(`${origin}/v1/workspaces/${workspaceId}/model-configuration`, {
+      method: "PUT",
+      headers: { cookie: cookie!, "content-type": "application/json", "if-none-match": "*" },
+      body: JSON.stringify({ gateway_url: `http://127.0.0.1:${modelGateway.port}`, model_name: "smoke/model", credential: "smoke-test-key", sequential_calls: false, supports_pdf_input: true, supports_structured_output: true }),
+    }, 201);
 
     const templates = await fetchJson<{ templates: Array<{ id: string }> }>(`${origin}/v1/templates`, { headers: sessionHeaders });
     const starterTemplateId = templates.templates[0]?.id;

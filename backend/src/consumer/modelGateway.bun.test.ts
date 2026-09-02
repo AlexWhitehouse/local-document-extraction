@@ -49,7 +49,8 @@ function createEnv(overrides: Record<string, unknown> = {}): ModelGatewayConfigu
   return {
     LITELLM_KEY: "litellm-secret",
     MODEL_GATEWAY_URL: "https://litellm.example/proxy",
-    MODEL_GATEWAY_ROUTE_LABEL: "litellm.example",
+    MODEL_SUPPORTS_PDF_INPUT: "true",
+    MODEL_SUPPORTS_STRUCTURED_OUTPUT: "true",
     MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "300000",
     AI_MODEL: "claude-opus-configured",
     ...overrides,
@@ -64,25 +65,6 @@ function stubGatewayResponse(payload: unknown, init: ResponseInit = {}) {
       ...init,
     }),
   );
-  replaceFetch(fetchMock);
-  return fetchMock;
-}
-
-function stubGatewayResponses(
-  responses: Array<{ payload: unknown; init?: ResponseInit }>,
-) {
-  const pending = [...responses];
-  const fetchMock = mock(async () => {
-    const next = pending.shift();
-    if (!next) {
-      throw new Error("Unexpected fetch call");
-    }
-    return new Response(JSON.stringify(next.payload), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-      ...next.init,
-    });
-  });
   replaceFetch(fetchMock);
   return fetchMock;
 }
@@ -221,20 +203,10 @@ describe("runExtraction", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to the agreed Bedrock Claude model when no Extraction model is configured", async () => {
-    const env = createEnv({ AI_MODEL: undefined });
+  it("refuses an absent model instead of inheriting a default", async () => {
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
-
-    await runExtraction(
-      env,
-      fields,
-      new Uint8Array([1, 2, 3]).buffer,
-      "image/png",
-    );
-
-    expect(readGatewayRequest(fetchMock).body).toMatchObject({
-      model: "claude-opus-4-7",
-    });
+    await expect(runExtraction(createEnv({ AI_MODEL: undefined }), fields, new Uint8Array([1]).buffer, "image/png")).rejects.toThrow(ModelGatewayRequestError);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("submits PDF Source files to Bedrock-compatible LiteLLM models as inline file content", async () => {
@@ -462,101 +434,14 @@ describe("runExtraction", () => {
     });
   });
 
-  it("uploads PDF Source files for Azure LiteLLM models and submits the returned file ID", async () => {
-    const env = createEnv({ AI_MODEL: "azure_ai/gpt-configured" });
-    const fetchMock = stubGatewayResponses([
-      { payload: { id: "file_pdf_123" } },
-      { payload: successfulGatewayPayload() },
-      { payload: { deleted: true } },
-    ]);
-
-    await runExtraction(
-      env,
-      fields,
-      new Uint8Array([1, 2, 3]).buffer,
-      "application/pdf",
-    );
-
-    const uploadRequest = readGatewayRequest(fetchMock, 0);
-    expect(uploadRequest.url).toBe("https://litellm.example/proxy/files");
-    expect(uploadRequest.init).toMatchObject({
-      method: "POST",
-      headers: {
-        authorization: "Bearer litellm-secret",
-      },
-    });
-    const uploadBody = uploadRequest.init.body as FormData;
-    expect(uploadBody.get("purpose")).toBe("user_data");
-    expect(uploadBody.get("model")).toBe("azure_ai/gpt-configured");
-    expect(uploadBody.get("target_model_names")).toBe("azure_ai/gpt-configured");
-    const uploadedFile = uploadBody.get("file") as File;
-    expect(uploadedFile.name).toBe("source.pdf");
-    expect(uploadedFile.type).toBe("application/pdf");
-
-    const chatRequest = readGatewayRequest(fetchMock, 1);
-    expect(chatRequest.url).toBe("https://litellm.example/proxy/chat/completions");
-    expect(chatRequest.body).toMatchObject({
-      messages: [
-        expect.objectContaining({ role: "system", content: expect.any(String) }),
-        {
-          role: "user",
-          content: [
-            expect.objectContaining({ type: "text", text: expect.any(String) }),
-            {
-              type: "file",
-              file: {
-                file_id: "file_pdf_123",
-                format: "application/pdf",
-              },
-            },
-          ],
-        },
-      ],
-    });
-
-    const deleteRequest = readGatewayRequest(fetchMock, 2);
-    expect(deleteRequest.url).toBe("https://litellm.example/proxy/files/file_pdf_123");
-    expect(deleteRequest.init).toMatchObject({
-      method: "DELETE",
-      headers: {
-        authorization: "Bearer litellm-secret",
-      },
-    });
-  });
-
-  it("uses LiteLLM managed files for an explicitly verified model alias", async () => {
-    const env = createEnv({
-      AI_MODEL: "gpt-5.6-luna",
-      MODEL_GATEWAY_USE_MANAGED_FILES: "true",
-    });
-    const fetchMock = stubGatewayResponses([
-      { payload: { id: "file_verified_alias" } },
-      { payload: successfulGatewayPayload() },
-      { payload: { deleted: true } },
-    ]);
-
-    await runExtraction(
-      env,
-      fields,
-      new Uint8Array([1, 2, 3]).buffer,
-      "application/pdf",
-    );
-
-    expect(readGatewayRequest(fetchMock, 0).url).toBe("https://litellm.example/proxy/files");
-    expect(readGatewayRequest(fetchMock, 1).body).toMatchObject({
-      model: "gpt-5.6-luna",
-      messages: [
-        expect.any(Object),
-        {
-          role: "user",
-          content: [
-            expect.any(Object),
-            { type: "file", file: { file_id: "file_verified_alias", format: "application/pdf" } },
-          ],
-        },
-      ],
-    });
-    expect(readGatewayRequest(fetchMock, 2).url).toContain("/files/file_verified_alias");
+  it("never uses managed files or model-prefix inference for PDF input", async () => {
+    for (const model of ["azure/gpt", "azure_ai/gpt", "custom/alias"]) {
+      const fetchMock = stubGatewayResponse(successfulGatewayPayload());
+      await runExtraction(createEnv({ AI_MODEL: model, MODEL_GATEWAY_USE_MANAGED_FILES: "true" }), fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(readGatewayRequest(fetchMock).url).toBe("https://litellm.example/proxy/chat/completions");
+      expect(readGatewayRequest(fetchMock).body).toMatchObject({ messages: [expect.any(Object), { role: "user", content: [expect.any(Object), { type: "file", file: { file_data: "data:application/pdf;base64,AQID", format: "application/pdf" } }] }] });
+    }
   });
 
   it("submits image Source files to LiteLLM as inline image content", async () => {
@@ -719,7 +604,7 @@ describe("runExtraction", () => {
     ).catch((error) => error);
     expect(failure).toBeInstanceOf(RetryableError);
     expect(failure).toMatchObject({ status: 429, retryAfterMs: 7_000 });
-    expect(failure.message).toContain("Model gateway request failed with HTTP 429: rate limited");
+    expect(failure.message).toBe("Model gateway request failed with HTTP 429");
   });
 
   it("does not retry deterministic Model gateway request failures", async () => {
@@ -734,7 +619,19 @@ describe("runExtraction", () => {
     ).rejects.toThrow(ModelGatewayRequestError);
   });
 
-  it("treats deterministic LiteLLM PDF upload failures as non-retryable", async () => {
+  it("does not follow gateway redirects or consume their error bodies", async () => {
+    const fetchMock = mock(async () => new Response(new ReadableStream({
+      pull(controller) { controller.error(new Error("sensitive-upstream-body")); },
+    }), { status: 302, headers: { location: "https://different-gateway.invalid" } }));
+    replaceFetch(fetchMock);
+    const failure = await runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png").catch((error) => error);
+    expect(failure).toBeInstanceOf(ModelGatewayRequestError);
+    expect(failure.message).toBe("Model gateway request failed with HTTP 302");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]).toMatchObject(["https://litellm.example/proxy/chat/completions", { redirect: "manual" }]);
+  });
+
+  it("treats deterministic inline PDF request failures as non-retryable", async () => {
     const env = createEnv({ AI_MODEL: "azure_ai/gpt-configured" });
     const fetchMock = stubGatewayResponse(
       { error: { message: "file upload rejected" } },
@@ -778,10 +675,10 @@ describe("runExtraction", () => {
 });
 
 describe("model gateway configuration", () => {
-  it("derives the model gateway route label from configured label or URL host", () => {
+  it("derives the model gateway route label only from the URL host", () => {
     expect(getModelGatewayRouteLabel(createEnv())).toBe("litellm.example");
-    expect(getModelGatewayRouteLabel(createEnv({ MODEL_GATEWAY_ROUTE_LABEL: undefined }))).toBe("litellm.example");
-    expect(getModelGatewayRouteLabel(createEnv({ MODEL_GATEWAY_URL: "not a url", MODEL_GATEWAY_ROUTE_LABEL: undefined }))).toBe("litellm.t3m.uk");
+    expect(getModelGatewayRouteLabel(createEnv({ MODEL_GATEWAY_ROUTE_LABEL: "ignored-global-label" }))).toBe("litellm.example");
+    expect(() => getModelGatewayRouteLabel(createEnv({ MODEL_GATEWAY_URL: "not a url" }))).toThrow();
   });
 
   it("normalizes model gateway timeout configuration", () => {
@@ -790,7 +687,7 @@ describe("model gateway configuration", () => {
     expect(getModelGatewayRequestTimeoutMs(createEnv({ MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "-1" }))).toBe(300_000);
   });
 
-  it("defaults to the agreed Bedrock Claude extraction model", () => {
-    expect(getExtractionModelName(createEnv({ AI_MODEL: undefined }))).toBe("claude-opus-4-7");
+  it("rejects missing Extraction model configuration", () => {
+    expect(() => getExtractionModelName(createEnv({ AI_MODEL: undefined }))).toThrow(ModelGatewayRequestError);
   });
 });

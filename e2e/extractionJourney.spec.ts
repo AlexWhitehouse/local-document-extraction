@@ -46,8 +46,16 @@ test("a verified user completes a Document Extraction job through Workspace live
     await page.getByLabel("Email").fill(ACCOUNT.email);
     await page.getByLabel("Password", { exact: true }).fill(ACCOUNT.password);
     await page.getByRole("button", { name: "Sign In", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Connection Settings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workspace details & API access" })).toBeVisible();
     await expect(page.getByText("API Ready", { exact: true }).first()).toBeVisible();
+
+    await page.getByRole("button", { name: "Set up", exact: true }).click();
+    await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
+    await page.getByLabel("Model name", { exact: true }).fill("browser/model");
+    await page.getByLabel("Gateway API key", { exact: true }).fill("browser-journey-key");
+    await page.getByRole("button", { name: "Save configuration", exact: true }).click();
+    await expect(page.getByText("Model gateway saved.", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Gateway API key", { exact: true })).toHaveValue("");
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("button", { name: /Templates/ }).click();

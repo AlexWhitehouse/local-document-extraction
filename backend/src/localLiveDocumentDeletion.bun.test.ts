@@ -10,7 +10,8 @@ import { createLocalExtractionRunner } from "./localExtractionRunner";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
-import { createLocalWorkspaceProductStore, openLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import { createConfiguredTestProductStore as createLocalWorkspaceProductStore } from "./testing/workspaceModelFixture";
+import { openLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
 
 test("live Document deletion aborts and drains only its target job before erasure", async () => {

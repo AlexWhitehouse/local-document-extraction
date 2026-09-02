@@ -95,6 +95,7 @@ export async function startRuntimeHarness({ timeoutMs = 20_000 } = {}) {
   return {
     bunVersion: payload.bunVersion,
     origin: payload.origin,
+    gatewayOrigin: payload.controlOrigin,
     stateDirectory: payload.stateDirectory,
     waitForVerificationMail: (email: string) => waitForVerificationMail({
       email,

@@ -10,7 +10,7 @@ import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
 import { LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY } from "./localLiveUpdatePolicy";
 import { upgradeLocalLiveUpdate } from "./localLiveUpdateUpgrade";
 import { registerLocalMemoryPressureListener } from "./localMemoryPressure";
-import { createLocalModelSettings } from "./localModelSettings";
+import { retireGlobalModelConfiguration } from "./retireGlobalModelConfiguration";
 import { createLocalProductAnalytics } from "./localProductAnalytics";
 import { createLocalResourceController } from "./localResourceController";
 import { createLocalRuntimeFetchHandler, ensureLocalStateDirectories } from "./localRuntime";
@@ -172,7 +172,6 @@ const localExtractionQueue = createLocalExtractionQueue({
   maxConcurrent: extractionMaxConcurrency,
 });
 const localLiveUpdateHub = createLocalLiveUpdateHub();
-const localModelSettings = await createLocalModelSettings({ stateDirectory });
 const localProductAnalytics = createLocalProductAnalytics({ stateDirectory });
 const localWorkspaceProductOperations = createLocalWorkspaceProductOperations();
 const localProductStoreRegistry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
@@ -217,7 +216,7 @@ const localWorkspaceDeletion = createLocalWorkspaceDeletion({
 });
 await localWorkspaceDeletion.reconcileInterruptedDeletions();
 const localExtractionRunner = createLocalExtractionRunner({
-  modelGatewayConfigurationProvider: localModelSettings.getConfiguration,
+  modelGatewayRequestTimeoutMs: process.env.MODEL_GATEWAY_REQUEST_TIMEOUT_MS,
   onGatewayOutcome: localResourceController.recordGatewayOutcome,
   onJobLifecycleChange: (workspaceId, job) => {
     localLiveUpdateHub.broadcastJob(workspaceId, job);
@@ -233,6 +232,7 @@ const localExtractionRunner = createLocalExtractionRunner({
   productStoreRegistry: localProductStoreRegistry,
 });
 localExtractionQueue.subscribe((job) => localExtractionRunner.run(job));
+await retireGlobalModelConfiguration(stateDirectory);
 await localExtractionRunner.recover();
 localResourceController.start();
 const recurringWork = new Set<Promise<void>>();
@@ -273,7 +273,6 @@ const application = createLocalApplication({
   }),
   liveUpdateHub: localLiveUpdateHub,
   maxSourceFileBytes,
-  modelSettings: localModelSettings,
   productAnalytics: localProductAnalytics,
   scheduleQueuedJob: localExtractionQueue.schedule,
   sourceFileStore: localSourceFiles,

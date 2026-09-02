@@ -7,9 +7,9 @@
 
 | Metric | Current | Checked baseline |
 | --- | ---: | ---: |
-| Lines | 81.12% | 81.10% |
-| Functions | 81.84% | 81.80% |
-| Branches | 73.29% | 73.20% |
+| Lines | 83.74% | 81.10% |
+| Functions | 84.89% | 81.80% |
+| Branches | 76.14% | 73.20% |
 
 ## Production modules absent from LCOV (0)
 

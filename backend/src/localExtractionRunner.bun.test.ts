@@ -4,11 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
-import type { ModelGatewayConfiguration } from "./consumer/modelGateway";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
-import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import { createConfiguredTestProductStore as createLocalWorkspaceProductStore, configureTestWorkspace } from "./testing/workspaceModelFixture";
 
 test("the local extraction runner completes a queued job with normalized results and Source file cleanup", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-local-runner-"));
@@ -87,10 +86,7 @@ test("the local extraction runner resolves current model settings for each extra
   const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
-  let activeModelConfiguration: ModelGatewayConfiguration = {
-    AI_MODEL: "initial/model",
-    MODEL_GATEWAY_URL: "https://initial-gateway.example/v1",
-  };
+  configureTestWorkspace({ stateDirectory, workspaceId, modelName: "initial/model", gatewayUrl: "https://initial-gateway.example/v1" });
 
   try {
     productStore.createTemplate({
@@ -123,11 +119,6 @@ test("the local extraction runner resolves current model settings for each extra
       extract: async () => [
         { field_id: "reference", status: "ok", answer: "REF-1", confidence: 1, evidence: "REF-1" },
       ],
-      modelGatewayConfiguration: {
-        AI_MODEL: "captured/model",
-        MODEL_GATEWAY_URL: "https://captured-gateway.example/v1",
-      },
-      modelGatewayConfigurationProvider: () => activeModelConfiguration,
       productAnalytics: {
         flush: async () => {},
         record: (event) => analyticsEvents.push(event),
@@ -136,10 +127,7 @@ test("the local extraction runner resolves current model settings for each extra
       stateDirectory,
     });
 
-    activeModelConfiguration = {
-      AI_MODEL: "updated/model",
-      MODEL_GATEWAY_URL: "http://127.0.0.1:11434/v1",
-    };
+    configureTestWorkspace({ stateDirectory, workspaceId, modelName: "updated/model", gatewayUrl: "http://127.0.0.1:11434/v1" });
     await runner.run({
       job_id: "job_dynamic",
       workspace_id: workspaceId,
@@ -226,13 +214,10 @@ test("the local extraction runner records durable failures for missing Source fi
       submittedAt: "2026-07-09T12:02:00.000Z",
     });
 
+    configureTestWorkspace({ stateDirectory, workspaceId, modelName: "failure/model", gatewayUrl: "https://failure-gateway.example/v1" });
     const runner = createLocalExtractionRunner({
       extract: async () => {
         throw new Error("LiteLLM is unavailable");
-      },
-      modelGatewayConfiguration: {
-        AI_MODEL: "failure/model",
-        MODEL_GATEWAY_URL: "https://failure-gateway.example/v1",
       },
       productAnalytics,
       sourceFileStore: sourceFiles,

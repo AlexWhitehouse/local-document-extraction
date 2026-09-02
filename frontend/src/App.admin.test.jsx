@@ -88,7 +88,7 @@ describe("Application admin page gate", () => {
 
     expect(await screen.findByRole("button", { name: /Workspaces/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Admin/ })).toBeNull();
-    expect(screen.getByRole("heading", { name: "Connection Settings" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Workspace details & API access" })).toBeTruthy();
     expect(authClientMock.listUsers).not.toHaveBeenCalled();
   });
 
@@ -113,7 +113,7 @@ describe("Application admin page gate", () => {
     await user.click(adminButton);
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Connection Settings" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Workspace details & API access" })).toBeTruthy();
     });
     expect(screen.queryByRole("heading", { name: "Application Admin" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Admin$/ })).toBeNull();
@@ -621,7 +621,7 @@ describe("Application admin page gate", () => {
       expect(authClientMock.refetchSession).toHaveBeenCalled();
     });
     expect(window.localStorage.removeItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
-    expect(screen.getByRole("heading", { name: "Connection Settings" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Workspace details & API access" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Application Admin" })).toBeNull();
     expect(
       globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces")),

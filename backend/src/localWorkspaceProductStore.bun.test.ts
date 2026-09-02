@@ -1,3 +1,4 @@
+import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -327,6 +328,7 @@ test("authenticated Template create/list routes use the authorized Workspace pro
     }));
     const cookie = signIn.headers.get("set-cookie")?.split(";", 1)[0]!;
     const workspace = control.listAcceptedWorkspaces({ userId: (await auth.getSession(new Request("http://127.0.0.1:8787", { headers: { cookie } })))!.id })[0]!;
+  configureTestWorkspace({ stateDirectory, workspaceId: workspace.id });
     const headers = { cookie, "x-workspace-id": workspace.id };
 
     const starterList = await application(new Request("http://127.0.0.1:8787/v1/templates", { headers }));
@@ -556,6 +558,7 @@ test("authenticated local Document submission queues the selected Template and n
     const cookie = signIn.headers.get("set-cookie")?.split(";", 1)[0]!;
     const session = await auth.getSession(new Request("http://127.0.0.1:8787", { headers: { cookie } }));
     const workspace = control.listAcceptedWorkspaces({ userId: session!.id, userName: session!.name })[0]!;
+  configureTestWorkspace({ stateDirectory, workspaceId: workspace.id });
     const headers = { cookie, "x-workspace-id": workspace.id };
     const lifecycleMessages: string[] = [];
     liveUpdateHub.subscribe({
@@ -858,19 +861,17 @@ test("known oversized bodies use the same authenticated preflight for sessions a
       });
     }
     expect(scheduledJobs).toBe(0);
-    await expect(stat(join(
-      stateDirectory,
-      "data",
-      "workspaces",
-      `${fixture.workspace.id}.sqlite`,
-    ))).rejects.toMatchObject({ code: "ENOENT" });
+    const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: fixture.workspace.id });
+    expect(store.countExtractionJobs()).toBe(0);
+    expect(store.listTemplates()).toEqual([]);
+    store.close();
   } finally {
     fixture.database.close();
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });
 
-async function createAuthenticatedLocalWorkspace(_stateDirectory: string) {
+async function createAuthenticatedLocalWorkspace(stateDirectory: string) {
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
   const auth = await createLocalAuth({
@@ -899,6 +900,7 @@ async function createAuthenticatedLocalWorkspace(_stateDirectory: string) {
   const cookie = signIn.headers.get("set-cookie")?.split(";", 1)[0]!;
   const session = await auth.getSession(new Request("http://127.0.0.1:8787", { headers: { cookie } }));
   const workspace = control.listAcceptedWorkspaces({ userId: session!.id, userName: session!.name })[0]!;
+  configureTestWorkspace({ stateDirectory, workspaceId: workspace.id });
   return { auth, control, database, headers: { cookie, "x-workspace-id": workspace.id }, workspace };
 }
 

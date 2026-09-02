@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createLocalAuthRuntime } from "./localAuthRuntime";
+import { retireGlobalModelConfiguration } from "./retireGlobalModelConfiguration";
 import { ensureLocalStateDirectories } from "./localRuntime";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -17,6 +18,7 @@ const runtime = await createLocalAuthRuntime({
   stateDirectory,
 });
 runtime.close();
+await retireGlobalModelConfiguration(stateDirectory);
 console.info(`Local state is initialized at ${stateDirectory}`);
 
 function readPort(value: string | undefined): number {

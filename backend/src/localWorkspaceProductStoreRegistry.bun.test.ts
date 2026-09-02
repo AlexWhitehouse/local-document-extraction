@@ -166,6 +166,7 @@ test("Workspace product stores apply the safe SQLite policy and focused indexes"
     expect(database.query("SELECT version FROM product_schema_version ORDER BY version").all()).toEqual([
       { version: 1 },
       { version: 2 },
+      { version: 3 },
     ]);
   } finally {
     database.close();

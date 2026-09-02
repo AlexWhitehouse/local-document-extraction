@@ -23,41 +23,28 @@ export class ModelGatewayRequestError extends Error {
 }
 export class ExtractionCancelledError extends Error {}
 
-const DEFAULT_EXTRACTION_MODEL = "claude-opus-4-7";
-const DEFAULT_MODEL_GATEWAY_URL = "https://litellm.t3m.uk";
-const DEFAULT_MODEL_GATEWAY_ROUTE_LABEL = "litellm.t3m.uk";
 const DEFAULT_MODEL_GATEWAY_REQUEST_TIMEOUT_MS = 300_000;
-const MAX_ERROR_BODY_CHARS = 500;
 
 export type ModelGatewayConfiguration = {
   AI_MODEL?: string;
   LITELLM_KEY?: string;
   MODEL_GATEWAY_REQUEST_TIMEOUT_MS?: string;
-  MODEL_GATEWAY_ROUTE_LABEL?: string;
   MODEL_GATEWAY_SEQUENTIAL_CALLS?: string;
-  MODEL_GATEWAY_USE_MANAGED_FILES?: string;
+  MODEL_GATEWAY_WORKSPACE_ID?: string;
   MODEL_GATEWAY_URL?: string;
   MODEL_SUPPORTS_PDF_INPUT?: string;
   MODEL_SUPPORTS_STRUCTURED_OUTPUT?: string;
 };
 
-let sequentialModelCallTail: Promise<void> = Promise.resolve();
+const sequentialModelCallTails = new Map<string, Promise<void>>();
 
 export function getExtractionModelName(env: ModelGatewayConfiguration): string {
-  return env.AI_MODEL || DEFAULT_EXTRACTION_MODEL;
+  if (!env.AI_MODEL) throw new ModelGatewayRequestError("Workspace model is not configured");
+  return env.AI_MODEL;
 }
 
 export function getModelGatewayRouteLabel(env: ModelGatewayConfiguration): string {
-  const configured = env.MODEL_GATEWAY_ROUTE_LABEL?.trim();
-  if (configured) {
-    return configured;
-  }
-
-  try {
-    return new URL(getModelGatewayBaseUrl(env)).hostname || DEFAULT_MODEL_GATEWAY_ROUTE_LABEL;
-  } catch {
-    return DEFAULT_MODEL_GATEWAY_ROUTE_LABEL;
-  }
+  return new URL(getModelGatewayBaseUrl(env)).hostname;
 }
 
 export function getModelGatewayRequestTimeoutMs(env: ModelGatewayConfiguration): number {
@@ -78,20 +65,11 @@ export function usesSequentialModelCalls(env: ModelGatewayConfiguration): boolea
 }
 
 export function supportsPdfInput(env: ModelGatewayConfiguration): boolean {
-  return readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT, true);
+  return readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT, false);
 }
 
 export function supportsStructuredOutput(env: ModelGatewayConfiguration): boolean {
-  return readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT, true);
-}
-
-export function usesManagedPdfFileUpload(
-  env: ModelGatewayConfiguration,
-  sourceMimeType: string,
-): boolean {
-  return sourceMimeType === "application/pdf"
-    && supportsPdfInput(env)
-    && shouldUploadPdfToModelGateway(env, getExtractionModelName(env));
+  return readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT, false);
 }
 
 export async function runExtraction(
@@ -104,24 +82,13 @@ export async function runExtraction(
   const model = getExtractionModelName(env);
   const renderPdfAsImages =
     sourceMimeType === "application/pdf" && !supportsPdfInput(env);
-  const uploadPdf = usesManagedPdfFileUpload(env, sourceMimeType);
-  const sourceBytes = uploadPdf
-    ? null
-    : source instanceof Blob
-      ? await source.arrayBuffer()
-      : source;
+  const sourceBytes = source instanceof Blob ? await source.arrayBuffer() : source;
   const prompt = buildPrompt(fields, sourceMimeType, renderPdfAsImages);
   const systemPrompt =
     "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.";
-  const uploadedFileId =
-    uploadPdf
-      ? await uploadSourceFile(env, source, sourceMimeType, model, signal)
-      : null;
   let sourceContentParts: Record<string, unknown>[];
   try {
-    sourceContentParts = uploadedFileId
-      ? [buildUploadedFileContentPart(uploadedFileId, sourceMimeType)]
-      : renderPdfAsImages
+    sourceContentParts = renderPdfAsImages
         ? (await renderPdfPagesToPng(sourceBytes!, signal)).map((pageBytes) =>
             buildInlineImageContentPart(pageBytes, "image/png"),
           )
@@ -142,17 +109,7 @@ export async function runExtraction(
     systemPrompt,
     supportsStructuredOutput(env),
   );
-  let runResult: unknown;
-  try {
-    runResult = await scheduleModelCall(
-      env,
-      () => runViaModelGateway(env, runInput, signal),
-    );
-  } finally {
-    if (uploadedFileId) {
-      await deleteUploadedSourceFile(env, uploadedFileId);
-    }
-  }
+  const runResult = await scheduleModelCall(env, () => runViaModelGateway(env, runInput, signal));
   const content = readRunResultContent(runResult);
 
   let parsed: unknown;
@@ -380,19 +337,6 @@ function schemaTypeForDataType(
   return "string";
 }
 
-function buildUploadedFileContentPart(
-  fileId: string,
-  sourceMimeType: string,
-): Record<string, unknown> {
-  return {
-    type: "file",
-    file: {
-      file_id: fileId,
-      format: sourceMimeType,
-    },
-  };
-}
-
 function buildInlineSourceContentPart(
   sourceBytes: ArrayBuffer,
   sourceMimeType: string,
@@ -422,15 +366,6 @@ function buildInlineImageContentPart(
   };
 }
 
-function shouldUploadPdfToModelGateway(
-  env: ModelGatewayConfiguration,
-  model: string,
-): boolean {
-  return readBooleanConfiguration(env.MODEL_GATEWAY_USE_MANAGED_FILES, false)
-    || model.startsWith("azure/")
-    || model.startsWith("azure_ai/");
-}
-
 function isQwenMultimodalModel(normalizedModel: string): boolean {
   return (
     /qwen3\.(?:5|6|8)/.test(normalizedModel) ||
@@ -446,11 +381,12 @@ function scheduleModelCall<T>(
     return task();
   }
 
-  const result = sequentialModelCallTail.then(task, task);
-  sequentialModelCallTail = result.then(
-    () => undefined,
-    () => undefined,
-  );
+  const scope = env.MODEL_GATEWAY_WORKSPACE_ID ?? "transport-test";
+  const previous = sequentialModelCallTails.get(scope) ?? Promise.resolve();
+  const result = previous.then(task, task);
+  const tail = result.then(() => undefined, () => undefined);
+  sequentialModelCallTails.set(scope, tail);
+  void tail.then(() => { if (sequentialModelCallTails.get(scope) === tail) sequentialModelCallTails.delete(scope); });
   return result;
 }
 
@@ -510,7 +446,7 @@ function buildPrompt(
   ].join("\n");
 }
 
-function readRunResultContent(payload: unknown): string {
+export function readRunResultContent(payload: unknown): string {
   if (!payload || typeof payload !== "object") {
     throw new RetryableError("Model gateway returned empty response");
   }
@@ -587,6 +523,7 @@ async function runViaModelGateway(
   try {
     const response = await fetch(buildChatCompletionsUrl(env), {
       method: "POST",
+      redirect: "manual",
       headers: {
         authorization: `Bearer ${env.LITELLM_KEY}`,
         "content-type": "application/json",
@@ -594,10 +531,10 @@ async function runViaModelGateway(
       body: JSON.stringify(input),
       signal: controller.signal,
     });
-    const bodyText = await response.text();
-
     if (!response.ok) {
-      const message = `Model gateway request failed with HTTP ${response.status}${formatErrorBody(bodyText)}`;
+      // Do not consume or surface upstream error bodies, including redirect destinations.
+      await response.body?.cancel().catch(() => {});
+      const message = `Model gateway request failed with HTTP ${response.status}`;
       if (isRetryableHttpStatus(response.status)) {
         throw new RetryableError(message, {
           retryAfterMs: retryAfterDelayMs(response.headers.get("retry-after")),
@@ -607,6 +544,7 @@ async function runViaModelGateway(
       throw new ModelGatewayRequestError(message, response.status);
     }
 
+    const bodyText = await response.text();
     if (!bodyText.trim()) {
       throw new RetryableError("Model gateway returned empty response");
     }
@@ -626,132 +564,14 @@ async function runViaModelGateway(
     if (isAbortError(error)) {
       throw new RetryableError("Model gateway request timed out");
     }
-    throw new RetryableError(`Model gateway request failed: ${errorToMessage(error)}`);
+    throw new RetryableError("Model gateway request failed");
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", abortForWorkspaceDeletion);
   }
 }
 
-async function uploadSourceFile(
-  env: ModelGatewayConfiguration,
-  source: ArrayBuffer | Blob,
-  sourceMimeType: string,
-  model: string,
-  signal?: AbortSignal,
-): Promise<string> {
-  if (!env.LITELLM_KEY) {
-    throw new ModelGatewayRequestError("Model gateway key is not configured");
-  }
-
-  const formData = new FormData();
-  formData.append(
-    "file",
-    source instanceof Blob ? source : new Blob([source], { type: sourceMimeType }),
-    sourceMimeType === "application/pdf" ? "source.pdf" : "source",
-  );
-  formData.append("purpose", "user_data");
-  formData.append("model", model);
-  formData.append("target_model_names", model);
-
-  let response: Response;
-  try {
-    response = await fetchWithModelGatewayTimeout(env, buildFilesUrl(env), {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${env.LITELLM_KEY}`,
-      },
-      body: formData,
-    }, signal);
-  } catch (error) {
-    if (signal?.aborted) {
-      throw new ExtractionCancelledError("Model gateway file upload cancelled");
-    }
-    if (isAbortError(error)) {
-      throw new RetryableError("Model gateway file upload timed out");
-    }
-    throw new RetryableError(
-      `Model gateway file upload failed: ${errorToMessage(error)}`,
-    );
-  }
-  const bodyText = await response.text();
-
-  if (!response.ok) {
-    const message = `Model gateway file upload failed with HTTP ${response.status}${formatErrorBody(bodyText)}`;
-    if (isRetryableHttpStatus(response.status)) {
-      throw new RetryableError(message, {
-        retryAfterMs: retryAfterDelayMs(response.headers.get("retry-after")),
-        status: response.status,
-      });
-    }
-    throw new ModelGatewayRequestError(message, response.status);
-  }
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(bodyText);
-  } catch {
-    throw new RetryableError("Model gateway file upload returned invalid JSON");
-  }
-
-  const fileId = (payload as { id?: unknown }).id;
-  if (typeof fileId !== "string" || !fileId.trim()) {
-    throw new RetryableError("Model gateway file upload response missing file ID");
-  }
-
-  return fileId;
-}
-
-async function deleteUploadedSourceFile(env: ModelGatewayConfiguration, fileId: string): Promise<void> {
-  try {
-    const response = await fetchWithModelGatewayTimeout(
-      env,
-      buildFileDeleteUrl(env, fileId),
-      {
-        method: "DELETE",
-        headers: {
-          authorization: `Bearer ${env.LITELLM_KEY}`,
-        },
-      },
-    );
-    if (!response.ok) {
-      console.error("Model gateway file cleanup failed", response.status);
-    }
-  } catch (error) {
-    console.error("Model gateway file cleanup failed", error);
-  }
-}
-
-async function fetchWithModelGatewayTimeout(
-  env: ModelGatewayConfiguration,
-  url: string,
-  init: RequestInit,
-  signal?: AbortSignal,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    getModelGatewayRequestTimeoutMs(env),
-  );
-  const abortForWorkspaceDeletion = () => controller.abort();
-  if (signal?.aborted) {
-    controller.abort();
-  } else {
-    signal?.addEventListener("abort", abortForWorkspaceDeletion, { once: true });
-  }
-
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener("abort", abortForWorkspaceDeletion);
-  }
-}
-
-function buildChatCompletionsUrl(env: ModelGatewayConfiguration): string {
+export function buildChatCompletionsUrl(env: ModelGatewayConfiguration): string {
   try {
     const baseUrl = getModelGatewayBaseUrl(env);
     const normalized = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
@@ -761,55 +581,9 @@ function buildChatCompletionsUrl(env: ModelGatewayConfiguration): string {
   }
 }
 
-function buildFilesUrl(env: ModelGatewayConfiguration): string {
-  try {
-    const baseUrl = getModelGatewayBaseUrl(env);
-    const normalized = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-    return new URL("files", normalized).toString();
-  } catch {
-    throw new RetryableError("Model gateway URL is not valid");
-  }
-}
-
-function buildFileDeleteUrl(env: ModelGatewayConfiguration, fileId: string): string {
-  try {
-    const baseUrl = getModelGatewayBaseUrl(env);
-    const normalized = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-    return new URL(`files/${encodeURIComponent(fileId)}`, normalized).toString();
-  } catch {
-    throw new RetryableError("Model gateway URL is not valid");
-  }
-}
-
 export function getModelGatewayBaseUrl(env: ModelGatewayConfiguration): string {
-  return env.MODEL_GATEWAY_URL || DEFAULT_MODEL_GATEWAY_URL;
-}
-
-function formatErrorBody(bodyText: string): string {
-  if (!bodyText.trim()) {
-    return "";
-  }
-
-  let message = bodyText.trim();
-  try {
-    const parsed = JSON.parse(bodyText) as {
-      error?: { message?: unknown };
-      message?: unknown;
-    };
-    if (typeof parsed.error?.message === "string") {
-      message = parsed.error.message;
-    } else if (typeof parsed.message === "string") {
-      message = parsed.message;
-    }
-  } catch {
-    // The response body is still useful when the gateway returns plain text.
-  }
-
-  if (message.length > MAX_ERROR_BODY_CHARS) {
-    message = `${message.slice(0, MAX_ERROR_BODY_CHARS)}...`;
-  }
-
-  return `: ${message}`;
+  if (!env.MODEL_GATEWAY_URL) throw new ModelGatewayRequestError("Workspace gateway is not configured");
+  return env.MODEL_GATEWAY_URL;
 }
 
 function isAbortError(error: unknown): boolean {

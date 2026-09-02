@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import { RetryableError } from "./consumer/modelGateway";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
-import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import { createConfiguredTestProductStore as createLocalWorkspaceProductStore, configureTestWorkspace } from "./testing/workspaceModelFixture";
 
 test("runner startup recovers queued jobs across local Workspace product stores", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-runner-recovery-"));
@@ -225,6 +225,7 @@ test("runner retries transient model failures within bounds and protects termina
       sourceFilePageCount: null,
       submittedAt: "2026-07-09T12:01:00.000Z",
     });
+    configureTestWorkspace({ stateDirectory, workspaceId, modelName: "retry/model", gatewayUrl: "https://retry-gateway.example/v1" });
     let modelCalls = 0;
     const runner = createLocalExtractionRunner({
       extract: async () => {
@@ -233,10 +234,6 @@ test("runner retries transient model failures within bounds and protects termina
           throw new RetryableError("Temporary LiteLLM failure");
         }
         return [{ field_id: "invoice_number", status: "ok", answer: "INV-001" }];
-      },
-      modelGatewayConfiguration: {
-        AI_MODEL: "retry/model",
-        MODEL_GATEWAY_URL: "https://retry-gateway.example/v1",
       },
       maxAttempts: 2,
       scheduleJob: async (job) => {

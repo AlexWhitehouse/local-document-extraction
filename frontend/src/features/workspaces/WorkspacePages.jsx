@@ -1,4 +1,5 @@
 import React from "react";
+import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
 
 export function WorkspaceInvitationPage({
   invitation,
@@ -88,6 +89,8 @@ export function WorkspaceInvitationPage({
 }
 
 export function AcceptedWorkspacePage({
+  modelConfiguration,
+  modelConfigurationKey,
   workspaceName,
   onWorkspaceNameChange,
   isSavingWorkspace,
@@ -117,24 +120,26 @@ export function AcceptedWorkspacePage({
 }) {
   return (
     <>
+      {modelConfiguration ? <WorkspaceModelConfiguration key={modelConfigurationKey} controller={modelConfiguration} /> : null}
       <section className="content-grid workspace-page-grid">
         <article className="workspace-card">
           <div className="workspace-head">
-            <h2>Connection Settings</h2>
-            <p>Manage workspace details and rotate API credentials.</p>
+            <h2>Workspace details &amp; API access</h2>
+            <p>Manage the Workspace name and inbound API access. Gateway credentials are configured separately above.</p>
           </div>
           <div className="row two-up workspace-name-row">
             <label>
               Workspace name
               <input
                 value={workspaceName}
+                disabled={busy || isSavingWorkspace}
                 onChange={(event) => onWorkspaceNameChange(event.target.value)}
               />
             </label>
             <button
               type="button"
               className="secondary workspace-inline-action"
-              disabled={isSavingWorkspace || !isWorkspaceNameDirty}
+              disabled={busy || isSavingWorkspace || !isWorkspaceNameDirty}
               onClick={onSaveWorkspaceChanges}
             >
               {isSavingWorkspace ? "Saving..." : "Save Changes"}

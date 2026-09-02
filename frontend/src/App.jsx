@@ -10,7 +10,7 @@ import { useAuthProfileController } from "./features/auth/useAuthProfileControll
 import { ApplicationAdminPage } from "./features/admin/ApplicationAdminPage.jsx";
 import { useApplicationAdminController } from "./features/admin/useApplicationAdminController.js";
 import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
-import { useModelSettingsController } from "./features/profile/useModelSettingsController.js";
+import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
 import {
   ExtractionJobStatusDisplay,
   ExtractionResultDisplay,
@@ -125,6 +125,11 @@ function AuthenticatedApp() {
     workspaceController.actions.recoverForbiddenWorkspaceAccess,
     workspaceId,
   ]);
+  const workspaceModel = useWorkspaceModelConfiguration({
+    coreRequest, workspaceId, sessionUserId,
+    role: workspaceController.context.selectedWorkspaceRole,
+    enabled: hasApiAccess && !workspaceController.context.isWorkspaceInvitationSelected,
+  });
   const documentRequests = useMemo(
     () => createDocumentRequestAdapter({ request }),
     [request],
@@ -164,6 +169,8 @@ function AuthenticatedApp() {
     onActivePageChange: setActivePage,
     onWorkspaceCapacityRefresh:
       workspaceController.actions.refreshSelectedWorkspaceContext,
+    modelReady: workspaceModel.ready,
+    onModelConfigurationInvalidation: workspaceModel.invalidate,
     onWorkspaceAccessRevalidation:
       workspaceController.actions.recoverForbiddenWorkspaceAccess,
   });
@@ -222,11 +229,7 @@ function AuthenticatedApp() {
     onClearSessionWorkspaceData: workspaceController.actions.clearSessionWorkspaceData,
   });
   const { authScreen, profileMenu } = authProfileController;
-  const modelSettings = useModelSettingsController({
-    coreRequest,
-    hasSession,
-    addLog,
-  });
+
 
   function handleSidebarNavigation(pageId) {
     if (pageId === "admin" && !isApplicationAdmin) {
@@ -262,8 +265,8 @@ function AuthenticatedApp() {
           templates: templates.length,
           documents: documentCount,
         }}
-        uploadAriaDisabled={busy || !workspaceContext.hasWorkspaceApiAccess}
-        isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess}
+        uploadAriaDisabled={busy || !workspaceContext.hasWorkspaceApiAccess || !workspaceModel.ready}
+        isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess || !workspaceModel.ready}
         showAdminNavigation={isApplicationAdmin}
         impersonationSlot={
           isImpersonating ? (
@@ -290,7 +293,6 @@ function AuthenticatedApp() {
           <ProfileMenu
             ref={profileMenu.panelRef}
             {...profileMenu}
-            modelSettings={modelSettings}
           />
         }
         contextSidebar={
@@ -476,7 +478,7 @@ function AuthenticatedApp() {
                 {...workspaceController.invitationPage}
               />
             ) : (
-              <AcceptedWorkspacePage {...workspaceController.acceptedPage} />
+              <AcceptedWorkspacePage {...workspaceController.acceptedPage} modelConfiguration={workspaceModel} modelConfigurationKey={`${sessionUserId}:${workspaceId}`} />
             )
           ) : null}
 

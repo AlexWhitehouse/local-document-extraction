@@ -37,7 +37,6 @@ try {
             DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
             EXTRACTION_RECONCILE_INTERVAL_MS: "60000",
             FAILED_SOURCE_RETENTION_MS: "60000",
-            LITELLM_KEY: "stress-only",
             LOCAL_SHUTDOWN_TIMEOUT_MS: "250",
             SOURCE_RETENTION_SWEEP_INTERVAL_MS: "60000",
           },

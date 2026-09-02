@@ -72,8 +72,8 @@ export function createAppRuntimeCore({
       throw error;
     }
 
-    setLatestResponse(data ?? rawText);
-    if (responseType === "conditional-json") {
+    if (responseType !== "resource-json") setLatestResponse(data ?? rawText);
+    if (responseType === "conditional-json" || responseType === "resource-json") {
       return {
         data,
         headers: response.headers,

@@ -22,7 +22,7 @@ type LocalLiveUpdateJob = {
 export type LocalLiveUpdateHub = {
   broadcastWorkspaceContextInvalidation(input: {
     workspaceId: string;
-    reason: "workspace_access";
+    reason: "workspace_access" | "model_configuration_changed";
     occurredAt: string;
   }): void;
   broadcastJob(workspaceId: string, job: LocalLiveUpdateJob): void;

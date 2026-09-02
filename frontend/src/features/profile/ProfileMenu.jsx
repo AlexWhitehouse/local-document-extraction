@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { createPortal } from "react-dom";
 
 export const ProfileMenu = React.forwardRef(function ProfileMenu(
@@ -10,7 +10,6 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
     isDirty,
     isSavingProfile,
     busy,
-    modelSettings,
     onToggle,
     onDraftNameChange,
     onSaveProfile,
@@ -18,24 +17,6 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
   },
   ref,
 ) {
-  const [activeSection, setActiveSection] = useState("account");
-  const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
-
-  useEffect(() => {
-    if (isOpen) {
-      return;
-    }
-    setActiveSection("account");
-    setIsApiKeyVisible(false);
-  }, [isOpen]);
-
-  function selectSection(section) {
-    setActiveSection(section);
-    if (section === "model") {
-      void modelSettings.onLoad();
-    }
-  }
-
   return (
     <div className="sidebar-profile" ref={ref}>
       <button
@@ -72,44 +53,14 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                     <span className="eyebrow">Local Studio</span>
                     <h2 id="settings-modal-title">Settings</h2>
                   </div>
-                  <nav aria-label="Settings sections">
-                    <button
-                      type="button"
-                      className={activeSection === "account" ? "active" : ""}
-                      aria-current={
-                        activeSection === "account" ? "page" : undefined
-                      }
-                      onClick={() => selectSection("account")}
-                    >
-                      <span aria-hidden="true">AC</span>
-                      Account
-                    </button>
-                    <button
-                      type="button"
-                      className={activeSection === "model" ? "active" : ""}
-                      aria-current={
-                        activeSection === "model" ? "page" : undefined
-                      }
-                      onClick={() => selectSection("model")}
-                    >
-                      <span aria-hidden="true">AI</span>
-                      Model
-                    </button>
-                  </nav>
-                  <p>Configuration is stored only on this machine.</p>
+                  <p>Manage your local account.</p>
                 </aside>
 
                 <section className="settings-modal-content">
                   <header className="settings-modal-header">
                     <div>
-                      <span className="eyebrow">
-                        {activeSection === "account"
-                          ? "Identity"
-                          : "Extraction engine"}
-                      </span>
-                      <h3>
-                        {activeSection === "account" ? "Account" : "Model"}
-                      </h3>
+                      <span className="eyebrow">Identity</span>
+                      <h3>Account</h3>
                     </div>
                     <button
                       type="button"
@@ -121,7 +72,6 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                     </button>
                   </header>
 
-                  {activeSection === "account" ? (
                     <AccountSettings
                       busy={busy}
                       displayEmail={displayEmail}
@@ -132,15 +82,6 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                       onSaveProfile={onSaveProfile}
                       onSignOut={onSignOut}
                     />
-                  ) : (
-                    <ModelSettings
-                      {...modelSettings}
-                      isApiKeyVisible={isApiKeyVisible}
-                      onApiKeyVisibilityToggle={() =>
-                        setIsApiKeyVisible((current) => !current)
-                      }
-                    />
-                  )}
                 </section>
               </div>
             </div>,
@@ -204,209 +145,6 @@ function AccountSettings({
         >
           Sign Out
         </button>
-      </div>
-    </div>
-  );
-}
-
-function ModelSettings({
-  apiKey,
-  error,
-  gatewayUrl,
-  hasApiKey,
-  isApiKeyVisible,
-  isDirty,
-  isLoaded,
-  isLoading,
-  isSaving,
-  modelName,
-  sequentialCalls,
-  supportsPdfInput,
-  supportsStructuredOutput,
-  onApiKeyChange,
-  onApiKeyVisibilityToggle,
-  onGatewayUrlChange,
-  onLoad,
-  onModelNameChange,
-  onSequentialCallsChange,
-  onSupportsPdfInputChange,
-  onSupportsStructuredOutputChange,
-  onRemoveApiKey,
-  onSave,
-}) {
-  if (isLoading && !isLoaded) {
-    return (
-      <div className="settings-section-state" role="status">
-        <span className="settings-loading-mark" aria-hidden="true" />
-        <strong>Loading model settings</strong>
-        <p>Reading the configuration stored by the local runtime.</p>
-      </div>
-    );
-  }
-
-  if (!isLoaded) {
-    return (
-      <div className="settings-section-state" role="alert">
-        <strong>Model settings are unavailable</strong>
-        <p>{error || "The local runtime did not return model settings."}</p>
-        <button type="button" className="secondary" onClick={onLoad}>
-          Try Again
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="settings-section-body settings-model-section">
-      <div className="settings-section-intro">
-        <h4>OpenAI-compatible gateway</h4>
-        <p>
-          New extraction jobs use this endpoint and model. Changes take effect
-          without restarting the app.
-        </p>
-      </div>
-      <div className="settings-form-card settings-model-form">
-        <div className="settings-model-primary-grid">
-          <label>
-            Gateway URL
-            <input
-              type="url"
-              aria-label="Gateway URL"
-              value={gatewayUrl}
-              onChange={(event) => onGatewayUrlChange(event.target.value)}
-              placeholder="http://127.0.0.1:11434/v1"
-              spellCheck="false"
-            />
-            <span className="field-note">
-              Calls <code>chat/completions</code> on this base URL.
-            </span>
-          </label>
-          <label>
-            Model name
-            <input
-              aria-label="Model name"
-              value={modelName}
-              onChange={(event) => onModelNameChange(event.target.value)}
-              placeholder="openai/gpt-5-mini"
-              spellCheck="false"
-            />
-            <span className="field-note">Gateway model identifier.</span>
-          </label>
-        </div>
-        <label>
-          <span className="settings-label-line">
-            API key / bearer token
-            <span className="optional-label">Optional</span>
-          </span>
-          <span className="settings-secret-input">
-            <input
-              type={isApiKeyVisible ? "text" : "password"}
-              aria-label="API key / bearer token"
-              value={apiKey}
-              onChange={(event) => onApiKeyChange(event.target.value)}
-              placeholder={
-                hasApiKey
-                  ? "Saved — enter a new token to replace"
-                  : "Enter a token if required"
-              }
-              autoComplete="new-password"
-              spellCheck="false"
-            />
-            <button
-              type="button"
-              className="ghost"
-              aria-label={isApiKeyVisible ? "Hide API key" : "Show API key"}
-              onClick={onApiKeyVisibilityToggle}
-            >
-              {isApiKeyVisible ? "Hide" : "Show"}
-            </button>
-          </span>
-          <span
-            className={
-              hasApiKey ? "credential-status saved" : "credential-status"
-            }
-          >
-            <i aria-hidden="true" />
-            {hasApiKey ? "A token is stored locally" : "No token stored"}
-          </span>
-        </label>
-      </div>
-      <div className="settings-behavior-group">
-        <div className="settings-behavior-heading">
-          <strong>Model capabilities</strong>
-          <span>Request handling and document input</span>
-        </div>
-        <div className="settings-behavior-options">
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={sequentialCalls}
-              onChange={(event) =>
-                onSequentialCallsChange(event.target.checked)
-              }
-            />
-            <span>
-              <strong>Sequential calls</strong>
-              <small>
-                One active request at a time for memory-limited models.
-              </small>
-            </span>
-          </label>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={supportsPdfInput}
-              onChange={(event) =>
-                onSupportsPdfInputChange(event.target.checked)
-              }
-            />
-            <span>
-              <strong>Direct PDF input</strong>
-              <small>
-                Send the PDF as a file; otherwise render pages to PNGs.
-              </small>
-            </span>
-          </label>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={supportsStructuredOutput}
-              onChange={(event) =>
-                onSupportsStructuredOutputChange(event.target.checked)
-              }
-            />
-            <span>
-              <strong>Structured output</strong>
-              <small>
-                Send a response format; disable for incompatible models.
-              </small>
-            </span>
-          </label>
-        </div>
-      </div>
-      {error ? (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      <div className="settings-form-actions settings-model-actions">
-        <button
-          type="button"
-          disabled={isSaving || !isDirty}
-          onClick={onSave}
-        >
-          {isSaving ? "Saving..." : "Save Model Settings"}
-        </button>
-        {hasApiKey ? (
-          <button
-            type="button"
-            className="ghost"
-            disabled={isSaving}
-            onClick={onRemoveApiKey}
-          >
-            Remove saved token
-          </button>
-        ) : null}
       </div>
     </div>
   );

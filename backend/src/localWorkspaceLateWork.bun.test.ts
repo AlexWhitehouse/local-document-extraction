@@ -12,7 +12,7 @@ import type { LocalWorkspaceExtractionJob } from "./localWorkspaceProductStore";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
-import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import { createConfiguredTestProductStore as createLocalWorkspaceProductStore } from "./testing/workspaceModelFixture";
 
 test("late queue deliveries after hard deletion do not recreate a Workspace product database", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-late-work-"));

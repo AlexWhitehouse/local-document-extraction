@@ -40,6 +40,8 @@ export function useDocumentController({
   onActivePageChange,
   onWorkspaceCapacityRefresh,
   onWorkspaceAccessRevalidation,
+  onModelConfigurationInvalidation,
+  modelReady = true,
 }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isUploadingDocuments, setIsUploadingDocuments] = useState(false);
@@ -94,6 +96,8 @@ export function useDocumentController({
   const onWorkspaceAccessRevalidationRef = useRef(
     onWorkspaceAccessRevalidation || onWorkspaceCapacityRefresh,
   );
+  const onModelConfigurationInvalidationRef = useRef(onModelConfigurationInvalidation);
+  onModelConfigurationInvalidationRef.current = onModelConfigurationInvalidation;
   const queuedJobsRef = useRef(queuedJobs);
   const documentRequestsRef = useRef(documentRequests);
   const hasApiAccessRef = useRef(hasApiAccess);
@@ -753,6 +757,7 @@ export function useDocumentController({
   }, [removeDocumentFromState, scheduleWorkspaceCapacityRefresh, upsertJobHistory, workspaceId]);
 
   function openUploadModal() {
+    if (!modelReady) return;
     if (isAppBusy) {
       return;
     }
@@ -828,6 +833,7 @@ export function useDocumentController({
   }
 
   async function uploadFromModal() {
+    if (!modelReady) return;
     if (!uploadTemplateId.trim()) {
       addLog("Upload failed: select a template");
       showActionToast("document.upload", "validation", { reason: "template" });
@@ -1148,6 +1154,7 @@ export function useDocumentController({
     socket.onopen = () => {
       if (liveUpdateSocketRef.current === socket) {
         setLiveUpdatesUnavailable(false);
+        void onModelConfigurationInvalidationRef.current?.();
       }
     };
     const scheduleReconnect = () => {
@@ -1170,7 +1177,12 @@ export function useDocumentController({
       if (liveUpdateSocketRef.current !== socket) {
         return;
       }
-      const { jobs, workspaceContextInvalidations } = parseWorkspaceLiveUpdateMessage(event?.data);
+      const parsed = parseWorkspaceLiveUpdateMessage(event?.data);
+      const jobs = parsed.jobs;
+      if (parsed.workspaceContextInvalidations.some((item) => item.reason === "model_configuration_changed")) {
+        void onModelConfigurationInvalidationRef.current?.();
+      }
+      const workspaceContextInvalidations = parsed.workspaceContextInvalidations.filter((item) => item.reason !== "model_configuration_changed");
       if (workspaceContextInvalidations.length) {
         if (
           workspaceContextInvalidations.some(
@@ -1346,7 +1358,7 @@ export function useDocumentController({
       sourceFiles: uploadFiles,
       isDragActive: isUploadDragActive,
       isUploadingDocuments,
-      hasApiAccess: hasWorkspaceApiAccess,
+      hasApiAccess: hasWorkspaceApiAccess && modelReady,
       onClose: closeUploadModal,
       onSelectTemplate: setUploadTemplateId,
       onSelectSourceFiles: appendUploadFiles,

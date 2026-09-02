@@ -1,3 +1,4 @@
+import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -31,6 +32,7 @@ test("individual job reads use validators and hydrate results only for changed c
   const user = await signUp.json() as { user: { id: string; name: string } };
   const workspace = workspaceControl.listAcceptedWorkspaces({ userId: user.user.id, userName: user.user.name })[0]!;
   workspaceControl.completeStarterTemplateBootstrap({ workspaceId: workspace.id });
+  configureTestWorkspace({ stateDirectory, workspaceId: workspace.id });
   const apiKey = workspaceControl.rotateApiKey({ workspaceId: workspace.id, userId: user.user.id }).api_key;
   const setupStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: workspace.id });
   setupStore.createTemplate({
@@ -169,6 +171,7 @@ test("accepted submissions direct clients to the job resource and initial delay"
   }));
   const user = await signUp.json() as { user: { id: string; name: string } };
   const workspace = workspaceControl.listAcceptedWorkspaces({ userId: user.user.id, userName: user.user.name })[0]!;
+  configureTestWorkspace({ stateDirectory, workspaceId: workspace.id });
   const apiKey = workspaceControl.rotateApiKey({ workspaceId: workspace.id, userId: user.user.id }).api_key;
   const application = createLocalApplication({ auth, stateDirectory, workspaceControl });
 
@@ -186,6 +189,7 @@ test("accepted submissions direct clients to the job resource and initial delay"
       body: form,
     }));
     const queued = await response.json() as { job_id: string };
+    expect(queued).toHaveProperty("job_id");
     expect(response.status).toBe(202);
     expect(response.headers.get("location")).toBe(`/v1/jobs/${queued.job_id}`);
     expect(response.headers.get("retry-after")).toBe("2");
@@ -195,4 +199,3 @@ test("accepted submissions direct clients to the job resource and initial delay"
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });
-

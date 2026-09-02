@@ -1112,13 +1112,14 @@ describe("useDocumentController Workspace live updates", () => {
     ]);
   });
 
-  it("revalidates job state over HTTP after reconnecting live updates", async () => {
+  it("revalidates job and model configuration state over HTTP after reconnecting live updates", async () => {
     vi.useFakeTimers();
     const WebSocketStub = installWebSocketStub();
     const request = vi.fn(async () => ({ jobs: [], next_cursor: null, has_more: false }));
+    const onModelConfigurationInvalidation = vi.fn();
 
     try {
-      render(<DocumentControllerHarness workspaceId="ws_1" request={request} />);
+      render(<DocumentControllerHarness workspaceId="ws_1" request={request} onModelConfigurationInvalidation={onModelConfigurationInvalidation} />);
 
       expect(WebSocketStub.instances).toHaveLength(1);
       request.mockClear();
@@ -1132,7 +1133,11 @@ describe("useDocumentController Workspace live updates", () => {
       });
 
       expect(WebSocketStub.instances).toHaveLength(2);
+      act(() => { WebSocketStub.instances[1].onopen(); });
       expect(request).toHaveBeenCalledWith("/jobs", { method: "GET" });
+      expect(onModelConfigurationInvalidation).toHaveBeenCalledTimes(1);
+      act(() => { WebSocketStub.instances[1].onmessage({ data: JSON.stringify({ version: 1, events: [{ type: "workspace_context_invalidated", reason: "model_configuration_changed", occurred_at: "2026-09-03T00:00:00.000Z" }] }) }); });
+      expect(onModelConfigurationInvalidation).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
@@ -1357,6 +1362,7 @@ function DocumentControllerHarness({
   onController,
   onWorkspaceAccessRevalidation,
   onWorkspaceCapacityRefresh,
+  onModelConfigurationInvalidation,
   request = vi.fn(async () => ({ jobs: [], next_cursor: null, has_more: false })),
 }) {
   const [latestResponse, setLatestResponse] = React.useState(null);
@@ -1401,6 +1407,7 @@ function DocumentControllerHarness({
     onWorkspaceAccessRevalidation:
       onWorkspaceAccessRevalidation || onWorkspaceCapacityRefresh,
     onWorkspaceCapacityRefresh,
+    onModelConfigurationInvalidation,
     onActivePageChange: vi.fn(),
   });
   onController?.(controller);

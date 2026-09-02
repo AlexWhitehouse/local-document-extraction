@@ -72,6 +72,14 @@ _Avoid_: frontend session key, user token
 The opaque generated string format for **Workspace API keys**.
 _Avoid_: user-facing key schema, guaranteed key length
 
+**Model gateway credential**:
+The recoverable secret a **Workspace** supplies for the **Extraction processor** to authenticate outbound requests to its **Model gateway**.
+_Avoid_: Workspace API key, application API key, global gateway key
+
+**Model gateway connection test**:
+A one-off owner/admin-requested probe of a draft **Workspace model configuration** that checks basic model invocation without certifying declared capabilities or changing configuration state.
+_Avoid_: compatibility certification, health status, capability discovery
+
 **Workspace deletion**:
 The owner-only hard-erasure of a **Workspace**'s control access, authoritative **Workspace product data**, and residual **Source file** binaries; **Workspace product analytics** remains retained.
 _Avoid_: soft delete, workspace archive, member departure
@@ -147,6 +155,10 @@ _Avoid_: external worker, cron task
 **Model gateway**:
 The external model-routing service used by the **Extraction processor** to request field extraction from a model.
 _Avoid_: AI gateway, provider endpoint, model API
+
+**Workspace model configuration**:
+The Workspace-owned extraction configuration that identifies the **Model gateway**, model, credential, and declared processing capabilities available to the **Extraction processor**.
+_Avoid_: application model settings, profile model settings, global gateway configuration
 
 **Extraction result**:
 The completed output value for a **Template field** in an **Extraction job**.
@@ -277,8 +289,26 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - **Workspace API key** material is visible only immediately after creation or rotation because the backend stores only a hash.
 - **Workspace API key format** is opaque to users and clients beyond being passed as a bearer token.
 - **Workspace API key** lookup is **Workspace control data** so external clients do not need to provide Workspace context before authentication.
+- A **Model gateway credential** is encrypted at rest using a dedicated machine-local secret and is decrypted only for authorised outbound Model gateway processing.
+- Full local-state backup and restoration preserve encrypted **Model gateway credentials** and their machine-local secret; Workspace exports and operational outputs omit credential material.
 - **Workspace control data** includes account/session records, Workspace records, Workspace memberships, Workspace invitations, and Workspace API key lookup.
 - **Workspace control data** and **Workspace product data** remain separate authority boundaries in the local-only runtime.
+- **Workspace model configuration** is authoritative **Workspace product data**, not **Workspace control data** or application-wide configuration.
+- An absent **Workspace model configuration** means the **Workspace** is unconfigured; blank Workspaces do not require placeholder configuration.
+- **Workspace model configuration** is complete or absent; creating it requires a gateway, model, and **Model gateway credential**.
+- Updating non-secret **Workspace model configuration** may preserve an existing credential, while credential replacement is explicit and atomic with the update.
+- Replacing **Workspace model configuration** may omit the credential only while the stored **Model gateway credential** remains usable; an unreadable stored credential must be replaced with a newly supplied credential.
+- Clearing **Workspace model configuration** removes the complete configuration rather than leaving partial gateway, model, or credential state.
+- Clearing **Workspace model configuration** requires the current configured resource ETag; a concurrent change or prior clear fails the precondition instead of being treated as an idempotent success, and an already-unconfigured Workspace has no mutation ETag.
+- **Workspace model configuration** mutations reject stale revisions rather than silently overwriting concurrent changes.
+- New **Workspace model configuration** treats native PDF input and structured output as unsupported until explicitly declared; sequential Model gateway calls are opt-in, and Model gateway processing does not use managed-file upload.
+- Workspace owners/admins may read non-secret **Workspace model configuration** details; ordinary members may read only whether configuration is present.
+- Workspace owners/admins may distinguish a usable **Model gateway credential** from an unreadable one through non-secret credential status; ordinary members still see only whether **Workspace model configuration** is present.
+- **Workspace model configuration** management requires an authenticated user session and accepted **Workspace membership**; **Workspace API keys** cannot read or mutate it.
+- The Workspace model-configuration endpoint returns unauthorised for callers without a valid user session, including callers presenting only a **Workspace API key**; signed-in non-members and members attempting owner/admin mutations are forbidden.
+- Saved **Model gateway credential** material is never returned through a product interface; replacing it requires a new credential value.
+- An unreadable encrypted **Model gateway credential** is an internal configuration failure, not an absent **Workspace model configuration**; operations that require it fail while authorised replacement or clearing remains available.
+- **Workspace model configuration** follows the backup, restoration, and hard-erasure boundary of its authoritative **Workspace product data**.
 - **Workspace product data** includes Templates, Template fields and versions, Extraction jobs, Extraction results, and Source file metadata.
 - **Workspace product data** includes Source file metadata, not Source file binary contents.
 - Deleting a **Workspace** hard-erases its authoritative **Workspace product data** and associated **Source file** binary contents.
@@ -306,6 +336,8 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - **Workspace live updates** use a versioned batch message envelope.
 - **Extraction job lifecycle** live update events must not include extracted answers, evidence text, Source file binary contents, account emails, API keys, or Document contents.
 - **Workspace context invalidation** live update events must not include account identity, API keys, extracted answers, evidence text, Source file binary contents, or Document contents.
+- A committed Workspace model-configuration create, replacement, credential rotation, or clear emits **Workspace context invalidation** with reason `model_configuration_changed`; the event carries no configuration fields, and other open SPA clients refetch the authoritative Workspace product resource.
+- Workspace model-configuration readiness is not duplicated into **Workspace control data** or Workspace-list responses; the initiating SPA client uses its mutation response while other clients refetch after invalidation.
 - Creating a **Workspace** and generating a **Workspace API key** are separate user intents.
 - `POST /v1/workspaces` returns the new accepted **Workspace context** with `has_api_key: false` and no **Workspace API key** secret.
 - First-login Workspace bootstrap creates the accepted **Workspace** and starter template, not visible external-client **Workspace API key** material.
@@ -352,18 +384,30 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - The **Local extraction runner** scans authoritative **Workspace product data** on startup for resumable `queued` and stale `processing` **Extraction jobs**.
 - A server restart must not permanently strand an accepted **Extraction job** that has not reached `completed` or `failed`.
 - The **Local extraction runner** owns bounded retry attempts as processor metadata, not as additional **Extraction job lifecycle** states.
+- Each **Extraction processor** attempt resolves the latest complete **Workspace model configuration** when that attempt starts; an in-flight attempt retains the configuration revision it already captured.
+- **Extraction jobs** retain only the non-secret Workspace model configuration revision, model, and route used by their latest or final attempt, not permanent per-attempt configuration history or the **Model gateway credential**.
+- Clearing **Workspace model configuration** is a deliberate stop for queued and retrying work: the next attempt fails deterministically as unconfigured, while already in-flight attempts continue with their captured configuration.
+- An unreadable **Model gateway credential** fails accepted queued or retrying **Extraction jobs** deterministically as configuration unavailable; it is not a transient Model gateway retry.
+- Changing **Workspace model configuration** does not reschedule queued retries, cancel in-flight attempts, or discard successful results; the next normally scheduled attempt resolves the latest configuration.
 - The **Extraction processor** sends the original **Source file** to the **Model gateway** for extraction rather than creating a separate OCR or text-conversion artifact first.
 - Completed **Extraction jobs** record a stable **Model gateway** route label for support/debugging rather than the full request URL.
 - The configured LiteLLM endpoint remains the **Model gateway** in the local-only runtime.
 - The **Extraction processor** uses the configured **Model gateway** as the single extraction route; transient gateway failures are retried by background processing rather than hidden behind a fallback provider.
+- Deterministic Model gateway rejections fail an **Extraction job** terminally; throttling, timeouts, network failures, and gateway service failures use the bounded durable retry policy.
+- Missing or unreadable **Workspace model configuration** does not consume the Model gateway retry budget.
 - A persisted queued **Extraction job** notifies the local runner asynchronously, so Document acceptance is not delayed by Model gateway processing.
 - After the **Extraction processor** receives a **Model gateway** response, **Extraction results** should be persisted and the **Extraction job** should be marked `completed`.
 - A completed **Extraction job** should not retain its **Source file** binary after processing cleanup succeeds.
+- **Document** admission checks **Workspace model configuration** readiness immediately after Workspace authorisation and before parsing the request body, persisting a **Source file**, or creating an **Extraction job**.
+- Workspace model-configuration HTTP errors use the product error envelope without echoing credential material: invalid representations are `400 invalid_workspace_model_configuration`, missing mutation preconditions are `428 precondition_required`, and failed or stale preconditions are `412 precondition_failed`.
+- Workspace model-configuration responses use `Cache-Control: no-store`; only a configured owner/admin representation exposes an ETag, and that ETag is a mutation concurrency token rather than a conditional-read cache validator.
+- **Document** admission rejects an absent **Workspace model configuration** as `409 workspace_model_not_configured` and an unreadable **Model gateway credential** as `503 workspace_model_configuration_unavailable`; configuration-unavailable responses do not advertise automatic retry timing because owner/admin repair is required.
 - Multipart **Document** admission streams a bounded `document` part to temporary local storage, validates required metadata and PDF page count, then atomically promotes the **Source file** before the **Extraction job** is accepted.
 - Admission count, reserved bytes, process memory, and disk reserve are local capacity limits; shared pressure returns retry guidance without creating an **Extraction job**.
 - If local **Workspace product data** rejects a queued **Extraction job** after its **Source file** is written, the local Source file binary is deleted.
 - If queuing an **Extraction processor** fails during Document submission, the **Extraction job** is marked `failed` and its **Source file** follows the failed-source retention window.
 - A processing failure marks the **Extraction job** `failed` with durable error details and retains its **Source file** for recovery or inspection for seven days by default.
+- Configuration-related terminal processing failures follow the same failed **Source file** retention policy as other processing failures.
 - Completed **Source files** are deleted immediately; a restart-safe sweep also removes interrupted completed cleanup and expired failed-source binaries without deleting retained job metadata, errors, or results.
 - The in-memory extraction queue is a bounded, Workspace-fair metadata accelerator over authoritative queued **Workspace product data**; periodic reconciliation recovers work left only in SQLite.
 - Individual **Extraction job** retrieval uses entity validators and server-directed retry timing so unchanged polls do not hydrate or serialize **Extraction results**.
@@ -388,6 +432,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - A **Pending workspace invitation context** is locked until the **Workspace invitation** is accepted or declined.
 - **Workspace control data** identifies which **Workspace product data** a user or **Workspace API key** may access.
 - **Workspace product data** belongs to exactly one **Workspace**.
+- A **Workspace model configuration** belongs to exactly one **Workspace**.
 - A deleted **Workspace** has no remaining authoritative **Workspace product data**.
 - In-flight **Extraction processing** for a deleted **Workspace** may finish externally, but it has no **Extraction job lifecycle** state to update after hard-erasure.
 - A **Document** has exactly one **Source file** at submission time.
