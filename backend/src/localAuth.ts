@@ -55,6 +55,11 @@ export async function createLocalAuth({
       }
     : undefined;
   const auth = betterAuth({
+    advanced: {
+      ipAddress: {
+        ipAddressHeaders: ["cf-connecting-ip"],
+      },
+    },
     appName: "Document Extraction",
     baseURL,
     database,
@@ -188,9 +193,10 @@ function captureMail(
   });
 }
 
-function localTrustedOrigins(baseURL: string): string[] {
+export function localTrustedOrigins(baseURL: string): string[] {
   return [
     baseURL,
+    "https://extract.t3m.uk",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:8787",

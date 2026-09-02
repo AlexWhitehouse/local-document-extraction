@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 
-import { createLocalAuth } from "./localAuth";
+import { createLocalAuth, localTrustedOrigins } from "./localAuth";
 import { createLocalApplication } from "./localApplication";
 import type { LocalMailMessage } from "./localMailSink";
 
@@ -39,6 +39,46 @@ test("email/password sign-up captures an Account email verification link", async
       }),
     ]);
     expect(capturedMessages[0]?.text).toContain("/api/auth/verify-email?");
+  } finally {
+    database.close();
+  }
+});
+
+test("the hosted Document Extraction URL is a trusted auth origin", () => {
+  expect(localTrustedOrigins("http://127.0.0.1:8787")).toContain("https://extract.t3m.uk");
+});
+
+test("Better Auth records the Cloudflare connecting IP on new sessions", async () => {
+  const database = new Database(":memory:");
+  const capturedMessages: LocalMailMessage[] = [];
+  const auth = await createLocalAuth({
+    baseURL: "http://127.0.0.1:8787",
+    database,
+    mailSink: { capture: async (message) => { capturedMessages.push(message); } },
+    secret: "01234567890123456789012345678901",
+  });
+
+  try {
+    await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+    }));
+    const verificationUrl = capturedMessages[0]?.text.match(/https?:\/\/\S+/)?.[0];
+    await auth.handler(new Request(verificationUrl!, { redirect: "manual" }));
+
+    const signIn = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-in/email", {
+      method: "POST",
+      headers: {
+        "cf-connecting-ip": "203.0.113.42",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ email: "ada@example.com", password: "Strong1!" }),
+    }));
+
+    expect(signIn.status).toBe(200);
+    expect(database.query("SELECT ipAddress FROM session ORDER BY createdAt DESC LIMIT 1").get())
+      .toEqual({ ipAddress: "203.0.113.42" });
   } finally {
     database.close();
   }
