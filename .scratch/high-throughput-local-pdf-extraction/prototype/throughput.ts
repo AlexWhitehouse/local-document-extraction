@@ -71,6 +71,14 @@ type ServerReport = {
   pollOk: number;
   sqliteBusyOutcomes: number;
   sqliteBusyRetries: number;
+  timing: {
+    firstSubmissionReceivedAt: string | null;
+    firstJobCompletedAt: string | null;
+    lastJobCompletedAt: string | null;
+    measurementElapsedMs: number;
+    lifecycleLatencyMs: number[];
+    throughputJobsPerSecond: number;
+  };
 };
 
 type ClientReport = {
@@ -120,10 +128,11 @@ async function runComparison(): Promise<void> {
     console.log("\nResults");
     console.table(results.map(({ profile, server, client }) => ({
       profile,
-      completed: client.completed,
+      completed: server.completed,
       failed: client.failed,
-      "jobs/s": round(client.completed / (client.elapsedMs / 1_000)),
-      "lifecycle p95 ms": round(percentile(client.lifecycleLatencyMs, 0.95)),
+      "server jobs/s": round(server.timing.throughputJobsPerSecond),
+      "server lifecycle p95 ms": round(percentile(server.timing.lifecycleLatencyMs, 0.95)),
+      "client observation p95 ms": round(percentile(client.lifecycleLatencyMs, 0.95)),
       "submit p95 ms": round(percentile(client.submissionLatencyMs, 0.95)),
       "poll p95 ms": round(percentile(client.pollLatencyMs, 0.95)),
       polls: client.pollRequests,
@@ -153,8 +162,8 @@ async function runComparison(): Promise<void> {
     console.log("\nPrototype verdict inputs");
     console.log(JSON.stringify({
       throughputRatio: round(
-        (bounded.client.completed / bounded.client.elapsedMs)
-          / (baseline.client.completed / baseline.client.elapsedMs),
+        bounded.server.timing.throughputJobsPerSecond
+          / baseline.server.timing.throughputJobsPerSecond,
       ),
       peakRssDeltaRatio: round(
         (bounded.server.peakRssBytes - bounded.server.baselineRssBytes)
@@ -449,8 +458,31 @@ async function runServer(profile: Profile): Promise<void> {
     ? createInstrumentedBaselineQueue()
     : createBoundedPrototypeQueue(configuration.boundedRunnerConcurrency);
   const gateway = createFakeGateway(configuration.gatewayConcurrency, configuration.gatewayLatencyMs);
+  const completedJobIds = new Set<string>();
+  const lifecycleLatencyMs: number[] = [];
+  let firstSubmissionReceivedAt: string | null = null;
+  let firstSubmissionReceivedAtMs: number | null = null;
+  let firstJobCompletedAt: string | null = null;
+  let lastJobCompletedAt: string | null = null;
+  let lastJobCompletedAtMs: number | null = null;
+  let completed = 0;
   const runner = createLocalExtractionRunner({
     extract: gateway.extract,
+    onJobLifecycleChange: (_workspaceId, job) => {
+      if (job.status !== "completed" || completedJobIds.has(job.job_id)) return;
+      const recordedAtMs = performance.now();
+      const completedAt = job.completed_at ?? new Date().toISOString();
+      const createdAtMs = Date.parse(job.created_at);
+      const completedAtMs = Date.parse(completedAt);
+      completedJobIds.add(job.job_id);
+      completed = completedJobIds.size;
+      firstJobCompletedAt ??= completedAt;
+      lastJobCompletedAt = completedAt;
+      lastJobCompletedAtMs = recordedAtMs;
+      if (Number.isFinite(createdAtMs) && Number.isFinite(completedAtMs)) {
+        lifecycleLatencyMs.push(Math.max(0, completedAtMs - createdAtMs));
+      }
+    },
     sourceFileStore,
     stateDirectory,
     workspaceControl,
@@ -472,7 +504,6 @@ async function runServer(profile: Profile): Promise<void> {
   let peakAdmission = 0;
   let accepted = 0;
   let admissionRejected = 0;
-  let completed = 0;
   let pollNotModified = 0;
   let pollOk = 0;
   let sqliteBusyOutcomes = 0;
@@ -485,6 +516,9 @@ async function runServer(profile: Profile): Promise<void> {
     fetch: async (request) => {
       const pathname = new URL(request.url).pathname;
       if (pathname === "/__prototype/report") {
+        const measurementElapsedMs = firstSubmissionReceivedAtMs !== null && lastJobCompletedAtMs !== null
+          ? Math.max(0, lastJobCompletedAtMs - firstSubmissionReceivedAtMs)
+          : 0;
         return Response.json({
           profile,
           ...sampler.snapshot(),
@@ -498,6 +532,16 @@ async function runServer(profile: Profile): Promise<void> {
           pollOk,
           sqliteBusyOutcomes,
           sqliteBusyRetries,
+          timing: {
+            firstSubmissionReceivedAt,
+            firstJobCompletedAt,
+            lastJobCompletedAt,
+            measurementElapsedMs,
+            lifecycleLatencyMs: [...lifecycleLatencyMs],
+            throughputJobsPerSecond: measurementElapsedMs > 0
+              ? completed / (measurementElapsedMs / 1_000)
+              : 0,
+          },
         } satisfies ServerReport);
       }
       if (pathname === "/__prototype/shutdown" && request.method === "POST") {
@@ -511,6 +555,10 @@ async function runServer(profile: Profile): Promise<void> {
         return Response.json({ ok: true });
       }
       const isSubmission = pathname === "/v1/extract" && request.method === "POST";
+      if (isSubmission && firstSubmissionReceivedAtMs === null) {
+        firstSubmissionReceivedAtMs = performance.now();
+        firstSubmissionReceivedAt = new Date().toISOString();
+      }
       if (isSubmission && profile === "bounded" && admissionActive >= configuration.boundedAdmissionConcurrency) {
         admissionRejected += 1;
         await drainRequestBody(request.body);
@@ -536,11 +584,6 @@ async function runServer(profile: Profile): Promise<void> {
         }
         if (pathname.startsWith("/v1/jobs/") && request.method === "GET" && response.status === 200) {
           pollOk += 1;
-          const clone = response.clone();
-          const job = await clone.json() as { status?: string };
-          if (job.status === "completed") {
-            completed += 1;
-          }
         }
         if (pathname.startsWith("/v1/jobs/") && request.method === "GET" && response.status === 304) {
           pollNotModified += 1;

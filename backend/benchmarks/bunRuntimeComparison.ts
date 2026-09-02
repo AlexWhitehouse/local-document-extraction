@@ -113,6 +113,7 @@ type PrototypeResult = {
     server: {
       admissionRejected: number;
       baselineRssBytes: number;
+      completed: number;
       gatewayPeakActive: number;
       maxEventLoopLagMs: number;
       normalizedCpuFraction: number;
@@ -120,6 +121,11 @@ type PrototypeResult = {
       queue: { peakActive: number; peakPending: number };
       sqliteBusyOutcomes: number;
       sqliteBusyRetries: number;
+      timing: {
+        lifecycleLatencyMs: number[];
+        measurementElapsedMs: number;
+        throughputJobsPerSecond: number;
+      };
     };
   }>;
 };
@@ -289,7 +295,7 @@ export function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidenc
     "",
     "## Workload identity and controls",
     "",
-    `Both runtimes reuse the exact files below, run ${evidence.settings.warmupRepetitions} discarded warm-up repetition(s), then ${evidence.settings.steadyRepetitions} fresh-state steady repetition(s). Model gateway latency and concurrency are synthetic and fixed; polling jitter is disabled.`,
+    `Both runtimes reuse the exact files below, run ${evidence.settings.warmupRepetitions} discarded warm-up repetition(s), then ${evidence.settings.steadyRepetitions} fresh-state steady repetition(s). Model gateway latency and concurrency are synthetic and fixed; polling jitter is disabled. Jobs/s uses the server interval from first submission receipt through final durable completion, and lifecycle percentiles use persisted server timestamps rather than client polling observation.`,
     "",
     "| Fixture | Pages | Bytes | SHA-256 |",
     "| ---: | ---: | ---: | --- |",
@@ -507,11 +513,11 @@ async function runRuntimeInvocation({
     baselineRssBytes: bounded.server.baselineRssBytes,
     bunRevision: parsed.bunRevision,
     bunVersion: parsed.bunVersion,
-    completed: bounded.client.completed,
-    elapsedMs: bounded.client.elapsedMs,
+    completed: bounded.server.completed,
+    elapsedMs: bounded.server.timing.measurementElapsedMs,
     failed: bounded.client.failed,
     gatewayPeakActive: bounded.server.gatewayPeakActive,
-    lifecycleLatencyMs: bounded.client.lifecycleLatencyMs,
+    lifecycleLatencyMs: bounded.server.timing.lifecycleLatencyMs,
     maxEventLoopLagMs: bounded.server.maxEventLoopLagMs,
     normalizedCpuFraction: bounded.server.normalizedCpuFraction,
     peakRssBytes: bounded.server.peakRssBytes,
