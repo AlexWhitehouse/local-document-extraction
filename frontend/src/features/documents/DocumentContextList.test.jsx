@@ -4,6 +4,37 @@ import { fireEvent, render, within } from "@testing-library/react";
 import { DocumentContextList } from "./DocumentContextList.jsx";
 
 describe("DocumentContextList", () => {
+  it("uses the document status to colour each row's left edge", () => {
+    const { container } = render(
+      <DocumentContextList
+        search=""
+        documents={[
+          { job_id: "job_completed", source_name: "completed.pdf", status: "completed" },
+          { job_id: "job_queued", source_name: "queued.pdf", status: "queued" },
+          { job_id: "job_processing", source_name: "processing.pdf", status: "processing" },
+          { job_id: "job_failed", source_name: "failed.pdf", status: "failed" },
+        ]}
+        selectedDocumentId="job_failed"
+        debouncedSearch=""
+        hasMoreDocuments={false}
+        isLoadingMoreDocuments={false}
+        onSearchChange={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onLoadMoreDocuments={vi.fn()}
+      />,
+    );
+
+    const rowFor = (name) =>
+      within(container).getByRole("button", { name: new RegExp(name) })
+        .closest(".context-item-document");
+
+    expect(rowFor("completed.pdf").classList.contains("status-completed")).toBe(true);
+    expect(rowFor("queued.pdf").classList.contains("status-progress")).toBe(true);
+    expect(rowFor("processing.pdf").classList.contains("status-progress")).toBe(true);
+    expect(rowFor("failed.pdf").classList.contains("status-failed")).toBe(true);
+    expect(rowFor("failed.pdf").classList.contains("active")).toBe(true);
+  });
+
   it("selects and deselects all available jobs", () => {
     const documents = [
       {

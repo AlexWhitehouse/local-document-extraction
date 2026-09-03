@@ -34,9 +34,9 @@ const successMessages = {
   "document.bulkDelete": ({ target }) =>
     target ? `${target} deleted` : "Selected documents deleted",
   "document.export": ({ exportedCount = 0, skippedCount = 0 }) => {
-    const exported = `Exported ${exportedCount} ${pluralize("job", exportedCount)}`;
+    const exported = `Exported ${exportedCount} ${pluralize("document", exportedCount)}`;
     return skippedCount
-      ? `${exported}; skipped ${skippedCount} unavailable or in-progress ${pluralize("job", skippedCount)}`
+      ? `${exported}; skipped ${skippedCount} unavailable or in-progress ${pluralize("document", skippedCount)}`
       : exported;
   },
   "clipboard.copyTemplateJson": () => "Template JSON copied",
@@ -66,7 +66,7 @@ const failureMessages = {
   "document.delete": "Document could not be deleted. Please try again.",
   "document.bulkDelete":
     "Some selected documents could not be deleted. Try again.",
-  "document.export": "Selected jobs could not be exported. Please try again.",
+  "document.export": "Selected documents could not be exported. Please try again.",
   "clipboard.copyTemplateJson": "Template JSON could not be copied. Please try again.",
 };
 

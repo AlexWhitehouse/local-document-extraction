@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   DATA_TYPES,
@@ -16,8 +17,8 @@ import {
 export function TemplateFieldEditor({
   fields,
   onChange,
-  title,
-  subtitle,
+  saveAction,
+  disabled = false,
 }) {
   const [activeFieldIndex, setActiveFieldIndex] = useState(0);
   const [schemaEditorFieldIndex, setSchemaEditorFieldIndex] = useState(null);
@@ -137,7 +138,10 @@ export function TemplateFieldEditor({
         }
 
         if (key === "heading") {
-          const sanitizedHeading = sanitizeFieldName(value).replace(/\s+/g, " ");
+          const sanitizedHeading = sanitizeFieldName(value).replace(
+            /\s+/g,
+            " ",
+          );
           return {
             ...column,
             heading: sanitizedHeading,
@@ -218,199 +222,197 @@ export function TemplateFieldEditor({
     : [];
 
   return (
-    <div className="field-editor">
-      <div className="field-editor-head">
-        <div>
-          <h3>{title}</h3>
-          <p className="hint">{subtitle}</p>
-        </div>
-        <div className="field-editor-meta">
-          <button type="button" onClick={addField}>
-            Add Field
+    <fieldset className="field-editor" disabled={disabled}>
+      <div className="field-studio">
+        <nav className="field-nav" aria-label="Template fields" tabIndex={0}>
+          {fields.map((field, index) => (
+            <button
+              key={`${field.id || "field"}-${index}`}
+              type="button"
+              className={
+                index === activeFieldIndex
+                  ? "field-nav-item active"
+                  : "field-nav-item"
+              }
+              aria-current={index === activeFieldIndex ? "true" : undefined}
+              onClick={() => setActiveFieldIndex(index)}
+            >
+              <span className="studio-row-number">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <div className="field-nav-top">
+                <div className="field-nav-label">
+                  <strong>{field.name || `Field ${index + 1}`}</strong>
+                  <span>{field.data_type}</span>
+                </div>
+              </div>
+            </button>
+          ))}
+          <button className="studio-add-field" type="button" onClick={addField}>
+            + Add field
           </button>
-        </div>
-      </div>
-      {fields.length === 0 ? (
-        <p className="muted">No fields yet. Add at least one.</p>
-      ) : (
-        <div className="field-studio">
-          <aside className="field-nav">
-            {fields.map((field, index) => (
-              <button
-                key={`${field.id || "field"}-${index}`}
-                type="button"
-                className={
-                  index === activeFieldIndex
-                    ? "field-nav-item active"
-                    : "field-nav-item"
-                }
-                onClick={() => setActiveFieldIndex(index)}
-              >
-                <div className="field-nav-top">
-                  <div className="field-nav-label">
-                    <strong>{field.name || `Field ${index + 1}`}</strong>
-                    <span>{field.id || "ID auto-generated from name"}</span>
-                  </div>
-                  <div className="field-nav-badges">
-                    <span className="status-pill pending">{field.data_type}</span>
-                    {isObjectLikeType(field.data_type) ? (
-                      <span className="status-chip">Object schema</span>
-                    ) : null}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </aside>
+        </nav>
 
-          {activeField ? (
-            <div className="field-detail">
-              <div className="field-detail-head">
-                <div>
-                  <h4>
-                    Field {activeFieldIndex + 1} of {fields.length}
-                  </h4>
-                  <p className="muted">
-                    Configure extraction behavior and response shape.
-                  </p>
-                </div>
-                <div className="actions compact">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => moveField(activeFieldIndex, -1)}
-                    disabled={activeFieldIndex === 0}
-                  >
-                    Move Up
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => moveField(activeFieldIndex, 1)}
-                    disabled={activeFieldIndex === fields.length - 1}
-                  >
-                    Move Down
-                  </button>
-                </div>
-              </div>
+        {activeField ? (
+          <div
+            className="field-detail"
+            role="region"
+            aria-label="Selected field editor"
+            tabIndex={0}
+          >
+            <div className="field-detail-head">
+              <p className="studio-eyebrow">
+                Field {activeFieldIndex + 1} of {fields.length}
+              </p>
+              <h2>{activeField.name || "New field"}</h2>
+              <p>Tell the model exactly what belongs in this field.</p>
+            </div>
 
-              <div className="row three-up">
-                <label>
-                  Field ID
-                  <input
-                    value={activeField.id}
-                    readOnly
-                    placeholder="auto_generated_from_name"
-                  />
-                </label>
-                <label>
-                  Name
-                  <input
-                    value={activeField.name}
-                    onChange={(event) =>
-                      updateField(activeFieldIndex, "name", event.target.value)
-                    }
-                    placeholder="Medication Name"
-                  />
-                </label>
-                <label>
-                  Type
-                  <select
-                    value={activeField.data_type}
-                    onChange={(event) =>
-                      updateField(
-                        activeFieldIndex,
-                        "data_type",
-                        event.target.value,
-                      )
-                    }
-                  >
-                    {DATA_TYPES.map((dataType) => (
-                      <option key={dataType} value={dataType}>
-                        {dataType}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
+            <div className="row two-up">
               <label>
-                Description
-                <textarea
-                  value={activeField.description}
+                Name
+                <input
+                  value={activeField.name}
+                  onChange={(event) =>
+                    updateField(activeFieldIndex, "name", event.target.value)
+                  }
+                  placeholder="Medication Name"
+                />
+              </label>
+              <label>
+                Type
+                <select
+                  value={activeField.data_type}
                   onChange={(event) =>
                     updateField(
                       activeFieldIndex,
-                      "description",
+                      "data_type",
                       event.target.value,
                     )
                   }
-                  placeholder="Describe what should be extracted"
-                />
+                >
+                  {DATA_TYPES.map((dataType) => (
+                    <option key={dataType} value={dataType}>
+                      {dataType}
+                    </option>
+                  ))}
+                </select>
               </label>
-
-              <div className="field-controls">
-                <div className="actions compact">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => duplicateField(activeFieldIndex)}
-                  >
-                    Duplicate
-                  </button>
-                  <button
-                    className="danger"
-                    type="button"
-                    onClick={() => removeField(activeFieldIndex)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-
-              {isObjectLikeType(activeField.data_type) ? (
-                <div className="object-schema-launch">
-                  <div>
-                    <strong>Object Schema</strong>
-                    <p className="hint">
-                      {objectColumns.length
-                        ? `${objectColumns.length} column${
-                            objectColumns.length === 1 ? "" : "s"
-                          } defined`
-                        : "No columns defined yet"}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setSchemaEditorFieldIndex(activeFieldIndex)}
-                  >
-                    Edit Schema
-                  </button>
-                </div>
-              ) : null}
             </div>
-          ) : null}
-        </div>
-      )}
 
-      {schemaEditorField && isObjectLikeType(schemaEditorField.data_type) ? (
-        <ObjectSchemaModal
-          fieldName={schemaEditorField.name}
-          columns={schemaEditorColumns}
-          onAddColumn={() => addObjectColumn(schemaEditorFieldIndex)}
-          onUpdateColumn={(columnIndex, key, value) =>
-            updateObjectColumn(schemaEditorFieldIndex, columnIndex, key, value)
-          }
-          onMoveColumn={(columnIndex, direction) =>
-            moveObjectColumn(schemaEditorFieldIndex, columnIndex, direction)
-          }
-          onRemoveColumn={(columnIndex) =>
-            removeObjectColumn(schemaEditorFieldIndex, columnIndex)
-          }
-          onClose={() => setSchemaEditorFieldIndex(null)}
-        />
-      ) : null}
-    </div>
+            <label>
+              Extraction instructions
+              <textarea
+                value={activeField.description}
+                onChange={(event) =>
+                  updateField(
+                    activeFieldIndex,
+                    "description",
+                    event.target.value,
+                  )
+                }
+                placeholder="Describe what should be extracted"
+              />
+            </label>
+
+            <p className="studio-field-id">
+              Field ID{" "}
+              <code>{activeField.id || "Generated from the field name"}</code>
+            </p>
+            <div className="field-controls">
+              <div className="studio-field-order">
+                <button
+                  type="button"
+                  className="studio-text-button"
+                  onClick={() => moveField(activeFieldIndex, -1)}
+                  disabled={activeFieldIndex === 0}
+                >
+                  ↑ Move up
+                </button>
+                <button
+                  type="button"
+                  className="studio-text-button"
+                  onClick={() => moveField(activeFieldIndex, 1)}
+                  disabled={activeFieldIndex === fields.length - 1}
+                >
+                  ↓ Move down
+                </button>
+                <button
+                  type="button"
+                  className="studio-text-button"
+                  onClick={() => duplicateField(activeFieldIndex)}
+                >
+                  Duplicate
+                </button>
+              </div>
+              <div className="studio-field-save">
+                <button
+                  type="button"
+                  className="studio-text-button studio-destructive"
+                  onClick={() => removeField(activeFieldIndex)}
+                >
+                  Remove field
+                </button>
+                {saveAction}
+              </div>
+            </div>
+
+            {isObjectLikeType(activeField.data_type) ? (
+              <div className="object-schema-launch">
+                <div>
+                  <strong>Object Schema</strong>
+                  <p className="hint">
+                    {objectColumns.length
+                      ? `${objectColumns.length} column${
+                          objectColumns.length === 1 ? "" : "s"
+                        } defined`
+                      : "No columns defined yet"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setSchemaEditorFieldIndex(activeFieldIndex)}
+                >
+                  Edit Schema
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="field-detail">
+            <p className="muted">No fields yet. Add at least one.</p>
+            {saveAction}
+          </div>
+        )}
+      </div>
+
+      {schemaEditorField && isObjectLikeType(schemaEditorField.data_type)
+        ? createPortal(
+            <ObjectSchemaModal
+              fieldName={schemaEditorField.name}
+              columns={schemaEditorColumns}
+              onAddColumn={() => addObjectColumn(schemaEditorFieldIndex)}
+              onUpdateColumn={(columnIndex, key, value) =>
+                updateObjectColumn(
+                  schemaEditorFieldIndex,
+                  columnIndex,
+                  key,
+                  value,
+                )
+              }
+              onMoveColumn={(columnIndex, direction) =>
+                moveObjectColumn(schemaEditorFieldIndex, columnIndex, direction)
+              }
+              onRemoveColumn={(columnIndex) =>
+                removeObjectColumn(schemaEditorFieldIndex, columnIndex)
+              }
+              onClose={() => setSchemaEditorFieldIndex(null)}
+            />,
+            document.body,
+          )
+        : null}
+    </fieldset>
   );
 }
 
@@ -423,17 +425,44 @@ function ObjectSchemaModal({
   onRemoveColumn,
   onClose,
 }) {
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    dialogRef.current?.querySelector("button:not(:disabled)")?.focus();
+    return () => previousFocus?.focus();
+  }, []);
+
+  function keepFocusInDialog(event) {
+    if (event.key !== "Tab") return;
+    const controls = Array.from(
+      dialogRef.current.querySelectorAll(
+        "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
+      ),
+    );
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
+
   return (
     <div
       className="modal-backdrop object-schema-modal-backdrop"
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         className="modal-card object-schema-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="object-schema-modal-title"
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={keepFocusInDialog}
       >
         <div className="object-schema-modal-head">
           <div>

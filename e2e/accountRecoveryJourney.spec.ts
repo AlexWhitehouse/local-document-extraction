@@ -61,7 +61,6 @@ async function updateLocalSettings(page: Page) {
   await expect(settings).toHaveCount(0);
   await expect(page.getByRole("button", { name: new RegExp(updatedAccount.name) })).toBeVisible();
 
-  await page.getByRole("button", { name: "Set up", exact: true }).click();
   const gateway = page.getByRole("article", { name: "Workspace Model gateway" });
   await gateway.getByLabel("Gateway URL", { exact: true }).fill("http://127.0.0.1:11434/v1");
   await gateway.getByLabel("Model name", { exact: true }).fill("browser/vision-model");

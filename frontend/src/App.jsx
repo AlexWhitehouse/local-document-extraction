@@ -12,9 +12,8 @@ import { useApplicationAdminController } from "./features/admin/useApplicationAd
 import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
 import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
 import {
-  ExtractionJobStatusDisplay,
-  ExtractionResultDisplay,
-} from "./features/documents/ExtractionResultDisplay.jsx";
+  DocumentPage,
+} from "./features/documents/DocumentPage.jsx";
 import { ContextSidebar } from "./features/context/ContextSidebar.jsx";
 import { DocumentContextList } from "./features/documents/DocumentContextList.jsx";
 import { DocumentUploadModal } from "./features/documents/DocumentUploadModal.jsx";
@@ -22,11 +21,10 @@ import { createDocumentRequestAdapter } from "./features/documents/documentReque
 import { useDocumentController } from "./features/documents/useDocumentController.js";
 import {
   MainLayout,
-  OperationalMetrics,
   WorkspaceToolbar,
 } from "./features/layout/MainLayout.jsx";
 import { TemplateContextList } from "./features/templates/TemplateContextList.jsx";
-import { TemplateFieldEditor } from "./features/templates/TemplateFieldEditor.jsx";
+import { TemplatePage } from "./features/templates/TemplatePage.jsx";
 import { TemplateJsonModal } from "./features/templates/TemplateJsonModal.jsx";
 import { useTemplateController } from "./features/templates/useTemplateController.js";
 import { WorkspaceContextList } from "./features/workspaces/WorkspaceContextList.jsx";
@@ -38,6 +36,8 @@ import {
   useWorkspaceController,
   workspaceUserActionLabel,
 } from "./features/workspaces/useWorkspaceController.js";
+import "./features/layout/StudioLayouts.css";
+
 export function App() {
   const [resetPasswordRoute, setResetPasswordRoute] = useState(() =>
     getAccountPasswordResetRoute(window.location),
@@ -176,7 +176,7 @@ function AuthenticatedApp() {
   });
   const documentCount = documentController.toolbar.documentCount;
   const selectedDocument = documentController.documentPage.selectedDocument;
-  const { documentStatusMetrics, completionRate } = documentController.metrics;
+  const { documentStatusMetrics } = documentController.metrics;
   async function handleImpersonationStarted() {
     workspaceController.actions.clearSessionWorkspaceData();
     await refetchSession();
@@ -212,6 +212,16 @@ function AuthenticatedApp() {
   });
   const workspaceSidebar = workspaceController.sidebar;
   const workspaceToolbar = workspaceController.toolbar;
+  const pageTitle = activeVisiblePage === "workspace"
+    ? workspaceToolbar.workspaceLabel
+    : activeVisiblePage === "templates"
+      ? templateController.templatePage.templateName || "Create Template"
+      : selectedDocument?.source_name || "Documents";
+  const pageDescription = activeVisiblePage === "workspace"
+    ? "Your extraction environment, connections and people."
+    : activeVisiblePage === "templates"
+      ? "Define what Studio should look for in each document."
+      : documentController.documentPage.selectedDocumentTemplateName || "Select a document to see its extraction results.";
   const workspaceUserActionModal = workspaceController.userActionModal;
   const authProfileController = useAuthProfileController({
     authClient,
@@ -259,6 +269,7 @@ function AuthenticatedApp() {
     <>
       <Toaster richColors />
       <MainLayout
+        contentClassName={activeVisiblePage === "admin" ? "" : `studio-main studio-main-${activeVisiblePage}`}
         activePage={activeVisiblePage}
         counts={{
           workspace: workspaceContext.availableWorkspaces.length,
@@ -299,7 +310,7 @@ function AuthenticatedApp() {
           <ContextSidebar
             title={
               activePage === "documents"
-                ? "Jobs"
+                ? "Documents"
                 : activePage === "templates"
                   ? "Templates"
                   : activeVisiblePage === "admin"
@@ -357,7 +368,7 @@ function AuthenticatedApp() {
             {activeVisiblePage === "admin" ? (
               <AdminContextList />
             ) : activePage === "documents" ? (
-              <DocumentContextList {...documentController.contextList} />
+              <DocumentContextList documentLabels {...documentController.contextList} />
             ) : activePage === "templates" ? (
               <TemplateContextList {...templateController.contextList} />
             ) : (
@@ -428,12 +439,12 @@ function AuthenticatedApp() {
           <>
             <WorkspaceToolbar
               activePage={activeVisiblePage}
+              pageTitle={pageTitle}
+              pageDescription={pageDescription}
               workspaceLabel={
                 workspaceToolbar.workspaceLabel
               }
               isWorkspaceInvitationSelected={workspaceContext.isWorkspaceInvitationSelected}
-              hasWorkspaceApiAccess={workspaceContext.hasWorkspaceApiAccess}
-              documentCount={documentCount}
               hasApiAccess={hasApiAccess}
               isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess}
               workspaceId={workspaceToolbar.workspaceId}
@@ -458,13 +469,6 @@ function AuthenticatedApp() {
               onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
               onDeleteDocument={documentController.toolbar.onDeleteDocument}
             />
-
-            {!workspaceContext.isWorkspaceInvitationSelected ? (
-              <OperationalMetrics
-                documentCount={documentCount}
-                completionRate={completionRate}
-              />
-            ) : null}
           </>
         ) : null}
 
@@ -478,126 +482,21 @@ function AuthenticatedApp() {
                 {...workspaceController.invitationPage}
               />
             ) : (
-              <AcceptedWorkspacePage {...workspaceController.acceptedPage} modelConfiguration={workspaceModel} modelConfigurationKey={`${sessionUserId}:${workspaceId}`} />
+              <AcceptedWorkspacePage
+                {...workspaceController.acceptedPage}
+                workspaceId={workspaceId}
+                workspaceRole={workspaceContext.selectedWorkspaceRole}
+                modelConfiguration={workspaceModel}
+                modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
+              />
             )
           ) : null}
 
           {activeVisiblePage === "templates" ? (
-            <>
-              <section className="content-grid templates-grid">
-                <article className="workspace-card create-template-panel">
-                  <div className="workspace-head">
-                    <h2>
-                      {templateController.templatePage.isEditingTemplate
-                        ? "Edit Template"
-                        : "Create Template"}
-                    </h2>
-                  </div>
-                  <div className="row two-up">
-                    <label>
-                      Name
-                      <input
-                        value={templateController.templatePage.templateName}
-                        onChange={(event) =>
-                          templateController.templatePage.onTemplateNameChange(
-                            event.target.value,
-                          )
-                        }
-                      />
-                    </label>
-                    <label>
-                      Description
-                      <input
-                        value={templateController.templatePage.templateDescription}
-                        onChange={(event) =>
-                          templateController.templatePage.onTemplateDescriptionChange(
-                            event.target.value,
-                          )
-                        }
-                      />
-                    </label>
-                  </div>
-                  <TemplateFieldEditor
-                    fields={templateController.templatePage.templateFields}
-                    onChange={templateController.templatePage.onTemplateFieldsChange}
-                    title="Field Designer"
-                    subtitle="Move through fields quickly on the left and edit details on the right."
-                  />
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={
-                        templateController.templatePage.isSavingTemplate ||
-                        !templateController.templatePage.hasApiAccess
-                      }
-                      onClick={templateController.templatePage.onOpenJsonModal}
-                    >
-                      Export / Import
-                    </button>
-                    <button
-                      type="button"
-                      disabled={
-                        templateController.templatePage.isSavingTemplate ||
-                        !templateController.templatePage.hasApiAccess ||
-                        (templateController.templatePage.isEditingTemplate &&
-                          !templateController.templatePage.isEditedTemplateDirty)
-                      }
-                      onClick={templateController.templatePage.onSaveTemplate}
-                    >
-                      {templateController.templatePage.isSavingTemplate
-                        ? "Saving..."
-                        : templateController.templatePage.isEditingTemplate
-                          ? "Save Changes"
-                          : "Save New Template"}
-                    </button>
-                  </div>
-                </article>
-              </section>
-            </>
+            <TemplatePage {...templateController.templatePage} />
           ) : null}
-
           {activeVisiblePage === "documents" ? (
-            <>
-              <section className="content-grid documents-grid">
-                {selectedDocument &&
-                  String(selectedDocument.status || "").toLowerCase() !==
-                    "completed" ? (
-                  <article className="workspace-card job-status-panel">
-                    <div className="workspace-head">
-                      <h2>Job Status</h2>
-                      <p>Track the selected extraction stage in real time.</p>
-                    </div>
-                    <ExtractionJobStatusDisplay job={selectedDocument} />
-                  </article>
-                ) : null}
-
-                <article className="workspace-card result-view">
-                  <div className="workspace-head result-view-head">
-                    <div>
-                      <h2>Document Details</h2>
-                      <p>Review extraction output for the selected upload.</p>
-                    </div>
-                    {selectedDocument ? (
-                      <span className="status-chip good template-name-badge">
-                        {documentController.documentPage.selectedDocumentTemplateName}
-                      </span>
-                    ) : null}
-                  </div>
-                  {selectedDocument ? (
-                    <ExtractionResultDisplay
-                      job={selectedDocument}
-                      isLoading={
-                        documentController.documentPage.loadingDocumentDetailsId ===
-                        String(selectedDocument.job_id || "")
-                      }
-                    />
-                  ) : (
-                    <p className="muted">Select an uploaded document.</p>
-                  )}
-                </article>
-              </section>
-            </>
+            <DocumentPage {...documentController.documentPage} />
           ) : null}
       </MainLayout>
     </>

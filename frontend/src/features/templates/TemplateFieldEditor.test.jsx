@@ -169,6 +169,11 @@ describe("Template field editor", () => {
     render(<TemplateFieldHarness />);
 
     await user.click(screen.getByRole("button", { name: "Edit Schema" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add Column" }));
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Done" }));
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add Column" }));
     await user.click(screen.getByRole("button", { name: "Add Column" }));
     await user.type(screen.getByLabelText("Column Name"), "Quantity");
     await user.click(screen.getByRole("button", { name: "Done" }));
@@ -177,6 +182,7 @@ describe("Template field editor", () => {
       screen.queryByRole("dialog", { name: "Object Schema Builder" }),
     ).toBeNull();
     expect(screen.getByText("1 column defined")).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit Schema" }));
     expect(latestFields[0].object_schema.columns[0]).toMatchObject({
       heading: "Quantity",
       key: "quantity",

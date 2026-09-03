@@ -13,14 +13,14 @@ describe("Extraction job status display", () => {
       <ExtractionJobStatusDisplay job={{ status: "queued" }} />,
     );
 
-    expect(screen.getByText("The job is processing")).toBeTruthy();
+    expect(screen.getByText("The document is processing")).toBeTruthy();
     expect(screen.getByText("Attempt: pending")).toBeTruthy();
 
     rerender(
       <ExtractionJobStatusDisplay job={{ status: "processing", current_attempt: 2 }} />,
     );
 
-    expect(screen.getByText("The job is processing")).toBeTruthy();
+    expect(screen.getByText("The document is processing")).toBeTruthy();
     expect(screen.getByText("Current attempt: 2")).toBeTruthy();
 
     rerender(
@@ -59,12 +59,12 @@ describe("Extraction result display", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Patient Name" })).toBeTruthy();
+    expect(screen.getByRole("rowheader", { name: "Patient Name" })).toBeTruthy();
     expect(screen.queryByText("ok")).toBeNull();
     expect(screen.queryByText("completed")).toBeNull();
-    expect(screen.getByText("Confidence 93.2%")).toBeTruthy();
+    expect(screen.getByLabelText("Confidence 93.2%")).toBeTruthy();
     expect(screen.getByText("Ada Lovelace")).toBeTruthy();
-    expect(screen.getByText("Evidence: Patient: Ada Lovelace")).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "Patient: Ada Lovelace" })).toBeTruthy();
   });
 
   it("shows a Not Found status cue only when extraction data was missing", () => {

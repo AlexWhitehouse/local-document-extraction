@@ -15,8 +15,8 @@ export function ExtractionJobStatusDisplay({ job }) {
     : isCompleted
       ? "This extraction completed successfully."
       : isProcessing
-        ? "The job is processing"
-        : "The job is queued";
+        ? "The document is processing"
+        : "The document is queued";
   const isTerminal = isCompleted || isFailure;
   const currentAttempt = Number(job.current_attempt || 0);
   const completedAttempt = Number(job.completed_attempt || 0);
@@ -68,55 +68,108 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
     return withIndex.map((entry) => entry.result);
   }, [job.results]);
 
+  const structured = rows.filter(isStructuredResult);
+  const scalar = rows.filter((result) => !isStructuredResult(result));
   return (
-    <div className="result-stack">
-      {job.status !== "completed" ? (
-        <p className="muted">This job is not completed yet. Poll again shortly.</p>
+    <div className="studio-results" aria-busy={isLoading}>
+      {isLoading && !rows.length ? (
+        <p className="muted" role="status">
+          Loading document results…
+        </p>
       ) : null}
-
-      {rows.length ? (
-        <div className="result-cards">
-          {rows.map((result) => (
-            <article
-              key={result.field_id}
-              className={
-                result.data_type === "array<object>"
-                  ? "result-card result-card-wide"
-                  : "result-card"
-              }
-            >
-              <header>
-                <h3>{result.name}</h3>
-                <div className="result-card-badges">
-                  {result.status === "not_found" ? (
-                    <span className="status-pill pending">Not Found</span>
-                  ) : null}
-                  {typeof result.confidence === "number" ? (
-                    <span
-                      className={`status-pill ${confidenceTone(result.confidence)}`}
-                    >
-                      Confidence {(result.confidence * 100).toFixed(1)}%
-                    </span>
-                  ) : null}
-                </div>
-              </header>
-              <div className="result-card-answer">
-                {renderAnswer(result.answer)}
-              </div>
-              {result.evidence ? (
-                <div className="result-card-foot">
-                  {result.evidence ? (
-                    <p className="hint">Evidence: {result.evidence}</p>
-                  ) : null}
-                </div>
-              ) : null}
-            </article>
-          ))}
+      {scalar.length ? (
+        <div className="table-scroll studio-results-scroll">
+          <table
+            className="studio-table studio-results-table"
+            aria-label="Extracted fields"
+          >
+            <thead>
+              <tr>
+                <th scope="col">Field</th>
+                <th scope="col">Extracted value</th>
+                <th scope="col">Confidence</th>
+                <th scope="col">Evidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scalar.map((result) => (
+                <tr key={result.field_id}>
+                  <th scope="row">{result.name || result.field_id}</th>
+                  <td className="studio-extracted-value">
+                    {result.status === "not_found" ? (
+                      <span className="studio-not-found">Not Found</span>
+                    ) : null}
+                    {renderAnswer(result.answer)}
+                  </td>
+                  <td>
+                    <ResultConfidence value={result.confidence} />
+                  </td>
+                  <td className="studio-evidence">
+                    {result.evidence ? formatAnswerValue(result.evidence) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      ) : isLoading ? null : (
-        <p className="muted">No result rows available yet.</p>
-      )}
+      ) : null}
+      {structured.map((result) => (
+        <section className="studio-structured-result" key={result.field_id}>
+          <div className="studio-section-heading">
+            <div>
+              <h2>{result.name || result.field_id}</h2>
+              <p>Structured rows from the source document.</p>
+            </div>
+            <ResultConfidence value={result.confidence} />
+          </div>
+          {result.status === "not_found" ? (
+            <span className="studio-not-found">Not Found</span>
+          ) : null}
+          {renderAnswer(result.answer)}
+          {result.evidence ? (
+            <p className="studio-evidence">
+              {formatAnswerValue(result.evidence)}
+            </p>
+          ) : null}
+        </section>
+      ))}
+      {!rows.length && !isLoading ? (
+        <p className="muted">
+          {job.status === "completed"
+            ? "No result rows available yet."
+            : "Results will appear here when extraction completes."}
+        </p>
+      ) : null}
     </div>
+  );
+}
+
+function isStructuredResult(result) {
+  return (
+    result.data_type === "array<object>" ||
+    isTableAnswer(result.answer) ||
+    (Array.isArray(result.answer) &&
+      result.answer.length > 0 &&
+      result.answer.every(
+        (item) => item && typeof item === "object" && !Array.isArray(item),
+      ))
+  );
+}
+
+function ResultConfidence({ value }) {
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return <span className="muted">—</span>;
+  const percent = Math.min(100, Math.max(0, value * 100));
+  return (
+    <span
+      className={`studio-confidence ${confidenceTone(value)}`}
+      aria-label={`Confidence ${percent.toFixed(1)}%`}
+    >
+      <span className="studio-confidence-track" aria-hidden="true">
+        <i style={{ width: `${percent}%` }} />
+      </span>
+      {percent.toFixed(1)}%
+    </span>
   );
 }
 
@@ -141,7 +194,7 @@ function renderAnswer(answer) {
 
       return (
         <div className="table-scroll">
-          <table>
+          <table className="studio-table">
             <thead>
               <tr>
                 {keys.map((key) => (
@@ -191,7 +244,7 @@ function renderAnswer(answer) {
 
     return (
       <div className="table-scroll">
-        <table>
+        <table className="studio-table">
           <thead>
             <tr>
               {columns.map((column) => (

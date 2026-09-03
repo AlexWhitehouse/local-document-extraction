@@ -562,6 +562,18 @@ button.danger:hover:not(:disabled) {
   grid-template-columns: 36px minmax(0, 1fr) 36px;
 }
 
+.context-item-document.status-completed {
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+.context-item-document.status-progress {
+  box-shadow: inset 2px 0 0 0 var(--blue);
+}
+
+.context-item-document.status-failed {
+  box-shadow: inset 2px 0 0 0 var(--rose);
+}
+
 .context-select-control,
 .context-item-main,
 .context-copy-button {

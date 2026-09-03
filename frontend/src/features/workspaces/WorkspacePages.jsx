@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
 
 export function WorkspaceInvitationPage({
@@ -10,7 +10,9 @@ export function WorkspaceInvitationPage({
 }) {
   const isPending = String(invitation.status || "").toLowerCase() === "pending";
   const actionsDisabled =
-    isAcceptingWorkspaceInvitation || isDecliningWorkspaceInvitation || !isPending;
+    isAcceptingWorkspaceInvitation ||
+    isDecliningWorkspaceInvitation ||
+    !isPending;
 
   return (
     <>
@@ -36,7 +38,9 @@ export function WorkspaceInvitationPage({
             <div>
               <dt>Offered role</dt>
               <dd>
-                <span className="role-badge">{formatRoleLabel(invitation.role)}</span>
+                <span className="role-badge">
+                  {formatRoleLabel(invitation.role)}
+                </span>
               </dd>
             </div>
             <div>
@@ -60,8 +64,8 @@ export function WorkspaceInvitationPage({
           <div className="invitation-locked-panel">
             <strong>No workspace access yet</strong>
             <p>
-              Templates, documents, jobs, API keys, uploads, rename, deletion,
-              and user management stay locked until this invitation is accepted.
+              Templates, documents, API keys, uploads, rename, deletion, and
+              user management stay locked until this invitation is accepted.
             </p>
           </div>
 
@@ -71,7 +75,9 @@ export function WorkspaceInvitationPage({
               disabled={actionsDisabled}
               onClick={onAcceptInvitation}
             >
-              {isAcceptingWorkspaceInvitation ? "Accepting..." : "Accept Invitation"}
+              {isAcceptingWorkspaceInvitation
+                ? "Accepting..."
+                : "Accept Invitation"}
             </button>
             <button
               type="button"
@@ -79,7 +85,9 @@ export function WorkspaceInvitationPage({
               disabled={actionsDisabled}
               onClick={onDeclineInvitation}
             >
-              {isDecliningWorkspaceInvitation ? "Declining..." : "Decline Invitation"}
+              {isDecliningWorkspaceInvitation
+                ? "Declining..."
+                : "Decline Invitation"}
             </button>
           </div>
         </article>
@@ -91,6 +99,8 @@ export function WorkspaceInvitationPage({
 export function AcceptedWorkspacePage({
   modelConfiguration,
   modelConfigurationKey,
+  workspaceId,
+  workspaceRole,
   workspaceName,
   onWorkspaceNameChange,
   isSavingWorkspace,
@@ -118,38 +128,74 @@ export function AcceptedWorkspacePage({
   workspaceInvitations,
   onCancelWorkspaceInvitation,
 }) {
+  const [inviteOpen, setInviteOpen] = useState(false);
   return (
-    <>
-      {modelConfiguration ? <WorkspaceModelConfiguration key={modelConfigurationKey} controller={modelConfiguration} /> : null}
-      <section className="content-grid workspace-page-grid">
-        <article className="workspace-card">
-          <div className="workspace-head">
-            <h2>Workspace details &amp; API access</h2>
-            <p>Manage the Workspace name and inbound API access. Gateway credentials are configured separately above.</p>
+    <div className="studio-workspace-page">
+      <div className="studio-workspace-settings">
+        <section className="studio-workspace-details">
+          <div className="studio-section-heading">
+            <div>
+              <h2>Workspace details</h2>
+              <p>The basics for this environment.</p>
+            </div>
           </div>
-          <div className="row two-up workspace-name-row">
-            <label>
-              Workspace name
+          <form
+            className="studio-name-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onSaveWorkspaceChanges();
+            }}
+          >
+            <label htmlFor="workspace-name">Workspace name</label>
+            <div className="studio-name-input">
               <input
+                id="workspace-name"
                 value={workspaceName}
-                disabled={busy || isSavingWorkspace}
+                disabled={busy || isSavingWorkspace || !hasApiAccess}
                 onChange={(event) => onWorkspaceNameChange(event.target.value)}
               />
-            </label>
-            <button
-              type="button"
-              className="secondary workspace-inline-action"
-              disabled={busy || isSavingWorkspace || !isWorkspaceNameDirty}
-              onClick={onSaveWorkspaceChanges}
-            >
-              {isSavingWorkspace ? "Saving..." : "Save Changes"}
-            </button>
-          </div>
-          <label>
-            API key
-            <div className="row two-up workspace-key-row">
+              <button
+                type="submit"
+                className="secondary"
+                disabled={
+                  busy ||
+                  isSavingWorkspace ||
+                  !hasApiAccess ||
+                  !isWorkspaceNameDirty
+                }
+              >
+                {isSavingWorkspace ? "Saving..." : "Save name"}
+              </button>
+            </div>
+          </form>
+          <dl className="studio-workspace-facts">
+            <div>
+              <dt>Workspace ID</dt>
+              <dd>
+                <code>{workspaceId || "—"}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Your role</dt>
+              <dd>{formatRoleLabel(workspaceRole)}</dd>
+            </div>
+          </dl>
+          <section className="studio-api-access">
+            <div className="studio-section-heading">
+              <div>
+                <h2>API access</h2>
+                <p>Connect your applications to Studio.</p>
+              </div>
+            </div>
+            <label>
+              Workspace API key
               <div className="workspace-key-field">
-                <input value={apiKey} readOnly placeholder={workspaceApiKeyPlaceholder} />
+                <input
+                  aria-label="Workspace API key"
+                  value={apiKey}
+                  readOnly
+                  placeholder={workspaceApiKeyPlaceholder}
+                />
                 {apiKey ? (
                   <button
                     type="button"
@@ -157,42 +203,65 @@ export function AcceptedWorkspacePage({
                     aria-label="Copy API key"
                     onClick={onCopyVisibleWorkspaceApiKey}
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <rect x="9" y="9" width="13" height="13" rx="2" />
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                    </svg>
+                    ⧉
                   </button>
                 ) : null}
               </div>
+            </label>
+            <div className="studio-api-footer">
+              <span>For inbound requests to this workspace.</span>
               <button
                 type="button"
-                className="workspace-inline-action"
+                className="studio-text-button"
                 disabled={busy || !canRotateWorkspaceApiKey}
                 onClick={onRefreshApiKey}
               >
                 {workspaceApiKeyActionLabel}
               </button>
             </div>
-          </label>
-        </article>
-
-        <article className="workspace-card">
-          <div className="workspace-head">
-            <h2>Invite Users</h2>
-            <p>Invite teammates to join this workspace.</p>
+          </section>
+        </section>
+        {modelConfiguration ? (
+          <WorkspaceModelConfiguration
+            key={modelConfigurationKey}
+            controller={modelConfiguration}
+            inline
+          />
+        ) : null}
+      </div>
+      <section className="studio-workspace-users">
+        <div className="studio-section-heading">
+          <div>
+            <h2>Workspace users</h2>
+            <p>The people who can access this workspace.</p>
           </div>
-          <div className="row two-up">
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy || !hasApiAccess || !canManageWorkspaceInvitations}
+            aria-expanded={inviteOpen}
+            aria-controls="workspace-invite-form"
+            onClick={() => setInviteOpen(!inviteOpen)}
+          >
+            {inviteOpen ? "Cancel invitation" : "+ Invite user"}
+          </button>
+        </div>
+        {inviteOpen ? (
+          <form
+            noValidate
+            id="workspace-invite-form"
+            className="studio-invite-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onInviteUser();
+            }}
+          >
             <label>
               Invite email
               <input
+                type="email"
+                required
+                disabled={busy}
                 value={inviteEmail}
                 onChange={(event) => onInviteEmailChange(event.target.value)}
                 placeholder="teammate@example.com"
@@ -201,6 +270,7 @@ export function AcceptedWorkspacePage({
             <label>
               Invite role
               <select
+                disabled={busy}
                 value={inviteRole}
                 onChange={(event) => onInviteRoleChange(event.target.value)}
               >
@@ -208,135 +278,135 @@ export function AcceptedWorkspacePage({
                 <option value="admin">Admin</option>
               </select>
             </label>
-          </div>
-          <div className="actions">
             <button
-              type="button"
+              type="submit"
               className="secondary"
-              disabled={busy || !hasApiAccess}
-              onClick={onInviteUser}
+              disabled={busy || !hasApiAccess || !canManageWorkspaceInvitations}
             >
               Invite User
             </button>
-          </div>
-        </article>
-      </section>
-
-      <section className="content-grid workspace-users-grid">
-        <article className="workspace-card">
-          <div className="workspace-head">
-            <h2>Workspace Users</h2>
-            <p>Current members and their roles.</p>
-          </div>
-          {isLoadingWorkspaceUsers ? null : workspaceUsers.length ? (
-            <div className="table-scroll workspace-users-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Joined</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workspaceUsers.map((user) => (
-                    <tr key={String(user.user_id || user.email || "")}>
-                      <td>{String(user.name || "-")}</td>
-                      <td>{String(user.email || "-")}</td>
-                      <td>
-                        <span className="role-badge">{formatRoleLabel(user.role)}</span>
-                      </td>
-                      <td>{formatJoinedAt(user.created_at)}</td>
-                      <td>
-                        {canShowWorkspaceUserAction(user) &&
-                        String(user.user_id || "").trim() !== sessionUserId ? (
-                          <button
-                            type="button"
-                            className="icon-action-button"
-                            aria-label="Edit user"
-                            onClick={() => onSelectWorkspaceUserActionTarget(user)}
-                          >
-                            ✎
-                          </button>
-                        ) : (
-                          <span className="muted">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="muted">No workspace users found.</p>
-          )}
-        </article>
-
-        {canManageWorkspaceInvitations && workspaceInvitations.length > 0 ? (
-          <article className="workspace-card">
-            <div className="workspace-head">
-              <h2>Pending Invitations</h2>
-              <p>Actionable workspace invitations that have not been accepted.</p>
-            </div>
-            {workspaceInvitations.length ? (
-              <div className="table-scroll workspace-users-table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Status</th>
-                      <th>Inviter</th>
-                      <th>Invited</th>
-                      <th>Expires</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {workspaceInvitations.map((invitation) => (
-                      <tr key={String(invitation.id || invitation.email || "")}>
-                        <td>{String(invitation.email || "-")}</td>
-                        <td>
-                          <span className="role-badge">
-                            {formatRoleLabel(invitation.role)}
-                          </span>
-                        </td>
-                        <td>{formatRoleLabel(invitation.status)}</td>
-                        <td>
-                          {String(
-                            invitation.inviter_display ||
-                              invitation.inviter_name ||
-                              invitation.inviter_email ||
-                              "-",
-                          )}
-                        </td>
-                        <td>{formatJoinedAt(invitation.created_at)}</td>
-                        <td>{formatJoinedAt(invitation.expires_at)}</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="icon-action-button"
-                            aria-label={`Cancel invitation for ${String(invitation.email || "invitee")}`}
-                            disabled={busy}
-                            onClick={() => onCancelWorkspaceInvitation(invitation)}
-                          >
-                            x
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="muted">No pending invitations found.</p>
-            )}
-          </article>
+          </form>
         ) : null}
+        {isLoadingWorkspaceUsers ? (
+          <p className="muted" role="status">
+            Loading workspace users…
+          </p>
+        ) : workspaceUsers.length ? (
+          <div
+            className="studio-user-list"
+            role="region"
+            aria-label="Workspace user list"
+            tabIndex={0}
+          >
+            <div role="list">
+              {workspaceUsers.map((user) => (
+                <div
+                  className="studio-user-row"
+                  role="listitem"
+                  key={String(user.user_id || user.email || "")}
+                >
+                  <span className="studio-initials" aria-hidden="true">
+                    {String(user.name || user.email || "?")
+                      .split(/\s+/)
+                      .map((part) => part[0])
+                      .slice(0, 2)
+                      .join("")
+                      .toUpperCase()}
+                  </span>
+                  <div className="studio-user-name">
+                    <strong>{String(user.name || "—")}</strong>
+                    <span>{String(user.email || "—")}</span>
+                  </div>
+                  <div className="studio-user-role">
+                    <span>{formatRoleLabel(user.role)}</span>
+                    <small>Joined {formatJoinedAt(user.created_at)}</small>
+                  </div>
+                  {canShowWorkspaceUserAction(user) &&
+                  String(user.user_id || "").trim() !== sessionUserId ? (
+                    <button
+                      type="button"
+                      className="icon-action-button"
+                      aria-label="Edit user"
+                      onClick={() => onSelectWorkspaceUserActionTarget(user)}
+                    >
+                      ✎
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="muted">No workspace users found.</p>
+        )}
+        <p className="studio-users-note">
+          {workspaceUsers.length} users · Access is managed by owners and
+          admins.
+        </p>
       </section>
-    </>
+      {canManageWorkspaceInvitations && workspaceInvitations.length > 0 ? (
+        <section className="studio-pending-invitations">
+          <div className="studio-section-heading">
+            <div>
+              <h2>Pending Invitations</h2>
+              <p>Workspace invitations that have not been accepted.</p>
+            </div>
+          </div>
+          <div
+            className="table-scroll studio-invitation-list"
+            role="region"
+            aria-label="Pending invitations"
+            tabIndex={0}
+          >
+            <table className="studio-table">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Inviter</th>
+                  <th>Invited</th>
+                  <th>Expires</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workspaceInvitations.map((invitation) => (
+                  <tr key={String(invitation.id || invitation.email || "")}>
+                    <td>{String(invitation.email || "—")}</td>
+                    <td>{formatRoleLabel(invitation.role)}</td>
+                    <td>{formatRoleLabel(invitation.status)}</td>
+                    <td>
+                      {String(
+                        invitation.inviter_display ||
+                          invitation.inviter_name ||
+                          invitation.inviter_email ||
+                          "—",
+                      )}
+                    </td>
+                    <td>{formatJoinedAt(invitation.created_at)}</td>
+                    <td>{formatJoinedAt(invitation.expires_at)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="icon-action-button"
+                        aria-label={`Cancel invitation for ${String(invitation.email || "invitee")}`}
+                        disabled={busy}
+                        onClick={() => onCancelWorkspaceInvitation(invitation)}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+    </div>
   );
 }
 

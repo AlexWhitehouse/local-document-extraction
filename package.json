@@ -20,6 +20,7 @@
     "package:diff-evidence": "bun scripts/generatePackageDiffEvidence.ts",
     "package:hygiene": "bun scripts/packageHygiene.ts",
     "prototype:throughput": "bun .scratch/high-throughput-local-pdf-extraction/prototype/throughput.ts",
+    "prototype:layouts": "bun run --cwd frontend dev --host 127.0.0.1 --port 5173 --open '/?prototype=layouts&variant=A1'",
     "start": "bun backend/src/server.ts",
     "lint": "bunx eslint .",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",

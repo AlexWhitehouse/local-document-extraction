@@ -204,11 +204,11 @@ describe("app action toast notifications", () => {
       }),
     ).toEqual({
       severity: "success",
-      message: "Exported 2 jobs; skipped 1 unavailable or in-progress job",
+      message: "Exported 2 documents; skipped 1 unavailable or in-progress document",
     });
     expect(getActionToast("document.export", "failure")).toEqual({
       severity: "error",
-      message: "Selected jobs could not be exported. Please try again.",
+      message: "Selected documents could not be exported. Please try again.",
     });
     expect(getActionToast("clipboard.copyTemplateJson", "success")).toEqual({
       severity: "success",

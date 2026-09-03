@@ -10,6 +10,7 @@ const ADMIN_SIDEBAR_ITEM = { id: "admin", label: "Admin", icon: "AD" };
 
 export function MainLayout({
   activePage,
+  contentClassName = "",
   counts,
   uploadAriaDisabled,
   isUploadDisabled,
@@ -54,7 +55,7 @@ export function MainLayout({
 
       {contextSidebar}
 
-      <main className="main-content">
+      <main className={`main-content ${contentClassName}`}>
         {impersonationSlot}
         {children}
       </main>
@@ -102,9 +103,9 @@ function SidebarNavigation({
 export function WorkspaceToolbar({
   activePage,
   workspaceLabel,
+  pageTitle,
+  pageDescription,
   isWorkspaceInvitationSelected,
-  hasWorkspaceApiAccess,
-  documentCount,
   hasApiAccess,
   isUploadDisabled = false,
   workspaceId,
@@ -125,152 +126,118 @@ export function WorkspaceToolbar({
   onDeleteTemplate,
   onDeleteDocument,
 }) {
+  const exportHint =
+    exportableDocumentCount === 0
+      ? "Select a completed or failed document to export"
+      : selectedDocumentCount > exportableDocumentCount
+        ? `${exportableDocumentCount} of ${selectedDocumentCount} selected documents are ready to export. In-progress documents will be skipped.`
+        : undefined;
   return (
-    <section className="workspace-toolbar" aria-label="Workspace toolbar">
-      <div className="workspace-toolbar-meta">
-        <span className="status-chip">Workspace {workspaceLabel}</span>
-        {isWorkspaceInvitationSelected ? (
+    <header className="studio-page-heading" aria-label="Workspace toolbar">
+      <p className="studio-eyebrow">
+        {activePage === "workspace"
+          ? "Workspaces / Overview"
+          : `${workspaceLabel} / ${activePage === "templates" ? "Templates" : "Documents"}`}
+      </p>
+      <h1 title={pageTitle}>{pageTitle}</h1>
+      <div className="studio-heading-actions">
+        {activePage === "documents" ? (
           <>
-            <span className="status-chip warn">Invitation Pending</span>
-            <span className="status-chip warn">API Locked</span>
+            <button
+              type="button"
+              className="danger"
+              disabled={
+                !hasApiAccess ||
+                isDeletingDocument ||
+                isExportingDocuments ||
+                (!selectedDocumentCount && !selectedDocumentId)
+              }
+              onClick={onDeleteDocument}
+            >
+              {isDeletingDocument
+                ? "Deleting..."
+                : selectedDocumentCount
+                  ? `Delete ${selectedDocumentCount}`
+                  : "Delete"}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!hasApiAccess || isUploadDisabled}
+              onClick={onUploadDocument}
+            >
+              Upload
+            </button>
+            <button
+              type="button"
+              disabled={
+                !hasApiAccess ||
+                isDeletingDocument ||
+                isExportingDocuments ||
+                exportableDocumentCount === 0
+              }
+              onClick={onExportDocuments}
+              title={exportHint}
+            >
+              {isExportingDocuments
+                ? "Exporting..."
+                : selectedDocumentCount
+                  ? `Export ${selectedDocumentCount}`
+                  : "Export"}
+            </button>
           </>
         ) : (
           <>
-            <span
-              className={`status-chip ${hasWorkspaceApiAccess ? "good" : "warn"}`}
+            <button
+              type="button"
+              className="secondary"
+              disabled={activePage === "templates" && !hasApiAccess}
+              onClick={
+                activePage === "templates"
+                  ? onCreateTemplate
+                  : onCreateWorkspace
+              }
             >
-              API {hasWorkspaceApiAccess ? "Ready" : "Missing Access"}
-            </span>
-            <span className="status-chip">Jobs {documentCount}</span>
+              {activePage === "templates"
+                ? "Create Template"
+                : "Create Workspace"}
+            </button>
+            {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
+              <button
+                type="button"
+                className="danger"
+                disabled={
+                  isDeletingWorkspace ||
+                  !hasApiAccess ||
+                  !workspaceId.trim() ||
+                  workspacePrimaryAction.type === "none"
+                }
+                onClick={onWorkspacePrimaryAction}
+              >
+                {isDeletingWorkspace
+                  ? workspacePrimaryAction.type === "leave"
+                    ? "Leaving..."
+                    : "Deleting..."
+                  : workspacePrimaryAction.label || "Delete Workspace"}
+              </button>
+            ) : activePage === "templates" ? (
+              <button
+                type="button"
+                className="danger"
+                disabled={
+                  isDeletingTemplate ||
+                  !hasApiAccess ||
+                  !updateTemplateId.trim()
+                }
+                onClick={onDeleteTemplate}
+              >
+                {isDeletingTemplate ? "Deleting..." : "Delete Template"}
+              </button>
+            ) : null}
           </>
         )}
       </div>
-      <div className="actions compact">
-        {activePage === "documents" ? (
-          <button
-            type="button"
-            className="secondary"
-            disabled={
-              !hasApiAccess ||
-              isDeletingDocument ||
-              isExportingDocuments ||
-              exportableDocumentCount === 0
-            }
-            onClick={onExportDocuments}
-            title={
-              exportableDocumentCount === 0
-                ? "Select at least one completed or failed job to export"
-                : undefined
-            }
-          >
-            {isExportingDocuments
-              ? "Exporting..."
-              : exportableDocumentCount
-                ? `Export ${exportableDocumentCount} Job${
-                    exportableDocumentCount === 1 ? "" : "s"
-                  }`
-                : "Export"}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="secondary"
-          disabled={
-            activePage === "documents" && (!hasApiAccess || isUploadDisabled)
-          }
-          onClick={
-            activePage === "templates"
-              ? onCreateTemplate
-              : activePage === "workspace"
-                ? onCreateWorkspace
-                : onUploadDocument
-          }
-        >
-          {activePage === "templates"
-            ? "Create Template"
-            : activePage === "workspace"
-              ? "Create Workspace"
-              : "Upload Document"}
-        </button>
-        {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
-          <button
-            type="button"
-            className="danger"
-            disabled={
-              isDeletingWorkspace ||
-              !hasApiAccess ||
-              !workspaceId.trim() ||
-              workspacePrimaryAction.type === "none"
-            }
-            onClick={onWorkspacePrimaryAction}
-          >
-            {isDeletingWorkspace
-              ? workspacePrimaryAction.type === "leave"
-                ? "Leaving..."
-                : "Deleting..."
-              : workspacePrimaryAction.label || "Workspace Action"}
-          </button>
-        ) : activePage === "templates" ? (
-          <button
-            type="button"
-            className="danger"
-            disabled={
-              isDeletingTemplate || !hasApiAccess || !updateTemplateId.trim()
-            }
-            onClick={onDeleteTemplate}
-          >
-            {isDeletingTemplate ? "Deleting..." : "Delete Template"}
-          </button>
-        ) : activePage === "documents" ? (
-          <button
-            type="button"
-            className="danger"
-            disabled={
-              isDeletingDocument ||
-              isExportingDocuments ||
-              (!selectedDocumentCount && !selectedDocumentId)
-            }
-            onClick={onDeleteDocument}
-          >
-            {isDeletingDocument
-              ? selectedDocumentCount > 1
-                ? `Deleting ${selectedDocumentCount}...`
-                : "Deleting..."
-              : selectedDocumentCount
-                ? `Delete ${selectedDocumentCount} Document${
-                    selectedDocumentCount === 1 ? "" : "s"
-                  }`
-                : "Delete Document"}
-          </button>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-export function OperationalMetrics({
-  documentCount,
-  completionRate,
-}) {
-  return (
-    <section className="kpi-grid" aria-label="Operational metrics">
-      <article className="kpi-card">
-        <p className="kpi-label">Documents</p>
-        <p className="kpi-value">{documentCount}</p>
-        <p className="kpi-meta">Queued and completed jobs</p>
-      </article>
-      <article className="kpi-card">
-        <p className="kpi-label">Completion</p>
-        <p className="kpi-value">{completionRate}%</p>
-        <p className="kpi-meta">Completed jobs ratio</p>
-        <div
-          className="kpi-progress"
-          role="img"
-          aria-label={`Completion rate ${completionRate}%`}
-        >
-          <span style={{ width: `${completionRate}%` }} />
-        </div>
-      </article>
-    </section>
+      <p className="studio-page-description">{pageDescription}</p>
+    </header>
   );
 }

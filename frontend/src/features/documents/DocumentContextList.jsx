@@ -22,7 +22,9 @@ export function DocumentContextList({
   onToggleAllDocumentSelections = () => {},
   onToggleDocumentSelection = () => {},
   onLoadMoreDocuments,
+  documentLabels = false,
 }) {
+  const itemLabel = documentLabels ? "document" : "job";
   const availableDocumentIds = documents.map((job) => String(job.job_id));
   const selectedAvailableCount = availableDocumentIds.filter((documentId) =>
     selectedDocumentIds.includes(documentId),
@@ -33,14 +35,14 @@ export function DocumentContextList({
   const areSomeAvailableDocumentsSelected =
     selectedAvailableCount > 0 && !areAllAvailableDocumentsSelected;
   const selectAllLabel = areAllAvailableDocumentsSelected
-    ? "Deselect all available jobs"
-    : "Select all available jobs";
+    ? `Deselect all available ${itemLabel}s`
+    : `Select all available ${itemLabel}s`;
   const isSelectionLocked = isDeletingDocuments || isExportingDocuments;
 
   return (
     <>
       <div className="context-search-field">
-        <label htmlFor="document-job-search">Search Jobs</label>
+        <label htmlFor="document-job-search">Search {documentLabels ? "Documents" : "Jobs"}</label>
         <div className="context-search-row">
           <label className="context-select-all-control" title={selectAllLabel}>
             <input
@@ -66,12 +68,13 @@ export function DocumentContextList({
               id="document-job-search"
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Job ID or Source file"
+              placeholder={`${documentLabels ? "Document" : "Job"} ID or Source file`}
             />
             <AdvancedJobFilters
               filters={filters}
               availableModels={availableModels}
               onFiltersChange={onFiltersChange}
+              itemLabel={itemLabel}
             />
           </div>
         </div>
@@ -80,21 +83,22 @@ export function DocumentContextList({
         {documents.map((job) => {
           const isActive = selectedDocumentId === job.job_id;
           const isChecked = selectedDocumentIds.includes(job.job_id);
+          const statusTone = documentStatusTone(job.status);
 
           return (
             <div
               key={`context-${job.job_id}`}
-              className={`context-item-card context-item-document${isActive ? " active" : ""}${
+              className={`context-item-card context-item-document${statusTone ? ` status-${statusTone}` : ""}${isActive ? " active" : ""}${
                 isChecked ? " checked" : ""
               }`}
             >
               <label
                 className="context-select-control"
-                title={`Select job ${job.job_id}`}
+                title={`Select ${itemLabel} ${job.job_id}`}
               >
                 <input
                   type="checkbox"
-                  aria-label={`Select job ${job.job_id}`}
+                  aria-label={`Select ${itemLabel} ${job.job_id}`}
                   checked={isChecked}
                   disabled={isSelectionLocked}
                   onChange={(event) =>
@@ -138,8 +142,8 @@ export function DocumentContextList({
             </strong>
             <span>
               {debouncedSearch || hasActiveFilters
-                ? "Continue searching older jobs"
-                : "Show older jobs"}
+                ? `Continue searching older ${itemLabel}s`
+                : `Show older ${itemLabel}s`}
             </span>
           </button>
         ) : null}
@@ -148,7 +152,22 @@ export function DocumentContextList({
   );
 }
 
-function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
+function documentStatusTone(status) {
+  switch (String(status || "").toLowerCase()) {
+    case "completed":
+      return "completed";
+    case "queued":
+    case "processing":
+      return "progress";
+    case "error":
+    case "failed":
+      return "failed";
+    default:
+      return "";
+  }
+}
+
+function AdvancedJobFilters({ filters, availableModels, onFiltersChange, itemLabel }) {
   const [isOpen, setIsOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState(() => ({ ...filters }));
   const containerRef = useRef(null);
@@ -237,8 +256,8 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
         aria-controls={popoverId}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        aria-label={`Advanced job filters${activeFilterCount ? `, ${activeFilterCount} active` : ""}`}
-        title="Advanced job filters"
+        aria-label={`Advanced ${itemLabel} filters${activeFilterCount ? `, ${activeFilterCount} active` : ""}`}
+        title={`Advanced ${itemLabel} filters`}
         onClick={toggleFilters}
       >
         <FilterIcon />

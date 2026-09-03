@@ -181,7 +181,7 @@ export function useDocumentController({
   }, [documents, selectedDocumentId]);
 
   const exportableSelectedDocumentIds = useMemo(() => {
-    const selectedIds = new Set(selectedDocumentIds);
+    const selectedIds = new Set(selectedDocumentIds.length ? selectedDocumentIds : selectedDocument ? [String(selectedDocument.job_id)] : []);
     return documents
       .filter(
         (document) =>
@@ -189,7 +189,7 @@ export function useDocumentController({
           EXPORTABLE_DOCUMENT_STATUSES.has(String(document.status || "")),
       )
       .map((document) => String(document.job_id));
-  }, [documents, selectedDocumentIds]);
+  }, [documents, selectedDocumentIds, selectedDocument]);
 
   useEffect(() => {
     const availableDocumentIds = new Set(
@@ -1061,7 +1061,7 @@ export function useDocumentController({
       return;
     }
 
-    const selectedIdsSnapshot = [...selectedDocumentIds];
+    const selectedIdsSnapshot = selectedDocumentIds.length ? [...selectedDocumentIds] : [...exportableSelectedDocumentIds];
     setIsExportingDocuments(true);
     try {
       const exported = await documentRequestsRef.current.exportDocuments(

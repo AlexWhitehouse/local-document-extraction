@@ -46,10 +46,9 @@ test("a verified user completes a Document Extraction job through Workspace live
     await page.getByLabel("Email").fill(ACCOUNT.email);
     await page.getByLabel("Password", { exact: true }).fill(ACCOUNT.password);
     await page.getByRole("button", { name: "Sign In", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Workspace details & API access" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await expect(page.getByText("API Ready", { exact: true }).first()).toBeVisible();
 
-    await page.getByRole("button", { name: "Set up", exact: true }).click();
     await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
     await page.getByLabel("Model name", { exact: true }).fill("browser/model");
     await page.getByLabel("Gateway API key", { exact: true }).fill("browser-journey-key");
@@ -60,8 +59,9 @@ test("a verified user completes a Document Extraction job through Workspace live
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("button", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
-    await expect(page.getByRole("heading", { name: "Create Template" })).toBeVisible();
-    await page.getByRole("button", { name: "Export / Import" }).click();
+    await expect(page.getByRole("region", { name: "Template editor" })).toBeVisible();
+    await expect(page.getByLabel("Template name", { exact: true })).toHaveValue("Prescription Template");
+    await page.getByRole("button", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));
     const templateCreated = page.waitForResponse((response) =>
@@ -73,7 +73,7 @@ test("a verified user completes a Document Extraction job through Workspace live
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
     await page.getByLabel("Description", { exact: true }).fill("Extract the visible invoice reference.");
-    await page.getByRole("button", { name: "Save Changes" }).click();
+    await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
     await page.getByRole("button", { name: "Upload Document", exact: true }).first().click();
@@ -97,15 +97,15 @@ test("a verified user completes a Document Extraction job through Workspace live
     await uploadDialog.getByRole("button", { name: "Cancel" }).click();
 
     await navigation.getByRole("button", { name: /Documents/ }).click();
-    await expect(page.getByRole("heading", { name: "Document Details" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Document results" })).toBeVisible();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
     expect(evidence.completedWorkspaceFrames()).not.toEqual([]);
     expect(evidence.externalWebSockets()).toEqual([]);
 
-    const jobSelection = page.getByRole("checkbox", { name: /^Select job / });
+    const jobSelection = page.getByRole("checkbox", { name: /^Select document / });
     await jobSelection.click();
     const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: "Export 1 Job" }).click();
+    await page.getByRole("button", { name: "Export 1" }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(
       /^browser-journey-workspace-job-export-\d{4}-\d{2}-\d{2}-\d{4}\.xlsx$/,
@@ -113,7 +113,7 @@ test("a verified user completes a Document Extraction job through Workspace live
 
     await jobSelection.click();
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Delete Document" }).click();
+    await page.getByRole("button", { name: "Delete" }).click();
     await expect(page.getByText(/Document deleted:/)).toBeVisible();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toHaveCount(0);
 
