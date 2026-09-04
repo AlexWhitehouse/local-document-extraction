@@ -1,10 +1,10 @@
 # Pin Bun 1.4 Runtime
 
-The Local Bun Runtime, package manager, developer command surface, and CI use Bun 1.4.0. The root `packageManager` declaration is the authoritative version; setup tooling reads that declaration rather than maintaining a separate workflow pin.
+The Local Bun Runtime, package manager, developer command surface, and CI use Bun 1.4.1. The root `packageManager` declaration is the authoritative version; setup tooling reads that declaration rather than maintaining a separate workflow pin.
 
 ## Consequences
 
-- Backend ambient types use `bun-types` 1.4.0 directly while the `@types/bun` wrapper remains on 1.3.14, and Node ambient types align with Bun's reported Node 26 surface.
+- Backend ambient types use `bun-types` 1.4.1 directly while the `@types/bun` wrapper remains on 1.3.14, and Node ambient types align with Bun's reported Node 26 surface.
 - Health diagnostics report the active Bun version, full revision, and reported Node version so support and benchmark evidence identifies the actual runtime.
 - CI qualifies the frozen dependency tree on supported Linux and macOS hosts, including native canvas and PDF coverage already present in the complete test surface.
 - The existing lockfile version 1 is intentionally retained. Bun 1.4 reads it, frozen installs are deterministic, and retaining it keeps the runtime-only change directly readable by Bun 1.3.14 during rollback.

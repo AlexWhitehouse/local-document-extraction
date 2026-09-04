@@ -56,3 +56,18 @@ model gateway.
 - `bun run ci` adds the browser journeys for a complete local verification. In
   GitHub Actions those journeys run once in the separately provisioned
   Ubuntu-only browser job.
+
+## September 2026 cleanup baseline
+
+The abstraction cleanup removed dead Workspace-refresh code and its tests,
+configuration/source-text assertions, and the HTTP-adapter call-sequence audit.
+The frontend coverage floor is explicitly rebased to 80.5% lines and 72.0%
+functions for this suite; the 73.2% branch floor is retained. It remains a fixed
+regression gate, never an automatically updated threshold.
+
+The pre-cleanup working tree already missed the old 81.1% line / 81.8% function
+floor (80.76% / 72.30% measured locally). After cleanup, Bun 1.4.1 on macOS
+measured 80.56% lines, 72.01% functions, and 74.36% branches. The failed GitHub
+Linux run on Bun 1.4.0 measured 80.56% lines and 72.14% functions. The small
+platform margin avoids treating this measured variation as lost behavior
+coverage. Browser journeys continue to cover the complete product workflows.
