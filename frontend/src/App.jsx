@@ -68,7 +68,7 @@ function AuthenticatedApp() {
   const [busy, setBusy] = useState(false);
   const [isStoppingImpersonation, setIsStoppingImpersonation] = useState(false);
   const [, setLogLines] = useState([]);
-  const [latestResponse, setLatestResponse] = useState(null);
+  const [, setLatestResponse] = useState(null);
 
   const [activePage, setActivePage] = useState(() => getInitialActivePage());
 
@@ -102,13 +102,10 @@ function AuthenticatedApp() {
     isAppBusy: busy,
     setBusy,
     onActivePageChange: setActivePage,
-    onClearWorkspaceScopedData: () => {
+    onClearWorkspaceScopedData: (options) => {
       templateController.actions.clearWorkspaceScopedTemplates();
-      documentController.actions.clearWorkspaceScopedDocuments();
+      documentController.actions.clearWorkspaceScopedDocuments(options);
       setLatestResponse(null);
-    },
-    onClearCompletedDocumentCache: () => {
-      documentController.actions.clearCompletedDocumentCache();
     },
   });
   const { workspaceId, hasApiAccess, isDeletingWorkspace, workspaceSelectionView } =
@@ -164,7 +161,7 @@ function AuthenticatedApp() {
     isAppBusy: busy,
     isWorkspaceDeletionInProgress: isDeletingWorkspace,
     workspaceId,
-    latestResponse,
+    sessionId: hasSession ? `${sessionUserId}:${session?.session?.id || ""}:${session?.session?.impersonatedBy || ""}` : "",
     setLatestResponse,
     onActivePageChange: setActivePage,
     onWorkspaceCapacityRefresh:
@@ -187,6 +184,7 @@ function AuthenticatedApp() {
   async function handleStopImpersonating() {
     setIsStoppingImpersonation(true);
     try {
+      documentController.actions.cancelPendingSubmissions();
       const result = await authClient.admin.stopImpersonating();
       if (result?.error) {
         throw new Error(result.error.message || "Unable to stop impersonating.");
@@ -209,6 +207,7 @@ function AuthenticatedApp() {
     sessionUserId,
     showActionToast,
     onImpersonationStarted: handleImpersonationStarted,
+    onImpersonationStarting: documentController.actions.cancelPendingSubmissions,
   });
   const workspaceSidebar = workspaceController.sidebar;
   const workspaceToolbar = workspaceController.toolbar;
@@ -237,6 +236,7 @@ function AuthenticatedApp() {
     onClearWorkspaceScopedDocuments:
       documentController.actions.clearWorkspaceScopedDocuments,
     onClearSessionWorkspaceData: workspaceController.actions.clearSessionWorkspaceData,
+    onSessionChanging: documentController.actions.cancelPendingSubmissions,
   });
   const { authScreen, profileMenu } = authProfileController;
 

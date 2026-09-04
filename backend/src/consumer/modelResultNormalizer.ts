@@ -84,7 +84,7 @@ function normalizeSingle(
 
 function normalizeStatus(
   input: string,
-): "ok" | "not_found" | "invalid_type" | "unreadable" | "error" {
+): NormalizedModelField["status"] {
   if (
     input === "ok" ||
     input === "not_found" ||

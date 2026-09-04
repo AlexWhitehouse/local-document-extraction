@@ -24,6 +24,7 @@ export function useAuthProfileController({
   onClearWorkspaceScopedTemplates,
   onClearWorkspaceScopedDocuments,
   onClearSessionWorkspaceData,
+  onSessionChanging,
 }) {
   const [authMode, setAuthMode] = useState(initialAuthMode);
   const [authName, setAuthName] = useState("");
@@ -254,6 +255,7 @@ export function useAuthProfileController({
   async function signOut() {
     setBusy(true);
     try {
+      onSessionChanging?.();
       await authClient.signOut();
       onClearWorkspaceScopedTemplates();
       onClearWorkspaceScopedDocuments();

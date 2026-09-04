@@ -60,6 +60,10 @@ _Avoid_: local rule, context snapshot
 A user-provided file submitted for extraction.
 _Avoid_: image, upload, input file
 
+**Document reconciliation**:
+Keeping displayed **Extraction jobs**, Document selection, and the **Completed document cache** consistent with accepted updates for the current session and **Workspace context**.
+_Avoid_: job merging, cache synchronization
+
 **Source file**:
 The original uploaded binary for a **Document**.
 _Avoid_: image file, browser file, upload blob
@@ -232,6 +236,11 @@ _Avoid_: frontend auth mode, session replacement
 - The **Workspace API key display** section is visible to workspace members, but only owners/admins can generate or rotate **Workspace API keys**.
 - An **Action toast** may report the outcome of actions on Workspaces, Templates, Documents, Workspace invitations, Workspace members, or clipboard content.
 - A **Document upload toast** is a specialized **Action toast** for document queueing outcomes.
+- **Document reconciliation** owns Document reads, submission and deletion, displayed **Extraction jobs**, selection, pagination, counts, and the **Completed document cache** for the current session and accepted **Workspace context**.
+- An overlapping Document read preserves changes observed since that read began, merges unaffected rows, and schedules one coalesced backend refresh to reconcile list membership and counts.
+- A Document submission batch captures its original **Workspace context** and request adapter. Switching **Workspace** lets remaining files submit to the original **Workspace**, while suppressing its later UI and cache effects.
+- A session change stops unsent files in Document submission batches. Sign-out and impersonation actions stop unsent files when the action begins; already submitted backend work may finish.
+- React owns Document presentation, confirmations, toasts, downloads, and **Workspace live updates** transport; **Document reconciliation** decides which Document updates and request outcomes are accepted.
 - **Completed document cache** may render completed **Extraction job** details immediately after an accepted **Workspace context** is resolved, while the backend remains the source of truth.
 - **Completed document cache** contains backend-returned completed job metadata and **Extraction results**, not source file contents, `File` objects, blob URLs, or source preview URLs.
 - **Completed document cache** stores a completed **Extraction job** only after the user opens that **Document** and its details load.

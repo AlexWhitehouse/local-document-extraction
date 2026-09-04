@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import type { FieldDefinition } from "./lib/types";
+import type { NormalizedModelField } from "./consumer/modelResultNormalizer";
 import type { StoredWorkspaceModelConfiguration } from "./workspaceModelConfiguration";
 
 export type LocalWorkspaceTemplate = {
@@ -92,7 +93,7 @@ export type LocalScheduledExtractionJob = {
 export type DeletedLocalWorkspaceExtractionJob = {
   job_id: string;
   source_file_key: string;
-  status: "queued" | "processing" | "completed" | "failed";
+  status: LocalWorkspaceExtractionJobSummary["status"];
 };
 
 export type LocalRetainedTerminalSourceFile = {
@@ -166,14 +167,7 @@ export type LocalWorkspaceProductStore = {
     completedAt: string;
     modelName: string;
     route: string;
-    results: Array<{
-      field_id: string;
-      status: string;
-      answer: unknown;
-      normalized_value: string | null;
-      confidence: number | null;
-      evidence: string | null;
-    }>;
+    results: NormalizedModelField[];
   }): boolean;
   failExtractionJob(input: {
     jobId: string;
@@ -226,16 +220,6 @@ export type LocalWorkspaceProductStore = {
 };
 
 export function createLocalWorkspaceProductStore({
-  stateDirectory,
-  workspaceId,
-}: {
-  stateDirectory: string;
-  workspaceId: string;
-}): LocalWorkspaceProductStore {
-  return initializeLocalWorkspaceProductStore({ stateDirectory, workspaceId });
-}
-
-export function initializeLocalWorkspaceProductStore({
   stateDirectory,
   workspaceId,
 }: {
@@ -763,14 +747,7 @@ function completeExtractionJob(
     completedAt: string;
     modelName: string;
     route: string;
-    results: Array<{
-      field_id: string;
-      status: string;
-      answer: unknown;
-      normalized_value: string | null;
-      confidence: number | null;
-      evidence: string | null;
-    }>;
+    results: NormalizedModelField[];
   },
 ): boolean {
   const complete = database.transaction(() => {

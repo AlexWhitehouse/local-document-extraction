@@ -1,8 +1,13 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { sanitizeConsoleText } from "./browserEvidence";
+
+const expectedBunVersion: string = JSON.parse(
+  readFileSync(resolve("package.json"), "utf8"),
+).packageManager.replace(/^bun@/, "");
 
 type ReadyPayload = {
   bunVersion: string;
@@ -205,14 +210,14 @@ function validateReadyPayload(input: unknown): ReadyPayload {
   if (controlOrigin.protocol !== "http:" || controlOrigin.hostname !== "127.0.0.1" || !controlOrigin.port) {
     throw new Error("ready control origin must be an explicit loopback HTTP listener");
   }
-  if (candidate.bunVersion !== "1.4.0") {
-    throw new Error(`browser harness requires Bun 1.4.0, received ${String(candidate.bunVersion || "unknown")}`);
+  if (candidate.bunVersion !== expectedBunVersion) {
+    throw new Error(`browser harness requires Bun ${expectedBunVersion}, received ${String(candidate.bunVersion || "unknown")}`);
   }
   if (typeof candidate.stateDirectory !== "string" || !candidate.stateDirectory) {
     throw new Error("ready payload did not include an isolated state directory");
   }
   return {
-    bunVersion: candidate.bunVersion,
+    bunVersion: expectedBunVersion,
     controlOrigin: controlOrigin.origin,
     origin: origin.origin,
     stateDirectory: candidate.stateDirectory,

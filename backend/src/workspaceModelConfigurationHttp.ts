@@ -2,8 +2,7 @@ import { HttpError, toHttpError } from "./lib/http";
 import type { LocalAuth } from "./localAuth";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
-import { LocalWorkspaceOperationError, type LocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
-import { LocalWorkspaceProductStoreRegistryError, type LocalWorkspaceProductStoreRegistry, type LocalWorkspaceProductStoreLease } from "./localWorkspaceProductStoreRegistry";
+import { LocalWorkspaceProductDataAccessError, type LocalWorkspaceProductDataAccess } from "./localWorkspaceProductDataAccess";
 import { buildChatCompletionsUrl, readRunResultContent } from "./consumer/modelGateway";
 import { createWorkspaceCredentialVault, modelConfigurationETag, publicModelConfiguration, validateWorkspaceModelDraft, configurationMissing, type WorkspaceModelDraft, type StoredWorkspaceModelConfiguration } from "./workspaceModelConfiguration";
 
@@ -17,14 +16,11 @@ export async function handleWorkspaceModelConfiguration(input: {
   test: boolean;
   auth: LocalAuth;
   workspaceControl: LocalWorkspaceControl;
-  registry: LocalWorkspaceProductStoreRegistry;
-  operations: LocalWorkspaceProductOperations;
+  access: LocalWorkspaceProductDataAccess;
   stateDirectory: string;
   liveUpdateHub?: LocalLiveUpdateHub;
 }): Promise<Response> {
   const { request, workspaceId, auth, workspaceControl } = input;
-  let lease: LocalWorkspaceProductStoreLease | null = null;
-  let operation: ReturnType<LocalWorkspaceProductOperations["acquire"]> | undefined;
   try {
     const session = await auth.getSession(request);
     if (!session) throw new HttpError(401, "unauthorized", "Authentication required");
@@ -34,56 +30,55 @@ export async function handleWorkspaceModelConfiguration(input: {
     if ((input.test || request.method !== "GET") && !canManage) throw new HttpError(403, "insufficient_workspace_role", "Only Workspace owners and admins can manage model configuration.");
     const allowed = input.test ? ["POST"] : ["GET", "PUT", "DELETE"];
     if (!allowed.includes(request.method)) return Response.json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, { status: 405, headers: { ...noStore, allow: allowed.join(", ") } });
-    operation = input.operations.acquire({ workspaceId });
-    lease = input.registry.acquire({ workspaceId, mode: request.method === "PUT" ? "create" : "existing" });
-    const vault = createWorkspaceCredentialVault(input.stateDirectory);
-    const represent = (record: StoredWorkspaceModelConfiguration | null, status = 200) => Response.json(publicModelConfiguration(record, workspaceId, canManage, vault), {
-      status, headers: { ...noStore, ...(record && canManage ? { etag: modelConfigurationETag(record.revision) } : {}) },
-    });
-    if (request.method === "GET") return represent(lease?.store.getModelConfiguration() ?? null);
-    const ifMatch = request.headers.get("if-match");
-    const ifNoneMatch = request.headers.get("if-none-match");
-    if (request.method === "DELETE") {
+    return await input.access.run({ workspaceId, mode: request.method === "PUT" ? "create" : "existing" }, async ({ store }) => {
+      const vault = createWorkspaceCredentialVault(input.stateDirectory);
+      const represent = (record: StoredWorkspaceModelConfiguration | null, status = 200) => Response.json(publicModelConfiguration(record, workspaceId, canManage, vault), {
+        status, headers: { ...noStore, ...(record && canManage ? { etag: modelConfigurationETag(record.revision) } : {}) },
+      });
+      if (request.method === "GET") return represent(store?.getModelConfiguration() ?? null);
+      const ifMatch = request.headers.get("if-match");
+      const ifNoneMatch = request.headers.get("if-none-match");
+      if (request.method === "DELETE") {
+        if (!ifMatch && !ifNoneMatch) throw missingCondition();
+        const current = store?.getModelConfiguration();
+        if (!current || ifNoneMatch || ifMatch !== modelConfigurationETag(current.revision) || !store!.clearModelConfiguration(current.revision)) throw failedCondition();
+        input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({ workspaceId, reason: "model_configuration_changed", occurredAt: new Date().toISOString() });
+        return new Response(null, { status: 204, headers: noStore });
+      }
+      let body: unknown;
+      try { body = await request.json(); } catch { throw new HttpError(400, "invalid_workspace_model_configuration", "Provide valid JSON for the Workspace model configuration."); }
+      const draft = validateWorkspaceModelDraft(body);
+      if (input.test && draft.credential !== undefined) {
+        return await testWorkspaceModelConnection(draft, draft.credential, request.signal);
+      }
+      const current = store?.getModelConfiguration() ?? null;
       if (!ifMatch && !ifNoneMatch) throw missingCondition();
-      const current = lease?.store.getModelConfiguration();
-      if (!current || ifNoneMatch || ifMatch !== modelConfigurationETag(current.revision) || !lease!.store.clearModelConfiguration(current.revision)) throw failedCondition();
-      input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({ workspaceId, reason: "model_configuration_changed", occurredAt: new Date().toISOString() });
-      return new Response(null, { status: 204, headers: noStore });
-    }
-    let body: unknown;
-    try { body = await request.json(); } catch { throw new HttpError(400, "invalid_workspace_model_configuration", "Provide valid JSON for the Workspace model configuration."); }
-    const draft = validateWorkspaceModelDraft(body);
-    if (input.test && draft.credential !== undefined) {
-      return await testWorkspaceModelConnection(draft, draft.credential, request.signal);
-    }
-    const current = lease?.store.getModelConfiguration() ?? null;
-    if (!ifMatch && !ifNoneMatch) throw missingCondition();
-    const creating = request.method === "PUT" && ifNoneMatch === "*" && !ifMatch;
-    if (creating ? current !== null : !current || ifNoneMatch || ifMatch !== modelConfigurationETag(current.revision)) throw failedCondition();
-    if (input.test) {
-      if (!current) throw configurationMissing();
-      return await testWorkspaceModelConnection(draft, vault.decrypt(workspaceId, current.credential_ciphertext), request.signal);
-    }
-    if (!draft.credential && !current) throw new HttpError(400, "invalid_workspace_model_configuration", "A new configuration requires a credential.");
-    const { credential, ...fields } = draft;
-    // Checking usability before preserving ciphertext keeps replacement-with-a-new-key and clear as repair paths.
-    if (!credential) vault.decrypt(workspaceId, current!.credential_ciphertext);
-    const saved = lease!.store.putModelConfiguration({
-      expectedRevision: current?.revision ?? null,
-      configuration: { ...fields, credential_ciphertext: credential ? vault.encrypt(workspaceId, credential) : current!.credential_ciphertext },
-      updatedAt: new Date().toISOString(),
+      const creating = request.method === "PUT" && ifNoneMatch === "*" && !ifMatch;
+      if (creating ? current !== null : !current || ifNoneMatch || ifMatch !== modelConfigurationETag(current.revision)) throw failedCondition();
+      if (input.test) {
+        if (!current) throw configurationMissing();
+        return await testWorkspaceModelConnection(draft, vault.decrypt(workspaceId, current.credential_ciphertext), request.signal);
+      }
+      if (!draft.credential && !current) throw new HttpError(400, "invalid_workspace_model_configuration", "A new configuration requires a credential.");
+      const { credential, ...fields } = draft;
+      // Checking usability before preserving ciphertext keeps replacement-with-a-new-key and clear as repair paths.
+      if (!credential) vault.decrypt(workspaceId, current!.credential_ciphertext);
+      const saved = store!.putModelConfiguration({
+        expectedRevision: current?.revision ?? null,
+        configuration: { ...fields, credential_ciphertext: credential ? vault.encrypt(workspaceId, credential) : current!.credential_ciphertext },
+        updatedAt: new Date().toISOString(),
+      });
+      if (!saved) throw failedCondition();
+      input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({ workspaceId, reason: "model_configuration_changed", occurredAt: saved.updated_at });
+      return represent(saved, creating ? 201 : 200);
     });
-    if (!saved) throw failedCondition();
-    input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({ workspaceId, reason: "model_configuration_changed", occurredAt: saved.updated_at });
-    return represent(saved, creating ? 201 : 200);
   } catch (error) {
-    const safe = error instanceof LocalWorkspaceProductStoreRegistryError || error instanceof LocalWorkspaceOperationError
-      ? new HttpError(503, "workspace_product_store_unavailable", "Workspace product storage is temporarily unavailable.")
+    const safe = error instanceof LocalWorkspaceProductDataAccessError
+      ? error.code === "unexpected"
+        ? toHttpError(error.cause)
+        : new HttpError(503, "workspace_product_store_unavailable", "Workspace product storage is temporarily unavailable.")
       : toHttpError(error);
     return Response.json({ error: { code: safe.code, message: safe.message } }, { status: safe.status, headers: noStore });
-  } finally {
-    lease?.release();
-    operation?.release();
   }
 }
 

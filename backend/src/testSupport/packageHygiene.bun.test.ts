@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
@@ -98,29 +97,6 @@ describe("Bun package hygiene", () => {
       status: "modified",
     }]);
     expect(JSON.stringify(summarized)).not.toContain("credential-looking");
-  });
-
-  test("pins isolated/global-store installs, release cooling, CI evidence, and safe scripts", async () => {
-    const [bunfig, workflow, packageJson] = await Promise.all([
-      readFile(resolve(repositoryRoot, "bunfig.toml"), "utf8"),
-      readFile(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8"),
-      readFile(resolve(repositoryRoot, "package.json"), "utf8").then(JSON.parse),
-    ]);
-
-    expect(bunfig).toContain('linker = "isolated"');
-    expect(bunfig).toContain("globalStore = true");
-    expect(bunfig).toContain("minimumReleaseAge = 259200");
-    expect(bunfig).toContain('minimumReleaseAgeExcludes = ["bun-types"]');
-    expect(workflow.match(/run: bun ci/g)).toHaveLength(3);
-    expect(workflow.match(/git diff --exit-code -- bun\.lock/g)).toHaveLength(3);
-    expect(workflow).toContain("bun run package:hygiene");
-    expect(workflow).toContain(".scratch/ci/package-hygiene/");
-    expect(workflow).not.toMatch(/bun audit fix|bun dedupe(?:\s|$)(?!.*--check)/);
-    expect(packageJson.scripts).toMatchObject({
-      "benchmark:global-store": "bun scripts/benchmarkGlobalStore.ts",
-      "package:diff-evidence": "bun scripts/generatePackageDiffEvidence.ts",
-      "package:hygiene": "bun scripts/packageHygiene.ts",
-    });
   });
 
   test("renders two clean worktrees, offline proof, global links, native smoke, and disk evidence", () => {

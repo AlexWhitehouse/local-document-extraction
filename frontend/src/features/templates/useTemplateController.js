@@ -480,7 +480,7 @@ export function useTemplateController({
       );
       try {
         setLoadedTemplateSnapshot(
-          serializeTemplatePayload(validateTemplateJsonPayload(template)),
+          serializeTemplatePayload(template),
         );
       } catch {
         setLoadedTemplateSnapshot(null);

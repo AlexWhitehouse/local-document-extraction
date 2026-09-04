@@ -4,6 +4,7 @@ const workerCounts = [2, 4];
 const results = [];
 
 for (const workers of workerCounts) {
+  console.error(`Measuring backend suite with ${workers} workers (120s timeout)`);
   results.push(await measureLane(workers));
 }
 
@@ -41,6 +42,8 @@ async function measureLane(workers: number): Promise<{
     cwd: new URL("..", import.meta.url).pathname,
     stderr: "pipe",
     stdout: "pipe",
+    timeout: 120_000,
+    killSignal: "SIGKILL",
   });
   const stdoutPromise = new Response(child.stdout).text();
   const stderrPromise = new Response(child.stderr).text();

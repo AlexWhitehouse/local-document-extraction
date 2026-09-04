@@ -1402,6 +1402,7 @@ function DocumentControllerHarness({
     isAppBusy: false,
     isWorkspaceDeletionInProgress,
     workspaceId,
+    sessionId: "user_1",
     latestResponse,
     setLatestResponse,
     onWorkspaceAccessRevalidation:

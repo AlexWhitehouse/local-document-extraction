@@ -98,7 +98,7 @@ const alreadyRemovedMessages = {
 };
 
 export function getActionToast(action, outcome, options = {}) {
-  const target = getTargetDisplay(options);
+  const target = options.targetName || options.targetEmail || options.targetId || "";
 
   if (outcome === "success" && successMessages[action]) {
     return {
@@ -124,11 +124,7 @@ export function getActionToast(action, outcome, options = {}) {
     const validationMessage = validationMessages[action]?.[options.reason];
     return {
       severity: "error",
-      message:
-        typeof validationMessage === "function"
-          ? validationMessage(options)
-          : (validationMessage ??
-            "Action blocked. Check the form and try again."),
+      message: validationMessage ?? "Action blocked. Check the form and try again.",
     };
   }
 
@@ -164,10 +160,6 @@ export function getDocumentUploadToast({ queued = 0, failed = 0 }) {
     severity: "error",
     message: `${queued} ${pluralize("document", queued)} queued, ${failed} failed`,
   };
-}
-
-function getTargetDisplay(options) {
-  return options.targetName || options.targetEmail || options.targetId || "";
 }
 
 function withTarget(message, target) {

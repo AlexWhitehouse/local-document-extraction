@@ -171,7 +171,7 @@ async function createTerminalJobs({
       completedAt: "2026-07-10T12:02:00.000Z",
       modelName: "test-model",
       route: "test-route",
-      results: [{ field_id: "invoice_number", status: "completed", answer: "INV-001", normalized_value: "INV-001", confidence: 1, evidence: null }],
+      results: [{ field_id: "invoice_number", status: "ok", answer: "INV-001", normalized_value: "INV-001", confidence: 1, evidence: null }],
     });
     for (const jobId of ["job_failed", "job_api_key"]) {
       store.claimExtractionJobForProcessing({

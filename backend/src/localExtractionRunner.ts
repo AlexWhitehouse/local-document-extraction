@@ -29,10 +29,10 @@ import {
 } from "./localWorkspaceProductStoreRegistry";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import {
-  LocalWorkspaceOperationError,
-  type LocalWorkspaceProductOperation,
+  createLocalWorkspaceProductOperations,
   type LocalWorkspaceProductOperations,
 } from "./localWorkspaceProductOperations";
+import { createLocalWorkspaceProductDataAccess, LocalWorkspaceProductDataAccessError } from "./localWorkspaceProductDataAccess";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -112,6 +112,10 @@ export function createLocalExtractionRunner({
         openStore: productStoreOpener,
       })
     : createLocalWorkspaceProductStoreRegistry({ stateDirectory }));
+  const productDataAccess = createLocalWorkspaceProductDataAccess({
+    registry: localProductStoreRegistry,
+    operations: workspaceProductOperations ?? createLocalWorkspaceProductOperations(),
+  });
   const credentialVault = createWorkspaceCredentialVault(stateDirectory);
   const normalizedRecoveryBatchSize = Number.isSafeInteger(recoveryBatchSize) && recoveryBatchSize > 0
     ? recoveryBatchSize
@@ -180,35 +184,9 @@ export function createLocalExtractionRunner({
       if (!workspaceExists(workspaceControl, job.workspace_id)) {
         return;
       }
-      let productOperation: LocalWorkspaceProductOperation | undefined;
-      try {
-        productOperation = workspaceProductOperations?.acquire({
-          workspaceId: job.workspace_id,
-          jobId: job.job_id,
-        });
-      } catch (error) {
-        if (error instanceof LocalWorkspaceOperationError) {
-          return;
-        }
-        throw error;
-      }
-      let productStoreLease;
-      try {
-        productStoreLease = localProductStoreRegistry.acquire({ workspaceId: job.workspace_id, mode: "existing" });
-      } catch (error) {
-        productOperation?.release();
-        if (error instanceof LocalWorkspaceProductStoreRegistryError) {
-          return;
-        }
-        throw error;
-      }
-      if (!productStoreLease) {
-        productOperation?.release();
-        return;
-      }
-      const productStore = productStoreLease.store;
-      const attempt = job.attempt ?? 1;
-      try {
+      return productDataAccess.run({ workspaceId: job.workspace_id, jobId: job.job_id, mode: "existing" }, async ({ store: productStore, signal }) => {
+        if (!productStore) return;
+        const attempt = job.attempt ?? 1;
         const claimed = productStore.claimExtractionJobForProcessing({
           jobId: job.job_id,
           attempt,
@@ -217,7 +195,7 @@ export function createLocalExtractionRunner({
         if (!claimed) {
           return;
         }
-        if (productOperation?.signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
+        if (signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
           return;
         }
         notifyJobLifecycle(onJobLifecycleChange, job.workspace_id, productStore, claimed.job_id);
@@ -252,12 +230,11 @@ export function createLocalExtractionRunner({
             return;
           }
           modelRecorded = true;
-          const extractionSignal = productOperation?.signal ?? new AbortController().signal;
           if (!extract) gatewayStarted = true;
           const rawResults = extract
             ? await extract({
                 fields: claimed.fields,
-                signal: extractionSignal,
+                signal,
                 sourceBytes: toArrayBuffer(sourceBytes!),
                 sourceMimeType: claimed.source_mime_type,
               })
@@ -266,14 +243,14 @@ export function createLocalExtractionRunner({
                 claimed.fields,
                 toArrayBuffer(sourceBytes),
                 claimed.source_mime_type,
-                extractionSignal,
+                signal,
               );
           if (gatewayStarted) {
             notifyGatewayOutcome(onGatewayOutcome, "success");
             gatewayStarted = false;
           }
           const results = normalizeModelResults(claimed.fields, rawResults);
-          if (productOperation?.signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
+          if (signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
             return;
           }
           const completed = productStore.completeExtractionJob({
@@ -310,7 +287,7 @@ export function createLocalExtractionRunner({
           if (gatewayStarted) {
             notifyGatewayOutcome(onGatewayOutcome, gatewayOutcomeForError(error));
           }
-          if (productOperation?.signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
+          if (signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
             return;
           }
           if (error instanceof RetryableError && attempt < maxAttempts) {
@@ -387,10 +364,13 @@ export function createLocalExtractionRunner({
             });
           }
         }
-      } finally {
-        productStoreLease.release();
-        productOperation?.release();
-      }
+      }).catch((error) => {
+        if (error instanceof LocalWorkspaceProductDataAccessError) {
+          if (error.code === "unexpected") throw error.cause;
+          return;
+        }
+        throw error;
+      });
     },
   };
 }
