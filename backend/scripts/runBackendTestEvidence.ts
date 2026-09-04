@@ -50,6 +50,8 @@ const child = Bun.spawn([
   env: sanitizedTestEnvironment(),
   stderr: "pipe",
   stdout: "pipe",
+  timeout: 120_000,
+  killSignal: "SIGKILL",
 });
 const [stdout, stderr, testExitCode] = await Promise.all([
   new Response(child.stdout).text(),
