@@ -2,6 +2,8 @@
 
 The single-machine runtime treats per-Workspace SQLite as the durable work queue and keeps bounded in-memory structures only as scheduling accelerators. Multipart admission, active extraction, database ownership, polling, source retention, and resource control share explicit local capacity limits.
 
+Scheduling, indexed reads, and storage-admission details are revised by [ADR-0009](0009-indexed-work-and-resource-admission.md).
+
 ## Consequences
 
 - Multipart Documents stream through bounded parser buffers into unique temporary files and are atomically promoted after metadata and page-count validation.

@@ -1,102 +1,65 @@
+import { createByteBoundedCache } from "./byteBoundedCache";
+
 export const COMPLETED_DOCUMENT_CACHE_STORAGE_KEY =
   "documentextraction.completedDocuments.v1";
 
 const MAX_COMPLETED_DOCUMENTS_PER_WORKSPACE = 50;
 
-export function createCompletedDocumentCache({ storage } = {}) {
+export function createCompletedDocumentCache({ storage, maxBytes = 2 * 1024 * 1024 } = {}) {
   const backingStorage = storage || getBrowserStorage();
-  let cache = loadCache(backingStorage);
-
-  function persist() {
-    if (!backingStorage) {
-      return;
+  const cache = createByteBoundedCache({ maxBytes, maxEntries: 500 });
+  const key = (workspaceId, jobId) => `${workspaceId}\0${jobId}`;
+  const initial = loadCache(backingStorage, maxBytes);
+  for (const [workspaceId, documents] of Object.entries(initial)) {
+    if (!Array.isArray(documents)) continue;
+    for (const document of documents.slice(0, MAX_COMPLETED_DOCUMENTS_PER_WORKSPACE).reverse()) {
+      const sanitized = sanitizeCompletedDocument(document);
+      if (sanitized) cache.set(key(workspaceId, sanitized.job_id), { workspaceId, document: sanitized });
     }
-    backingStorage.setItem(
-      COMPLETED_DOCUMENT_CACHE_STORAGE_KEY,
-      JSON.stringify(cache),
-    );
   }
-
+  function persist() {
+    if (!backingStorage) return;
+    const serialized = Object.create(null);
+    for (const { workspaceId, document } of cache.values().reverse()) {
+      (serialized[workspaceId] ||= []).push(document);
+    }
+    backingStorage.setItem(COMPLETED_DOCUMENT_CACHE_STORAGE_KEY, JSON.stringify(serialized));
+  }
+  function removeMatching(predicate) {
+    let changed = false;
+    for (const entry of cache.values()) {
+      if (!predicate(entry)) continue;
+      cache.delete(key(entry.workspaceId, entry.document.job_id));
+      changed = true;
+    }
+    if (changed) persist();
+  }
   return {
     get(workspaceId, jobId) {
-      const workspaceCache = cache[normalizeId(workspaceId)] || [];
-      const entry = workspaceCache.find(
-        (document) => document.job_id === normalizeId(jobId),
-      );
-      return entry ? clone(entry) : null;
+      const entry = cache.get(key(normalizeId(workspaceId), normalizeId(jobId)));
+      return entry ? clone(entry.document) : null;
     },
     store(workspaceId, document) {
-      const normalizedWorkspaceId = normalizeId(workspaceId);
+      workspaceId = normalizeId(workspaceId);
       const sanitized = sanitizeCompletedDocument(document);
-      if (!normalizedWorkspaceId || !sanitized) {
-        return null;
+      if (!workspaceId || !sanitized) return null;
+      const accepted = cache.set(key(workspaceId, sanitized.job_id), { workspaceId, document: sanitized });
+      const workspaceEntries = cache.values().filter((entry) => entry.workspaceId === workspaceId);
+      for (const entry of workspaceEntries.slice(0, Math.max(0, workspaceEntries.length - MAX_COMPLETED_DOCUMENTS_PER_WORKSPACE))) {
+        cache.delete(key(workspaceId, entry.document.job_id));
       }
-
-      const withoutCurrent = (cache[normalizedWorkspaceId] || []).filter(
-        (entry) => entry.job_id !== sanitized.job_id,
-      );
-      cache = {
-        ...cache,
-        [normalizedWorkspaceId]: [sanitized, ...withoutCurrent].slice(
-          0,
-          MAX_COMPLETED_DOCUMENTS_PER_WORKSPACE,
-        ),
-      };
       persist();
-      return clone(sanitized);
+      return accepted ? clone(sanitized) : null;
     },
     remove(workspaceId, jobId) {
-      const normalizedWorkspaceId = normalizeId(workspaceId);
-      const normalizedJobId = normalizeId(jobId);
-      if (!normalizedWorkspaceId || !normalizedJobId) {
-        return;
-      }
-
-      const workspaceCache = cache[normalizedWorkspaceId] || [];
-      const nextWorkspaceCache = workspaceCache.filter(
-        (entry) => entry.job_id !== normalizedJobId,
-      );
-      if (nextWorkspaceCache.length === workspaceCache.length) {
-        return;
-      }
-      cache = { ...cache, [normalizedWorkspaceId]: nextWorkspaceCache };
-      persist();
+      removeMatching((entry) => entry.workspaceId === normalizeId(workspaceId) && entry.document.job_id === normalizeId(jobId));
     },
-    clearWorkspace(workspaceId) {
-      const normalizedWorkspaceId = normalizeId(workspaceId);
-      if (!normalizedWorkspaceId || !cache[normalizedWorkspaceId]) {
-        return;
-      }
-
-      const next = { ...cache };
-      delete next[normalizedWorkspaceId];
-      cache = next;
-      persist();
-    },
-    clearAll() {
-      cache = {};
-      persist();
-    },
+    clearWorkspace(workspaceId) { removeMatching((entry) => entry.workspaceId === normalizeId(workspaceId)); },
+    clearAll() { cache.clear(); persist(); },
     pruneFromJobList(workspaceId, jobs, { filtered = false } = {}) {
-      const normalizedWorkspaceId = normalizeId(workspaceId);
-      if (filtered || !normalizedWorkspaceId) {
-        return;
-      }
-
-      const workspaceCache = cache[normalizedWorkspaceId] || [];
-      const listedJobIds = new Set(
-        (Array.isArray(jobs) ? jobs : [])
-          .map((job) => normalizeId(job?.job_id))
-          .filter(Boolean),
-      );
-      const nextWorkspaceCache = workspaceCache.filter((entry) =>
-        listedJobIds.has(entry.job_id),
-      );
-      if (nextWorkspaceCache.length === workspaceCache.length) {
-        return;
-      }
-      cache = { ...cache, [normalizedWorkspaceId]: nextWorkspaceCache };
-      persist();
+      if (filtered) return;
+      const listed = new Set((Array.isArray(jobs) ? jobs : []).map((job) => normalizeId(job?.job_id)));
+      removeMatching((entry) => entry.workspaceId === normalizeId(workspaceId) && !listed.has(entry.document.job_id));
     },
   };
 }
@@ -136,15 +99,15 @@ function sanitizeCompletedDocument(document) {
   return sanitized;
 }
 
-function loadCache(storage) {
+function loadCache(storage, maxBytes) {
   if (!storage) {
     return {};
   }
 
   try {
-    const parsed = JSON.parse(
-      storage.getItem(COMPLETED_DOCUMENT_CACHE_STORAGE_KEY) || "{}",
-    );
+    const raw = storage.getItem(COMPLETED_DOCUMENT_CACHE_STORAGE_KEY) || "{}";
+    if (raw.length * 2 > maxBytes) return {};
+    const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? parsed
       : {};
@@ -165,5 +128,5 @@ function normalizeId(value) {
 }
 
 function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+  return structuredClone(value);
 }

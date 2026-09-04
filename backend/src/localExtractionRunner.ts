@@ -17,7 +17,7 @@ import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { createLocalSourceFileStore, type LocalSourceFileStore } from "./localSourceFileStore";
 import {
-  type LocalWorkspaceExtractionJob,
+  type LocalWorkspaceExtractionJobSummary,
   type LocalWorkspaceProductStore,
 } from "./localWorkspaceProductStore";
 import {
@@ -42,7 +42,7 @@ const DEFAULT_RECOVERY_BATCH_SIZE = 1_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 
 export type LocalExtractionRunner = {
-  recover(): Promise<void>;
+  recover(workspaceId?: string): Promise<void>;
   run(job: LocalQueuedExtractionJob): Promise<void>;
 };
 
@@ -80,7 +80,7 @@ export function createLocalExtractionRunner({
   maxRetryDelayMs?: number;
   now?: () => string;
   onGatewayOutcome?: (outcome: "failed" | "success" | "throttled" | "timeout") => void;
-  onJobLifecycleChange?: (workspaceId: string, job: LocalWorkspaceExtractionJob) => void;
+  onJobLifecycleChange?: (workspaceId: string, job: LocalWorkspaceExtractionJobSummary) => void;
   productAnalytics?: LocalProductAnalytics;
   productStoreOpener?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore | null;
   productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
@@ -120,13 +120,14 @@ export function createLocalExtractionRunner({
   const normalizedRecoveryBatchSize = Number.isSafeInteger(recoveryBatchSize) && recoveryBatchSize > 0
     ? recoveryBatchSize
     : DEFAULT_RECOVERY_BATCH_SIZE;
-  let activeRecovery: Promise<void> | null = null;
+  const recoveries = new Map<string, Promise<void>>();
+  const activeJobs = new Map<string, Set<string>>();
 
-  const recover = async () => {
-    const workspaceIds = await listLocalWorkspaceIds(stateDirectory);
+  const recover = async (targetWorkspaceId?: string) => {
+    const workspaceIds = targetWorkspaceId ? [targetWorkspaceId] : await listLocalWorkspaceIds(stateDirectory);
     const recoveredAt = now();
     const staleProcessingBefore = new Date(
-      Date.now() - Math.max(0, staleProcessingAfterMs),
+      Date.parse(recoveredAt) - Math.max(0, staleProcessingAfterMs),
     ).toISOString();
     for (const workspaceId of workspaceIds) {
       if (!workspaceExists(workspaceControl, workspaceId)) {
@@ -145,14 +146,19 @@ export function createLocalExtractionRunner({
         continue;
       }
       const productStore = productStoreLease.store;
+      let recovered;
       try {
-        const recovered = productStore.recoverExtractionJobs({
+        recovered = productStore.recoverExtractionJobs({
           limit: normalizedRecoveryBatchSize,
           maxAttempts,
           recoveredAt,
           staleProcessingBefore,
+          isJobActive: (jobId) => activeJobs.get(workspaceId)?.has(jobId) ?? false,
         });
-        for (const job of recovered) {
+      } finally {
+        productStoreLease.release();
+      }
+      for (const job of recovered) {
           if (!workspaceExists(workspaceControl, workspaceId)) {
             break;
           }
@@ -165,25 +171,29 @@ export function createLocalExtractionRunner({
             attempt: job.attempt,
             not_before: job.not_before,
           });
-        }
-      } finally {
-        productStoreLease.release();
       }
     }
   };
 
   return {
-    recover: async () => {
-      if (activeRecovery) return activeRecovery;
-      activeRecovery = recover().finally(() => {
-        activeRecovery = null;
+    recover: (workspaceId) => {
+      const key = workspaceId ?? "*";
+      const existing = recoveries.get(key);
+      if (existing) return existing;
+      const recovery = recover(workspaceId).finally(() => {
+        recoveries.delete(key);
       });
-      return activeRecovery;
+      recoveries.set(key, recovery);
+      return recovery;
     },
     run: async (job) => {
       if (!workspaceExists(workspaceControl, job.workspace_id)) {
         return;
       }
+      const owned = activeJobs.get(job.workspace_id) ?? new Set<string>();
+      if (owned.has(job.job_id)) return;
+      owned.add(job.job_id);
+      activeJobs.set(job.workspace_id, owned);
       return productDataAccess.run({ workspaceId: job.workspace_id, jobId: job.job_id, mode: "existing" }, async ({ store: productStore, signal }) => {
         if (!productStore) return;
         const attempt = job.attempt ?? 1;
@@ -370,6 +380,9 @@ export function createLocalExtractionRunner({
           return;
         }
         throw error;
+      }).finally(() => {
+        owned.delete(job.job_id);
+        if (owned.size === 0) activeJobs.delete(job.workspace_id);
       });
     },
   };
@@ -457,7 +470,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 function notifyJobLifecycle(
-  onJobLifecycleChange: ((workspaceId: string, job: LocalWorkspaceExtractionJob) => void) | undefined,
+  onJobLifecycleChange: ((workspaceId: string, job: LocalWorkspaceExtractionJobSummary) => void) | undefined,
   workspaceId: string,
   productStore: LocalWorkspaceProductStoreHandle,
   jobId: string,
@@ -465,7 +478,7 @@ function notifyJobLifecycle(
   if (!onJobLifecycleChange) {
     return;
   }
-  const job = productStore.getExtractionJob(jobId);
+  const job = productStore.getExtractionJobSummary(jobId);
   if (!job) {
     return;
   }

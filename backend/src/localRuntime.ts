@@ -86,6 +86,9 @@ async function readAssetResponse(
     "content-type": contentTypeFor(assetPath),
     etag,
     "last-modified": details.mtime.toUTCString(),
+    "cache-control": /^\/assets\/[^/]+-[a-zA-Z0-9_-]{8,}\.[a-z0-9]+$/.test(pathname)
+      ? "public, max-age=31536000, immutable"
+      : "no-cache",
   });
   if (isNotModified(request.headers, etag, details.mtimeMs)) {
     return new Response(null, { status: 304, headers });

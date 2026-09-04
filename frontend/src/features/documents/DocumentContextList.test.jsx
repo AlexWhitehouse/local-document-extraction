@@ -4,6 +4,24 @@ import { fireEvent, render, within } from "@testing-library/react";
 import { DocumentContextList } from "./DocumentContextList.jsx";
 
 describe("DocumentContextList", () => {
+  it("windows long lists, preserves offscreen selections, and navigates to selected rows", () => {
+    const documents = Array.from({ length: 1000 }, (_, i) => ({ job_id: `job_${i}`, source_name: `invoice-${i}.pdf` }));
+    const onSelectDocument = vi.fn();
+    const onToggleAllDocumentSelections = vi.fn();
+    const props = { search: "", documents, selectedDocumentId: "job_0", selectedDocumentIds: ["job_500"], onSelectDocument, onToggleAllDocumentSelections, onSearchChange() {}, onLoadMoreDocuments() {} };
+    const { container, rerender } = render(<DocumentContextList {...props} />);
+    expect(container.querySelectorAll('[role="listitem"]').length).toBeLessThan(30);
+    fireEvent.click(within(container).getByRole("checkbox", { name: "Select all available jobs" }));
+    expect(onToggleAllDocumentSelections.mock.lastCall[0]).toHaveLength(1000);
+    fireEvent.keyDown(within(container).getByRole("button", { name: /invoice-0\.pdf/ }), { key: "End" });
+    expect(onSelectDocument).toHaveBeenLastCalledWith("job_999");
+    rerender(<DocumentContextList {...props} selectedDocumentId="job_999" />);
+    expect(within(container).getByRole("button", { name: /invoice-999\.pdf/ })).toBe(document.activeElement);
+    const list = container.querySelector(".context-list");
+    fireEvent.scroll(list, { target: { scrollTop: 500 * 60 } });
+    expect(within(container).getByRole("checkbox", { name: "Select job job_500" }).checked).toBe(true);
+    expect(container.querySelectorAll('[role="listitem"]').length).toBeLessThan(30);
+  });
   it("uses the document status to colour each row's left edge", () => {
     const { container } = render(
       <DocumentContextList

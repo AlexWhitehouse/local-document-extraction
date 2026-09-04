@@ -1,0 +1,1028 @@
+$ bun scripts/runFrontendCoverage.js
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90m/Users/alexwhitehouse/Documents/local-document-extraction/frontend[39m
+      [2mCoverage enabled with [22m[33mv8[39m
+
+ [32m✓[39m src/lib/workspaceSelection.test.js [2m([22m[2m54 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m src/lib/appRuntime.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m src/features/documents/useDocumentReconciliation.test.jsx [2m([22m[2m1 test[22m[2m)[22m[32m 37[2mms[22m[39m
+ [32m✓[39m src/features/documents/ExtractionResultDisplay.test.jsx [2m([22m[2m6 tests[22m[2m)[22m[33m 318[2mms[22m[39m
+ [31m❯[39m src/features/documents/DocumentContextList.test.jsx [2m([22m[2m6 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 617[2mms[22m[39m
+[31m     [31m×[31m windows long lists, preserves offscreen selections, and navigates to selected rows[39m[33m 449[2mms[22m[39m
+     [32m✓[39m uses the document status to colour each row's left edge[32m 42[2mms[22m[39m
+     [32m✓[39m selects and deselects all available jobs[32m 21[2mms[22m[39m
+     [32m✓[39m locks individual and bulk selection during export[32m 10[2mms[22m[39m
+     [32m✓[39m applies and clears date and model filters from the integrated search action[32m 68[2mms[22m[39m
+     [32m✓[39m prevents applying an inverted date range[32m 24[2mms[22m[39m
+ [32m✓[39m src/features/documents/useDocumentController.live-updates.test.jsx [2m([22m[2m22 tests[22m[2m)[22m[33m 629[2mms[22m[39m
+ [32m✓[39m src/features/workspaces/WorkspaceModelConfiguration.test.jsx [2m([22m[2m9 tests[22m[2m)[22m[33m 724[2mms[22m[39m
+ [32m✓[39m src/features/documents/documentReconciliation.test.js [2m([22m[2m19 tests[22m[2m)[22m[32m 47[2mms[22m[39m
+ [32m✓[39m src/lib/completedDocumentCache.test.js [2m([22m[2m8 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m src/lib/toastNotifications.test.js [2m([22m[2m10 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m src/features/templates/TemplateFieldEditor.test.jsx [2m([22m[2m4 tests[22m[2m)[22m[33m 876[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps Template field editing focused on field configuration [33m 353[2mms[22m[39m
+ [32m✓[39m src/features/templates/templateFields.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/features/documents/documentRequestAdapter.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/lib/byteBoundedCache.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m src/test/frontendCoverage.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/test/setupIsolation.test.jsx [2m([22m[2m2 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m src/App.admin.test.jsx [2m([22m[2m22 tests[22m[2m)[22m[33m 1920[2mms[22m[39m
+ [32m✓[39m src/App.auth.test.jsx [2m([22m[2m27 tests[22m[2m)[22m[33m 2288[2mms[22m[39m
+ [32m✓[39m src/App.workspace-toasts.test.jsx [2m([22m[2m58 tests[22m[2m)[22m[33m 4578[2mms[22m[39m
+     [33m[2m✓[22m[39m stores only accepted Workspace ID and display name in Stored workspace preference [33m 387[2mms[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m18 passed[39m[22m[90m (19)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m260 passed[39m[22m[90m (261)[39m
+[2m   Start at [22m 00:21:15
+[2m   Duration [22m 5.94s[2m (transform 1.86s, setup 1.70s, import 2.66s, tests 12.13s, environment 8.71s)[22m
+
+[34m % [39m[2mCoverage report from [22m[33mv8[39m
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |    78.2 |    74.56 |   72.47 |   80.68 |                   
+ src               |   85.89 |    89.41 |   76.92 |   85.43 |                   
+  App.jsx          |   87.01 |    91.56 |   76.92 |   86.57 | ...50,557-575,749 
+  main.jsx         |       0 |        0 |     100 |       0 | 7-11              
+ ...features/admin |   92.16 |    72.37 |   89.09 |   93.33 |                   
+  ...AdminPage.jsx |   97.43 |    82.52 |   96.55 |    97.4 | 149,410           
+  ...Controller.js |    89.2 |    58.97 |   80.76 |   90.97 | ...90,203,208,251 
+ src/features/auth |   75.81 |    78.32 |   76.31 |   75.82 |                   
+  AuthScreen.jsx   |   80.76 |     87.5 |      75 |   80.76 | 64-81,235-237     
+  ...Controller.js |   75.13 |    73.68 |   76.92 |   75.13 | ...28,256-295,333 
+ ...atures/context |   42.85 |        0 |      75 |   42.85 |                   
+  ...opyButton.jsx |   33.33 |        0 |   66.66 |   33.33 | 5-9               
+  ...xtSidebar.jsx |     100 |      100 |     100 |     100 |                   
+ ...ures/documents |   87.04 |    81.41 |   86.58 |   89.36 |                   
+  ...ntextList.jsx |    74.4 |     76.1 |   70.45 |   76.14 | ...61,280,425-434 
+  DocumentPage.jsx |   91.66 |    66.66 |      75 |   91.66 | 21                
+  ...loadModal.jsx |   80.95 |    85.71 |      70 |   78.94 | 46,74,105,146     
+  ...ltDisplay.jsx |   92.59 |    86.11 |     100 |    92.3 | 7,236,297,316-319 
+  ...nciliation.js |   90.78 |    85.33 |     100 |   95.95 | ...47-448,470-471 
+  ...estAdapter.js |   84.05 |       75 |    92.3 |   83.82 | ...,71,93,105,114 
+  ...Controller.js |   85.71 |    78.53 |   80.88 |   87.37 | ...76,590,597,601 
+  ...nciliation.js |     100 |      100 |     100 |     100 |                   
+ ...eatures/layout |     100 |    98.59 |     100 |     100 |                   
+  MainLayout.jsx   |     100 |    98.59 |     100 |     100 | 95                
+ ...yout/prototype |       0 |        0 |       0 |       0 |                   
+  ...ariations.jsx |       0 |        0 |       0 |       0 | 6-50              
+  ...Prototype.jsx |       0 |        0 |       0 |       0 | 18-147            
+  ...eControls.jsx |       0 |        0 |       0 |       0 | 5-25              
+  ...ypeShared.jsx |       0 |        0 |       0 |       0 | 4-21              
+  ...ariations.jsx |       0 |        0 |       0 |       0 | 5-44              
+  ...ariations.jsx |       0 |        0 |       0 |       0 | 6-48              
+  sampleData.js    |       0 |        0 |       0 |       0 | 2-57              
+ ...atures/profile |   58.33 |    31.81 |      40 |   58.33 |                   
+  ProfileMenu.jsx  |   58.33 |    31.81 |      40 |   58.33 | 49-116,156,164    
+ ...ures/templates |   72.98 |    69.23 |   72.26 |   73.18 |                   
+  ...ntextList.jsx |   54.54 |    42.85 |   66.66 |   54.54 | 19,43-46,71       
+  ...eldEditor.jsx |   56.93 |    65.59 |   59.32 |   56.25 | ...05-408,588-606 
+  ...JsonModal.jsx |     100 |      100 |     100 |     100 |                   
+  TemplatePage.jsx |      75 |      100 |   66.66 |      75 | 54                
+  ...lateFields.js |   84.74 |    76.57 |     100 |   84.48 | ...12,280,314,326 
+  ...Controller.js |   76.81 |    56.81 |   78.57 |   77.31 | ...91-504,535-536 
+ ...res/workspaces |   86.31 |    75.54 |   93.49 |   86.07 |                   
+  ...ntextList.jsx |   84.61 |     92.3 |   85.71 |   84.61 | 22,123            
+  ...iguration.jsx |     100 |    85.05 |     100 |     100 | ...13,218-236,263 
+  ...pacePages.jsx |   85.71 |    73.56 |   94.11 |   85.71 | ...15,419,426,430 
+  ...Controller.js |   83.29 |    67.74 |   88.46 |   83.46 | ...1141-1144,1157 
+  ...figuration.js |   97.47 |    90.76 |     100 |   98.83 | 128               
+  ...estAdapter.js |   84.61 |       55 |     100 |   84.61 | 5,21,39,43        
+ src/lib           |   92.81 |    82.76 |   94.84 |   92.59 |                   
+  appRuntime.js    |   91.83 |    86.53 |     100 |   91.48 | 50,116,121,145    
+  authClient.js    |       0 |        0 |       0 |       0 | 6-25              
+  ...undedCache.js |     100 |      100 |     100 |     100 |                   
+  ...umentCache.js |   93.58 |    85.24 |     100 |   93.65 | 74,104,115,121    
+  ...ifications.js |   92.15 |    83.72 |   90.62 |   92.15 | 8,30-31,138       
+  ...eSelection.js |   98.49 |    85.21 |     100 |   98.48 | 118,319           
+-------------------|---------|----------|---------|---------|-------------------
+
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m src/features/documents/DocumentContextList.test.jsx[2m > [22mDocumentContextList[2m > [22mwindows long lists, preserves offscreen selections, and navigates to selected rows
+[31m[1mTestingLibraryElementError[22m[39m: Unable to find an accessible element with the role "button" and name "invoice-0.pdf job_0"
+
+Here are the accessible roles:
+
+  checkbox:
+
+  Name "Select all available jobs":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select all available jobs"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Search Jobs":
+  [36m<input[39m
+    [33mid[39m=[32m"document-job-search"[39m
+    [33mplaceholder[39m=[32m"Job ID or Source file"[39m
+    [33mvalue[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Advanced job filters":
+  [36m<button[39m
+    [33maria-controls[39m=[32m":r0:"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"Advanced job filters"[39m
+    [33mclass[39m=[32m"context-filter-trigger"[39m
+    [33mtitle[39m=[32m"Advanced job filters"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------list:
+
+  Name "Jobs":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Jobs"[39m
+    [33mrole[39m=[32m"list"[39m
+    [33mstyle[39m=[32m"position: relative; height: 60000px;"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"1"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document active"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 0px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"2"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 60px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"3"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 120px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"4"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 180px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"5"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 240px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"6"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 300px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"7"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 360px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"8"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 420px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"9"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 480px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"10"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 540px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"11"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 600px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"12"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 660px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"13"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 720px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"14"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 780px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"15"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 840px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"16"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 900px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"17"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 960px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"18"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 1020px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"19"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 1080px; height: 54px;"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-posinset[39m=[32m"20"[39m
+    [33maria-setsize[39m=[32m"1000"[39m
+    [33mclass[39m=[32m"context-item-card context-item-document"[39m
+    [33mrole[39m=[32m"listitem"[39m
+    [33mstyle[39m=[32m"position: absolute; top: 1140px; height: 54px;"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  checkbox:
+
+  Name "Select job job_0":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_0"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_1":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_1"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_2":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_2"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_3":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_3"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_4":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_4"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_5":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_5"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_6":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_6"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_7":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_7"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_8":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_8"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_9":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_9"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_10":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_10"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_11":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_11"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_12":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_12"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_13":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_13"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_14":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_14"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_15":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_15"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_16":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_16"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_17":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_17"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_18":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_18"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  Name "Select job job_19":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Select job job_19"[39m
+    [33mtype[39m=[32m"checkbox"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "invoice-0.pdfjob_0":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main active"[39m
+    [33mdata-selected-document[39m=[32m"true"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_0":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_0"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-1.pdfjob_1":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_1":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_1"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-2.pdfjob_2":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_2":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_2"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_2"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-3.pdfjob_3":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_3":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_3"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_3"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-4.pdfjob_4":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_4":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_4"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_4"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-5.pdfjob_5":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_5":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_5"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_5"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-6.pdfjob_6":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_6":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_6"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_6"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-7.pdfjob_7":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_7":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_7"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_7"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-8.pdfjob_8":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_8":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_8"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_8"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-9.pdfjob_9":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_9":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_9"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_9"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-10.pdfjob_10":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_10":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_10"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_10"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-11.pdfjob_11":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_11":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_11"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_11"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-12.pdfjob_12":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_12":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_12"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_12"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-13.pdfjob_13":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_13":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_13"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_13"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-14.pdfjob_14":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_14":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_14"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_14"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-15.pdfjob_15":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_15":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_15"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_15"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-16.pdfjob_16":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_16":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_16"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_16"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-17.pdfjob_17":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_17":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_17"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_17"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-18.pdfjob_18":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_18":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_18"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_18"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "invoice-19.pdfjob_19":
+  [36m<button[39m
+    [33mclass[39m=[32m"context-item-main"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Copy document ID job_19":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Copy document ID job_19"[39m
+    [33mclass[39m=[32m"context-copy-button"[39m
+    [33mtitle[39m=[32m"Copy document ID job_19"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<div>[39m
+  [36m<div[39m
+    [33mclass[39m=[32m"context-search-field"[39m
+  [36m>[39m
+    [36m<label[39m
+      [33mfor[39m=[32m"document-job-search"[39m
+    [36m>[39m
+      [0mSearch [0m
+      [0mJobs[0m
+    [36m</label>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"context-search-row"[39m
+    [36m>[39m
+      [36m<label[39m
+        [33mclass[39m=[32m"context-select-all-control"[39m
+        [33mtitle[39m=[32m"Select all available jobs"[39m
+      [36m>[39m
+        [36m<input[39m
+          [33maria-label[39m=[32m"Select all available jobs"[39m
+          [33mtype[39m=[32m"checkbox"[39m
+        [36m/>[39m
+      [36m</label>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"context-search-shell"[39m
+      [36m>[39m
+        [36m<input[39m
+          [33mid[39m=[32m"document-job-search"[39m
+          [33mplaceholder[39m=[32m"Job ID or Source file"[39m
+          [33mvalue[39m=[32m""[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"context-filter-control"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-controls[39m=[32m":r0:"[39m
+            [33maria-expanded[39m=[32m"false"[39m
+            [33maria-haspopup[39m=[32m"dialog"[39m
+            [33maria-label[39m=[32m"Advanced job filters"[39m
+            [33mclass[39m=[32m"context-filter-trigger"[39m
+            [33mtitle[39m=[32m"Advanced job filters"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"15"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"15"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M4 5h16"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M7 12h10"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M10 19h4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+  [36m<div[39m
+    [33mclass[39m=[32m"context-list"[39m
+    [33mstyle[39m=[32m"display: block;"[39m
+  [36m>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"Jobs"[39m
+      [33mrole[39m=[32m"list"[39m
+      [33mstyle[39m=[32m"position: relative; height: 60000px;"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33maria-posinset[39m=[32m"1"[39m
+        [33maria-setsize[39m=[32m"1000"[39m
+        [33mclass[39m=[32m"context-item-card context-item-document active"[39m
+        [33mrole[39m=[32m"listitem"[39m
+        [33mstyle[39m=[32m"position: absolute; top: 0px; height: 54px;"[39m
+      [36m>[39m
+        [36m<label[39m
+          [33mclass[39m=[32m"context-select-control"[39m
+          [33mtitle[39m=[32m"Select job job_0"[39m
+        [36m>[39m
+          [36m<input[39m
+            [33maria-label[39m=[32m"Select job job_0"[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+        [36m</label>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"context-item-main active"[39m
+          [33mdata-selected-document[39m=[32m"true"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<strong>[39m
+            [0minvoice-0.pdf[0m
+          [36m</strong>[39m
+          [36m<span>[39m
+            [0mjob_0[0m
+          [36m</span>[39m
+        [36m</button>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Copy document ID job_0"[39m
+          [33mclass[39m=[32m"context-copy-button"[39m
+          [33mtitle[39m=[32m"Copy document ID job_0"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"15"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"15"[39m
+          [36m>[39m
+            [36m<rect[39m
+              [33mheight[39m=[32m"10"[39m
+              [33mrx[39m=[32m"2"[39m
+              [33mwidth[39m=[32m"10"[39m
+              [33mx[39m=[32m"9"[39m
+              [33my[39m=[32m"9"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33maria-posinset[39m=[32m"2"[39m
+        [33maria-setsize[39m=[32m"1000"[39m
+        [33mclass[39m=[32m"context-item-card context-item-document"[39m
+        [33mrole[39m=[32m"listitem"[39m
+        [33mstyle[39m=[32m"position: absolute; top: 60px; height: 54px;"[39m
+      [36m>[39m
+        [36m<label[39m
+          [33mclass[39m=[32m"context-select-control"[39m
+          [33mtitle[39m=[32m"Select job job_1"[39m
+        [36m>[39m
+          [36m<input[39m
+            [33maria-label[39m=[32m"Select job job_1"[39m
+            [33mtype[39m=[32m"checkbox"[39m
+          [36m/>[39m
+        [36m</label>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"context-item-main"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<strong>[39m
+            [0minvoice-1.pdf[0m
+          [36m</strong>[39m
+          [36m<span>[39m
+            [0mjob_1[0m
+          [36m</span>[39m
+        [36m</button>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Copy document ID job_1"[39m
+          [33mclass[39m=[32m"context-copy-button"[39m
+          [33mtitle[39m=[32m"Copy document ID job_1"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"15"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"15"[39m
+          [36m>[3...
+[90m [2m❯[22m Object.getElementError ../../../.bun/install/cache/links/@testing-library+dom@10.4.1-78619507e39fe4d7/node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m ../../../.bun/install/cache/links/@testing-library+dom@10.4.1-78619507e39fe4d7/node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m ../../../.bun/install/cache/links/@testing-library+dom@10.4.1-78619507e39fe4d7/node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m ../../../.bun/install/cache/links/@testing-library+dom@10.4.1-78619507e39fe4d7/node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m src/features/documents/DocumentContextList.test.jsx:[2m16:41[22m[39m
+    [90m 14|[39m     fireEvent.click(within(container).getByRole("checkbox", { name: "S…
+    [90m 15|[39m     expect(onToggleAllDocumentSelections.mock.lastCall[0]).toHaveLengt…
+    [90m 16|[39m     fireEvent.keyDown(within(container).getByRole("button", { name: "i…
+    [90m   |[39m                                         [31m^[39m
+    [90m 17|[39m     [34mexpect[39m(onSelectDocument)[33m.[39m[34mtoHaveBeenLastCalledWith[39m([32m"job_999"[39m)[33m;[39m
+    [90m 18|[39m     rerender(<DocumentContextList {...props} selectedDocumentId="job_9…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+# Frontend coverage evidence
+
+- Runtime: Bun 1.4.1 (4661e494f052c83c80dade1318e5710238340be6)
+- Platform: darwin arm64
+- Test exit code: 1
+- Coverage gate: PASS
+
+| Metric | Current | Checked baseline |
+| --- | ---: | ---: |
+| Lines | 80.68% | 80.50% |
+| Functions | 72.47% | 72.00% |
+| Branches | 74.56% | 73.20% |
+
+## Production modules absent from LCOV (0)
+
+None.
+
+## Production modules with zero covered lines (9)
+
+- `src/features/layout/prototype/DocumentVariations.jsx`
+- `src/features/layout/prototype/LayoutPrototype.jsx`
+- `src/features/layout/prototype/PrototypeControls.jsx`
+- `src/features/layout/prototype/PrototypeShared.jsx`
+- `src/features/layout/prototype/TemplateVariations.jsx`
+- `src/features/layout/prototype/WorkspaceVariations.jsx`
+- `src/features/layout/prototype/sampleData.js`
+- `src/lib/authClient.js`
+- `src/main.jsx`
+
+Thresholds are read from `frontend/coverage-baseline.json`; execution never auto-updates or lowers them.
+
+Frontend coverage artifacts: .scratch/ci/frontend
+error: script "test:coverage" exited with code 1

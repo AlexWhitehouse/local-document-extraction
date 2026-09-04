@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
@@ -25,9 +25,10 @@ export function DocumentContextList({
   documentLabels = false,
 }) {
   const itemLabel = documentLabels ? "document" : "job";
-  const availableDocumentIds = documents.map((job) => String(job.job_id));
+  const availableDocumentIds = useMemo(() => documents.map((job) => String(job.job_id)), [documents]);
+  const selectedIds = useMemo(() => new Set(selectedDocumentIds), [selectedDocumentIds]);
   const selectedAvailableCount = availableDocumentIds.filter((documentId) =>
-    selectedDocumentIds.includes(documentId),
+    selectedIds.has(documentId),
   ).length;
   const areAllAvailableDocumentsSelected =
     availableDocumentIds.length > 0 &&
@@ -38,6 +39,40 @@ export function DocumentContextList({
     ? `Deselect all available ${itemLabel}s`
     : `Select all available ${itemLabel}s`;
   const isSelectionLocked = isDeletingDocuments || isExportingDocuments;
+  const listRef = useRef(null);
+  const lastScrolledSelection = useRef(null);
+  const focusSelection = useRef(false);
+  const [viewport, setViewport] = useState({ top: 0, height: 600 });
+  const virtual = documents.length > 100;
+  const rowStride = 60;
+  const start = virtual ? Math.max(0, Math.min(documents.length - 1, Math.floor(viewport.top / rowStride) - 5)) : 0;
+  const end = virtual ? Math.min(documents.length, start + Math.ceil(viewport.height / rowStride) + 10) : documents.length;
+  useEffect(() => {
+    const list = listRef.current;
+    const resize = () => setViewport({ top: list.scrollTop, height: list.clientHeight || 600 });
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(resize);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!virtual || lastScrolledSelection.current === selectedDocumentId) return;
+    lastScrolledSelection.current = selectedDocumentId;
+    const list = listRef.current;
+    const index = documents.findIndex((job) => job.job_id === selectedDocumentId);
+    if (index < 0) return;
+    const top = index * rowStride;
+    const height = list.clientHeight || 600;
+    if (top < list.scrollTop || top + rowStride > list.scrollTop + height) {
+      list.scrollTop = top;
+      setViewport({ top: list.scrollTop, height });
+    }
+  }, [selectedDocumentId, documents, virtual]);
+  useEffect(() => {
+    if (!focusSelection.current) return;
+    const selected = listRef.current.querySelector('[data-selected-document="true"]');
+    if (selected) { focusSelection.current = false; selected.focus({ preventScroll: true }); }
+  }, [selectedDocumentId, start, end]);
 
   return (
     <>
@@ -79,15 +114,23 @@ export function DocumentContextList({
           </div>
         </div>
       </div>
-      <div className="context-list">
-        {documents.map((job) => {
+      <div className="context-list" ref={listRef}
+        style={virtual ? { display: "block" } : undefined}
+        onScroll={virtual ? (event) => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight || 600 }) : undefined}>
+        <div role="list" aria-label={documentLabels ? "Documents" : "Jobs"}
+          style={virtual ? { position: "relative", height: documents.length * rowStride } : { display: "contents" }}>
+        {documents.slice(start, end).map((job, offset) => {
           const isActive = selectedDocumentId === job.job_id;
-          const isChecked = selectedDocumentIds.includes(job.job_id);
+          const isChecked = selectedIds.has(job.job_id);
           const statusTone = documentStatusTone(job.status);
 
           return (
             <div
               key={`context-${job.job_id}`}
+              role="listitem"
+              aria-posinset={start + offset + 1}
+              aria-setsize={documents.length}
+              style={virtual ? { position: "absolute", top: (start + offset) * rowStride, height: 54 } : undefined}
               className={`context-item-card context-item-document${statusTone ? ` status-${statusTone}` : ""}${isActive ? " active" : ""}${
                 isChecked ? " checked" : ""
               }`}
@@ -108,8 +151,16 @@ export function DocumentContextList({
               </label>
               <button
                 type="button"
+                data-selected-document={isActive ? "true" : undefined}
                 className={isActive ? "context-item-main active" : "context-item-main"}
                 onClick={() => onSelectDocument(job.job_id)}
+                onKeyDown={(event) => {
+                  const positions = { ArrowDown: start + offset + 1, ArrowUp: start + offset - 1, Home: 0, End: documents.length - 1 };
+                  if (!(event.key in positions)) return;
+                  event.preventDefault();
+                  focusSelection.current = true;
+                  onSelectDocument(documents[Math.max(0, Math.min(documents.length - 1, positions[event.key]))].job_id);
+                }}
               >
                 <strong>
                   {job.source_name || defaultUploadedName(job.source_mime_type)}
@@ -123,6 +174,7 @@ export function DocumentContextList({
             </div>
           );
         })}
+        </div>
         {!documents.length ? (
           <p className="muted">
             {debouncedSearch || hasActiveFilters

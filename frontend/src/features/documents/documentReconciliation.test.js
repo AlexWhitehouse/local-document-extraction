@@ -28,7 +28,7 @@ function setup(options = {}) {
     exportDocuments: vi.fn(async () => ({ blob: new Blob() })),
   };
   const callbacks = { onResponse: vi.fn(), onAccessDenied: vi.fn(), onCapacityChange: vi.fn(), onLog: vi.fn() };
-  const module = createDocumentReconciliation({ cache, ...options });
+  const module = createDocumentReconciliation({ cache, uploadConcurrency: 1, ...options });
   const configure = (patch = {}) => module.configure({ sessionId: "session-a", workspaceId: "workspace-a", enabled: true, requests, callbacks, ...patch });
   configure();
   running.push(module);
@@ -37,6 +37,44 @@ function setup(options = {}) {
 const entries = () => ["first", "second"].map((id) => ({ id, file: new File([id], `${id}.png`, { type: "image/png" }) }));
 
 describe("Document reconciliation", () => {
+  it("preserves the list identity on selection and loading-only changes", async () => {
+    const { module, snapshot, requests } = setup();
+    module.receiveLiveUpdates([job("a"), job("b")]);
+    const documents = snapshot().documents;
+    module.selectDocument("b");
+    module.toggleSelection(["b"], true);
+    expect(snapshot().documents).toBe(documents);
+    const pending = deferred();
+    requests.getDocument.mockReturnValueOnce(pending.promise);
+    const load = module.loadDetails("b", { showLoading: true });
+    expect(snapshot().documents).toBe(documents);
+    pending.resolve(job("b"));
+    await load;
+  });
+
+  it("bounds parallel uploads and stops unsent files after the session ends", async () => {
+    const { module, requests, configure } = setup({ uploadConcurrency: 2 });
+    const first = deferred(), second = deferred();
+    requests.submitDocument.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const files = [...entries(), { id: "third", file: new File(["third"], "third.png", { type: "image/png" }) }];
+    const batch = module.submitBatch({ templateId: "template", entries: files });
+    expect(requests.submitDocument).toHaveBeenCalledTimes(2);
+    configure({ sessionId: "other-session" });
+    first.resolve({ job_id: "first" });
+    second.resolve({ job_id: "second" });
+    await batch;
+    expect(requests.submitDocument).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries only explicit admission rejection with bounded backoff", async () => {
+    vi.useFakeTimers();
+    const { module, requests } = setup();
+    requests.submitDocument.mockRejectedValueOnce(Object.assign(new Error("full"), { code: "local_submission_capacity_unavailable" }));
+    const batch = module.submitBatch({ templateId: "template", entries: entries().slice(0, 1) });
+    await vi.advanceTimersByTimeAsync(1000);
+    await batch;
+    expect(requests.submitDocument).toHaveBeenCalledTimes(2);
+  });
   it("merges unaffected rows while protecting live changes from an overlapping list, then coalesces a refresh", async () => {
     vi.useFakeTimers();
     const { module, requests, snapshot } = setup();

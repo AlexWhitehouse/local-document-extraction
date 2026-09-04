@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 
 const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
@@ -33,7 +33,14 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
 
   return {
     delete: async (sourceFileKey) => {
-      await rm(pathForKey(rootDirectory, sourceFileKey), { force: true });
+      const path = pathForKey(rootDirectory, sourceFileKey);
+      await rm(path, { force: true });
+      // Only remove an empty job directory, never recursively erase siblings.
+      if (/^workspaces\/[a-zA-Z0-9_-]+\/jobs\/[a-zA-Z0-9_-]+\/source\.[a-z]+$/.test(sourceFileKey)) {
+        await rmdir(dirname(path)).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error;
+        });
+      }
     },
     eraseWorkspace: async (workspaceId) => {
       assertIdentifier(workspaceId, "Workspace ID");

@@ -4,11 +4,23 @@ import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 const TARGET_PDF_RENDER_SCALE = 2;
 const MAX_PDF_PAGE_DIMENSION = 2_048;
+export const MAX_RENDERED_PDF_BYTES = 64 * 1024 * 1024;
+export class PdfPreparationLimitError extends Error {}
 
 export async function renderPdfPagesToPng(
   sourceBytes: ArrayBuffer,
   signal?: AbortSignal,
 ): Promise<ArrayBuffer[]> {
+  const pages: ArrayBuffer[] = [];
+  for await (const page of iteratePdfPagesToPng(sourceBytes, signal)) pages.push(page);
+  return pages;
+}
+
+export async function* iteratePdfPagesToPng(
+  sourceBytes: ArrayBuffer,
+  signal?: AbortSignal,
+  maxBytes = MAX_RENDERED_PDF_BYTES,
+): AsyncGenerator<ArrayBuffer> {
   const pdfjsPackageUrl = import.meta.resolve("pdfjs-dist/package.json");
   const standardFontDataUrl = fileURLToPath(
     new URL("./standard_fonts/", pdfjsPackageUrl),
@@ -22,7 +34,7 @@ export async function renderPdfPagesToPng(
 
   try {
     const document = await loadingTask.promise;
-    const renderedPages: ArrayBuffer[] = [];
+    let renderedBytes = 0;
 
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
       throwIfCancelled(signal);
@@ -54,11 +66,12 @@ export async function renderPdfPagesToPng(
 
       throwIfCancelled(signal);
       const png = await canvas.encode("png");
-      renderedPages.push(Uint8Array.from(png).buffer);
+      renderedBytes += png.byteLength;
       page.cleanup();
+      if (renderedBytes > maxBytes) throw new PdfPreparationLimitError("Rendered PDF exceeds the 64 MiB model payload limit");
+      yield Uint8Array.from(png).buffer;
     }
 
-    return renderedPages;
   } finally {
     await loadingTask.destroy();
   }

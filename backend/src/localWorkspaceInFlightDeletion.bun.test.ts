@@ -10,7 +10,7 @@ import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from 
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
-import type { LocalWorkspaceExtractionJob } from "./localWorkspaceProductStore";
+import type { LocalWorkspaceExtractionJobSummary } from "./localWorkspaceProductStore";
 import { createConfiguredTestProductStore as createLocalWorkspaceProductStore } from "./testing/workspaceModelFixture";
 import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
 
@@ -26,7 +26,7 @@ test("Workspace deletion aborts and drains in-flight extraction before hard eras
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
   const workspaceProductOperations = createLocalWorkspaceProductOperations();
-  const lifecycleUpdates: LocalWorkspaceExtractionJob[] = [];
+  const lifecycleUpdates: LocalWorkspaceExtractionJobSummary[] = [];
   const scheduledJobs: string[] = [];
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
   let extractionStarted: () => void = () => {};

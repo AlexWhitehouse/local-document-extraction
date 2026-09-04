@@ -49,6 +49,9 @@ test("job export returns a best-effort authenticated workbook for terminal jobs"
       stateDirectory,
       workspaceControl,
     });
+    const oversized = await application(exportRequest(apiKey, Array.from({ length: 501 }, (_, i) => `job_${i}`)));
+    expect(oversized.status).toBe(413);
+    expect(await oversized.json()).toMatchObject({ error: { code: "export_too_large" } });
 
     const detailResponse = await application(new Request(
       "http://127.0.0.1:8787/v1/jobs/job_completed",

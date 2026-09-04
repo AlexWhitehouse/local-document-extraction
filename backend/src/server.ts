@@ -51,7 +51,7 @@ const extractionMaxBuffered = readPositiveInteger(
 const extractionReconcileIntervalMs = readPositiveInteger(
   process.env.EXTRACTION_RECONCILE_INTERVAL_MS,
   "EXTRACTION_RECONCILE_INTERVAL_MS",
-  5_000,
+  60_000,
 );
 const submissionMaxConcurrency = readPositiveInteger(
   process.env.SUBMISSION_MAX_CONCURRENCY,
@@ -170,6 +170,16 @@ const localAuth = await createLocalAuthRuntime({
 const localExtractionQueue = createLocalExtractionQueue({
   maxBuffered: extractionMaxBuffered,
   maxConcurrent: extractionMaxConcurrency,
+  getWorkspaceMaxConcurrent: (workspaceId) => {
+    try {
+      const lease = localProductStoreRegistry.acquire({ workspaceId, mode: "existing" });
+      if (!lease) return 1;
+      try { return lease.store.getModelConfiguration()?.sequential_calls ? 1 : Number.MAX_SAFE_INTEGER; }
+      finally { lease.release(); }
+    } catch { return 1; }
+  },
+  onWorkspaceIdle: (workspaceId) => refillExtraction(workspaceId),
+  onCapacityAvailable: () => refillExtraction(),
 });
 const localLiveUpdateHub = createLocalLiveUpdateHub();
 const localProductAnalytics = createLocalProductAnalytics({ stateDirectory });
@@ -232,6 +242,13 @@ const localExtractionRunner = createLocalExtractionRunner({
   productStoreRegistry: localProductStoreRegistry,
 });
 localExtractionQueue.subscribe((job) => localExtractionRunner.run(job));
+const extractionRefills = new Set<Promise<void>>();
+function refillExtraction(workspaceId?: string): Promise<void> {
+  if (!localExtractionQueue.snapshot().accepting) return Promise.resolve();
+  const refill = localExtractionRunner.recover(workspaceId).finally(() => extractionRefills.delete(refill));
+  extractionRefills.add(refill);
+  return refill;
+}
 await retireGlobalModelConfiguration(stateDirectory);
 await localExtractionRunner.recover();
 localResourceController.start();
@@ -306,7 +323,7 @@ const runtimeShutdown = createLocalRuntimeShutdown({
     clearInterval(sourceRetentionTimer);
     removeMemoryPressureListener();
     localResourceController.stop();
-    await Promise.all([...recurringWork]);
+    await Promise.all([...recurringWork, ...extractionRefills]);
   },
   stopServer: (force) => {
     if (force) localLiveUpdateHub.closeAll();

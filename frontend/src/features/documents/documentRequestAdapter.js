@@ -1,10 +1,12 @@
-export function createDocumentRequestAdapter({ request }) {
+import { createByteBoundedCache } from "../../lib/byteBoundedCache";
+
+export function createDocumentRequestAdapter({ request, cacheMaxBytes } ) {
   // Reconciliation owns publication and access-recovery effects, after checking
   // the session and Workspace that originated the request.
   const documentRequest = (path, options) => request(path, {
     ...options, publishResponse: false, recoverForbiddenAccess: false,
   });
-  const documentValidators = new Map();
+  const documentValidators = createByteBoundedCache({ maxBytes: cacheMaxBytes });
   function normalizedDocumentId(documentId) {
     const value = String(documentId || "").trim();
     if (!value) {

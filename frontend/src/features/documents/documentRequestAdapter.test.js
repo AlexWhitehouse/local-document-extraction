@@ -3,6 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { createDocumentRequestAdapter } from "./documentRequestAdapter.js";
 
 describe("Document request adapter conditional reads", () => {
+  it("evicts oversized representations together with their validators", async () => {
+    const request = vi.fn(async () => ({ data: { job_id: "large", status: "completed", results: [{ answer: "x".repeat(2000) }] }, headers: new Headers({ etag: '"large"' }) }));
+    const adapter = createDocumentRequestAdapter({ request, cacheMaxBytes: 1000 });
+    await adapter.getDocument("large");
+    await adapter.getDocument("large");
+    expect(request.mock.lastCall[1].headers.has("if-none-match")).toBe(false);
+  });
   it("reuses the cached representation after a matching validator", async () => {
     const job = { job_id: "job_1", status: "processing", results: [] };
     const request = vi.fn()
@@ -49,4 +56,3 @@ describe("Document request adapter conditional reads", () => {
     expect(finalOptions.headers.has("if-none-match")).toBe(false);
   });
 });
-

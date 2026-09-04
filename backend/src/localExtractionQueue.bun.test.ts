@@ -202,6 +202,37 @@ function job(jobId: string, workspaceId: string) {
   };
 }
 
+test("gateway eligibility keeps serial waiters out of global permits and lets another Workspace run", async () => {
+  let workspaceLimit = 1;
+  const queue = createLocalExtractionQueue({ maxConcurrent: 8, getWorkspaceMaxConcurrent: () => workspaceLimit });
+  const started: string[] = [];
+  const releases: Array<() => void> = [];
+  queue.subscribe(async (queued) => {
+    started.push(queued.job_id);
+    await new Promise<void>((resolve) => releases.push(resolve));
+  });
+  for (let i = 0; i < 8; i++) await queue.schedule(job(`a_${i}`, "workspace_a"));
+  await queue.schedule(job("b_0", "workspace_b"));
+  expect(started).toEqual(["a_0", "b_0"]);
+  expect(queue.snapshot()).toMatchObject({ active: 2, pending: 7 });
+  workspaceLimit = 2;
+  queue.setMaxConcurrent(8);
+  expect(started).toEqual(["a_0", "b_0", "a_1"]);
+  const closing = queue.close();
+  for (const release of releases) release();
+  await closing;
+});
+
+test("drained Workspaces request targeted durable refill", async () => {
+  const refilled: string[] = [];
+  const queue = createLocalExtractionQueue({ onWorkspaceIdle: (id) => { refilled.push(id); } });
+  queue.subscribe(async () => {});
+  await queue.schedule(job("one", "workspace_a"));
+  await waitFor(() => refilled.length > 0);
+  expect(refilled).toEqual(["workspace_a"]);
+  await queue.close();
+});
+
 async function waitFor(condition: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (condition()) return;

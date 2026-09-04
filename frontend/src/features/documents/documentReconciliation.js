@@ -30,6 +30,7 @@ export const EMPTY_DOCUMENT_SNAPSHOT = emptySnapshot();
 export function createDocumentReconciliation({
   cache = createCompletedDocumentCache(),
   initialWorkspace = {},
+  uploadConcurrency = 2,
   createPreview = (file) => file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
   revokePreview = (url) => URL.revokeObjectURL(url),
 } = {}) {
@@ -53,12 +54,16 @@ export function createDocumentReconciliation({
   function publish(ctx, patch = {}) {
     if (!isCurrent(ctx)) return;
     const next = { ...snapshot, ...patch };
-    next.documents = [...ctx.rows.values()]
-      .filter((job) => matchesQuery(job, next.debouncedSearch, next.filters)).sort(sortDocuments);
+    if (ctx.rowsDirty || next.debouncedSearch !== snapshot.debouncedSearch || next.filters !== snapshot.filters) {
+      next.documents = [...ctx.rows.values()]
+        .filter((job) => matchesQuery(job, next.debouncedSearch, next.filters)).sort(sortDocuments);
+      ctx.visible = new Set(next.documents.map((job) => job.job_id));
+      ctx.rowsDirty = false;
+    }
     next.selectedDocument = next.documents.find((job) => job.job_id === next.selectedDocumentId) || next.documents[0] || null;
     next.selectedDocumentId = next.selectedDocument?.job_id || "";
-    const visible = new Set(next.documents.map((job) => job.job_id));
-    next.selectedDocumentIds = next.selectedDocumentIds.filter((id) => visible.has(id));
+    const selected = next.selectedDocumentIds.filter((id) => ctx.visible.has(id));
+    if (selected.length !== next.selectedDocumentIds.length) next.selectedDocumentIds = selected;
     snapshot = next;
     notify();
   }
@@ -107,6 +112,7 @@ export function createDocumentReconciliation({
     context = {
       key, workspaceId, requests, callbacks, session, active: true,
       rows: new Map(), known: new Set(), deleted: new Set(), revisions: new Map(), previews: new Map(),
+      rowsDirty: true, visible: new Set(),
       revision: 0, countRevision: 0, queryRevision: 0, listRequest: 0,
       details: new Map(), detailAttempts: new Map(), hydrated: new Map(), modelsRequest: null,
       refreshTimer: null, searchTimer: null,
@@ -181,6 +187,7 @@ export function createDocumentReconciliation({
     ctx.known.add(id);
     if (observe && (!details || !sameVersion(incoming, existing))) changed(ctx, id);
     ctx.rows.set(id, next);
+    ctx.rowsDirty = true;
     rememberModel(ctx, next.model_name);
     return next;
   }
@@ -210,7 +217,7 @@ export function createDocumentReconciliation({
       }
       if (!append) {
         for (const id of ctx.rows.keys()) {
-          if (!listed.has(id) && (ctx.revisions.get(id) || 0) <= revision) ctx.rows.delete(id);
+          if (!listed.has(id) && (ctx.revisions.get(id) || 0) <= revision) { ctx.rows.delete(id); ctx.rowsDirty = true; }
         }
       }
       if (!append && !data?.has_more && !overlap) {
@@ -269,6 +276,7 @@ export function createDocumentReconciliation({
     changed(ctx, id);
     ctx.deleted.add(id);
     ctx.rows.delete(id);
+    ctx.rowsDirty = true;
     if (ctx.known.delete(id)) {
       snapshot = { ...snapshot, totalDocuments: Math.max(0, snapshot.totalDocuments - 1) };
       ctx.countRevision = ctx.revision;
@@ -374,9 +382,11 @@ export function createDocumentReconciliation({
     publish(ctx, { uploading: true });
     let queued = 0;
     let failed = 0;
-    try {
-      for (const entry of entries) {
+    let nextEntry = 0;
+    const worker = async () => {
+      while (nextEntry < entries.length) {
         if (!batchSession.active || batchRevision !== submissionRevision) break;
+        const entry = entries[nextEntry++];
         if (acceptsBatch()) onProgress?.(entry.id, "processing", "");
         let preview = null;
         try {
@@ -384,7 +394,15 @@ export function createDocumentReconciliation({
           form.append("template_id", templateId);
           form.append("document", entry.file);
           form.append("options", JSON.stringify({ include_confidence: true, include_evidence: true }));
-          const result = await requests.submitDocument(form);
+          let result;
+          for (let attempt = 0; ; attempt++) {
+            try { result = await requests.submitDocument(form); break; }
+            catch (error) {
+              if (error.code !== "local_submission_capacity_unavailable" || attempt >= 2) throw error;
+              await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+              if (!batchSession.active || batchRevision !== submissionRevision) return;
+            }
+          }
           queued += 1;
           if (!acceptsBatch()) continue;
           preview = createPreview(entry.file);
@@ -407,6 +425,10 @@ export function createDocumentReconciliation({
           if (error.status === 403) emit(ctx, "onAccessDenied");
         }
       }
+    };
+    try {
+      const concurrency = Math.max(1, Math.min(4, Math.trunc(uploadConcurrency) || 2));
+      await Promise.all(Array.from({ length: Math.min(entries.length, concurrency) }, worker));
       if (acceptsBatch()) onComplete?.({ queued, failed });
     } finally { publish(ctx, { uploading: false }); }
   }

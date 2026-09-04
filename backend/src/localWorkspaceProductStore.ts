@@ -193,6 +193,7 @@ export type LocalWorkspaceProductStore = {
     maxAttempts: number;
     recoveredAt: string;
     staleProcessingBefore: string;
+    isJobActive?: (jobId: string) => boolean;
   }): LocalScheduledExtractionJob[];
   getTemplate(templateId: string): LocalWorkspaceTemplateDetail | null;
   deleteExtractionJob(input: { jobId: string }): DeletedLocalWorkspaceExtractionJob | null;
@@ -200,6 +201,7 @@ export type LocalWorkspaceProductStore = {
   getExtractionJobResults(jobId: string): LocalWorkspaceExtractionResult[];
   getExtractionJobSummary(jobId: string): LocalWorkspaceExtractionJobSummary | null;
   getExtractionJobExport(jobId: string): LocalWorkspaceExtractionJobExport | null;
+  getExtractionJobExports(jobIds: string[]): LocalWorkspaceExtractionJobExport[];
   getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
   listTemplates(): LocalWorkspaceTemplate[];
   countExtractionJobs(): number;
@@ -286,6 +288,13 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   database.exec("PRAGMA foreign_keys = ON");
   database.exec("PRAGMA busy_timeout = 250");
   database.exec("PRAGMA synchronous = FULL");
+  const { version } = database.query("SELECT sqlite_version() AS version").get() as { version: string };
+  // SQLite 3.51.3 fixes the WAL-reset race. Retain rollback journaling on the
+  // currently bundled 3.51.0; a qualified newer runtime can use WAL + FULL.
+  const [major, minor, patch] = version.split(".").map(Number);
+  if (major > 3 || (major === 3 && (minor > 51 || (minor === 51 && patch >= 3)))) {
+    database.exec("PRAGMA journal_mode = WAL");
+  }
   database.exec(PRODUCT_SCHEMA);
   ensureProductSchemaColumns(database);
   migrateProductSchema(database);
@@ -331,6 +340,18 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     getExtractionJobResults: (jobId) => readExtractionJobResults(database, jobId),
     getExtractionJobSummary: (jobId) => readExtractionJobSummary(database, jobId),
     getExtractionJobExport: (jobId) => getExtractionJobExport(database, jobId),
+    getExtractionJobExports: (jobIds) => database.transaction(() => {
+      if (!jobIds.length) return [];
+      const placeholders = jobIds.map(() => "?").join(",");
+      const size = database.query(`SELECT COALESCE(SUM(length(CAST(COALESCE(r.answer_json, '') AS BLOB)) + length(CAST(COALESCE(r.evidence_text, '') AS BLOB))), 0) AS bytes
+        FROM job_results r JOIN jobs j ON j.id = r.job_id WHERE j.status = 'completed' AND r.job_id IN (${placeholders})`).get(...jobIds) as { bytes: number };
+      if (size.bytes > 32 * 1024 * 1024) throw new RangeError("Selected results exceed the 32 MiB export limit; select fewer Documents");
+      const templates = new Map<string, Pick<LocalWorkspaceExtractionJobExport, "fields" | "template_name">>();
+      return jobIds.flatMap((id) => {
+        const job = getExtractionJobExport(database, id, templates);
+        return job && (job.status === "completed" || job.status === "failed") ? [job] : [];
+      });
+    })(),
     getSubmissionTemplate: (templateId) => getSubmissionTemplate(database, templateId),
     listTemplates: () => listTemplates(database),
     countExtractionJobs: () => countExtractionJobs(database),
@@ -413,6 +434,40 @@ function migrateProductSchema(database: Database): void {
       database.query(
         `INSERT INTO product_schema_version(version, applied_at) VALUES (2, ?)`,
       ).run(new Date().toISOString());
+    }
+    if (!applied.has(4)) {
+      database.exec(`
+        CREATE INDEX idx_sources_uncleaned ON source_files(job_id, key) WHERE deleted_at IS NULL;
+        CREATE INDEX idx_jobs_runnable ON jobs(COALESCE(next_retry_at, updated_at), id) WHERE status = 'queued';
+        CREATE TABLE job_totals (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), count INTEGER NOT NULL);
+        INSERT INTO job_totals SELECT 1, COUNT(*) FROM jobs;
+        CREATE TRIGGER jobs_count_insert AFTER INSERT ON jobs BEGIN
+          UPDATE job_totals SET count = count + 1 WHERE singleton = 1;
+        END;
+        CREATE TRIGGER jobs_count_delete AFTER DELETE ON jobs BEGIN
+          UPDATE job_totals SET count = count - 1 WHERE singleton = 1;
+        END;
+        CREATE VIRTUAL TABLE job_search USING fts5(source_name, id, template_id,
+          content='jobs', content_rowid='rowid', tokenize='trigram');
+        INSERT INTO job_search(job_search) VALUES ('rebuild');
+        CREATE TRIGGER jobs_search_insert AFTER INSERT ON jobs BEGIN
+          INSERT INTO job_search(rowid, source_name, id, template_id)
+            VALUES (new.rowid, new.source_name, new.id, new.template_id);
+        END;
+        CREATE TRIGGER jobs_search_delete AFTER DELETE ON jobs BEGIN
+          INSERT INTO job_search(job_search, rowid, source_name, id, template_id)
+            VALUES ('delete', old.rowid, old.source_name, old.id, old.template_id);
+        END;
+        CREATE TRIGGER jobs_search_update AFTER UPDATE OF source_name, id, template_id ON jobs
+        WHEN old.source_name IS NOT new.source_name OR old.id IS NOT new.id
+          OR old.template_id IS NOT new.template_id BEGIN
+          INSERT INTO job_search(job_search, rowid, source_name, id, template_id)
+            VALUES ('delete', old.rowid, old.source_name, old.id, old.template_id);
+          INSERT INTO job_search(rowid, source_name, id, template_id)
+            VALUES (new.rowid, new.source_name, new.id, new.template_id);
+        END;
+      `);
+      database.query("INSERT INTO product_schema_version(version, applied_at) VALUES (4, ?)").run(new Date().toISOString());
     }
   }).immediate();
 }
@@ -879,21 +934,18 @@ function requeueExtractionJob(
 
 function recoverExtractionJobs(
   database: Database,
-  input: { limit?: number; maxAttempts: number; recoveredAt: string; staleProcessingBefore: string },
+  input: { limit?: number; maxAttempts: number; recoveredAt: string; staleProcessingBefore: string; isJobActive?: (jobId: string) => boolean },
 ): LocalScheduledExtractionJob[] {
   const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? input.limit! : 1_000;
   const recover = database.transaction(() => {
     const scheduled: LocalScheduledExtractionJob[] = [];
     const queued = database.query(
       `SELECT id, template_id, template_version, current_attempt, next_retry_at
-       FROM jobs
+       FROM jobs INDEXED BY idx_jobs_runnable
        WHERE status = 'queued'
-       ORDER BY
-         CASE WHEN next_retry_at IS NULL OR next_retry_at <= ? THEN 0 ELSE 1 END ASC,
-         CASE WHEN next_retry_at IS NULL OR next_retry_at <= ? THEN updated_at ELSE next_retry_at END ASC,
-         id ASC
+       ORDER BY COALESCE(next_retry_at, updated_at) ASC, id ASC
        LIMIT ?`,
-    ).all(input.recoveredAt, input.recoveredAt, limit) as Array<{
+    ).all(limit) as Array<{
       id: string;
       template_id: string;
       template_version: number;
@@ -926,6 +978,7 @@ function recoverExtractionJobs(
        LIMIT ?`,
     ).all(input.staleProcessingBefore, limit) as Array<{ id: string; template_id: string; template_version: number; current_attempt: number }>;
     for (const job of stale) {
+      if (input.isJobActive?.(job.id)) continue;
       if (job.current_attempt >= input.maxAttempts) {
         database.query(
           `UPDATE jobs
@@ -1022,11 +1075,16 @@ function readExtractionJobResults(database: Database, jobId: string): LocalWorks
 function getExtractionJobExport(
   database: Database,
   jobId: string,
+  templates = new Map<string, Pick<LocalWorkspaceExtractionJobExport, "fields" | "template_name">>(),
 ): LocalWorkspaceExtractionJobExport | null {
   const job = getExtractionJob(database, jobId);
   if (!job) {
     return null;
   }
+
+  const key = `${job.template_id}\u0000${job.template_version}`;
+  const cached = templates.get(key);
+  if (cached) return { ...job, ...cached };
 
   const template = database.query(
     "SELECT name FROM templates WHERE id = ?",
@@ -1040,6 +1098,7 @@ function getExtractionJobExport(
     FieldDefinition & { position: number }
   >;
 
+  templates.set(key, { template_name: template?.name || job.template_id, fields });
   return {
     ...job,
     template_name: template?.name || job.template_id,
@@ -1048,7 +1107,7 @@ function getExtractionJobExport(
 }
 
 function countExtractionJobs(database: Database): number {
-  return (database.query("SELECT COUNT(*) AS count FROM jobs").get() as { count: number }).count;
+  return (database.query("SELECT count FROM job_totals WHERE singleton = 1").get() as { count: number }).count;
 }
 
 function listExtractionJobModels(database: Database): string[] {
@@ -1081,6 +1140,21 @@ function listExtractionJobs(
   const clauses: string[] = [];
   const parameters: Array<string | number> = [];
   if (search) {
+    // FTS indexes stable metadata only. Status terms use the literal path so
+    // lifecycle transitions do not rewrite the search index.
+    // One/two-character and NUL-containing searches retain their original behavior.
+    if ([...search].length >= 3 && !search.includes("\u0000")
+      && !["queued", "processing", "completed", "failed"].some((status) => status.includes(search))) {
+      const candidates = database.query("SELECT rowid FROM job_search WHERE job_search MATCH ? LIMIT 1001")
+        .all(`"${search.replaceAll('"', '""')}"`) as { rowid: number }[];
+      if (!candidates.length) return [];
+      // Broad terms (e.g. "queued") should read a page in date order rather
+      // than materialize and sort a million matching FTS row IDs.
+      if (candidates.length <= 1000) {
+        clauses.push(`j.rowid IN (${candidates.map(() => "?").join(",")})`);
+        parameters.push(...candidates.map((row) => row.rowid));
+      }
+    }
     const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
     clauses.push(`(LOWER(COALESCE(j.source_name, '')) LIKE ? ESCAPE '\\'
         OR LOWER(j.id) LIKE ? ESCAPE '\\'
@@ -1101,8 +1175,8 @@ function listExtractionJobs(
     parameters.push(input.model);
   }
   if (input.cursor) {
-    clauses.push("(j.created_at < ? OR (j.created_at = ? AND j.id < ?))");
-    parameters.push(input.cursor.createdAt, input.cursor.createdAt, input.cursor.jobId);
+    clauses.push("(j.created_at, j.id) < (?, ?)");
+    parameters.push(input.cursor.createdAt, input.cursor.jobId);
   }
   const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
   const limit = Number.isSafeInteger(input.limit) && input.limit! > 0
@@ -1132,8 +1206,8 @@ function listRetainedTerminalSourceFiles(
   const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? input.limit! : 1_000;
   return database.query(
     `SELECT j.id AS job_id, s.key AS source_file_key
-     FROM jobs j
-     JOIN source_files s ON s.job_id = j.id
+     FROM source_files s
+     CROSS JOIN jobs j ON j.id = s.job_id
      WHERE s.deleted_at IS NULL
        AND (j.status = 'completed' OR (j.status = 'failed' AND j.updated_at <= ?))
      ORDER BY j.updated_at ASC, j.id ASC

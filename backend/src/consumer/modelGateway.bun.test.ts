@@ -197,6 +197,7 @@ describe("runExtraction", () => {
       "image/png",
       controller.signal,
     );
+    await waitForMockCallCount(fetchMock, 1);
     controller.abort();
 
     await expect(extraction).rejects.toBeInstanceOf(ExtractionCancelledError);

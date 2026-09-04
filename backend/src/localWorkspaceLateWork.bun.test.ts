@@ -8,7 +8,7 @@ import { createLocalAuth } from "./localAuth";
 import { RetryableError } from "./consumer/modelGateway";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
-import type { LocalWorkspaceExtractionJob } from "./localWorkspaceProductStore";
+import type { LocalWorkspaceExtractionJobSummary } from "./localWorkspaceProductStore";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
@@ -25,7 +25,7 @@ test("late queue deliveries after hard deletion do not recreate a Workspace prod
   });
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
-  const lifecycleUpdates: LocalWorkspaceExtractionJob[] = [];
+  const lifecycleUpdates: LocalWorkspaceExtractionJobSummary[] = [];
   const scheduledJobs: string[] = [];
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
   const productAnalytics: LocalProductAnalytics = {
@@ -137,7 +137,7 @@ test("a retryable extraction failure does not requeue work after its Workspace i
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
   const scheduledJobs: string[] = [];
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
-  const lifecycleUpdates: LocalWorkspaceExtractionJob[] = [];
+  const lifecycleUpdates: LocalWorkspaceExtractionJobSummary[] = [];
 
   try {
     const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {

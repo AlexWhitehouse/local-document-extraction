@@ -1,7 +1,8 @@
 import type { FieldDefinition } from "../lib/types";
 import type { ModelFieldResult } from "./modelResultNormalizer";
 import { encodeModelPayloadBase64 } from "./modelPayloadBase64";
-import { renderPdfPagesToPng } from "./pdfPageRenderer";
+import { iteratePdfPagesToPng, MAX_RENDERED_PDF_BYTES, PdfPreparationLimitError } from "./pdfPageRenderer";
+import { createByteBudget } from "../lib/byteBudget";
 
 export class RetryableError extends Error {
   readonly retryAfterMs: number | null;
@@ -37,6 +38,7 @@ export type ModelGatewayConfiguration = {
 };
 
 const sequentialModelCallTails = new Map<string, Promise<void>>();
+const preparationBudget = createByteBudget(256 * 1024 * 1024);
 
 export function getExtractionModelName(env: ModelGatewayConfiguration): string {
   if (!env.AI_MODEL) throw new ModelGatewayRequestError("Workspace model is not configured");
@@ -67,6 +69,27 @@ export async function runExtraction(
   sourceMimeType: string,
   signal?: AbortSignal,
 ): Promise<ModelFieldResult[]> {
+  const sourceSize = source instanceof Blob ? source.size : source.byteLength;
+  const rendered = sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
+  const reservation = Math.max(1024 * 1024, rendered
+    ? MAX_RENDERED_PDF_BYTES * 3 + sourceSize + 16 * 1024 * 1024
+    : sourceSize * 4);
+  if (reservation > 256 * 1024 * 1024) throw new ModelGatewayRequestError("Source exceeds the local model preparation budget");
+  return scheduleModelCall(env, () => preparationBudget.run(reservation,
+    () => prepareAndRunExtraction(env, fields, source, sourceMimeType, signal), signal)).catch((error) => {
+      if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
+      throw error;
+    });
+}
+
+async function prepareAndRunExtraction(
+  env: ModelGatewayConfiguration,
+  fields: FieldDefinition[],
+  source: ArrayBuffer | Blob,
+  sourceMimeType: string,
+  signal?: AbortSignal,
+): Promise<ModelFieldResult[]> {
+  if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
   const model = getExtractionModelName(env);
   const renderPdfAsImages =
     sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
@@ -76,15 +99,19 @@ export async function runExtraction(
     "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.";
   let sourceContentParts: Record<string, unknown>[];
   try {
-    sourceContentParts = renderPdfAsImages
-        ? (await renderPdfPagesToPng(sourceBytes, signal)).map((pageBytes) =>
-            buildInlineImageContentPart(pageBytes, "image/png"),
-          )
-        : [buildInlineSourceContentPart(sourceBytes, sourceMimeType)];
+    sourceContentParts = [];
+    if (renderPdfAsImages) {
+      for await (const pageBytes of iteratePdfPagesToPng(sourceBytes, signal)) {
+        sourceContentParts.push(buildInlineImageContentPart(pageBytes, "image/png"));
+      }
+    } else {
+      sourceContentParts.push(buildInlineSourceContentPart(sourceBytes, sourceMimeType));
+    }
   } catch (error) {
     if (signal?.aborted) {
       throw new ExtractionCancelledError("PDF page rendering cancelled");
     }
+    if (error instanceof PdfPreparationLimitError) throw new ModelGatewayRequestError(error.message);
     throw new RetryableError(
       `PDF Source file could not be prepared for the model: ${errorToMessage(error)}`,
     );
@@ -97,7 +124,7 @@ export async function runExtraction(
     systemPrompt,
     readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT),
   );
-  const runResult = await scheduleModelCall(env, () => runViaModelGateway(env, runInput, signal));
+  const runResult = await runViaModelGateway(env, runInput, signal);
   const content = readRunResultContent(runResult);
 
   let parsed: unknown;
@@ -361,10 +388,10 @@ function isQwenMultimodalModel(normalizedModel: string): boolean {
   );
 }
 
-function scheduleModelCall(
+function scheduleModelCall<T>(
   env: ModelGatewayConfiguration,
-  task: () => Promise<unknown>,
-): Promise<unknown> {
+  task: () => Promise<T>,
+): Promise<T> {
   if (!readBooleanConfiguration(env.MODEL_GATEWAY_SEQUENTIAL_CALLS)) {
     return task();
   }

@@ -1,0 +1,612 @@
+$ bun run typecheck && bun run lint && bun run test && bun run --cwd frontend test:coverage && bun run build
+$ bun run --cwd backend typecheck && bun run typecheck:e2e
+$ bunx tsc --noEmit
+$ bunx tsc --noEmit -p e2e/tsconfig.json
+$ bunx eslint .
+$ bun run --cwd backend test && bun run --cwd frontend test
+$ bun run test:bun
+$ bun run test:bun:parallel && bun run test:bun:smoke
+$ bun test --isolate --parallel=2 --max-concurrency=1 --retry=0 --no-orphans --path-ignore-patterns='**/localRuntimeSmoke.bun.test.ts'
+bun test v1.4.1 (4661e494f) 2x PARALLEL
+
+src/localMultipartSubmission.bun.test.ts:
+(pass) multipart submission streams the document to a promotable temporary file [6.99ms]
+(pass) multipart submission rejects duplicate fields and oversized files without retaining temporary data [2.48ms]
+(pass) multipart Source size accepts the exact boundary and rejects boundary plus one [1.88ms]
+(pass) an aborted multipart stream promptly removes its partial temporary Source file [1.92ms]
+
+benchmarks/bunRuntimeComparison.bun.test.ts:
+(pass) Bun runtime comparison evidence > parses the sole credential-free prototype result record [0.18ms]
+(pass) Bun runtime comparison evidence > aggregates repetitions with variance and lifecycle percentiles [0.17ms]
+(pass) Bun runtime comparison evidence > applies explicit regression thresholds with practical noise floors [0.21ms]
+(pass) Bun runtime comparison evidence > scrubs absolute paths, identity, credentials, and long retained data [0.22ms]
+(pass) Bun runtime comparison evidence > keeps decision-rich native profile sections without the full heap graph [0.04ms]
+(pass) Bun runtime comparison evidence > keeps complete native profile data in explicitly ignored raw scratch state [0.13ms]
+(pass) Bun runtime comparison evidence > renders provenance, repetitions, gates, profile findings, and scope [0.34ms]
+
+benchmarks/documentBodyLimitStress.bun.test.ts:
+(pass) Document body-limit stress evidence > renders workload, latency, memory, settlement, and durable side-effect outcomes [0.08ms]
+
+src/localPerformance.bun.test.ts:
+(pass) indexed search preserves literal substring semantics, lifecycle updates and deletion [12.29ms]
+(pass) search and count migration backfills an existing history once [10.12ms]
+(pass) admission samples free disk without scanning Source history [1.41ms]
+(pass) recovery preserves actively owned attempts while recovering abandoned work [7.39ms]
+(pass) Source deletion removes only its empty job directory and is idempotent [1.40ms]
+
+src/localProductAnalytics.bun.test.ts:
+(pass) local product analytics appends whitelisted events to daily JSONL files [1.37ms]
+(pass) local product analytics serializes only the approved privacy-safe fields [0.54ms]
+(pass) local product analytics warnings do not fail the product operation that emitted an event [0.11ms]
+(pass) analytics batches bursts and flushes events arriving during a write [1.33ms]
+
+src/localResourceController.bun.test.ts:
+(pass) the resource controller exposes storage/process telemetry and backs off on gateway throttling [1.59ms]
+(pass) OS memory pressure applies immediate admission policy and recovers only after sampled hysteresis [0.81ms]
+(pass) critical pressure pauses new queue claims without losing active or durable pending work [2.12ms]
+
+benchmarks/documentBodyLimitStress.bun.test.ts:
+(pass) Document body-limit stress evidence > settles bounded real-server known, chunked, and aborted oversize probes [44.88ms]
+
+benchmarks/liveUpdateFanout.bun.test.ts:
+(pass) live update fanout evidence records current hub cost without claiming native-topic results [1.10ms]
+
+benchmarks/memoryPressureBackpressure.bun.test.ts:
+(pass) memory-pressure benchmark evidence > records comparable workload and every requested pressure metric [0.12ms]
+
+benchmarks/staticAssetConcurrency.bun.test.ts:
+(pass) static asset concurrency evidence > calculates an interpolated latency percentile without mutating samples [0.04ms]
+(pass) static asset concurrency evidence > labels the legacy and lazy implementations with comparable parameters [0.08ms]
+
+src/consumer/dependencySecurity.bun.test.ts:
+(pass) security-sensitive parser dependencies > uses a PDF.js release containing the malicious-PDF execution fix [0.20ms]
+(pass) security-sensitive parser dependencies > uses a UUID release containing the buffer-bounds fix [0.30ms]
+
+src/consumer/modelGateway.bun.test.ts:
+(pass) runExtraction > uses the configured Extraction model and LiteLLM gateway [0.83ms]
+(pass) runExtraction > omits structured output for models that do not support response formats [0.08ms]
+(pass) runExtraction > uses JSON Schema output for Gemma 4 model deployments [0.12ms]
+
+src/localRuntime.bun.test.ts:
+(pass) local Bun runtime > exposes the health endpoint through the local Fetch application [0.43ms]
+(pass) local Bun runtime > creates the local state directory structure [1.14ms]
+(pass) local Bun runtime > routes API Requests to the Fetch-style application handler [0.33ms]
+(pass) local Bun runtime > serves built assets and falls back to the SPA for non-API reads [1.08ms]
+
+src/consumer/modelGateway.bun.test.ts:
+(pass) runExtraction > aborts model gateway execution when Workspace deletion cancels the caller signal [6.03ms]
+(pass) runExtraction > refuses an absent model instead of inheriting a default [0.09ms]
+(pass) runExtraction > submits PDF Source files to Bedrock-compatible LiteLLM models as inline file content [0.12ms]
+
+src/localRuntime.bun.test.ts:
+(pass) local Bun runtime > serves a lazy asset with validators, byte ranges, and equivalent bodyless HEAD metadata [3.54ms]
+(pass) local Bun runtime > keeps auth and product API routing ahead of colliding built files [0.84ms]
+(pass) local Bun runtime > does not read asset contents into an application-level buffer [0.10ms]
+(pass) local Bun runtime > contains encoded traversal and symlink escape attempts inside the frontend root [1.87ms]
+(pass) local Bun runtime > retains the unavailable response when the frontend build is missing [0.62ms]
+
+src/localRuntimePort.bun.test.ts:
+(pass) the Local Bun Runtime accepts an operating-system-selected port [0.05ms]
+
+src/localRuntimeRequestDrain.bun.test.ts:
+(pass) closing runtime request handling waits for active work and rejects new handlers [0.21ms]
+
+src/localRuntimeShutdown.bun.test.ts:
+(pass) Local Bun Runtime shutdown drains active work before durable resources close [0.29ms]
+(pass) a repeated shutdown request forces the server without duplicating cleanup [0.12ms]
+(pass) the shutdown deadline forces a stalled network stop [0.07ms]
+(pass) the shutdown deadline releases every stalled draining barrier [0.09ms]
+(pass) shutdown waits for recurring runtime work before flushing analytics [0.06ms]
+(pass) shutdown attempts every durable cleanup and reports all failures [0.15ms]
+
+src/localRuntimeShutdownBunServer.bun.test.ts:
+(pass) runtime shutdown settles an in-flight request after closing idle server connections [1.11ms]
+
+src/localSourceFileRetention.bun.test.ts:
+(pass) Source retention deletes completed and expired failed binaries but preserves durable jobs [12.91ms]
+
+src/localSourceFileStore.bun.test.ts:
+(pass) local Source file storage writes, reads, and deletes binaries through its public interface [1.23ms]
+(pass) local Source file storage hard-erases one Workspace idempotently without affecting another Workspace [1.73ms]
+
+src/localSubmissionAdmission.bun.test.ts:
+(pass) submission admission bounds active multipart work and safely drains overload [0.39ms]
+(pass) submission admission reserves a bounded fallback for unknown body sizes [0.09ms]
+(pass) submission admission rejects and drains when local memory or disk cannot reserve the upload [0.05ms]
+(pass) submission admission reserves counters before asynchronous resource sampling [0.08ms]
+(pass) closing submission admission rejects new Documents and waits for admitted work [0.11ms]
+
+src/consumer/modelGateway.bun.test.ts:
+(pass) runExtraction > renders PDF Source file pages as images when direct PDF input is disabled [66.81ms]
+(pass) runExtraction > renders PDF Source file pages as image content accepted by Qwen model qwen/qwen3.6-27b [10.96ms]
+(pass) runExtraction > renders PDF Source file pages as image content accepted by Qwen model qwen3.8-27b-mlx [9.56ms]
+(pass) runExtraction > renders PDF Source file pages as image content accepted by Qwen model qwen3-vl-32b-instruct-mlx [9.42ms]
+(pass) runExtraction > builds Qwen JSON Schema answer types from the requested Template fields [0.32ms]
+(pass) runExtraction > never uses managed files or model-prefix inference for PDF input [0.18ms]
+(pass) runExtraction > submits image Source files to LiteLLM as inline image content [0.07ms]
+(pass) runExtraction > parses OpenAI-style model responses into raw model field results [0.05ms]
+(pass) runExtraction > parses OpenAI content-part model responses into raw model field results [0.05ms]
+(pass) runExtraction > parses Qwen reasoning content when assistant content is empty [0.06ms]
+(pass) runExtraction > treats missing LiteLLM credentials as a non-retryable configuration failure [0.07ms]
+(pass) runExtraction > runs configured model calls sequentially [5.76ms]
+(pass) runExtraction > treats LiteLLM HTTP failures as retryable extraction failures [0.17ms]
+(pass) runExtraction > does not retry deterministic Model gateway request failures [0.05ms]
+(pass) runExtraction > does not follow gateway redirects or consume their error bodies [0.09ms]
+(pass) runExtraction > treats deterministic inline PDF request failures as non-retryable [0.05ms]
+(pass) runExtraction > treats invalid gateway JSON as retryable output [0.06ms]
+(pass) runExtraction > treats invalid model JSON content as retryable output [0.09ms]
+(pass) runExtraction > treats model JSON without results as retryable output [0.04ms]
+(pass) model gateway configuration > derives the model gateway route label only from the URL host [0.03ms]
+(pass) model gateway configuration > normalizes model gateway timeout configuration [0.01ms]
+(pass) model gateway configuration > rejects missing Extraction model configuration [0.02ms]
+
+src/consumer/modelPayloadBase64.bun.test.ts:
+(pass) encodeModelPayloadBase64 > matches the legacy gateway encoder for 0 bytes [0.07ms]
+(pass) encodeModelPayloadBase64 > matches the legacy gateway encoder for 1 bytes [0.03ms]
+(pass) encodeModelPayloadBase64 > matches the legacy gateway encoder for 2 bytes [0.02ms]
+(pass) encodeModelPayloadBase64 > matches the legacy gateway encoder for 3 bytes
+(pass) encodeModelPayloadBase64 > matches the legacy gateway encoder for 32767 bytes [1.44ms]
+(pass) encodeModelPayloadBase64 > matches the legacy gateway encoder for 32768 bytes [0.87ms]
+(pass) encodeModelPayloadBase64 > matches the legacy gateway encoder for 32769 bytes [2.98ms]
+(pass) encodeModelPayloadBase64 > matches the legacy gateway encoder for 2097153 bytes [45.40ms]
+
+src/consumer/modelResultNormalizer.bun.test.ts:
+(pass) normalizeModelResults > normalizes date field answers to dd/mm/yyyy before persistence [0.22ms]
+(pass) normalizeModelResults > normalizes ISO date-time field answers to dd/mm/yyyy before persistence [0.03ms]
+(pass) normalizeModelResults > preserves date field answers that are already dd/mm/yyyy [0.01ms]
+
+src/localWorkspaceControl.bun.test.ts:
+(pass) local Workspace control repairs a user's zero-accepted-Workspace invariant [56.79ms]
+
+src/consumer/pdfPageRenderer.bun.test.ts:
+(pass) renderPdfPagesToPng > stops preparation at the encoded-byte limit [21.59ms]
+(pass) renderPdfPagesToPng > renders JBIG2-compressed images [52.17ms]
+(pass) renderPdfPagesToPng > does not execute JavaScript embedded in a PDF [3.49ms]
+
+src/localWorkspaceControl.bun.test.ts:
+(pass) the Bun API creates and resolves accepted Workspace context for a signed-in user [85.91ms]
+(pass) Workspace rename and deletion retain the accepted-Workspace policy [38.91ms]
+(pass) Workspace API key rotation stores only the current hash and invalidates the prior key [39.09ms]
+
+src/jobExportWorkbook.bun.test.ts:
+(pass) job export workbook > creates typed header and table sheets grouped by template version [21.23ms]
+(pass) job export workbook > preserves empty objects and shortens duplicate worksheet names safely [12.45ms]
+(pass) job export workbook > round-trips formula-like, Unicode, oversized, and malformed values safely [5.78ms]
+
+src/lib/accountPasswordPolicy.bun.test.ts:
+(pass) Account password policy > reports all unmet requirements for a weak account password [0.07ms]
+(pass) Account password policy > accepts an account password that satisfies the full policy [0.01ms]
+(pass) Account password policy > treats any non-alphanumeric character as the special-character requirement
+
+src/lib/byteBudget.bun.test.ts:
+(pass) byte reservations bound concurrent work and release capacity after cancellation or failure [1.42ms]
+
+src/lib/email/accountEmailVerification.bun.test.ts:
+(pass) Account email verification email > renders the agreed sender, subject, verification URL, and unexpected-recipient guidance [0.04ms]
+
+src/lib/email/accountPasswordReset.bun.test.ts:
+(pass) Account password reset email > renders the agreed sender, subject, reset URL, and unexpected-recipient guidance [0.03ms]
+
+src/lib/sourceFilePageCount.bun.test.ts:
+(pass) Source file page count > returns 1 for a valid one-page PDF Source file [3.86ms]
+(pass) Source file page count > returns the page count for a valid multi-page PDF Source file [1.03ms]
+(pass) Source file page count > rejects malformed PDF bytes with a stable invalid-PDF failure [0.17ms]
+
+src/localWorkspaceDeletionInvalidation.bun.test.ts:
+(pass) Workspace deletion emits a privacy-safe Workspace access invalidation after revocation [51.21ms]
+
+src/localWorkspaceDeletionRecovery.bun.test.ts:
+(pass) failed Workspace erasure retains durable cleanup intent that reconciliation completes idempotently [51.12ms]
+
+src/localAuth.bun.test.ts:
+(pass) email/password sign-up captures an Account email verification link [55.12ms]
+(pass) the hosted Document Extraction URL is a trusted auth origin
+
+src/localWorkspaceDeletionRecovery.bun.test.ts:
+(pass) reconciliation revokes a Workspace whose deletion intent was recorded before a crash [45.79ms]
+(pass) reconciliation erases only explicitly recorded Workspace deletion intents [11.14ms]
+
+src/localAuth.bun.test.ts:
+(pass) Better Auth records the Cloudflare connecting IP on new sessions [82.02ms]
+(pass) the local Fetch application delegates email/password sign-up to Better Auth [39.14ms]
+(pass) the local Fetch application applies the Account password policy before Better Auth [1.07ms]
+
+src/localWorkspaceHardErase.bun.test.ts:
+(pass) the Workspace deletion adapter preserves policy errors and hard-erases an idle Workspace before success [99.50ms]
+
+src/localAuth.bun.test.ts:
+(pass) unverified accounts stay blocked until their captured verification link is consumed [114.35ms]
+
+src/localWorkspaceInFlightDeletion.bun.test.ts:
+(pass) Workspace deletion aborts and drains in-flight extraction before hard erasure [59.48ms]
+
+src/localAuth.bun.test.ts:
+(pass) Better Auth updates the signed-in user's profile name and refreshes the session [84.04ms]
+2026-09-04T23:27:41.690Z WARN [Better Auth]: Reset Password: User not found
+(pass) password reset requests do not disclose account existence and captured reset links change the password [119.62ms]
+
+src/localWorkspaceInvitations.bun.test.ts:
+(pass) owners create in-app Workspace invitations that invitees can list without mail delivery [166.00ms]
+
+src/localAuth.bun.test.ts:
+(pass) configured local admin emails receive persisted Application admin sessions [78.04ms]
+
+src/localWorkspaceInvitations.bun.test.ts:
+(pass) accepting an in-app invitation grants Workspace membership and clears the pending entry [155.90ms]
+
+src/localAuth.bun.test.ts:
+(pass) Better Auth admin routes authorize persisted Application admins and reject regular users [155.93ms]
+
+src/localWorkspaceInvitations.bun.test.ts:
+(pass) declining an in-app invitation removes it from the invitee Workspace list [154.53ms]
+
+src/localAuth.bun.test.ts:
+(pass) Application admins can search local accounts through Better Auth [228.86ms]
+
+src/localWorkspaceInvitations.bun.test.ts:
+(pass) owners cancel pending Workspace invitations [154.01ms]
+
+src/localWorkspaceLateWork.bun.test.ts:
+(pass) late queue deliveries after hard deletion do not recreate a Workspace product database [54.84ms]
+
+src/localAuth.bun.test.ts:
+(pass) Application admins can promote and demote another local account [155.74ms]
+
+src/localWorkspaceLateWork.bun.test.ts:
+(pass) a retryable extraction failure does not requeue work after its Workspace is deleted [50.81ms]
+
+src/localAuth.bun.test.ts:
+(pass) Application admins cannot change their own local role [78.03ms]
+(pass) Application admins can ban a local account with a reason [155.52ms]
+
+src/localWorkspaceLeave.bun.test.ts:
+(pass) a member can leave a non-final Workspace through the session-only adapter without erasing its resources [254.03ms]
+
+src/localAuth.bun.test.ts:
+(pass) Application admins must give a reason when banning a local account [159.25ms]
+
+src/localWorkspaceLeave.bun.test.ts:
+(pass) leaving a final Workspace creates one bootstrapped replacement without erasing the departed Workspace [162.94ms]
+
+src/localAuth.bun.test.ts:
+(pass) Application admins can unban a local account so it can sign in again [191.68ms]
+
+src/localWorkspaceMemberActions.bun.test.ts:
+(pass) Workspace control atomically removes, promotes, and transfers ownership under member policy [118.73ms]
+
+src/localAuth.bun.test.ts:
+(pass) Application admins can impersonate a regular local account and stop impersonating [155.66ms]
+(pass) regular local accounts cannot perform Application admin actions [153.55ms]
+
+src/localWorkspaceMemberListing.bun.test.ts:
+(pass) the Workspace member-list adapter uses the real session-only HTTP interface [247.52ms]
+
+src/localAuth.bun.test.ts:
+(pass) Application admins can only impersonate active regular local accounts [157.74ms]
+
+src/localWorkspaceOperationCoordination.bun.test.ts:
+(pass) Workspace deletion drains admitted product work and rejects new product HTTP requests [116.29ms]
+(pass) product-store capacity failure releases the admitted Workspace operation [0.48ms]
+
+src/localWorkspaceProductDataAccess.bun.test.ts:
+(pass) access returns callback results and releases storage capacity and admitted work [12.32ms]
+(pass) existing-only absence runs the callback without creating storage and still participates in deletion [0.42ms]
+(pass) callback throw preserves the original error and releases both resources [9.56ms]
+(pass) callback reject preserves the original error and releases both resources [9.50ms]
+(pass) capacity rejection releases partial admission and never enters the callback [5.10ms]
+(pass) Workspace deletion cancels access but waits for callback settlement before releasing its lease [9.50ms]
+(pass) Document deletion cancels access but waits for callback settlement before releasing its lease [10.09ms]
+(pass) invalidated storage stays closed and a rejected access does not strand deletion [5.18ms]
+(pass) unexpected acquisition failures retain their cause and unwind admission [0.30ms]
+(pass) creation-enabled access never supplies a missing store to the callback [0.24ms]
+(pass) lease release failure drains admission and preserves an existing callback failure (%s) [5.18ms]
+(pass) lease release failure drains admission and preserves an existing callback failure (%s) [4.62ms]
+
+src/localAuth.bun.test.ts:
+(pass) Application admins can only assign local Application roles [158.34ms]
+
+src/localWorkspaceProductStore.bun.test.ts:
+(pass) local Workspace product data creates Templates in an isolated per-Workspace database [17.22ms]
+(pass) opening missing Workspace product data does not initialize a database [5.49ms]
+(pass) local Workspace job storage creates indexes for chronological and model-filtered pagination [5.23ms]
+(pass) local Workspace product data reads a Template's current version and fields [5.09ms]
+(pass) local Workspace product data versions Template fields while retaining the prior version [6.10ms]
+(pass) local Workspace product data soft-deletes Templates without exposing them again [5.57ms]
+(pass) local Workspace product data supports multiple Templates [7.11ms]
+
+src/localAuthRuntime.bun.test.ts:
+(pass) the local auth runtime persists auth data and captured mail under the local state directory [52.25ms]
+
+src/localDocumentBodyLimit.bun.test.ts:
+(pass) Document transport body limits > derives logical and Bun server limits from Source bytes plus the multipart envelope [0.01ms]
+(pass) Document transport body limits > allows known lengths below and at the logical boundary and rejects one byte above [0.15ms]
+(pass) Document transport body limits > rejects a malformed known body length without treating an unknown-length stream as malformed [0.03ms]
+(pass) Document transport body limits > fits a maximum-shaped browser FormData envelope inside the derived allowance [0.09ms]
+
+src/localWorkspaceProductStore.bun.test.ts:
+(pass) local Workspace product data updates Templates with many fields [6.67ms]
+(pass) Template validation keeps local table shape constraints [0.52ms]
+(pass) authenticated Template create/list routes use the authorized Workspace product store [102.84ms]
+
+src/localDocumentDeletion.bun.test.ts:
+(pass) terminal Document deletion crosses the adapter and Fetch application without affecting other product data [195.17ms]
+
+src/localExtractionQueue.bun.test.ts:
+(pass) the local extraction queue notifies asynchronous handlers without delaying submission scheduling [0.38ms]
+(pass) the local extraction queue does not dispatch a retry before its not-before time [0.13ms]
+(pass) the local extraction queue bounds active handlers and keeps only metadata pending [1.39ms]
+(pass) the local extraction queue rotates Workspaces while preserving FIFO inside each Workspace [2.39ms]
+(pass) the local extraction queue deduplicates the same job attempt [0.12ms]
+(pass) the local extraction queue pauses and resumes dispatch without losing pending work [0.07ms]
+(pass) the local extraction queue leaves overflow in the durable store for reconciliation [0.04ms]
+(pass) closing the local extraction queue stops new claims and waits only for active handlers [0.17ms]
+(pass) gateway eligibility keeps serial waiters out of global permits and lets another Workspace run [0.18ms]
+(pass) drained Workspaces request targeted durable refill [1.21ms]
+
+src/localWorkspaceProductStore.bun.test.ts:
+(pass) Template routes reject sessions without accepted Workspace membership before product routing [161.14ms]
+
+src/localExtractionRunner.bun.test.ts:
+(pass) the local extraction runner completes a queued job with normalized results and Source file cleanup [15.83ms]
+(pass) the local extraction runner resolves current model settings for each extraction attempt [11.51ms]
+(pass) the local extraction runner records durable failures for missing Source files and model errors [11.35ms]
+(pass) a Source file cleanup failure leaves completed results intact [10.75ms]
+
+src/localExtractionRunnerRecovery.bun.test.ts:
+(pass) runner startup recovers queued jobs across local Workspace product stores [16.89ms]
+(pass) runner startup requeues stale processing work and stops jobs that exhaust their retry attempts [11.17ms]
+(pass) recovery selects ready queued jobs ahead of older deferred retries [10.44ms]
+
+src/localWorkspaceProductStore.bun.test.ts:
+(pass) authenticated local Document submission queues the selected Template and notifies the local runner [100.05ms]
+
+src/localExtractionRunnerRecovery.bun.test.ts:
+(pass) runner retries transient model failures within bounds and protects terminal jobs from duplicate attempts [13.07ms]
+(pass) runner schedules a retry no earlier than the configured retry delay [9.97ms]
+
+src/localWorkspaceProductStore.bun.test.ts:
+(pass) local Document submission removes a written Source file when product job creation fails [91.47ms]
+
+src/localJobConditionalPolling.bun.test.ts:
+(pass) individual job reads use validators and hydrate results only for changed completed jobs [58.53ms]
+(pass) accepted submissions direct clients to the job resource and initial delay [64.03ms]
+
+src/localWorkspaceProductStore.bun.test.ts:
+(pass) local Document submission fails the queued job and retains its Source file when scheduling fails [98.46ms]
+(pass) local Document submission rejects unsafe input before Source file storage [93.88ms]
+
+src/localJobExport.bun.test.ts:
+(pass) job export returns a best-effort authenticated workbook for terminal jobs [138.23ms]
+
+src/localWorkspaceProductStore.bun.test.ts:
+(pass) known oversized bodies use the same authenticated preflight for sessions and Workspace API keys [90.94ms]
+
+src/localWorkspaceProductStoreRegistry.bun.test.ts:
+(pass) the Workspace product-store registry reuses one owner and evicts only idle owners [18.62ms]
+(pass) registry invalidation waits for leases, closes once, and prevents reopening [8.76ms]
+(pass) critical pressure evicts idle owners without closing an actively leased store [10.86ms]
+(pass) Workspace product stores apply the safe SQLite policy and focused indexes [5.96ms]
+
+src/retireGlobalModelConfiguration.bun.test.ts:
+(pass) cutover removes only the legacy file and reports ignored variable names without their values [1.40ms]
+
+src/testSupport/backendTestEvidence.bun.test.ts:
+(pass) backend test evidence > summarizes loaded LCOV modules and names production modules with no record [0.14ms]
+(pass) backend test evidence > excludes non-production LCOV records from the production coverage gate [0.03ms]
+(pass) backend test evidence > rejects coverage below the checked line or function baseline [0.05ms]
+(pass) backend test evidence > redacts sensitive values before diagnostics become artifacts [0.03ms]
+
+src/testSupport/independentChecks.bun.test.ts:
+(pass) aggregate agent checks start every independent check and retain a failing status [0.14ms]
+
+src/localJobPagination.bun.test.ts:
+(pass) the Document adapter traverses stable, opaque, search-bound job pages without duplicates [67.39ms]
+
+src/localJobSearch.bun.test.ts:
+(pass) the Document adapter searches one Workspace's stable job metadata and returns its unfiltered total [82.17ms]
+
+src/testSupport/localRuntimeProcess.bun.test.ts:
+(pass) smoke startup failures include bounded readiness diagnostics [241.19ms]
+
+src/testSupport/packageHygiene.bun.test.ts:
+(pass) Bun package hygiene > normalizes and sorts a portable production license inventory [0.32ms]
+(pass) Bun package hygiene > accepts an empty production audit and rejects actionable advisories [0.06ms]
+(pass) Bun package hygiene > declares only non-mutating hygiene commands and renders actionable evidence [0.09ms]
+(pass) Bun package hygiene > covers every actual sensitive package transition and records unchanged boundaries [0.07ms]
+(pass) Bun package hygiene > keeps complete package patches raw and publishes bounded file metadata [0.10ms]
+(pass) Bun package hygiene > renders two clean worktrees, offline proof, global links, native smoke, and disk evidence [1.04ms]
+
+src/workspaceModelAttempt.bun.test.ts:
+(pass) each claimed attempt checks configuration before reading Source bytes, without gateway retries or outcomes [11.22ms]
+(pass) an in-flight attempt keeps its configuration snapshot when the Workspace is cleared [9.77ms]
+
+src/localLiveDocumentDeletion.bun.test.ts:
+(pass) live Document deletion aborts and drains only its target job before erasure [61.16ms]
+
+src/workspaceModelConfiguration.bun.test.ts:
+(pass) Workspace storage is lazy, encrypted, revision-safe across clear/recreate, and persistent [7.91ms]
+(pass) credential failure preserves presence, redacts every representation, and permits explicit repair [0.99ms]
+(pass) complete structural validation trims fields and rejects unsafe URLs, partial values, and managed files [0.22ms]
+
+src/localLiveUpdateBunServer.bun.test.ts:
+(pass) the Bun server keeps a bounded receive-only Workspace socket and delivers lifecycle messages [29.42ms]
+
+src/localLiveUpdateHub.bun.test.ts:
+(pass) the local live update hub isolates Workspace broadcasts and strips private job data [0.11ms]
+(pass) the local live update hub closes every Workspace connection during forced shutdown [0.08ms]
+(pass) the live update hub classifies delivery, backpressure, drops, failures, and drain [0.17ms]
+
+src/localLiveUpdateUpgrade.bun.test.ts:
+(pass) local live updates require an accepted session Workspace and reject API keys [0.18ms]
+
+src/localMailSink.bun.test.ts:
+(pass) the Local mail sink records transactional messages in a daily JSONL file and logs their action link [0.84ms]
+
+src/localMemoryPressure.bun.test.ts:
+(pass) the runtime memory-pressure listener forwards supported levels and removes itself idempotently [0.25ms]
+(pass) server composition owns exactly one listener and removes it in recurring-work shutdown [0.13ms]
+
+src/workspaceModelConfigurationHttp.bun.test.ts:
+(pass) session-only, role-redacted configuration CRUD uses conditional, write-only, no-store responses [9.32ms]
+(pass) blank and unreadable configurations fail admission before parsing or creating a Source/job, and remain repairable [8.34ms]
+(pass) connection testing sends one minimal POST, never persists, and can conditionally reuse a saved credential [6.57ms]
+(pass) connection test classifies gateway failures without exposing upstream messages or retrying [0.31ms]
+
+ 246 pass
+ 0 fail
+ 1153 expect() calls
+Ran 246 tests across 67 files. [4.25s]
+$ bun test src/localRuntimeSmoke.bun.test.ts --isolate --max-concurrency=1 --retry=0 --no-orphans
+bun test v1.4.1 (4661e494f)
+
+src/localRuntimeSmoke.bun.test.ts:
+(pass) the Bun server supports the complete local product path [448.02ms]
+
+ 1 pass
+ 0 fail
+ 34 expect() calls
+Ran 1 test across 1 file. [455.00ms]
+$ bunx vitest run
+
+ RUN  v4.1.10 /Users/alexwhitehouse/Documents/local-document-extraction/frontend
+
+
+ Test Files  19 passed (19)
+      Tests  261 passed (261)
+   Start at  00:27:45
+   Duration  4.24s (transform 1.82s, setup 1.21s, import 2.63s, tests 9.10s, environment 8.69s)
+
+$ bun scripts/runFrontendCoverage.js
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90m/Users/alexwhitehouse/Documents/local-document-extraction/frontend[39m
+      [2mCoverage enabled with [22m[33mv8[39m
+
+ [32m✓[39m src/lib/workspaceSelection.test.js [2m([22m[2m54 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/features/documents/useDocumentReconciliation.test.jsx [2m([22m[2m1 test[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m src/features/documents/documentReconciliation.test.js [2m([22m[2m19 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+ [32m✓[39m src/features/documents/ExtractionResultDisplay.test.jsx [2m([22m[2m6 tests[22m[2m)[22m[32m 153[2mms[22m[39m
+ [32m✓[39m src/features/documents/DocumentContextList.test.jsx [2m([22m[2m6 tests[22m[2m)[22m[33m 486[2mms[22m[39m
+     [33m[2m✓[22m[39m windows long lists, preserves offscreen selections, and navigates to selected rows [33m 347[2mms[22m[39m
+ [32m✓[39m src/features/documents/useDocumentController.live-updates.test.jsx [2m([22m[2m22 tests[22m[2m)[22m[33m 527[2mms[22m[39m
+ [32m✓[39m src/features/workspaces/WorkspaceModelConfiguration.test.jsx [2m([22m[2m9 tests[22m[2m)[22m[33m 661[2mms[22m[39m
+ [32m✓[39m src/test/setupIsolation.test.jsx [2m([22m[2m2 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ [32m✓[39m src/lib/completedDocumentCache.test.js [2m([22m[2m8 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/lib/appRuntime.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 48[2mms[22m[39m
+ [32m✓[39m src/features/templates/TemplateFieldEditor.test.jsx [2m([22m[2m4 tests[22m[2m)[22m[33m 872[2mms[22m[39m
+ [32m✓[39m src/lib/toastNotifications.test.js [2m([22m[2m10 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/test/frontendCoverage.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/features/documents/documentRequestAdapter.test.js [2m([22m[2m3 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/lib/byteBoundedCache.test.js [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/features/templates/templateFields.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/App.admin.test.jsx [2m([22m[2m22 tests[22m[2m)[22m[33m 2060[2mms[22m[39m
+ [32m✓[39m src/App.auth.test.jsx [2m([22m[2m27 tests[22m[2m)[22m[33m 2343[2mms[22m[39m
+ [32m✓[39m src/App.workspace-toasts.test.jsx [2m([22m[2m58 tests[22m[2m)[22m[33m 4689[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m19 passed[39m[22m[90m (19)[39m
+[2m      Tests [22m [1m[32m261 passed[39m[22m[90m (261)[39m
+[2m   Start at [22m 00:27:49
+[2m   Duration [22m 6.08s[2m (transform 1.94s, setup 1.48s, import 2.76s, tests 11.98s, environment 8.93s)[22m
+
+[34m % [39m[2mCoverage report from [22m[33mv8[39m
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   78.54 |    74.82 |   72.71 |   80.99 |                   
+ src               |   85.89 |    89.41 |   76.92 |   85.43 |                   
+  App.jsx          |   87.01 |    91.56 |   76.92 |   86.57 | ...50,557-575,749 
+  main.jsx         |       0 |        0 |     100 |       0 | 7-11              
+ ...features/admin |   92.16 |    72.37 |   89.09 |   93.33 |                   
+  ...AdminPage.jsx |   97.43 |    82.52 |   96.55 |    97.4 | 149,410           
+  ...Controller.js |    89.2 |    58.97 |   80.76 |   90.97 | ...90,203,208,251 
+ src/features/auth |   75.81 |    78.32 |   76.31 |   75.82 |                   
+  AuthScreen.jsx   |   80.76 |     87.5 |      75 |   80.76 | 64-81,235-237     
+  ...Controller.js |   75.13 |    73.68 |   76.92 |   75.13 | ...28,256-295,333 
+ ...atures/context |   42.85 |        0 |      75 |   42.85 |                   
+  ...opyButton.jsx |   33.33 |        0 |   66.66 |   33.33 | 5-9               
+  ...xtSidebar.jsx |     100 |      100 |     100 |     100 |                   
+ ...ures/documents |   88.13 |    82.21 |   87.44 |   90.42 |                   
+  ...ntextList.jsx |      84 |    81.13 |      75 |   85.32 | ...61,280,425-434 
+  DocumentPage.jsx |   91.66 |    66.66 |      75 |   91.66 | 21                
+  ...loadModal.jsx |   80.95 |    85.71 |      70 |   78.94 | 46,74,105,146     
+  ...ltDisplay.jsx |   92.59 |    86.11 |     100 |    92.3 | 7,236,297,316-319 
+  ...nciliation.js |   90.78 |    85.33 |     100 |   95.95 | ...47-448,470-471 
+  ...estAdapter.js |   84.05 |       75 |    92.3 |   83.82 | ...,71,93,105,114 
+  ...Controller.js |   85.71 |    78.53 |   80.88 |   87.37 | ...76,590,597,601 
+  ...nciliation.js |     100 |      100 |     100 |     100 |                   
+ ...eatures/layout |     100 |    98.59 |     100 |     100 |                   
+  MainLayout.jsx   |     100 |    98.59 |     100 |     100 | 95                
+ ...yout/prototype |       0 |        0 |       0 |       0 |                   
+  ...ariations.jsx |       0 |        0 |       0 |       0 | 6-50              
+  ...Prototype.jsx |       0 |        0 |       0 |       0 | 18-147            
+  ...eControls.jsx |       0 |        0 |       0 |       0 | 5-25              
+  ...ypeShared.jsx |       0 |        0 |       0 |       0 | 4-21              
+  ...ariations.jsx |       0 |        0 |       0 |       0 | 5-44              
+  ...ariations.jsx |       0 |        0 |       0 |       0 | 6-48              
+  sampleData.js    |       0 |        0 |       0 |       0 | 2-57              
+ ...atures/profile |   58.33 |    31.81 |      40 |   58.33 |                   
+  ProfileMenu.jsx  |   58.33 |    31.81 |      40 |   58.33 | 49-116,156,164    
+ ...ures/templates |   72.98 |    69.23 |   72.26 |   73.18 |                   
+  ...ntextList.jsx |   54.54 |    42.85 |   66.66 |   54.54 | 19,43-46,71       
+  ...eldEditor.jsx |   56.93 |    65.59 |   59.32 |   56.25 | ...05-408,588-606 
+  ...JsonModal.jsx |     100 |      100 |     100 |     100 |                   
+  TemplatePage.jsx |      75 |      100 |   66.66 |      75 | 54                
+  ...lateFields.js |   84.74 |    76.57 |     100 |   84.48 | ...12,280,314,326 
+  ...Controller.js |   76.81 |    56.81 |   78.57 |   77.31 | ...91-504,535-536 
+ ...res/workspaces |   86.31 |    75.54 |   93.49 |   86.07 |                   
+  ...ntextList.jsx |   84.61 |     92.3 |   85.71 |   84.61 | 22,123            
+  ...iguration.jsx |     100 |    85.05 |     100 |     100 | ...13,218-236,263 
+  ...pacePages.jsx |   85.71 |    73.56 |   94.11 |   85.71 | ...15,419,426,430 
+  ...Controller.js |   83.29 |    67.74 |   88.46 |   83.46 | ...1141-1144,1157 
+  ...figuration.js |   97.47 |    90.76 |     100 |   98.83 | 128               
+  ...estAdapter.js |   84.61 |       55 |     100 |   84.61 | 5,21,39,43        
+ src/lib           |   92.81 |    82.76 |   94.84 |   92.59 |                   
+  appRuntime.js    |   91.83 |    86.53 |     100 |   91.48 | 50,116,121,145    
+  authClient.js    |       0 |        0 |       0 |       0 | 6-25              
+  ...undedCache.js |     100 |      100 |     100 |     100 |                   
+  ...umentCache.js |   93.58 |    85.24 |     100 |   93.65 | 74,104,115,121    
+  ...ifications.js |   92.15 |    83.72 |   90.62 |   92.15 | 8,30-31,138       
+  ...eSelection.js |   98.49 |    85.21 |     100 |   98.48 | 118,319           
+-------------------|---------|----------|---------|---------|-------------------
+# Frontend coverage evidence
+
+- Runtime: Bun 1.4.1 (4661e494f052c83c80dade1318e5710238340be6)
+- Platform: darwin arm64
+- Test exit code: 0
+- Coverage gate: PASS
+
+| Metric | Current | Checked baseline |
+| --- | ---: | ---: |
+| Lines | 80.99% | 80.50% |
+| Functions | 72.71% | 72.00% |
+| Branches | 74.82% | 73.20% |
+
+## Production modules absent from LCOV (0)
+
+None.
+
+## Production modules with zero covered lines (9)
+
+- `src/features/layout/prototype/DocumentVariations.jsx`
+- `src/features/layout/prototype/LayoutPrototype.jsx`
+- `src/features/layout/prototype/PrototypeControls.jsx`
+- `src/features/layout/prototype/PrototypeShared.jsx`
+- `src/features/layout/prototype/TemplateVariations.jsx`
+- `src/features/layout/prototype/WorkspaceVariations.jsx`
+- `src/features/layout/prototype/sampleData.js`
+- `src/lib/authClient.js`
+- `src/main.jsx`
+
+Thresholds are read from `frontend/coverage-baseline.json`; execution never auto-updates or lowers them.
+
+Frontend coverage artifacts: .scratch/ci/frontend
+$ bun run --cwd frontend build
+$ bunx vite build
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 136 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:   0.30 kB
+dist/assets/index-BN22GKXv.css   69.97 kB │ gzip:  13.67 kB
+dist/assets/index-CnMeBaJH.js   376.91 kB │ gzip: 111.90 kB
+
+✓ built in 93ms

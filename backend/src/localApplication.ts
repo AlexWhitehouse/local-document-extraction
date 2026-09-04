@@ -5,7 +5,7 @@ import { HttpError } from "./lib/http";
 import { newId, nowIso } from "./lib/ids";
 import { InvalidPdfSourceFileError, countPdfSourceFilePages } from "./lib/sourceFilePageCount";
 import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "./lib/validation";
-import { buildJobExportWorkbook } from "./jobExportWorkbook";
+import { buildJobExportInWorker } from "./localJobExportWorker";
 import { assertKnownDocumentRequestBodyLength } from "./localDocumentBodyLimit";
 import { parseLocalMultipartSubmission } from "./localMultipartSubmission";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
@@ -43,6 +43,7 @@ import {
 
 export const DEFAULT_MAX_SOURCE_FILE_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_JOB_PAGE_SIZE = 50;
+let activeJobExports = 0;
 
 export function createLocalApplication({
   auth,
@@ -469,7 +470,7 @@ async function handleLocalDocumentSubmission({
         if (!template) {
           throw new HttpError(404, "template_not_found", "Template not found");
         }
-        if (temporaryPath) sourceBytes = await Bun.file(temporaryPath).arrayBuffer();
+        if (temporaryPath && sourceMimeType === "application/pdf") sourceBytes = await Bun.file(temporaryPath).arrayBuffer();
         const sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!);
         const templateFieldCount = productStore.getTemplate(template.template_id)?.fields.length ?? 0;
         const jobId = newId("job");
@@ -756,17 +757,19 @@ async function handleLocalJobExport({
     return authorization.response;
   }
 
-  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore }) => {
+  if (activeJobExports >= 2) return Response.json({ error: { code: "export_capacity_unavailable", message: "Two exports are already running; try again shortly" } }, { status: 503, headers: { "retry-after": "2" } });
+  activeJobExports += 1;
+  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore, signal }) => {
     try {
       const jobIds = validateJobExportPayload(
         parseJsonBody<unknown>(await request.text()),
       );
-      const jobs = jobIds.flatMap((jobId) => {
-        const job = productStore.getExtractionJobExport(jobId);
-        return job && (job.status === "completed" || job.status === "failed")
-          ? [job]
-          : [];
-      });
+      let jobs;
+      try { jobs = productStore.getExtractionJobExports(jobIds); }
+      catch (error) {
+        if (error instanceof RangeError) throw new HttpError(413, "export_too_large", error.message);
+        throw error;
+      }
       const skippedCount = jobIds.length - jobs.length;
       if (!jobs.length) {
         throw new HttpError(
@@ -776,11 +779,11 @@ async function handleLocalJobExport({
         );
       }
 
-      const exportWorkbook = await buildJobExportWorkbook({
+      const exportWorkbook = await buildJobExportInWorker({
         jobs,
         workspaceName: authorization.workspace.name,
-      });
-      return new Response(Uint8Array.from(exportWorkbook.bytes).buffer, {
+      }, AbortSignal.any([signal, request.signal]));
+      return new Response(exportWorkbook.bytes, {
         status: 200,
         headers: {
           "cache-control": "no-store",
@@ -802,7 +805,7 @@ async function handleLocalJobExport({
         { status: 500 },
       );
     }
-  }).catch(workspaceProductDataAccessErrorResponse);
+  }).catch(workspaceProductDataAccessErrorResponse).finally(() => { activeJobExports -= 1; });
 }
 
 function extractionJobEntityTag(
@@ -861,6 +864,7 @@ function validateJobExportPayload(input: unknown): string[] {
     throw new HttpError(400, "invalid_job_export", "Job export must be an object");
   }
   const jobIds = (input as { job_ids?: unknown }).job_ids;
+  if (Array.isArray(jobIds) && jobIds.length > 500) throw new HttpError(413, "export_too_large", "Select at most 500 Documents per export");
   if (!Array.isArray(jobIds) || jobIds.length === 0) {
     throw new HttpError(
       400,

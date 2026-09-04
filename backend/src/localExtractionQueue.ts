@@ -41,6 +41,9 @@ export function createLocalExtractionQueue({
   scheduleTimer = (handler, delayMs) => setTimeout(handler, delayMs),
   cancelTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
   onHandlerError = (error) => console.error("Local extraction queue handler failed", error),
+  getWorkspaceMaxConcurrent = () => Number.MAX_SAFE_INTEGER,
+  onWorkspaceIdle,
+  onCapacityAvailable,
 }: {
   maxBuffered?: number;
   maxConcurrent?: number;
@@ -48,6 +51,9 @@ export function createLocalExtractionQueue({
   scheduleTimer?: (handler: () => void, delayMs: number) => unknown;
   cancelTimer?: (timer: unknown) => void;
   onHandlerError?: (error: unknown, job: LocalQueuedExtractionJob) => void;
+  getWorkspaceMaxConcurrent?: (workspaceId: string) => number;
+  onWorkspaceIdle?: (workspaceId: string) => void | Promise<void>;
+  onCapacityAvailable?: () => void | Promise<void>;
 } = {}): LocalExtractionQueue {
   let currentMaxConcurrent = Number.isSafeInteger(maxConcurrent) && maxConcurrent > 0
     ? maxConcurrent
@@ -65,12 +71,15 @@ export function createLocalExtractionQueue({
   const idleWaiters: Array<() => void> = [];
   let accepting = true;
   let active = 0;
+  let pending = 0;
+  let overflowed = false;
+  const activeByWorkspace = new Map<string, number>();
   let durableDeferrals = 0;
   let deferredTimer: unknown = null;
   let deferredTimerDueAt: number | null = null;
 
   const settleIdle = () => {
-    if (active !== 0 || pendingCount(workspaceQueues) !== 0 || deferredJobs.length !== 0) return;
+    if (active !== 0 || pending !== 0 || deferredJobs.length !== 0) return;
     for (const resolve of idleWaiters.splice(0)) resolve();
   };
 
@@ -82,6 +91,7 @@ export function createLocalExtractionQueue({
   const enqueueReady = (job: LocalQueuedExtractionJob) => {
     const queue = workspaceQueues.get(job.workspace_id) ?? [];
     queue.push(job);
+    pending += 1;
     workspaceQueues.set(job.workspace_id, queue);
     if (!readyWorkspaceSet.has(job.workspace_id)) {
       readyWorkspaceSet.add(job.workspace_id);
@@ -91,8 +101,16 @@ export function createLocalExtractionQueue({
 
   const pump = () => {
     if (handlers.size === 0) return;
-    while (active < currentMaxConcurrent && readyWorkspaces.length > 0) {
+    let skipped = 0;
+    while (active < currentMaxConcurrent && readyWorkspaces.length > skipped) {
       const workspaceId = readyWorkspaces.shift()!;
+      const workspaceActive = activeByWorkspace.get(workspaceId) ?? 0;
+      if (workspaceActive >= getWorkspaceMaxConcurrent(workspaceId)) {
+        readyWorkspaces.push(workspaceId);
+        skipped += 1;
+        continue;
+      }
+      skipped = 0;
       readyWorkspaceSet.delete(workspaceId);
       const queue = workspaceQueues.get(workspaceId);
       const job = queue?.shift();
@@ -100,6 +118,7 @@ export function createLocalExtractionQueue({
         workspaceQueues.delete(workspaceId);
         continue;
       }
+      pending -= 1;
       if (queue!.length > 0) {
         readyWorkspaceSet.add(workspaceId);
         readyWorkspaces.push(workspaceId);
@@ -108,14 +127,25 @@ export function createLocalExtractionQueue({
       }
 
       active += 1;
+      activeByWorkspace.set(workspaceId, workspaceActive + 1);
       void Promise.all(Array.from(handlers, (handler) => handler(job)))
         .catch((error) => onHandlerError(error, job))
         .finally(() => {
           active -= 1;
+          const remaining = (activeByWorkspace.get(workspaceId) ?? 1) - 1;
+          if (remaining) activeByWorkspace.set(workspaceId, remaining);
+          else activeByWorkspace.delete(workspaceId);
           knownJobs.delete(jobKey(job));
           pump();
           settleIdle();
           settleClose();
+          if (accepting && !activeByWorkspace.has(workspaceId) && !workspaceQueues.has(workspaceId)) {
+            void Promise.resolve().then(() => onWorkspaceIdle?.(workspaceId)).catch((error) => onHandlerError(error, job));
+          }
+          if (accepting && overflowed && pending + deferredJobs.length < Math.max(1, normalizedMaxBuffered / 2)) {
+            overflowed = false;
+            void Promise.resolve().then(() => onCapacityAvailable?.()).catch((error) => onHandlerError(error, job));
+          }
         });
     }
   };
@@ -155,6 +185,7 @@ export function createLocalExtractionQueue({
         deferredTimerDueAt = null;
         deferredJobs.splice(0);
         workspaceQueues.clear();
+        pending = 0;
         readyWorkspaces.splice(0);
         readyWorkspaceSet.clear();
         knownJobs.clear();
@@ -170,8 +201,9 @@ export function createLocalExtractionQueue({
       }
       const key = jobKey(job);
       if (knownJobs.has(key)) return;
-      if (pendingCount(workspaceQueues) + deferredJobs.length >= normalizedMaxBuffered) {
+      if (pending + deferredJobs.length >= normalizedMaxBuffered) {
         durableDeferrals += 1;
+        overflowed = true;
         return;
       }
       knownJobs.add(key);
@@ -199,7 +231,7 @@ export function createLocalExtractionQueue({
       maxBuffered: normalizedMaxBuffered,
       maxConcurrent: currentMaxConcurrent,
       oldestEnqueuedAt: oldestEnqueuedAt(workspaceQueues, deferredJobs),
-      pending: pendingCount(workspaceQueues),
+      pending,
       readyWorkspaces: readyWorkspaces.length,
     }),
     subscribe: (handler) => {
@@ -209,7 +241,7 @@ export function createLocalExtractionQueue({
       return () => handlers.delete(handler);
     },
     waitForIdle: async () => {
-      if (active === 0 && pendingCount(workspaceQueues) === 0 && deferredJobs.length === 0) return;
+      if (active === 0 && pending === 0 && deferredJobs.length === 0) return;
       await new Promise<void>((resolve) => idleWaiters.push(resolve));
     },
   };
@@ -217,12 +249,6 @@ export function createLocalExtractionQueue({
 
 function jobKey(job: LocalQueuedExtractionJob): string {
   return `${job.workspace_id}\u0000${job.job_id}\u0000${job.attempt ?? 1}`;
-}
-
-function pendingCount(workspaceQueues: Map<string, LocalQueuedExtractionJob[]>): number {
-  let total = 0;
-  for (const queue of workspaceQueues.values()) total += queue.length;
-  return total;
 }
 
 function oldestEnqueuedAt(

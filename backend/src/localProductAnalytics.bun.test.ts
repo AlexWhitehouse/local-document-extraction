@@ -153,3 +153,25 @@ test("local product analytics warnings do not fail the product operation that em
     }),
   ]);
 });
+
+test("analytics batches bursts and flushes events arriving during a write", async () => {
+  const batches: string[] = [];
+  let release!: () => void;
+  const firstWrite = new Promise<void>((resolve) => { release = resolve; });
+  const analytics = createLocalProductAnalytics({
+    stateDirectory: "/synthetic",
+    now: () => new Date("2026-09-05T12:00:00.000Z"),
+    append: async (_path, content) => {
+      batches.push(content);
+      if (batches.length === 1) await firstWrite;
+    },
+  });
+  const event = { type: "template_created", workspaceId: "workspace", templateId: "template", templateVersion: 1, status: "active", fieldCount: 1 } as const;
+  for (let i = 0; i < 100; i++) analytics.record(event);
+  await Bun.sleep(1);
+  analytics.record(event);
+  release();
+  await analytics.flush();
+  expect(batches).toHaveLength(2);
+  expect(batches.join("").trim().split("\n")).toHaveLength(101);
+});

@@ -39,7 +39,7 @@ type TableAnswer = {
 };
 
 export type JobExportWorkbook = {
-  bytes: Uint8Array;
+  bytes: Uint8Array<ArrayBuffer>;
   filename: string;
 };
 

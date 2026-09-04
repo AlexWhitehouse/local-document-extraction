@@ -114,7 +114,9 @@ export function createLocalResourceController({
   let healthySamples = 0;
   let memoryPressureRecoveryPermits = currentPermits;
   let memoryPressureSignaledAtMs: number | null = null;
-  let storageSampledAt = 0;
+  let storageSampledAt = Number.NEGATIVE_INFINITY;
+  let capacitySampledAt = Number.NEGATIVE_INFINITY;
+  let capacitySampling: Promise<void> | null = null;
   let completedJobs = 0;
   const completedAt: number[] = [];
   const gateway = { failed: 0, success: 0, throttled: 0, timeout: 0 };
@@ -261,12 +263,20 @@ export function createLocalResourceController({
     return sampling;
   };
 
+  // Admission needs free disk space, not an inventory of historical Sources.
+  // Share an in-flight sample so simultaneous uploads see the same fresh value.
+  const refreshDiskCapacity = () => {
+    if (capacitySampling) return capacitySampling;
+    capacitySampling = (async () => {
+      const fileSystem = await statfs(stateDirectory).catch(() => null);
+      if (fileSystem) state.disk.availableBytes = Number(fileSystem.bavail) * Number(fileSystem.bsize);
+      capacitySampledAt = now();
+    })().finally(() => { capacitySampling = null; });
+    return capacitySampling;
+  };
+
   const refreshStorageSample = async () => {
-    storageSampledAt = now();
-    const fileSystem = await statfs(stateDirectory).catch(() => null);
-    if (fileSystem) {
-      state.disk.availableBytes = Number(fileSystem.bavail) * Number(fileSystem.bsize);
-    }
+    await refreshDiskCapacity();
     const [sourceBytes, databaseBytes] = await Promise.all([
       directoryBytes(join(stateDirectory, "source-files")),
       databaseStorageBytes(join(stateDirectory, "data", "workspaces")),
@@ -274,6 +284,7 @@ export function createLocalResourceController({
     state.disk.sourceBytes = sourceBytes;
     state.disk.sqliteBytes = databaseBytes.sqliteBytes;
     state.disk.walBytes = databaseBytes.walBytes;
+    storageSampledAt = now();
   };
 
   return {
@@ -281,7 +292,7 @@ export function createLocalResourceController({
       const pressureLevel = state.memoryPressure.activeLevel;
       if (pressureLevel === "critical") return false;
       if (pressureLevel === "warning" && requestBytes >= normalizedLargeSubmissionBytes) return false;
-      if (now() - storageSampledAt >= 2_000) await refreshStorageSample();
+      if (capacitySampling || now() - capacitySampledAt >= 2_000) await refreshDiskCapacity();
       const usage = process.memoryUsage();
       const withinMemory = usage.rss + Math.max(0, requestBytes) < totalMemoryBytes * memoryLimitRatio;
       const availableBytes = state.disk.availableBytes;

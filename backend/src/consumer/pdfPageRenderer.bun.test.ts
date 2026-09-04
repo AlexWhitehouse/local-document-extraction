@@ -2,7 +2,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "bun:test";
 
-import { renderPdfPagesToPng } from "./pdfPageRenderer";
+import { renderPdfPagesToPng, iteratePdfPagesToPng, PdfPreparationLimitError } from "./pdfPageRenderer";
 
 // Mozilla PDF.js test fixture: test/pdfs/jbig2_symbol_offset.pdf
 // MD5: 6b22a0f838008fa4d8cb5b40ba095c48
@@ -11,6 +11,12 @@ const JBIG2_PDF_BASE64 = [
 ].join("");
 
 describe("renderPdfPagesToPng", () => {
+  it("stops preparation at the encoded-byte limit", async () => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage([100, 100]);
+    const pages = iteratePdfPagesToPng(Uint8Array.from(await pdf.save()).buffer, undefined, 1);
+    await expect(pages.next()).rejects.toBeInstanceOf(PdfPreparationLimitError);
+  });
   it("renders JBIG2-compressed images", async () => {
     const sourceBytes = Uint8Array.from(
       Buffer.from(JBIG2_PDF_BASE64, "base64"),
