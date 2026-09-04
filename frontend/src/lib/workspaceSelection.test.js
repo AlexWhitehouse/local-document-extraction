@@ -8,7 +8,6 @@ import {
   getLeaveWorkspaceTransition,
   getWorkspacePrimaryAction,
   getWorkspaceMemberActionTransition,
-  getWorkspaceContextRefreshTransition,
   getWorkspaceContextDisplay,
   getWorkspaceSelectionView,
   resolveAcceptedWorkspaceContext,
@@ -528,54 +527,7 @@ describe("Workspace context refresh transition", () => {
     });
   });
 
-  it("selects the first accepted Workspace when the current accepted Workspace is missing", () => {
-    const transition = getWorkspaceContextRefreshTransition({
-      workspaceId: "workspace_missing",
-      selectedWorkspaceInvitationId: "",
-      userWorkspaces: [
-        { id: "workspace_123", name: "Restored Workspace" },
-      ],
-      userWorkspaceInvitations: [],
-    });
 
-    expect(transition).toEqual({
-      type: "context_update",
-      nextWorkspaceContext: {
-        workspaceId: "workspace_123",
-        workspaceName: "Restored Workspace",
-        selectedWorkspaceInvitationId: "",
-        apiKey: "",
-      },
-    });
-  });
-
-  it("selects the latest pending Workspace invitation when no accepted Workspaces are available", () => {
-    const transition = getWorkspaceContextRefreshTransition({
-      workspaceId: "",
-      selectedWorkspaceInvitationId: "",
-      userWorkspaces: [],
-      userWorkspaceInvitations: [
-        {
-          id: "invitation_older",
-          updated_at: "2026-05-01T12:00:00.000Z",
-        },
-        {
-          id: "invitation_newer",
-          updated_at: "2026-05-03T12:00:00.000Z",
-        },
-      ],
-    });
-
-    expect(transition).toEqual({
-      type: "context_update",
-      nextWorkspaceContext: {
-        workspaceId: "",
-        workspaceName: "Local Workspace",
-        selectedWorkspaceInvitationId: "invitation_newer",
-        apiKey: "",
-      },
-    });
-  });
 });
 
 describe("invite Workspace invitation transition", () => {

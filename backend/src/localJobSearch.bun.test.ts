@@ -135,7 +135,7 @@ function createSearchableJobs({ stateDirectory, workspaceId }: { stateDirectory:
       completedAt: "2026-07-11T12:02:00.000Z",
       modelName: "test-model",
       route: "test-route",
-      results: [{ field_id: "reference", status: "completed", answer: "COMPLETE", normalized_value: "COMPLETE", confidence: 1, evidence: null }],
+      results: [{ field_id: "reference", status: "ok", answer: "COMPLETE", normalized_value: "COMPLETE", confidence: 1, evidence: null }],
     });
   } finally {
     store.close();
@@ -175,7 +175,7 @@ function createIsolatedJob({ stateDirectory, workspaceId }: { stateDirectory: st
       route: "isolated-route",
       results: [{
         field_id: "value",
-        status: "completed",
+        status: "ok",
         answer: "ISOLATED",
         normalized_value: "ISOLATED",
         confidence: 1,

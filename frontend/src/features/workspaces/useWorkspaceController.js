@@ -66,7 +66,6 @@ export function useWorkspaceController({
   setBusy,
   onActivePageChange,
   onClearWorkspaceScopedData,
-  onClearCompletedDocumentCache,
 }) {
   const initialWorkspaceRef = useRef(loadPersistedWorkspace());
   const initialWorkspace = initialWorkspaceRef.current || {};
@@ -244,8 +243,8 @@ export function useWorkspaceController({
     return selection;
   }
 
-  function clearWorkspaceScopedData({ isSwitchingAcceptedWorkspace = false } = {}) {
-    onClearWorkspaceScopedData?.();
+  function clearWorkspaceScopedData({ isSwitchingAcceptedWorkspace = false, sessionEnded = false } = {}) {
+    onClearWorkspaceScopedData?.({ sessionEnded });
     workspaceUsersRequestRef.current += 1;
     setWorkspaceUsers([]);
     setIsLoadingWorkspaceUsers(isSwitchingAcceptedWorkspace);
@@ -264,9 +263,6 @@ export function useWorkspaceController({
       ? String(nextWorkspaceContext.workspaceId || "")
       : workspaceId;
     if (String(nextWorkspaceId || "") !== String(workspaceId || "")) {
-      if (String(workspaceId || "")) {
-        onClearCompletedDocumentCache?.();
-      }
       const nextSelectedWorkspaceInvitationId = Object.prototype.hasOwnProperty.call(
         nextWorkspaceContext,
         "selectedWorkspaceInvitationId",
@@ -401,7 +397,6 @@ export function useWorkspaceController({
         false,
       );
       if (String(data.workspace_id || "") !== String(workspaceId || "")) {
-        onClearCompletedDocumentCache?.();
         clearWorkspaceScopedData();
       }
       setWorkspaceId(data.workspace_id || "");
@@ -906,7 +901,7 @@ export function useWorkspaceController({
     setIsDeletingWorkspace(true);
     try {
       await workspaceRequests.deleteWorkspace(workspaceId);
-      onClearCompletedDocumentCache?.();
+      clearWorkspaceScopedData();
       setWorkspaceId("");
       setWorkspaceName("");
       setApiKey("");
@@ -987,11 +982,10 @@ export function useWorkspaceController({
   }
 
   function clearSessionWorkspaceData() {
-    onClearCompletedDocumentCache?.();
     setApiKey("");
     setWorkspaceId("");
     setWorkspaceName("");
-    clearWorkspaceScopedData();
+    clearWorkspaceScopedData({ sessionEnded: true });
     setUserWorkspaces([]);
     setUserWorkspaceInvitations([]);
     setSelectedWorkspaceInvitationId("");

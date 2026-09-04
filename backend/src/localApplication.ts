@@ -26,16 +26,18 @@ import type {
 import {
   createEphemeralLocalWorkspaceProductStoreRegistry,
   createLocalWorkspaceProductStoreRegistry,
-  LocalWorkspaceProductStoreRegistryError,
-  type LocalWorkspaceProductStoreLease,
   type LocalWorkspaceProductStoreRegistry,
 } from "./localWorkspaceProductStoreRegistry";
+import {
+  createLocalWorkspaceProductDataAccess,
+  LocalWorkspaceProductDataAccessError,
+  type LocalWorkspaceProductDataAccess,
+} from "./localWorkspaceProductDataAccess";
 import { createLocalSourceFileStore, type LocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceDeletion, type LocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import {
   createLocalWorkspaceProductOperations,
   LocalWorkspaceOperationError,
-  type LocalWorkspaceProductOperation,
   type LocalWorkspaceProductOperations,
 } from "./localWorkspaceProductOperations";
 
@@ -86,6 +88,9 @@ export function createLocalApplication({
   const localWorkspaceProductOperations = workspaceProductOperations ?? (stateDirectory && workspaceControl
     ? createLocalWorkspaceProductOperations()
     : null);
+  const localProductDataAccess = localProductStoreRegistry && localWorkspaceProductOperations
+    ? createLocalWorkspaceProductDataAccess({ registry: localProductStoreRegistry, operations: localWorkspaceProductOperations })
+    : null;
   const localWorkspaceDeletion = workspaceDeletion ?? (stateDirectory && localSourceFileStore && workspaceControl
     ? createLocalWorkspaceDeletion({
         sourceFileStore: localSourceFileStore,
@@ -135,7 +140,7 @@ export function createLocalApplication({
       }
       return handleWorkspaceModelConfiguration({
         request, workspaceId: decodeURIComponent(modelConfigurationMatch[1]!), test: Boolean(modelConfigurationMatch[2]),
-        auth, workspaceControl, stateDirectory, registry: localProductStoreRegistry, operations: localWorkspaceProductOperations, liveUpdateHub,
+        auth, workspaceControl, stateDirectory, access: localProductDataAccess!, liveUpdateHub,
       });
     }
 
@@ -206,97 +211,79 @@ export function createLocalApplication({
       }
 
       const productWorkspaceId = workspace.id;
-      let productOperation;
-      try {
-        productOperation = localWorkspaceProductOperations?.acquire({ workspaceId: productWorkspaceId });
-      } catch (error) {
-        return workspaceProductOperationErrorResponse(error);
-      }
-
-      const productStoreAcquisition = acquireWorkspaceProductStore({
-        operation: productOperation,
-        registry: localProductStoreRegistry!,
-        workspaceId: productWorkspaceId,
-      });
-      if ("response" in productStoreAcquisition) {
-        return productStoreAcquisition.response;
-      }
-      const productStoreLease = productStoreAcquisition.lease;
-      const productStore = productStoreLease.store;
-      try {
-        if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: productWorkspaceId })) {
-          productStore.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
-          workspaceControl.completeStarterTemplateBootstrap({ workspaceId: productWorkspaceId });
-        }
-        const templateId = templateMatch[1] ? decodeURIComponent(templateMatch[1]) : "";
-        if (templateId && request.method === "GET") {
-          const template = productStore.getTemplate(templateId);
-          if (!template) {
-            throw new HttpError(404, "not_found", "Template not found");
+      return localProductDataAccess!.run({ workspaceId: productWorkspaceId, mode: "create" }, async ({ store: productStore }) => {
+        try {
+          if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: productWorkspaceId })) {
+            productStore.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
+            workspaceControl.completeStarterTemplateBootstrap({ workspaceId: productWorkspaceId });
           }
-          return Response.json(template);
-        }
-        if (templateId && request.method === "PATCH") {
-          const patch = validateTemplatePayload(parseJsonBody(await request.text()), true);
-          const updated = productStore.updateTemplate({
-            templateId,
-            name: patch.name,
-            description: patch.description,
-            fields: patch.fields,
-            updatedAt: nowIso(),
-          });
-          if (!updated) {
-            throw new HttpError(404, "not_found", "Template not found");
+          const templateId = templateMatch[1] ? decodeURIComponent(templateMatch[1]) : "";
+          if (templateId && request.method === "GET") {
+            const template = productStore.getTemplate(templateId);
+            if (!template) {
+              throw new HttpError(404, "not_found", "Template not found");
+            }
+            return Response.json(template);
           }
-          recordLocalProductAnalytics(productAnalytics, {
-            type: "template_updated",
-            workspaceId: productWorkspaceId,
-            templateId: updated.template_id,
-            templateVersion: updated.version,
-            status: updated.status,
-            fieldCount: productStore.getTemplate(templateId)?.fields.length ?? 0,
-          });
-          return Response.json(updated);
-        }
-        if (templateId && request.method === "DELETE") {
-          const deleted = productStore.deleteTemplate({ templateId, deletedAt: nowIso() });
-          if (!deleted) {
-            throw new HttpError(404, "not_found", "Template not found");
+          if (templateId && request.method === "PATCH") {
+            const patch = validateTemplatePayload(parseJsonBody(await request.text()), true);
+            const updated = productStore.updateTemplate({
+              templateId,
+              name: patch.name,
+              description: patch.description,
+              fields: patch.fields,
+              updatedAt: nowIso(),
+            });
+            if (!updated) {
+              throw new HttpError(404, "not_found", "Template not found");
+            }
+            recordLocalProductAnalytics(productAnalytics, {
+              type: "template_updated",
+              workspaceId: productWorkspaceId,
+              templateId: updated.template_id,
+              templateVersion: updated.version,
+              status: updated.status,
+              fieldCount: productStore.getTemplate(templateId)?.fields.length ?? 0,
+            });
+            return Response.json(updated);
           }
-          return new Response(null, { status: 204 });
+          if (templateId && request.method === "DELETE") {
+            const deleted = productStore.deleteTemplate({ templateId, deletedAt: nowIso() });
+            if (!deleted) {
+              throw new HttpError(404, "not_found", "Template not found");
+            }
+            return new Response(null, { status: 204 });
+          }
+          if (!templateId && request.method === "GET") {
+            return Response.json({ templates: productStore.listTemplates() });
+          }
+          if (!templateId && request.method === "POST") {
+            const payload = validateTemplatePayload(parseJsonBody(await request.text()));
+            const created = productStore.createTemplate({
+              templateId: newId("tpl"),
+              name: payload.name!,
+              description: payload.description || null,
+              fields: payload.fields || [],
+              createdAt: nowIso(),
+            });
+            recordLocalProductAnalytics(productAnalytics, {
+              type: "template_created",
+              workspaceId: productWorkspaceId,
+              templateId: created.template_id,
+              templateVersion: created.version,
+              status: created.status,
+              fieldCount: payload.fields?.length ?? 0,
+            });
+            return Response.json(created, { status: 201 });
+          }
+          return Response.json({ error: { code: "not_found", message: "Route not found" } }, { status: 404 });
+        } catch (error) {
+          if (error instanceof HttpError) {
+            return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+          }
+          throw error;
         }
-        if (!templateId && request.method === "GET") {
-          return Response.json({ templates: productStore.listTemplates() });
-        }
-        if (!templateId && request.method === "POST") {
-          const payload = validateTemplatePayload(parseJsonBody(await request.text()));
-          const created = productStore.createTemplate({
-            templateId: newId("tpl"),
-            name: payload.name!,
-            description: payload.description || null,
-            fields: payload.fields || [],
-            createdAt: nowIso(),
-          });
-          recordLocalProductAnalytics(productAnalytics, {
-            type: "template_created",
-            workspaceId: productWorkspaceId,
-            templateId: created.template_id,
-            templateVersion: created.version,
-            status: created.status,
-            fieldCount: payload.fields?.length ?? 0,
-          });
-          return Response.json(created, { status: 201 });
-        }
-        return Response.json({ error: { code: "not_found", message: "Route not found" } }, { status: 404 });
-      } catch (error) {
-        if (error instanceof HttpError) {
-          return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
-        }
-        throw error;
-      } finally {
-        productStoreLease.release();
-        productOperation?.release();
-      }
+      }).catch(workspaceProductDataAccessErrorResponse);
     }
 
     if (request.method === "POST" && url.pathname === "/v1/extract") {
@@ -311,13 +298,12 @@ export function createLocalApplication({
         maxSourceFileBytes,
         liveUpdateHub,
         productAnalytics,
-        productStoreRegistry: localProductStoreRegistry!,
+        productDataAccess: localProductDataAccess!,
         request,
         scheduleQueuedJob,
         sourceFileStore: localSourceFileStore,
         stateDirectory,
         workspaceControl,
-        workspaceProductOperations: localWorkspaceProductOperations!,
       });
     }
 
@@ -330,10 +316,9 @@ export function createLocalApplication({
       }
       return handleLocalJobExport({
         auth,
-        productStoreRegistry: localProductStoreRegistry!,
+        productDataAccess: localProductDataAccess!,
         request,
         workspaceControl,
-        workspaceProductOperations: localWorkspaceProductOperations,
       });
     }
 
@@ -346,10 +331,9 @@ export function createLocalApplication({
       }
       return handleLocalJobFilterOptions({
         auth,
-        productStoreRegistry: localProductStoreRegistry!,
+        productDataAccess: localProductDataAccess!,
         request,
         workspaceControl,
-        workspaceProductOperations: localWorkspaceProductOperations,
       });
     }
 
@@ -366,7 +350,7 @@ export function createLocalApplication({
         jobId: jobMatch[1] ? decodeURIComponent(jobMatch[1]) : "",
         jobCursorSecret,
         jobPageSize: localJobPageSize,
-        productStoreRegistry: localProductStoreRegistry!,
+        productDataAccess: localProductDataAccess!,
         request,
         sourceFileStore: localSourceFileStore,
         workspaceControl,
@@ -419,25 +403,23 @@ async function handleLocalDocumentSubmission({
   maxSourceFileBytes,
   liveUpdateHub,
   productAnalytics,
-  productStoreRegistry,
+  productDataAccess,
   request,
   scheduleQueuedJob,
   sourceFileStore,
   stateDirectory,
   workspaceControl,
-  workspaceProductOperations,
 }: {
   auth: LocalAuth;
   maxSourceFileBytes: number;
   liveUpdateHub?: LocalLiveUpdateHub;
   productAnalytics?: LocalProductAnalytics;
-  productStoreRegistry: LocalWorkspaceProductStoreRegistry;
+  productDataAccess: LocalWorkspaceProductDataAccess;
   request: Request;
   scheduleQueuedJob: (job: LocalQueuedExtractionJob) => void | Promise<void>;
   sourceFileStore: LocalSourceFileStore;
   stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
-  workspaceProductOperations: LocalWorkspaceProductOperations;
 }): Promise<Response> {
   const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
   if ("response" in authorization) {
@@ -446,181 +428,164 @@ async function handleLocalDocumentSubmission({
 
   const maximumBytes = authorization.workspace.max_source_file_bytes ?? maxSourceFileBytes;
 
-  let productOperation;
-  try {
-    productOperation = workspaceProductOperations.acquire({ workspaceId: authorization.workspace.id });
-  } catch (error) {
-    return workspaceProductOperationErrorResponse(error);
-  }
-  const productStoreAcquisition = acquireWorkspaceProductStore({
-    operation: productOperation,
-    registry: productStoreRegistry,
-    workspaceId: authorization.workspace.id,
-  });
-  if ("response" in productStoreAcquisition) {
-    return productStoreAcquisition.response;
-  }
-  const productStoreLease = productStoreAcquisition.lease;
-  const productStore = productStoreLease.store;
-  try {
-    const configuration = productStore.getModelConfiguration();
-    if (!configuration) throw configurationMissing();
-    createWorkspaceCredentialVault(stateDirectory).decrypt(authorization.workspace.id, configuration.credential_ciphertext);
-    assertKnownDocumentRequestBodyLength(request, maximumBytes);
-    if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: authorization.workspace.id })) {
-      productStore.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
-      workspaceControl.completeStarterTemplateBootstrap({ workspaceId: authorization.workspace.id });
-    }
-
-    let sourceMimeType: string;
-    let sourceName: string | null;
-    let sourceByteSize: number;
-    let sourceBytes: ArrayBuffer;
-    let temporaryPath: string | null = null;
-    let templateId: string;
-    if (sourceFileStore.promoteTemporary) {
-      const streamed = await parseLocalMultipartSubmission({
-        maxSourceFileBytes: maximumBytes,
-        request,
-        stateDirectory,
-      });
-      templateId = streamed.templateId;
-      sourceMimeType = streamed.source.mimeType;
-      sourceName = streamed.source.name.trim() || null;
-      sourceByteSize = streamed.source.size;
-      temporaryPath = streamed.source.temporaryPath;
-    } else {
-      const validated = await validateExtractRequest(request, maximumBytes);
-      templateId = validated.templateId;
-      sourceMimeType = validated.source.type;
-      sourceName = validated.source.name.trim() || null;
-      sourceByteSize = validated.source.size;
-      sourceBytes = await validated.source.arrayBuffer();
-    }
+  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore }) => {
     try {
-      const template = productStore.getSubmissionTemplate(templateId);
-      if (!template) {
-        throw new HttpError(404, "template_not_found", "Template not found");
+      const configuration = productStore.getModelConfiguration();
+      if (!configuration) throw configurationMissing();
+      createWorkspaceCredentialVault(stateDirectory).decrypt(authorization.workspace.id, configuration.credential_ciphertext);
+      assertKnownDocumentRequestBodyLength(request, maximumBytes);
+      if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: authorization.workspace.id })) {
+        productStore.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
+        workspaceControl.completeStarterTemplateBootstrap({ workspaceId: authorization.workspace.id });
       }
-      if (temporaryPath) sourceBytes = await Bun.file(temporaryPath).arrayBuffer();
-      const sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!);
-      const templateFieldCount = productStore.getTemplate(template.template_id)?.fields.length ?? 0;
-      const jobId = newId("job");
-      const submittedAt = nowIso();
-      const sourceFileKey = temporaryPath
-        ? await sourceFileStore.promoteTemporary!({
-            workspaceId: authorization.workspace.id,
-            jobId,
-            mimeType: sourceMimeType,
-            temporaryPath,
-          })
-        : await sourceFileStore.write({
-            workspaceId: authorization.workspace.id,
-            jobId,
-            mimeType: sourceMimeType,
-            bytes: sourceBytes!,
-          });
-      temporaryPath = null;
-      sourceBytes = new ArrayBuffer(0);
 
-      let queued;
-      try {
-        queued = productStore.createQueuedExtractionJob({
-          jobId,
-          templateId: template.template_id,
-          templateVersion: template.template_version,
-          sourceFileKey,
-          sourceMimeType,
-          sourceName,
-          sourceFilePageCount,
-          submittedAt,
+      let sourceMimeType: string;
+      let sourceName: string | null;
+      let sourceByteSize: number;
+      let sourceBytes: ArrayBuffer;
+      let temporaryPath: string | null = null;
+      let templateId: string;
+      if (sourceFileStore.promoteTemporary) {
+        const streamed = await parseLocalMultipartSubmission({
+          maxSourceFileBytes: maximumBytes,
+          request,
+          stateDirectory,
         });
-        const queuedJob = productStore.getExtractionJob(jobId);
-        if (queuedJob) {
-          liveUpdateHub?.broadcastJob(authorization.workspace.id, queuedJob);
+        templateId = streamed.templateId;
+        sourceMimeType = streamed.source.mimeType;
+        sourceName = streamed.source.name.trim() || null;
+        sourceByteSize = streamed.source.size;
+        temporaryPath = streamed.source.temporaryPath;
+      } else {
+        const validated = await validateExtractRequest(request, maximumBytes);
+        templateId = validated.templateId;
+        sourceMimeType = validated.source.type;
+        sourceName = validated.source.name.trim() || null;
+        sourceByteSize = validated.source.size;
+        sourceBytes = await validated.source.arrayBuffer();
+      }
+      try {
+        const template = productStore.getSubmissionTemplate(templateId);
+        if (!template) {
+          throw new HttpError(404, "template_not_found", "Template not found");
         }
-        recordLocalProductAnalytics(productAnalytics, {
-          type: "document_submitted",
-          workspaceId: authorization.workspace.id,
-          templateId: template.template_id,
-          templateVersion: template.template_version,
-          extractionJobId: jobId,
-          status: "queued",
-          attempt: 1,
-          sourceMimeType,
-          sourceByteSize,
-        });
-      } catch (error) {
-        await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
-        throw error;
-      }
-
-      try {
-        await scheduleQueuedJob({
-          job_id: jobId,
-          workspace_id: authorization.workspace.id,
-          template_id: template.template_id,
-          template_version: template.template_version,
-          enqueued_at: submittedAt,
-        });
-      } catch (error) {
-        let failed = false;
-        try {
-          failed = productStore.failQueuedExtractionJob({
-            jobId,
-            failedAt: nowIso(),
-            errorCode: "local_runner_schedule_failed",
-            errorMessage: errorMessage(error),
-          });
-          if (failed) {
-            const failedJob = productStore.getExtractionJob(jobId);
-            if (failedJob) {
-              liveUpdateHub?.broadcastJob(authorization.workspace.id, failedJob);
-            }
-            recordLocalProductAnalytics(productAnalytics, {
-              type: "extraction_failed",
+        if (temporaryPath) sourceBytes = await Bun.file(temporaryPath).arrayBuffer();
+        const sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!);
+        const templateFieldCount = productStore.getTemplate(template.template_id)?.fields.length ?? 0;
+        const jobId = newId("job");
+        const submittedAt = nowIso();
+        const sourceFileKey = temporaryPath
+          ? await sourceFileStore.promoteTemporary!({
               workspaceId: authorization.workspace.id,
-              templateId: template.template_id,
-              templateVersion: template.template_version,
-              extractionJobId: jobId,
-              status: "failed",
-              attempt: 1,
-              sourceMimeType,
-              errorCode: "local_runner_schedule_failed",
-              fieldCount: templateFieldCount,
+              jobId,
+              mimeType: sourceMimeType,
+              temporaryPath,
+            })
+          : await sourceFileStore.write({
+              workspaceId: authorization.workspace.id,
+              jobId,
+              mimeType: sourceMimeType,
+              bytes: sourceBytes!,
             });
-          }
-        } finally {
-          if (!failed) {
-            await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
-          }
-        }
-        throw error;
-      }
+        temporaryPath = null;
+        sourceBytes = new ArrayBuffer(0);
 
-      return Response.json(queued, {
-        status: 202,
-        headers: {
-          "cache-control": "no-store",
-          location: `/v1/jobs/${encodeURIComponent(queued.job_id)}`,
-          "retry-after": "2",
-        },
-      });
-    } finally {
-      if (temporaryPath) await rm(temporaryPath, { force: true });
+        let queued;
+        try {
+          queued = productStore.createQueuedExtractionJob({
+            jobId,
+            templateId: template.template_id,
+            templateVersion: template.template_version,
+            sourceFileKey,
+            sourceMimeType,
+            sourceName,
+            sourceFilePageCount,
+            submittedAt,
+          });
+          const queuedJob = productStore.getExtractionJob(jobId);
+          if (queuedJob) {
+            liveUpdateHub?.broadcastJob(authorization.workspace.id, queuedJob);
+          }
+          recordLocalProductAnalytics(productAnalytics, {
+            type: "document_submitted",
+            workspaceId: authorization.workspace.id,
+            templateId: template.template_id,
+            templateVersion: template.template_version,
+            extractionJobId: jobId,
+            status: "queued",
+            attempt: 1,
+            sourceMimeType,
+            sourceByteSize,
+          });
+        } catch (error) {
+          await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
+          throw error;
+        }
+
+        try {
+          await scheduleQueuedJob({
+            job_id: jobId,
+            workspace_id: authorization.workspace.id,
+            template_id: template.template_id,
+            template_version: template.template_version,
+            enqueued_at: submittedAt,
+          });
+        } catch (error) {
+          let failed = false;
+          try {
+            failed = productStore.failQueuedExtractionJob({
+              jobId,
+              failedAt: nowIso(),
+              errorCode: "local_runner_schedule_failed",
+              errorMessage: errorMessage(error),
+            });
+            if (failed) {
+              const failedJob = productStore.getExtractionJob(jobId);
+              if (failedJob) {
+                liveUpdateHub?.broadcastJob(authorization.workspace.id, failedJob);
+              }
+              recordLocalProductAnalytics(productAnalytics, {
+                type: "extraction_failed",
+                workspaceId: authorization.workspace.id,
+                templateId: template.template_id,
+                templateVersion: template.template_version,
+                extractionJobId: jobId,
+                status: "failed",
+                attempt: 1,
+                sourceMimeType,
+                errorCode: "local_runner_schedule_failed",
+                fieldCount: templateFieldCount,
+              });
+            }
+          } finally {
+            if (!failed) {
+              await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
+            }
+          }
+          throw error;
+        }
+
+        return Response.json(queued, {
+          status: 202,
+          headers: {
+            "cache-control": "no-store",
+            location: `/v1/jobs/${encodeURIComponent(queued.job_id)}`,
+            "retry-after": "2",
+          },
+        });
+      } finally {
+        if (temporaryPath) await rm(temporaryPath, { force: true });
+      }
+    } catch (error) {
+      if (error instanceof HttpError) {
+        return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+      }
+      return Response.json(
+        { error: { code: "document_submission_failed", message: "Document submission could not be queued" } },
+        { status: 500 },
+      );
     }
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
-    }
-    return Response.json(
-      { error: { code: "document_submission_failed", message: "Document submission could not be queued" } },
-      { status: 500 },
-    );
-  } finally {
-    productStoreLease.release();
-    productOperation.release();
-  }
+  }).catch(workspaceProductDataAccessErrorResponse);
 }
 
 async function handleLocalJobRead({
@@ -628,7 +593,7 @@ async function handleLocalJobRead({
   jobId,
   jobCursorSecret,
   jobPageSize,
-  productStoreRegistry,
+  productDataAccess,
   request,
   sourceFileStore,
   workspaceControl,
@@ -638,7 +603,7 @@ async function handleLocalJobRead({
   jobId: string;
   jobCursorSecret: Uint8Array;
   jobPageSize: number;
-  productStoreRegistry: LocalWorkspaceProductStoreRegistry;
+  productDataAccess: LocalWorkspaceProductDataAccess;
   request: Request;
   sourceFileStore: LocalSourceFileStore;
   workspaceControl: LocalWorkspaceControl;
@@ -649,253 +614,195 @@ async function handleLocalJobRead({
     return authorization.response;
   }
 
-  let productOperation;
-  try {
-    productOperation = workspaceProductOperations.acquire({ workspaceId: authorization.workspace.id });
-  } catch (error) {
-    return workspaceProductOperationErrorResponse(error);
-  }
-  const productStoreAcquisition = acquireWorkspaceProductStore({
-    operation: productOperation,
-    registry: productStoreRegistry,
-    workspaceId: authorization.workspace.id,
-  });
-  if ("response" in productStoreAcquisition) {
-    return productStoreAcquisition.response;
-  }
-  const productStoreLease = productStoreAcquisition.lease;
-  const productStore = productStoreLease.store;
-  let documentDeletionStarted = false;
-  try {
-    if (request.method === "DELETE") {
-      await workspaceProductOperations.beginDocumentDeletion({
-        workspaceId: authorization.workspace.id,
-        jobId,
-      });
-      documentDeletionStarted = true;
-      const deleted = productStore.deleteExtractionJob({ jobId });
-      if (!deleted) {
+  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore }) => {
+    let documentDeletionStarted = false;
+    try {
+      if (request.method === "DELETE") {
+        await workspaceProductOperations.beginDocumentDeletion({
+          workspaceId: authorization.workspace.id,
+          jobId,
+        });
+        documentDeletionStarted = true;
+        const deleted = productStore.deleteExtractionJob({ jobId });
+        if (!deleted) {
+          workspaceProductOperations.completeDocumentDeletion({
+            workspaceId: authorization.workspace.id,
+            jobId,
+          });
+          documentDeletionStarted = false;
+          return Response.json({ error: { code: "not_found", message: "Job not found" } }, { status: 404 });
+        }
+        await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key);
         workspaceProductOperations.completeDocumentDeletion({
           workspaceId: authorization.workspace.id,
           jobId,
         });
         documentDeletionStarted = false;
-        return Response.json({ error: { code: "not_found", message: "Job not found" } }, { status: 404 });
+        return Response.json({ deleted: true, job_id: deleted.job_id });
       }
-      await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key);
-      workspaceProductOperations.completeDocumentDeletion({
-        workspaceId: authorization.workspace.id,
-        jobId,
-      });
-      documentDeletionStarted = false;
-      return Response.json({ deleted: true, job_id: deleted.job_id });
-    }
-    if (!jobId) {
-      const url = new URL(request.url);
-      const search = normalizeJobSearch(url.searchParams.get("search") || "");
-      const filters = normalizeJobFilters({
-        dateFrom: url.searchParams.get("date_from"),
-        dateTo: url.searchParams.get("date_to"),
-        model: url.searchParams.get("model"),
-      });
-      const cursor = decodeJobCursor({
-        cursor: url.searchParams.get("cursor"),
-        filters,
-        search,
-        secret: jobCursorSecret,
-      });
-      const candidates = productStore.listExtractionJobs({
-        search,
-        ...filters,
-        cursor,
-        limit: jobPageSize + 1,
-      });
-      const hasMore = candidates.length > jobPageSize;
-      const jobs = hasMore ? candidates.slice(0, jobPageSize) : candidates;
-      const finalJob = jobs.at(-1);
+      if (!jobId) {
+        const url = new URL(request.url);
+        const search = normalizeJobSearch(url.searchParams.get("search") || "");
+        const filters = normalizeJobFilters({
+          dateFrom: url.searchParams.get("date_from"),
+          dateTo: url.searchParams.get("date_to"),
+          model: url.searchParams.get("model"),
+        });
+        const cursor = decodeJobCursor({
+          cursor: url.searchParams.get("cursor"),
+          filters,
+          search,
+          secret: jobCursorSecret,
+        });
+        const candidates = productStore.listExtractionJobs({
+          search,
+          ...filters,
+          cursor,
+          limit: jobPageSize + 1,
+        });
+        const hasMore = candidates.length > jobPageSize;
+        const jobs = hasMore ? candidates.slice(0, jobPageSize) : candidates;
+        const finalJob = jobs.at(-1);
+        return Response.json({
+          jobs: jobs.map((job) => ({ ...job, results: [] })),
+          total: productStore.countExtractionJobs(),
+          next_cursor: hasMore && finalJob
+            ? encodeJobCursor({
+                createdAt: finalJob.created_at,
+                filters,
+                jobId: finalJob.job_id,
+                search,
+                secret: jobCursorSecret,
+              })
+            : null,
+          has_more: hasMore,
+        });
+      }
+      const jobSummary = productStore.getExtractionJobSummary(jobId);
+      if (!jobSummary) {
+        return Response.json(
+          { error: { code: "not_found", message: "Job not found" } },
+          { status: 404, headers: { "cache-control": "no-store" } },
+        );
+      }
+      const entityTag = extractionJobEntityTag(authorization.workspace.id, jobSummary);
+      const headers = extractionJobPollingHeaders(jobSummary.status, entityTag);
+      if (ifNoneMatchIncludes(request.headers.get("if-none-match"), entityTag)) {
+        return new Response(null, { status: 304, headers });
+      }
       return Response.json({
-        jobs: jobs.map((job) => ({ ...job, results: [] })),
-        total: productStore.countExtractionJobs(),
-        next_cursor: hasMore && finalJob
-          ? encodeJobCursor({
-              createdAt: finalJob.created_at,
-              filters,
-              jobId: finalJob.job_id,
-              search,
-              secret: jobCursorSecret,
-            })
-          : null,
-        has_more: hasMore,
-      });
+        ...jobSummary,
+        results: jobSummary.status === "completed"
+          ? productStore.getExtractionJobResults(jobId)
+          : [],
+      }, { headers });
+    } catch (error) {
+      if (documentDeletionStarted) {
+        workspaceProductOperations.failDocumentDeletion({
+          workspaceId: authorization.workspace.id,
+          jobId,
+        });
+      }
+      if (error instanceof LocalWorkspaceOperationError) {
+        return workspaceProductOperationErrorResponse(error);
+      }
+      if (error instanceof HttpError) {
+        return Response.json(
+          { error: { code: error.code, message: error.message } },
+          { status: error.status },
+        );
+      }
+      throw error;
     }
-    const jobSummary = productStore.getExtractionJobSummary(jobId);
-    if (!jobSummary) {
-      return Response.json(
-        { error: { code: "not_found", message: "Job not found" } },
-        { status: 404, headers: { "cache-control": "no-store" } },
-      );
-    }
-    const entityTag = extractionJobEntityTag(authorization.workspace.id, jobSummary);
-    const headers = extractionJobPollingHeaders(jobSummary.status, entityTag);
-    if (ifNoneMatchIncludes(request.headers.get("if-none-match"), entityTag)) {
-      return new Response(null, { status: 304, headers });
-    }
-    return Response.json({
-      ...jobSummary,
-      results: jobSummary.status === "completed"
-        ? productStore.getExtractionJobResults(jobId)
-        : [],
-    }, { headers });
-  } catch (error) {
-    if (documentDeletionStarted) {
-      workspaceProductOperations.failDocumentDeletion({
-        workspaceId: authorization.workspace.id,
-        jobId,
-      });
-    }
-    if (error instanceof LocalWorkspaceOperationError) {
-      return workspaceProductOperationErrorResponse(error);
-    }
-    if (error instanceof HttpError) {
-      return Response.json(
-        { error: { code: error.code, message: error.message } },
-        { status: error.status },
-      );
-    }
-    throw error;
-  } finally {
-    productStoreLease.release();
-    productOperation.release();
-  }
+  }).catch(workspaceProductDataAccessErrorResponse);
 }
 
 async function handleLocalJobFilterOptions({
   auth,
-  productStoreRegistry,
+  productDataAccess,
   request,
   workspaceControl,
-  workspaceProductOperations,
 }: {
   auth: LocalAuth;
-  productStoreRegistry: LocalWorkspaceProductStoreRegistry;
+  productDataAccess: LocalWorkspaceProductDataAccess;
   request: Request;
   workspaceControl: LocalWorkspaceControl;
-  workspaceProductOperations: LocalWorkspaceProductOperations;
 }): Promise<Response> {
   const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
   if ("response" in authorization) {
     return authorization.response;
   }
 
-  let productOperation;
-  try {
-    productOperation = workspaceProductOperations.acquire({ workspaceId: authorization.workspace.id });
-  } catch (error) {
-    return workspaceProductOperationErrorResponse(error);
-  }
-  const productStoreAcquisition = acquireWorkspaceProductStore({
-    operation: productOperation,
-    registry: productStoreRegistry,
-    workspaceId: authorization.workspace.id,
-  });
-  if ("response" in productStoreAcquisition) {
-    return productStoreAcquisition.response;
-  }
-  const productStoreLease = productStoreAcquisition.lease;
-  const productStore = productStoreLease.store;
-  try {
+  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore }) => {
     return Response.json({
       available_models: productStore.listExtractionJobModels(),
     });
-  } finally {
-    productStoreLease.release();
-    productOperation.release();
-  }
+  }).catch(workspaceProductDataAccessErrorResponse);
 }
 
 async function handleLocalJobExport({
   auth,
-  productStoreRegistry,
+  productDataAccess,
   request,
   workspaceControl,
-  workspaceProductOperations,
 }: {
   auth: LocalAuth;
-  productStoreRegistry: LocalWorkspaceProductStoreRegistry;
+  productDataAccess: LocalWorkspaceProductDataAccess;
   request: Request;
   workspaceControl: LocalWorkspaceControl;
-  workspaceProductOperations: LocalWorkspaceProductOperations;
 }): Promise<Response> {
   const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
   if ("response" in authorization) {
     return authorization.response;
   }
 
-  let productOperation;
-  try {
-    productOperation = workspaceProductOperations.acquire({ workspaceId: authorization.workspace.id });
-  } catch (error) {
-    return workspaceProductOperationErrorResponse(error);
-  }
-  const productStoreAcquisition = acquireWorkspaceProductStore({
-    operation: productOperation,
-    registry: productStoreRegistry,
-    workspaceId: authorization.workspace.id,
-  });
-  if ("response" in productStoreAcquisition) {
-    return productStoreAcquisition.response;
-  }
-  const productStoreLease = productStoreAcquisition.lease;
-  const productStore = productStoreLease.store;
-
-  try {
-    const jobIds = validateJobExportPayload(
-      parseJsonBody<unknown>(await request.text()),
-    );
-    const jobs = jobIds.flatMap((jobId) => {
-      const job = productStore.getExtractionJobExport(jobId);
-      return job && (job.status === "completed" || job.status === "failed")
-        ? [job]
-        : [];
-    });
-    const skippedCount = jobIds.length - jobs.length;
-    if (!jobs.length) {
-      throw new HttpError(
-        409,
-        "no_exportable_jobs",
-        "None of the selected jobs are completed or failed",
+  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore }) => {
+    try {
+      const jobIds = validateJobExportPayload(
+        parseJsonBody<unknown>(await request.text()),
       );
-    }
+      const jobs = jobIds.flatMap((jobId) => {
+        const job = productStore.getExtractionJobExport(jobId);
+        return job && (job.status === "completed" || job.status === "failed")
+          ? [job]
+          : [];
+      });
+      const skippedCount = jobIds.length - jobs.length;
+      if (!jobs.length) {
+        throw new HttpError(
+          409,
+          "no_exportable_jobs",
+          "None of the selected jobs are completed or failed",
+        );
+      }
 
-    const exportWorkbook = await buildJobExportWorkbook({
-      jobs,
-      workspaceName: authorization.workspace.name,
-    });
-    return new Response(Uint8Array.from(exportWorkbook.bytes).buffer, {
-      status: 200,
-      headers: {
-        "cache-control": "no-store",
-        "content-disposition": `attachment; filename="${exportWorkbook.filename}"`,
-        "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "x-exported-job-count": String(jobs.length),
-        "x-skipped-job-count": String(skippedCount),
-      },
-    });
-  } catch (error) {
-    if (error instanceof HttpError) {
+      const exportWorkbook = await buildJobExportWorkbook({
+        jobs,
+        workspaceName: authorization.workspace.name,
+      });
+      return new Response(Uint8Array.from(exportWorkbook.bytes).buffer, {
+        status: 200,
+        headers: {
+          "cache-control": "no-store",
+          "content-disposition": `attachment; filename="${exportWorkbook.filename}"`,
+          "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "x-exported-job-count": String(jobs.length),
+          "x-skipped-job-count": String(skippedCount),
+        },
+      });
+    } catch (error) {
+      if (error instanceof HttpError) {
+        return Response.json(
+          { error: { code: error.code, message: error.message } },
+          { status: error.status },
+        );
+      }
       return Response.json(
-        { error: { code: error.code, message: error.message } },
-        { status: error.status },
+        { error: { code: "job_export_failed", message: "Selected jobs could not be exported" } },
+        { status: 500 },
       );
     }
-    return Response.json(
-      { error: { code: "job_export_failed", message: "Selected jobs could not be exported" } },
-      { status: 500 },
-    );
-  } finally {
-    productStoreLease.release();
-    productOperation.release();
-  }
+  }).catch(workspaceProductDataAccessErrorResponse);
 }
 
 function extractionJobEntityTag(
@@ -1321,55 +1228,28 @@ function workspaceErrorResponse(error: unknown): Response {
   return Response.json({ error: { code: error.code, message: error.message } }, { status });
 }
 
-function acquireWorkspaceProductStore({
-  operation,
-  registry,
-  workspaceId,
-}: {
-  operation?: LocalWorkspaceProductOperation;
-  registry: LocalWorkspaceProductStoreRegistry;
-  workspaceId: string;
-}): { lease: LocalWorkspaceProductStoreLease } | { response: Response } {
-  try {
-    const lease = registry.acquire({ workspaceId });
-    if (lease) {
-      return { lease };
-    }
-    operation?.release();
-    return {
-      response: Response.json(
-        {
-          error: {
-            code: "local_product_store_unavailable",
-            message: "Local Workspace product storage is unavailable.",
-          },
-        },
-        { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
-      ),
-    };
-  } catch (error) {
-    operation?.release();
-    return { response: workspaceProductStoreRegistryErrorResponse(error) };
+function workspaceProductDataAccessErrorResponse(error: unknown): Response {
+  if (!(error instanceof LocalWorkspaceProductDataAccessError)) throw error;
+  if (error.code === "capacity_exhausted") {
+    return Response.json(
+      { error: { code: "local_product_store_capacity_unavailable", message: "Local Workspace product-store capacity is temporarily full" } },
+      { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
+    );
   }
-}
-
-function workspaceProductStoreRegistryErrorResponse(error: unknown): Response {
-  if (error instanceof LocalWorkspaceProductStoreRegistryError) {
-    if (error.code === "capacity_exhausted") {
-      return Response.json(
-        {
-          error: {
-            code: "local_product_store_capacity_unavailable",
-            message: "Local Workspace product-store capacity is temporarily full",
-          },
-        },
-        { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
-      );
-    }
+  if (error.code === "store_unavailable") {
+    return Response.json(
+      { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage is unavailable." } },
+      { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
+    );
+  }
+  if (error.code === "workspace_invalidated") {
     return Response.json(
       { error: { code: "workspace_deleting", message: "Workspace deletion is in progress" } },
       { status: 409 },
     );
+  }
+  if (error.code === "workspace_deleting" || error.code === "job_deleting") {
+    return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
   }
   return Response.json(
     { error: { code: "internal_error", message: "Unexpected server error" } },

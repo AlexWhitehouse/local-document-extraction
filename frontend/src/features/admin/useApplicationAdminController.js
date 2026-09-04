@@ -10,6 +10,7 @@ export function useApplicationAdminController({
   sessionUserId,
   showActionToast,
   onImpersonationStarted,
+  onImpersonationStarting,
 }) {
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
@@ -209,6 +210,7 @@ export function useApplicationAdminController({
 
     setMutatingUserId(userId);
     try {
+      onImpersonationStarting?.();
       const result = await authClient.admin.impersonateUser({ userId });
       if (result?.error) {
         throw new Error(result.error.message || "Unable to start impersonation.");

@@ -1,4 +1,9 @@
 export function createDocumentRequestAdapter({ request }) {
+  // Reconciliation owns publication and access-recovery effects, after checking
+  // the session and Workspace that originated the request.
+  const documentRequest = (path, options) => request(path, {
+    ...options, publishResponse: false, recoverForbiddenAccess: false,
+  });
   const documentValidators = new Map();
   function normalizedDocumentId(documentId) {
     const value = String(documentId || "").trim();
@@ -10,7 +15,7 @@ export function createDocumentRequestAdapter({ request }) {
 
   return {
     async getFilterOptions() {
-      const result = await request("/jobs/filter-options", { method: "GET" });
+      const result = await documentRequest("/jobs/filter-options", { method: "GET" });
       return {
         available_models: Array.isArray(result?.available_models)
           ? result.available_models.map((model) => String(model)).filter(Boolean)
@@ -24,7 +29,7 @@ export function createDocumentRequestAdapter({ request }) {
       if (cached?.etag) {
         headers.set("if-none-match", cached.etag);
       }
-      const result = await request(
+      const result = await documentRequest(
         `/jobs/${encodeURIComponent(normalizedId)}`,
         { method: "GET", headers, responseType: "conditional-json" },
       );
@@ -63,7 +68,7 @@ export function createDocumentRequestAdapter({ request }) {
       if (normalizedCursor) {
         params.set("cursor", normalizedCursor);
       }
-      const result = await request(
+      const result = await documentRequest(
         `/jobs${params.size ? `?${params.toString()}` : ""}`,
         { method: "GET" },
       );
@@ -78,7 +83,7 @@ export function createDocumentRequestAdapter({ request }) {
     },
     async deleteDocument(documentId) {
       const normalizedId = normalizedDocumentId(documentId);
-      const result = await request(
+      const result = await documentRequest(
         `/jobs/${encodeURIComponent(normalizedId)}`,
         { method: "DELETE" },
       );
@@ -97,7 +102,7 @@ export function createDocumentRequestAdapter({ request }) {
       if (!jobIds.length) {
         throw new Error("Select at least one job to export");
       }
-      const result = await request("/jobs/export", {
+      const result = await documentRequest("/jobs/export", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ job_ids: jobIds }),
@@ -114,7 +119,7 @@ export function createDocumentRequestAdapter({ request }) {
       };
     },
     submitDocument(formData) {
-      return request("/extract", { method: "POST", body: formData });
+      return documentRequest("/extract", { method: "POST", body: formData });
     },
   };
 }

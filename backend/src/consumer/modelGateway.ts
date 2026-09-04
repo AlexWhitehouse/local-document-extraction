@@ -60,18 +60,6 @@ export function getModelGatewayRequestTimeoutMs(env: ModelGatewayConfiguration):
   return Math.trunc(configured);
 }
 
-export function usesSequentialModelCalls(env: ModelGatewayConfiguration): boolean {
-  return readBooleanConfiguration(env.MODEL_GATEWAY_SEQUENTIAL_CALLS, false);
-}
-
-export function supportsPdfInput(env: ModelGatewayConfiguration): boolean {
-  return readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT, false);
-}
-
-export function supportsStructuredOutput(env: ModelGatewayConfiguration): boolean {
-  return readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT, false);
-}
-
 export async function runExtraction(
   env: ModelGatewayConfiguration,
   fields: FieldDefinition[],
@@ -81,7 +69,7 @@ export async function runExtraction(
 ): Promise<ModelFieldResult[]> {
   const model = getExtractionModelName(env);
   const renderPdfAsImages =
-    sourceMimeType === "application/pdf" && !supportsPdfInput(env);
+    sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
   const sourceBytes = source instanceof Blob ? await source.arrayBuffer() : source;
   const prompt = buildPrompt(fields, sourceMimeType, renderPdfAsImages);
   const systemPrompt =
@@ -89,10 +77,10 @@ export async function runExtraction(
   let sourceContentParts: Record<string, unknown>[];
   try {
     sourceContentParts = renderPdfAsImages
-        ? (await renderPdfPagesToPng(sourceBytes!, signal)).map((pageBytes) =>
+        ? (await renderPdfPagesToPng(sourceBytes, signal)).map((pageBytes) =>
             buildInlineImageContentPart(pageBytes, "image/png"),
           )
-        : [buildInlineSourceContentPart(sourceBytes!, sourceMimeType)];
+        : [buildInlineSourceContentPart(sourceBytes, sourceMimeType)];
   } catch (error) {
     if (signal?.aborted) {
       throw new ExtractionCancelledError("PDF page rendering cancelled");
@@ -107,7 +95,7 @@ export async function runExtraction(
     prompt,
     sourceContentParts,
     systemPrompt,
-    supportsStructuredOutput(env),
+    readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT),
   );
   const runResult = await scheduleModelCall(env, () => runViaModelGateway(env, runInput, signal));
   const content = readRunResultContent(runResult);
@@ -373,11 +361,11 @@ function isQwenMultimodalModel(normalizedModel: string): boolean {
   );
 }
 
-function scheduleModelCall<T>(
+function scheduleModelCall(
   env: ModelGatewayConfiguration,
-  task: () => Promise<T>,
-): Promise<T> {
-  if (!usesSequentialModelCalls(env)) {
+  task: () => Promise<unknown>,
+): Promise<unknown> {
+  if (!readBooleanConfiguration(env.MODEL_GATEWAY_SEQUENTIAL_CALLS)) {
     return task();
   }
 
@@ -404,18 +392,8 @@ function retryAfterDelayMs(value: string | null, now = Date.now()): number | nul
   return Number.isFinite(retryAt) ? Math.max(0, retryAt - now) : null;
 }
 
-function readBooleanConfiguration(
-  value: string | undefined,
-  fallback: boolean,
-): boolean {
-  const normalized = value?.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized || "")) {
-    return true;
-  }
-  if (["0", "false", "no", "off"].includes(normalized || "")) {
-    return false;
-  }
-  return fallback;
+function readBooleanConfiguration(value: string | undefined): boolean {
+  return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() || "");
 }
 
 function buildPrompt(

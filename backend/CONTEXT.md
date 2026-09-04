@@ -92,6 +92,10 @@ _Avoid_: global workspace data, aggregate workspace data
 Workspace-owned extraction configuration and processing records created inside an **Accepted workspace context**.
 _Avoid_: app data, tenant payload, aggregate data
 
+**Workspace product data access**:
+The admitted use of authoritative **Workspace product data** for the duration of one product operation, distinct from the **Workspace membership** that authorizes a user.
+_Avoid_: workspace authorization, database access
+
 **Workspace product analytics**:
 Aggregate event data about **Workspace product data** usage that excludes customer content and identity data.
 _Avoid_: product data projection, audit log, source of truth

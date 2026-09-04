@@ -31,7 +31,7 @@ export function createAppRuntimeCore({
   }
 
   async function request(path, options = {}) {
-    const { responseType, ...fetchOptions } = options;
+    const { responseType, publishResponse = true, ...fetchOptions } = options;
     const response = await fetch(endpoint(path), {
       ...fetchOptions,
       credentials: "include",
@@ -72,7 +72,7 @@ export function createAppRuntimeCore({
       throw error;
     }
 
-    if (responseType !== "resource-json") setLatestResponse(data ?? rawText);
+    if (publishResponse && responseType !== "resource-json") setLatestResponse(data ?? rawText);
     if (responseType === "conditional-json" || responseType === "resource-json") {
       return {
         data,
@@ -106,7 +106,8 @@ export function createWorkspaceRequestLayer({
     authRequired = true,
     workspaceRequired = true,
   ) {
-    const headers = new Headers(options.headers || {});
+    const { recoverForbiddenAccess = true, ...requestOptions } = options;
+    const headers = new Headers(requestOptions.headers || {});
 
     if (authRequired) {
       if (hasSession) {
@@ -123,11 +124,11 @@ export function createWorkspaceRequestLayer({
 
     try {
       return await coreRequest(path, {
-        ...options,
+        ...requestOptions,
         headers,
       });
     } catch (error) {
-      if (error.status === 403 && authRequired && workspaceRequired) {
+      if (error.status === 403 && recoverForbiddenAccess && authRequired && workspaceRequired) {
         await onForbiddenWorkspaceAccess();
       }
       throw error;

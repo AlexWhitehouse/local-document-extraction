@@ -44,11 +44,7 @@ export function parseJsonBody<T>(body: string): T {
   }
 }
 
-export function validateTemplatePayload(input: TemplateInput, allowPartial = false): {
-  name?: string;
-  description?: string | null;
-  fields?: FieldDefinition[];
-} {
+export function validateTemplatePayload(input: TemplateInput, allowPartial = false) {
   const output: {
     name?: string;
     description?: string | null;
@@ -142,16 +138,10 @@ export function validateTemplatePayload(input: TemplateInput, allowPartial = fal
   return output;
 }
 
-function sanitizeFieldName(value: unknown): string {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  return value.replace(/[^a-zA-Z0-9 ]+/g, "");
-}
-
 function normalizeFieldName(value: unknown): string {
-  return sanitizeFieldName(value).trim().replace(/\s+/g, " ");
+  return typeof value === "string"
+    ? value.replace(/[^a-zA-Z0-9 ]+/g, "").trim().replace(/\s+/g, " ")
+    : "";
 }
 
 function toFieldId(name: string): string {
@@ -329,40 +319,20 @@ function appendObjectMetadata(
   ].join("\n");
 }
 
-function extractObjectMetadata(description: string): {
-  baseDescription: string;
-  objectSchema: {
-    mode: string;
-    data_type: string;
-    columns: ObjectColumnInput[];
-  } | null;
-} {
+function extractObjectMetadata(description: string) {
   const schemaPattern = /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/;
   const guidancePattern = /\[\[OBJECT_TABLE_GUIDANCE\]\][\s\S]*?\[\[\/OBJECT_TABLE_GUIDANCE\]\]\s*/g;
 
   const schemaMatch = description.match(schemaPattern);
-  let objectSchema: {
-    mode: string;
-    data_type: string;
-    columns: ObjectColumnInput[];
-  } | null = null;
+  let objectSchema: ObjectSchemaInput | null = null;
 
   if (schemaMatch?.[1]) {
     try {
       const parsed = JSON.parse(schemaMatch[1]) as Record<string, unknown>;
-      const rawColumns = Array.isArray(parsed.columns) ? parsed.columns : [];
-      objectSchema = {
-        mode: "table",
-        data_type: String(parsed.data_type || ""),
-        columns: rawColumns.map((column) => {
-          const value = (column || {}) as Record<string, unknown>;
-          return {
-            heading: String(value.heading || ""),
-            data_type: String(value.data_type || ""),
-            description: String(value.description || "")
-          };
-        })
-      };
+      objectSchema = normalizeObjectSchemaInput({
+        data_type: parsed.data_type,
+        columns: parsed.columns,
+      });
     } catch {
       objectSchema = null;
     }
