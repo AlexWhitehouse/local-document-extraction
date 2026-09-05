@@ -335,10 +335,18 @@ const requestShutdown = () => {
   const completion = runtimeShutdown.request();
   if (shutdownObserved) return;
   shutdownObserved = true;
-  void completion.catch((error) => {
-    console.error("Local Bun Runtime shutdown failed", error);
-    process.exitCode = 1;
-  });
+  console.log("Stopping Local Bun Runtime; finishing active work (Ctrl+C again to force).");
+  void completion.then(
+    () => {
+      console.log("Local Bun Runtime stopped.");
+      // Bun's --watch keeps the event loop alive after the server and stores close.
+      process.exit(process.exitCode ?? 0);
+    },
+    (error) => {
+      console.error("Local Bun Runtime shutdown failed", error);
+      process.exit(1);
+    },
+  );
 };
 process.on("SIGINT", requestShutdown);
 process.on("SIGTERM", requestShutdown);

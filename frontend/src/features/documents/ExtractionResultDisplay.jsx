@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { ScrollArea } from "../layout/ScrollArea.jsx";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
@@ -78,7 +79,12 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
         </p>
       ) : null}
       {scalar.length ? (
-        <div className="table-scroll studio-results-scroll">
+        <ScrollArea
+          className="table-scroll studio-results-scroll"
+          role="region"
+          aria-label="Extracted fields scroll area"
+          tabIndex={0}
+        >
           <table
             className="studio-table studio-results-table"
             aria-label="Extracted fields"
@@ -111,7 +117,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollArea>
       ) : null}
       {structured.map((result) => (
         <section className="studio-structured-result" key={result.field_id}>
@@ -193,7 +199,12 @@ function renderAnswer(answer) {
       );
 
       return (
-        <div className="table-scroll">
+        <ScrollArea
+          className="table-scroll"
+          role="region"
+          aria-label="Structured result scroll area"
+          tabIndex={0}
+        >
           <table className="studio-table">
             <thead>
               <tr>
@@ -214,7 +225,7 @@ function renderAnswer(answer) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollArea>
       );
     }
 
@@ -243,7 +254,12 @@ function renderAnswer(answer) {
     });
 
     return (
-      <div className="table-scroll">
+      <ScrollArea
+        className="table-scroll"
+        role="region"
+        aria-label="Structured result scroll area"
+        tabIndex={0}
+      >
         <table className="studio-table">
           <thead>
             <tr>
@@ -264,7 +280,7 @@ function renderAnswer(answer) {
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollArea>
     );
   }
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { ScrollArea } from "../layout/ScrollArea.jsx";
 
 import {
   DATA_TYPES,
@@ -224,7 +225,12 @@ export function TemplateFieldEditor({
   return (
     <fieldset className="field-editor" disabled={disabled}>
       <div className="field-studio">
-        <nav className="field-nav" aria-label="Template fields" tabIndex={0}>
+        <ScrollArea
+          as="nav"
+          className="field-nav"
+          aria-label="Template fields"
+          tabIndex={0}
+        >
           {fields.map((field, index) => (
             <button
               key={`${field.id || "field"}-${index}`}
@@ -251,10 +257,10 @@ export function TemplateFieldEditor({
           <button className="studio-add-field" type="button" onClick={addField}>
             + Add field
           </button>
-        </nav>
+        </ScrollArea>
 
         {activeField ? (
-          <div
+          <ScrollArea
             className="field-detail"
             role="region"
             aria-label="Selected field editor"
@@ -378,7 +384,7 @@ export function TemplateFieldEditor({
                 </button>
               </div>
             ) : null}
-          </div>
+          </ScrollArea>
         ) : (
           <div className="field-detail">
             <p className="muted">No fields yet. Add at least one.</p>
@@ -494,7 +500,12 @@ function ObjectSchemaModal({
           </div>
         </div>
 
-        <div className="object-schema-table-wrap">
+        <ScrollArea
+          className="object-schema-table-wrap"
+          role="region"
+          aria-label="Object schema scroll area"
+          tabIndex={0}
+        >
           <table
             className="object-schema-table"
             aria-label="Object schema columns"
@@ -614,7 +625,7 @@ function ObjectSchemaModal({
               )}
             </tbody>
           </table>
-        </div>
+        </ScrollArea>
 
         <div className="object-schema-modal-footer">
           <p className="hint">

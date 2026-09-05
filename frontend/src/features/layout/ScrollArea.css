@@ -1,0 +1,23 @@
+.scroll-area {
+  --scroll-fade-top: 0px;
+  --scroll-fade-bottom: 0px;
+  --scroll-fade-left: 0px;
+  --scroll-fade-right: 0px;
+  /* A little content remains visible at each edge, inviting the next scroll. */
+  mask-image:
+    linear-gradient(to bottom, #0002, #000 var(--scroll-fade-top), #000 calc(100% - var(--scroll-fade-bottom)), #0002),
+    linear-gradient(to right, #0002, #000 var(--scroll-fade-left), #000 calc(100% - var(--scroll-fade-right)), #0002);
+  mask-composite: intersect;
+  scroll-padding-block: 32px;
+  scroll-padding-inline: 24px;
+}
+
+.scroll-area[data-scroll-top="true"] { --scroll-fade-top: 32px; }
+.scroll-area[data-scroll-bottom="true"] { --scroll-fade-bottom: 32px; }
+.scroll-area[data-scroll-left="true"] { --scroll-fade-left: 24px; }
+.scroll-area[data-scroll-right="true"] { --scroll-fade-right: 24px; }
+.scroll-area:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+@media (forced-colors: active) {
+  .scroll-area { mask-image: none; }
+}
