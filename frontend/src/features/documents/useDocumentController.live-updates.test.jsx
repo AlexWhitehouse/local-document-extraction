@@ -2,8 +2,23 @@ import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import { useDocumentController } from "./useDocumentController";
+import { createDocumentRequestAdapter } from "./documentRequestAdapter";
 
 describe("useDocumentController Workspace live updates", () => {
+  it("shows workspace status totals when only the first 50 documents are loaded", async () => {
+    installWebSocketStub();
+    const jobs = Array.from({ length: 50 }, (_, i) => ({ job_id: `job_${i}`, status: "completed" }));
+    const request = vi.fn(async (path) => path === "/jobs" ? {
+      jobs, total: 137, status_counts: { queued: 7, processing: 5, completed: 120, failed: 5 },
+      has_more: true, next_cursor: "next",
+    } : { available_models: [] });
+    const documentRequests = createDocumentRequestAdapter({ request });
+    let controller;
+    render(<DocumentControllerHarness workspaceId="ws_1" documentRequests={documentRequests} onController={(value) => { controller = value; }} />);
+    await waitFor(() => expect(controller.contextList.documents).toHaveLength(50));
+    expect(controller.metrics.documentStatusMetrics).toEqual({ queued: 7, processing: 5, completed: 120, failed: 5 });
+  });
+
   it("opens one session-only live update connection for the accepted Workspace context", async () => {
     const WebSocketStub = installWebSocketStub();
 

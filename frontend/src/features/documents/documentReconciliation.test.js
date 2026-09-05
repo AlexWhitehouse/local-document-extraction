@@ -37,6 +37,66 @@ function setup(options = {}) {
 const entries = () => ["first", "second"].map((id) => ({ id, file: new File([id], `${id}.png`, { type: "image/png" }) }));
 
 describe("Document reconciliation", () => {
+  it("refreshes counts for an unloaded lifecycle update without discarding loaded pages", async () => {
+    vi.useFakeTimers();
+    const { module, snapshot, requests } = setup();
+    const counts = { queued: 0, processing: 1, completed: 120, failed: 0 };
+    requests.listDocuments.mockResolvedValueOnce(page([job("a", { status: "completed" })], { total: 121, status_counts: counts, has_more: true, next_cursor: "next" }));
+    await module.refresh();
+    requests.listDocuments.mockResolvedValueOnce(page([job("b", { status: "completed" })], { total: 121, status_counts: counts }));
+    await module.refresh({ append: true });
+    expect(snapshot().statusCounts.completed).toBe(120);
+    requests.getDocumentCounts = vi.fn(async () => ({ total: 121, status_counts: { ...counts, processing: 0, completed: 121 } }));
+    module.receiveLiveUpdates([job("unloaded", { status: "completed" })]);
+    module.receiveLiveUpdates([job("unloaded", { status: "completed" })]);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(snapshot().statusCounts.completed).toBe(121);
+    expect(snapshot().documents.map((row) => row.job_id)).toEqual(["a", "b", "unloaded"]);
+    expect(requests.getDocumentCounts).toHaveBeenCalledTimes(1);
+    expect(requests.listDocuments).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps live status changes when a stale list returns and decrements totals on deletion", async () => {
+    vi.useFakeTimers();
+    const { module, snapshot, requests } = setup();
+    const counts = { queued: 0, processing: 1, completed: 120, failed: 0 };
+    requests.listDocuments.mockResolvedValueOnce(page([job("a")], { total: 121, status_counts: counts }));
+    await module.refresh();
+    const pending = deferred();
+    requests.listDocuments.mockReturnValueOnce(pending.promise);
+    const refresh = module.refresh();
+    requests.getDocumentCounts = vi.fn(async () => ({ total: 121, status_counts: { ...counts, processing: 0, completed: 121 } }));
+    module.receiveLiveUpdates([job("a", { status: "completed", updated_at: "2026-09-01T00:00:03Z" })]);
+    await vi.advanceTimersByTimeAsync(150);
+    pending.resolve(page([job("a")], { total: 121, status_counts: counts }));
+    await refresh;
+    expect(snapshot().statusCounts).toEqual({ queued: 0, processing: 0, completed: 121, failed: 0 });
+    requests.getDocumentCounts.mockResolvedValue({ total: 120, status_counts: { ...counts, processing: 0 } });
+    await module.deleteDocuments(["a"]);
+    requests.listDocuments.mockResolvedValue(page([], { total: 120, status_counts: { ...counts, processing: 0 } }));
+    await vi.advanceTimersByTimeAsync(150);
+    expect(snapshot().statusCounts.completed).toBe(120);
+    expect(snapshot().totalDocuments).toBe(120);
+  });
+
+  it("rejects count responses overtaken by lifecycle updates or a Workspace change", async () => {
+    vi.useFakeTimers();
+    const { module, snapshot, requests, configure } = setup();
+    const first = deferred(), second = deferred();
+    requests.getDocumentCounts = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    module.receiveLiveUpdates([job("a")]);
+    await vi.advanceTimersByTimeAsync(150);
+    module.receiveLiveUpdates([job("a", { status: "completed", updated_at: "2026-09-01T00:00:03Z" })]);
+    first.resolve({ total: 1, status_counts: { queued: 0, processing: 1, completed: 0, failed: 0 } });
+    await Promise.resolve();
+    expect(snapshot().statusCounts.completed).toBe(0);
+    await vi.advanceTimersByTimeAsync(150);
+    configure({ workspaceId: "workspace-b" });
+    second.resolve({ total: 1, status_counts: { queued: 0, processing: 0, completed: 1, failed: 0 } });
+    await Promise.resolve();
+    expect(snapshot().statusCounts.completed).toBe(0);
+  });
+
   it("preserves the list identity on selection and loading-only changes", async () => {
     const { module, snapshot, requests } = setup();
     module.receiveLiveUpdates([job("a"), job("b")]);

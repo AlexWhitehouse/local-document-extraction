@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
@@ -114,7 +115,8 @@ export function DocumentContextList({
           </div>
         </div>
       </div>
-      <div className="context-list" ref={listRef}
+      <ScrollArea className="context-list" ref={listRef}
+        role="region" aria-label={documentLabels ? "Document list" : "Job list"} tabIndex={0}
         style={virtual ? { display: "block" } : undefined}
         onScroll={virtual ? (event) => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight || 600 }) : undefined}>
         <div role="list" aria-label={documentLabels ? "Documents" : "Jobs"}
@@ -199,7 +201,7 @@ export function DocumentContextList({
             </span>
           </button>
         ) : null}
-      </div>
+      </ScrollArea>
     </>
   );
 }

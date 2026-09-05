@@ -549,7 +549,38 @@ describe("runExtraction", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("runs configured model calls sequentially", async () => {
+  it.each([2, 8])("overlaps %i rendered PDF gateway calls when sequential calls are disabled", async (count) => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage([100, 100]);
+    const source = Uint8Array.from(await pdf.save()).buffer;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetchMock = mock(async () => {
+      await gate;
+      return Response.json(successfulGatewayPayload());
+    });
+    replaceFetch(fetchMock);
+    const env = createEnv({ MODEL_GATEWAY_SEQUENTIAL_CALLS: "false", MODEL_SUPPORTS_PDF_INPUT: "false" });
+    const calls = [runExtraction(env, fields, source.slice(0), "application/pdf")];
+    try {
+      await waitForMockCallCount(fetchMock, 1);
+      for (let i = 1; i < count; i++) {
+        calls.push(runExtraction(env, fields, source.slice(0), "application/pdf"));
+      }
+      await waitForMockCallCount(fetchMock, count);
+      expect(fetchMock).toHaveBeenCalledTimes(count);
+    } finally {
+      release();
+      await Promise.all(calls);
+    }
+  });
+
+  it.each(["image/png", "application/pdf"])("runs configured %s model calls sequentially", async (sourceMimeType) => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage([100, 100]);
+    const source = sourceMimeType === "application/pdf"
+      ? Uint8Array.from(await pdf.save()).buffer
+      : new Uint8Array([1, 2, 3]).buffer;
     let releaseFirstRequest: (() => void) | undefined;
     const firstRequestGate = new Promise<void>((resolve) => {
       releaseFirstRequest = resolve;
@@ -566,27 +597,28 @@ describe("runExtraction", () => {
       });
     });
     replaceFetch(fetchMock);
-    const env = createEnv({ MODEL_GATEWAY_SEQUENTIAL_CALLS: "true" });
+    const env = createEnv({ MODEL_GATEWAY_SEQUENTIAL_CALLS: "true", MODEL_SUPPORTS_PDF_INPUT: "false" });
 
     const first = runExtraction(
       env,
       fields,
-      new Uint8Array([1, 2, 3]).buffer,
-      "image/png",
+      source.slice(0),
+      sourceMimeType,
     );
     await waitForMockCallCount(fetchMock, 1);
     const second = runExtraction(
       env,
       fields,
-      new Uint8Array([4, 5, 6]).buffer,
-      "image/png",
+      source.slice(0),
+      sourceMimeType,
     );
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    releaseFirstRequest?.();
-    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    try {
+      await Bun.sleep(25);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseFirstRequest?.();
+      await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    }
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

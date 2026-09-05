@@ -9,7 +9,8 @@ export function createByteBudget(maxBytes: number) {
     }
   };
   return {
-    async run<T>(bytes: number, task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    snapshot: () => ({ maxBytes, reservedBytes: used, waiting: waiting.length }),
+    async run<T>(bytes: number, task: (reservation: { shrinkTo(bytes: number): void }) => Promise<T>, signal?: AbortSignal): Promise<T> {
       if (!Number.isFinite(bytes) || bytes < 0 || bytes > maxBytes) throw new Error("Work exceeds the local byte budget");
       signal?.throwIfAborted();
       let abort: (() => void) | undefined;
@@ -26,8 +27,21 @@ export function createByteBudget(maxBytes: number) {
         waiting.push(entry);
         pump();
       }).finally(() => { if (abort) signal?.removeEventListener("abort", abort); });
-      try { signal?.throwIfAborted(); return await task(); }
-      finally { used -= bytes; pump(); }
+      let reserved = bytes;
+      let released = false;
+      try {
+        signal?.throwIfAborted();
+        return await task({
+          shrinkTo(nextBytes) {
+            if (released || !Number.isFinite(nextBytes) || nextBytes < 0 || nextBytes > reserved) {
+              throw new Error("Byte reservations may only shrink while work is active");
+            }
+            used -= reserved - nextBytes;
+            reserved = nextBytes;
+            pump();
+          },
+        });
+      } finally { released = true; used -= reserved; pump(); }
     },
   };
 }

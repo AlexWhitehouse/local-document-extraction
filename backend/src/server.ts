@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { getModelPreparationSnapshot } from "./consumer/modelGateway";
 import { DEFAULT_MAX_SOURCE_FILE_BYTES, createLocalApplication } from "./localApplication";
 import { createLocalAuthRuntime } from "./localAuthRuntime";
 import { localDocumentRequestBodyLimit, localDocumentServerBodyLimit } from "./localDocumentBodyLimit";
@@ -10,6 +11,7 @@ import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
 import { LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY } from "./localLiveUpdatePolicy";
 import { upgradeLocalLiveUpdate } from "./localLiveUpdateUpgrade";
 import { registerLocalMemoryPressureListener } from "./localMemoryPressure";
+import { localMemoryLimits } from "./localMemoryLimits";
 import { retireGlobalModelConfiguration } from "./retireGlobalModelConfiguration";
 import { createLocalProductAnalytics } from "./localProductAnalytics";
 import { createLocalResourceController } from "./localResourceController";
@@ -73,7 +75,6 @@ const extractionMaximumConcurrency = readPositiveInteger(
   32,
 );
 const localCpuLimitRatio = readRatio(process.env.LOCAL_CPU_LIMIT_RATIO, "LOCAL_CPU_LIMIT_RATIO", 0.85);
-const localMemoryLimitRatio = readRatio(process.env.LOCAL_MEMORY_LIMIT_RATIO, "LOCAL_MEMORY_LIMIT_RATIO", 0.8);
 const memoryPressureLargeSubmissionBytes = readPositiveInteger(
   process.env.MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES,
   "MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES",
@@ -194,7 +195,7 @@ const localResourceController = createLocalResourceController({
   getQueueSnapshot: localExtractionQueue.snapshot,
   initialPermits: extractionMaxConcurrency,
   maximumPermits: extractionMaximumConcurrency,
-  memoryLimitRatio: localMemoryLimitRatio,
+  memoryLimitRatio: localMemoryLimits.memoryLimitRatio,
   memoryPressureLargeSubmissionBytes,
   setPermits: localExtractionQueue.setMaxConcurrent,
   stateDirectory,
@@ -275,6 +276,7 @@ const application = createLocalApplication({
   diagnostics: () => ({
     admission: localSubmissionAdmission.snapshot(),
     extractionQueue: localExtractionQueue.snapshot(),
+    modelPreparation: getModelPreparationSnapshot(),
     liveUpdates: {
       ...localLiveUpdateHub.diagnostics(),
       runtimePendingWebSockets: server.pendingWebSockets,

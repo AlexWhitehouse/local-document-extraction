@@ -1,14 +1,15 @@
-import React, { useLayoutEffect, useRef } from "react";
+import React, { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import "./ScrollArea.css";
 
 // Keep the existing scroll element and semantics; only fade edges with hidden content.
-export function ScrollArea({
+export const ScrollArea = forwardRef(function ScrollArea({
   as: Element = "div",
   className = "",
   children,
   ...props
-}) {
+}, forwardedRef) {
   const ref = useRef(null);
+  useImperativeHandle(forwardedRef, () => ref.current, []);
 
   useLayoutEffect(() => {
     const element = ref.current;
@@ -42,4 +43,4 @@ export function ScrollArea({
       {children}
     </Element>
   );
-}
+});

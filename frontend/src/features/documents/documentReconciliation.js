@@ -16,6 +16,7 @@ function emptySnapshot(scopeKey = "") {
     scopeKey, documents: [], selectedDocument: null, selectedDocumentId: "", selectedDocumentIds: [],
     search: "", debouncedSearch: "", filters: { ...EMPTY_FILTERS }, availableModels: [],
     totalDocuments: 0, nextCursor: null, hasMore: false, loadingMore: false,
+    statusCounts: { queued: 0, processing: 0, completed: 0, failed: 0 },
     loadingDocumentId: "", uploading: false, deleting: false, exporting: false,
   };
 }
@@ -72,6 +73,7 @@ export function createDocumentReconciliation({
     if (!context) return;
     context.active = false;
     clearTimeout(context.refreshTimer);
+    clearTimeout(context.countsTimer);
     clearTimeout(context.searchTimer);
     for (const url of context.previews.values()) revokePreview(url);
     context.previews.clear();
@@ -116,6 +118,7 @@ export function createDocumentReconciliation({
       revision: 0, countRevision: 0, queryRevision: 0, listRequest: 0,
       details: new Map(), detailAttempts: new Map(), hydrated: new Map(), modelsRequest: null,
       refreshTimer: null, searchTimer: null,
+      countsTimer: null, countsRequest: 0,
     };
     if (!initialized) {
       for (const job of initialWorkspace.jobHistory || []) {
@@ -160,12 +163,33 @@ export function createDocumentReconciliation({
     snapshot = { ...snapshot, availableModels: models };
   }
 
+  function scheduleCountsRefresh(ctx) {
+    if (!isCurrent(ctx) || !ctx.requests.getDocumentCounts || ctx.countsTimer) return;
+    ctx.countsTimer = setTimeout(async () => {
+      ctx.countsTimer = null;
+      const requestId = ++ctx.countsRequest;
+      const revision = ctx.revision;
+      try {
+        const data = await ctx.requests.getDocumentCounts();
+        if (!isCurrent(ctx) || requestId !== ctx.countsRequest) return;
+        if (ctx.revision !== revision) { scheduleCountsRefresh(ctx); return; }
+        publish(ctx, { totalDocuments: data.total, statusCounts: data.status_counts });
+      } catch (error) {
+        emit(ctx, "onLog", `Refresh document counts failed: ${error.message}`);
+        if (error.status === 403) emit(ctx, "onAccessDenied");
+      }
+    }, 150);
+  }
+
   function merge(ctx, incoming, { details = false, countNew = false, observe = true } = {}) {
     const id = normalizeId(incoming?.job_id);
     if (!id || ctx.deleted.has(id)) return null;
     const existing = ctx.rows.get(id);
     if (isOlder(incoming, existing)) return existing;
     const next = { ...existing, ...incoming, job_id: id };
+    if (observe && existing?.status !== next.status) {
+      scheduleCountsRefresh(ctx);
+    }
     for (const field of ["source_name", "source_mime_type", "source_preview_url", "created_at", "queued_at"]) {
       next[field] = existing?.[field] || incoming[field] || null;
     }
@@ -198,6 +222,7 @@ export function createDocumentReconciliation({
     if (append && (!snapshot.hasMore || !snapshot.nextCursor || snapshot.loadingMore)) return;
     const queryRevision = ctx.queryRevision;
     const requestId = ++ctx.listRequest;
+    const countsRequestId = ++ctx.countsRequest;
     const revision = ctx.revision;
     const { debouncedSearch: search, filters, nextCursor } = snapshot;
     publish(ctx, { loadingMore: append });
@@ -225,11 +250,12 @@ export function createDocumentReconciliation({
       }
       const total = Number.isFinite(data?.total) ? data.total : jobs.length;
       publish(ctx, {
-        totalDocuments: ctx.countRevision > revision ? snapshot.totalDocuments : total,
+        totalDocuments: ctx.countRevision > revision || countsRequestId !== ctx.countsRequest ? snapshot.totalDocuments : total,
+        statusCounts: !overlap && countsRequestId === ctx.countsRequest && data?.status_counts ? data.status_counts : snapshot.statusCounts,
         nextCursor: data?.next_cursor || null, hasMore: Boolean(data?.has_more),
       });
       emit(ctx, "onResponse", data);
-      if (overlap) scheduleRefresh(ctx);
+      if (overlap) { scheduleRefresh(ctx); scheduleCountsRefresh(ctx); }
     } catch (error) {
       if (isCurrent(ctx) && queryRevision === ctx.queryRevision && requestId === ctx.listRequest) {
         emit(ctx, "onLog", `List documents failed: ${error.message}`);
@@ -275,6 +301,7 @@ export function createDocumentReconciliation({
     if (ctx.deleted.has(id)) return;
     changed(ctx, id);
     ctx.deleted.add(id);
+    scheduleCountsRefresh(ctx);
     ctx.rows.delete(id);
     ctx.rowsDirty = true;
     if (ctx.known.delete(id)) {

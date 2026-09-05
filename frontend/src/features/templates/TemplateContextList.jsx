@@ -1,4 +1,5 @@
 import React from "react";
+import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 
 export function TemplateContextList({
@@ -20,7 +21,7 @@ export function TemplateContextList({
           placeholder="Template name or ID"
         />
       </label>
-      <div className="context-list">
+      <ScrollArea className="context-list" role="region" aria-label="Template list" tabIndex={0}>
         {templates.slice(0, 12).map((template) => {
           const itemDetail = template.is_draft ? "Unsaved" : template.id;
           return (
@@ -61,7 +62,7 @@ export function TemplateContextList({
             </div>
           );
         })}
-      </div>
+      </ScrollArea>
     </>
   );
 }

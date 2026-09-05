@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createDocumentRequestAdapter } from "./documentRequestAdapter.js";
 
 describe("Document request adapter conditional reads", () => {
+  it("rejects malformed summaries instead of replacing the displayed counts", async () => {
+    const adapter = createDocumentRequestAdapter({ request: vi.fn(async () => ({ jobs: [] })) });
+    await expect(adapter.getDocumentCounts()).rejects.toThrow("invalid response");
+  });
   it("evicts oversized representations together with their validators", async () => {
     const request = vi.fn(async () => ({ data: { job_id: "large", status: "completed", results: [{ answer: "x".repeat(2000) }] }, headers: new Headers({ etag: '"large"' }) }));
     const adapter = createDocumentRequestAdapter({ request, cacheMaxBytes: 1000 });

@@ -16,6 +16,16 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes } ) {
   }
 
   return {
+    async getDocumentCounts() {
+      const result = await documentRequest("/jobs/counts", { method: "GET" });
+      const counts = result?.status_counts;
+      const values = ["queued", "processing", "completed", "failed"].map((status) => counts?.[status]);
+      if (values.some((value) => !Number.isSafeInteger(value) || value < 0)
+        || !Number.isSafeInteger(result?.total) || result.total !== values.reduce((sum, value) => sum + value, 0)) {
+        throw new Error("Document counts returned an invalid response");
+      }
+      return { total: result.total, status_counts: counts };
+    },
     async getFilterOptions() {
       const result = await documentRequest("/jobs/filter-options", { method: "GET" });
       return {
@@ -79,6 +89,7 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes } ) {
       return {
         jobs,
         total: Number.isFinite(total) && total >= 0 ? total : jobs.length,
+        status_counts: result?.status_counts,
         next_cursor: result?.next_cursor || null,
         has_more: Boolean(result?.has_more),
       };

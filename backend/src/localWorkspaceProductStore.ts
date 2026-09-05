@@ -205,6 +205,7 @@ export type LocalWorkspaceProductStore = {
   getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
   listTemplates(): LocalWorkspaceTemplate[];
   countExtractionJobs(): number;
+  getExtractionJobCounts(): { total: number; status_counts: Record<LocalWorkspaceExtractionJobSummary["status"], number> };
   listExtractionJobModels(): string[];
   listExtractionJobs(input?: {
     cursor?: { createdAt: string; jobId: string } | null;
@@ -355,6 +356,12 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     getSubmissionTemplate: (templateId) => getSubmissionTemplate(database, templateId),
     listTemplates: () => listTemplates(database),
     countExtractionJobs: () => countExtractionJobs(database),
+    getExtractionJobCounts: () => {
+      const status_counts = { queued: 0, processing: 0, completed: 0, failed: 0 };
+      const rows = database.query("SELECT status, count FROM job_status_totals").all() as Array<{ status: keyof typeof status_counts; count: number }>;
+      for (const row of rows) status_counts[row.status] = row.count;
+      return { total: Object.values(status_counts).reduce((sum, count) => sum + count, 0), status_counts };
+    },
     listExtractionJobModels: () => listExtractionJobModels(database),
     listExtractionJobs: (input) => listExtractionJobs(database, input),
     listRetainedTerminalSourceFiles: (input) => listRetainedTerminalSourceFiles(database, input),
@@ -468,6 +475,24 @@ function migrateProductSchema(database: Database): void {
         END;
       `);
       database.query("INSERT INTO product_schema_version(version, applied_at) VALUES (4, ?)").run(new Date().toISOString());
+    }
+    if (!applied.has(5)) {
+      database.exec(`
+        CREATE TABLE job_status_totals (status TEXT PRIMARY KEY, count INTEGER NOT NULL CHECK (count >= 0));
+        INSERT INTO job_status_totals SELECT status, COUNT(*) FROM jobs GROUP BY status;
+        INSERT OR IGNORE INTO job_status_totals VALUES ('queued', 0), ('processing', 0), ('completed', 0), ('failed', 0);
+        CREATE TRIGGER jobs_status_count_insert AFTER INSERT ON jobs BEGIN
+          UPDATE job_status_totals SET count = count + 1 WHERE status = new.status;
+        END;
+        CREATE TRIGGER jobs_status_count_delete AFTER DELETE ON jobs BEGIN
+          UPDATE job_status_totals SET count = count - 1 WHERE status = old.status;
+        END;
+        CREATE TRIGGER jobs_status_count_update AFTER UPDATE OF status ON jobs WHEN old.status IS NOT new.status BEGIN
+          UPDATE job_status_totals SET count = count - 1 WHERE status = old.status;
+          UPDATE job_status_totals SET count = count + 1 WHERE status = new.status;
+        END;
+      `);
+      database.query("INSERT INTO product_schema_version(version, applied_at) VALUES (5, ?)").run(new Date().toISOString());
     }
   }).immediate();
 }

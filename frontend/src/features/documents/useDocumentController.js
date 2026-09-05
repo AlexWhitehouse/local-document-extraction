@@ -174,36 +174,11 @@ export function useDocumentController({
     return templateName || templateId;
   }, [selectedDocument, templates]);
 
-  const documentStatusMetrics = useMemo(() => {
-    const metrics = {
-      queued: 0,
-      processing: 0,
-      completed: 0,
-      failed: 0,
-    };
-
-    for (const job of documents) {
-      if (Object.prototype.hasOwnProperty.call(metrics, job.status)) {
-        metrics[job.status] += 1;
-      }
-    }
-
-    return metrics;
-  }, [documents]);
-
-  const completionRate = useMemo(() => {
-    if (!documents.length) {
-      return 0;
-    }
-
-    const completedDocuments = documents.filter(
-      (document) => !LIVE_DOCUMENT_STATUSES.has(document.status),
-    ).length;
-
-    return Math.round(
-      (completedDocuments / documents.length) * 100,
-    );
-  }, [documents]);
+  const documentStatusMetrics = snapshot.statusCounts;
+  const statusTotal = Object.values(documentStatusMetrics).reduce((sum, count) => sum + count, 0);
+  const completionRate = statusTotal
+    ? Math.round(((documentStatusMetrics.completed + documentStatusMetrics.failed) / statusTotal) * 100)
+    : 0;
 
   function openUploadModal() {
     if (!modelReady) return;

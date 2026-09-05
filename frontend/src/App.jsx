@@ -325,10 +325,10 @@ function AuthenticatedApp() {
                       Selected {documentController.toolbar.selectedDocumentCount}
                     </span>
                   ) : null}
-                  <span className="status-chip">
+                  <span className="status-chip" title="All queued documents in this workspace">
                     Queued {documentStatusMetrics.queued}
                   </span>
-                  <span className="status-chip good">
+                  <span className="status-chip good" title="All completed documents in this workspace">
                     Completed {documentStatusMetrics.completed}
                   </span>
                 </>

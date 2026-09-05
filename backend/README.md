@@ -28,8 +28,20 @@ The server reads ordinary environment variables. A local `.env` file is suitable
 | `MAX_SOURCE_FILE_BYTES` | `10485760` | Maximum accepted Source file size; multipart request caps are derived from it. |
 | `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` | `300000` | Model request timeout. |
 | `EXTRACTION_RETRY_DELAY_MS` | `1000` | Delay before retrying a failed model request. |
+| `LOCAL_MEMORY_LIMIT_RATIO` | `0.8` | Process RSS threshold as a fraction of physical system RAM; also sets the preparation allowance. |
+| `MODEL_PREPARATION_MAX_BYTES` | 90% of the process memory allowance | Optional smaller shared preparation budget in bytes; cannot exceed the RAM-derived default. |
 | `MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES` | `4194304` | Upload reservation treated as large while the OS reports warning pressure. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | unset | Optional Google sign-in configuration. |
+
+Memory limits are resolved at startup. By default, preparation can reserve estimates
+totalling 72% of physical RAM, leaving headroom below the 80% process threshold.
+On a 64 GiB host those allowances are approximately 46.08 GiB and 51.2 GiB.
+This does not preallocate memory or raise the extraction job-count limits. Actual
+allocations can exceed estimates; sampled RSS and OS memory-pressure controls
+pause new work, but are not a strict operating-system memory cap. Other programs,
+including a local Model gateway, do not count toward this process's RSS. Set a
+lower allowance when sharing memory with them. `/v1/health` reports
+`diagnostics.modelPreparation` with `maxBytes`, `reservedBytes`, and `waiting`.
 
 ## Workspace Model Gateway
 

@@ -3,6 +3,7 @@ import type { ModelFieldResult } from "./modelResultNormalizer";
 import { encodeModelPayloadBase64 } from "./modelPayloadBase64";
 import { iteratePdfPagesToPng, MAX_RENDERED_PDF_BYTES, PdfPreparationLimitError } from "./pdfPageRenderer";
 import { createByteBudget } from "../lib/byteBudget";
+import { localMemoryLimits } from "../localMemoryLimits";
 
 export class RetryableError extends Error {
   readonly retryAfterMs: number | null;
@@ -38,7 +39,9 @@ export type ModelGatewayConfiguration = {
 };
 
 const sequentialModelCallTails = new Map<string, Promise<void>>();
-const preparationBudget = createByteBudget(256 * 1024 * 1024);
+const preparationBudget = createByteBudget(localMemoryLimits.preparationMaxBytes);
+
+export const getModelPreparationSnapshot = preparationBudget.snapshot;
 
 export function getExtractionModelName(env: ModelGatewayConfiguration): string {
   if (!env.AI_MODEL) throw new ModelGatewayRequestError("Workspace model is not configured");
@@ -74,9 +77,14 @@ export async function runExtraction(
   const reservation = Math.max(1024 * 1024, rendered
     ? MAX_RENDERED_PDF_BYTES * 3 + sourceSize + 16 * 1024 * 1024
     : sourceSize * 4);
-  if (reservation > 256 * 1024 * 1024) throw new ModelGatewayRequestError("Source exceeds the local model preparation budget");
+  if (reservation > localMemoryLimits.preparationMaxBytes) throw new ModelGatewayRequestError("Source exceeds the local model preparation budget");
   return scheduleModelCall(env, () => preparationBudget.run(reservation,
-    () => prepareAndRunExtraction(env, fields, source, sourceMimeType, signal), signal)).catch((error) => {
+    (lease) => prepareAndRunExtraction(env, fields, source, sourceMimeType, signal, (requestCharacters) => {
+      // Rendering has finished. Retain an estimate for the source, content strings,
+      // serialized body and transport copy instead of the maximum PDF render size.
+      const retainedBytes = sourceSize + requestCharacters * 6 + 16 * 1024 * 1024;
+      lease.shrinkTo(Math.min(reservation, retainedBytes));
+    }), signal)).catch((error) => {
       if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
       throw error;
     });
@@ -88,6 +96,7 @@ async function prepareAndRunExtraction(
   source: ArrayBuffer | Blob,
   sourceMimeType: string,
   signal?: AbortSignal,
+  onPrepared?: (requestCharacters: number) => void,
 ): Promise<ModelFieldResult[]> {
   if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
   const model = getExtractionModelName(env);
@@ -124,7 +133,9 @@ async function prepareAndRunExtraction(
     systemPrompt,
     readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT),
   );
-  const runResult = await runViaModelGateway(env, runInput, signal);
+  const requestBody = JSON.stringify(runInput);
+  onPrepared?.(requestBody.length);
+  const runResult = await runViaModelGateway(env, requestBody, signal);
   const content = readRunResultContent(runResult);
 
   let parsed: unknown;
@@ -506,7 +517,7 @@ function readContentValue(value: unknown): string | null {
 
 async function runViaModelGateway(
   env: ModelGatewayConfiguration,
-  input: Record<string, unknown>,
+  requestBody: string,
   signal?: AbortSignal,
 ): Promise<unknown> {
   if (!env.LITELLM_KEY) {
@@ -533,7 +544,7 @@ async function runViaModelGateway(
         authorization: `Bearer ${env.LITELLM_KEY}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify(input),
+      body: requestBody,
       signal: controller.signal,
     });
     if (!response.ok) {

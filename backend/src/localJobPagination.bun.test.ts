@@ -38,6 +38,8 @@ test("the Document adapter traverses stable, opaque, search-bound job pages with
     const adapter = createDocumentRequestAdapter({ request: createApiKeyRequest(application, apiKey) });
 
     const firstPage = await adapter.listDocuments();
+    const statusCounts = { queued: 2, processing: 1, completed: 1, failed: 1 };
+    expect(firstPage.status_counts).toEqual(statusCounts);
     expect(firstPage).toMatchObject({
       jobs: [expect.objectContaining({ job_id: "job_5" }), expect.objectContaining({ job_id: "job_4" })],
       total: 5,
@@ -48,6 +50,7 @@ test("the Document adapter traverses stable, opaque, search-bound job pages with
     expect(repeatedFirstPage).toEqual(firstPage);
 
     const secondPage = await adapter.listDocuments({ cursor: firstPage.next_cursor });
+    expect(secondPage.status_counts).toEqual(statusCounts);
     expect(secondPage).toMatchObject({
       jobs: [expect.objectContaining({ job_id: "job_3" }), expect.objectContaining({ job_id: "job_2" })],
       total: 5,
@@ -62,6 +65,7 @@ test("the Document adapter traverses stable, opaque, search-bound job pages with
     });
 
     const filteredFirstPage = await adapter.listDocuments({ search: "invoice" });
+    expect(filteredFirstPage.status_counts).toEqual(statusCounts);
     expect(filteredFirstPage).toMatchObject({
       jobs: [expect.objectContaining({ job_id: "job_5" }), expect.objectContaining({ job_id: "job_3" })],
       total: 5,
@@ -90,6 +94,8 @@ test("the Document adapter traverses stable, opaque, search-bound job pages with
       .rejects.toMatchObject({ code: "invalid_cursor", status: 400 });
     await expect(adapter.listDocuments({ cursor: "not-a-valid-cursor" }))
       .rejects.toMatchObject({ code: "invalid_cursor", status: 400 });
+    await adapter.deleteDocument("job_1");
+    await expect(adapter.getDocumentCounts()).resolves.toEqual({ total: 4, status_counts: { ...statusCounts, completed: 0 } });
   } finally {
     database.close();
     await rm(stateDirectory, { recursive: true, force: true });
@@ -133,11 +139,44 @@ function createJobs({
         sourceFilePageCount: null,
         submittedAt: "2026-07-10T12:00:00.000Z",
       });
+      if (jobId === "job_1" || jobId === "job_3") {
+        store.claimExtractionJobForProcessing({ jobId, attempt: 1, claimedAt: "2026-07-10T12:01:00.000Z" });
+      }
+      if (jobId === "job_1") {
+        store.completeExtractionJob({ jobId, attempt: 1, completedAt: "2026-07-10T12:02:00.000Z", modelName: "test", route: "test", results: [] });
+      }
+      if (jobId === "job_2") {
+        store.failQueuedExtractionJob({ jobId, failedAt: "2026-07-10T12:02:00.000Z", errorCode: "test", errorMessage: "test" });
+      }
     }
   } finally {
     store.close();
   }
 }
+
+test("status count migration backfills existing jobs and remains correct after reopening and retrying", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-status-counts-"));
+  const workspaceId = "workspace_counts";
+  try {
+    createJobs({ stateDirectory, workspaceId });
+    const db = new Database(join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`));
+    try {
+      db.exec(`DROP TRIGGER jobs_status_count_insert; DROP TRIGGER jobs_status_count_delete;
+        DROP TRIGGER jobs_status_count_update; DROP TABLE job_status_totals;
+        DELETE FROM product_schema_version WHERE version = 5;`);
+    } finally { db.close(); }
+    for (let pass = 0; pass < 2; pass++) {
+      const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+      try {
+        expect(store.getExtractionJobCounts()).toEqual({ total: 5, status_counts: { queued: 2, processing: 1, completed: 1, failed: 1 } });
+        if (pass === 1) {
+          expect(store.requeueExtractionJob({ jobId: "job_3", attempt: 1, requeuedAt: "2026-07-10T12:03:00.000Z", nextRetryAt: "2026-07-10T12:04:00.000Z", errorCode: "timeout", errorMessage: "test" })).toBe(true);
+          expect(store.getExtractionJobCounts()).toEqual({ total: 5, status_counts: { queued: 3, processing: 0, completed: 1, failed: 1 } });
+        }
+      } finally { store.close(); }
+    }
+  } finally { await rm(stateDirectory, { recursive: true, force: true }); }
+});
 
 function createApiKeyRequest(application: (request: Request) => Response | Promise<Response>, apiKey: string) {
   return async (path: string, options: RequestInit = {}) => {

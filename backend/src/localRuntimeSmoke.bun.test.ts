@@ -41,6 +41,8 @@ test("the Bun server supports the complete local product path", async () => {
         ...process.env,
         DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
         LOCAL_SHUTDOWN_TIMEOUT_MS: "50",
+        LOCAL_MEMORY_LIMIT_RATIO: "0.5",
+        MODEL_PREPARATION_MAX_BYTES: String(512 * 1024 * 1024),
       },
     });
     cleanup.defer(async () => {
@@ -51,6 +53,8 @@ test("the Bun server supports the complete local product path", async () => {
 
     const health = await fetchJson<{
       diagnostics: {
+        modelPreparation: { maxBytes: number; reservedBytes: number; waiting: number };
+        resources: { limits: { memoryRatio: number } };
         liveUpdates: {
           connections: { open: number; pending: number };
           runtimePendingWebSockets: number;
@@ -64,6 +68,8 @@ test("the Bun server supports the complete local product path", async () => {
       nodeVersion: process.versions.node,
     });
     expect(health.diagnostics.runtime.bunRevision).toBe(Bun.revision);
+    expect(health.diagnostics.modelPreparation).toEqual({ maxBytes: 512 * 1024 * 1024, reservedBytes: 0, waiting: 0 });
+    expect(health.diagnostics.resources.limits.memoryRatio).toBe(0.5);
     expect(health.diagnostics.liveUpdates).toMatchObject({
       connections: { open: 0, pending: 0 },
       runtimePendingWebSockets: 0,

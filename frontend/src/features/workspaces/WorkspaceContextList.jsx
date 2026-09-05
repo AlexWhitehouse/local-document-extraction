@@ -1,4 +1,5 @@
 import React from "react";
+import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 
 export function WorkspaceContextList({
@@ -23,7 +24,7 @@ export function WorkspaceContextList({
           placeholder="Workspace name or ID"
         />
       </label>
-      <div className="context-list">
+      <ScrollArea className="context-list" role="region" aria-label="Workspace list" tabIndex={0}>
         {isLoading ? (
           <p className="muted">Loading workspace context</p>
         ) : hasResolutionError ? (
@@ -78,7 +79,7 @@ export function WorkspaceContextList({
             </div>
           ))
         )}
-      </div>
+      </ScrollArea>
     </>
   );
 }

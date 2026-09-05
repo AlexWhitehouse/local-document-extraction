@@ -641,6 +641,9 @@ async function handleLocalJobRead({
         documentDeletionStarted = false;
         return Response.json({ deleted: true, job_id: deleted.job_id });
       }
+      if (jobId === "counts") {
+        return Response.json(productStore.getExtractionJobCounts(), { headers: { "cache-control": "no-store" } });
+      }
       if (!jobId) {
         const url = new URL(request.url);
         const search = normalizeJobSearch(url.searchParams.get("search") || "");
@@ -666,7 +669,7 @@ async function handleLocalJobRead({
         const finalJob = jobs.at(-1);
         return Response.json({
           jobs: jobs.map((job) => ({ ...job, results: [] })),
-          total: productStore.countExtractionJobs(),
+          ...productStore.getExtractionJobCounts(),
           next_cursor: hasMore && finalJob
             ? encodeJobCursor({
                 createdAt: finalJob.created_at,

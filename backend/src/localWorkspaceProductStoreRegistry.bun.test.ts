@@ -168,6 +168,7 @@ test("Workspace product stores apply the safe SQLite policy and focused indexes"
       { version: 2 },
       { version: 3 },
       { version: 4 },
+      { version: 5 },
     ]);
   } finally {
     database.close();
