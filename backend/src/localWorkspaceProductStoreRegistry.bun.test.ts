@@ -142,13 +142,16 @@ test("Workspace product stores apply the safe SQLite policy and focused indexes"
   const workspaceId = "workspace_policy";
   const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
   try {
-    expect(store.diagnostics()).toMatchObject({
+    const diagnostics = store.diagnostics();
+    // ADR-0009 permits WAL once SQLite includes the 3.51.3 WAL-reset fix.
+    const supportsWal = diagnostics.sqliteVersion.localeCompare("3.51.3", "en", { numeric: true }) >= 0;
+    expect(diagnostics).toMatchObject({
       busyTimeoutMs: 250,
       foreignKeys: true,
-      journalMode: "delete",
+      journalMode: supportsWal ? "wal" : "delete",
       synchronous: 2,
     });
-    expect(store.diagnostics().sqliteVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(diagnostics.sqliteVersion).toMatch(/^\d+\.\d+\.\d+$/);
   } finally {
     store.close();
   }
