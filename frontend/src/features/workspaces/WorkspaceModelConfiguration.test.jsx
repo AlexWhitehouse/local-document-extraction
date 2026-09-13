@@ -24,6 +24,57 @@ function apiFixture(initial = { configured: false }) {
 }
 
 describe("Workspace Model gateway", () => {
+  it.each(["missing", "weak"])("can change the model with a %s response version header and still detects conflicts", async (headerMode) => {
+    let saved = configured;
+    const represent = () => ({ data: saved, headers: new Headers(headerMode === "weak" ? { etag: `W/"workspace-model-${saved.revision}"` } : {}) });
+    const coreRequest = vi.fn(async (_path, options) => {
+      if (options.method === "GET") return represent();
+      if (options.headers["if-match"] !== `"workspace-model-${saved.revision}"`) {
+        throw Object.assign(new Error("precondition_failed"), { status: 412 });
+      }
+      if (_path.endsWith("/test")) return response({ status: "passed" });
+      if (options.method === "DELETE") { saved = { configured: false }; return null; }
+      saved = { ...saved, ...JSON.parse(options.body), revision: saved.revision + 1 };
+      return represent();
+    });
+    const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    for (const model_name of ["changed/model", "reloaded/model"]) {
+      await act(() => result.current.reload());
+      fill(result, { model_name });
+      await act(() => result.current.save());
+      expect(result.current.error).toBe("");
+      expect(result.current.conflict).toBe(false);
+      expect(result.current.record.model_name).toBe(model_name);
+    }
+    // A save response must also supply the version for the next mutation.
+    fill(result, { model_name: "saved-again/model" });
+    await act(() => result.current.save());
+    expect(result.current.record.model_name).toBe("saved-again/model");
+    await act(() => result.current.testConnection());
+    expect(result.current.testResult.passed).toBe(true);
+
+    fill(result, { model_name: "unsaved/model" });
+    await act(() => result.current.invalidate());
+    expect(result.current.conflict).toBe(false);
+    saved = { ...saved, revision: saved.revision + 1, model_name: "another-session/model" };
+    await act(() => result.current.invalidate());
+    expect(result.current.conflict).toBe(true);
+    expect(result.current.draft.model_name).toBe("unsaved/model");
+    await act(() => result.current.reload());
+    expect(result.current.draft.model_name).toBe("another-session/model");
+
+    // A change without a live notification must still be rejected on save.
+    fill(result, { model_name: "stale-draft/model" });
+    saved = { ...saved, revision: saved.revision + 1 };
+    await act(() => result.current.save());
+    expect(result.current.conflict).toBe(true);
+    expect(saved.model_name).toBe("another-session/model");
+    await act(() => result.current.reload());
+    await act(() => result.current.clear());
+    expect(result.current.record).toEqual({ configured: false });
+  });
+
   it("starts blank and saves, preserves, replaces, and clears using conditional write-only requests", async () => {
     const coreRequest = apiFixture();
     const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
