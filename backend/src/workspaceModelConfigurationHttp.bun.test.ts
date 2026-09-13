@@ -87,6 +87,29 @@ test("session-only, role-redacted configuration CRUD uses conditional, write-onl
   for (const method of ["GET", "PATCH"]) expect((await application(new Request("http://localhost/v1/settings/model", { method }))).status).toBe(404);
 });
 
+test("reloading over HTTP supplies a usable version for changing the model", async () => {
+  const { application, request } = fixture();
+  expect((await request("PUT", draft, { "if-none-match": "*" })).status).toBe(201);
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: application });
+  cleanups.push(() => { void server.stop(true); });
+  const url = new URL("/v1/workspaces/workspace_a/model-configuration", server.url);
+  for (const model_name of ["changed/model", "reloaded/model"]) {
+    const loaded = await fetch(url, { headers: { cookie: "owner" }, cache: "no-store" });
+    expect(loaded.status).toBe(200);
+    const record = await loaded.json();
+    const etag = `"workspace-model-${record.revision}"`;
+    expect(loaded.headers.get("etag")).toBe(etag);
+    const { credential: _credential, ...fields } = draft;
+    const saved = await fetch(url, {
+      method: "PUT", cache: "no-store",
+      headers: { cookie: "owner", "content-type": "application/json", "if-match": etag },
+      body: JSON.stringify({ ...fields, model_name }),
+    });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ model_name });
+  }
+});
+
 test("blank and unreadable configurations fail admission before parsing or creating a Source/job, and remain repairable", async () => {
   const { stateDirectory, application, request, registry } = fixture();
   const submit = () => application(new Request("http://localhost/v1/extract", { method: "POST", headers: { authorization: "Bearer inbound-key", "content-type": "not-multipart" }, body: "unparsed" }));

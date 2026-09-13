@@ -69,12 +69,20 @@ test("a verified user completes a Document Extraction job through Workspace live
       response.request().method() === "POST",
     );
     await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
-    expect((await templateCreated).status()).toBe(201);
+    const createdResponse = await templateCreated;
+    expect(createdResponse.status()).toBe(201);
+    const { template_id: templateId } = await createdResponse.json();
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
     await page.getByLabel("Description", { exact: true }).fill("Extract the visible invoice reference.");
+    const templateUpdated = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === `/v1/templates/${encodeURIComponent(templateId)}` &&
+      response.request().method() === "PATCH",
+    );
     await page.getByRole("button", { name: "Save changes" }).click();
-    await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
+    expect((await templateUpdated).status()).toBe(200);
+    // Creation and editing can leave identical success toasts on screen.
+    await expect(page.getByRole("region", { name: "Template editor" }).getByText(/All changes saved$/)).toBeVisible();
 
     await page.getByRole("button", { name: "Upload Document", exact: true }).first().click();
     const uploadDialog = page.getByRole("dialog", { name: "Upload document" });

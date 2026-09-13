@@ -4,6 +4,16 @@ const emptyDraft = () => ({ gateway_url: "", model_name: "", credential: "", seq
 const draftFrom = (record) => ({ ...emptyDraft(), ...(record?.configured ? { gateway_url: record.gateway_url || "", model_name: record.model_name || "", sequential_calls: Boolean(record.sequential_calls), supports_pdf_input: Boolean(record.supports_pdf_input), supports_structured_output: Boolean(record.supports_structured_output) } : {}) });
 const initialState = (scope) => ({ scope, record: null, etag: null, draft: emptyDraft(), loading: false, saving: false, testing: false, dirty: false, conflict: false, error: "", feedback: "", testResult: null });
 
+function configurationETag(response) {
+  const record = response?.data;
+  // Proxies can remove or weaken ETag headers. The body revision identifies the
+  // same origin version, so conditional writes and revalidation remain reliable.
+  if (record?.configured && Number.isSafeInteger(record.revision) && record.revision > 0) {
+    return `"workspace-model-${record.revision}"`;
+  }
+  return response?.headers?.get("etag") ?? null;
+}
+
 export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessionUserId, role, enabled }) {
   const scope = enabled && workspaceId && sessionUserId ? `${sessionUserId}:${workspaceId}:${role}` : "";
   const canManage = role === "owner" || role === "admin";
@@ -29,11 +39,12 @@ export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessi
       const response = await coreRequest(path, { method: "GET", cache: "no-store", responseType: "resource-json" });
       if (activeScope.current !== scope || token !== operation.current) return;
       const record = response.data;
+      const etag = configurationETag(response);
       setState((previous) => {
-        if (external && previous.etag === response.headers.get("etag") && previous.record?.configured === record.configured && previous.record?.credential_status === record.credential_status) return previous;
+        if (external && previous.etag === etag && previous.record?.configured === record.configured && previous.record?.credential_status === record.credential_status) return previous;
         draftVersion.current += 1;
         if (external && previous.dirty) return { ...previous, conflict: true, testResult: null, testing: false, error: "Configuration changed in another session. Reload before saving; this discards your draft." };
-        return { ...initialState(scope), record, etag: response.headers.get("etag"), draft: draftFrom(record) };
+        return { ...initialState(scope), record, etag, draft: draftFrom(record) };
       });
     } catch {
       if (activeScope.current === scope && token === operation.current) {
@@ -57,7 +68,7 @@ export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessi
   const apply = (response) => {
     const record = response?.data ?? { configured: false };
     draftVersion.current += 1;
-    setState({ ...initialState(scope), record, etag: response?.headers?.get("etag") ?? null, draft: draftFrom(record), feedback: record.configured ? "Model gateway saved." : "Model gateway cleared." });
+    setState({ ...initialState(scope), record, etag: configurationETag(response), draft: draftFrom(record), feedback: record.configured ? "Model gateway saved." : "Model gateway cleared." });
   };
   async function mutate(clear = false) {
     const snapshot = current.current;
