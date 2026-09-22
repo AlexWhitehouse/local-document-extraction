@@ -82,6 +82,39 @@ describe("macOS/Linux release installer", () => {
     passed(await command([launcher, "stop"]));
   }, 60_000);
 
+  test("waits for a signalled process even when its command text disappears during shutdown", async () => {
+    const fixture = join(temporary, "shutdown transition");
+    const shimDirectory = join(fixture, "bin");
+    await mkdir(shimDirectory, { recursive: true });
+    const server = join(fixture, "delayed-exit.ts");
+    const ready = join(fixture, "ready");
+    const signalled = join(fixture, "signalled");
+    const observations = join(fixture, "ps-count");
+    const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    await writeFile(server, `process.on("SIGTERM", () => { Bun.write(${JSON.stringify(signalled)}, "yes"); setTimeout(() => process.exit(0), 1000); });\nawait Bun.write(${JSON.stringify(ready)}, "yes");\nsetInterval(() => {}, 100);\n`);
+    const child = Bun.spawn([process.execPath, "--no-env-file", server], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    try {
+      for (let attempt = 0; attempt < 100 && !await Bun.file(ready).exists(); attempt += 1) await Bun.sleep(20);
+      expect(await Bun.file(ready).exists()).toBe(true);
+      await writeFile(join(fixture, "running.json"), JSON.stringify({ pid: child.pid, server, origin: "http://127.0.0.1:1" }));
+      await writeFile(join(shimDirectory, "ps"), `#!/bin/sh
+set -eu
+count=0
+if [ -f ${shellQuote(observations)} ]; then count=$(cat ${shellQuote(observations)}); fi
+count=$((count + 1))
+printf '%s' "$count" > ${shellQuote(observations)}
+if [ "$count" = 2 ]; then printf 'S [bun]\\n'; else exec /bin/ps "$@"; fi
+`, { mode: 0o700 });
+      const stopScript = join(fixture, "stop.ts");
+      await writeFile(stopScript, `import { stopInstallation } from ${JSON.stringify(join(repository, "scripts/manageInstallation.ts"))};\nawait stopInstallation(${JSON.stringify(fixture)});\n`);
+      passed(await command([process.execPath, "--no-env-file", stopScript], { PATH: `${shimDirectory}:${path}` }));
+      expect(await Bun.file(signalled).exists()).toBe(true);
+      expect(Number(await readFile(observations, "utf8"))).toBeGreaterThanOrEqual(2);
+      expect(await child.exited).toBe(0);
+      expect(await Bun.file(join(fixture, "running.json")).exists()).toBe(false);
+    } finally { child.kill("SIGKILL"); await child.exited; }
+  }, 15_000);
+
   test("rejects broad, overlapping and symlink-disguised paths before changing their permissions", async () => {
     const homeMode = (await stat(process.env.HOME!)).mode;
     const sharedMode = (await stat(temporary)).mode;

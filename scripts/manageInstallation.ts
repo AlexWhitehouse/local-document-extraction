@@ -51,6 +51,13 @@ function processExists(pid: number) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+function processFinished(pid: number) {
+  if (!processExists(pid)) return true;
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" });
+  const state = result.stdout.trim();
+  return result.status !== 0 || !state || /[ZEX]/.test(state);
+}
+
 export async function runningInstallation(root: string): Promise<Running | null> {
   const running = await readFile(join(root, "running.json"), "utf8").then((value) => JSON.parse(value) as Running).catch(() => null);
   if (!running || !Number.isSafeInteger(running.pid) || running.pid < 1 || !processExists(running.pid)) return null;
@@ -137,9 +144,15 @@ export async function startInstallation(installation: Installation): Promise<Run
 export async function stopInstallation(root: string) {
   const running = await runningInstallation(root);
   if (!running) { await rm(join(root, "running.json"), { force: true }); return; }
-  process.kill(running.pid, "SIGTERM");
+  try { process.kill(running.pid, "SIGTERM"); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    await rm(join(root, "running.json"), { force: true });
+    return;
+  }
   for (let attempt = 0; attempt < 150; attempt += 1) {
-    if (!await runningInstallation(root)) {
+    // Identity was verified before our only signal. Linux may clear argv while
+    // exiting, so command text is no longer a reliable shutdown observation.
+    if (processFinished(running.pid)) {
       await rm(join(root, "running.json"), { force: true });
       return;
     }

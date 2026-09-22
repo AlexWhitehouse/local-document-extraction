@@ -110,6 +110,8 @@ Automatic pre-migration backups live under the application directory at `backups
 
 For source checkouts: stop, back up outside the checkout, select the intended tag/commit, run `bun install --frozen-lockfile`, validate config, run `bun run migrate`, build, and start. Read release notes before every update. Do not run `git clean -xfd` on a checkout containing local data or secrets.
 
+When upgrading from the earlier source-only runtime, explicitly set `AUTH_GOOGLE_ENABLED=true` if you already use Google credentials. Google credentials alone no longer enable sign-in. Configure your own `BETTER_AUTH_URL` and additional trusted origins; the old maintainer deployment origin is no longer trusted automatically. The shared configuration validator now rejects invalid booleans, incomplete credential pairs, and inconsistent upload/resource limits instead of silently accepting them. Existing database and machine-secret files remain in place.
+
 ## Uninstall
 
 Stop the app first. Remove the installer-managed application directory and any launcher shortcut you created. Leave the separate configuration and state directories in place to preserve your accounts and documents for reinstalling later. Deleting those directories is a separate, irreversible data-removal choice; back them up first if you may need them.
