@@ -1006,6 +1006,11 @@ button.danger:hover:not(:disabled) {
   letter-spacing: -0.03em;
 }
 
+.settings-modal-tour > button {
+  width: 100%;
+  text-align: left;
+}
+
 .settings-modal-sidebar nav {
   display: grid;
   gap: 6px;

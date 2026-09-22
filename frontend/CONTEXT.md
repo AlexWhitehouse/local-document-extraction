@@ -112,7 +112,19 @@ _Avoid_: fallback workspace, offline workspace
 The UI surface for generating and showing a workspace-scoped credential intended for external API clients.
 _Avoid_: frontend auth mode, session replacement
 
+**Getting started tour**:
+An optional guided walkthrough of real Workspace creation, Template fields and object-array columns, model configuration, and Document upload.
+_Avoid_: demo mode, sample data sandbox
+
 ## Relationships
+
+- The **Getting started tour** is offered after an authenticated user's Workspace context resolves, unless that Account has already started or dismissed it in this browser.
+- Tour preference is browser-local and keyed by Account; impersonated sessions do not show the tour.
+- The tour can be restarted from the left sidebar within the profile modal, which closes when the tour starts. Starting again begins a new Workspace walkthrough; it does not resume earlier progress.
+- Tour actions create real Workspaces, Templates and Extraction jobs. Exiting or refreshing leaves saved data intact and does not save unfinished drafts.
+- While the tour is active, only the highlighted control or editor group and the tour controls accept pointer or keyboard interaction. Escape and Exit tour release the interaction restriction.
+- Creation and upload steps advance on successful state changes, while validation or request failures keep the user on the relevant step for retry.
+- The tour explains **Workspace model configuration** before uploading; a configured Model gateway is required to continue to Document submission.
 
 - A **Workspace selection view** shows either an **Accepted workspace entry** or an **Invited workspace entry**.
 - An **Invited workspace entry** opens the **Locked invitation state** until the **Workspace invitation** is accepted or declined.

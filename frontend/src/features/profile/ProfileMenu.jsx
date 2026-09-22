@@ -14,6 +14,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
     onDraftNameChange,
     onSaveProfile,
     onSignOut,
+    tourAction,
   },
   ref,
 ) {
@@ -53,6 +54,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                     <span className="eyebrow">Local Studio</span>
                     <h2 id="settings-modal-title">Settings</h2>
                   </div>
+                  {tourAction ? <div className="settings-modal-tour">{tourAction}</div> : null}
                   <p>Manage your local account.</p>
                 </aside>
 

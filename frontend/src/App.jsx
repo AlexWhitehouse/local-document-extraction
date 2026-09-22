@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { OnboardingTour } from "./features/onboarding/OnboardingTour.jsx";
 import { Toaster, toast } from "sonner";
 import { createRuntimeAuthClient } from "./lib/authClient";
 import {
@@ -66,6 +67,7 @@ function AuthenticatedApp() {
   } = authClient.useSession();
 
   const [busy, setBusy] = useState(false);
+  const [isTourActive, setIsTourActive] = useState(false);
   const [isStoppingImpersonation, setIsStoppingImpersonation] = useState(false);
   const [, setLogLines] = useState([]);
   const [, setLatestResponse] = useState(null);
@@ -300,12 +302,31 @@ function AuthenticatedApp() {
         }
         onNavigate={handleSidebarNavigation}
         onUploadDocument={documentController.toolbar.onUploadDocument}
-        profileSlot={
-          <ProfileMenu
-            ref={profileMenu.panelRef}
-            {...profileMenu}
+        profileSlot={!isImpersonating ? (
+          <OnboardingTour
+            key={sessionUserId}
+            userId={sessionUserId}
+            ready={workspaceContext.hasWorkspaceApiAccess}
+            workspaceId={workspaceId}
+            workspace={workspaceController.acceptedPage}
+            template={templateController.templatePage}
+            model={workspaceModel}
+            upload={documentController.uploadModal}
+            busy={busy}
+            onActiveChange={setIsTourActive}
+            returnFocusRef={profileMenu.panelRef}
+            renderProfile={(tourAction) => (
+              <ProfileMenu ref={profileMenu.panelRef} {...profileMenu} tourAction={tourAction} />
+            )}
+            onStart={() => {
+              if (profileMenu.isOpen) profileMenu.onToggle();
+              setActivePage("workspace");
+              documentController.uploadModal.onClose();
+            }}
           />
-        }
+        ) : (
+          <ProfileMenu ref={profileMenu.panelRef} {...profileMenu} />
+        )}
         contextSidebar={
           <ContextSidebar
             title={
@@ -450,6 +471,7 @@ function AuthenticatedApp() {
               workspaceId={workspaceToolbar.workspaceId}
               workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
               isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
+              isWorkspaceBusy={busy}
               isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
               isDeletingDocument={documentController.toolbar.isDeletingDocument}
               isExportingDocuments={documentController.toolbar.isExportingDocuments}
@@ -461,7 +483,7 @@ function AuthenticatedApp() {
                 documentController.toolbar.exportableDocumentCount
               }
               updateTemplateId={templateController.toolbar.selectedTemplateId}
-              onCreateTemplate={templateController.toolbar.onCreateTemplate}
+              onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
               onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
               onExportDocuments={documentController.toolbar.onExportDocuments}
               onUploadDocument={documentController.toolbar.onUploadDocument}

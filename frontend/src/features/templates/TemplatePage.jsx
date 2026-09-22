@@ -19,6 +19,7 @@ export function TemplatePage({
     <button
       type="button"
       className="studio-text-button studio-save-action"
+      data-tour="save-template"
       disabled={
         isSavingTemplate ||
         !hasApiAccess ||
@@ -40,6 +41,7 @@ export function TemplatePage({
         <label>
           Template name
           <input
+            data-tour="template-name"
             value={templateName}
             disabled={isSavingTemplate || !hasApiAccess}
             onChange={(event) => onTemplateNameChange(event.target.value)}

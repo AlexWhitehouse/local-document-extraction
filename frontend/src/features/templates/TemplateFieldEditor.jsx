@@ -8,6 +8,7 @@ import {
   EMPTY_OBJECT_COLUMN,
   MAX_TEMPLATE_OBJECT_COLUMNS,
   OBJECT_SCHEMA_DATA_TYPES,
+  getDataTypeLabel,
   isObjectLikeType,
   normalizeDataType,
   normalizeObjectSchema,
@@ -249,12 +250,12 @@ export function TemplateFieldEditor({
               <div className="field-nav-top">
                 <div className="field-nav-label">
                   <strong>{field.name || `Field ${index + 1}`}</strong>
-                  <span>{field.data_type}</span>
+                  <span>{getDataTypeLabel(field.data_type)}</span>
                 </div>
               </div>
             </button>
           ))}
-          <button className="studio-add-field" type="button" onClick={addField}>
+          <button data-tour="add-field" className="studio-add-field" type="button" onClick={addField}>
             + Add field
           </button>
         </ScrollArea>
@@ -278,6 +279,7 @@ export function TemplateFieldEditor({
               <label>
                 Name
                 <input
+                  data-tour="field-name"
                   value={activeField.name}
                   onChange={(event) =>
                     updateField(activeFieldIndex, "name", event.target.value)
@@ -288,6 +290,7 @@ export function TemplateFieldEditor({
               <label>
                 Type
                 <select
+                  data-tour="field-type"
                   value={activeField.data_type}
                   onChange={(event) =>
                     updateField(
@@ -297,9 +300,14 @@ export function TemplateFieldEditor({
                     )
                   }
                 >
-                  {DATA_TYPES.map((dataType) => (
+                  {activeField.data_type === "array" ? (
+                    <option value="array" disabled>
+                      {getDataTypeLabel("array")}
+                    </option>
+                  ) : null}
+                  {DATA_TYPES.filter((dataType) => dataType !== "array").map((dataType) => (
                     <option key={dataType} value={dataType}>
-                      {dataType}
+                      {getDataTypeLabel(dataType)}
                     </option>
                   ))}
                 </select>
@@ -309,6 +317,7 @@ export function TemplateFieldEditor({
             <label>
               Extraction instructions
               <textarea
+                data-tour="field-description"
                 value={activeField.description}
                 onChange={(event) =>
                   updateField(
@@ -378,6 +387,7 @@ export function TemplateFieldEditor({
                 <button
                   type="button"
                   className="secondary"
+                  data-tour="schema-open"
                   onClick={() => setSchemaEditorFieldIndex(activeFieldIndex)}
                 >
                   Edit Schema
@@ -464,6 +474,7 @@ function ObjectSchemaModal({
       <div
         ref={dialogRef}
         className="modal-card object-schema-modal"
+        data-tour="schema-editor"
         role="dialog"
         aria-modal="true"
         aria-labelledby="object-schema-modal-title"
@@ -492,6 +503,7 @@ function ObjectSchemaModal({
               type="button"
               className="icon-action-button object-schema-modal-close"
               aria-label="Close object schema editor"
+              data-tour="schema-close"
               title="Close"
               onClick={onClose}
             >
@@ -571,7 +583,7 @@ function ObjectSchemaModal({
                       >
                         {OBJECT_SCHEMA_DATA_TYPES.map((dataType) => (
                           <option key={dataType} value={dataType}>
-                            {dataType}
+                            {getDataTypeLabel(dataType)}
                           </option>
                         ))}
                       </select>
@@ -631,7 +643,7 @@ function ObjectSchemaModal({
           <p className="hint">
             Changes are applied to the current template draft as you edit.
           </p>
-          <button type="button" onClick={onClose}>
+          <button type="button" data-tour="schema-done" onClick={onClose}>
             Done
           </button>
         </div>

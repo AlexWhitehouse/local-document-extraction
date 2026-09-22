@@ -8,6 +8,20 @@ export const DATA_TYPES = [
   "array<object>",
 ];
 
+const DATA_TYPE_LABELS = {
+  string: "Text",
+  number: "Number",
+  boolean: "Yes / No",
+  date: "Date",
+  object: "Group of fields",
+  array: "List",
+  "array<object>": "Table",
+};
+
+export function getDataTypeLabel(dataType) {
+  return DATA_TYPE_LABELS[dataType] ?? dataType;
+}
+
 export const OBJECT_SCHEMA_DATA_TYPES = ["string", "number", "boolean", "date"];
 export const MAX_TEMPLATE_OBJECT_COLUMNS = 20;
 

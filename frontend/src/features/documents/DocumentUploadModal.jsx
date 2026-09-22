@@ -42,6 +42,7 @@ export function DocumentUploadModal({
           <label>
             Template
             <select
+              data-tour="upload-template"
               value={selectedTemplateId}
               onChange={(event) => onSelectTemplate(event.target.value)}
             >
@@ -53,7 +54,7 @@ export function DocumentUploadModal({
               ))}
             </select>
           </label>
-          <label>
+          <label data-tour="upload-files">
             Source files
             <input
               ref={uploadInputRef}
@@ -123,6 +124,7 @@ export function DocumentUploadModal({
           </button>
           <button
             type="button"
+            data-tour="upload-submit"
             disabled={isUploadingDocuments || !hasApiAccess}
             onClick={onSubmit}
           >

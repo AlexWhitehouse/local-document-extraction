@@ -1,0 +1,51 @@
+.tour-invitation {
+  margin: 0 0 18px;
+  padding: 16px;
+  border: 1px solid var(--line-2);
+  border-top: 2px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-2);
+}
+.tour-invitation strong { display: block; margin: 10px 0; color: var(--text-0); font: 500 16px/1.35 var(--font-display); }
+.tour-invitation p { color: var(--text-2); font-size: 12px; line-height: 1.6; }
+.tour-invitation button { width: 100%; margin-top: 6px; }
+.tour-mask { position: fixed; inset: 0; z-index: 10000; pointer-events: none; }
+.tour-mask path { fill: rgb(2 6 12 / 76%); pointer-events: fill; }
+.tour-mask rect { fill: none; stroke: var(--accent); stroke-width: 2; }
+.tour-popover {
+  position: fixed;
+  z-index: 10001;
+  box-sizing: border-box;
+  width: min(330px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--bg-2);
+  color: var(--text-0);
+  box-shadow: 0 20px 70px rgb(0 0 0 / 50%);
+}
+.tour-popover:focus { outline: none; }
+.tour-progress { display: flex; justify-content: space-between; gap: 8px; color: var(--accent); font: 9px var(--font-mono); letter-spacing: .07em; }
+.tour-popover progress { appearance: none; display: block; width: 100%; height: 3px; margin: 14px 0 20px; border: none; background: var(--line-1); accent-color: var(--accent); }
+.tour-popover progress::-webkit-progress-bar { background: var(--line-1); }
+.tour-popover progress::-webkit-progress-value { background: var(--accent); }
+.tour-popover progress::-moz-progress-bar { background: var(--accent); }
+.tour-popover h2 { margin: 0 0 10px; font: 500 21px/1.25 var(--font-display); letter-spacing: -.025em; }
+.tour-popover p { margin: 0; color: var(--text-1); font-size: 13px; line-height: 1.65; }
+.tour-actions { margin-top: 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tour-actions button { flex-shrink: 0; font-size: 12px; }
+.tour-popover .tour-hint { color: var(--text-2); font-size: 11px; line-height: 1.5; }
+.tour-popover p.tour-hint { margin-top: 12px; }
+/* Reserve room for the guide while the wide schema editor is spotlighted. */
+.object-schema-modal-backdrop:has([data-tour="schema-editor"][aria-describedby~="tour-description"]) {
+  padding-top: 320px;
+}
+[data-tour="schema-editor"][aria-describedby~="tour-description"] {
+  max-height: calc(100dvh - 344px);
+}
+[data-tour="schema-editor"][aria-describedby~="tour-description"] .object-schema-table-wrap {
+  min-height: 80px;
+}
+[data-tour="schema-close"][inert], [data-tour="schema-done"][inert] { opacity: .35; }

@@ -492,14 +492,14 @@ export function useTemplateController({
     }
   }
 
-  function startNewTemplateDraft() {
+  function startNewTemplateDraft({ empty = false } = {}) {
     setShowDraftTemplateNav(true);
     setUpdateTemplateId("");
-    setTemplateName("Prescription Template");
+    setTemplateName(empty ? "" : "Prescription Template");
     setTemplateDescription(
-      "Extract medication and prescription fields from a Document",
+      empty ? "" : "Extract medication and prescription fields from a Document",
     );
-    setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
+    setTemplateFields(empty ? [{ ...EMPTY_FIELD }] : DEFAULT_FIELDS.map((field) => ({ ...field })));
     setLoadedTemplateSnapshot(null);
     addLog("Switched to new template draft");
   }

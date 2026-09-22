@@ -1,0 +1,112 @@
+import { expect, test } from "@playwright/test";
+import { startRuntimeHarness } from "./support/runtimeHarnessClient";
+import { signUpAndVerify } from "./support/journeyHelpers";
+
+test("optional tour guides real creation, isolates controls and queues a document", async ({ page }, testInfo) => {
+  const harness = await startRuntimeHarness();
+  try {
+    await signUpAndVerify(page, harness, { name: "Tour User", email: "tour@example.test", password: "Strong1!" });
+    const invitation = page.getByRole("complementary", { name: "Welcome tour" });
+    await expect(invitation).toBeVisible();
+    await invitation.getByRole("button", { name: "Not now" }).click();
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
+    await expect(invitation).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Take a tour", exact: true })).toHaveCount(0);
+    await page.locator(".sidebar-profile-trigger").click();
+    await page.getByRole("dialog", { name: "Settings" }).locator(".settings-modal-sidebar").getByRole("button", { name: "Take a tour", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
+    const tour = page.locator(".tour-popover");
+    const next = () => tour.getByRole("button", { name: "Continue", exact: true }).click();
+    const target = (name: string) => page.locator(`[data-tour="${name}"]`);
+    await expect(tour).toContainText("A space for your documents");
+    // Even a forced click cannot bypass the spotlight's capture guard.
+    await target("nav-documents").click({ force: true });
+    await expect(target("create-workspace")).toBeVisible();
+    await page.keyboard.press("Shift+Tab");
+    await expect(tour.getByRole("button", { name: "Exit tour" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(target("create-workspace")).toBeFocused();
+    await target("create-workspace").click();
+    await expect(tour).toContainText("Make it yours");
+    await page.getByLabel("Workspace name", { exact: true }).fill("Tour workspace");
+    await expect(tour.getByRole("button", { name: "Continue" })).toBeDisabled();
+    await page.getByRole("button", { name: "Save name", exact: true }).click();
+    await next();
+    await target("nav-templates").click();
+    await target("create-template").click();
+    await target("template-name").fill("Tour Invoice");
+    await next();
+    await target("field-name").fill("Invoice Number");
+    await next();
+    await target("field-description").fill("Invoice identifier near the top of the document");
+    await next();
+    await next();
+    await target("add-field").click();
+    await target("field-name").fill("Line Items");
+    await next();
+    await target("field-description").fill("Every invoice line, one object per row");
+    await next();
+    await expect(tour.getByRole("button", { name: "Continue" })).toBeDisabled();
+    await expect(tour).toContainText("Select Table");
+    await target("field-type").selectOption({ label: "Table" });
+    await next();
+    await target("schema-open").click();
+    await target("schema-done").click({ force: true });
+    await expect(tour).toContainText("Build the columns");
+    await page.getByRole("button", { name: "Add Column", exact: true }).click();
+    await page.screenshot({ path: testInfo.outputPath("tour-schema.png"), animations: "disabled" });
+    await page.getByLabel("Column Name", { exact: true }).click();
+    await page.getByLabel("Column Name", { exact: true }).fill("Item");
+    await page.getByLabel("Column Description", { exact: true }).fill("Item name");
+    await next();
+    await target("schema-done").click();
+    let failSave = true;
+    await page.route("**/v1/templates", async (route) => {
+      if (route.request().method() === "POST" && failSave) {
+        failSave = false;
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Try again" }) });
+      } else await route.continue();
+    });
+    const failedSave = page.waitForResponse((response) => response.url().endsWith("/v1/templates") && response.status() === 503);
+    await target("save-template").click();
+    await failedSave;
+    await expect(target("save-template")).toBeEnabled();
+    await expect(tour).toContainText("Save your template");
+    await target("save-template").click();
+    await expect(tour).toContainText("Connect a model");
+    await target("nav-workspace").click();
+    await page.screenshot({ path: testInfo.outputPath("tour-gateway.png") });
+    await page.getByLabel("Gateway URL", { exact: true }).click();
+    await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
+    await page.getByLabel("Model name", { exact: true }).fill("browser/model");
+    await page.getByLabel("Gateway API key", { exact: true }).fill("tour-test-key");
+    await page.getByRole("button", { name: "Save configuration", exact: true }).click();
+    await next();
+    await target("upload-open").click();
+    await page.screenshot({ path: testInfo.outputPath("tour-upload.png") });
+    await next();
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "tour-invoice.png", mimeType: "image/png",
+      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"),
+    });
+    await next();
+    await target("upload-submit").click();
+    await expect(tour).toContainText("You’re ready to extract");
+    await page.screenshot({ path: testInfo.outputPath("tour-complete.png") });
+    await tour.getByRole("button", { name: "Finish tour" }).click();
+    await expect(tour).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Upload document" })).toHaveCount(0);
+    await expect(page.locator("[inert]")).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
+    await expect(invitation).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Take a tour", exact: true })).toHaveCount(0);
+    await page.locator(".sidebar-profile-trigger").click();
+    await page.getByRole("dialog", { name: "Settings" }).locator(".settings-modal-sidebar").getByRole("button", { name: "Take a tour", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(tour).toHaveCount(0);
+    await expect(page.locator("[inert]")).toHaveCount(0);
+  } finally { await harness.stop(); }
+});

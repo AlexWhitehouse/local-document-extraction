@@ -41,6 +41,7 @@ export function MainLayout({
         <button
           type="button"
           className="sidebar-upload-button"
+          data-tour="upload-open"
           aria-disabled={uploadAriaDisabled}
           disabled={isUploadDisabled}
           onClick={onUploadDocument}
@@ -81,6 +82,7 @@ function SidebarNavigation({
       {items.map((item) => (
         <button
           key={item.id}
+          data-tour={`nav-${item.id}`}
           type="button"
           className={
             item.id === activePage ? "sidebar-link active" : "sidebar-link"
@@ -111,6 +113,7 @@ export function WorkspaceToolbar({
   workspaceId,
   workspacePrimaryAction,
   isDeletingWorkspace,
+  isWorkspaceBusy = false,
   isDeletingTemplate,
   isDeletingDocument,
   isExportingDocuments = false,
@@ -191,7 +194,8 @@ export function WorkspaceToolbar({
             <button
               type="button"
               className="secondary"
-              disabled={activePage === "templates" && !hasApiAccess}
+              data-tour={activePage === "templates" ? "create-template" : "create-workspace"}
+              disabled={activePage === "templates" ? !hasApiAccess : isWorkspaceBusy}
               onClick={
                 activePage === "templates"
                   ? onCreateTemplate

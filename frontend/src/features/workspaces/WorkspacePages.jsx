@@ -141,6 +141,7 @@ export function AcceptedWorkspacePage({
           </div>
           <form
             className="studio-name-form"
+            data-tour="workspace-name"
             onSubmit={(event) => {
               event.preventDefault();
               void onSaveWorkspaceChanges();

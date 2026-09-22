@@ -27,7 +27,7 @@ export function WorkspaceModelConfiguration({ controller, inline = false }) {
           ? "Configured"
           : "Not configured";
   return (
-    <article className="workspace-model" aria-label="Workspace Model gateway">
+    <article data-tour="model-configuration" className="workspace-model" aria-label="Workspace Model gateway">
       <header className="workspace-model-header">
         <div>
           <div className="workspace-model-title">
