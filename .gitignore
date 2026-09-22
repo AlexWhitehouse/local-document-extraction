@@ -26,6 +26,12 @@ pnpm-debug.log*
 
 # Local runtime state
 .local/
+.local-backup*/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+config.env
 
 # Editor settings
 .idea/
@@ -33,5 +39,6 @@ pnpm-debug.log*
 
 # Local agent metadata
 .agents/
+.scratch/ci/
 .scratch/bun-1-4-review/raw/
 .scratch/loopback-gateway-saturation/runs/

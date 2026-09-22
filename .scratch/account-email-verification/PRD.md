@@ -12,7 +12,7 @@ The backend is already using Better Auth with email/password accounts, Google so
 
 Require **Account email verification** before an email/password user can access the application. Email/password sign-up should create the Better Auth account and send a verification email, but it should not create a personal **Workspace**, resolve a session, or allow application access until the user verifies their email.
 
-Use Cloudflare Email Sending from the Worker through a generated `EMAIL` binding. Send an HTML-formatted account verification email from `Document Extraction <no-reply@extract.t3m.uk>` with a plain-text alternative and a verification link that returns the user to the application root. Better Auth should automatically sign the user in after successful verification.
+Use Cloudflare Email Sending from the Worker through a generated `EMAIL` binding. Send an HTML-formatted account verification email from `Document Extraction <no-reply@example.com>` with a plain-text alternative and a verification link that returns the user to the application root. Better Auth should automatically sign the user in after successful verification.
 
 Create reusable backend email infrastructure that keeps the sending module generic and stores transactional email templates as code-owned render modules, one email type per file. For this slice, implement the **Account email verification** template only.
 
@@ -26,7 +26,7 @@ Move personal **Workspace** bootstrap from account creation to the moment **Acco
 4. As a visitor, I want to see an **Account verification prompt** after sign-up, so that I know to check my inbox before signing in.
 5. As a visitor, I want the sign-up prompt to avoid trying to load a **Workspace**, so that the app does not enter a broken loading state before verification.
 6. As a visitor, I want the verification email to clearly identify Document Extraction, so that I trust the message and understand what account it relates to.
-7. As a visitor, I want the verification email to come from `Document Extraction <no-reply@extract.t3m.uk>`, so that it is recognizable as a product transactional email.
+7. As a visitor, I want the verification email to come from `Document Extraction <no-reply@example.com>`, so that it is recognizable as a product transactional email.
 8. As a visitor, I want the verification email to be HTML formatted, so that it is readable and professional in modern email clients.
 9. As a visitor, I want the verification email to include a plain-text alternative, so that it remains usable in clients that do not render HTML.
 10. As a visitor, I want the verification email to include a clear verification link, so that I can complete **Account email verification**.
@@ -84,7 +84,7 @@ Move personal **Workspace** bootstrap from account creation to the moment **Acco
 - Do not introduce a durable email queue for this slice; direct Cloudflare Email Sending is sufficient until durable retry, audit, or provider-switching requirements emerge.
 - Create a code-owned **Account email verification** template render module that returns sender, subject, HTML body, and plain-text body.
 - Store transactional email templates as one render module per email type, rather than a database, file-system runtime templates, or one central growing template list.
-- Send **Account email verification** from `Document Extraction <no-reply@extract.t3m.uk>`.
+- Send **Account email verification** from `Document Extraction <no-reply@example.com>`.
 - Use the subject `Verify your Document Extraction account`.
 - Include a verification link and unexpected-recipient ignore guidance in both HTML and text email bodies.
 - Configure Better Auth email verification with a send hook, send-on-sign-up, send-on-sign-in, required email verification for email/password sign-in, and automatic sign-in after verification.

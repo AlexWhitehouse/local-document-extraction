@@ -11,7 +11,7 @@ Complete the human-in-the-loop production readiness pass for live billing. An op
 - [ ] Stripe account live-readiness is confirmed, including account activation, Dashboard access, strong 2FA/passkeys, business profile, payout readiness, support contact, tax/VAT/GST approach, and any Stripe compliance requests.
 - [ ] Live-mode Products/Prices are created or confirmed separately from test mode, and the Worker production configuration points at live Price IDs.
 - [ ] A live restricted API key is created with the documented least-privilege permissions, or a temporary secret-key exception is documented with owner, expiry, and rotation plan.
-- [ ] The live account-scoped webhook endpoint is configured for `https://extract.t3m.uk/v1/billing/stripe/webhook` with the exact supported event allowlist and correct event API version.
+- [ ] The live account-scoped webhook endpoint is configured for `https://app.example.com/v1/billing/stripe/webhook` with the exact supported event allowlist and correct event API version.
 - [ ] A Stripe webhook IP allowlisting decision is recorded, including compensating controls if Cloudflare Worker routing makes allowlisting impractical.
 - [ ] Stripe test-mode manual verification is run with Stripe CLI or Dashboard flows for Credit packs, delayed payments, subscription start/upgrade/downgrade/cancel/reversal/deletion, payment-required Plan override, Enterprise annual upfront, Enterprise ramp-up, Enterprise overage, failed renewal, payment recovery, duplicate replay, and out-of-order delivery where practical.
 - [ ] A production deploy preflight is completed without printing secrets, including remote D1 migrations, Durable Object migrations, required secrets, Cron Trigger, custom domain health, and frontend asset build.

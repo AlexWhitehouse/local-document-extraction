@@ -190,9 +190,13 @@ describe("Workspace action toast feedback", () => {
       return mockWorkspaceFetch(input, options);
     });
 
-    render(<App />);
+    // Flush the immediate mocked startup and 403 recovery responses before the
+    // expensive accessibility query, which can exhaust waitFor on slower CI.
+    await act(async () => {
+      render(<App />);
+    });
 
-    expect(await screen.findByRole("button", { name: /Remaining Workspace/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Remaining Workspace/ })).toBeTruthy();
     expect(toastMock.success).toHaveBeenCalledWith(
       "Workspace access changed. Switched to Remaining Workspace.",
     );

@@ -15,7 +15,7 @@ Add a reusable transactional email module that can send immediately or schedule 
 
 - [x] A generic email sending interface accepts caller-provided sender identity, recipient, subject, text body, and optional HTML body.
 - [x] A scheduling interface uses Worker scheduling when provided and logs send failures without throwing synchronously.
-- [x] The **Account email verification** template renders from `Document Extraction <no-reply@extract.t3m.uk>` with subject `Verify your Document Extraction account`.
+- [x] The **Account email verification** template renders from `Document Extraction <no-reply@example.com>` with subject `Verify your Document Extraction account`.
 - [x] The **Account email verification** template includes the verification URL in both HTML and plain text.
 - [x] The **Account email verification** template tells unexpected recipients they can ignore the email.
 - [x] Focused tests cover template rendering and non-blocking scheduling behavior.
@@ -49,7 +49,7 @@ Backend code should expose a small generic transactional email interface that ca
 - [ ] A generic email sending interface accepts caller-provided sender identity, recipient, subject, text body, and optional HTML body.
 - [ ] An immediate send path sends through the generated `EMAIL` binding shape without hand-rolled Worker binding types.
 - [ ] A scheduling interface uses Worker scheduling when provided and logs send failures without throwing synchronously.
-- [ ] The **Account email verification** template renders from `Document Extraction <no-reply@extract.t3m.uk>` with subject `Verify your Document Extraction account`.
+- [ ] The **Account email verification** template renders from `Document Extraction <no-reply@example.com>` with subject `Verify your Document Extraction account`.
 - [ ] The **Account email verification** template includes the verification URL in both HTML and plain text.
 - [ ] The **Account email verification** template tells unexpected recipients they can ignore the email.
 - [ ] Focused tests cover template rendering and non-blocking scheduling behavior.

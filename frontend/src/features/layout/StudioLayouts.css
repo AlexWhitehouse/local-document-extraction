@@ -45,7 +45,7 @@
 .studio-section-heading h2, .studio-main .workspace-model h2 { margin: 0; font: 500 16px var(--font-display); letter-spacing: -.025em; }
 .studio-section-heading p { margin: 6px 0 0; color: var(--studio-muted); font-size: 12px; }
 .studio-section-heading button { height: 32px; font-size: 12px; white-space: nowrap; }
-.studio-main .studio-text-button, .studio-main .studio-text-button:hover:not(:disabled) {
+.studio-main .studio-text-button {
   background: transparent;
   color: #a5b6ca;
   border: 0;
@@ -57,7 +57,8 @@
   transform: none;
   white-space: nowrap;
 }
-.studio-main .studio-text-button:hover:not(:disabled) { color: var(--accent-strong); }
+/* Keep hover paint-only so compact field actions do not reflow. */
+.studio-main .studio-text-button:hover:not(:disabled) { background: transparent; color: var(--accent-strong); transform: none; }
 .studio-main .studio-destructive { color: #d991a4; }
 .studio-main .studio-save-action { color: var(--accent-strong); }
 .studio-empty-state { border-top: 1px solid var(--studio-rule); padding-top: 24px; color: var(--studio-muted); font-size: 13px; }

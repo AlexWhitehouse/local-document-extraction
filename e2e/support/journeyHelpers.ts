@@ -23,7 +23,7 @@ export async function signUpAndVerify(
   await page.getByLabel("Confirm Password").fill(account.password);
   await page.getByRole("button", { name: "Create Account" }).click();
   await expect(page.getByRole("status")).toContainText(
-    "Check your email to verify your account",
+    "Open your local verification link",
   );
 
   const verificationMail = await harness.waitForVerificationMail(account.email);

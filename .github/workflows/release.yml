@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/ci.yml
+
+  license:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Require the project license before releasing
+        run: test -s LICENSE
+
+  package:
+    needs: [validate, license]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+      - name: Package source release and checksum
+        run: bun run package:release --version "$RELEASE_VERSION"
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'development' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/release/
+      - name: Publish validated tag assets
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" dist/release/install.sh dist/release/document-extraction.tar.gz dist/release/document-extraction.tar.gz.sha256 --verify-tag --generate-notes

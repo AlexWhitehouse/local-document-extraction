@@ -195,31 +195,32 @@ _Avoid_: nested field limit, table array field limit, max table fields
 ## Rules
 
 - **Account password policy** requires at least 8 characters, one ASCII uppercase letter, one ASCII number, and one special character.
-- **Account email verification** is required before an email/password user may access the application.
+- **Account email verification** is required before email/password access by default; an explicit deployment setting may disable that requirement.
 - A trusted social provider's verified email claim satisfies **Account email verification** without a separate Document Extraction verification email.
-- Email/password account access is the reliable local sign-in path; social sign-in depends on local OAuth configuration.
-- **Account email verification** email is sent from `Document Extraction <no-reply@extract.t3m.uk>`.
-- Reusable outbound email sending requires callers to provide the sender identity rather than reading a global sender from configuration.
-- The **Local mail sink** is shared by transactional email flows in the local-only runtime.
-- The local-only runtime uses the **Local mail sink** for **Account email verification**, not a verification bypass.
+- Email/password login is enabled by default; Google OAuth is explicitly enabled with a complete credential pair. At least one login method must remain enabled.
+- Deployment settings control new-account registration consistently for password and Google signup; existing accounts retain their configured sign-in path.
+- **Account email verification** and password-reset mail use deployment-configured sender name/address, with a neutral local default.
+- Email render modules receive the configured sender identity explicitly.
+- The **Local mail sink** is the default transactional delivery surface; optional Cloudflare REST delivery sends actual account email.
+- Local capture exposes action links to the machine operator; Cloudflare delivery does not duplicate those links into local capture.
 - After successful **Account email verification**, users return to the application root.
 - Successful **Account email verification** signs the user in automatically.
-- Signing in with an unverified email/password account sends a new **Account email verification** link instead of granting access.
-- Existing unverified email/password users are blocked on future sign-in, but this slice does not forcibly invalidate existing sessions.
+- When verification is required, signing in with an unverified email/password account sends a new **Account email verification** link instead of granting access.
+- When verification is required, existing unverified email/password users are blocked on future sign-in; changing policy does not forcibly invalidate existing sessions.
 - Existing unverified email/password users are not backfilled as verified by migration.
 - **Account email verification** email is HTML formatted, includes a plain-text alternative, and tells unexpected recipients they can ignore it.
-- **Account email verification** sending is scheduled without blocking sign-up or sign-in responses.
-- **Account email verification** uses the **Local mail sink** by default; outbound SMTP is deferred until real delivery needs justify it.
+- **Account email verification** delivery attempts are awaited and bounded; delivery failure uses a sanitized error rather than exposing provider responses or credentials.
+- **Account email verification** uses the **Local mail sink** by default; Cloudflare email is an opt-in REST transport, and generic SMTP is not implemented.
 - **Account password reset** request responses do not reveal whether the submitted email belongs to an email/password Account.
 - **Account password reset** links land on the SPA `/reset-password` experience with a Better Auth reset token or token error in the query string.
 - **Account password reset** requires the same **Account password policy** as email/password sign-up.
 - **Account password reset** links expire after one hour.
 - **Account password reset** revokes existing sessions after the password changes.
-- **Account password reset** email is sent from `Document Extraction <no-reply@extract.t3m.uk>`.
+- **Account password reset** email uses the same configured sender as account verification.
 - **Account password reset** email is HTML formatted, includes a plain-text alternative, includes the reset link, and tells unexpected recipients they can ignore it.
-- **Account password reset** sending is scheduled without blocking request responses.
+- **Account password reset** delivery attempts are awaited and bounded; provider acceptance does not prove inbox delivery.
 - Transactional email templates are code-owned render modules, with each email type in its own file.
-- Auth-triggered transactional emails are captured by the **Local mail sink** and expose actionable links through local logs.
+- Auth-triggered transactional emails expose actionable links through local logs only when local capture is selected.
 - **Application admin** authority is application-wide and is not granted by Workspace owner/admin membership.
 - Local-only runtime does not remove authentication, **Workspace membership**, **Workspace invitations**, **Application admin** capability, or **Workspace API keys**.
 - The local-only product keeps **Product safety limits** and Template shape constraints without commercial quota enforcement.
@@ -255,7 +256,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - An **Application admin** cannot impersonate their own account.
 - Banned users are not eligible impersonation targets until unbanned.
 - Banned users receive Better Auth's default banned-user sign-in message.
-- A personal **Workspace** is created only after **Account email verification** gives the user account access, not when an unverified email/password account is first registered.
+- A personal **Workspace** is created after configured authentication policy grants account access; when verification is required, an unverified registration does not create it.
 - Personal **Workspace** creation after **Account email verification** is idempotent; users who already have accepted **Workspace membership** do not receive another personal **Workspace**.
 - Pending **Workspace invitations** do not suppress personal **Workspace** creation after **Account email verification**.
 - A **Workspace invitation** is not workspace access until accepted.

@@ -28,7 +28,7 @@ test("a user manages local settings and recovers access through the frontend", a
     await expect(page.getByRole("heading", { name: "Reset password" })).toBeVisible();
     await page.getByRole("button", { name: "Send reset link" }).click();
     await expect(page.getByRole("status")).toContainText(
-      `If an account exists for ${ACCOUNT.email}, a reset link has been sent`,
+      `If an account exists for ${ACCOUNT.email}, a reset link has been saved`,
     );
 
     const resetMail = await harness.waitForPasswordResetMail(ACCOUNT.email);

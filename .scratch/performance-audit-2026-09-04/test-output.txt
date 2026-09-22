@@ -404,7 +404,7 @@ error: expect(received).toEqual(expected)
 - Expected  - 0
 + Received  + 3
 
-      at <anonymous> (/Users/alexwhitehouse/Documents/local-document-extraction/backend/src/localWorkspaceProductStoreRegistry.bun.test.ts:166:97)
+      at <anonymous> (<repository>/backend/src/localWorkspaceProductStoreRegistry.bun.test.ts:166:97)
 (fail) Workspace product stores apply the safe SQLite policy and focused indexes [5.78ms]
 
 src/retireGlobalModelConfiguration.bun.test.ts:

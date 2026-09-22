@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
   workflow_dispatch:
+  workflow_call:
   schedule:
     - cron: "17 4 * * 1"
 
@@ -14,21 +15,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  secrets:
+    if: github.event_name != 'schedule'
+    name: Scan complete Git history for secrets
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Download and verify pinned Gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          archive="gitleaks_${version}_linux_x64.tar.gz"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${version}"
+          curl -fsSL "$base/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL "$base/gitleaks_${version}_checksums.txt" -o "$RUNNER_TEMP/gitleaks-checksums.txt"
+          cd "$RUNNER_TEMP"
+          awk -v archive="$archive" '$2 == archive { print }' gitleaks-checksums.txt > gitleaks-selected.sha256
+          test -s gitleaks-selected.sha256
+          sha256sum --check gitleaks-selected.sha256
+          tar -xzf "$archive" gitleaks
+      - name: Scan all history with redacted findings
+        run: '"$RUNNER_TEMP/gitleaks" git --redact --log-opts=--all .'
+
   quality:
     if: github.event_name != 'schedule'
-    name: Quality, Tests, and Build
+    name: Quality, Tests, and Build (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-latest
-          - macos-latest
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+          - macos-15-intel
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -51,12 +82,15 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: package-hygiene-${{ runner.os }}-${{ github.job }}
+          name: package-hygiene-${{ matrix.os }}-${{ github.job }}
           if-no-files-found: error
           path: .scratch/ci/package-hygiene/
 
       - name: Run platform-neutral CI
         run: bun run ci:quality
+
+      - name: Verify clean local installation and upgrade
+        run: bun run test:installer
 
       - name: Generate backend test evidence
         if: always()
@@ -66,7 +100,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backend-test-evidence-${{ runner.os }}
+          name: backend-test-evidence-${{ matrix.os }}
           if-no-files-found: error
           path: |
             .scratch/ci/backend/backend-junit-merged.xml
@@ -83,7 +117,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-coverage-${{ runner.os }}
+          name: frontend-coverage-${{ matrix.os }}
           if-no-files-found: error
           path: |
             .scratch/ci/frontend/frontend-coverage-summary.md
@@ -91,23 +125,26 @@ jobs:
             .scratch/ci/frontend/coverage/lcov.info
 
       - name: Measure backend Bun worker caps
-        run: bun run --cwd backend benchmark:test-parallel | tee backend-test-parallel-${{ runner.os }}.md
+        if: matrix.os == 'ubuntu-24.04' || matrix.os == 'macos-15'
+        run: bun run --cwd backend benchmark:test-parallel | tee backend-test-parallel-${{ matrix.os }}.md
 
       - name: Upload backend worker-cap evidence
-        if: always()
+        if: always() && (matrix.os == 'ubuntu-24.04' || matrix.os == 'macos-15')
         uses: actions/upload-artifact@v4
         with:
-          name: backend-test-parallel-${{ runner.os }}
-          path: backend-test-parallel-${{ runner.os }}.md
+          name: backend-test-parallel-${{ matrix.os }}
+          path: backend-test-parallel-${{ matrix.os }}.md
 
   backend-flake:
     name: Backend randomized repetition lane
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -125,7 +162,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: package-hygiene-${{ runner.os }}-${{ github.job }}
+          name: package-hygiene-ubuntu-24.04-${{ github.job }}
           if-no-files-found: error
           path: .scratch/ci/package-hygiene/
 
@@ -136,20 +173,21 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backend-flake-${{ runner.os }}
+          name: backend-flake-ubuntu-24.04
           if-no-files-found: error
           path: .scratch/ci/backend/backend-flake.md
 
   browser-journey:
     name: Built SPA Chromium journey
     if: github.event_name != 'schedule'
-    needs: quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -170,6 +208,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-extraction-journey
+          name: playwright-extraction-journey-ubuntu-24.04
           if-no-files-found: error
           path: .scratch/ci/playwright/

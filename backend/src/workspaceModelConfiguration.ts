@@ -1,8 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, ftruncateSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { HttpError } from "./lib/http";
+import { assertRealStateDirectorySync, assertRegularStateFileSync, ensurePrivateStateDirectorySync } from "./localStatePaths";
 
 export type WorkspaceModelDraft = {
   gateway_url: string;
@@ -62,25 +63,38 @@ export function modelConfigurationETag(revision: number): string {
 export function createWorkspaceCredentialVault(stateDirectory: string) {
   const directory = join(stateDirectory, "secrets");
   const path = join(directory, "model-gateway.key");
-  const readKey = () => {
-    const key = readFileSync(path);
-    if (key.length !== 32) throw configurationUnavailable();
-    return key;
+  const readKey = (protect = false) => {
+    assertRealStateDirectorySync(stateDirectory);
+    assertRealStateDirectorySync(directory);
+    assertRegularStateFileSync(path);
+    const file = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const stat = fstatSync(file);
+      if (!stat.isFile() || stat.size !== 32) throw configurationUnavailable();
+      const key = readFileSync(file);
+      if (key.length !== 32) throw configurationUnavailable();
+      if (protect) fchmodSync(file, 0o600);
+      return key;
+    } finally { closeSync(file); }
   };
   const encryptionKey = () => {
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    chmodSync(directory, 0o700);
+    ensurePrivateStateDirectorySync(stateDirectory, { recursive: true });
+    ensurePrivateStateDirectorySync(directory);
     try {
-      const key = readKey();
-      chmodSync(path, 0o600);
-      return key;
+      return readKey(true);
     } catch (error) {
       const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
       if (!missing && !(error instanceof HttpError)) throw configurationUnavailable();
       const key = randomBytes(32);
       try {
-        writeFileSync(path, key, { flag: missing ? "wx" : "w", mode: 0o600 });
-        chmodSync(path, 0o600);
+        assertRegularStateFileSync(path);
+        const file = openSync(path, constants.O_WRONLY | constants.O_NOFOLLOW | (missing ? constants.O_CREAT | constants.O_EXCL : 0), 0o600);
+        try {
+          if (!fstatSync(file).isFile()) throw configurationUnavailable();
+          fchmodSync(file, 0o600);
+          ftruncateSync(file, 0);
+          writeFileSync(file, key);
+        } finally { closeSync(file); }
         return key;
       } catch (writeError) {
         if ((writeError as NodeJS.ErrnoException).code === "EEXIST") return readKey();

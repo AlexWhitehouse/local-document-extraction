@@ -23,7 +23,7 @@ The reset link opens the unauthenticated `/reset-password` SPA experience with a
 5. As a returning email/password user, I want reset-request feedback to avoid saying whether my email exists, so that account privacy is protected.
 6. As a returning email/password user, I want a clear way back to sign in after requesting a reset link, so that I can continue once I have reset my password.
 7. As a returning email/password user, I want the reset email to clearly identify Document Extraction, so that I trust the message.
-8. As a returning email/password user, I want the reset email to come from `Document Extraction <no-reply@extract.t3m.uk>`, so that it matches other account emails.
+8. As a returning email/password user, I want the reset email to come from `Document Extraction <no-reply@example.com>`, so that it matches other account emails.
 9. As a returning email/password user, I want the reset email to include a clear reset link, so that I can continue recovery.
 10. As a returning email/password user, I want the reset email to be readable in HTML email clients, so that the message is easy to use.
 11. As a returning email/password user, I want the reset email to include a plain-text alternative, so that it works in clients that do not render HTML.
@@ -93,7 +93,7 @@ The reset link opens the unauthenticated `/reset-password` SPA experience with a
 - **Account password reset** does not affect pending **Workspace invitations**.
 - **Account password reset** does not rotate or invalidate **Workspace API keys**.
 - Add a code-owned **Account password reset** email render module.
-- Send **Account password reset** email from `Document Extraction <no-reply@extract.t3m.uk>`.
+- Send **Account password reset** email from `Document Extraction <no-reply@example.com>`.
 - Include the reset link visibly in both HTML and text email bodies.
 - Include unexpected-recipient ignore guidance in both HTML and text email bodies.
 - Send reset emails through the existing Worker `EMAIL` binding.

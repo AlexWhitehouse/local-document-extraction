@@ -7,7 +7,7 @@ Document Extraction runs locally on Bun. One server at `http://127.0.0.1:8787` s
 From the repository root:
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run migrate
 bun run build
 bun run start
@@ -17,31 +17,22 @@ Open `http://127.0.0.1:8787` in a browser. For reload while changing backend cod
 
 ## Local Configuration
 
-The server reads ordinary environment variables. A local `.env` file is suitable for secrets, but do not commit it.
+Start with the [root README](../README.md) and [setup and maintenance guide](../docs/setup.md).
+The complete deployment surface is documented in [configuration](../docs/configuration.md)
+and mirrored by [`.env.example`](../.env.example). One validated configuration loader is
+shared by startup, migration, and `bun backend/src/checkConfiguration.ts`.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PORT` | `8787` | Bun server port. |
-| `BETTER_AUTH_URL` | `http://127.0.0.1:$PORT` | Public origin used in auth links. |
-| `DOCUMENT_EXTRACTION_STATE_DIR` | repo `.local/` | Root directory for all durable local state. |
-| `DOCUMENT_EXTRACTION_ADMIN_EMAILS` | empty | Comma-separated local Application admin emails. |
-| `MAX_SOURCE_FILE_BYTES` | `10485760` | Maximum accepted Source file size; multipart request caps are derived from it. |
-| `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` | `300000` | Model request timeout. |
-| `EXTRACTION_RETRY_DELAY_MS` | `1000` | Delay before retrying a failed model request. |
-| `LOCAL_MEMORY_LIMIT_RATIO` | `0.8` | Process RSS threshold as a fraction of physical system RAM; also sets the preparation allowance. |
-| `MODEL_PREPARATION_MAX_BYTES` | 90% of the process memory allowance | Optional smaller shared preparation budget in bytes; cannot exceed the RAM-derived default. |
-| `MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES` | `4194304` | Upload reservation treated as large while the OS reports warning pressure. |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | unset | Optional Google sign-in configuration. |
+The default is a loopback server on port 8787, email/password accounts with verification
+through local mail capture, no Google login, and local analytics. Google OAuth and
+Cloudflare email delivery are explicit opt-ins. The SPA reads safe auth capabilities
+and the upload limit from `/v1/config`; deployment changes require a restart, not a
+frontend rebuild. Model settings remain per Workspace, as described below.
 
-Memory limits are resolved at startup. By default, preparation can reserve estimates
-totalling 72% of physical RAM, leaving headroom below the 80% process threshold.
-On a 64 GiB host those allowances are approximately 46.08 GiB and 51.2 GiB.
-This does not preallocate memory or raise the extraction job-count limits. Actual
-allocations can exceed estimates; sampled RSS and OS memory-pressure controls
-pause new work, but are not a strict operating-system memory cap. Other programs,
-including a local Model gateway, do not count toward this process's RSS. Set a
-lower allowance when sharing memory with them. `/v1/health` reports
-`diagnostics.modelPreparation` with `maxBytes`, `reservedBytes`, and `waiting`.
+Memory limits are resolved at startup. Default preparation reservations can total 72%
+of physical RAM, leaving headroom below the 80% process RSS threshold. This does not
+preallocate memory or enforce an operating-system memory cap. A local model server
+and other programs consume separate memory; lower the budget on shared machines.
+`/v1/health` reports aggregate model-preparation and runtime diagnostics.
 
 ## Workspace Model Gateway
 
@@ -108,21 +99,29 @@ By default `.local/` contains:
 
 A full current-version backup is secret-bearing: include both the Workspace databases and `secrets/model-gateway.key`, restrict access, and restore them together. A database without the matching machine secret retains its configuration but requires credential replacement. Workspace/job exports, analytics, diagnostics, and live updates exclude plaintext and ciphertext credentials.
 
-To make a backup while the server is stopped:
+Stop the application before copying the full state and private configuration to a
+backup **outside the repository**. Follow the [backup/restore guide](../docs/setup.md#backup-and-restore).
+Deleting the state directory deletes accounts, Workspaces, results, captured mail,
+and machine secrets; it is not an update step. Installer-managed state lives outside
+release directories and is preserved by upgrades and application removal.
 
-```bash
-cp -a .local ".local-backup-$(date +%F)"
-```
+## Transactional Email
 
-To reset all local data while the server is stopped, remove `.local/`, then run `bun run migrate` again.
+`EMAIL_PROVIDER=local` captures verification and password-reset messages. Action
+links appear in private logs and `mail/YYYY-MM-DD.jsonl` beneath the state directory;
+installer users can run the launcher's `mail` command. No inbox delivery occurs in
+this mode. Google login and verification-disabled mode are reflected in runtime UI
+capabilities, so the UI offers only configured access paths.
 
-## Local Mail Sink
-
-Verification and password-reset messages are captured locally instead of being sent. The server logs the action link, and each message is appended to `.local/mail/YYYY-MM-DD.jsonl`. Open the recorded verification link in the local browser to complete account verification.
+`EMAIL_PROVIDER=cloudflare` sends through the Cloudflare Email REST API using the
+configured account, token, and sender. It does not duplicate action links into the
+local mail sink. See [Cloudflare setup](../docs/configuration.md#cloudflare-email-setup).
+Delivery attempts are awaited and bounded; API acceptance does not prove inbox
+arrival. Workspace invitations remain in-app invitations.
 
 ## Product Analytics
 
-Template changes, document submissions, and terminal extraction outcomes append operational events to `.local/analytics/YYYY-MM-DD.jsonl`. These best-effort logs contain stable product IDs and limited metadata only; they intentionally exclude account emails, API keys, Source file names and bytes, document contents, extracted answers, and evidence.
+When `LOCAL_ANALYTICS_ENABLED=true`, template changes, document submissions, and terminal extraction outcomes append operational events to `.local/analytics/YYYY-MM-DD.jsonl`. These best-effort logs contain stable product IDs and limited metadata only; they intentionally exclude account emails, API keys, Source file names and bytes, document contents, extracted answers, and evidence.
 
 ## Checks
 

@@ -17,6 +17,7 @@ export function useDocumentController({
   isWorkspaceDeletionInProgress = false, sessionId, workspaceId, setLatestResponse,
   onActivePageChange, onWorkspaceCapacityRefresh, onWorkspaceAccessRevalidation,
   onModelConfigurationInvalidation, modelReady = true,
+  maxSourceFileBytes = 10 * 1024 * 1024,
 }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
@@ -489,6 +490,7 @@ export function useDocumentController({
       onLoadMoreDocuments: loadMoreJobs,
     },
     uploadModal: {
+      maxSourceFileBytes,
       isOpen: showUploadModal,
       templates,
       selectedTemplateId: uploadTemplateId,
