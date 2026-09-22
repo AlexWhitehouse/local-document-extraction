@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -101,13 +101,19 @@ test("multipart Source size accepts the exact boundary and rejects boundary plus
   }
 });
 
-test("an aborted multipart stream promptly removes its partial temporary Source file", async () => {
+test.each([
+  "before parsing",
+  "during directory initialization",
+  "after a partial file is written",
+])("an aborted multipart stream %s cancels its body and removes temporary Source data", async (abortTiming) => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-multipart-abort-"));
   const controller = new AbortController();
   const boundary = "document-extraction-aborted-boundary";
   let bodyCancelled = false;
+  let bodyController: ReadableStreamDefaultController<Uint8Array>;
   const body = new ReadableStream<Uint8Array>({
     start(streamController) {
+      bodyController = streamController;
       streamController.enqueue(new TextEncoder().encode([
         `--${boundary}`,
         'Content-Disposition: form-data; name="template_id"',
@@ -124,26 +130,69 @@ test("an aborted multipart stream promptly removes its partial temporary Source 
       bodyCancelled = true;
     },
   });
+  const request = new Request("http://127.0.0.1/v1/extract", {
+    method: "POST",
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    body,
+    duplex: "half",
+    signal: controller.signal,
+  } as RequestInit);
+  if (abortTiming === "before parsing") controller.abort();
   const parsing = parseLocalMultipartSubmission({
     maxSourceFileBytes: 1024,
-    request: new Request("http://127.0.0.1/v1/extract", {
-      method: "POST",
-      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
-      body,
-      duplex: "half",
-      signal: controller.signal,
-    } as RequestInit),
+    request,
     stateDirectory,
   });
-  await Bun.sleep(1);
-  controller.abort();
+  // Observe rejection immediately, including while waiting for the file to be written.
+  const outcome = parsing.then(
+    () => ({ error: null }),
+    (error: unknown) => ({ error }),
+  );
 
   try {
-    await expect(parsing).rejects.toMatchObject({ status: 400, code: "submission_aborted" });
+    if (abortTiming === "after a partial file is written") {
+      await waitForPartialSourceFile(stateDirectory);
+    }
+    // For the middle case this runs synchronously while parse is awaiting mkdir.
+    controller.abort();
+    expect((await withinDeadline(outcome)).error).toMatchObject({ status: 400, code: "submission_aborted" });
     expect(bodyCancelled).toBe(true);
     const temporaryFiles = await readdir(join(stateDirectory, "temporary", "submissions")).catch(() => []);
     expect(temporaryFiles).toEqual([]);
   } finally {
-    await rm(stateDirectory, { recursive: true, force: true });
+    // A lost abort must fail the assertion without leaving the test process hung.
+    bodyController!.error(new Error("Multipart abort test cleanup"));
+    try {
+      await withinDeadline(outcome);
+    } finally {
+      await rm(stateDirectory, { recursive: true, force: true });
+    }
   }
 });
+
+async function waitForPartialSourceFile(stateDirectory: string): Promise<void> {
+  const directory = join(stateDirectory, "temporary", "submissions");
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline) {
+    const files = await readdir(directory).catch(() => []);
+    for (const file of files) {
+      if ((await stat(join(directory, file))).size > 0) return;
+    }
+    await Bun.sleep(5);
+  }
+  throw new Error("Multipart parser did not write partial Source data");
+}
+
+async function withinDeadline<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("Multipart abort did not settle promptly")), 1500);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}

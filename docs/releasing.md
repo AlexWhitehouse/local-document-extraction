@@ -41,6 +41,8 @@ The proposed tracked working tree was scanned again with Gitleaks 8.30.1 on 2026
 
 Platform quality, coverage, dependency hygiene, native PDF rendering and all ten installer tests, including backup restoration, passed on all four targets for commit `32a95ea` in [CI run 35790453260](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/35790453260). All five Linux Chromium journeys and the full-history secret scan also passed. Earlier Linux browser runs exposed a hover rule that enlarged compact buttons, causing the save control to wrap away from the pointer with Linux system fonts. The corrected rule preserves button size; the extraction journey passes with its normal click. Real Google/Cloudflare accounts and published-release downloads have not been tested.
 
+A subsequent Intel Mac coverage run exposed an early upload-cancellation race: a request aborted during temporary-directory initialization could miss the newly registered abort listener. The parser now handles cancellation that already happened before the pipeline starts. Regression tests cover cancellation before parsing, during initialization, and after data reaches a partial file; each checks body cancellation and removal of temporary files. Consult the final pull request checks for qualification of this follow-up; the release workflow also rechecks the exact tagged commit.
+
 The four platform jobs in that run completed successfully:
 
 | Target | Runner | Quality and installer result |

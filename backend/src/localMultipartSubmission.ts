@@ -141,7 +141,11 @@ export async function parseLocalMultipartSubmission({
   request.signal.addEventListener("abort", aborted, { once: true });
 
   try {
-    await pipeline(body, requestLimit, parser).catch((error) => fail(error));
+    const parsing = pipeline(body, requestLimit, parser);
+    // Directory initialization may have yielded while the request was aborted.
+    // Install pipeline error handlers before destroying any of its streams.
+    if (request.signal.aborted) aborted();
+    await parsing.catch((error) => fail(error));
     await documentWrite;
     if (failure) throw failure;
     const parsedDocument = document as { mimeType: string; name: string; size: number } | null;
