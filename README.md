@@ -12,9 +12,9 @@ The app runs locally; document input is sent to the model gateway you configure.
 
 ## Install on macOS or Linux
 
-The installer targets macOS and Linux with glibc, on x64 or arm64. It needs Bash, `curl`, `tar`, and `unzip`; it installs an application-owned copy of the pinned Bun runtime when needed. No sudo, Node.js, database server, Cloudflare account, or Google account is required for the default local setup. See [release qualification](docs/releasing.md) for the distinction between target platforms and completed testing.
+The installer targets macOS and Linux with glibc, on x64 or arm64. It needs Bash, `curl`, `tar`, and `unzip`; it installs an application-owned copy of the pinned Bun runtime when needed. No sudo, Node.js, database server, Cloudflare account, or Google account is required for the default local setup. Release checks passed on macOS 15 and Ubuntu 24.04, each on x64 and arm64; see [release qualification](docs/releasing.md) for the test scope.
 
-**Before the first GitHub release is published, use the source setup below.** Once release assets are available, this single command downloads the installer completely before running it:
+[v0.1.0 is available](https://github.com/AlexWhitehouse/local-document-extraction/releases/tag/v0.1.0). This single command installs the latest release, downloading the installer completely before running it:
 
 ```bash
 (installer=$(mktemp) && trap 'rm -f "$installer"' EXIT && curl -fsSL https://github.com/AlexWhitehouse/local-document-extraction/releases/latest/download/install.sh -o "$installer" && bash "$installer")
@@ -113,8 +113,8 @@ bun run build
 
 See [contribution guidance](CONTRIBUTING.md), [backend details](backend/README.md), [testing strategy](docs/testing-strategy.md), and [security reporting](SECURITY.md).
 
-## License and release status
+## License and releases
 
 Licensed under the [MIT License](LICENSE). You may use, modify, redistribute, and sell the software, including in proprietary projects, provided you retain the copyright and license notices. Third-party dependencies retain their own licenses.
 
-The installer download command becomes available after the first GitHub release is published. See the [release checklist](docs/releasing.md) for qualification evidence and publication steps.
+Published versions, installer assets, checksums, and release notes are on the [releases page](https://github.com/AlexWhitehouse/local-document-extraction/releases). See [setup and maintenance](docs/setup.md) for updates and backups, and [release qualification](docs/releasing.md) for verification evidence.
