@@ -79,7 +79,12 @@ test("a verified user completes a Document Extraction job through Workspace live
       new URL(response.url()).pathname === `/v1/templates/${encodeURIComponent(templateId)}` &&
       response.request().method() === "PATCH",
     );
-    await page.getByRole("button", { name: "Save changes" }).click();
+    const saveChanges = page.getByRole("button", { name: "Save changes" });
+    // The editor scrolls independently. Let scrolling and pointer targeting
+    // settle before clicking a control that can wrap onto a second row.
+    await saveChanges.scrollIntoViewIfNeeded();
+    await saveChanges.hover();
+    await saveChanges.click();
     expect((await templateUpdated).status()).toBe(200);
     // Creation and editing can leave identical success toasts on screen.
     await expect(page.getByRole("region", { name: "Template editor" }).getByText(/All changes saved$/)).toBeVisible();

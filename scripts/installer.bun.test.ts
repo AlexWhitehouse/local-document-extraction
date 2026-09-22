@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createLocalWorkspaceControl } from "../backend/src/localWorkspaceControl";
+import { createLocalWorkspaceProductStore } from "../backend/src/localWorkspaceProductStore";
+import { createWorkspaceCredentialVault } from "../backend/src/workspaceModelConfiguration";
 
 const repository = resolve(import.meta.dir, "..");
 let temporary: string;
@@ -164,10 +167,45 @@ if [ "$count" = 2 ]; then printf 'S [bun]\\n'; else exec /bin/ps "$@"; fi
     await writeFile(join(state, "operator-marker"), "preserve me");
     const original = await readFile(join(config, "config.env"), "utf8");
     const authSecret = await readFile(join(state, "data/better-auth-secret"), "utf8");
+    const control = new Database(join(state, "data/control.sqlite"));
+    let workspaceId: string;
+    try {
+      const account = control.query('SELECT id FROM "user" WHERE email = ?').get("installer@example.test") as { id: string };
+      workspaceId = createLocalWorkspaceControl(control).createWorkspace({ userId: account.id, name: "Backup preservation" }).workspace_id;
+    } finally { control.close(); }
+    const credential = "installer-backup-dummy-credential";
+    const productStore = createLocalWorkspaceProductStore({ stateDirectory: state, workspaceId });
+    try {
+      const vault = createWorkspaceCredentialVault(state);
+      const saved = productStore.putModelConfiguration({
+        expectedRevision: null,
+        configuration: {
+          gateway_url: "http://127.0.0.1:1/v1", model_name: "installer/test-model",
+          credential_ciphertext: vault.encrypt(workspaceId, credential),
+          sequential_calls: false, supports_pdf_input: false, supports_structured_output: false,
+        },
+        updatedAt: new Date().toISOString(),
+      });
+      expect(saved).not.toBeNull();
+      expect(saved!.credential_ciphertext).not.toContain(credential);
+    } finally { productStore.close(); }
+    const modelSecret = await readFile(join(state, "secrets/model-gateway.key"));
+    const mailFiles = (await readdir(join(state, "mail"))).filter((file) => file.endsWith(".jsonl")).sort();
+    const mail = (await readFile(join(state, "mail", mailFiles.at(-1)!), "utf8")).trim().split("\n")
+      .map((line) => JSON.parse(line) as { to: string; action_url?: string })
+      .find((entry) => entry.to === "installer@example.test" && entry.action_url);
+    expect(mail?.action_url).toBeTruthy();
     passed(await install(["--no-start"]));
     expect(await readFile(join(config, "config.env"), "utf8")).toBe(original);
     expect(await readFile(join(state, "operator-marker"), "utf8")).toBe("preserve me");
     expect(await readFile(join(state, "data/better-auth-secret"), "utf8")).toBe(authSecret);
+    expect((await readFile(join(state, "secrets/model-gateway.key"))).equals(modelSecret)).toBe(true);
+    const upgradedStore = createLocalWorkspaceProductStore({ stateDirectory: state, workspaceId });
+    try {
+      const saved = upgradedStore.getModelConfiguration();
+      expect(saved).not.toBeNull();
+      expect(createWorkspaceCredentialVault(state).decrypt(workspaceId, saved!.credential_ciphertext)).toBe(credential);
+    } finally { upgradedStore.close(); }
     const database = new Database(join(state, "data/control.sqlite"), { readonly: true });
     try { expect(database.query('SELECT email FROM "user" WHERE email = ?').get("installer@example.test")).toEqual({ email: "installer@example.test" }); }
     finally { database.close(); }
@@ -175,6 +213,42 @@ if [ "$count" = 2 ]; then printf 'S [bun]\\n'; else exec /bin/ps "$@"; fi
     expect(backups.length).toBeGreaterThan(0);
     expect(await readFile(join(root, "backups", backups[0]!, "operator-marker"), "utf8")).toBe("preserve me");
     expect((await command([launcher, "status"])).code).toBe(3);
+
+    const restoredState = join(temporary, "restored backup state");
+    await cp(join(root, "backups", backups[0]!), restoredState, { recursive: true, errorOnExist: true, force: false });
+    const installed = JSON.parse(await readFile(join(root, "installation.json"), "utf8"));
+    const restored = { ...installed, root: join(temporary, "restored runtime"), state: restoredState };
+    const restoreScript = join(temporary, "verify-restored-backup.ts");
+    await writeFile(restoreScript, `
+import { privateDirectory, runApplicationCommand, startInstallation, stopInstallation } from ${JSON.stringify(join(installed.release, "scripts/manageInstallation.ts"))};
+import { createLocalWorkspaceProductStore } from ${JSON.stringify(join(installed.release, "backend/src/localWorkspaceProductStore.ts"))};
+import { createWorkspaceCredentialVault } from ${JSON.stringify(join(installed.release, "backend/src/workspaceModelConfiguration.ts"))};
+const installation = ${JSON.stringify(restored)};
+await privateDirectory(installation.root);
+runApplicationCommand(installation, "backend/src/migrate.ts");
+const store = createLocalWorkspaceProductStore({ stateDirectory: installation.state, workspaceId: ${JSON.stringify(workspaceId)} });
+try {
+  const saved = store.getModelConfiguration();
+  if (!saved || createWorkspaceCredentialVault(installation.state).decrypt(${JSON.stringify(workspaceId)}, saved.credential_ciphertext) !== ${JSON.stringify(credential)}) throw new Error("Restored gateway credential is unusable.");
+} finally { store.close(); }
+try {
+  const { origin } = await startInstallation(installation);
+  const originalVerification = new URL(${JSON.stringify(mail!.action_url)});
+  const verified = await fetch(origin + originalVerification.pathname + originalVerification.search, { redirect: "manual" });
+  if (verified.status !== 302) throw new Error("The original account verification token is unusable after restore.");
+  const signIn = await fetch(origin + "/api/auth/sign-in/email", {
+    method: "POST", headers: { "content-type": "application/json", origin },
+    body: JSON.stringify({ email: "installer@example.test", password: "Strong1!" }),
+  });
+  if (!signIn.ok) throw new Error("The restored account cannot sign in with its original password.");
+  console.log("RESTORED_BACKUP_VERIFIED");
+} finally { await stopInstallation(installation.root); }
+`);
+    const restoredResult = await command([installed.bun, "--no-env-file", restoreScript]);
+    passed(restoredResult);
+    expect(restoredResult.output).toContain("RESTORED_BACKUP_VERIFIED");
+    expect(await readFile(join(restoredState, "data/better-auth-secret"), "utf8")).toBe(authSecret);
+    expect((await readFile(join(restoredState, "secrets/model-gateway.key"))).equals(modelSecret)).toBe(true);
   }, 180_000);
 
   test("rejects checksum and download failures without changing the active installation", async () => {

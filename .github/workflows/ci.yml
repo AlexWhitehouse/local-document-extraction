@@ -180,7 +180,6 @@ jobs:
   browser-journey:
     name: Built SPA Chromium journey
     if: github.event_name != 'schedule'
-    needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 

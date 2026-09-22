@@ -8,10 +8,10 @@ This document records publication gates. A script or CI job existing in the repo
 - [ ] Enable GitHub private vulnerability reporting and confirm the reporting path in `SECURITY.md`.
 - [x] Scan reachable history with Gitleaks and review candidate fixtures (see evidence below).
 - [ ] Scan the final working tree/release archive and revoke any real exposed credential before publication.
-- [ ] Decide whether to publish the existing commit history or a reviewed clean export. Current-tree cleanup does not sanitize historical files or commit-author metadata.
-- [ ] Verify that tracked files exclude `.env`, `config.env`, state, backups, generated CI reports, personal document samples, and owner-specific deployment settings.
-- [ ] Review dependency licenses and the production dependency audit.
-- [ ] Confirm the public repository identity and update installation links if it changes. Forks must use their own release assets with `--repo`.
+- [x] Retain the reviewed existing commit history. Current-tree cleanup does not alter historical files or commit-author metadata.
+- [x] Verify that tracked files exclude `.env`, `config.env`, state, backups, generated CI reports, personal document samples, and owner-specific deployment settings.
+- [x] Review dependency licenses and the production dependency audit.
+- [x] Confirm the public repository identity and update installation links if it changes. Forks must use their own release assets with `--repo`.
 
 Intentional `.scratch/<feature>/PRD.md` and issue files may remain public. Generated `.scratch/ci/` output is untracked and ignored. Historical research examples are anonymized in the current tree; no history rewrite is performed by this cleanup.
 
@@ -19,38 +19,40 @@ On 2026-09-22, Gitleaks 8.30.1 (upstream checksum verified) scanned reachable Gi
 
 ## Qualify the release candidate
 
-- [ ] Install frozen dependencies in a clean exported tree without developer `.env` or state.
+- [x] Install frozen dependencies in a clean exported tree without developer `.env` or state.
 - [ ] Run root typecheck, lint, tests, build, package hygiene, and browser tests.
 - [ ] Exercise install, migration, auth verification, Workspace model setup, PDF/image extraction, exports, shutdown, and restart against controlled fixtures.
-- [ ] Run the installer on macOS and glibc Linux, including first install, repeat install, directories with spaces, custom paths, occupied port, bad archive/checksum, download/build failure, and state-preserving upgrade.
-- [ ] Validate native canvas/PDF rendering for each advertised architecture. Do not infer arm64 success from an x64 run or vice versa.
-- [ ] Verify stop/backup/restore and preservation of both generated secrets across upgrades.
+- [x] Run the installer on macOS and glibc Linux, including first install, repeat install, directories with spaces, custom paths, occupied port, bad archive/checksum, download/build failure, and state-preserving upgrade.
+- [x] Validate native canvas/PDF rendering for each advertised architecture. Do not infer arm64 success from an x64 run or vice versa.
+- [x] Verify stop/backup/restore and preservation of both generated secrets across upgrades.
 - [ ] Test Google login with real configured credentials if advertising the integration as verified.
 - [ ] Test verification and password-reset delivery through a real Cloudflare account/domain/inbox if advertising delivery as verified.
-- [ ] Review README and configuration examples against the final configuration loader and installer.
+- [x] Review README and configuration examples against the final configuration loader and installer.
 
 The initial audit verified a clean exported copy on the current macOS host using Bun 1.4.2, while `package.json` pinned 1.4.1. That earlier check passed install, typecheck, tests, build, migration, and startup, but it was **not** a fresh-machine Linux, exact-pinned-version, installer, OAuth, or live email qualification. See `.scratch/public-release-readiness/REPORT.md` for its scope. Subsequent implementation checks must be recorded separately; do not reuse the earlier results as evidence for changed code.
 
-Installer implementation verification on 2026-09-22 passed ten integration tests with 64 assertions on macOS arm64. Both the test harness and installed applications used pinned Bun 1.4.1; the application-owned runtime was downloaded from the official release and checksum verified. Coverage included custom paths/spaces, repeated installs, private config/state preservation and backup, a real local account and auth-secret preservation across reinstall, startup/status/doctor/native PDF/mail/shutdown, running-upgrade refusal, checksum/download/build failures, occupied-port failure, and safe retry. A deterministic shutdown regression covers command-line text disappearing while the signalled process exits. Linked and nonregular `config.env` files were rejected without changing outside file contents or permissions. The extracted application also passed root typecheck and lint using the application-owned Bun without Node on PATH.
+Installer implementation verification on 2026-09-22 passed ten integration tests with 73 assertions on macOS arm64. Both the test harness and installed applications used pinned Bun 1.4.1; the application-owned runtime was downloaded from the official release and checksum verified. Coverage included custom paths/spaces, repeated installs, private config/state preservation and backup, a real local account and both machine secrets preserved across reinstall, startup/status/doctor/native PDF/mail/shutdown, running-upgrade refusal, checksum/download/build failures, occupied-port failure, and safe retry. A deterministic shutdown regression covers command-line text disappearing while the signalled process exits. Linked and nonregular `config.env` files were rejected without changing outside file contents or permissions. The extracted application also passed root typecheck and lint using the application-owned Bun without Node on PATH. A separate restoration from the generated pre-migration backup starts successfully, decrypts the original Workspace gateway credential, and accepts the original verification token and account password.
 
 A controlled curl substitute exercised a fork's exact production GitHub download URLs for `v1.2.3` and the installed launcher's `update v1.2.4` path, preserving configuration, account data, and the authentication secret. This verifies URL construction and the release/update code path against controlled archive/checksum responses; it is not a test against real published GitHub release assets.
 
 The implementation passed `bun run ci:quality` with pinned Bun 1.4.1: root typecheck, lint, 282 backend tests, the complete local-product smoke test, 279 frontend tests, frontend coverage, and build. Five Playwright browser journeys also passed on the macOS arm64 host. Focused auth, mail, and permission checks passed 28 tests with 129 assertions; a further 27 vault/product-store/runtime checks covered linked model-secret files, directories, and workspace SQLite sidecars. These checks verify rejection without changing outside permissions or contents. `.env.example` validates through the shared configuration loader and contains no personal account, endpoint, or credential values.
 
-The proposed tracked working tree was scanned again with Gitleaks 8.30.1 on 2026-09-22: 599 files, approximately 4.54 MB, with no findings. Production dependency hygiene also passed with zero reported advisories and zero duplicate package versions. Final release archives must still be scanned after packaging.
+The proposed tracked working tree was scanned again with Gitleaks 8.30.1 on 2026-09-22: 599 files, approximately 4.54 MB, with no findings. Production dependency hygiene also passed with zero reported advisories and zero duplicate package versions. The clean `84b19fa` candidate archive also passed a scan (354 entries, approximately 2.28 MB), with no state, configuration secrets, dependencies, or generated CI evidence included. Scan the final named release archive again before publication.
 
-Ubuntu CI and separate x64 qualification remain pending; real Google and Cloudflare integrations were not exercised by these checks. The external release download/update path remains pending until a release exists. These local results do not check off the multi-platform or live-provider gates above.
+Platform quality, coverage, dependency hygiene, native PDF rendering and installer checks passed on all four targets for commit `baa8325` in [CI run 35787940489](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/35787940489). Its Linux browser lane found a scroll/click issue in the extraction journey; the updated browser test and expanded backup-restoration test require the subsequent run to pass before final qualification. Real Google/Cloudflare accounts and published-release downloads have not been tested.
 
-Remote qualification is planned for all four installer targets through explicit runner labels. The results below remain pending until the corresponding jobs complete for the reviewed commit:
+The four platform jobs in that run completed successfully:
 
-| Target | Planned runner | Remote result |
+| Target | Runner | Quality and installer result |
 | --- | --- | --- |
-| Linux x64 | `ubuntu-24.04` | Pending |
-| Linux arm64 | `ubuntu-24.04-arm` | Pending |
-| macOS arm64 | `macos-15` | Pending |
-| macOS x64 | `macos-15-intel` | Pending |
+| Linux x64 | `ubuntu-24.04` | Passed |
+| Linux arm64 | `ubuntu-24.04-arm` | Passed |
+| macOS arm64 | `macos-15` | Passed |
+| macOS x64 | `macos-15-intel` | Passed |
 
 Record the actual runner OS/architecture and workflow run alongside each result. These jobs do not qualify older OS versions or other Linux distributions merely because the installer recognizes their OS/architecture.
+
+The raw production inventory reports `buffers@0.1.1` as `Unknown` because its npm archive omits license metadata. This was manually resolved to the original author's `MIT/X11` declaration in the [pinned upstream manifest](https://raw.githubusercontent.com/TooTallNate/node-buffers/1b745ee35d33eb166e15ef1866073a07c6d7de87/package.json). The license-only commit retains version 0.1.1; executable source is byte-identical to the installed package. Preserve raw inventory output and the explicit manual resolution; no package or project license was rewritten. Detailed evidence is retained in `.scratch/public-release-readiness/research/buffers-0.1.1-license.md`.
 
 ## Publish and verify
 
