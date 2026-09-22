@@ -18,7 +18,7 @@ test("a user manages local settings and recovers access through the frontend", a
   let harness: Awaited<ReturnType<typeof startRuntimeHarness>> | undefined;
 
   try {
-    harness = await startRuntimeHarness();
+    harness = await startRuntimeHarness({ requireEmailVerification: true });
     await signUpAndVerify(page, harness, ACCOUNT);
     const updatedAccount = await updateLocalSettings(page);
     await signOut(page, updatedAccount);

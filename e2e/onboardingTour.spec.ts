@@ -3,7 +3,7 @@ import { startRuntimeHarness } from "./support/runtimeHarnessClient";
 import { signUpAndVerify } from "./support/journeyHelpers";
 
 test("optional tour guides real creation, isolates controls and queues a document", async ({ page }, testInfo) => {
-  const harness = await startRuntimeHarness();
+  const harness = await startRuntimeHarness({ requireEmailVerification: true });
   try {
     await signUpAndVerify(page, harness, { name: "Tour User", email: "tour@example.test", password: "Strong1!" });
     const invitation = page.getByRole("complementary", { name: "Welcome tour" });

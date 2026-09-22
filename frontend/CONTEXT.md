@@ -152,7 +152,7 @@ _Avoid_: demo mode, sample data sandbox
 - A **Workspace resolution error** keeps workspace-scoped UI actions unavailable and offers retry rather than falling back to stored Workspace preference.
 - Unauthenticated users accessing the SPA are taken to the login page and do not have a **Workspace context**.
 - The frontend loads public runtime capabilities before presenting auth: only enabled login methods and registration actions are offered, and the upload limit follows runtime configuration.
-- When email verification is required, email/password sign-up shows an **Account verification prompt** instead of resolving a session or Workspace. When disabled, the frontend resolves account access without that prompt.
+- When email verification is required, email/password sign-up shows an **Account verification prompt** instead of resolving a session or Workspace. When disabled (the default), the frontend resolves account access without that prompt.
 - The **Account verification prompt** and password-reset feedback distinguish local captured links from actual inbox delivery.
 - After email/password sign-up, the **Account verification prompt** replaces the create-account form rather than appearing alongside it.
 - Leaving the **Account verification prompt** for sign-in preserves the submitted email address and clears password fields.

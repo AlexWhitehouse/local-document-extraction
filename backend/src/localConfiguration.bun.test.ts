@@ -9,19 +9,20 @@ test("a clean local install has usable private defaults and a secret-free public
   expect(config.stateDirectory).toBe("/tmp/document-extraction-config-test/.local");
   expect(config.host).toBe("127.0.0.1");
   expect(publicLocalConfiguration(config)).toEqual({
-    auth: { emailPasswordEnabled: true, googleEnabled: false, signupEnabled: true, requireEmailVerification: true, mailDelivery: "local" },
+    auth: { emailPasswordEnabled: true, googleEnabled: false, signupEnabled: true, requireEmailVerification: false, mailDelivery: "local" },
     limits: { maxSourceFileBytes: 10485760 },
   });
 });
 
 test("configured deployment and secret values remain outside the public response", () => {
   const config = read({
-    AUTH_GOOGLE_ENABLED: "yes", GOOGLE_CLIENT_ID: "private-client", GOOGLE_CLIENT_SECRET: "private-secret",
+    AUTH_REQUIRE_EMAIL_VERIFICATION: "true", AUTH_GOOGLE_ENABLED: "yes", GOOGLE_CLIENT_ID: "private-client", GOOGLE_CLIENT_SECRET: "private-secret",
     EMAIL_PROVIDER: "cloudflare", CLOUDFLARE_ACCOUNT_ID: "a".repeat(32), CLOUDFLARE_EMAIL_API_TOKEN: "private-mail-token",
     EMAIL_FROM_ADDRESS: "mail@example.org", AUTH_TRUSTED_ORIGINS: "https://app.example.org/,https://admin.example.org",
     AUTH_TRUSTED_IP_HEADERS: "CF-Connecting-IP", AUTH_EMAIL_PASSWORD_ENABLED: "false", AUTH_SIGNUP_ENABLED: "off",
     BETTER_AUTH_URL: "https://app.example.org/", DOCUMENT_EXTRACTION_STATE_DIR: "runtime-state",
   });
+  expect(publicLocalConfiguration(config).auth.requireEmailVerification).toBe(true);
   expect(config.auth.trustedOrigins).toEqual(["https://app.example.org", "https://admin.example.org"]);
   expect(config.auth.trustedIpHeaders).toEqual(["cf-connecting-ip"]);
   expect(config.stateDirectory).toBe("/tmp/document-extraction-config-test/runtime-state");

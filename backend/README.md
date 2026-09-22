@@ -22,9 +22,9 @@ The complete deployment surface is documented in [configuration](../docs/configu
 and mirrored by [`.env.example`](../.env.example). One validated configuration loader is
 shared by startup, migration, and `bun backend/src/checkConfiguration.ts`.
 
-The default is a loopback server on port 8787, email/password accounts with verification
-through local mail capture, no Google login, and local analytics. Google OAuth and
-Cloudflare email delivery are explicit opt-ins. The SPA reads safe auth capabilities
+The default is a loopback server on port 8787, email/password accounts without required
+email verification, no Google login, and local analytics. Email verification, Google
+OAuth, and Cloudflare email delivery are explicit opt-ins. The SPA reads safe auth capabilities
 and the upload limit from `/v1/config`; deployment changes require a restart, not a
 frontend rebuild. Model settings remain per Workspace, as described below.
 

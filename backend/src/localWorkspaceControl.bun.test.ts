@@ -11,6 +11,7 @@ import {
 test("local Workspace control repairs a user's zero-accepted-Workspace invariant", async () => {
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },
@@ -45,6 +46,7 @@ test("the Bun API creates and resolves accepted Workspace context for a signed-i
   const database = new Database(":memory:");
   const capturedLinks: string[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {
@@ -105,6 +107,7 @@ test("the Bun API creates and resolves accepted Workspace context for a signed-i
 test("Workspace rename and deletion retain the accepted-Workspace policy", async () => {
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },
@@ -142,6 +145,7 @@ test("Workspace rename and deletion retain the accepted-Workspace policy", async
 test("Workspace API key rotation stores only the current hash and invalidates the prior key", async () => {
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },

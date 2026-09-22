@@ -60,11 +60,24 @@ describe("macOS/Linux release installer", () => {
     const response = await fetch(`${running.origin}/v1/health`);
     expect((await response.json() as { ok: boolean }).ok).toBe(true);
     expect(await (await fetch(running.origin)).text()).toContain('id="root"');
+    expect(await (await fetch(`${running.origin}/v1/config`)).json()).toMatchObject({ auth: { requireEmailVerification: false } });
     const signup = await fetch(`${running.origin}/api/auth/sign-up/email`, {
       method: "POST", headers: { "content-type": "application/json", origin: running.origin },
       body: JSON.stringify({ email: "installer@example.test", name: "Installer test", password: "Strong1!" }),
     });
     expect(signup.ok).toBe(true);
+    const cookie = signup.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+    expect(cookie).not.toBe("");
+    const workspaces = await fetch(`${running.origin}/v1/workspaces`, { headers: { cookie } });
+    expect(workspaces.status).toBe(200);
+    expect(await workspaces.json()).toMatchObject({ workspaces: [expect.objectContaining({ role: "owner" })] });
+    expect(await readdir(join(state, "mail"))).toEqual([]);
+    // Request an optional link explicitly so backup/restore still verifies signed-token preservation.
+    const verification = await fetch(`${running.origin}/api/auth/send-verification-email`, {
+      method: "POST", headers: { "content-type": "application/json", origin: running.origin },
+      body: JSON.stringify({ email: "installer@example.test", callbackURL: "/" }),
+    });
+    expect(verification.ok).toBe(true);
     expect((await stat(state)).mode & 0o777).toBe(0o700);
     expect((await stat(join(config, "config.env"))).mode & 0o777).toBe(0o600);
     passed(await command([launcher, "doctor"]));
@@ -163,6 +176,8 @@ if [ "$count" = 2 ]; then printf 'S [bun]\\n'; else exec /bin/ps "$@"; fi
   }, 60_000);
 
   test("preserves config and state, backs up before migration, and can leave the app stopped", async () => {
+    const configFile = join(config, "config.env");
+    await writeFile(configFile, (await readFile(configFile, "utf8")).replace("AUTH_REQUIRE_EMAIL_VERIFICATION=false", "AUTH_REQUIRE_EMAIL_VERIFICATION=true"));
     await appendFile(join(config, "config.env"), "\n# preserved custom configuration\n");
     await writeFile(join(state, "operator-marker"), "preserve me");
     const original = await readFile(join(config, "config.env"), "utf8");

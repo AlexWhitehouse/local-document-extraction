@@ -118,7 +118,7 @@ export function readLocalConfiguration({
       trustedIpHeaders,
       emailPasswordEnabled, googleEnabled, googleClientId, googleClientSecret,
       signupEnabled: boolean("AUTH_SIGNUP_ENABLED", true),
-      requireEmailVerification: boolean("AUTH_REQUIRE_EMAIL_VERIFICATION", true),
+      requireEmailVerification: boolean("AUTH_REQUIRE_EMAIL_VERIFICATION", false),
     },
     email,
   };

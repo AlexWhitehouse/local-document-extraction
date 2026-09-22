@@ -20,6 +20,7 @@ test("a member can leave a non-final Workspace through the session-only adapter 
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {
@@ -171,6 +172,7 @@ test("leaving a final Workspace creates one bootstrapped replacement without era
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {

@@ -18,6 +18,7 @@ test("individual job reads use validators and hydrate results only for changed c
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-conditional-poll-"));
   const controlDatabase = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database: controlDatabase,
     mailSink: { capture: async () => undefined },
@@ -158,6 +159,7 @@ test("accepted submissions direct clients to the job resource and initial delay"
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-submission-location-"));
   const controlDatabase = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database: controlDatabase,
     mailSink: { capture: async () => undefined },

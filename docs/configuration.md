@@ -31,13 +31,25 @@ For remote access, set a browser-facing HTTPS `BETTER_AUTH_URL` and place a TLS 
 | `AUTH_EMAIL_PASSWORD_ENABLED` | `true` | Allow email/password authentication. |
 | `AUTH_GOOGLE_ENABLED` | `false` | Enable Google OAuth explicitly. Requires both Google credential values. |
 | `AUTH_SIGNUP_ENABLED` | `true` | Permit new account registration, including new Google accounts. Existing users can still sign in when disabled. |
-| `AUTH_REQUIRE_EMAIL_VERIFICATION` | `true` | Require verification before email/password account access. Disabling it allows accounts without proof of mailbox ownership. |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION` | `false` | Set `true` to require verification before email/password account access. |
 | `GOOGLE_CLIENT_ID` | Unset | Google OAuth web-client ID. |
 | `GOOGLE_CLIENT_SECRET` | Unset | Google OAuth client secret. Never exposed to the browser. |
 
-At least one login method must remain enabled. An incomplete Google ID/secret pair is rejected even if Google login is disabled. Configure administrator emails and create/verify required accounts before disabling signup. There is no automatic precreated administrator or default password. Changing the administrator list does not retroactively change persisted roles; use Application admin while an existing administrator is signed in.
+At least one login method must remain enabled. An incomplete Google ID/secret pair is rejected even if Google login is disabled. Configure administrator emails and create required accounts (and verify them if verification is enabled) before disabling signup. There is no automatic precreated administrator or default password. Changing the administrator list does not retroactively change persisted roles; use Application admin while an existing administrator is signed in.
 
 The auth signing secret is generated in `data/better-auth-secret`. This application supplies that disk secret explicitly; `BETTER_AUTH_SECRET` is not a supported override. Preserve it in backups. Password policy requires at least eight characters, an ASCII uppercase letter, a number, and a special character. Reset links expire after one hour and successful password changes revoke existing sessions.
+
+### Optional email verification
+
+Accounts can sign up and sign in immediately by default. To require proof of email ownership, set this in your `.env` or installer `config.env`, then restart:
+
+```dotenv
+AUTH_REQUIRE_EMAIL_VERIFICATION=true
+```
+
+With the default `EMAIL_PROVIDER=local`, verification links are saved on the host; run the installed launcher's `mail` command to read them. For inbox delivery, configure [Cloudflare email](#cloudflare-email-setup). New accounts must then verify before signing in, and sign-in attempts by existing unverified accounts request a verification link. Existing sessions are not forcibly signed out.
+
+Updates preserve your configuration. Installations created with v0.1.0 may still have `AUTH_REQUIRE_EMAIL_VERIFICATION=true`; change it to `false` and restart to use the new default behavior.
 
 ### Google sign-in
 
@@ -66,7 +78,7 @@ For Google-only login, set `AUTH_EMAIL_PASSWORD_ENABLED=false` after verifying t
 
 Cloudflare account ID and token must either both be absent or both be set, even in local mode.
 
-Local mode is the zero-credential default. Account verification and password-reset URLs appear in the private server log and `mail/YYYY-MM-DD.jsonl` under the state directory. Installer users can run `document-extraction mail`; source users can open the current day's file or the server output. Open the link in the same browser/origin as the app. A sign-in attempt for an unverified account requests another verification message. These local links grant account access and should not be shared in screenshots or support reports.
+Local mode is the zero-credential default. Account verification and password-reset URLs appear in the private server log and `mail/YYYY-MM-DD.jsonl` under the state directory. Installer users can run `document-extraction mail`; source users can open the current day's file or the server output. Open the link in the same browser/origin as the app. When verification is enabled, a sign-in attempt for an unverified account requests another verification message. These local links grant account access and should not be shared in screenshots or support reports.
 
 Local capture is suitable when the person operating the machine can read the logs. For other users to verify their own mailboxes, configure actual delivery. Workspace invitations remain in-app invitations; this email transport handles account verification and password reset.
 
@@ -83,7 +95,7 @@ CLOUDFLARE_EMAIL_API_TOKEN=your-send-capable-token
 BETTER_AUTH_URL=https://app.your-domain.example
 ```
 
-Replace every example with your real configuration. `BETTER_AUTH_URL` must be reachable by the person opening the message. The Bun application uses HTTPS REST requests; deploying a Cloudflare Worker or adding a Workers email binding is unnecessary. Cloudflare mode does not also record usable verification/reset links through local capture. Restart and test signup/reset with an inbox you control; a successful queued API response is not proof of inbox delivery. Consult provider delivery logs for bounces, account entitlement, or sender-domain errors. Live delivery requires your account and is a separate release verification step.
+Replace every example with your real configuration. `BETTER_AUTH_URL` must be reachable by the person opening the message. The Bun application uses HTTPS REST requests; deploying a Cloudflare Worker or adding a Workers email binding is unnecessary. Cloudflare mode does not also record usable verification/reset links through local capture. Restart and test password reset (and signup if verification is enabled) with an inbox you control; a successful queued API response is not proof of inbox delivery. Consult provider delivery logs for bounces, account entitlement, or sender-domain errors. Live delivery requires your account and is a separate release verification step.
 
 ## Payload, model, and extraction limits
 

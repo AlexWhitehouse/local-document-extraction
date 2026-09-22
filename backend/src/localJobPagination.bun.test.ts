@@ -15,6 +15,7 @@ test("the Document adapter traverses stable, opaque, search-bound job pages with
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-job-pagination-"));
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },

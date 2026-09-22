@@ -42,7 +42,7 @@ export async function createLocalAuth({
   emailPasswordEnabled = true,
   googleEnabled = false,
   signupEnabled = true,
-  requireEmailVerification = true,
+  requireEmailVerification = false,
   trustedOrigins = [],
   trustedIpHeaders = [],
   emailFrom,

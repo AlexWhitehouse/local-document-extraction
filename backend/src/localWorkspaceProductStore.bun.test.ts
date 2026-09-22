@@ -294,6 +294,7 @@ test("authenticated Template create/list routes use the authorized Workspace pro
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {
@@ -452,6 +453,7 @@ test("Template routes reject sessions without accepted Workspace membership befo
   const database = new Database(":memory:");
   const linksByEmail = new Map();
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {
@@ -508,6 +510,7 @@ test("authenticated local Document submission queues the selected Template and n
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {
@@ -875,6 +878,7 @@ async function createAuthenticatedLocalWorkspace(stateDirectory: string) {
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {

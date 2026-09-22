@@ -11,8 +11,12 @@ Sender identity belongs to deployment configuration and is passed to the code-ow
 templates. Delivery attempts are awaited and bounded; external mode does not also
 capture usable account links locally. Workspace invitations remain in-app.
 
-Email/password login, registration, and verification default on. Google OAuth
-defaults off and requires explicit enablement plus a complete credential pair.
+Email/password login and registration default on. Email verification defaults off
+and can be required with `AUTH_REQUIRE_EMAIL_VERIFICATION=true`. This default was
+revised on 2026-09-23 to allow immediate account access for a local installation;
+earlier releases required verification by default. Explicit installation settings
+are preserved during upgrades. Google OAuth defaults off and requires explicit
+enablement plus a complete credential pair.
 Registration controls apply to password and Google account creation. At least one
 login method must remain enabled. Generic OIDC and SAML are outside this decision.
 Administrator email bootstrap applies when accounts are created; operators must

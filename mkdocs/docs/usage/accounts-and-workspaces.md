@@ -1,6 +1,6 @@
 # Accounts And Workspaces
 
-Email/password accounts require verification by default. Local email mode records verification/reset links in private server output and the local mail sink; installer users can retrieve them with the launcher's `mail` command. Optional Cloudflare mode delivers these messages to the account inbox. Account policy can disable registration, password login, or the verification requirement. Google sign-in appears only when the operator explicitly enables it and supplies both OAuth credentials; generic OIDC/SAML are not supported.
+Email/password accounts can sign up and sign in immediately by default. Operators can require email verification with `AUTH_REQUIRE_EMAIL_VERIFICATION=true`. Local email mode records verification/reset links in private server output and the local mail sink; installer users can retrieve them with the launcher's `mail` command. Optional Cloudflare mode delivers these messages to the account inbox. Account policy can disable registration or password login, and controls whether verification is required. Google sign-in appears only when the operator explicitly enables it and supplies both OAuth credentials; generic OIDC/SAML are not supported.
 
 Most product actions require an accepted Workspace context. Owners and admins can manage members, invitations, Workspace names, and API keys. Members can use the Workspace product data they are authorized to access.
 

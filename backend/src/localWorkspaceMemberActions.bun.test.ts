@@ -7,6 +7,7 @@ import { createLocalWorkspaceControl, LocalWorkspaceControlError } from "./local
 test("Workspace control atomically removes, promotes, and transfers ownership under member policy", async () => {
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },

@@ -17,6 +17,7 @@ test("terminal Document deletion crosses the adapter and Fetch application witho
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {

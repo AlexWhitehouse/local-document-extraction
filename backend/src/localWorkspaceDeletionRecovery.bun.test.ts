@@ -14,6 +14,7 @@ test("failed Workspace erasure retains durable cleanup intent that reconciliatio
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-delete-recovery-"));
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },
@@ -82,6 +83,7 @@ test("reconciliation revokes a Workspace whose deletion intent was recorded befo
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-delete-revoke-recovery-"));
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },

@@ -25,7 +25,7 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
   const memberPage = await memberContext.newPage();
 
   try {
-    harness = await startRuntimeHarness();
+    harness = await startRuntimeHarness({ requireEmailVerification: true });
     await signUpAndVerify(ownerPage, harness, OWNER);
     await signUpAndVerify(memberPage, harness, MEMBER);
 

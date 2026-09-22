@@ -18,6 +18,7 @@ test("the Workspace deletion adapter preserves policy errors and hard-erases an 
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {

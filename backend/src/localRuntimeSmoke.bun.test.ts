@@ -39,6 +39,7 @@ test("the Bun server supports the complete local product path", async () => {
       backendDirectory,
       env: {
         ...process.env,
+        AUTH_REQUIRE_EMAIL_VERIFICATION: "true",
         DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
         LOCAL_SHUTDOWN_TIMEOUT_MS: "50",
         LOCAL_MEMORY_LIMIT_RATIO: "0.5",

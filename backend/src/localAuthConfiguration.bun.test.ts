@@ -22,11 +22,12 @@ async function fixture(settings: LocalAuthSettings = {}) {
   return { database, messages, auth };
 }
 
-test("verification-disabled signup establishes a session and bootstraps a Workspace without mail", async () => {
-  const { database, messages, auth } = await fixture({ requireEmailVerification: false });
+test("default signup establishes a session and bootstraps a Workspace without mail", async () => {
+  const { database, messages, auth } = await fixture();
   try {
     const response = await auth.handler(signup());
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ user: { emailVerified: false } });
     expect(messages).toHaveLength(0);
     const cookie = response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
     expect(cookie).not.toBe("");
@@ -34,6 +35,13 @@ test("verification-disabled signup establishes a session and bootstraps a Worksp
     const workspaces = await application(new Request(`${origin}/v1/workspaces`, { headers: { cookie } }));
     expect(workspaces.status).toBe(200);
     expect(await workspaces.json()).toMatchObject({ workspaces: [expect.objectContaining({ role: "owner" })] });
+    const signIn = await auth.handler(new Request(`${origin}/api/auth/sign-in/email`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "ada@example.org", password: "Strong1!" }),
+    }));
+    expect(signIn.status).toBe(200);
+    expect(signIn.headers.getSetCookie().length).toBeGreaterThan(0);
+    expect(messages).toHaveLength(0);
   } finally { database.close(); }
 });
 
@@ -64,7 +72,7 @@ test("Google login needs explicit enablement even when a complete credential pai
 });
 
 test("verification uses the configured sender and ignores untrusted forwarding headers", async () => {
-  const { database, messages, auth } = await fixture({ emailFrom: { email: "support@example.org", name: "My App" } });
+  const { database, messages, auth } = await fixture({ requireEmailVerification: true, emailFrom: { email: "support@example.org", name: "My App" } });
   try {
     await auth.handler(signup());
     expect(messages[0]?.from).toEqual({ email: "support@example.org", name: "My App" });

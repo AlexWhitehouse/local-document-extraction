@@ -8,6 +8,7 @@ import { createLocalAuthRuntime } from "./localAuthRuntime";
 test("the local auth runtime persists auth data and captured mail under the local state directory", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-local-auth-"));
   const runtime = await createLocalAuthRuntime({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     logger: {
       error: () => undefined,
@@ -59,6 +60,7 @@ test("Cloudflare mode sends through the selected transport without local mail ca
   let runtime: Awaited<ReturnType<typeof createLocalAuthRuntime>> | undefined;
   try {
     runtime = await createLocalAuthRuntime({
+      requireEmailVerification: true,
       baseURL: "http://127.0.0.1:8787", stateDirectory,
       email: { provider: "cloudflare", fromAddress: "support@example.org", fromName: "My App", cloudflareAccountId: "a".repeat(32), cloudflareApiToken: "mock-token" },
       logger: { error: (...args) => { logs.push(args); }, info: (...args) => { logs.push(args); } },

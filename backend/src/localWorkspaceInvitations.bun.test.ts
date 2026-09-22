@@ -9,6 +9,7 @@ test("owners create in-app Workspace invitations that invitees can list without 
   const database = new Database(":memory:");
   const mailMessages: Array<{ to: string; text: string }> = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async (message) => { mailMessages.push({ to: message.to, text: message.text }); } },
@@ -53,6 +54,7 @@ test("accepting an in-app invitation grants Workspace membership and clears the 
   const database = new Database(":memory:");
   const messages: Array<{ to: string; text: string }> = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async (message) => { messages.push({ to: message.to, text: message.text }); } },
@@ -92,7 +94,7 @@ test("accepting an in-app invitation grants Workspace membership and clears the 
 test("declining an in-app invitation removes it from the invitee Workspace list", async () => {
   const database = new Database(":memory:");
   const messages: Array<{ to: string; text: string }> = [];
-  const auth = await createLocalAuth({ baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push({ to: message.to, text: message.text }); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push({ to: message.to, text: message.text }); } }, secret: "01234567890123456789012345678901" });
   const control = createLocalWorkspaceControl(database);
   const application = createLocalApplication({ auth, workspaceControl: control });
   try {
@@ -113,7 +115,7 @@ test("declining an in-app invitation removes it from the invitee Workspace list"
 test("owners cancel pending Workspace invitations", async () => {
   const database = new Database(":memory:");
   const messages: Array<{ to: string; text: string }> = [];
-  const auth = await createLocalAuth({ baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push({ to: message.to, text: message.text }); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push({ to: message.to, text: message.text }); } }, secret: "01234567890123456789012345678901" });
   const control = createLocalWorkspaceControl(database);
   const application = createLocalApplication({ auth, workspaceControl: control });
   try {

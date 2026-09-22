@@ -18,6 +18,7 @@ test("Workspace deletion aborts and drains in-flight extraction before hard eras
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-in-flight-delete-"));
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },

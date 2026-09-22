@@ -46,7 +46,7 @@ import { App } from "./App.jsx";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
 
 // These existing cases exercise deployments with Google and delivered email.
-const configuration = { ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, googleEnabled: true, mailDelivery: "cloudflare" } };
+const configuration = { ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, googleEnabled: true, requireEmailVerification: true, mailDelivery: "cloudflare" } };
 
 describe("auth sign-in feedback", () => {
   beforeEach(() => {
@@ -659,10 +659,10 @@ describe("deployment auth configuration", () => {
     expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeTruthy();
   });
 
-  it("explains local verification rather than claiming outbound email delivery", async () => {
+  it("explains local verification when explicitly enabled", async () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ data: { user: { email: "ada@example.com" } } });
-    render(<App />);
+    render(<App configuration={{ ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, requireEmailVerification: true } }} />);
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Name"), "Ada");
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
@@ -673,10 +673,10 @@ describe("deployment auth configuration", () => {
     expect(screen.getByText("document-extraction mail")).toBeTruthy();
   });
 
-  it("enters the session immediately when verification is disabled", async () => {
+  it("enters the session immediately with the default configuration", async () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ data: { user: { email: "ada@example.com" } } });
-    render(<App configuration={{ ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, requireEmailVerification: false } }} />);
+    render(<App />);
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Name"), "Ada");
     await user.type(screen.getByLabelText("Email"), "ada@example.com");

@@ -25,7 +25,7 @@ test("an Application admin manages account access through the frontend", async (
   const regularPage = await regularContext.newPage();
 
   try {
-    harness = await startRuntimeHarness();
+    harness = await startRuntimeHarness({ requireEmailVerification: true });
     await signUpAndVerify(regularPage, harness, REGULAR_USER);
     await regularContext.close();
 

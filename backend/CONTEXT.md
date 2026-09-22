@@ -195,7 +195,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 ## Rules
 
 - **Account password policy** requires at least 8 characters, one ASCII uppercase letter, one ASCII number, and one special character.
-- **Account email verification** is required before email/password access by default; an explicit deployment setting may disable that requirement.
+- **Account email verification** is optional and disabled by default; `AUTH_REQUIRE_EMAIL_VERIFICATION=true` requires it before email/password access.
 - A trusted social provider's verified email claim satisfies **Account email verification** without a separate Document Extraction verification email.
 - Email/password login is enabled by default; Google OAuth is explicitly enabled with a complete credential pair. At least one login method must remain enabled.
 - Deployment settings control new-account registration consistently for password and Google signup; existing accounts retain their configured sign-in path.

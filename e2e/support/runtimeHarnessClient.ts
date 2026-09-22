@@ -16,13 +16,13 @@ type ReadyPayload = {
   stateDirectory: string;
 };
 
-export async function startRuntimeHarness({ timeoutMs = 20_000 } = {}) {
+export async function startRuntimeHarness({ timeoutMs = 20_000, requireEmailVerification }: { timeoutMs?: number; requireEmailVerification?: boolean } = {}) {
   const rootDirectory = resolve(process.cwd());
   const child = spawn(process.env.E2E_BUN_EXECUTABLE || "bun", [
     "e2e/support/runtimeHarness.ts",
   ], {
     cwd: rootDirectory,
-    env: { ...process.env, E2E_PARENT_PID: String(process.pid) },
+    env: { ...process.env, AUTH_REQUIRE_EMAIL_VERIFICATION: requireEmailVerification === undefined ? "" : String(requireEmailVerification), E2E_PARENT_PID: String(process.pid) },
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdout.setEncoding("utf8");

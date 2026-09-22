@@ -11,6 +11,7 @@ test("the Workspace member-list adapter uses the real session-only HTTP interfac
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {

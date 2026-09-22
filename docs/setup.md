@@ -124,7 +124,7 @@ For a source checkout, keep or move `.local/` and `.env` before deleting the che
 
 | Symptom | Check |
 | --- | --- |
-| No verification email in your inbox | `EMAIL_PROVIDER=local` captures links; use `mail` or the private server log. Cloudflare requires its separate configuration. |
+| No verification email in your inbox | Verification is optional; enable `AUTH_REQUIRE_EMAIL_VERIFICATION` if needed. `EMAIL_PROVIDER=local` captures links for `mail` or the private server log; Cloudflare sends to an inbox. |
 | Verification/OAuth link opens the wrong site | Set `BETTER_AUTH_URL` to the browser-facing origin, including the chosen port, and request a fresh link. |
 | Google button is absent | Enable `AUTH_GOOGLE_ENABLED` and supply both credentials; restart. |
 | Registration is unavailable | Check `AUTH_SIGNUP_ENABLED`; create initial accounts before disabling signup. |

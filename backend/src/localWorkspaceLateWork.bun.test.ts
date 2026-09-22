@@ -18,6 +18,7 @@ test("late queue deliveries after hard deletion do not recreate a Workspace prod
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-late-work-"));
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },
@@ -128,6 +129,7 @@ test("a retryable extraction failure does not requeue work after its Workspace i
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-late-retry-"));
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },

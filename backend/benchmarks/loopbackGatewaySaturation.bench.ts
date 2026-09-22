@@ -530,6 +530,7 @@ async function setupWorkspace(stateDirectory: string, mode: BenchmarkMode): Prom
       verificationResolve = resolve;
     });
     const auth = await createLocalAuth({
+      requireEmailVerification: true,
       baseURL: "http://127.0.0.1",
       database,
       logger: { error: () => undefined },

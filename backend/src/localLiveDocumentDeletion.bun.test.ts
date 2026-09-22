@@ -18,6 +18,7 @@ test("live Document deletion aborts and drains only its target job before erasur
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-live-document-delete-"));
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },

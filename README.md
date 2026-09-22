@@ -27,11 +27,7 @@ When it finishes, open **[http://127.0.0.1:8787](http://127.0.0.1:8787)** in you
 
 ## Your first extraction
 
-1. **Create your account.** Sign up in the app. Verification email is saved locally, so it won’t arrive in your inbox. Run this to find your verification link, then open it in your browser:
-
-   ```bash
-   ~/.local/share/document-extraction/document-extraction mail
-   ```
+1. **Create your account.** Sign up with your name, email address, and password to get started.
 
 2. **Connect your AI model.** Open **Workspaces → Model gateway → Set up**. Enter your service’s **Gateway URL**, **Model name**, and **Gateway API key**, then click **Save configuration**. Choose a model that supports image input; you can leave the other options at their defaults.
 

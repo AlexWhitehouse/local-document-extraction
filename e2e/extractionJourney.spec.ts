@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { access, mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { access, mkdir, readdir, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 
 import { createBrowserEvidence } from "./support/browserEvidence";
 import { startRuntimeHarness } from "./support/runtimeHarnessClient";
@@ -22,7 +22,7 @@ const TEMPLATE = {
   }],
 };
 
-test("a verified user completes a Document Extraction job through Workspace live updates", async ({ page }, testInfo) => {
+test("a new user completes a Document Extraction job without email verification by default", async ({ page }, testInfo) => {
   const evidence = await createBrowserEvidence(page);
   let harness: Awaited<ReturnType<typeof startRuntimeHarness>> | undefined;
 
@@ -36,18 +36,10 @@ test("a verified user completes a Document Extraction job through Workspace live
     await page.getByLabel("Password", { exact: true }).fill(ACCOUNT.password);
     await page.getByLabel("Confirm Password").fill(ACCOUNT.password);
     await page.getByRole("button", { name: "Create Account" }).click();
-    await expect(page.getByRole("status")).toContainText("Open your local verification link");
-
-    const verificationMail = await harness.waitForVerificationMail(ACCOUNT.email);
-    const verificationResponse = await fetch(verificationMail.actionUrl, { redirect: "manual" });
-    expect(verificationResponse.status).toBe(302);
-
-    await page.goto(harness.origin);
-    await page.getByLabel("Email").fill(ACCOUNT.email);
-    await page.getByLabel("Password", { exact: true }).fill(ACCOUNT.password);
-    await page.getByRole("button", { name: "Sign In", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await expect(page.getByText("API Ready", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Open your local verification link.", { exact: true })).toHaveCount(0);
+    expect(await readdir(join(harness.stateDirectory, "mail"))).toEqual([]);
 
     await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
     await page.getByLabel("Model name", { exact: true }).fill("browser/model");

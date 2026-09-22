@@ -3,7 +3,7 @@ export const DEFAULT_RUNTIME_CONFIGURATION = Object.freeze({
     emailPasswordEnabled: true,
     googleEnabled: false,
     signupEnabled: true,
-    requireEmailVerification: true,
+    requireEmailVerification: false,
     mailDelivery: "local",
   }),
   limits: Object.freeze({ maxSourceFileBytes: 10 * 1024 * 1024 }),

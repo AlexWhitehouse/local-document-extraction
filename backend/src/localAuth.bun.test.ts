@@ -9,6 +9,7 @@ test("email/password sign-up captures an Account email verification link", async
   const database = new Database(":memory:");
   const capturedMessages: LocalMailMessage[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {
@@ -53,6 +54,7 @@ test("Better Auth records the Cloudflare connecting IP only when its header is e
   const database = new Database(":memory:");
   const capturedMessages: LocalMailMessage[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     trustedIpHeaders: ["cf-connecting-ip"],
     database,
@@ -90,6 +92,7 @@ test("the local Fetch application delegates email/password sign-up to Better Aut
   const database = new Database(":memory:");
   const capturedMessages: LocalMailMessage[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {
@@ -122,6 +125,7 @@ test("the local Fetch application delegates email/password sign-up to Better Aut
 test("the local Fetch application applies the Account password policy before Better Auth", async () => {
   const database = new Database(":memory:");
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async () => undefined },
@@ -152,6 +156,7 @@ test("unverified accounts stay blocked until their captured verification link is
   const database = new Database(":memory:");
   const capturedMessages: LocalMailMessage[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {
@@ -196,6 +201,7 @@ test("Better Auth updates the signed-in user's profile name and refreshes the se
   const database = new Database(":memory:");
   const capturedMessages: LocalMailMessage[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: { capture: async (message) => { capturedMessages.push(message); } },
@@ -235,6 +241,7 @@ test("password reset requests do not disclose account existence and captured res
   const database = new Database(":memory:");
   const capturedMessages: LocalMailMessage[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
     database,
     mailSink: {
@@ -292,6 +299,7 @@ test("configured local admin emails receive persisted Application admin sessions
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
   const auth = await createLocalAuth({
+    requireEmailVerification: true,
     adminEmails: ["admin@example.com"],
     baseURL: "http://127.0.0.1:8787",
     database,
@@ -311,7 +319,7 @@ test("configured local admin emails receive persisted Application admin sessions
 test("Better Auth admin routes authorize persisted Application admins and reject regular users", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     const userCookie = await createVerifiedCookie(auth, messages, "User", "user@example.com");
@@ -325,7 +333,7 @@ test("Better Auth admin routes authorize persisted Application admins and reject
 test("Application admins can search local accounts through Better Auth", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     await createVerifiedCookie(auth, messages, "Ada", "ada@example.com");
@@ -344,7 +352,7 @@ test("Application admins can search local accounts through Better Auth", async (
 test("Application admins can promote and demote another local account", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     await createVerifiedCookie(auth, messages, "User", "user@example.com");
@@ -363,7 +371,7 @@ test("Application admins can promote and demote another local account", async ()
 test("Application admins cannot change their own local role", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     const admin = await findUserByEmail(auth, adminCookie, "admin@example.com");
@@ -381,7 +389,7 @@ test("Application admins cannot change their own local role", async () => {
 test("Application admins can ban a local account with a reason", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     await createVerifiedCookie(auth, messages, "User", "user@example.com");
@@ -399,7 +407,7 @@ test("Application admins can ban a local account with a reason", async () => {
 test("Application admins must give a reason when banning a local account", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     await createVerifiedCookie(auth, messages, "User", "user@example.com");
@@ -418,7 +426,7 @@ test("Application admins must give a reason when banning a local account", async
 test("Application admins can unban a local account so it can sign in again", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     await createVerifiedCookie(auth, messages, "User", "user@example.com");
@@ -443,7 +451,7 @@ test("Application admins can unban a local account so it can sign in again", asy
 test("Application admins can impersonate a regular local account and stop impersonating", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     await createVerifiedCookie(auth, messages, "User", "user@example.com");
@@ -466,7 +474,7 @@ test("Application admins can impersonate a regular local account and stop impers
 test("regular local accounts cannot perform Application admin actions", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     const userCookie = await createVerifiedCookie(auth, messages, "User", "user@example.com");
@@ -481,7 +489,7 @@ test("regular local accounts cannot perform Application admin actions", async ()
 test("Application admins can only impersonate active regular local accounts", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     await createVerifiedCookie(auth, messages, "User", "user@example.com");
@@ -500,7 +508,7 @@ test("Application admins can only impersonate active regular local accounts", as
 test("Application admins can only assign local Application roles", async () => {
   const database = new Database(":memory:");
   const messages: LocalMailMessage[] = [];
-  const auth = await createLocalAuth({ adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
+  const auth = await createLocalAuth({ requireEmailVerification: true, adminEmails: ["admin@example.com"], baseURL: "http://127.0.0.1:8787", database, mailSink: { capture: async (message) => { messages.push(message); } }, secret: "01234567890123456789012345678901" });
   try {
     const adminCookie = await createVerifiedCookie(auth, messages, "Admin", "admin@example.com");
     await createVerifiedCookie(auth, messages, "User", "user@example.com");
