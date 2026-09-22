@@ -63,9 +63,11 @@ Configuration is loaded from `config.env`. Edit it and stop/start the process to
 
 ## Source checkout
 
-Use the Bun version in root `package.json`. From the repository root:
+Install the Bun version declared in [package.json](../package.json) using the [Bun installation guide](https://bun.com/docs/installation), then:
 
 ```bash
+git clone https://github.com/AlexWhitehouse/local-document-extraction.git
+cd local-document-extraction
 bun install --frozen-lockfile
 cp .env.example .env
 bun backend/src/checkConfiguration.ts
