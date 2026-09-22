@@ -1,6 +1,5 @@
 site_name: Document Extraction
 site_description: Local usage and API documentation for Document Extraction.
-site_url: http://127.0.0.1:8787/
 
 theme:
   name: material

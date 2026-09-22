@@ -9,8 +9,12 @@ The local app and API run at `http://127.0.0.1:8787`.
 - Create Workspaces and invite members.
 - Generate Workspace API keys for external local clients.
 - Define Templates with typed fields and one table-shaped field when needed.
+- Configure a model gateway separately for each Workspace.
 - Submit PNG, JPEG, WebP, and PDF Documents for extraction.
 - Track Extraction jobs and review completed results.
+- Export selected results to Excel.
+
+Document input is sent to the chosen model gateway. Application storage is local; inference is local only when you select a local gateway. By default, account email is captured on the machine rather than delivered to an inbox. The getting-started pages explain verification and mandatory model setup.
 
 ## Quick Links
 

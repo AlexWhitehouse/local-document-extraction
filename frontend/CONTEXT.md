@@ -151,7 +151,9 @@ _Avoid_: demo mode, sample data sandbox
 - During **Loading workspace context**, workspace-scoped UI actions are unavailable until an accepted **Workspace** is resolved.
 - A **Workspace resolution error** keeps workspace-scoped UI actions unavailable and offers retry rather than falling back to stored Workspace preference.
 - Unauthenticated users accessing the SPA are taken to the login page and do not have a **Workspace context**.
-- After email/password sign-up, the frontend shows an **Account verification prompt** instead of resolving a session or Workspace.
+- The frontend loads public runtime capabilities before presenting auth: only enabled login methods and registration actions are offered, and the upload limit follows runtime configuration.
+- When email verification is required, email/password sign-up shows an **Account verification prompt** instead of resolving a session or Workspace. When disabled, the frontend resolves account access without that prompt.
+- The **Account verification prompt** and password-reset feedback distinguish local captured links from actual inbox delivery.
 - After email/password sign-up, the **Account verification prompt** replaces the create-account form rather than appearing alongside it.
 - Leaving the **Account verification prompt** for sign-in preserves the submitted email address and clears password fields.
 - While the **Account verification prompt** is visible, it owns the transition back to sign-in; normal auth form switch links are not shown alongside it.
@@ -159,7 +161,7 @@ _Avoid_: demo mode, sample data sandbox
 - The **Account verification prompt** tells the user to open the verification link to finish setting up the account, rather than implying manual sign-in is always required after verification.
 - The **Account verification prompt** does not show alternate auth actions such as Google sign-in; those remain available on the sign-in screen.
 - The visible **Account verification prompt** blocks another sign-up attempt until the user leaves the prompt and intentionally opens sign-up again.
-- When an unverified email/password user tries to sign in, the frontend tells them to verify their email and that a new verification link was sent.
+- When verification is required and an unverified email/password user tries to sign in, the frontend explains the configured delivery surface for the new verification link.
 - The initial **Account verification prompt** does not include a separate resend control; sign-in retries send a new verification link.
 - **Account password reset** request feedback does not reveal whether the submitted email belongs to an email/password Account.
 - **Account password reset** links open the unauthenticated `/reset-password` SPA experience with a Better Auth reset token or token error in the query string.

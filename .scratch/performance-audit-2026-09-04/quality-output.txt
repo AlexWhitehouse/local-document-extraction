@@ -468,7 +468,7 @@ src/localRuntimeSmoke.bun.test.ts:
 Ran 1 test across 1 file. [455.00ms]
 $ bunx vitest run
 
- RUN  v4.1.10 /Users/alexwhitehouse/Documents/local-document-extraction/frontend
+ RUN  v4.1.10 <repository>/frontend
 
 
  Test Files  19 passed (19)
@@ -477,7 +477,7 @@ $ bunx vitest run
    Duration  4.24s (transform 1.82s, setup 1.21s, import 2.63s, tests 9.10s, environment 8.69s)
 
 $ bun scripts/runFrontendCoverage.js
-[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90m/Users/alexwhitehouse/Documents/local-document-extraction/frontend[39m
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90m<repository>/frontend[39m
       [2mCoverage enabled with [22m[33mv8[39m
 
  [32m✓[39m src/lib/workspaceSelection.test.js [2m([22m[2m54 tests[22m[2m)[22m[32m 15[2mms[22m[39m

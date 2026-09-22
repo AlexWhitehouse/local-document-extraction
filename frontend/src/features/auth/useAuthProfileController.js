@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 
 const ACCOUNT_PASSWORD_REQUIREMENTS = [
   { label: "At least 8 characters", test: (password) => password.length >= 8 },
@@ -12,6 +13,7 @@ const ACCOUNT_PASSWORD_REQUIREMENTS = [
 ];
 
 export function useAuthProfileController({
+  authOptions = DEFAULT_RUNTIME_CONFIGURATION.auth,
   authClient,
   refetchSession,
   addLog,
@@ -119,7 +121,7 @@ export function useAuthProfileController({
       addLog(`Signed in as ${authEmail.trim()}`);
     } catch (error) {
       addLog(`Sign in failed: ${error.message}`);
-      toast.error(getSignInErrorToastMessage(error.message));
+      toast.error(getSignInErrorToastMessage(error.message, authOptions.mailDelivery));
     } finally {
       setBusy(false);
     }
@@ -175,8 +177,13 @@ export function useAuthProfileController({
       setAuthConfirmPassword("");
       setAuthPasswordTouched(false);
       setSignUpSubmitAttempted(false);
-      setAccountVerificationPromptEmail(signedUpEmail);
-      addLog(`Account verification required for ${signedUpEmail}`);
+      if (authOptions.requireEmailVerification) {
+        setAccountVerificationPromptEmail(signedUpEmail);
+        addLog(`Account verification required for ${signedUpEmail}`);
+      } else {
+        await refetchSession();
+        addLog("Account created");
+      }
     } catch (error) {
       addLog(`Sign up failed: ${error.message}`);
       toast.error(getSignUpErrorToastMessage(error.message));
@@ -231,6 +238,7 @@ export function useAuthProfileController({
 
   async function submitAuthForm(event) {
     event.preventDefault();
+    if (!authOptions.emailPasswordEnabled || (authMode === "signup" && !authOptions.signupEnabled)) return;
     if (authMode === "reset-request") {
       await requestAccountPasswordReset();
       return;
@@ -243,6 +251,7 @@ export function useAuthProfileController({
   }
 
   function switchAuthMode(nextMode) {
+    if (nextMode === "signup" && !authOptions.signupEnabled) return;
     setAuthMode(nextMode);
     setAuthPassword("");
     setAuthConfirmPassword("");
@@ -298,6 +307,7 @@ export function useAuthProfileController({
 
   return {
     authScreen: {
+      authOptions,
       mode: authMode,
       name: authName,
       email: authEmail,
@@ -338,14 +348,16 @@ export function useAuthProfileController({
   };
 }
 
-function getSignInErrorToastMessage(message) {
+function getSignInErrorToastMessage(message, mailDelivery) {
   const normalized = String(message || "").toLowerCase();
   if (
     normalized.includes("verify") ||
     normalized.includes("verified") ||
     normalized.includes("verification")
   ) {
-    return "Verify your email before signing in. We sent you a new Account verification link.";
+    return mailDelivery === "local"
+      ? "Verify your account before signing in. Open the verification link in the server terminal or local mail capture."
+      : "Verify your email before signing in. We sent you a new Account verification link.";
   }
   return "Sign in failed. Check your email and password and try again.";
 }

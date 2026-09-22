@@ -8,6 +8,7 @@ export function DocumentUploadModal({
   isDragActive,
   isUploadingDocuments,
   hasApiAccess,
+  maxSourceFileBytes = 10 * 1024 * 1024,
   onClose,
   onSelectTemplate,
   onSelectSourceFiles,
@@ -79,6 +80,7 @@ export function DocumentUploadModal({
             >
               <strong>Drag and drop source files here</strong>
               <span>or click to browse Documents (PNG, JPG, WEBP, PDF)</span>
+              <span>Maximum file size: {new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(maxSourceFileBytes / (1024 * 1024))} MiB</span>
               <em>
                 {sourceFiles.length
                   ? `${sourceFiles.length} Source file${sourceFiles.length === 1 ? "" : "s"} selected`

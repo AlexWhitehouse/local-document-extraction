@@ -44,15 +44,17 @@ test("email/password sign-up captures an Account email verification link", async
   }
 });
 
-test("the hosted Document Extraction URL is a trusted auth origin", () => {
-  expect(localTrustedOrigins("http://127.0.0.1:8787")).toContain("https://extract.t3m.uk");
+test("auth trusts configured origins without a maintainer deployment", () => {
+  expect(localTrustedOrigins("http://127.0.0.1:9999")).toContain("http://localhost:9999");
+  expect(localTrustedOrigins("https://app.example.org", ["https://admin.example.org"])).toEqual(["https://app.example.org", "https://admin.example.org"]);
 });
 
-test("Better Auth records the Cloudflare connecting IP on new sessions", async () => {
+test("Better Auth records the Cloudflare connecting IP only when its header is explicitly trusted", async () => {
   const database = new Database(":memory:");
   const capturedMessages: LocalMailMessage[] = [];
   const auth = await createLocalAuth({
     baseURL: "http://127.0.0.1:8787",
+    trustedIpHeaders: ["cf-connecting-ip"],
     database,
     mailSink: { capture: async (message) => { capturedMessages.push(message); } },
     secret: "01234567890123456789012345678901",

@@ -1,8 +1,6 @@
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { getModelPreparationSnapshot } from "./consumer/modelGateway";
-import { DEFAULT_MAX_SOURCE_FILE_BYTES, createLocalApplication } from "./localApplication";
+import { createLocalApplication } from "./localApplication";
+import { readLocalConfiguration, publicLocalConfiguration } from "./localConfiguration";
 import { createLocalAuthRuntime } from "./localAuthRuntime";
 import { localDocumentRequestBodyLimit, localDocumentServerBodyLimit } from "./localDocumentBodyLimit";
 import { createLocalExtractionQueue } from "./localExtractionQueue";
@@ -17,7 +15,6 @@ import { createLocalProductAnalytics } from "./localProductAnalytics";
 import { createLocalResourceController } from "./localResourceController";
 import { createLocalRuntimeFetchHandler, ensureLocalStateDirectories } from "./localRuntime";
 import { createLocalRuntimeRequestDrain } from "./localRuntimeRequestDrain";
-import { readLocalRuntimePort } from "./localRuntimePort";
 import { createLocalRuntimeShutdown } from "./localRuntimeShutdown";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalSourceFileRetention } from "./localSourceFileRetention";
@@ -26,80 +23,15 @@ import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const assetsDirectory = process.env.DOCUMENT_EXTRACTION_ASSETS_DIR || resolve(repositoryRoot, "frontend", "dist");
-const stateDirectory = process.env.DOCUMENT_EXTRACTION_STATE_DIR || resolve(repositoryRoot, ".local");
-const port = readLocalRuntimePort(process.env.PORT);
-const maxSourceFileBytes = readPositiveInteger(
-  process.env.MAX_SOURCE_FILE_BYTES,
-  "MAX_SOURCE_FILE_BYTES",
-  DEFAULT_MAX_SOURCE_FILE_BYTES,
-);
-const extractionRetryDelayMs = readPositiveInteger(
-  process.env.EXTRACTION_RETRY_DELAY_MS,
-  "EXTRACTION_RETRY_DELAY_MS",
-  1_000,
-);
-const extractionMaxConcurrency = readPositiveInteger(
-  process.env.EXTRACTION_MAX_CONCURRENCY,
-  "EXTRACTION_MAX_CONCURRENCY",
-  8,
-);
-const extractionMaxBuffered = readPositiveInteger(
-  process.env.EXTRACTION_MAX_BUFFERED,
-  "EXTRACTION_MAX_BUFFERED",
-  10_000,
-);
-const extractionReconcileIntervalMs = readPositiveInteger(
-  process.env.EXTRACTION_RECONCILE_INTERVAL_MS,
-  "EXTRACTION_RECONCILE_INTERVAL_MS",
-  60_000,
-);
-const submissionMaxConcurrency = readPositiveInteger(
-  process.env.SUBMISSION_MAX_CONCURRENCY,
-  "SUBMISSION_MAX_CONCURRENCY",
-  8,
-);
-const submissionMaxReservedBytes = readPositiveInteger(
-  process.env.SUBMISSION_MAX_RESERVED_BYTES,
-  "SUBMISSION_MAX_RESERVED_BYTES",
-  128 * 1024 * 1024,
-);
-const extractionAdaptiveConcurrency = readBoolean(
-  process.env.EXTRACTION_ADAPTIVE_CONCURRENCY,
-  true,
-);
-const extractionMaximumConcurrency = readPositiveInteger(
-  process.env.EXTRACTION_MAX_CONCURRENCY_LIMIT,
-  "EXTRACTION_MAX_CONCURRENCY_LIMIT",
-  32,
-);
-const localCpuLimitRatio = readRatio(process.env.LOCAL_CPU_LIMIT_RATIO, "LOCAL_CPU_LIMIT_RATIO", 0.85);
-const memoryPressureLargeSubmissionBytes = readPositiveInteger(
-  process.env.MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES,
-  "MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES",
-  4 * 1024 * 1024,
-);
-const localDiskReserveBytes = readNonNegativeInteger(
-  process.env.LOCAL_DISK_RESERVE_BYTES,
-  "LOCAL_DISK_RESERVE_BYTES",
-  1024 * 1024 * 1024,
-);
-const sourceRetentionSweepIntervalMs = readPositiveInteger(
-  process.env.SOURCE_RETENTION_SWEEP_INTERVAL_MS,
-  "SOURCE_RETENTION_SWEEP_INTERVAL_MS",
-  60 * 60 * 1_000,
-);
-const failedSourceRetentionMs = readNonNegativeInteger(
-  process.env.FAILED_SOURCE_RETENTION_MS,
-  "FAILED_SOURCE_RETENTION_MS",
-  7 * 24 * 60 * 60 * 1_000,
-);
-const shutdownTimeoutMs = readPositiveInteger(
-  process.env.LOCAL_SHUTDOWN_TIMEOUT_MS,
-  "LOCAL_SHUTDOWN_TIMEOUT_MS",
-  10_000,
-);
+const configuration = readLocalConfiguration();
+const {
+  assetsDirectory, stateDirectory, port, maxSourceFileBytes, maxJsonRequestBytes,
+  extractionRetryDelayMs, extractionMaxConcurrency, extractionMaxBuffered,
+  extractionReconcileIntervalMs, submissionMaxConcurrency, submissionMaxReservedBytes,
+  extractionAdaptiveConcurrency, extractionMaximumConcurrency, localCpuLimitRatio,
+  memoryPressureLargeSubmissionBytes, localDiskReserveBytes,
+  sourceRetentionSweepIntervalMs, failedSourceRetentionMs, shutdownTimeoutMs,
+} = configuration;
 const bun = (globalThis as typeof globalThis & { Bun?: typeof Bun }).Bun;
 
 if (!bun) {
@@ -117,6 +49,9 @@ const server = bun.serve<{ workspaceId: string }>({
         { status: 503, headers: { "retry-after": "1" } },
       );
     }
+    if (request.method === "GET" && new URL(request.url).pathname === "/v1/config") {
+      return Response.json(publicLocalConfiguration(configuration), { headers: { "cache-control": "no-store" } });
+    }
     if (request.method === "POST" && new URL(request.url).pathname === "/v1/extract") {
       return localSubmissionAdmission.run(request, () => runtimeFetch(request));
     }
@@ -132,8 +67,8 @@ const server = bun.serve<{ workspaceId: string }>({
       return runtimeFetch(request);
     });
   },
-  hostname: "127.0.0.1",
-  maxRequestBodySize: localDocumentServerBodyLimit(maxSourceFileBytes),
+  hostname: configuration.host,
+  maxRequestBodySize: Math.max(localDocumentServerBodyLimit(maxSourceFileBytes), maxJsonRequestBytes),
   port,
   websocket: {
     ...LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY,
@@ -159,13 +94,13 @@ const server = bun.serve<{ workspaceId: string }>({
     },
   },
 });
-const serverOrigin = `http://127.0.0.1:${server.port}`;
+const browserHost = configuration.host === "0.0.0.0" ? "127.0.0.1" : configuration.host === "::" ? "[::1]" : configuration.host.includes(":") ? `[${configuration.host}]` : configuration.host;
+const serverOrigin = `http://${browserHost}:${server.port}`;
 
 const localAuth = await createLocalAuthRuntime({
-  adminEmails: (process.env.DOCUMENT_EXTRACTION_ADMIN_EMAILS || "").split(","),
-  baseURL: process.env.BETTER_AUTH_URL || serverOrigin,
-  googleClientId: process.env.GOOGLE_CLIENT_ID,
-  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  ...configuration.auth,
+  baseURL: configuration.auth.baseURL || serverOrigin,
+  email: configuration.email,
   stateDirectory,
 });
 const localExtractionQueue = createLocalExtractionQueue({
@@ -183,7 +118,7 @@ const localExtractionQueue = createLocalExtractionQueue({
   onCapacityAvailable: () => refillExtraction(),
 });
 const localLiveUpdateHub = createLocalLiveUpdateHub();
-const localProductAnalytics = createLocalProductAnalytics({ stateDirectory });
+const localProductAnalytics = configuration.analyticsEnabled ? createLocalProductAnalytics({ stateDirectory }) : undefined;
 const localWorkspaceProductOperations = createLocalWorkspaceProductOperations();
 const localProductStoreRegistry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
 const localSourceFiles = createLocalSourceFileStore({ stateDirectory });
@@ -227,7 +162,7 @@ const localWorkspaceDeletion = createLocalWorkspaceDeletion({
 });
 await localWorkspaceDeletion.reconcileInterruptedDeletions();
 const localExtractionRunner = createLocalExtractionRunner({
-  modelGatewayRequestTimeoutMs: process.env.MODEL_GATEWAY_REQUEST_TIMEOUT_MS,
+  modelGatewayRequestTimeoutMs: String(configuration.modelGatewayRequestTimeoutMs),
   onGatewayOutcome: localResourceController.recordGatewayOutcome,
   onJobLifecycleChange: (workspaceId, job) => {
     localLiveUpdateHub.broadcastJob(workspaceId, job);
@@ -292,6 +227,7 @@ const application = createLocalApplication({
   }),
   liveUpdateHub: localLiveUpdateHub,
   maxSourceFileBytes,
+  maxJsonRequestBytes,
   productAnalytics: localProductAnalytics,
   scheduleQueuedJob: localExtractionQueue.schedule,
   sourceFileStore: localSourceFiles,
@@ -318,7 +254,7 @@ const runtimeShutdown = createLocalRuntimeShutdown({
   closeAuth: localAuth.close,
   closeProductStores: localProductStoreRegistry.closeAll,
   closeQueue: localExtractionQueue.close,
-  flushAnalytics: localProductAnalytics.flush,
+  flushAnalytics: () => localProductAnalytics?.flush() ?? Promise.resolve(),
   forceAfterMs: shutdownTimeoutMs,
   stopRecurringWork: async () => {
     clearInterval(extractionReconcileTimer);
@@ -353,43 +289,6 @@ const requestShutdown = () => {
 process.on("SIGINT", requestShutdown);
 process.on("SIGTERM", requestShutdown);
 process.once("beforeExit", requestShutdown);
-
-function readPositiveInteger(value: string | undefined, name: string, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error(`${name} must be a positive integer.`);
-  }
-  return parsed;
-}
-
-function readNonNegativeInteger(value: string | undefined, name: string, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    throw new Error(`${name} must be a non-negative integer.`);
-  }
-  return parsed;
-}
-
-function readRatio(value: string | undefined, name: string, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
-    throw new Error(`${name} must be greater than zero and no greater than one.`);
-  }
-  return parsed;
-}
-
-function readBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (!value) return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return fallback;
-}
 
 function isWorkspaceLiveUpdatePath(request: Request): boolean {
   return /^\/v1\/workspaces\/[^/]+\/live$/.test(new URL(request.url).pathname);

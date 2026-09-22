@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createLocalWorkspaceProductStore, openLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
@@ -72,5 +72,63 @@ test("complete structural validation trims fields and rejects unsafe URLs, parti
   }
   for (const invalid of [{}, { ...draft, credential: " " }, { ...draft, supports_pdf_input: undefined }, { ...draft, use_managed_files: true }]) {
     expect(() => validateWorkspaceModelDraft(invalid)).toThrow();
+  }
+});
+
+test("credential vault refuses linked key files and secret directories without reading, repairing or chmodding outside targets", () => {
+  for (const mode of ["valid-key", "invalid-key", "directory"]) {
+    const root = temporaryState();
+    const stateDirectory = join(root, "state");
+    const vault = createWorkspaceCredentialVault(stateDirectory);
+    const ciphertext = vault.encrypt("workspace_a", "dummy-secret");
+    const keyPath = join(stateDirectory, "secrets", "model-gateway.key");
+    const key = mode === "invalid-key" ? Buffer.from("invalid") : readFileSync(keyPath);
+    const outside = join(root, "outside");
+    const outsideFile = mode === "directory" ? join(outside, "model-gateway.key") : outside;
+    if (mode === "directory") {
+      mkdirSync(outside);
+      chmodSync(outside, 0o755);
+      rmSync(join(stateDirectory, "secrets"), { recursive: true });
+      symlinkSync(outside, join(stateDirectory, "secrets"));
+    } else {
+      rmSync(keyPath);
+      symlinkSync(outside, keyPath);
+    }
+    writeFileSync(outsideFile, key);
+    chmodSync(outsideFile, 0o644);
+    expect(() => vault.decrypt("workspace_a", ciphertext)).toThrow("Workspace model credentials are unavailable");
+    expect(() => vault.encrypt("workspace_a", "replacement-secret")).toThrow("Workspace model credentials are unavailable");
+    expect(readFileSync(outsideFile)).toEqual(key);
+    expect(statSync(outsideFile).mode & 0o777).toBe(0o644);
+    if (mode === "directory") {
+      expect(statSync(outside).mode & 0o777).toBe(0o755);
+      expect(readdirSync(outside)).toEqual(["model-gateway.key"]);
+    }
+  }
+});
+
+test("Workspace databases refuse linked database, sidecar and parent paths without changing outside targets", () => {
+  for (const suffix of ["", "-journal", "-wal", "-shm", "directory"]) {
+    const root = temporaryState();
+    const stateDirectory = join(root, "state");
+    const workspaceId = "workspace_a";
+    createLocalWorkspaceProductStore({ stateDirectory, workspaceId }).close();
+    const outside = join(root, "outside");
+    const productDirectory = join(stateDirectory, "data", "workspaces");
+    const destination = suffix === "directory" ? productDirectory : join(productDirectory, `${workspaceId}.sqlite${suffix}`);
+    rmSync(destination, { recursive: true, force: true });
+    if (suffix === "directory") {
+      mkdirSync(outside);
+      chmodSync(outside, 0o755);
+    } else {
+      writeFileSync(outside, "unchanged external file");
+      chmodSync(outside, 0o644);
+    }
+    symlinkSync(outside, destination);
+    expect(() => createLocalWorkspaceProductStore({ stateDirectory, workspaceId })).toThrow("Local state");
+    expect(() => openLocalWorkspaceProductStore({ stateDirectory, workspaceId })).toThrow("Local state");
+    expect(statSync(outside).mode & 0o777).toBe(suffix === "directory" ? 0o755 : 0o644);
+    if (suffix === "directory") expect(readdirSync(outside)).toEqual([]);
+    else expect(readFileSync(outside, "utf8")).toBe("unchanged external file");
   }
 });

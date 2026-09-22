@@ -7,6 +7,7 @@ import { InvalidPdfSourceFileError, countPdfSourceFilePages } from "./lib/source
 import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "./lib/validation";
 import { buildJobExportInWorker } from "./localJobExportWorker";
 import { assertKnownDocumentRequestBodyLength } from "./localDocumentBodyLimit";
+import { boundLocalApiBody } from "./localApiBodyLimit";
 import { parseLocalMultipartSubmission } from "./localMultipartSubmission";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
@@ -50,6 +51,7 @@ export function createLocalApplication({
   diagnostics,
   jobPageSize = DEFAULT_JOB_PAGE_SIZE,
   maxSourceFileBytes = DEFAULT_MAX_SOURCE_FILE_BYTES,
+  maxJsonRequestBytes = 1024 * 1024,
   liveUpdateHub,
   productAnalytics,
   productStoreFactory,
@@ -65,6 +67,7 @@ export function createLocalApplication({
   diagnostics?: () => Record<string, unknown>;
   jobPageSize?: number;
   maxSourceFileBytes?: number;
+  maxJsonRequestBytes?: number;
   liveUpdateHub?: LocalLiveUpdateHub;
   productAnalytics?: LocalProductAnalytics;
   productStoreFactory?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
@@ -104,6 +107,16 @@ export function createLocalApplication({
     : null);
   return async (request) => {
     const url = new URL(request.url);
+    if (request.body && !(request.method === "POST" && url.pathname === "/v1/extract")) {
+      try {
+        request = await boundLocalApiBody(request, maxJsonRequestBytes);
+      } catch (error) {
+        if (error instanceof HttpError) {
+          return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+        }
+        return Response.json({ error: { code: "invalid_request_body", message: "Could not read the request body" } }, { status: 400 });
+      }
+    }
 
     if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
       if (!auth) {

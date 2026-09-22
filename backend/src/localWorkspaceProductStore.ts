@@ -1,11 +1,12 @@
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fchmodSync, openSync, realpathSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { Database } from "bun:sqlite";
+import { join } from "node:path";
+import { Database, constants as sqliteConstants } from "bun:sqlite";
 
 import type { FieldDefinition } from "./lib/types";
 import type { NormalizedModelField } from "./consumer/modelResultNormalizer";
 import type { StoredWorkspaceModelConfiguration } from "./workspaceModelConfiguration";
+import { assertRealStateDirectorySync, assertRegularStateFileSync, ensurePrivateStateDirectorySync } from "./localStatePaths";
 
 export type LocalWorkspaceTemplate = {
   id: string;
@@ -229,13 +230,18 @@ export function createLocalWorkspaceProductStore({
   stateDirectory: string;
   workspaceId: string;
 }): LocalWorkspaceProductStore {
-  const databasePath = workspaceProductDatabasePath({ stateDirectory, workspaceId });
+  workspaceProductDatabasePath({ stateDirectory, workspaceId });
   const directory = join(stateDirectory, "data", "workspaces");
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  chmodSync(directory, 0o700);
-  closeSync(openSync(databasePath, "a", 0o600));
+  ensurePrivateStateDirectorySync(stateDirectory, { recursive: true });
+  ensurePrivateStateDirectorySync(join(stateDirectory, "data"));
+  ensurePrivateStateDirectorySync(directory);
+  // Canonical parents keep SQLite NOFOLLOW compatible with OS /var aliases.
+  const databasePath = join(realpathSync(directory), `${workspaceId}.sqlite`);
   protectProductFiles(databasePath);
-  return createProductStore(new Database(databasePath));
+  const file = openSync(databasePath, fsConstants.O_RDWR | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
+  try { fchmodSync(file, 0o600); }
+  finally { closeSync(file); }
+  return openProtectedProductStore(databasePath);
 }
 
 export function openLocalWorkspaceProductStore({
@@ -245,21 +251,41 @@ export function openLocalWorkspaceProductStore({
   stateDirectory: string;
   workspaceId: string;
 }): LocalWorkspaceProductStore | null {
-  const databasePath = workspaceProductDatabasePath({ stateDirectory, workspaceId });
+  workspaceProductDatabasePath({ stateDirectory, workspaceId });
+  const directory = join(stateDirectory, "data", "workspaces");
+  try {
+    for (const path of [stateDirectory, join(stateDirectory, "data"), directory]) assertRealStateDirectorySync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const databasePath = join(realpathSync(directory), `${workspaceId}.sqlite`);
+  assertRegularStateFileSync(databasePath);
   if (!existsSync(databasePath)) {
     return null;
   }
+  ensurePrivateStateDirectorySync(directory);
   protectProductFiles(databasePath);
-  return createProductStore(new Database(databasePath));
+  return openProtectedProductStore(databasePath);
 }
 
 function protectProductFiles(path: string): void {
-  chmodSync(dirname(path), 0o700);
   for (const file of [path, `${path}-journal`, `${path}-shm`, `${path}-wal`]) {
-    try { chmodSync(file, 0o600); } catch (error) {
+    assertRegularStateFileSync(file);
+    try {
+      const descriptor = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      try { fchmodSync(descriptor, 0o600); }
+      finally { closeSync(descriptor); }
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
+}
+
+function openProtectedProductStore(path: string): LocalWorkspaceProductStore {
+  const database = new Database(path, sqliteConstants.SQLITE_OPEN_READWRITE | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
+  try { return createProductStore(database); }
+  catch (error) { database.close(); throw error; }
 }
 
 export async function eraseLocalWorkspaceProductData({

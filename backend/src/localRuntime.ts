@@ -1,5 +1,6 @@
-import { mkdir, realpath, stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
+import { ensurePrivateStateDirectory } from "./localStatePaths";
 
 export type FetchApplication = (request: Request) => Response | Promise<Response>;
 
@@ -9,13 +10,20 @@ export type LocalRuntimeOptions = {
 };
 
 export async function ensureLocalStateDirectories(stateDirectory: string): Promise<void> {
-  await Promise.all([
+  // Restrict the root first: existing databases and captured action links must
+  // also be protected when upgrading an installation made with a broad umask.
+  await ensurePrivateStateDirectory(stateDirectory, { recursive: true });
+  for (const directory of [
     "data",
     "data/workspaces",
+    "source-files",
     "source-files/workspaces",
     "mail",
     "analytics",
-  ].map((directory) => mkdir(resolve(stateDirectory, directory), { recursive: true })));
+    "secrets",
+  ]) {
+    await ensurePrivateStateDirectory(resolve(stateDirectory, directory));
+  }
 }
 
 export function createLocalRuntimeFetchHandler({

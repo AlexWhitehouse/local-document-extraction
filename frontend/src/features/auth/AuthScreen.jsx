@@ -1,7 +1,9 @@
 import React from "react";
 import { Toaster } from "sonner";
+import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 
 export function AuthScreen({
+  authOptions = DEFAULT_RUNTIME_CONFIGURATION.auth,
   mode,
   name,
   email,
@@ -22,9 +24,11 @@ export function AuthScreen({
   onProviderSignIn,
   onSwitchMode,
 }) {
-  const isSignUp = mode === "signup";
-  const isResetRequest = mode === "reset-request";
-  const isSignIn = mode === "signin";
+  const { emailPasswordEnabled, googleEnabled, signupEnabled, mailDelivery } = authOptions;
+  const isSignUp = emailPasswordEnabled && signupEnabled && mode === "signup";
+  const isResetRequest = emailPasswordEnabled && mode === "reset-request";
+  const isSignIn = !isSignUp && !isResetRequest;
+  const localMail = mailDelivery === "local";
   const formTitle = isResetRequest ? "Reset password" : isSignIn ? "Sign in" : "Create account";
 
   return (
@@ -51,11 +55,10 @@ export function AuthScreen({
 
           {accountVerificationPromptEmail ? (
             <div className="panel auth-verification-prompt" role="status">
-              <h2>Check your email to verify your account.</h2>
+              <h2>{localMail ? "Open your local verification link." : "Check your email to verify your account."}</h2>
               <p>
-                We sent an Account verification link to{" "}
-                <b>{accountVerificationPromptEmail}</b>. Open it to finish
-                setting up your account.
+                {localMail ? <>A verification link for <b>{accountVerificationPromptEmail}</b> was saved on the computer running this app. Open the link printed in the server terminal, or run <code>document-extraction mail</code> after an installer setup. Manual installs save messages under <code>DOCUMENT_EXTRACTION_STATE_DIR/mail</code> (default <code>.local/mail</code>).</>
+                  : <>We sent an Account verification link to <b>{accountVerificationPromptEmail}</b>. Open it to finish setting up your account.</>}
               </p>
               <button
                 type="button"
@@ -68,11 +71,9 @@ export function AuthScreen({
             </div>
           ) : accountPasswordResetRequestedEmail ? (
             <div className="panel auth-verification-prompt" role="status">
-              <h2>Check your email</h2>
+              <h2>{localMail ? "Check local mail" : "Check your email"}</h2>
               <p>
-                If an account exists for{" "}
-                <b>{accountPasswordResetRequestedEmail}</b>, a reset link has
-                been sent.
+                If an account exists for <b>{accountPasswordResetRequestedEmail}</b>, a reset link has {localMail ? "been saved in the server terminal and local mail capture. Run document-extraction mail after an installer setup, or inspect your state directory's mail folder." : "been sent."}
               </p>
               <button
                 type="button"
@@ -87,10 +88,12 @@ export function AuthScreen({
             <form className="panel auth-panel" onSubmit={onSubmit}>
               <h2>{formTitle}</h2>
               <p className="muted">
-                {isResetRequest
+                {!emailPasswordEnabled ? "Use your identity provider to continue."
+                  : isResetRequest
                   ? "If an account exists for that email, a reset link will be sent."
                   : "Sign in first, then create or select a workspace."}
               </p>
+              {emailPasswordEnabled ? <>
               <div
                 className={
                   isSignUp ? "row two-up auth-form-grid" : "row auth-form-grid"
@@ -190,18 +193,7 @@ export function AuthScreen({
                   >
                     Sign In
                   </button>
-                  <div className="auth-divider" aria-hidden="true">
-                    <span>or continue with</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="secondary auth-provider-action"
-                    disabled={busy}
-                    onClick={onProviderSignIn}
-                  >
-                    Sign in with Google
-                  </button>
-                  <p className="auth-switch-copy">
+                  {signupEnabled ? <p className="auth-switch-copy">
                     Don&apos;t have an account?{" "}
                     <a
                       href="#"
@@ -215,7 +207,7 @@ export function AuthScreen({
                     >
                       Sign Up
                     </a>
-                  </p>
+                  </p> : <p className="muted">Account registration is closed. Contact the administrator for access.</p>}
                 </>
               ) : isResetRequest ? (
                 <>
@@ -268,6 +260,12 @@ export function AuthScreen({
                   </p>
                 </>
               )}
+              </> : null}
+              {googleEnabled && isSignIn ? <>
+                {emailPasswordEnabled ? <div className="auth-divider" aria-hidden="true"><span>or continue with</span></div> : null}
+                <button type="button" className="secondary auth-provider-action" disabled={busy} onClick={onProviderSignIn}>Sign in with Google</button>
+                {!emailPasswordEnabled && !signupEnabled ? <p className="muted">Account registration is closed. Contact the administrator for access.</p> : null}
+              </> : null}
             </form>
           )}
         </section>

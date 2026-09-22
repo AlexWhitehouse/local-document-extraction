@@ -21,7 +21,7 @@ This slice should be demoable without the final password-changing form: the user
 - [x] Submitting an email calls Better Auth's reset-request client behavior with a `/reset-password` redirect target.
 - [x] Reset-request success shows neutral copy that does not reveal whether the Account exists.
 - [x] The success state offers a return-to-sign-in action.
-- [x] The reset email is sent from `Document Extraction <no-reply@extract.t3m.uk>`.
+- [x] The reset email is sent from `Document Extraction <no-reply@example.com>`.
 - [x] The reset email includes the reset URL in both HTML and plain text.
 - [x] The reset email tells unexpected recipients they can ignore it.
 - [x] Better Auth reset-token expiry is explicitly configured as one hour.

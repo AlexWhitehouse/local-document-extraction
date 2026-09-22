@@ -93,20 +93,20 @@ describe("Bun runtime comparison evidence", () => {
 
   test("scrubs absolute paths, identity, credentials, and long retained data", () => {
     const sanitized = sanitizeBunProfileMarkdown([
-      "at /Users/alex/project/backend/src/server.ts:10",
+      "at /Users/developer/project/backend/src/server.ts:10",
       "tmp=/private/var/folders/aa/bb/T/profile/source.pdf",
       "Authorization: Bearer secret-token-123",
       "api_key=lsk_supersecretvalue",
       "email=person@example.com password=Strong1!",
       `payload=${"A".repeat(120)}`,
     ].join("\n"), {
-      repositoryRoot: "/Users/alex/project",
+      repositoryRoot: "/Users/developer/project",
       temporaryRoots: ["/private/var/folders/aa/bb/T/profile"],
     });
 
     expect(sanitized).toContain("<repo>/backend/src/server.ts:10");
     expect(sanitized).toContain("<temp>/source.pdf");
-    expect(sanitized).not.toMatch(/alex|secret-token|lsk_|person@example|Strong1|A{80}/);
+    expect(sanitized).not.toMatch(/developer|secret-token|lsk_|person@example|Strong1|A{80}/);
     expect(sanitized).toContain("<redacted-long-data>");
   });
 

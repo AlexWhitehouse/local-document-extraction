@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { OnboardingTour } from "./features/onboarding/OnboardingTour.jsx";
 import { Toaster, toast } from "sonner";
 import { createRuntimeAuthClient } from "./lib/authClient";
+import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
 import {
   createAppRuntimeCore,
   createWorkspaceRequestLayer,
@@ -39,23 +40,24 @@ import {
 } from "./features/workspaces/useWorkspaceController.js";
 import "./features/layout/StudioLayouts.css";
 
-export function App() {
+export function App({ configuration = DEFAULT_RUNTIME_CONFIGURATION }) {
   const [resetPasswordRoute, setResetPasswordRoute] = useState(() =>
     getAccountPasswordResetRoute(window.location),
   );
   if (resetPasswordRoute) {
     return (
       <AccountPasswordResetRoute
+        authOptions={configuration.auth}
         resetState={resetPasswordRoute}
         onResetComplete={() => setResetPasswordRoute(null)}
       />
     );
   }
 
-  return <AuthenticatedApp />;
+  return <AuthenticatedApp configuration={configuration} />;
 }
 
-function AuthenticatedApp() {
+function AuthenticatedApp({ configuration }) {
   const initialWorkspace = {};
 
   const [apiBase] = useState("/v1");
@@ -149,6 +151,7 @@ function AuthenticatedApp() {
   const activeVisiblePage = adminVisiblePage;
 
   const documentController = useDocumentController({
+    maxSourceFileBytes: configuration.limits.maxSourceFileBytes,
     apiBase,
     initialWorkspace,
     templates,
@@ -225,6 +228,7 @@ function AuthenticatedApp() {
       : documentController.documentPage.selectedDocumentTemplateName || "Select a document to see its extraction results.";
   const workspaceUserActionModal = workspaceController.userActionModal;
   const authProfileController = useAuthProfileController({
+    authOptions: configuration.auth,
     authClient,
     refetchSession,
     addLog,
@@ -525,7 +529,7 @@ function AuthenticatedApp() {
   );
 }
 
-function AccountPasswordResetRoute({ resetState, onResetComplete }) {
+function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions }) {
   const [isRequestingNewLink, setIsRequestingNewLink] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -534,6 +538,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete }) {
   const [busy, setBusy] = useState(false);
   const authClient = useMemo(() => createRuntimeAuthClient("/v1"), []);
   const authProfileController = useAuthProfileController({
+    authOptions,
     authClient,
     refetchSession: async () => {},
     request: async () => {},
@@ -549,7 +554,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete }) {
     onClearSessionWorkspaceData: () => {},
   });
 
-  if (isRequestingNewLink) {
+  if (!authOptions.emailPasswordEnabled || isRequestingNewLink) {
     return <AuthScreen {...authProfileController.authScreen} />;
   }
 

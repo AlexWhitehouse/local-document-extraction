@@ -43,6 +43,10 @@ vi.mock("sonner", () => ({
 }));
 
 import { App } from "./App.jsx";
+import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
+
+// These existing cases exercise deployments with Google and delivered email.
+const configuration = { ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, googleEnabled: true, mailDelivery: "cloudflare" } };
 
 describe("auth sign-in feedback", () => {
   beforeEach(() => {
@@ -68,7 +72,7 @@ describe("auth sign-in feedback", () => {
   it("shows one error toast reporting all missing sign-in fields", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("button", { name: "Sign In" }));
 
@@ -84,7 +88,7 @@ describe("auth sign-in feedback", () => {
       error: { message: "No user exists for ada@example.com" },
     });
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "wrong-password");
@@ -105,7 +109,7 @@ describe("auth sign-in feedback", () => {
       error: { message: "Email not verified" },
     });
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "Password1!");
@@ -124,7 +128,7 @@ describe("auth sign-in feedback", () => {
       error: { message: "OAuth client_id is invalid" },
     });
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(
       screen.getByRole("button", { name: "Sign in with Google" }),
@@ -143,7 +147,7 @@ describe("auth sign-in feedback", () => {
     const user = userEvent.setup();
     authClientMock.signInEmail.mockResolvedValue({ error: null });
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "valid-password{Enter}");
@@ -154,7 +158,7 @@ describe("auth sign-in feedback", () => {
   });
 
   it("renders one rich-colors Sonner toaster on the auth screen", () => {
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     const toasters = screen.getAllByTestId("sonner-toaster");
     expect(toasters).toHaveLength(1);
@@ -171,7 +175,7 @@ describe("auth sign-in feedback", () => {
       }),
     );
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     expect(screen.getByLabelText("Email").value).toBe("");
 
@@ -191,7 +195,7 @@ describe("auth sign-in feedback", () => {
       key === "imageextraction.workspace.v1" ? legacyValue : null,
     );
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     expect(window.localStorage.getItem).toHaveBeenCalledWith(
       "documentextraction.workspace.v1",
@@ -209,7 +213,7 @@ describe("auth sign-in feedback", () => {
   it("opens Account password reset request mode from sign-in while preserving the typed email", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.click(screen.getByRole("link", { name: "Forgot password?" }));
@@ -222,7 +226,7 @@ describe("auth sign-in feedback", () => {
   it("shows feedback and does not call auth when Account password reset request email is missing", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Forgot password?" }));
     await user.click(screen.getByRole("button", { name: "Send reset link" }));
@@ -235,7 +239,7 @@ describe("auth sign-in feedback", () => {
   it("shows Account password reset recovery when the reset link has no token", async () => {
     window.history.replaceState(null, "", "/reset-password");
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     expect(authClientMock.useSession).not.toHaveBeenCalled();
     expect(
@@ -258,7 +262,7 @@ describe("auth sign-in feedback", () => {
       "/reset-password?error=invalid_token",
     );
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     expect(authClientMock.useSession).not.toHaveBeenCalled();
     expect(
@@ -281,7 +285,7 @@ describe("auth sign-in feedback", () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/reset-password");
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(
       screen.getByRole("button", { name: "Request a new reset link" }),
@@ -297,7 +301,7 @@ describe("auth sign-in feedback", () => {
   it("shows a new-password form when an Account password reset token is present", () => {
     window.history.replaceState(null, "", "/reset-password?token=abc123");
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     expect(authClientMock.useSession).not.toHaveBeenCalled();
     expect(
@@ -318,7 +322,7 @@ describe("auth sign-in feedback", () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/reset-password?token=abc123");
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.type(screen.getByLabelText("New password"), "password");
 
@@ -341,7 +345,7 @@ describe("auth sign-in feedback", () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/reset-password?token=abc123");
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     const newPasswordInput = screen.getByLabelText("New password");
     const confirmPasswordInput = screen.getByLabelText("Confirm new password");
@@ -387,7 +391,7 @@ describe("auth sign-up password policy feedback", () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
 
@@ -416,7 +420,7 @@ describe("auth sign-up password policy feedback", () => {
   it("shows password mismatch feedback until sign-up passwords match", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
 
@@ -443,7 +447,7 @@ describe("auth sign-up password policy feedback", () => {
   it("blocks sign-up with mismatched passwords and shows one error toast", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
@@ -460,7 +464,7 @@ describe("auth sign-up password policy feedback", () => {
   it("clears password validation state when switching auth modes while preserving identity fields", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
@@ -490,7 +494,7 @@ describe("auth sign-up password policy feedback", () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
@@ -508,7 +512,7 @@ describe("auth sign-up password policy feedback", () => {
   it("shows only unmet account password policy requirements while composing a sign-up password", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
 
@@ -533,7 +537,7 @@ describe("auth sign-up password policy feedback", () => {
   it("blocks sign-up with an unmet account password policy and shows one error toast", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
@@ -552,7 +556,7 @@ describe("auth sign-up password policy feedback", () => {
   it("shows one error toast reporting all missing sign-up fields", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.click(screen.getByRole("button", { name: "Create Account" }));
@@ -570,7 +574,7 @@ describe("auth sign-up password policy feedback", () => {
       error: { message: "User already exists for ada@example.com" },
     });
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
@@ -594,7 +598,7 @@ describe("auth sign-up password policy feedback", () => {
       error: { message: "Invalid email address" },
     });
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
@@ -615,7 +619,7 @@ describe("auth sign-up password policy feedback", () => {
       error: { message: "Database constraint failed near secret_table" },
     });
 
-    render(<App />);
+    render(<App configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
@@ -631,5 +635,55 @@ describe("auth sign-up password policy feedback", () => {
     expect(toastMock.error).not.toHaveBeenCalledWith(
       expect.stringContaining("Database"),
     );
+  });
+});
+
+describe("deployment auth configuration", () => {
+  beforeEach(() => {
+    authClientMock.useSession.mockReturnValue({ data: null, isPending: false, refetch: authClientMock.refetchSession });
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("hides unconfigured providers and closed registration", () => {
+    render(<App configuration={{ ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, signupEnabled: false } }} />);
+    expect(screen.queryByRole("button", { name: "Sign in with Google" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Sign Up" })).toBeNull();
+    expect(screen.getByText(/Account registration is closed/)).toBeTruthy();
+  });
+
+  it("shows only Google for a provider-only deployment", () => {
+    render(<App configuration={{ ...configuration, auth: { ...configuration.auth, emailPasswordEnabled: false } }} />);
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Forgot password?" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeTruthy();
+  });
+
+  it("explains local verification rather than claiming outbound email delivery", async () => {
+    const user = userEvent.setup();
+    authClientMock.signUpEmail.mockResolvedValue({ data: { user: { email: "ada@example.com" } } });
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Sign Up" }));
+    await user.type(screen.getByLabelText("Name"), "Ada");
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "Password1!");
+    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
+    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    expect(screen.getByRole("heading", { name: "Open your local verification link." })).toBeTruthy();
+    expect(screen.getByText("document-extraction mail")).toBeTruthy();
+  });
+
+  it("enters the session immediately when verification is disabled", async () => {
+    const user = userEvent.setup();
+    authClientMock.signUpEmail.mockResolvedValue({ data: { user: { email: "ada@example.com" } } });
+    render(<App configuration={{ ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, requireEmailVerification: false } }} />);
+    await user.click(screen.getByRole("link", { name: "Sign Up" }));
+    await user.type(screen.getByLabelText("Name"), "Ada");
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "Password1!");
+    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
+    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    expect(authClientMock.refetchSession).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/Open your local verification link/)).toBeNull();
   });
 });

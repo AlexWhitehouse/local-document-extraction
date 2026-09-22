@@ -15,7 +15,7 @@ This is a decision record, not a production implementation. The file-ID path pre
 
 ## Evidence from the current implementation
 
-The active stored configuration (secret omitted) selects gateway `https://litellm.t3m.uk`, model alias `gpt-5.6-luna`, concurrent model calls, and `supports_pdf_input: true`. The stored configuration overrides the `.env` model. On 2026-08-16, authenticated read-only probes showed the alias in `/v1/models` and a live `/v1/files` route, but `/model_group/info` returned `403`. Those observations do **not** reveal the underlying provider, prove PDF support, or prove that LiteLLM managed files and their database are enabled. No file was uploaded during this research.
+The active stored configuration (secret omitted) selects gateway `https://gateway.example.com`, model alias `gpt-5.6-luna`, concurrent model calls, and `supports_pdf_input: true`. The stored configuration overrides the `.env` model. On 2026-08-16, authenticated read-only probes showed the alias in `/v1/models` and a live `/v1/files` route, but `/model_group/info` returned `403`. Those observations do **not** reveal the underlying provider, prove PDF support, or prove that LiteLLM managed files and their database are enabled. No file was uploaded during this research.
 
 The application path is:
 

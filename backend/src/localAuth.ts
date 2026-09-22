@@ -23,16 +23,33 @@ export type LocalSession = {
   role?: string;
 };
 
+export type LocalAuthSettings = {
+  emailPasswordEnabled?: boolean;
+  googleEnabled?: boolean;
+  signupEnabled?: boolean;
+  requireEmailVerification?: boolean;
+  trustedOrigins?: string[];
+  trustedIpHeaders?: string[];
+  emailFrom?: { name: string; email: string };
+};
+
 export async function createLocalAuth({
   adminEmails = [],
   baseURL,
   database,
   googleClientId,
   googleClientSecret,
+  emailPasswordEnabled = true,
+  googleEnabled = false,
+  signupEnabled = true,
+  requireEmailVerification = true,
+  trustedOrigins = [],
+  trustedIpHeaders = [],
+  emailFrom,
   logger = console,
   mailSink,
   secret,
-}: {
+}: LocalAuthSettings & {
   adminEmails?: string[];
   baseURL: string;
   database: Database;
@@ -45,11 +62,12 @@ export async function createLocalAuth({
   const configuredAdminEmails = new Set(adminEmails.map((email) => email.trim().toLowerCase()).filter(Boolean));
   const configuredGoogleClientId = googleClientId?.trim();
   const configuredGoogleClientSecret = googleClientSecret?.trim();
-  const socialProviders = configuredGoogleClientId && configuredGoogleClientSecret
+  const socialProviders = googleEnabled && configuredGoogleClientId && configuredGoogleClientSecret
     ? {
         google: {
           clientId: configuredGoogleClientId,
           clientSecret: configuredGoogleClientSecret,
+          disableSignUp: !signupEnabled,
           prompt: "select_account" as const,
         },
       }
@@ -57,23 +75,24 @@ export async function createLocalAuth({
   const auth = betterAuth({
     advanced: {
       ipAddress: {
-        ipAddressHeaders: ["cf-connecting-ip"],
+        ipAddressHeaders: trustedIpHeaders,
       },
     },
     appName: "Document Extraction",
     baseURL,
     database,
     secret,
-    trustedOrigins: localTrustedOrigins(baseURL),
+    trustedOrigins: localTrustedOrigins(baseURL, trustedOrigins),
     emailAndPassword: {
-      enabled: true,
+      enabled: emailPasswordEnabled,
+      disableSignUp: !signupEnabled,
       minPasswordLength: 8,
-      requireEmailVerification: true,
+      requireEmailVerification,
       resetPasswordTokenExpiresIn: 60 * 60,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
-        captureMail(mailSink, logger, {
-          ...renderAccountPasswordResetEmail({ resetUrl: url }),
+        await captureMail(mailSink, logger, {
+          ...renderAccountPasswordResetEmail({ resetUrl: url, from: emailFrom }),
           to: user.email,
           type: "account_password_reset",
         });
@@ -89,12 +108,12 @@ export async function createLocalAuth({
       }),
     },
     emailVerification: {
-      sendOnSignUp: true,
-      sendOnSignIn: true,
+      sendOnSignUp: requireEmailVerification,
+      sendOnSignIn: requireEmailVerification,
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url }) => {
-        captureMail(mailSink, logger, {
-          ...renderAccountEmailVerificationEmail({ verificationUrl: url }),
+        await captureMail(mailSink, logger, {
+          ...renderAccountEmailVerificationEmail({ verificationUrl: url, from: emailFrom }),
           to: user.email,
           type: "account_email_verification",
         });
@@ -183,23 +202,23 @@ async function validateLocalAdminAction(
   return null;
 }
 
-function captureMail(
+async function captureMail(
   mailSink: LocalMailSink,
   logger: LocalAuthLogger,
   message: Parameters<LocalMailSink["capture"]>[0],
-): void {
-  void mailSink.capture(message).catch((error) => {
-    logger.error("Local transactional email capture failed", error);
-  });
+): Promise<void> {
+  try { await mailSink.capture(message); }
+  catch {
+    const error = new Error("Transactional email delivery failed. Check the configured email provider.");
+    logger.error("Transactional email delivery failed", error);
+    throw error;
+  }
 }
 
-export function localTrustedOrigins(baseURL: string): string[] {
-  return [
-    baseURL,
-    "https://extract.t3m.uk",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:8787",
-    "http://127.0.0.1:8787",
-  ];
+export function localTrustedOrigins(baseURL: string, additionalOrigins: string[] = []): string[] {
+  const url = new URL(baseURL);
+  const localOrigins = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+    ? ["http://localhost:5173", "http://127.0.0.1:5173", ...["localhost", "127.0.0.1"].map((host) => `${url.protocol}//${host}${url.port ? `:${url.port}` : ""}`)]
+    : [];
+  return [...new Set([url.origin, ...localOrigins, ...additionalOrigins])];
 }

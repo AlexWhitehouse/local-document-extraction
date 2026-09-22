@@ -1,5 +1,7 @@
-import { appendFile, mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import { join } from "node:path";
+import { assertRegularStateFile, ensurePrivateStateDirectory } from "./localStatePaths";
 
 export type LocalMailAddress = string | { email: string; name?: string };
 
@@ -44,8 +46,14 @@ export function createLocalMailSink({
         ...(actionUrl ? { action_url: actionUrl } : {}),
       };
 
-      await mkdir(directory, { recursive: true });
-      await appendFile(join(directory, `${localDay(occurredAt)}.jsonl`), `${JSON.stringify(record)}\n`, "utf8");
+      await ensurePrivateStateDirectory(directory, { recursive: true });
+      const path = join(directory, `${localDay(occurredAt)}.jsonl`);
+      await assertRegularStateFile(path);
+      const file = await open(path, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+      try {
+        await file.chmod(0o600);
+        await file.writeFile(`${JSON.stringify(record)}\n`, "utf8");
+      } finally { await file.close(); }
 
       if (actionUrl) {
         logger.info(`Local mail ${message.type} for ${message.to}: ${actionUrl}`);

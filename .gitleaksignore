@@ -1,0 +1,6 @@
+# Historical documentation examples containing literal placeholder API keys.
+91ca93371ee42d2cb12405f4cb7b200552fdfc51:mkdocs/docs/api/authentication.md:curl-auth-header:29
+91ca93371ee42d2cb12405f4cb7b200552fdfc51:mkdocs/docs/api/extraction-jobs.md:curl-auth-header:26
+# Historical billing test idempotency identifiers, not authentication credentials.
+4af5fe7192b453fff9b3cc2a99895174c3389a0b:backend/src/lib/workspaceBillingLedger.test.ts:generic-api-key:226
+4af5fe7192b453fff9b3cc2a99895174c3389a0b:backend/src/lib/workspaceBillingLedger.test.ts:generic-api-key:234
