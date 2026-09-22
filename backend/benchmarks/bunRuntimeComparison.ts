@@ -132,7 +132,7 @@ type PrototypeResult = {
 
 const resultPrefix = "PROTOTYPE_RESULT ";
 const repositoryRoot = resolve(import.meta.dir, "../..");
-const prototypePath = resolve(repositoryRoot, ".scratch/high-throughput-local-pdf-extraction/prototype/throughput.ts");
+const prototypePath = resolve(import.meta.dir, "throughput.ts");
 const rawRoot = resolve(repositoryRoot, ".scratch/bun-1-4-review/raw/19-bun-runtime-comparison");
 const evidenceRoot = resolve(repositoryRoot, ".scratch/bun-1-4-review/evidence");
 const sharedCommand = "bunx bun@1.4.0 run --cwd backend benchmark:bun-runtime";

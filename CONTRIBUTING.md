@@ -2,7 +2,7 @@
 
 Start with the [README](README.md), [AGENTS.md](AGENTS.md), and [context map](CONTEXT-MAP.md). Use the Bun version declared in `package.json` and install from the repository root with `bun install --frozen-lockfile`.
 
-Copy `.env.example` to `.env` only for your own local setup. Never commit credentials, state, captured email, or private document samples. Prefer synthetic fixtures. `.scratch/` includes intentional Markdown issue tracking; generated `.scratch/ci/` reports are ignored and belong in CI artifacts.
+Copy `.env.example` to `.env` only for your own local setup. Never commit credentials, state, captured email, or private document samples. Prefer synthetic fixtures. `.scratch/` is ignored local workspace data, including agent notes, issues, prototypes, and generated reports. Keep it out of commits; share CI reports through workflow artifacts.
 
 ## Work on a change
 

@@ -11,22 +11,23 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { cpus, tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { PDFDocument } from "../../../backend/node_modules/pdf-lib";
+import { PDFDocument } from "pdf-lib";
 
-import { createLocalApplication } from "../../../backend/src/localApplication";
-import { createLocalAuth } from "../../../backend/src/localAuth";
+import { createLocalApplication } from "../src/localApplication";
+import { createLocalAuth } from "../src/localAuth";
 import {
   createLocalExtractionQueue,
   type LocalExtractionQueue,
   type LocalQueuedExtractionJob,
-} from "../../../backend/src/localExtractionQueue";
-import { createLocalExtractionRunner } from "../../../backend/src/localExtractionRunner";
-import { ensureLocalStateDirectories } from "../../../backend/src/localRuntime";
-import { createLocalSourceFileStore } from "../../../backend/src/localSourceFileStore";
-import { createLocalWorkspaceControl } from "../../../backend/src/localWorkspaceControl";
-import { createLocalWorkspaceProductOperations } from "../../../backend/src/localWorkspaceProductOperations";
-import { createLocalWorkspaceProductStore } from "../../../backend/src/localWorkspaceProductStore";
-import { createLocalWorkspaceProductStoreRegistry } from "../../../backend/src/localWorkspaceProductStoreRegistry";
+} from "../src/localExtractionQueue";
+import { createLocalExtractionRunner } from "../src/localExtractionRunner";
+import { ensureLocalStateDirectories } from "../src/localRuntime";
+import { createLocalSourceFileStore } from "../src/localSourceFileStore";
+import { createLocalWorkspaceControl } from "../src/localWorkspaceControl";
+import { createLocalWorkspaceProductOperations } from "../src/localWorkspaceProductOperations";
+import { createLocalWorkspaceProductStore } from "../src/localWorkspaceProductStore";
+import { createLocalWorkspaceProductStoreRegistry } from "../src/localWorkspaceProductStoreRegistry";
+import { configureTestWorkspace } from "../src/testing/workspaceModelFixture";
 
 type Profile = "baseline" | "bounded";
 
@@ -248,7 +249,7 @@ async function runProfileClient(
     serverProcess.kill();
     await serverProcess.exited;
     const stderr = await new Response(serverProcess.stderr).text().catch(() => "");
-    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`);
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`, { cause: error });
   } finally {
     await rm(coordinationDirectory, { recursive: true, force: true });
   }
@@ -441,6 +442,7 @@ async function runServer(profile: Profile): Promise<void> {
   workspaceControl.completeStarterTemplateBootstrap({ workspaceId: workspace.id });
   const apiKey = workspaceControl.rotateApiKey({ workspaceId: workspace.id, userId: user.user.id }).api_key;
   const templateId = "tpl_throughput_prototype";
+  configureTestWorkspace({ stateDirectory, workspaceId: workspace.id });
   const setupStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: workspace.id });
   setupStore.createTemplate({
     templateId,
@@ -509,8 +511,7 @@ async function runServer(profile: Profile): Promise<void> {
   let sqliteBusyOutcomes = 0;
   const sqliteBusyRetries = 0;
   const sampler = createResourceSampler();
-  let server: ReturnType<typeof Bun.serve>;
-  server = Bun.serve({
+  const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     fetch: async (request) => {

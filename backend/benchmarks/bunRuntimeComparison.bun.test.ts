@@ -136,7 +136,7 @@ describe("Bun runtime comparison evidence", () => {
 
   test("keeps complete native profile data in explicitly ignored raw scratch state", async () => {
     const ignoreRules = await Bun.file(new URL("../../.gitignore", import.meta.url)).text();
-    expect(ignoreRules).toContain(".scratch/bun-1-4-review/raw/");
+    expect(ignoreRules).toContain(".scratch/");
   });
 
   test("renders provenance, repetitions, gates, profile findings, and scope", () => {

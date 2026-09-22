@@ -1,6 +1,6 @@
 # Local runtime performance
 
-The September 2026 audit and reproducible measurements are in [.scratch/performance-audit-2026-09-04](../.scratch/performance-audit-2026-09-04/REPORT.md). [ADR-0009](../backend/docs/adr/0009-indexed-work-and-resource-admission.md) records the durable indexing and scheduling trade-offs.
+[ADR-0009](../backend/docs/adr/0009-indexed-work-and-resource-admission.md) records the durable indexing and scheduling trade-offs.
 
 - Upload admission samples free disk space without walking historical Source directories. Source deletion removes empty job directories, while slower background telemetry still reconciles actual storage usage.
 - Job pagination uses tuple seeks. Exact job totals and trigram search candidates are maintained by SQLite triggers. An initial schema migration backfills existing history; allow extra time and disk space on its first open. Search is still literal and case-normalized, including `%`, `_`, quotes and backslashes. Searches under three characters and broad terms retain the original ordered scan.
