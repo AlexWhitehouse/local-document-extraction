@@ -25,4 +25,8 @@ Deployment configuration belongs in the shared backend configuration loader. Kee
 
 Explain what changed, why, and which checks ran in the pull request. Distinguish local results from CI results, and mock-provider tests from real external-provider verification. Add setup instructions when a user-visible setting changes. Use repository-relative links in checked-in documentation rather than local machine paths.
 
-Security vulnerabilities should follow [SECURITY.md](SECURITY.md), rather than a normal public bug report. The project license is still a publication gate; do not assume a license that has not been selected by the maintainer.
+Security vulnerabilities should follow [SECURITY.md](SECURITY.md), rather than a normal public bug report.
+
+## License
+
+The project uses the [MIT License](LICENSE). By submitting a contribution, you agree to license it under the same terms. Preserve existing copyright and license notices, including those belonging to third-party code.

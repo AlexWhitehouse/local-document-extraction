@@ -115,4 +115,6 @@ See [contribution guidance](CONTRIBUTING.md), [backend details](backend/README.m
 
 ## License and release status
 
-A project license has not yet been selected. Public release remains gated on the maintainer's license choice, release qualification, and publication of the installer assets. See the [release checklist](docs/releasing.md).
+Licensed under the [MIT License](LICENSE). You may use, modify, redistribute, and sell the software, including in proprietary projects, provided you retain the copyright and license notices. Third-party dependencies retain their own licenses.
+
+The installer download command becomes available after the first GitHub release is published. See the [release checklist](docs/releasing.md) for qualification evidence and publication steps.
