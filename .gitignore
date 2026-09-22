@@ -39,6 +39,6 @@ config.env
 
 # Local agent metadata
 .agents/
-.scratch/ci/
+.scratch/
 .scratch/bun-1-4-review/raw/
 .scratch/loopback-gateway-saturation/runs/
