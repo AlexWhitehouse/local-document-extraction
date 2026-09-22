@@ -7,7 +7,7 @@ This document records publication gates. A script or CI job existing in the repo
 - [ ] Select and add the project license; update README/contribution guidance to match it.
 - [ ] Enable GitHub private vulnerability reporting and confirm the reporting path in `SECURITY.md`.
 - [x] Scan reachable history with Gitleaks and review candidate fixtures (see evidence below).
-- [ ] Scan the final working tree/release archive and revoke any real exposed credential before publication.
+- [x] Scan the reviewed working tree/release candidate archive; repeat for the final named release before publication.
 - [x] Retain the reviewed existing commit history. Current-tree cleanup does not alter historical files or commit-author metadata.
 - [x] Verify that tracked files exclude `.env`, `config.env`, state, backups, generated CI reports, personal document samples, and owner-specific deployment settings.
 - [x] Review dependency licenses and the production dependency audit.
@@ -20,8 +20,8 @@ On 2026-09-22, Gitleaks 8.30.1 (upstream checksum verified) scanned reachable Gi
 ## Qualify the release candidate
 
 - [x] Install frozen dependencies in a clean exported tree without developer `.env` or state.
-- [ ] Run root typecheck, lint, tests, build, package hygiene, and browser tests.
-- [ ] Exercise install, migration, auth verification, Workspace model setup, PDF/image extraction, exports, shutdown, and restart against controlled fixtures.
+- [x] Run root typecheck, lint, tests, build, package hygiene, and browser tests.
+- [x] Exercise install, migration, auth verification, Workspace model setup, PDF/image extraction, exports, shutdown, and restart against controlled fixtures.
 - [x] Run the installer on macOS and glibc Linux, including first install, repeat install, directories with spaces, custom paths, occupied port, bad archive/checksum, download/build failure, and state-preserving upgrade.
 - [x] Validate native canvas/PDF rendering for each advertised architecture. Do not infer arm64 success from an x64 run or vice versa.
 - [x] Verify stop/backup/restore and preservation of both generated secrets across upgrades.
@@ -37,9 +37,9 @@ A controlled curl substitute exercised a fork's exact production GitHub download
 
 The implementation passed `bun run ci:quality` with pinned Bun 1.4.1: root typecheck, lint, 282 backend tests, the complete local-product smoke test, 279 frontend tests, frontend coverage, and build. Five Playwright browser journeys also passed on the macOS arm64 host. Focused auth, mail, and permission checks passed 28 tests with 129 assertions; a further 27 vault/product-store/runtime checks covered linked model-secret files, directories, and workspace SQLite sidecars. These checks verify rejection without changing outside permissions or contents. `.env.example` validates through the shared configuration loader and contains no personal account, endpoint, or credential values.
 
-The proposed tracked working tree was scanned again with Gitleaks 8.30.1 on 2026-09-22: 599 files, approximately 4.54 MB, with no findings. Production dependency hygiene also passed with zero reported advisories and zero duplicate package versions. The clean `84b19fa` candidate archive also passed a scan (354 entries, approximately 2.28 MB), with no state, configuration secrets, dependencies, or generated CI evidence included. Scan the final named release archive again before publication.
+The proposed tracked working tree was scanned again with Gitleaks 8.30.1 on 2026-09-22: 599 files, approximately 4.54 MB, with no findings. Production dependency hygiene also passed with zero reported advisories and zero duplicate package versions. The clean `32a95ea` candidate archive passed a further scan (354 entries, approximately 2.30 MB), with no state, configuration secrets, dependencies, or generated CI evidence included. Its SHA256 is `ad84f15701652e727e3e2a635e0b2401b839122469eed1ec134cc030207a0267`. Reachable history at that commit also passed: 102 non-merge commits, approximately 9.45 MB. Scan the final named release archive again before publication.
 
-Platform quality, coverage, dependency hygiene, native PDF rendering and installer checks passed on all four targets for commit `baa8325` in [CI run 35787940489](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/35787940489). Its Linux browser lane found a scroll/click issue in the extraction journey; the updated browser test and expanded backup-restoration test require the subsequent run to pass before final qualification. Real Google/Cloudflare accounts and published-release downloads have not been tested.
+Platform quality, coverage, dependency hygiene, native PDF rendering and all ten installer tests, including backup restoration, passed on all four targets for commit `32a95ea` in [CI run 35790453260](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/35790453260). All five Linux Chromium journeys and the full-history secret scan also passed. Earlier Linux browser runs exposed a hover rule that enlarged compact buttons, causing the save control to wrap away from the pointer with Linux system fonts. The corrected rule preserves button size; the extraction journey passes with its normal click. Real Google/Cloudflare accounts and published-release downloads have not been tested.
 
 The four platform jobs in that run completed successfully:
 
