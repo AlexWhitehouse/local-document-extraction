@@ -3,6 +3,7 @@ import { chmod, copyFile, cp, lstat, open, readFile, readdir, realpath, rm, syml
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { collectInstallerConfiguration, createSetupTerminal, renderInstallerConfiguration, shouldPromptForConfiguration } from "./installerConfiguration";
 import {
   privateDirectory, runApplicationCommand, runningInstallation, startInstallation,
   stopInstallation, withManagementLock, writePrivateFile, type Installation,
@@ -111,7 +112,19 @@ async function install() {
       await privateDirectory(state);
       if (!await exists(installation.configFile)) {
         const example = await readFile(join(release, ".env.example"), "utf8");
-        await writeFile(installation.configFile, example, { mode: 0o600, flag: "wx" });
+        let contents = example;
+        if (shouldPromptForConfiguration(values.get("--setup-mode"))) {
+          const terminal = createSetupTerminal();
+          try {
+            const answers = await collectInstallerConfiguration(terminal, `http://127.0.0.1:${process.env.PORT || 8787}`);
+            contents = renderInstallerConfiguration(example, answers);
+            const overrides = Object.keys(answers).filter((key) => process.env[key] !== undefined);
+            if (overrides.length) terminal.say(`Existing process environment overrides saved settings: ${overrides.join(", ")}. Unset these variables to use config.env.`);
+          } finally { terminal.close(); }
+        }
+        await writeFile(installation.configFile, contents, { mode: 0o600, flag: "wx" });
+      } else {
+        console.log("Keeping existing config.env; setup questions are skipped on upgrades.");
       }
       const configuration = await open(installation.configFile, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {

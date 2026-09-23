@@ -37,6 +37,19 @@ An explicit source bootstrap can use `--ref COMMIT --sha256 EXPECTED_SHA256`; us
 
 The installer stages a release, installs frozen dependencies, builds assets, validates configuration, and initializes state. It starts the app and waits for health and SPA readiness. `--no-start` stops it again after this check. Failure is reported as failure, not as a successful installation.
 
+### First-time setup questions
+
+When run in a terminal with no existing `config.env`, the installer asks:
+
+1. **Reverse proxy?** If yes, enter the browser-facing URL, such as `https://documents.example.com`. This sets `BETTER_AUTH_URL`; the app still listens on loopback. Configure your proxy separately.
+2. **Google sign-in?** If yes, enter the client ID and secret. The wizard links to Google's credentials console and shows the exact redirect URI to register. It then asks whether to keep email/password login enabled. Without Google, email/password login stays enabled.
+3. **Cloudflare email?** If yes, enter the account ID, Email API token, sender address, and sender name. The wizard links to the dashboard and token page and explains the required sending permission and domain setup.
+4. **Require signup verification?** Asked only when Cloudflare email and email/password login are both enabled; defaults to yes in that case. Without Cloudflare, verification stays off and account emails are captured locally.
+
+Google and Cloudflare default to off. Credentials are hidden while typing. Answers are validated and saved together to owner-only `config.env` after all questions finish. Ctrl+C cancels without saving answers. Provider credentials are not tested against Google or Cloudflare during installation; finish provider setup and test sign-in or email delivery yourself.
+
+Use `--non-interactive` to skip questions explicitly. When stdin or stdout is not a terminal, questions are skipped automatically. A fresh unattended install copies `.env.example` defaults; for custom settings, prepare a private `config.env` in `--config-dir` before running the installer. `--interactive` requires a terminal for fresh setup. Existing configuration always skips questions, including during upgrades; edit that file and restart to change settings. Process environment variables still override file values, so unset conflicting exported variables to use the saved answers.
+
 ## Launcher
 
 Use the absolute launcher path printed by the installer. For default paths:

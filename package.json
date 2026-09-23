@@ -27,7 +27,7 @@
     "lint": "bunx eslint .",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",
     "test:e2e": "bun run build && bun test e2e/support/browserEvidence.bun.test.ts && playwright test",
-    "test:installer": "bun test scripts/installer.bun.test.ts --timeout 180000",
+    "test:installer": "bun test scripts/installer.bun.test.ts scripts/installerConfiguration.bun.test.ts --timeout 180000",
     "typecheck": "bun run --cwd backend typecheck && bun run typecheck:e2e && bun run typecheck:installer",
     "typecheck:installer": "bunx tsc --noEmit -p scripts/tsconfig.installer.json",
     "typecheck:e2e": "bunx tsc --noEmit -p e2e/tsconfig.json"

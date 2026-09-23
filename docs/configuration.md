@@ -2,6 +2,8 @@
 
 The server reads environment variables at startup. For a source checkout, copy `.env.example` to `.env` at the repository root and run Bun commands from that root. The installer writes a private `config.env` outside the application release directory and its launcher loads that file. Existing process environment overrides Bun's file-loaded values. Restart after changes; the frontend discovers public capabilities at runtime through `GET /v1/config`.
 
+The installer offers a [first-time setup wizard](setup.md#first-time-setup-questions) for the public URL, login methods, and Cloudflare email settings below. It preserves existing configuration during upgrades. `config.env` uses Bun dotenv syntax; do not execute or source it as a shell script.
+
 Use the installed launcher's `doctor` command (its printed absolute path, or `document-extraction doctor` after the [PATH setup](setup.md#launcher)), or `bun backend/src/checkConfiguration.ts` from source, to validate settings without starting the server. Validation errors identify the setting without printing secret values. Empty optional values mean unset. Use `true` or `false` for booleans (case-insensitive aliases `1`/`0`, `yes`/`no`, and `on`/`off` are also accepted); byte counts and durations are integers. Do not put secrets in frontend variables, source files, issue reports, or Git.
 
 ## Network, paths, and access
@@ -53,7 +55,7 @@ Updates preserve your configuration. Installations created with v0.1.0 may still
 
 ### Google sign-in
 
-1. Create an OAuth web client in your Google project and configure its consent screen and permitted test users as required by Google.
+1. Create an OAuth web client in your [Google credentials console](https://console.cloud.google.com/apis/credentials) and configure its consent screen and permitted test users as required by Google.
 2. Add the exact application callback: `http://127.0.0.1:8787/api/auth/callback/google` for the default local origin, or `https://app.example.com/api/auth/callback/google` for your HTTPS deployment. Use your actual configured origin and port.
 3. Set these values in the private configuration, restart, and test login. See [Better Auth's Google setup reference](https://better-auth.com/docs/authentication/google) for the callback contract:
 
@@ -85,6 +87,8 @@ Local capture is suitable when the person operating the machine can read the log
 ### Cloudflare email setup
 
 Onboard a sending domain in Cloudflare Email Service and complete its DNS setup. Cloudflare currently requires Cloudflare DNS for Email Service. Use the account that owns that domain and an API token permitted to send email. Follow [Cloudflare's domain onboarding instructions](https://developers.cloudflare.com/email-service/get-started/send-emails/) and [REST authentication reference](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/).
+
+In the [Cloudflare dashboard](https://dash.cloudflare.com/), select your account and search for **Copy account ID** ([account ID help](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)). Create a custom token under [API Tokens](https://dash.cloudflare.com/profile/api-tokens) with **Account → Email Sending → Edit**, restricted to that account. Use the resulting token as `CLOUDFLARE_EMAIL_API_TOKEN`.
 
 ```dotenv
 EMAIL_PROVIDER=cloudflare

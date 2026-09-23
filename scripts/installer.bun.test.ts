@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { inTerminal } from "./installerTestSupport";
 import { Database } from "bun:sqlite";
 import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -87,6 +88,45 @@ describe("macOS/Linux release installer", () => {
     expect((await command([metadata.bun, "--version"])).output.trim()).toBe(pinned);
     passed(await command([metadata.bun, "run", "--cwd", metadata.release, "typecheck"]));
     passed(await command([metadata.bun, "run", "--cwd", metadata.release, "lint"]));
+  }, 180_000);
+
+  test("interactive install saves provider settings privately and upgrades preserve them", async () => {
+    const fixture = join(temporary, "interactive");
+    const installRoot = join(fixture, "app");
+    const configRoot = join(fixture, "config");
+    const installedLauncher = join(installRoot, "document-extraction");
+    const args = ["bash", join(repository, "scripts/install.sh"), "--archive", archive, "--sha256", checksum,
+      "--install-dir", installRoot, "--config-dir", configRoot, "--state-dir", join(fixture, "state"), "--no-start", "--interactive"];
+    const googleSecret = "synthetic-google-$HOME-secret";
+    const emailToken = "synthetic-email-$PATH-token";
+    try {
+      const result = await inTerminal(args, [
+        ["reverse proxy? [y/N]: ", "y\n"], ["Public app URL (for example https://documents.example.com): ", "https://docs.example.com\n"],
+        ["Google sign-in? [y/N]: ", "y\n"], ["Google client ID: ", "synthetic-client\n"],
+        ["Google client secret (hidden): ", `${googleSecret}\n`], ["email and password login? [Y/n]: ", "y\n"],
+        ["with Cloudflare? [y/N]: ", "y\n"], ["Cloudflare account ID: ", `${"a".repeat(32)}\n`],
+        ["Cloudflare Email API token (hidden): ", `${emailToken}\n`],
+        ["From email address (on your onboarded domain): ", "sender@example.com\n"], ["From name [Document Extraction]: ", "Installer Test\n"],
+        ["email and password? [Y/n]: ", "y\n"],
+      ], { cwd: repository, env: { HOME: process.env.HOME!, PATH: path, TMPDIR: tmpdir(), PORT: "0", TERM: "xterm" }, timeout: 120_000 });
+      passed(result);
+      expect(result.answered).toBe(12);
+      expect(result.output).not.toContain(googleSecret);
+      expect(result.output).not.toContain(emailToken);
+      const savedPath = join(configRoot, "config.env");
+      const saved = await readFile(savedPath, "utf8");
+      expect((await stat(savedPath)).mode & 0o777).toBe(0o600);
+      const metadata = JSON.parse(await readFile(join(installRoot, "installation.json"), "utf8"));
+      const configuration = await command([metadata.bun, `--env-file=${savedPath}`, "-e",
+        `import {readLocalConfiguration} from ${JSON.stringify(join(metadata.release, "backend/src/localConfiguration.ts"))}; const c=readLocalConfiguration(); console.log(JSON.stringify({origin:c.auth.baseURL,google:c.auth.googleEnabled,verify:c.auth.requireEmailVerification,provider:c.email.provider,secret:process.env.GOOGLE_CLIENT_SECRET,token:process.env.CLOUDFLARE_EMAIL_API_TOKEN}));`]);
+      passed(configuration);
+      expect(JSON.parse(configuration.output)).toEqual({ origin: "https://docs.example.com", google: true, verify: true, provider: "cloudflare", secret: googleSecret, token: emailToken });
+      // Even --interactive on a piped upgrade skips the wizard when config already exists.
+      const upgraded = await command(args);
+      passed(upgraded);
+      expect(upgraded.output).toContain("setup questions are skipped on upgrades");
+      expect(await readFile(savedPath, "utf8")).toBe(saved);
+    } finally { if (await Bun.file(installedLauncher).exists()) await command([installedLauncher, "stop"]); }
   }, 180_000);
 
   test("refuses to upgrade a running instance", async () => {
