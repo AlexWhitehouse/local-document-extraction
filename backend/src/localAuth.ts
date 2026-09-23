@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
-import { admin } from "better-auth/plugins";
+import { admin } from "better-auth/plugins/admin";
+import { defaultAc, userAc } from "better-auth/plugins/admin/access";
 import type { Database } from "bun:sqlite";
 
 import { renderAccountEmailVerificationEmail } from "./lib/email/accountEmailVerification";
@@ -14,6 +15,7 @@ type LocalAuthLogger = {
 export type LocalAuth = {
   getSession(request: Request): Promise<LocalSession | null>;
   handler(request: Request): Promise<Response>;
+  isTrustedOrigin?(origin: string): boolean;
 };
 
 export type LocalSession = {
@@ -21,6 +23,8 @@ export type LocalSession = {
   email: string;
   name: string;
   role?: string;
+  /** Revalidate the persisted session immediately before delivering live data. */
+  isActive?: () => boolean;
 };
 
 export type LocalAuthSettings = {
@@ -120,7 +124,10 @@ export async function createLocalAuth({
       },
     },
     ...(socialProviders ? { socialProviders } : {}),
-    plugins: [admin()],
+    plugins: [admin({ roles: {
+      admin: defaultAc.newRole({ user: ["list", "set-role", "ban", "impersonate"], session: [] }),
+      user: userAc,
+    } })],
     databaseHooks: {
       user: {
         create: {
@@ -147,6 +154,7 @@ export async function createLocalAuth({
   };
 
   return {
+    isTrustedOrigin: (origin) => localTrustedOrigins(baseURL, trustedOrigins).includes(origin),
     getSession: async (request) => {
       const session = await auth.api.getSession({ headers: request.headers });
       if (!session?.user?.id) {
@@ -157,6 +165,10 @@ export async function createLocalAuth({
         id: session.user.id,
         email: session.user.email,
         name: session.user.name,
+        isActive: () => Boolean(database.query(`SELECT 1 FROM session s JOIN user u ON u.id = s.userId
+          WHERE s.id = ? AND s.userId = ? AND s.expiresAt > ?
+          AND (u.banned IS NOT 1 OR (u.banExpires IS NOT NULL AND u.banExpires <= ?))`)
+          .get(session.session.id, session.user.id, Date.now(), Date.now())),
         ...(typeof session.user.role === "string" ? { role: session.user.role } : {}),
       };
     },
@@ -172,7 +184,7 @@ async function validateLocalAdminAction(
     return null;
   }
 
-  const path = new URL(request.url).pathname;
+  const path = decodeURIComponent(new URL(request.url).pathname).replace(/\/+$/, "");
   if (path !== "/api/auth/admin/set-role" && path !== "/api/auth/admin/ban-user") {
     return null;
   }

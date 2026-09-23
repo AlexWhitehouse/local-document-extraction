@@ -62,6 +62,7 @@ export function useWorkspaceController({
   showActionToast,
   hasSession,
   sessionUserId,
+  sessionId = sessionUserId,
   isAppBusy,
   setBusy,
   onActivePageChange,
@@ -104,6 +105,17 @@ export function useWorkspaceController({
   const workspaceRequestsRef = useRef(null);
   const workspaceIdRef = useRef(workspaceId);
   const workspaceNameRef = useRef(workspaceName);
+  // Selection changes invalidate synchronously in clearWorkspaceScopedData,
+  // so a follow-up list started by that action survives the resulting render.
+  const contextScope = JSON.stringify([hasSession, sessionId]);
+  const contextScopeRef = useRef(contextScope);
+  const contextGenerationRef = useRef(0);
+  const contextRefreshRequestRef = useRef(0);
+  const workspaceListRequestRef = useRef(0);
+  if (contextScopeRef.current !== contextScope) {
+    contextScopeRef.current = contextScope;
+    contextGenerationRef.current += 1;
+  }
 
   const normalizedWorkspaceId = workspaceId.trim();
   const hasWorkspaceContext =
@@ -244,6 +256,7 @@ export function useWorkspaceController({
   }
 
   function clearWorkspaceScopedData({ isSwitchingAcceptedWorkspace = false, sessionEnded = false } = {}) {
+    contextGenerationRef.current += 1;
     onClearWorkspaceScopedData?.({ sessionEnded });
     workspaceUsersRequestRef.current += 1;
     setWorkspaceUsers([]);
@@ -261,8 +274,8 @@ export function useWorkspaceController({
       "workspaceId",
     )
       ? String(nextWorkspaceContext.workspaceId || "")
-      : workspaceId;
-    if (String(nextWorkspaceId || "") !== String(workspaceId || "")) {
+      : workspaceIdRef.current;
+    if (nextWorkspaceId !== workspaceIdRef.current) {
       const nextSelectedWorkspaceInvitationId = Object.prototype.hasOwnProperty.call(
         nextWorkspaceContext,
         "selectedWorkspaceInvitationId",
@@ -278,6 +291,7 @@ export function useWorkspaceController({
     }
 
     if (Object.prototype.hasOwnProperty.call(nextWorkspaceContext, "workspaceId")) {
+      workspaceIdRef.current = nextWorkspaceId;
       setWorkspaceId(nextWorkspaceContext.workspaceId);
     }
     if (Object.prototype.hasOwnProperty.call(nextWorkspaceContext, "workspaceName")) {
@@ -456,11 +470,16 @@ export function useWorkspaceController({
       return;
     }
 
+    const generation = contextGenerationRef.current;
+    const requestId = ++workspaceListRequestRef.current;
+    const isCurrent = () => generation === contextGenerationRef.current &&
+      requestId === workspaceListRequestRef.current && hasSessionRef.current;
     try {
       const [workspaceData, invitationData] = await Promise.all([
         requestRef.current("/workspaces", { method: "GET" }, true, false),
         requestRef.current("/invitations", { method: "GET" }, true, false),
       ]);
+      if (!isCurrent()) return null;
       const workspaces = Array.isArray(workspaceData?.workspaces)
         ? workspaceData.workspaces
         : [];
@@ -485,6 +504,7 @@ export function useWorkspaceController({
       setWorkspaceResolutionStatus(resolution.type === "resolved" ? "resolved" : "error");
       return { workspaces, invitations, resolution };
     } catch (error) {
+      if (!isCurrent()) return null;
       addLogRef.current(`List workspaces failed: ${error.message}`);
       setWorkspaceResolutionStatus("error");
       throw error;
@@ -502,6 +522,11 @@ export function useWorkspaceController({
       return null;
     }
 
+    const generation = contextGenerationRef.current;
+    const requestId = ++contextRefreshRequestRef.current;
+    const isCurrent = () => generation === contextGenerationRef.current &&
+      requestId === contextRefreshRequestRef.current && hasSessionRef.current &&
+      targetWorkspaceId === workspaceIdRef.current;
     try {
       const data = await requestRef.current(
         `/workspaces/${encodeURIComponent(targetWorkspaceId)}/context`,
@@ -509,8 +534,9 @@ export function useWorkspaceController({
         true,
         false,
       );
+      if (!isCurrent()) return null;
       const refreshedWorkspace = data?.workspace;
-      if (!refreshedWorkspace?.id) {
+      if (String(refreshedWorkspace?.id || "") !== targetWorkspaceId) {
         return null;
       }
 
@@ -533,6 +559,7 @@ export function useWorkspaceController({
       setWorkspaceResolutionStatus("resolved");
       return refreshedWorkspace;
     } catch (error) {
+      if (!isCurrent()) return null;
       if (error.status === 403 || error.status === 404) {
         return listWorkspaces();
       }
@@ -982,6 +1009,7 @@ export function useWorkspaceController({
   }
 
   function clearSessionWorkspaceData() {
+    workspaceIdRef.current = "";
     setApiKey("");
     setWorkspaceId("");
     setWorkspaceName("");
@@ -1002,7 +1030,8 @@ export function useWorkspaceController({
 
     setWorkspaceResolutionStatus("loading");
     void listWorkspaces().catch(() => {});
-  }, [hasSession, listWorkspaces]);
+    return () => { contextGenerationRef.current += 1; };
+  }, [hasSession, sessionId, listWorkspaces]);
 
   useEffect(() => {
     if (!hasSession || !workspaceId.trim()) {

@@ -145,9 +145,15 @@ async function prepareAndRunExtraction(
     throw new RetryableError("Model response content was not valid JSON");
   }
 
-  const results = (parsed as { results?: unknown }).results;
+  const results = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as { results?: unknown }).results
+    : undefined;
   if (!Array.isArray(results)) {
     throw new RetryableError("Model JSON missing results array");
+  }
+  if (results.some((row) => !row || typeof row !== "object" || Array.isArray(row) ||
+    typeof row.field_id !== "string" || !row.field_id.trim() || typeof row.status !== "string" || !("answer" in row))) {
+    throw new RetryableError("Model JSON contains invalid result entries");
   }
 
   return results as ModelFieldResult[];

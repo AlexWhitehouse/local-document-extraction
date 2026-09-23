@@ -11,6 +11,8 @@ import { createLocalAuth } from "./localAuth";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
 import { createLocalWorkspaceProductStore, openLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
+import { createLocalSourceFileRetention } from "./localSourceFileRetention";
 
 test("terminal Document deletion crosses the adapter and Fetch application without affecting other product data", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-document-delete-"));
@@ -116,6 +118,56 @@ test("terminal Document deletion crosses the adapter and Fetch application witho
     await expect(sourceFiles.read(sourceKeys.apiKey)).resolves.toBeNull();
   } finally {
     database.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
+test.each(["failed unlink", "interrupted deletion"])("Source cleanup survives restart after %s", async (failure) => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-delete-recovery-"));
+  const database = new Database(":memory:");
+  const auth = await createLocalAuth({ database, baseURL: "http://127.0.0.1:8787", requireEmailVerification: false,
+    secret: "01234567890123456789012345678901", mailSink: { capture: async () => {} } });
+  const control = createLocalWorkspaceControl(database);
+  const files = createLocalSourceFileStore({ stateDirectory });
+  const registry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
+  let restarted: ReturnType<typeof createLocalWorkspaceProductStoreRegistry> | undefined;
+  try {
+    const signup = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Owner", email: "owner@example.org", password: "Strong1!" }),
+    }));
+    const { user } = await signup.json() as { user: { id: string } };
+    const workspace = control.createWorkspace({ userId: user.id, name: "Recovery" });
+    const apiKey = control.rotateApiKey({ workspaceId: workspace.workspace_id, userId: user.id }).api_key;
+    const keys = await createTerminalJobs({ sourceFiles: files, stateDirectory, workspaceId: workspace.workspace_id });
+    if (failure === "failed unlink") {
+      const application = createLocalApplication({ auth, stateDirectory, workspaceControl: control, productStoreRegistry: registry,
+        sourceFileStore: { ...files, delete: async () => { throw new Error("simulated EIO"); } } });
+      const response = await application(new Request("http://127.0.0.1:8787/v1/jobs/job_failed", {
+        method: "DELETE", headers: { authorization: `Bearer ${apiKey}`, origin: "https://external-client.example.org" },
+      }));
+      expect(response.status).toBe(200);
+    } else {
+      const lease = registry.acquire({ workspaceId: workspace.workspace_id })!;
+      lease.store.deleteExtractionJob({ jobId: "job_failed" });
+      lease.release(); // Simulate process exit after committing metadata deletion.
+    }
+    registry.closeAll();
+    expect(await files.read(keys.failed)).not.toBeNull();
+    restarted = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
+    const lease = restarted.acquire({ workspaceId: workspace.workspace_id, mode: "existing" })!;
+    try {
+      expect(lease.store.getExtractionJob("job_failed")).toBeNull();
+      expect(lease.store.listRetainedTerminalSourceFiles({ failedBefore: "2000-01-01T00:00:00.000Z" }))
+        .toContainEqual({ job_id: "job_failed", source_file_key: keys.failed });
+    } finally { lease.release(); }
+    const retention = createLocalSourceFileRetention({ stateDirectory, productStoreRegistry: restarted, sourceFileStore: files });
+    await retention.run();
+    await retention.run();
+    expect(await files.read(keys.failed)).toBeNull();
+    expect(retention.snapshot().failures).toBe(0);
+  } finally {
+    registry.closeAll(); restarted?.closeAll(); database.close();
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });

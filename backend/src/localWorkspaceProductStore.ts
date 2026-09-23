@@ -1068,6 +1068,10 @@ function deleteExtractionJob(
     if (!job) {
       return null;
     }
+    // Commit cleanup intent with logical deletion so crashes and unlink errors
+    // cannot lose the only pointer to a retained Source binary.
+    database.query("INSERT OR REPLACE INTO source_file_deletion_intents (job_id, source_file_key) VALUES (?, ?)")
+      .run(job.id, job.source_file_key);
     database.query("DELETE FROM job_results WHERE job_id = ?").run(job.id);
     database.query("DELETE FROM source_files WHERE job_id = ?").run(job.id);
     database.query("DELETE FROM jobs WHERE id = ?").run(job.id);
@@ -1242,12 +1246,16 @@ function markSourceFileCleaned(
   database: Database,
   input: { jobId: string; sourceFileKey: string; cleanedAt: string },
 ): boolean {
-  const result = database.query(
-    `UPDATE source_files
-     SET deleted_at = COALESCE(deleted_at, ?)
-     WHERE job_id = ? AND key = ?`,
-  ).run(input.cleanedAt, input.jobId, input.sourceFileKey);
-  return result.changes > 0;
+  return database.transaction(() => {
+    const result = database.query(
+      `UPDATE source_files
+       SET deleted_at = COALESCE(deleted_at, ?)
+       WHERE job_id = ? AND key = ?`,
+    ).run(input.cleanedAt, input.jobId, input.sourceFileKey);
+    const intent = database.query("DELETE FROM source_file_deletion_intents WHERE job_id = ? AND source_file_key = ?")
+      .run(input.jobId, input.sourceFileKey);
+    return result.changes > 0 || intent.changes > 0;
+  })();
 }
 
 function listRetainedTerminalSourceFiles(
@@ -1255,7 +1263,10 @@ function listRetainedTerminalSourceFiles(
   input: { failedBefore: string; limit?: number },
 ): LocalRetainedTerminalSourceFile[] {
   const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? input.limit! : 1_000;
-  return database.query(
+  const deleted = database.query("SELECT job_id, source_file_key FROM source_file_deletion_intents ORDER BY job_id LIMIT ?")
+    .all(limit) as LocalRetainedTerminalSourceFile[];
+  if (deleted.length === limit) return deleted;
+  const terminal = database.query(
     `SELECT j.id AS job_id, s.key AS source_file_key
      FROM source_files s
      CROSS JOIN jobs j ON j.id = s.job_id
@@ -1263,7 +1274,8 @@ function listRetainedTerminalSourceFiles(
        AND (j.status = 'completed' OR (j.status = 'failed' AND j.updated_at <= ?))
      ORDER BY j.updated_at ASC, j.id ASC
      LIMIT ?`,
-  ).all(input.failedBefore, limit) as LocalRetainedTerminalSourceFile[];
+  ).all(input.failedBefore, limit - deleted.length) as LocalRetainedTerminalSourceFile[];
+  return [...deleted, ...terminal];
 }
 
 function readExtractionJobSummary(database: Database, jobId: string): LocalWorkspaceExtractionJobSummary | null {
@@ -1330,6 +1342,11 @@ const PRODUCT_SCHEMA = `
     page_count INTEGER CHECK (page_count IS NULL OR page_count > 0),
     created_at TEXT NOT NULL,
     deleted_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS source_file_deletion_intents (
+    job_id TEXT PRIMARY KEY,
+    source_file_key TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS jobs (

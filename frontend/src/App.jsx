@@ -78,6 +78,7 @@ function AuthenticatedApp({ configuration }) {
 
   const hasSession = Boolean(session?.user?.id);
   const sessionUserId = String(session?.user?.id || "").trim();
+  const sessionId = hasSession ? `${sessionUserId}:${session?.session?.id || ""}:${session?.session?.impersonatedBy || ""}` : "";
   const sessionUserName = String(session?.user?.name || "").trim();
   const sessionUserEmail = String(session?.user?.email || "").trim();
   const isImpersonating = Boolean(String(session?.session?.impersonatedBy || "").trim());
@@ -103,6 +104,7 @@ function AuthenticatedApp({ configuration }) {
     showActionToast,
     hasSession,
     sessionUserId,
+    sessionId,
     isAppBusy: busy,
     setBusy,
     onActivePageChange: setActivePage,
@@ -142,6 +144,7 @@ function AuthenticatedApp({ configuration }) {
     showActionToast,
     hasApiAccess,
     workspaceId,
+    sessionId,
     activePage,
     onActivePageChange: setActivePage,
   });
@@ -166,7 +169,7 @@ function AuthenticatedApp({ configuration }) {
     isAppBusy: busy,
     isWorkspaceDeletionInProgress: isDeletingWorkspace,
     workspaceId,
-    sessionId: hasSession ? `${sessionUserId}:${session?.session?.id || ""}:${session?.session?.impersonatedBy || ""}` : "",
+    sessionId,
     setLatestResponse,
     onActivePageChange: setActivePage,
     onWorkspaceCapacityRefresh:
@@ -183,7 +186,6 @@ function AuthenticatedApp({ configuration }) {
     workspaceController.actions.clearSessionWorkspaceData();
     await refetchSession();
     setActivePage("workspace");
-    await workspaceController.actions.listWorkspaces().catch(() => {});
   }
 
   async function handleStopImpersonating() {
@@ -196,7 +198,6 @@ function AuthenticatedApp({ configuration }) {
       }
       workspaceController.actions.clearSessionWorkspaceData();
       await refetchSession();
-      await workspaceController.actions.listWorkspaces().catch(() => {});
       setActivePage("admin");
       showActionToast?.("applicationUser.stopImpersonating", "success");
     } catch (error) {

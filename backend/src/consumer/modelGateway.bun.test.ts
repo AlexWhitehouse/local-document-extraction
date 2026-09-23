@@ -640,6 +640,12 @@ describe("runExtraction", () => {
     expect(failure.message).toBe("Model gateway request failed with HTTP 429");
   });
 
+  it.each(["null", "[]", "{}", '{"results":[null]}', '{"results":[{}]}', '{"results":[{"field_id":1,"status":"ok"}]}'])("retries malformed generated result shape %s", async (content) => {
+    stubGatewayResponse(successfulGatewayPayload(content));
+    await expect(runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png"))
+      .rejects.toBeInstanceOf(RetryableError);
+  });
+
   it("does not retry deterministic Model gateway request failures", async () => {
     const env = createEnv();
     stubGatewayResponse(

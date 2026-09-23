@@ -612,6 +612,10 @@ describe("Application admin page gate", () => {
       error: null,
     });
     authClientMock.impersonateUser.mockResolvedValue({ data: {}, error: null });
+    authClientMock.refetchSession.mockImplementation(() => {
+      currentSession = impersonatedSession();
+      return Promise.resolve();
+    });
 
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
@@ -623,9 +627,12 @@ describe("Application admin page gate", () => {
     expect(window.localStorage.removeItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
     expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Application Admin" })).toBeNull();
-    expect(
-      globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces")),
-    ).toHaveLength(2);
+    expect(screen.getByRole("status", { name: "Impersonation mode" })).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces")),
+      ).toHaveLength(2);
+    });
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
   });
 

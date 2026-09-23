@@ -218,8 +218,8 @@ function createInvitation(
      WHERE m.workspace_id = ? AND lower(u.email) = ? LIMIT 1`,
   ).get(input.workspaceId, email);
   const existingInvitation = database.query(
-    "SELECT 1 FROM workspace_invitations WHERE workspace_id = ? AND email = ? AND status = 'pending' LIMIT 1",
-  ).get(input.workspaceId, email);
+    "SELECT 1 FROM workspace_invitations WHERE workspace_id = ? AND email = ? AND status = 'pending' AND expires_at > ? LIMIT 1",
+  ).get(input.workspaceId, email, nowIso());
   if (existingMember || existingInvitation) {
     throw new LocalWorkspaceControlError("invite_exists", "A pending invitation already exists for this user");
   }

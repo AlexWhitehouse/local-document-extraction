@@ -110,11 +110,16 @@ function normalizeByType(
         ? { ok: true, value, normalized: value }
         : { ok: false, value: null, normalized: null };
     case "number": {
+      const text = typeof value === "string" ? value.trim() : "";
+      const decimal = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(text);
+      // Currency prefixes and comma thousands groups are accepted only as a
+      // complete format; never strip arbitrary text into a different number.
+      const amount = /^[+-]?[$£€]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/.test(text);
       const num =
         typeof value === "number"
           ? value
-          : typeof value === "string"
-            ? Number(value.replace(/[^\d.-]/g, ""))
+          : decimal || amount
+            ? Number(text.replace(/[$£€,]/g, ""))
             : Number.NaN;
       return Number.isFinite(num)
         ? { ok: true, value: num, normalized: String(num) }

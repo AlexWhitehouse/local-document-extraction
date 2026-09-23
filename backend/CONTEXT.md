@@ -194,6 +194,15 @@ _Avoid_: nested field limit, table array field limit, max table fields
 
 ## Rules
 
+- Application admin permissions are explicitly limited to listing users, setting allowed roles, banning/unbanning, and starting/stopping impersonation. Generic account deletion, account updates, password overrides, and session administration are not supported admin capabilities.
+- Cookie-authenticated product mutations require a trusted browser Origin. Cookie-less **Workspace API key** clients remain independent of browser Origin checks.
+- **Workspace live updates** revalidate persisted session validity, account ban state, and accepted **Workspace membership** before each delivery; access loss closes the subscription without delivering the pending event.
+- Password changes enforce the same password complexity rules as sign-up and reset.
+- Expired **Workspace invitations** do not prevent a new invitation for the same workspace and email.
+- Deleting a **Document** commits durable Source-file cleanup intent with metadata deletion. That intent survives crashes and unlink failures until immediate cleanup or retention successfully removes the binary.
+- Numeric **Extraction results** accept finite numbers, signed decimal/scientific strings, and decimal amounts with optional `$`, `£`, or `€` prefixes and comma groups of three digits. Unsupported formats retain their raw answer with `invalid_type` rather than silently changing its meaning.
+- Malformed Model gateway result envelopes or entries are retryable failures, including JSON `null`.
+
 - **Account password policy** requires at least 8 characters, one ASCII uppercase letter, one ASCII number, and one special character.
 - **Account email verification** is optional and disabled by default; `AUTH_REQUIRE_EMAIL_VERIFICATION=true` requires it before email/password access.
 - A trusted social provider's verified email claim satisfies **Account email verification** without a separate Document Extraction verification email.

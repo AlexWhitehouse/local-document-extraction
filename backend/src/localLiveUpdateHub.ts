@@ -1,4 +1,5 @@
 export type LocalLiveUpdateSocket = {
+  data?: { workspaceId?: string; isAuthorized?: () => boolean };
   close?(code?: number, reason?: string): void;
   send(message: string): number;
 };
@@ -51,6 +52,17 @@ export function createLocalLiveUpdateHub(): LocalLiveUpdateHub {
   let connectionsOpened = 0;
   let closed = false;
 
+  function authorize(workspaceId: string, socket: LocalLiveUpdateSocket): boolean {
+    try {
+      if (socket.data?.isAuthorized?.() ?? true) return true;
+    } catch {
+      // A failed access check must never leak the pending event.
+    }
+    unsubscribe({ workspaceId, socket });
+    socket.close?.(1008, "Workspace access ended");
+    return false;
+  }
+
   function unsubscribe(input: { workspaceId: string; socket: LocalLiveUpdateSocket }): void {
     const sockets = socketsByWorkspace.get(input.workspaceId);
     if (!sockets) {
@@ -70,6 +82,7 @@ export function createLocalLiveUpdateHub(): LocalLiveUpdateHub {
     message: string,
   ): void {
     for (const socket of sockets) {
+      if (!authorize(workspaceId, socket)) continue;
       try {
         const status = socket.send(message);
         if (status > 0) {
@@ -171,6 +184,7 @@ export function createLocalLiveUpdateHub(): LocalLiveUpdateHub {
         socket.close?.(1001, "Local Bun Runtime shutting down");
         return () => {};
       }
+      if (!authorize(workspaceId, socket)) return () => {};
       const sockets = socketsByWorkspace.get(workspaceId) ?? new Set<LocalLiveUpdateSocket>();
       if (!sockets.has(socket)) {
         sockets.add(socket);

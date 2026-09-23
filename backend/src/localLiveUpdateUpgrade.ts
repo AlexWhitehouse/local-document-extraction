@@ -1,8 +1,9 @@
 import type { LocalAuth } from "./localAuth";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
+import { localRequestOriginFailure } from "./localRequestOrigin";
 
 export type LocalLiveUpdateUpgradeServer = {
-  upgrade(request: Request, options: { data: { workspaceId: string } }): boolean;
+  upgrade(request: Request, options: { data: { workspaceId: string; isAuthorized: () => boolean } }): boolean;
 };
 
 export async function upgradeLocalLiveUpdate({
@@ -44,6 +45,8 @@ export async function upgradeLocalLiveUpdate({
   if (!session) {
     return Response.json({ error: { code: "unauthorized", message: "Authentication required" } }, { status: 401 });
   }
+  const originFailure = localRequestOriginFailure(request, auth);
+  if (originFailure) return originFailure;
   const workspaceId = decodeURIComponent(match[1] || "");
   const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId: session.id });
   if (!workspace) {
@@ -52,7 +55,10 @@ export async function upgradeLocalLiveUpdate({
       { status: 403 },
     );
   }
-  if (server.upgrade(request, { data: { workspaceId: workspace.id } })) {
+  const isAuthorized = () => (session.isActive?.() ?? true) && Boolean(
+    workspaceControl.getAcceptedWorkspaceContext({ workspaceId: workspace.id, userId: session.id }),
+  );
+  if (server.upgrade(request, { data: { workspaceId: workspace.id, isAuthorized } })) {
     return undefined;
   }
   return Response.json(

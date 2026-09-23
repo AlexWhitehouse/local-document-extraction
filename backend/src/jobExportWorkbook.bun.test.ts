@@ -198,6 +198,21 @@ describe("job export workbook", () => {
     expect(records(workbook.worksheets[0])[0].Details).toBe("{}");
   });
 
+  it("exports names with boundary apostrophes and truncation collisions", async () => {
+    const names = ["'Invoice", "Invoice", `${"A".repeat(30)}'truncated`, `${"A".repeat(30)}'collision`];
+    const exported = await buildJobExportWorkbook({ workspaceName: "Test", jobs: names.map((name, index) => job({
+      template_id: `tpl_${index}`, template_name: name,
+    })) });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(exported.bytes as never);
+    expect(workbook.worksheets).toHaveLength(names.length);
+    expect(new Set(workbook.worksheets.map((sheet) => sheet.name.toLowerCase())).size).toBe(names.length);
+    for (const sheet of workbook.worksheets) {
+      expect(sheet.name).not.toMatch(/^'|'$/);
+      expect(sheet.name.length).toBeLessThanOrEqual(31);
+    }
+  });
+
   it("round-trips formula-like, Unicode, oversized, and malformed values safely", async () => {
     const formulaText = '=HYPERLINK("https://attacker.invalid","open")';
     const oversizedText = `Résumé 東京 🙂 ${"x".repeat(40_000)}`;

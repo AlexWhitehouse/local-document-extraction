@@ -29,7 +29,18 @@ test("local live updates require an accepted session Workspace and reject API ke
     workspaceControl: workspaceControl as never,
   });
   expect(upgraded).toBeUndefined();
-  expect(upgrades).toEqual([{ workspaceId: "workspace_research" }]);
+  expect(upgrades).toEqual([expect.objectContaining({ workspaceId: "workspace_research" })]);
+
+  const foreignOriginResponse = await upgradeLocalLiveUpdate({
+    auth: auth as never,
+    request: new Request("http://127.0.0.1:8787/v1/workspaces/workspace_research/live", {
+      headers: { upgrade: "websocket", origin: "http://127.0.0.1:6666" },
+    }),
+    server,
+    workspaceControl: workspaceControl as never,
+  });
+  expect(foreignOriginResponse?.status).toBe(403);
+  expect(upgrades).toHaveLength(1);
 
   const apiKeyResponse = await upgradeLocalLiveUpdate({
     auth: auth as never,
@@ -53,5 +64,5 @@ test("local live updates require an accepted session Workspace and reject API ke
     workspaceControl: workspaceControl as never,
   });
   expect(forbiddenResponse?.status).toBe(403);
-  expect(upgrades).toEqual([{ workspaceId: "workspace_research" }]);
+  expect(upgrades).toEqual([expect.objectContaining({ workspaceId: "workspace_research" })]);
 });

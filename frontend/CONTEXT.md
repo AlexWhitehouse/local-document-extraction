@@ -286,6 +286,8 @@ _Avoid_: demo mode, sample data sandbox
 - **Workspace live updates** are not durable history; clients revalidate authoritative **Workspace product data** and accepted **Workspace context** over HTTP after reconnecting.
 - **Extraction job** lifecycle live updates update Documents UI state without refreshing **Workspace context**.
 - **Workspace context invalidation** refreshes selected accepted **Workspace context** over HTTP through bounded scheduling so bursts coalesce.
+- Workspace and Template reads apply only while their originating session and **Workspace context** remain current. Switching away and back also invalidates earlier requests; stale errors cannot trigger workspace recovery.
+- Switching session or **Workspace context** clears Template editor state, JSON drafts, lists, and **Selected upload Template**. Late Template mutations cannot repopulate the new context, and later Template selection or draft actions supersede pending detail reads.
 - **Workspace access** invalidation revalidates selected accepted **Workspace context** immediately and blocks useful live update effects until revalidation succeeds.
 - The common live invalidation path refreshes selected accepted **Workspace context** without fetching pending **Workspace invitations** or unrelated Workspaces.
 - A full Workspace-list refresh remains available for startup, Stored workspace preference recovery, Workspace switching, pending **Workspace invitation** resolution, and access recovery.

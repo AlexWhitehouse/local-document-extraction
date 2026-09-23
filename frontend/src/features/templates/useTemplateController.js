@@ -91,6 +91,7 @@ export function useTemplateController({
   showActionToast,
   hasApiAccess,
   workspaceId,
+  sessionId = "",
   activePage,
   onActivePageChange,
 }) {
@@ -119,6 +120,15 @@ export function useTemplateController({
   const [showDraftTemplateNav, setShowDraftTemplateNav] = useState(false);
   const addLogRef = useRef(addLog);
   const requestRef = useRef(request);
+  const scope = JSON.stringify([workspaceId, sessionId, hasApiAccess]);
+  const scopeRef = useRef(scope);
+  const generationRef = useRef(0);
+  const listRequestRef = useRef(0);
+  const editorRequestRef = useRef(0);
+  if (scopeRef.current !== scope) {
+    scopeRef.current = scope;
+    generationRef.current += 1;
+  }
 
   const isEditingTemplate = Boolean(updateTemplateId.trim());
   const buildTemplateJsonPayloadFromEditor = useCallback(() => {
@@ -169,10 +179,24 @@ export function useTemplateController({
     return [...draftItem, ...filteredTemplates];
   }, [activePage, filteredTemplates, showDraftTemplateNav]);
 
-  function clearWorkspaceScopedTemplates() {
+  const clearWorkspaceScopedTemplates = useCallback(() => {
+    generationRef.current += 1;
     setTemplates([]);
     setSelectedUploadTemplateId("");
-  }
+    setUpdateTemplateId("");
+    setTemplateName("Prescription Template");
+    setTemplateDescription("Extract medication and prescription fields from a Document");
+    setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
+    setLoadedTemplateSnapshot(null);
+    setIsSavingTemplate(false);
+    setIsDeletingTemplate(false);
+    setShowTemplateJsonModal(false);
+    setTemplateJsonDraft("");
+    setTemplateJsonError("");
+    setTemplateJsonCopied(false);
+    setTemplateSearch("");
+    setShowDraftTemplateNav(false);
+  }, []);
 
   useEffect(() => {
     addLogRef.current = addLog;
@@ -180,8 +204,12 @@ export function useTemplateController({
   }, [addLog, request]);
 
   const listTemplates = useCallback(async () => {
+    const generation = generationRef.current;
+    const requestId = ++listRequestRef.current;
+    const isCurrent = () => generation === generationRef.current && requestId === listRequestRef.current;
     try {
       const data = await requestRef.current("/templates", { method: "GET" });
+      if (!isCurrent()) return [];
       const list = Array.isArray(data?.templates) ? data.templates : [];
       setTemplates(list);
       setSelectedUploadTemplateId((currentTemplateId) =>
@@ -190,6 +218,7 @@ export function useTemplateController({
       addLogRef.current(`Loaded ${list.length} templates`);
       return list;
     } catch (error) {
+      if (!isCurrent()) return [];
       addLogRef.current(`List templates failed: ${error.message}`);
       return [];
     }
@@ -213,6 +242,8 @@ export function useTemplateController({
       return;
     }
 
+    const generation = generationRef.current;
+    const isCurrent = () => generation === generationRef.current;
     setIsSavingTemplate(true);
     try {
       const data = await request("/templates", {
@@ -220,6 +251,7 @@ export function useTemplateController({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (!isCurrent()) return;
       addLog(`Template created: ${data.template_id}`);
       setUpdateTemplateId(data.template_id);
       setSelectedUploadTemplateId(data.template_id);
@@ -230,10 +262,11 @@ export function useTemplateController({
       });
       await listTemplates();
     } catch (error) {
+      if (!isCurrent()) return;
       addLog(`Create template failed: ${error.message}`);
       showActionToast("template.save", "failure", { error });
     } finally {
-      setIsSavingTemplate(false);
+      if (isCurrent()) setIsSavingTemplate(false);
     }
   }
 
@@ -259,6 +292,8 @@ export function useTemplateController({
       return;
     }
 
+    const generation = generationRef.current;
+    const isCurrent = () => generation === generationRef.current;
     setIsSavingTemplate(true);
     try {
       await request(
@@ -269,6 +304,7 @@ export function useTemplateController({
           body: JSON.stringify(payload),
         },
       );
+      if (!isCurrent()) return;
       addLog(`Template updated: ${updateTemplateId.trim()}`);
       setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
       showActionToast("template.save", "success", {
@@ -276,10 +312,11 @@ export function useTemplateController({
       });
       await listTemplates();
     } catch (error) {
+      if (!isCurrent()) return;
       addLog(`Update template failed: ${error.message}`);
       showActionToast("template.save", "failure", { error });
     } finally {
-      setIsSavingTemplate(false);
+      if (isCurrent()) setIsSavingTemplate(false);
     }
   }
 
@@ -352,6 +389,8 @@ export function useTemplateController({
     }
 
     const targetTemplateId = updateTemplateId.trim();
+    const generation = generationRef.current;
+    const isCurrent = () => generation === generationRef.current;
     setIsSavingTemplate(true);
     try {
       const data = await request(
@@ -365,6 +404,7 @@ export function useTemplateController({
         },
       );
 
+      if (!isCurrent()) return;
       setTemplateName(payload.name);
       setTemplateDescription(payload.description || "");
       setTemplateFields(payload.fields.map(hydrateFieldFromTemplate));
@@ -389,13 +429,14 @@ export function useTemplateController({
       });
       await listTemplates();
     } catch (error) {
+      if (!isCurrent()) return;
       setTemplateJsonError(error.message);
       addLog(
         `${targetTemplateId ? "Update" : "Create"} template failed: ${error.message}`,
       );
       showActionToast("template.save", "failure", { error });
     } finally {
-      setIsSavingTemplate(false);
+      if (isCurrent()) setIsSavingTemplate(false);
     }
   }
 
@@ -417,6 +458,8 @@ export function useTemplateController({
       return;
     }
 
+    const generation = generationRef.current;
+    const isCurrent = () => generation === generationRef.current;
     setIsDeletingTemplate(true);
     try {
       const deletedTemplateName =
@@ -425,11 +468,13 @@ export function useTemplateController({
       await request(`/templates/${encodeURIComponent(deletedTemplateId)}`, {
         method: "DELETE",
       });
+      if (!isCurrent()) return;
       addLog(`Template deleted: ${deletedTemplateId}`);
       showActionToast("template.delete", "success", {
         targetName: deletedTemplateName,
       });
       const remainingTemplates = await listTemplates();
+      if (!isCurrent()) return;
       const nextTemplate = remainingTemplates.find(
         (template) => String(template.id || "").trim() !== deletedTemplateId,
       );
@@ -448,10 +493,11 @@ export function useTemplateController({
         setLoadedTemplateSnapshot(null);
       }
     } catch (error) {
+      if (!isCurrent()) return;
       addLog(`Delete template failed: ${error.message}`);
       showActionToast("template.delete", "failure", { error });
     } finally {
-      setIsDeletingTemplate(false);
+      if (isCurrent()) setIsDeletingTemplate(false);
     }
   }
 
@@ -464,11 +510,15 @@ export function useTemplateController({
       return;
     }
 
+    const generation = generationRef.current;
+    const requestId = ++editorRequestRef.current;
+    const isCurrent = () => generation === generationRef.current && requestId === editorRequestRef.current;
     try {
       const template = await request(
         `/templates/${encodeURIComponent(targetTemplateId)}`,
         { method: "GET" },
       );
+      if (!isCurrent()) return;
       setShowDraftTemplateNav(false);
       setUpdateTemplateId(targetTemplateId);
       setTemplateName(template.name || "");
@@ -488,11 +538,13 @@ export function useTemplateController({
       setSelectedUploadTemplateId(targetTemplateId);
       addLog(`Loaded template ${targetTemplateId} for editing`);
     } catch (error) {
+      if (!isCurrent()) return;
       addLog(`Load template failed: ${error.message}`);
     }
   }
 
   function startNewTemplateDraft({ empty = false } = {}) {
+    editorRequestRef.current += 1;
     setShowDraftTemplateNav(true);
     setUpdateTemplateId("");
     setTemplateName(empty ? "" : "Prescription Template");
@@ -512,13 +564,10 @@ export function useTemplateController({
   }
 
   useEffect(() => {
-    if (!hasApiAccess) {
-      setTemplates([]);
-      return;
-    }
-
-    void listTemplates();
-  }, [hasApiAccess, listTemplates, workspaceId]);
+    clearWorkspaceScopedTemplates();
+    if (hasApiAccess) void listTemplates();
+    return () => { generationRef.current += 1; };
+  }, [hasApiAccess, listTemplates, workspaceId, sessionId, clearWorkspaceScopedTemplates]);
 
   return {
     templates,

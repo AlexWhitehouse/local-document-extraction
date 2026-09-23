@@ -8,6 +8,7 @@ import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "
 import { buildJobExportInWorker } from "./localJobExportWorker";
 import { assertKnownDocumentRequestBodyLength } from "./localDocumentBodyLimit";
 import { boundLocalApiBody } from "./localApiBodyLimit";
+import { localRequestOriginFailure } from "./localRequestOrigin";
 import { parseLocalMultipartSubmission } from "./localMultipartSubmission";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
@@ -107,6 +108,11 @@ export function createLocalApplication({
     : null);
   return async (request) => {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/v1/") && request.headers.has("cookie") &&
+      !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+      const rejection = localRequestOriginFailure(request, auth);
+      if (rejection) return rejection;
+    }
     if (request.body && !(request.method === "POST" && url.pathname === "/v1/extract")) {
       try {
         request = await boundLocalApiBody(request, maxJsonRequestBytes);
@@ -646,7 +652,9 @@ async function handleLocalJobRead({
           documentDeletionStarted = false;
           return Response.json({ error: { code: "not_found", message: "Job not found" } }, { status: 404 });
         }
-        await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key);
+        if (await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key)) {
+          productStore.markSourceFileCleaned({ jobId, sourceFileKey: deleted.source_file_key, cleanedAt: nowIso() });
+        }
         workspaceProductOperations.completeDocumentDeletion({
           workspaceId: authorization.workspace.id,
           jobId,
@@ -1069,11 +1077,13 @@ async function countLocalSourceFilePages(sourceMimeType: string, sourceBytes: Ar
   }
 }
 
-async function deleteLocalSourceFileQuietly(sourceFileStore: LocalSourceFileStore, sourceFileKey: string): Promise<void> {
+async function deleteLocalSourceFileQuietly(sourceFileStore: LocalSourceFileStore, sourceFileKey: string): Promise<boolean> {
   try {
     await sourceFileStore.delete(sourceFileKey);
+    return true;
   } catch {
-    // Cleanup is best-effort after a failed submission handoff.
+    // Document deletion retains durable cleanup intent until a later sweep.
+    return false;
   }
 }
 
@@ -1303,9 +1313,10 @@ async function passwordPolicyFailure(request: Request, url: URL): Promise<Respon
     return null;
   }
 
-  const passwordField = url.pathname === "/api/auth/sign-up/email"
+  const path = decodeURIComponent(url.pathname).replace(/\/+$/, "");
+  const passwordField = path === "/api/auth/sign-up/email"
     ? "password"
-    : url.pathname === "/api/auth/reset-password"
+    : ["/api/auth/reset-password", "/api/auth/change-password"].includes(path)
       ? "newPassword"
       : null;
   if (!passwordField) {

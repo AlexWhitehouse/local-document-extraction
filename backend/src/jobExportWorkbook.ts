@@ -635,8 +635,8 @@ function uniqueSheetName(label: string, usedNames: Set<string>): string {
   const cleaned = replaceControlCharacters(label)
     .replace(/[\\/*?:[\]]/g, " ")
     .replace(/\s+/g, " ")
-    .trim() || "Export";
-  let candidate = cleaned.slice(0, EXCEL_MAX_SHEET_NAME_LENGTH).trim();
+    .replace(/^[\s']+|[\s']+$/g, "") || "Export";
+  let candidate = cleaned.slice(0, EXCEL_MAX_SHEET_NAME_LENGTH).replace(/[\s']+$/g, "") || "Export";
   let suffixNumber = 2;
   while (usedNames.has(candidate.toLocaleLowerCase())) {
     const suffix = ` (${suffixNumber})`;
