@@ -34,6 +34,10 @@ break memory assumptions or public contracts. Local analytics can be disabled.
 
 Source checkouts default to `.local/`; installers separate versioned application
 releases, private configuration, and persistent state. Runtime state is owner-only.
+First-time terminal installs collect optional public-origin, login, and email-provider
+settings through conditional questions. Secrets are hidden and answers are validated
+before saving private configuration. Unattended installs retain the documented defaults
+or a prepared configuration file; existing configuration always skips the questions.
 Upgrades preserve state and machine secrets, and backups must include the matching
 databases and keys. No automatic downgrade or database rollback is promised.
 

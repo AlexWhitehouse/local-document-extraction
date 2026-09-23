@@ -16,6 +16,8 @@ Usage: bash install.sh [options]
   --config-dir DIR       Persistent config.env directory
   --state-dir DIR        Persistent databases, files, mail and secrets
   --no-start             Verify startup, then leave the application stopped
+  --non-interactive      Skip first-install questions (also automatic without a terminal)
+  --interactive          Require a terminal for first-install questions
 USAGE
 }
 
@@ -28,10 +30,14 @@ install_dir="${XDG_DATA_HOME:-$HOME/.local/share}/document-extraction"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/document-extraction"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/document-extraction"
 no_start=false
+setup_mode=auto
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --no-start) no_start=true; shift ;;
+    --non-interactive|--interactive)
+      [ "$setup_mode" = auto ] || [ "$setup_mode" = "${1#--}" ] || fail 'Choose --interactive or --non-interactive'
+      setup_mode=${1#--}; shift ;;
     --repo|--version|--ref|--archive|--sha256|--install-dir|--config-dir|--state-dir)
       [ "$#" -ge 2 ] || fail "Missing value for $1"
       case "$1" in
@@ -125,4 +131,4 @@ chmod 700 "$work/bun"
 "$work/bun" --no-env-file "$work/source/scripts/installApplication.ts" \
   --source "$work/source" --bun "$work/bun" --repo "$repo" --version "${ref:-$version}" \
   --sha256 "$expected" --install-dir "$install_dir" --config-dir "$config_dir" \
-  --state-dir "$state_dir" --no-start "$no_start"
+  --state-dir "$state_dir" --no-start "$no_start" --setup-mode "$setup_mode"

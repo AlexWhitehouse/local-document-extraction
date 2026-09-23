@@ -23,11 +23,13 @@ Paste this into your terminal:
 )
 ```
 
-When it finishes, open **[http://127.0.0.1:8787](http://127.0.0.1:8787)** in your browser.
+First-time setup asks about a reverse proxy, Google sign-in, and Cloudflare email. Press Enter at each question for a local installation with email/password login. Secrets stay hidden while typing, and updates keep your settings.
+
+When it finishes, open **[http://127.0.0.1:8787](http://127.0.0.1:8787)**, or your public URL if you configured a reverse proxy.
 
 ## Your first extraction
 
-1. **Create your account.** Sign up with your name, email address, and password to get started.
+1. **Create your account.** Sign up with your name, email address, and password, or use Google if enabled. If you enabled signup verification, follow the emailed link.
 
 2. **Connect your AI model.** Open **Workspaces → Model gateway → Set up**. Enter your service’s **Gateway URL**, **Model name**, and **Gateway API key**, then click **Save configuration**. Choose a model that supports image input; you can leave the other options at their defaults.
 
