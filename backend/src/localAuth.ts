@@ -7,6 +7,8 @@ import type { Database } from "bun:sqlite";
 import { renderAccountEmailVerificationEmail } from "./lib/email/accountEmailVerification";
 import { renderAccountPasswordResetEmail } from "./lib/email/accountPasswordReset";
 import type { LocalMailSink } from "./localMailSink";
+import { createLocalAuthRateLimitStorage } from "./localAuthRateLimit";
+import { LOCAL_AUTH_CLIENT_ADDRESS_HEADER, localAuthRequestHeaders } from "./localAuthClientAddress";
 
 type LocalAuthLogger = {
   error(message: string, error: unknown): void;
@@ -79,13 +81,15 @@ export async function createLocalAuth({
   const auth = betterAuth({
     advanced: {
       ipAddress: {
-        ipAddressHeaders: trustedIpHeaders,
+        ipAddressHeaders: [LOCAL_AUTH_CLIENT_ADDRESS_HEADER],
+        ipv6Subnet: 64,
       },
     },
     appName: "Document Extraction",
     baseURL,
     database,
     secret,
+    rateLimit: { enabled: true, customStorage: createLocalAuthRateLimitStorage() },
     trustedOrigins: localTrustedOrigins(baseURL, trustedOrigins),
     emailAndPassword: {
       enabled: emailPasswordEnabled,
@@ -145,6 +149,7 @@ export async function createLocalAuth({
   await migrations.runMigrations();
 
   const handler = async (request: Request): Promise<Response> => {
+    request = new Request(request, { headers: localAuthRequestHeaders(request, trustedIpHeaders) });
     const session = await auth.api.getSession({ headers: request.headers });
     const rejection = await validateLocalAdminAction(request, {
       id: session?.user?.id ?? undefined,
@@ -156,7 +161,7 @@ export async function createLocalAuth({
   return {
     isTrustedOrigin: (origin) => localTrustedOrigins(baseURL, trustedOrigins).includes(origin),
     getSession: async (request) => {
-      const session = await auth.api.getSession({ headers: request.headers });
+      const session = await auth.api.getSession({ headers: localAuthRequestHeaders(request, trustedIpHeaders) });
       if (!session?.user?.id) {
         return null;
       }

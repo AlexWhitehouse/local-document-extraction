@@ -2,6 +2,7 @@ import { getModelPreparationSnapshot } from "./consumer/modelGateway";
 import { createLocalApplication } from "./localApplication";
 import { readLocalConfiguration, publicLocalConfiguration } from "./localConfiguration";
 import { createLocalAuthRuntime } from "./localAuthRuntime";
+import { setLocalAuthRequestPeerAddress } from "./localAuthClientAddress";
 import { localDocumentRequestBodyLimit, localDocumentServerBodyLimit } from "./localDocumentBodyLimit";
 import { createLocalExtractionQueue } from "./localExtractionQueue";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
@@ -49,6 +50,7 @@ const server = bun.serve<{ workspaceId: string }>({
         { status: 503, headers: { "retry-after": "1" } },
       );
     }
+    setLocalAuthRequestPeerAddress(request, bunServer.requestIP(request)?.address);
     if (request.method === "GET" && new URL(request.url).pathname === "/v1/config") {
       return Response.json(publicLocalConfiguration(configuration), { headers: { "cache-control": "no-store" } });
     }

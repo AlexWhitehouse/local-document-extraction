@@ -204,6 +204,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 
 - Application admin permissions are explicitly limited to listing users, setting allowed roles, banning/unbanning, and starting/stopping impersonation. Generic account deletion, account updates, password overrides, and session administration are not supported admin capabilities.
 - Cookie-authenticated product mutations require a trusted browser Origin. Cookie-less **Workspace API key** clients remain independent of browser Origin checks.
+- Authentication throttling is explicitly enabled independently of runtime environment. Its bounded atomic counters belong to one authentication runtime; client identity comes from the socket peer or explicitly trusted single-address proxy headers, never an untrusted caller-supplied identity header.
 - **Workspace live updates** revalidate persisted session validity, account ban state, and accepted **Workspace membership** before each delivery; access loss closes the subscription without delivering the pending event.
 - Password changes enforce the same password complexity rules as sign-up and reset.
 - Expired **Workspace invitations** do not prevent a new invitation for the same workspace and email.
@@ -394,6 +395,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Local runtime state is grouped under one local state directory so reset and backup behavior is explicit.
 - A **Source file page count** applies only to PDF **Source files** and is absent for non-PDF **Source files**.
 - PDF **Source files** require a **Source file page count** at Document submission time; if the count cannot be determined, the Document submission is rejected.
+- PDF **Source file page count** inspection for Document submission and Template generation runs outside the API process with a cancellable deadline, bounded admission, and pre-allocation decoded-buffer and parser-structure limits. Exceeding these **Product safety limits** rejects the Source before promotion, job creation, or a Model gateway call.
 - A **Source file page count** is internal Source file metadata until a product feature requires exposing or enforcing it.
 - Existing **Source files** are not backfilled with a **Source file page count** because their original binary may already have been cleaned up.
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
