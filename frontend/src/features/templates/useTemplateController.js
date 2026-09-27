@@ -9,40 +9,40 @@ import {
 
 const DEFAULT_FIELDS = [
   {
-    id: "patient_name",
-    name: "Patient Name",
-    description: "Full name of the patient on the prescription",
+    id: "invoice_number",
+    name: "Invoice Number",
+    description: "Unique invoice identifier",
     data_type: "string",
   },
   {
-    id: "medication_name",
-    name: "Medication Name",
-    description: "Name of the prescribed medication",
+    id: "invoice_date",
+    name: "Invoice Date",
+    description: "Date shown on the invoice",
+    data_type: "date",
+  },
+  {
+    id: "vendor_name",
+    name: "Vendor Name",
+    description: "Name of the supplier issuing the invoice",
     data_type: "string",
   },
   {
-    id: "dosage",
-    name: "Dosage",
-    description: "Strength and amount per dose (e.g. 10 mg)",
+    id: "total_amount",
+    name: "Total Amount",
+    description: "Total amount due on the invoice",
+    data_type: "number",
+  },
+  {
+    id: "currency",
+    name: "Currency",
+    description: "Currency code used for the totals (e.g. USD)",
     data_type: "string",
   },
   {
-    id: "frequency",
-    name: "Frequency",
-    description: "How often the medication should be taken",
-    data_type: "string",
-  },
-  {
-    id: "prescriber_name",
-    name: "Prescriber Name",
-    description: "Name of the prescribing clinician",
-    data_type: "string",
-  },
-  {
-    id: "prescription_lines",
-    name: "Prescription Lines",
+    id: "line_items",
+    name: "Line Items",
     description:
-      "List each prescribed medication line when the document contains multiple medications",
+      "List each product or service billed on the invoice",
     data_type: "array<object>",
     object_schema: {
       mode: "table",
@@ -51,37 +51,39 @@ const DEFAULT_FIELDS = [
           key: "line_number",
           heading: "Line Number",
           data_type: "number",
-          description: "Order of the medication line on the prescription",
+          description: "Order of the line item on the invoice",
         },
         {
-          key: "medication_name",
-          heading: "Medication Name",
+          key: "description",
+          heading: "Description",
           data_type: "string",
-          description: "Medication listed on this line",
+          description: "Product or service billed on this line",
         },
         {
-          key: "strength",
-          heading: "Strength",
-          data_type: "string",
-          description: "Strength for this medication line (for example 10 mg)",
+          key: "quantity",
+          heading: "Quantity",
+          data_type: "number",
+          description: "Number of units billed",
         },
         {
-          key: "dose_instructions",
-          heading: "Dose Instructions",
-          data_type: "string",
-          description: "Dose and frequency instructions for this line",
+          key: "unit_price",
+          heading: "Unit Price",
+          data_type: "number",
+          description: "Price per unit",
         },
         {
-          key: "duration",
-          heading: "Duration",
-          data_type: "string",
-          description: "How long this medication should be taken",
+          key: "line_total",
+          heading: "Line Total",
+          data_type: "number",
+          description: "Total amount billed for this line",
         },
       ],
     },
   },
 ];
 
+const DEFAULT_TEMPLATE_NAME = "Invoice Template";
+const DEFAULT_TEMPLATE_DESCRIPTION = "Extract invoice details and line items from a Document";
 const DRAFT_TEMPLATE_NAV_ID = "__draft_template__";
 
 export function useTemplateController({
@@ -98,9 +100,9 @@ export function useTemplateController({
   const [templates, setTemplates] = useState(
     Array.isArray(initialWorkspace.templates) ? initialWorkspace.templates : [],
   );
-  const [templateName, setTemplateName] = useState("Prescription Template");
+  const [templateName, setTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
   const [templateDescription, setTemplateDescription] = useState(
-    "Extract medication and prescription fields from a Document",
+    DEFAULT_TEMPLATE_DESCRIPTION,
   );
   const [templateFields, setTemplateFields] = useState(DEFAULT_FIELDS);
   const [loadedTemplateSnapshot, setLoadedTemplateSnapshot] = useState(null);
@@ -184,8 +186,8 @@ export function useTemplateController({
     setTemplates([]);
     setSelectedUploadTemplateId("");
     setUpdateTemplateId("");
-    setTemplateName("Prescription Template");
-    setTemplateDescription("Extract medication and prescription fields from a Document");
+    setTemplateName(DEFAULT_TEMPLATE_NAME);
+    setTemplateDescription(DEFAULT_TEMPLATE_DESCRIPTION);
     setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
     setLoadedTemplateSnapshot(null);
     setIsSavingTemplate(false);
@@ -485,9 +487,9 @@ export function useTemplateController({
       } else {
         setUpdateTemplateId("");
         setSelectedUploadTemplateId("");
-        setTemplateName("Prescription Template");
+        setTemplateName(DEFAULT_TEMPLATE_NAME);
         setTemplateDescription(
-          "Extract medication and prescription fields from a Document",
+          DEFAULT_TEMPLATE_DESCRIPTION,
         );
         setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
         setLoadedTemplateSnapshot(null);
@@ -547,9 +549,9 @@ export function useTemplateController({
     editorRequestRef.current += 1;
     setShowDraftTemplateNav(true);
     setUpdateTemplateId("");
-    setTemplateName(empty ? "" : "Prescription Template");
+    setTemplateName(empty ? "" : DEFAULT_TEMPLATE_NAME);
     setTemplateDescription(
-      empty ? "" : "Extract medication and prescription fields from a Document",
+      empty ? "" : DEFAULT_TEMPLATE_DESCRIPTION,
     );
     setTemplateFields(empty ? [{ ...EMPTY_FIELD }] : DEFAULT_FIELDS.map((field) => ({ ...field })));
     setLoadedTemplateSnapshot(null);

@@ -52,7 +52,7 @@ test("a new user completes a Document Extraction job without email verification 
     await navigation.getByRole("button", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
     await expect(page.getByRole("region", { name: "Template editor" })).toBeVisible();
-    await expect(page.getByLabel("Template name", { exact: true })).toHaveValue("Prescription Template");
+    await expect(page.getByLabel("Template name", { exact: true })).toHaveValue("Invoice Template");
     await page.getByRole("button", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));

@@ -1495,7 +1495,7 @@ describe("Workspace action toast feedback", () => {
         return Promise.resolve(
           jsonResponse({
             template_id: "tpl_created",
-            name: "Prescription Template",
+            name: "Invoice Template",
           }),
         );
       }
@@ -1509,7 +1509,7 @@ describe("Workspace action toast feedback", () => {
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith(
-        "Template saved: Prescription Template",
+        "Template saved: Invoice Template",
       );
     });
   });
