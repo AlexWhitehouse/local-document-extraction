@@ -306,3 +306,11 @@ _Avoid_: demo mode, sample data sandbox
 - "workspace state" can mean backend access, local persistence, or UI presentation; resolved: use **Workspace selection view** for the UI concept and **Workspace context** for the backend-defined access context.
 - "default workspace" was used for a synthetic frontend workspace ID; resolved: use **Loading workspace context** until a backend-backed accepted **Workspace** is available.
 - Legacy "image" terminology was used for earlier document submission, but the resolved product term is **Document** because source files can include PDFs as well as images; use **Source file** when referring to the original submitted binary.
+
+## Evaluations
+
+**Evaluation** is a temporary comparison in one browser tab and Workspace. Its document, candidate drafts, verified Expected answers and results are held above page rendering so navigation preserves them. Refresh discards them. There is no browser storage, idle expiry or saved Evaluation history.
+
+**Comparison candidates** either share Template fields and compare models, or share model/capabilities and compare independently editable Templates. A result carries its tested input snapshot; later edits require an explicit rerun. Only an explicitly verified Expected answer supplies a correctness reference. Coverage and matches are separate; table-cell matches are separate from scalar-field matches.
+
+The **Template field editor** is shared between the Templates page and the full modal used for Evaluation candidate editing. Apply updates a draft. Save as new Template explicitly persists an independent normal Template from the current draft.

@@ -8,6 +8,21 @@ export type LocalQueuedExtractionJob = {
   not_before?: string;
 };
 
+export type LocalTransientExtractionTask = {
+  kind: "evaluation";
+  job_id: string;
+  workspace_id: string;
+  enqueued_at: string;
+  attempt?: number;
+  not_before?: string;
+  owner: string;
+  run(): Promise<void>;
+  discard(): void;
+};
+type ScheduledWork = LocalQueuedExtractionJob | LocalTransientExtractionTask;
+export type TransientAdmission = "accepted" | "duplicate" | "full" | "closed";
+const isTransient = (job: ScheduledWork): job is LocalTransientExtractionTask => "kind" in job && job.kind === "evaluation";
+
 export type LocalExtractionQueueSnapshot = {
   accepting: boolean;
   active: number;
@@ -23,6 +38,8 @@ export type LocalExtractionQueueSnapshot = {
 export type LocalExtractionQueue = {
   close(): Promise<void>;
   schedule(job: LocalQueuedExtractionJob): Promise<void>;
+  scheduleTransient(task: LocalTransientExtractionTask): TransientAdmission;
+  discardTransient(owner: string): void;
   setMaxConcurrent(maxConcurrent: number): void;
   snapshot(): LocalExtractionQueueSnapshot;
   subscribe(handler: (job: LocalQueuedExtractionJob) => void | Promise<void>): () => void;
@@ -31,7 +48,7 @@ export type LocalExtractionQueue = {
 
 type DeferredJob = {
   dueAt: number;
-  job: LocalQueuedExtractionJob;
+  job: ScheduledWork;
 };
 
 export function createLocalExtractionQueue({
@@ -62,7 +79,7 @@ export function createLocalExtractionQueue({
     ? maxBuffered
     : 10_000;
   const handlers = new Set<(job: LocalQueuedExtractionJob) => void | Promise<void>>();
-  const workspaceQueues = new Map<string, LocalQueuedExtractionJob[]>();
+  const workspaceQueues = new Map<string, ScheduledWork[]>();
   const readyWorkspaces: string[] = [];
   const readyWorkspaceSet = new Set<string>();
   const knownJobs = new Set<string>();
@@ -88,7 +105,7 @@ export function createLocalExtractionQueue({
     for (const resolve of closeWaiters.splice(0)) resolve();
   };
 
-  const enqueueReady = (job: LocalQueuedExtractionJob) => {
+  const enqueueReady = (job: ScheduledWork) => {
     const queue = workspaceQueues.get(job.workspace_id) ?? [];
     queue.push(job);
     pending += 1;
@@ -100,12 +117,13 @@ export function createLocalExtractionQueue({
   };
 
   const pump = () => {
-    if (handlers.size === 0) return;
+    if (handlers.size === 0 && ![...workspaceQueues.values()].some(queue => queue[0] && isTransient(queue[0]))) return;
     let skipped = 0;
     while (active < currentMaxConcurrent && readyWorkspaces.length > skipped) {
       const workspaceId = readyWorkspaces.shift()!;
       const workspaceActive = activeByWorkspace.get(workspaceId) ?? 0;
-      if (workspaceActive >= getWorkspaceMaxConcurrent(workspaceId)) {
+      const first = workspaceQueues.get(workspaceId)?.[0];
+      if (workspaceActive >= getWorkspaceMaxConcurrent(workspaceId) || (first && !isTransient(first) && handlers.size === 0)) {
         readyWorkspaces.push(workspaceId);
         skipped += 1;
         continue;
@@ -128,8 +146,8 @@ export function createLocalExtractionQueue({
 
       active += 1;
       activeByWorkspace.set(workspaceId, workspaceActive + 1);
-      void Promise.all(Array.from(handlers, (handler) => handler(job)))
-        .catch((error) => onHandlerError(error, job))
+      void (async () => { if (isTransient(job)) await Promise.resolve().then(() => job.run()); else await Promise.all(Array.from(handlers, (handler) => handler(job))); })()
+        .catch((error) => { if (isTransient(job)) job.discard(); else onHandlerError(error, job); })
         .finally(() => {
           active -= 1;
           const remaining = (activeByWorkspace.get(workspaceId) ?? 1) - 1;
@@ -140,11 +158,11 @@ export function createLocalExtractionQueue({
           settleIdle();
           settleClose();
           if (accepting && !activeByWorkspace.has(workspaceId) && !workspaceQueues.has(workspaceId)) {
-            void Promise.resolve().then(() => onWorkspaceIdle?.(workspaceId)).catch((error) => onHandlerError(error, job));
+            void Promise.resolve().then(() => onWorkspaceIdle?.(workspaceId)).catch((error) => { if (!isTransient(job)) onHandlerError(error, job); });
           }
           if (accepting && overflowed && pending + deferredJobs.length < Math.max(1, normalizedMaxBuffered / 2)) {
             overflowed = false;
-            void Promise.resolve().then(() => onCapacityAvailable?.()).catch((error) => onHandlerError(error, job));
+            void Promise.resolve().then(() => onCapacityAvailable?.()).catch((error) => { if (!isTransient(job)) onHandlerError(error, job); });
           }
         });
     }
@@ -183,6 +201,8 @@ export function createLocalExtractionQueue({
         if (deferredTimer !== null) cancelTimer(deferredTimer);
         deferredTimer = null;
         deferredTimerDueAt = null;
+        for (const { job } of deferredJobs) if (isTransient(job)) job.discard();
+        for (const queue of workspaceQueues.values()) for (const job of queue) if (isTransient(job)) job.discard();
         deferredJobs.splice(0);
         workspaceQueues.clear();
         pending = 0;
@@ -216,6 +236,47 @@ export function createLocalExtractionQueue({
       enqueueReady(job);
       pump();
     },
+    scheduleTransient: (task) => {
+      if (!accepting) return "closed";
+      const key = jobKey(task);
+      if (knownJobs.has(key)) return "duplicate";
+      if (pending + deferredJobs.length >= normalizedMaxBuffered) return "full";
+      knownJobs.add(key);
+      const dueAt = task.not_before ? Date.parse(task.not_before) : NaN;
+      if (Number.isFinite(dueAt) && dueAt > now()) {
+        deferredJobs.push({ dueAt, job: task });
+        armDeferredTimer();
+      } else {
+        enqueueReady(task);
+        pump();
+      }
+      return "accepted";
+    },
+    discardTransient: (owner) => {
+      const remove = (job: ScheduledWork) => {
+        if (!isTransient(job) || job.owner !== owner) return false;
+        knownJobs.delete(jobKey(job));
+        job.discard();
+        return true;
+      };
+      for (const [id, queue] of workspaceQueues) {
+        const remaining = queue.filter(job => !remove(job));
+        pending -= queue.length - remaining.length;
+        if (remaining.length) workspaceQueues.set(id, remaining);
+        else {
+          workspaceQueues.delete(id);
+          readyWorkspaceSet.delete(id);
+          const index = readyWorkspaces.indexOf(id);
+          if (index >= 0) readyWorkspaces.splice(index, 1);
+        }
+      }
+      for (let i = deferredJobs.length - 1; i >= 0; i--) {
+        if (remove(deferredJobs[i].job)) deferredJobs.splice(i, 1);
+      }
+      armDeferredTimer();
+      pump();
+      settleIdle();
+    },
     setMaxConcurrent: (value) => {
       if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error("Extraction concurrency must be a non-negative integer");
@@ -247,12 +308,12 @@ export function createLocalExtractionQueue({
   };
 }
 
-function jobKey(job: LocalQueuedExtractionJob): string {
-  return `${job.workspace_id}\u0000${job.job_id}\u0000${job.attempt ?? 1}`;
+function jobKey(job: ScheduledWork): string {
+  return (isTransient(job) ? "evaluation:" : "document:") + `${job.workspace_id}\u0000${job.job_id}\u0000${job.attempt ?? 1}`;
 }
 
 function oldestEnqueuedAt(
-  workspaceQueues: Map<string, LocalQueuedExtractionJob[]>,
+  workspaceQueues: Map<string, ScheduledWork[]>,
   deferredJobs: DeferredJob[],
 ): string | null {
   let oldest: string | null = null;

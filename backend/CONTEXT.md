@@ -188,6 +188,34 @@ _Avoid_: field row, extraction key, output column
 A specific revision of a **Template** used to interpret **Extraction job** results.
 _Avoid_: current template, schema snapshot
 
+**Evaluation**:
+A temporary, browser-held comparison of extraction outputs for a shared Document, with optional user-verified expected answers for scoring. The product area is named **Evaluations**.
+_Avoid_: experiment, saved evaluation, benchmark history, model connection test
+
+**Expected answer**:
+A user-verified reference value or explicit verified absence for a field in an **Evaluation**, entered manually or explicitly accepted after reviewing a candidate output. A field without an Expected answer has no correctness reference and remains unscored.
+_Avoid_: model confidence, majority answer, automatically accepted ground truth
+
+**Expected table**:
+A complete user-verified reference table for an **Evaluation**, including its expected rows and cell values. It provides the reference for table-cell matching and missing or extra row checks.
+_Avoid_: unverified candidate table, partial table reference
+
+**Evaluation coverage**:
+The share of user-verified fields requested by a **Comparison candidate**'s Template, established through field alignment. It describes the scope requested, separately from whether the extracted answers match their **Expected answers**.
+_Avoid_: extraction accuracy, model confidence, match rate
+
+**Comparison candidate**:
+One model and Template definition evaluated together within an **Evaluation**.
+_Avoid_: comparison stream, comparison lane
+
+**Model comparison**:
+An **Evaluation** whose **Comparison candidates** use different model names through the same Model gateway and share one Template definition.
+_Avoid_: gateway comparison, model marketplace
+
+**Template comparison**:
+An **Evaluation** whose **Comparison candidates** share one model and have independently editable Template definitions, including variants derived from saved Templates, Template versions or unsaved drafts.
+_Avoid_: model comparison, live Template edit
+
 **Template object schema**:
 The table-shaped definition for an object-like **Template field**.
 _Avoid_: object marker parsing, nested field table

@@ -121,12 +121,15 @@ async function prepareSourceContent(
   return sourceContentParts;
 }
 
+export type ExtractionUsage = { input_tokens: number | null; output_tokens: number | null; scope: "successful attempt" };
+
 export async function runExtraction(
   env: ModelGatewayConfiguration,
   fields: FieldDefinition[],
   source: ArrayBuffer | Blob,
   sourceMimeType: string,
   signal?: AbortSignal,
+  onUsage?: (usage: ExtractionUsage) => void,
 ): Promise<ModelFieldResult[]> {
   return withPreparedModelSource(env, source, sourceMimeType, signal, async (sourceContentParts, onPrepared) => {
     const model = getExtractionModelName(env);
@@ -145,6 +148,9 @@ export async function runExtraction(
     onPrepared?.(requestBody.length);
     const runResult = await runViaModelGateway(env, requestBody, signal);
     const content = readRunResultContent(runResult);
+    const usage = runResult && typeof runResult === "object" ? (runResult as { usage?: Record<string, unknown> }).usage : undefined;
+    const tokens = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+    if (usage && typeof usage === "object") onUsage?.({ input_tokens: tokens(usage.prompt_tokens ?? usage.input_tokens), output_tokens: tokens(usage.completion_tokens ?? usage.output_tokens), scope: "successful attempt" });
 
     let parsed: unknown;
     try {

@@ -1,3 +1,5 @@
+import { useEvaluations } from "./features/evaluations/useEvaluations.js";
+import { EvaluationsPage } from "./features/evaluations/EvaluationsPage.jsx";
 import React, { useMemo, useState } from "react";
 import { OnboardingTour } from "./features/onboarding/OnboardingTour.jsx";
 import { Toaster, toast } from "sonner";
@@ -109,7 +111,9 @@ function AuthenticatedApp({ configuration }) {
     isAppBusy: busy,
     setBusy,
     onActivePageChange: setActivePage,
+    beforeWorkspaceSelection: () => evaluation.confirmDiscard(),
     onClearWorkspaceScopedData: (options) => {
+      evaluation.clear();
       templateController.actions.clearWorkspaceScopedTemplates();
       documentController.actions.clearWorkspaceScopedDocuments(options);
       setLatestResponse(null);
@@ -181,6 +185,8 @@ function AuthenticatedApp({ configuration }) {
     onWorkspaceAccessRevalidation:
       workspaceController.actions.recoverForbiddenWorkspaceAccess,
   });
+  const evaluation = useEvaluations({ workspaceId, sessionId, enabled: hasApiAccess && !workspaceContext.isWorkspaceInvitationSelected,
+    active: activePage === "evaluations", onForbidden: workspaceController.actions.recoverForbiddenWorkspaceAccess });
   const documentCount = documentController.toolbar.documentCount;
   const selectedDocument = documentController.documentPage.selectedDocument;
   const { documentStatusMetrics } = documentController.metrics;
@@ -219,12 +225,12 @@ function AuthenticatedApp({ configuration }) {
   });
   const workspaceSidebar = workspaceController.sidebar;
   const workspaceToolbar = workspaceController.toolbar;
-  const pageTitle = activeVisiblePage === "workspace"
+  const pageTitle = activeVisiblePage === "evaluations" ? "Evaluations" : activeVisiblePage === "workspace"
     ? workspaceToolbar.workspaceLabel
     : activeVisiblePage === "templates"
       ? templateController.templatePage.templateName || "Create Template"
       : selectedDocument?.source_name || "Documents";
-  const pageDescription = activeVisiblePage === "workspace"
+  const pageDescription = activeVisiblePage === "evaluations" ? "Compare models and Template variants on one document." : activeVisiblePage === "workspace"
     ? "Your extraction environment, connections and people."
     : activeVisiblePage === "templates"
       ? "Define what Studio should look for in each document."
@@ -245,7 +251,7 @@ function AuthenticatedApp({ configuration }) {
     onClearWorkspaceScopedDocuments:
       documentController.actions.clearWorkspaceScopedDocuments,
     onClearSessionWorkspaceData: workspaceController.actions.clearSessionWorkspaceData,
-    onSessionChanging: documentController.actions.cancelPendingSubmissions,
+    onSessionChanging: () => { evaluation.clear(); documentController.actions.cancelPendingSubmissions(); },
   });
   const { authScreen, profileMenu } = authProfileController;
 
@@ -334,7 +340,7 @@ function AuthenticatedApp({ configuration }) {
         ) : (
           <ProfileMenu ref={profileMenu.panelRef} {...profileMenu} />
         )}
-        contextSidebar={
+        contextSidebar={activeVisiblePage === "evaluations" ? null :
           <ContextSidebar
             title={
               activePage === "documents"
@@ -464,7 +470,7 @@ function AuthenticatedApp({ configuration }) {
           </>
         }
       >
-        {activeVisiblePage !== "admin" ? (
+        {activeVisiblePage !== "admin" && activeVisiblePage !== "evaluations" ? (
           <>
             <WorkspaceToolbar
               activePage={activeVisiblePage}
@@ -526,6 +532,9 @@ function AuthenticatedApp({ configuration }) {
           {activeVisiblePage === "templates" ? (
             <TemplatePage {...templateController.templatePage} />
           ) : null}
+          {activeVisiblePage === "evaluations" ? <EvaluationsPage evaluation={evaluation} templates={templates} enabled={hasApiAccess} onTemplateSaved={templateController.actions.listTemplates}
+            maxSourceFileBytes={workspaceContext.availableWorkspaces.find(w => w.id === workspaceId)?.max_source_file_bytes ?? configuration.limits.maxSourceFileBytes}
+            workspaceLabel={workspaceToolbar.workspaceLabel} /> : null}
           {activeVisiblePage === "documents" ? (
             <DocumentPage {...documentController.documentPage} />
           ) : null}
