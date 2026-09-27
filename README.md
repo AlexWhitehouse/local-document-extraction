@@ -1,12 +1,12 @@
 # Document Extraction
 
-**Turn PDFs and images into an Excel spreadsheet.**
+**Turn PDFs and images into structured data for your applications and automated workflows.**
 
-Choose the fields you need, upload your documents, and review the results in your browser. Create reusable templates for invoices, receipts, or your own documents.
+Define the fields you need with reusable templates for invoices, receipts, or your own documents. Submit documents and retrieve extracted data programmatically through the API to connect document extraction to your existing systems. Use the browser to manage templates, upload documents, and review results, with Excel export available when you need a spreadsheet.
 
 The app runs on your computer. You connect the AI model that reads your documents, using an OpenAI-compatible service or local model server. Documents are sent to whichever service you choose.
 
-[Install](#install) · [Your first extraction](#your-first-extraction) · [Releases](https://github.com/AlexWhitehouse/local-document-extraction/releases)
+[Install](#install) · [Your first extraction](#your-first-extraction) · [Automate with the API](#automate-with-the-api) · [Releases](https://github.com/AlexWhitehouse/local-document-extraction/releases)
 
 ## Install
 
@@ -35,7 +35,13 @@ When it finishes, open **[http://127.0.0.1:8787](http://127.0.0.1:8787)**, or yo
 
 3. **Upload a document.** Click **Upload**, choose the **Example Invoice** template, and add an invoice PDF or image. For other documents, create a template in **Templates** with the fields you want to extract. Supported files are PDF, PNG, JPEG, and WebP, up to 10 MiB each by default.
 
-4. **Review and export.** Follow progress in **Documents**, then open a completed document to review its extracted fields. Select completed documents and click **Export** to download the results as an Excel spreadsheet.
+4. **Review the results.** Follow progress in **Documents**, then open a completed document to review its extracted fields. You can retrieve results through the API or select completed documents and click **Export** to download an Excel spreadsheet.
+
+## Automate with the API
+
+After configuring your Workspace and creating a template, generate a Workspace API key in the app. Use it to submit documents with `POST /v1/extract`, then poll `GET /v1/jobs/{job_id}` to track progress and retrieve the extracted fields when the job completes. This lets scripts and applications send documents and use the results as part of an automated workflow.
+
+See the [API specification](mkdocs/docs/api/overview.md), [API key authentication](mkdocs/docs/api/authentication.md), and [extraction endpoints](mkdocs/docs/api/extraction-jobs.md) for request details.
 
 ## Next time
 

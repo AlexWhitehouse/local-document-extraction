@@ -52,7 +52,7 @@ nav:
       - Templates: usage/templates.md
       - Document Extraction: usage/document-extraction.md
   - API Reference:
-      - Overview: api/overview.md
+      - Full Specification: api/overview.md
       - API Keys: api/authentication.md
       - Templates: api/templates.md
       - Extraction Jobs: api/extraction-jobs.md
