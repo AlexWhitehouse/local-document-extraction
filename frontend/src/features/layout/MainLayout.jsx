@@ -5,6 +5,7 @@ const SIDEBAR_ITEMS = [
   { id: "workspace", label: "Workspaces", icon: "WS" },
   { id: "templates", label: "Templates", icon: "TP" },
   { id: "documents", label: "Documents", icon: "DC" },
+  { id: "evaluations", label: "Evaluations", icon: "EV" },
 ];
 
 const ADMIN_SIDEBAR_ITEM = { id: "admin", label: "Admin", icon: "AD" };
@@ -142,7 +143,7 @@ export function WorkspaceToolbar({
       <p className="studio-eyebrow">
         {activePage === "workspace"
           ? "Workspaces / Overview"
-          : `${workspaceLabel} / ${activePage === "templates" ? "Templates" : "Documents"}`}
+          : `${workspaceLabel} / ${activePage === "templates" ? "Templates" : activePage === "evaluations" ? "Evaluations" : "Documents"}`}
       </p>
       <h1 title={pageTitle}>{pageTitle}</h1>
       <div className="studio-heading-actions">

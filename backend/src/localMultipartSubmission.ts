@@ -17,6 +17,7 @@ import { validateExtractSubmissionMetadata, validateSourceFileMetadata } from ".
 export type LocalStreamedExtractRequest = {
   templateId: string;
   instructions?: string;
+  evaluation?: string;
   source: {
     mimeType: string;
     name: string;
@@ -34,7 +35,7 @@ export async function parseLocalMultipartSubmission({
   maxSourceFileBytes: number;
   request: Request;
   stateDirectory: string;
-  purpose?: "extraction" | "template-generation";
+  purpose?: "extraction" | "template-generation" | "evaluation";
 }): Promise<LocalStreamedExtractRequest> {
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("multipart/form-data")) {
@@ -42,7 +43,7 @@ export async function parseLocalMultipartSubmission({
   }
   if (!request.body) throw new HttpError(400, "invalid_document", "document is required");
 
-  const temporaryDirectory = resolve(stateDirectory, "temporary", "submissions");
+  const temporaryDirectory = resolve(stateDirectory, "temporary", purpose === "evaluation" ? "evaluations" : "submissions");
   await mkdir(temporaryDirectory, { recursive: true });
   const temporaryPath = join(temporaryDirectory, `${randomUUID()}.upload`);
   const fields = new Map<string, string>();
@@ -62,7 +63,7 @@ export async function parseLocalMultipartSubmission({
       fileHwm: 64 * 1024,
       limits: {
         fieldNameSize: 64,
-        fieldSize: LOCAL_MULTIPART_FIELD_BYTES,
+        fieldSize: purpose === "evaluation" ? 1024 * 1024 : LOCAL_MULTIPART_FIELD_BYTES,
         fields: LOCAL_MULTIPART_MAX_FIELDS,
         // Busboy emits `limit` when this value is reached. Use one sentinel
         // byte so a Source exactly at the documented maximum remains valid.
@@ -109,7 +110,7 @@ export async function parseLocalMultipartSubmission({
       fail(new HttpError(400, "invalid_multipart", `Duplicate multipart field: ${name}`));
       return;
     }
-    if (!(purpose === "template-generation" ? ["instructions"] : ["fields", "options", "template_id"]).includes(name)) {
+    if (!(purpose === "evaluation" ? ["evaluation"] : purpose === "template-generation" ? ["instructions"] : ["fields", "options", "template_id"]).includes(name)) {
       fail(new HttpError(400, "invalid_multipart", `Unsupported multipart field: ${name}`));
       return;
     }
@@ -119,7 +120,7 @@ export async function parseLocalMultipartSubmission({
   parser.once("fieldsLimit", () => fail(new HttpError(400, "invalid_multipart", "Too many multipart fields")));
   parser.once("partsLimit", () => fail(new HttpError(400, "invalid_multipart", "Too many multipart parts")));
 
-  const totalLimitBytes = localDocumentRequestBodyLimit(maxSourceFileBytes);
+  const totalLimitBytes = purpose === "evaluation" ? maxSourceFileBytes + 1024 * 1024 + 8192 : localDocumentRequestBodyLimit(maxSourceFileBytes);
   let totalBytes = 0;
   const requestLimit = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
@@ -154,6 +155,11 @@ export async function parseLocalMultipartSubmission({
     const parsedDocument = document as { mimeType: string; name: string; size: number } | null;
     if (!parsedDocument || !documentWrite) {
       throw new HttpError(400, "invalid_document", "document is required");
+    }
+    if (purpose === "evaluation") {
+      validateSourceFileMetadata(parsedDocument.mimeType, parsedDocument.size, maxSourceFileBytes);
+      if (!parsedDocument.size || !fields.get("evaluation")) throw new HttpError(400, "invalid_evaluation", "Document and Evaluation inputs are required");
+      return { templateId: "", evaluation: fields.get("evaluation"), source: { ...parsedDocument, temporaryPath } };
     }
     if (purpose === "template-generation") {
       validateSourceFileMetadata(parsedDocument.mimeType, parsedDocument.size, maxSourceFileBytes);

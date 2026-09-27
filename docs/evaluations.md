@@ -1,0 +1,30 @@
+# Evaluations
+
+Evaluations compare up to eight candidates on one document. Model comparison shares Template fields and varies model names/capabilities. Template comparison shares the model/capabilities and varies complete Template drafts. All accepted Workspace members may use the signed-in frontend.
+
+Choose a saved Template, an earlier field version, or the current unsaved Template draft. Historical versions contain historical fields and current descriptive metadata. Duplicate a candidate to copy its current inputs without results. Template candidates can replace their draft with another Template/version. The full Template editor is also available on the normal Templates page.
+
+Run all uploads the document once and admits all candidates to the existing extraction scheduler. Individual results arrive as they finish. There is no separate Evaluation concurrency pool or persisted Document job. Queue-full rejection applies independently to affected candidates. Candidates remain editable while submitted work uses its immutable snapshot. Rerun failures retain the previous successful result; connection loss requires manual rerunning.
+
+Expected answers are optional and explicitly verified against the document. Reference values and scoring stay in browser memory. Text ignores case/punctuation and normalizes whitespace unless Exact match is selected. Numbers compare without rounding tolerance; booleans normalize yes/no and true/false; dates must represent an unambiguous calendar day. Explicit absence differs from an unverified value and cannot match unreadable/error output.
+
+Table comparisons use declared scalar columns, with compatible names/types or explicit column links. Choose a unique row key or explicit position comparison. Missing/duplicate keys withhold the table score for review. Missing/extra rows are reported separately. Free-form lists and nested objects remain visual comparisons. Coverage reports requested verified fields separately from scalar and table-cell match counts.
+
+Save as new Template copies the current draft into the same editor and requires explicit Save. It does not save an Evaluation or alter the original Template. Expected answers and results are never included.
+
+## Runtime boundaries
+
+- `localEvaluations.ts` owns session-only setup/historical reads and per-submission multipart streaming. Bearer access is rejected even alongside cookies. Credentials and gateway destinations remain server-owned; configuration revision drift blocks new submissions while admitted work retains its captured configuration.
+- `localExtractionQueue.ts` dispatches tagged temporary tasks alongside durable Documents with the same permits, Workspace fairness, sequential policy and delayed retry scheduling. Temporary admission returns explicit outcomes instead of durable deferral.
+- `extractionRetryPolicy.ts` shares the three-attempt transient retry policy. Evaluation gateway feedback reaches the existing adaptive resource controller without completed-Document analytics.
+- `runExtraction` and `normalizeModelResults` remain the shared computation. Evaluations retain bounded original field values for strict browser matching. Actual gateway token metadata is optional and labelled as the successful attempt only; missing counts remain Unavailable.
+- One request-scoped NDJSON response delivers progress/results to the initiating tab. No Workspace broadcast, polling result store, saved expected answers or replay mechanism is introduced. Buffers are bounded; failed delivery stops queued/retry work. Already-sent model requests finish under their operation deadline, and their late results are discarded.
+- Multipart metadata is capped at 1 MiB, in addition to the existing Workspace Source byte/MIME/PDF and global upload/preparation limits. Upload lifetime is bounded by at least 60 seconds or the configured gateway timeout. The subsequent submission deadline is four configured gateway timeouts plus two minutes, with a minimum of one minute; this bounds queue/preparation waits, three calls and retry delays. Excessive Retry-After fails the candidate instead of extending ownership indefinitely. These are operation deadlines, not idle Evaluation expiry.
+- Sources use the private `temporary/evaluations` namespace. Last candidate settlement deletes the shared upload. Failure reports Cleanup pending independently of extraction success; scoped startup and 30-second runtime sweeps retry orphan deletion without restoring model work. Currently owned/uploading files are excluded. Only confirmed deletion reports complete; a closed/lost response leaves pending/unconfirmed status in the browser.
+- Clear, Workspace change and session/access loss invalidate browser generations, stop queued work and suppress late delivery. Same-Workspace navigation preserves state. Refresh and tab closure discard it. No cancellation controls are exposed for submitted candidates.
+
+## Verification
+
+Focused backend integration tests cover eight candidates with ordinary Documents, explicit queue/retry rejection, duplicate uploads, configuration snapshots, session/key/origin/Workspace isolation, revocation, historical reads, deletion failure/recovery and real Bun fetch disconnects. Frontend tests cover scoring/coverage/type/table edge cases, snapshot edits, duplicate candidates, interruption, retained results, shared editor behavior and explicit save/reference flows.
+
+Run `bun run typecheck`, `bun run lint`, `TZ=UTC bun run test`, and `bun run build`. The existing frontend admin date assertion assumes UTC. Browser validation uses an isolated local state directory and a synthetic gateway/document, with no paid model requests or user data.

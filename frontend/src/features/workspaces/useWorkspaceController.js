@@ -67,6 +67,7 @@ export function useWorkspaceController({
   setBusy,
   onActivePageChange,
   onClearWorkspaceScopedData,
+  beforeWorkspaceSelection,
 }) {
   const initialWorkspaceRef = useRef(loadPersistedWorkspace());
   const initialWorkspace = initialWorkspaceRef.current || {};
@@ -994,6 +995,7 @@ export function useWorkspaceController({
   }
 
   function selectInvitedWorkspace(workspace) {
+    if (beforeWorkspaceSelection && !beforeWorkspaceSelection()) return;
     applyWorkspaceContextUpdate(
       selectPendingWorkspaceInvitationContext({
         invitation: { id: workspace.invitation_id },
@@ -1004,6 +1006,7 @@ export function useWorkspaceController({
   }
 
   function selectAcceptedWorkspace(workspace) {
+    if (workspace.id !== workspaceIdRef.current && beforeWorkspaceSelection && !beforeWorkspaceSelection()) return;
     applyAcceptedWorkspaceContext(workspace);
     addLog(`Switched workspace context to ${workspace.id}`);
   }

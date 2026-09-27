@@ -52,6 +52,7 @@ let activeJobExports = 0;
 export function createLocalApplication({
   auth,
   diagnostics,
+  evaluations,
   jobPageSize = DEFAULT_JOB_PAGE_SIZE,
   maxSourceFileBytes = DEFAULT_MAX_SOURCE_FILE_BYTES,
   maxJsonRequestBytes = 1024 * 1024,
@@ -67,6 +68,7 @@ export function createLocalApplication({
   workspaceDeletion,
   workspaceProductOperations,
 }: {
+  evaluations?: { handle(request: Request): Promise<Response> };
   auth?: LocalAuth;
   diagnostics?: () => Record<string, unknown>;
   jobPageSize?: number;
@@ -117,6 +119,7 @@ export function createLocalApplication({
       const rejection = localRequestOriginFailure(request, auth);
       if (rejection) return rejection;
     }
+    if (url.pathname.startsWith("/v1/evaluations/") && evaluations) return evaluations.handle(request);
     if (request.body && !(request.method === "POST" && ["/v1/extract", "/v1/templates/generate"].includes(url.pathname))) {
       try {
         request = await boundLocalApiBody(request, maxJsonRequestBytes);

@@ -1,3 +1,4 @@
+import { extractionRetryDelay, EXTRACTION_MAX_ATTEMPTS, EXTRACTION_MAX_RETRY_DELAY_MS } from "./extractionRetryPolicy";
 import {
   getExtractionModelName,
   getModelGatewayRouteLabel,
@@ -36,10 +37,10 @@ import { createLocalWorkspaceProductDataAccess, LocalWorkspaceProductDataAccessE
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-const DEFAULT_MAX_ATTEMPTS = 3;
+const DEFAULT_MAX_ATTEMPTS = EXTRACTION_MAX_ATTEMPTS;
 const DEFAULT_STALE_PROCESSING_AFTER_MS = 5 * 60 * 1000;
 const DEFAULT_RECOVERY_BATCH_SIZE = 1_000;
-const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
+const DEFAULT_MAX_RETRY_DELAY_MS = EXTRACTION_MAX_RETRY_DELAY_MS;
 
 export type LocalExtractionRunner = {
   recover(workspaceId?: string): Promise<void>;
@@ -302,17 +303,7 @@ export function createLocalExtractionRunner({
           }
           if (error instanceof RetryableError && attempt < maxAttempts) {
             const requeuedAt = now();
-            const exponentialCeilingMs = Math.min(
-              normalizedMaxRetryDelayMs,
-              normalizedRetryDelayMs * 2 ** Math.max(0, attempt - 1),
-            );
-            const jitteredDelayMs = Math.floor(
-              Math.max(0, Math.min(1, random())) * exponentialCeilingMs,
-            );
-            const retryDelayForAttemptMs = Math.max(
-              jitteredDelayMs,
-              error.retryAfterMs ?? 0,
-            );
+            const retryDelayForAttemptMs = extractionRetryDelay(attempt, normalizedRetryDelayMs, error.retryAfterMs, normalizedMaxRetryDelayMs, random);
             const nextRetryAt = new Date(
               Date.parse(requeuedAt) + retryDelayForAttemptMs,
             ).toISOString();

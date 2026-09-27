@@ -1,3 +1,4 @@
+import { createLocalEvaluations, EVALUATION_METADATA_BYTES } from "./localEvaluations";
 import { getModelPreparationSnapshot } from "./consumer/modelGateway";
 import { createLocalApplication } from "./localApplication";
 import { readLocalConfiguration, publicLocalConfiguration } from "./localConfiguration";
@@ -54,8 +55,8 @@ const server = bun.serve<{ workspaceId: string }>({
     if (request.method === "GET" && new URL(request.url).pathname === "/v1/config") {
       return Response.json(publicLocalConfiguration(configuration), { headers: { "cache-control": "no-store" } });
     }
-    if (request.method === "POST" && ["/v1/extract", "/v1/templates/generate"].includes(new URL(request.url).pathname)) {
-      if (new URL(request.url).pathname === "/v1/templates/generate") bunServer.timeout(request, 0);
+    if (request.method === "POST" && ["/v1/extract", "/v1/templates/generate", "/v1/evaluations/run"].includes(new URL(request.url).pathname)) {
+      if (["/v1/templates/generate", "/v1/evaluations/run"].includes(new URL(request.url).pathname)) bunServer.timeout(request, 0);
       return localSubmissionAdmission.run(request, () => runtimeFetch(request));
     }
     return localRuntimeRequestDrain.run(() => {
@@ -71,7 +72,7 @@ const server = bun.serve<{ workspaceId: string }>({
     });
   },
   hostname: configuration.host,
-  maxRequestBodySize: Math.max(localDocumentServerBodyLimit(maxSourceFileBytes), maxJsonRequestBytes),
+  maxRequestBodySize: Math.max(localDocumentServerBodyLimit(maxSourceFileBytes), maxSourceFileBytes + EVALUATION_METADATA_BYTES, maxJsonRequestBytes),
   port,
   websocket: {
     ...LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY,
@@ -145,7 +146,7 @@ const localSubmissionAdmission = createLocalSubmissionAdmission({
   canReserve: localResourceController.canReserveSubmission,
   maxConcurrent: submissionMaxConcurrency,
   maxReservedBytes: submissionMaxReservedBytes,
-  unknownRequestBytes: localDocumentRequestBodyLimit(maxSourceFileBytes),
+  unknownRequestBytes: Math.max(localDocumentRequestBodyLimit(maxSourceFileBytes), maxSourceFileBytes + EVALUATION_METADATA_BYTES),
 });
 const localRuntimeRequestDrain = createLocalRuntimeRequestDrain();
 const localSourceFileRetention = createLocalSourceFileRetention({
@@ -209,7 +210,13 @@ const extractionReconcileTimer = setInterval(() => {
 const sourceRetentionTimer = setInterval(() => {
   runRecurringWork("Local Source retention sweep", localSourceFileRetention.run);
 }, sourceRetentionSweepIntervalMs);
+const localEvaluations = createLocalEvaluations({
+  auth: localAuth.auth, workspaceControl: localAuth.workspaceControl, productStoreRegistry: localProductStoreRegistry,
+  stateDirectory, queue: localExtractionQueue, maxSourceFileBytes, requestTimeoutMs: configuration.modelGatewayRequestTimeoutMs,
+  retryDelayMs: extractionRetryDelayMs, onGatewayOutcome: localResourceController.recordGatewayOutcome,
+});
 const application = createLocalApplication({
+  evaluations: localEvaluations,
   modelGatewayRequestTimeoutMs: String(configuration.modelGatewayRequestTimeoutMs),
   auth: localAuth.auth,
   diagnostics: () => ({
@@ -251,6 +258,7 @@ console.log(`LOCAL_RUNTIME_READY ${JSON.stringify({ origin: serverOrigin })}`);
 
 const runtimeShutdown = createLocalRuntimeShutdown({
   closeAdmission: async () => {
+    localEvaluations.close();
     const admissionClosed = localSubmissionAdmission.close();
     const requestsClosed = localRuntimeRequestDrain.close();
     await Promise.all([admissionClosed, requestsClosed]);

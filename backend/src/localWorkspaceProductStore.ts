@@ -197,7 +197,7 @@ export type LocalWorkspaceProductStore = {
     staleProcessingBefore: string;
     isJobActive?: (jobId: string) => boolean;
   }): LocalScheduledExtractionJob[];
-  getTemplate(templateId: string): LocalWorkspaceTemplateDetail | null;
+  getTemplate(templateId: string, version?: number): LocalWorkspaceTemplateDetail | null;
   deleteExtractionJob(input: { jobId: string }): DeletedLocalWorkspaceExtractionJob | null;
   getExtractionJob(jobId: string): LocalWorkspaceExtractionJob | null;
   getExtractionJobResults(jobId: string): LocalWorkspaceExtractionResult[];
@@ -362,7 +362,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     failExtractionJob: (input) => failExtractionJob(database, input),
     requeueExtractionJob: (input) => requeueExtractionJob(database, input),
     recoverExtractionJobs: (input) => recoverExtractionJobs(database, input),
-    getTemplate: (templateId) => getTemplate(database, templateId),
+    getTemplate: (templateId, version) => getTemplate(database, templateId, version),
     deleteExtractionJob: (input) => deleteExtractionJob(database, input),
     getExtractionJob: (jobId) => getExtractionJob(database, jobId),
     getExtractionJobResults: (jobId) => readExtractionJobResults(database, jobId),
@@ -608,7 +608,7 @@ function listTemplates(database: Database): LocalWorkspaceTemplate[] {
   ).all() as LocalWorkspaceTemplate[];
 }
 
-function getTemplate(database: Database, templateId: string): LocalWorkspaceTemplateDetail | null {
+function getTemplate(database: Database, templateId: string, version?: number): LocalWorkspaceTemplateDetail | null {
   const template = database.query(
     `SELECT id, name, description, status, current_version, created_at, updated_at
      FROM templates
@@ -624,8 +624,9 @@ function getTemplate(database: Database, templateId: string): LocalWorkspaceTemp
      FROM template_fields
      WHERE template_id = ? AND version = ?
      ORDER BY position ASC`,
-  ).all(templateId, template.current_version) as Array<FieldDefinition & { position: number }>;
+  ).all(templateId, version ?? template.current_version) as Array<FieldDefinition & { position: number }>;
 
+  if (version !== undefined && (!Number.isSafeInteger(version) || version < 1 || !fields.length)) return null;
   return { ...template, fields };
 }
 
