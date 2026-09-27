@@ -14,6 +14,37 @@ const propsFor = (request) => ({
 });
 
 describe("template request scope", () => {
+  it("starts and resets new drafts with valid invoice fields and line items", async () => {
+    const request = vi.fn(async () => ({ templates: [] }));
+    const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
+    await waitFor(() => expect(request).toHaveBeenCalled());
+    expect(result.current.templatePage.templateName).toBe("Invoice Template");
+    expect(result.current.templatePage.templateFields.map((field) => field.id)).toEqual([
+      "invoice_number", "invoice_date", "vendor_name", "total_amount", "currency", "line_items",
+    ]);
+    act(() => result.current.templatePage.onOpenJsonModal());
+    const payload = JSON.parse(result.current.jsonModal.draft);
+    expect(payload.name).toBe("Invoice Template");
+    expect(payload.fields.at(-1)).toMatchObject({
+      name: "Line Items",
+      data_type: "array<object>",
+      object_schema: {
+        columns: [
+          expect.objectContaining({ heading: "Line Number", data_type: "number" }),
+          expect.objectContaining({ heading: "Description", data_type: "string" }),
+          expect.objectContaining({ heading: "Quantity", data_type: "number" }),
+          expect.objectContaining({ heading: "Unit Price", data_type: "number" }),
+          expect.objectContaining({ heading: "Line Total", data_type: "number" }),
+        ],
+      },
+    });
+    act(() => result.current.toolbar.onCreateTemplate({ empty: true }));
+    expect(result.current.templatePage.templateName).toBe("");
+    act(() => result.current.toolbar.onCreateTemplate());
+    expect(result.current.templatePage.templateName).toBe("Invoice Template");
+    expect(result.current.templatePage.templateFields.map((field) => field.name)).toEqual(payload.fields.map((field) => field.name));
+  });
+
   it.each(["workspaceId", "sessionId"])("discards lists from the previous %s", async (key) => {
     const pending = deferred();
     const props = propsFor(vi.fn(() => pending.promise));
@@ -37,7 +68,7 @@ describe("template request scope", () => {
     rerender({ ...props, workspaceId: "workspace_b", request: vi.fn(async () => ({ templates: [] })) });
     await act(async () => pending.resolve(template("old")));
     expect(result.current.templatePage.isEditingTemplate).toBe(false);
-    expect(result.current.templatePage.templateName).toBe("Prescription Template");
+    expect(result.current.templatePage.templateName).toBe("Invoice Template");
     expect(result.current.selectedUploadTemplateId).toBe("");
     expect(result.current.jsonModal.isOpen).toBe(false);
   });

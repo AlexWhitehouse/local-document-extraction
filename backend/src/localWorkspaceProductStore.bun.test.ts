@@ -19,6 +19,68 @@ import {
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
 import { validateTemplatePayload } from "./lib/validation";
 
+test("starter Templates use unique generated IDs and remain idempotent after edits, restart, and deletion", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-starter-template-"));
+  const workspaceId = "workspace_starter";
+  let store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+  const other = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_other" });
+  const createdAt = "2026-09-27T12:00:00.000Z";
+
+  try {
+    store.ensureStarterInvoiceTemplate({ createdAt });
+    other.ensureStarterInvoiceTemplate({ createdAt });
+    const starter = store.listTemplates()[0]!;
+    expect(starter.id).toMatch(/^tpl_[0-9a-f]{32}$/);
+    expect(other.listTemplates()[0]!.id).toMatch(/^tpl_[0-9a-f]{32}$/);
+    expect(other.listTemplates()[0]!.id).not.toBe(starter.id);
+    expect(store.getTemplate(starter.id)?.fields.map((field) => field.id)).toEqual([
+      "invoice_number", "invoice_date", "vendor_name", "total_amount", "currency",
+    ]);
+    store.ensureStarterInvoiceTemplate({ createdAt });
+    expect(store.listTemplates()).toEqual([starter]);
+
+    store.updateTemplate({ templateId: starter.id, name: "My invoices", updatedAt: createdAt });
+    store.close();
+    store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+    store.ensureStarterInvoiceTemplate({ createdAt });
+    expect(store.listTemplates()).toEqual([expect.objectContaining({ id: starter.id, name: "My invoices" })]);
+
+    store.deleteTemplate({ templateId: starter.id, deletedAt: createdAt });
+    store.ensureStarterInvoiceTemplate({ createdAt });
+    expect(store.listTemplates()).toEqual([]);
+  } finally {
+    store.close();
+    other.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("starter bootstrap preserves legacy and manually created Templates", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-existing-starter-"));
+  try {
+    for (const templateId of ["tpl_starter_invoice", "tpl_existing"]) {
+      const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: templateId });
+      try {
+        store.createTemplate({
+          templateId,
+          name: "Customized template",
+          description: "Keep my changes",
+          fields: [{ id: "reference", name: "Reference", description: "My reference", data_type: "string" }],
+          createdAt: "2026-09-26T12:00:00.000Z",
+        });
+        const before = store.getTemplate(templateId);
+        store.ensureStarterInvoiceTemplate({ createdAt: "2026-09-27T12:00:00.000Z" });
+        expect(store.listTemplates()).toHaveLength(1);
+        expect(store.getTemplate(templateId)).toEqual(before);
+      } finally {
+        store.close();
+      }
+    }
+  } finally {
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("local Workspace product data creates Templates in an isolated per-Workspace database", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-product-store-"));
   const research = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_research" });
@@ -334,7 +396,7 @@ test("authenticated Template create/list routes use the authorized Workspace pro
 
     const starterList = await application(new Request("http://127.0.0.1:8787/v1/templates", { headers }));
     await expect(starterList.json()).resolves.toMatchObject({
-      templates: [expect.objectContaining({ name: "Example Invoice" })],
+      templates: [expect.objectContaining({ name: "Example Invoice", id: expect.stringMatching(/^tpl_[0-9a-f]{32}$/) })],
     });
 
     const created = await application(new Request("http://127.0.0.1:8787/v1/templates", {

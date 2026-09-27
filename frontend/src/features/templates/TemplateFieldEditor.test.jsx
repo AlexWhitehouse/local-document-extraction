@@ -102,7 +102,8 @@ describe("Template field editor", () => {
         ],
       },
     });
-    expect(within(columnCard).getByLabelText("Column ID").value).toBe("dose_1");
+    expect(screen.queryByRole("columnheader", { name: "Column ID" })).toBeNull();
+    expect(within(columnCard).queryByLabelText("Column ID")).toBeNull();
   });
 
   it("does not offer a twenty-first object column", async () => {

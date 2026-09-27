@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Database, constants as sqliteConstants } from "bun:sqlite";
 
 import type { FieldDefinition } from "./lib/types";
+import { newId } from "./lib/ids";
 import type { NormalizedModelField } from "./consumer/modelResultNormalizer";
 import type { StoredWorkspaceModelConfiguration } from "./workspaceModelConfiguration";
 import { assertRealStateDirectorySync, assertRegularStateFileSync, ensurePrivateStateDirectorySync } from "./localStatePaths";
@@ -545,18 +546,21 @@ function productStoreDiagnostics(database: Database): {
 }
 
 function ensureStarterInvoiceTemplate(database: Database, input: { createdAt: string }): void {
-  const existing = database.query("SELECT id FROM templates WHERE id = ? LIMIT 1").get("tpl_starter_invoice");
-  if (existing) {
-    return;
-  }
+  database.transaction(() => {
+    // Bootstrap only an untouched Workspace. Include deleted Templates so retrying
+    // bootstrap never recreates a starter that the user has edited or removed.
+    if (database.query("SELECT id FROM templates LIMIT 1").get()) {
+      return;
+    }
 
-  createTemplate(database, {
-    templateId: "tpl_starter_invoice",
-    name: "Example Invoice",
-    description: "Starter template that extracts key invoice fields for quick testing.",
-    fields: STARTER_INVOICE_FIELDS,
-    createdAt: input.createdAt,
-  });
+    createTemplate(database, {
+      templateId: newId("tpl"),
+      name: "Example Invoice",
+      description: "Starter template that extracts key invoice fields for quick testing.",
+      fields: STARTER_INVOICE_FIELDS,
+      createdAt: input.createdAt,
+    });
+  }).immediate();
 }
 
 function createTemplate(

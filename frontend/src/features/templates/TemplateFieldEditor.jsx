@@ -526,7 +526,6 @@ function ObjectSchemaModal({
               <tr>
                 <th scope="col">Order</th>
                 <th scope="col">Column Name</th>
-                <th scope="col">Column ID</th>
                 <th scope="col">Type</th>
                 <th scope="col">Description</th>
                 <th scope="col">Actions</th>
@@ -535,7 +534,7 @@ function ObjectSchemaModal({
             <tbody>
               {!columns.length ? (
                 <tr>
-                  <td className="object-schema-empty" colSpan="6">
+                  <td className="object-schema-empty" colSpan="5">
                     No columns yet. Add one to start defining the object shape.
                   </td>
                 </tr>
@@ -559,14 +558,6 @@ function ObjectSchemaModal({
                           )
                         }
                         placeholder="Line Total"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        aria-label="Column ID"
-                        value={column.key}
-                        readOnly
-                        placeholder="auto_generated_from_name"
                       />
                     </td>
                     <td>
