@@ -5,6 +5,7 @@ import { createLocalApplication } from "./localApplication";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
 import { upgradeLocalLiveUpdate } from "./localLiveUpdateUpgrade";
 import { createLocalLiveUpdateHub, type LocalLiveUpdateSocket } from "./localLiveUpdateHub";
+import { setLocalAuthRequestPeerAddress } from "./localAuthClientAddress";
 
 const origin = "http://127.0.0.1:8787";
 async function fixture() {
@@ -17,11 +18,14 @@ async function fixture() {
   });
   const control = createLocalWorkspaceControl(database);
   const application = createLocalApplication({ auth, workspaceControl: control });
+  let clientNumber = 0;
   async function account(email: string) {
-    const response = await application(new Request(`${origin}/api/auth/sign-up/email`, {
+    const request = new Request(`${origin}/api/auth/sign-up/email`, {
       method: "POST", headers: { "content-type": "application/json", origin },
       body: JSON.stringify({ name: email, email, password: "Strong1!" }),
-    }));
+    });
+    setLocalAuthRequestPeerAddress(request, `192.0.2.${++clientNumber}`);
+    const response = await application(request);
     expect(response.status).toBe(200);
     const { user } = await response.json() as { user: { id: string } };
     const cookie = response.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");

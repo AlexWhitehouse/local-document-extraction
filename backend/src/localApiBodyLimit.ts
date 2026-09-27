@@ -1,4 +1,5 @@
 import { HttpError } from "./lib/http";
+import { copyLocalAuthRequestPeerAddress } from "./localAuthClientAddress";
 
 /** Buffer small API bodies once, before auth middleware or routes clone them. */
 export async function boundLocalApiBody(request: Request, maximumBytes: number): Promise<Request> {
@@ -32,7 +33,7 @@ export async function boundLocalApiBody(request: Request, maximumBytes: number):
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new Request(request, { body });
+  return copyLocalAuthRequestPeerAddress(request, new Request(request, { body }));
 }
 
 function tooLarge(maximumBytes: number): HttpError {

@@ -293,6 +293,8 @@ Inline `fields` are rejected with `400 inline_fields_forbidden`; save a template
 
 Supported file MIME types are `application/pdf`, `image/png`, `image/jpeg`, and `image/webp`. The default file limit is **10 MiB (10,485,760 bytes)**; deployment configuration or a Workspace override may change it. PDFs must be readable. The complete multipart body is limited to the effective file limit plus 32 KiB for the envelope. An oversized source or multipart body normally returns `400 source_file_too_large`; a reverse proxy or runtime hard limit can reject a much larger request before it reaches the application.
 
+PDF inspection also limits decoded data, parser complexity and processing time, independently of the configured upload limit. PDFs have an additional fixed source ceiling of 32 MiB, a 16 MiB decoded-stream ceiling and a 32 MiB cumulative decoder-allocation budget. A PDF that exceeds those safety limits returns `400 pdf_source_file_limit_exceeded`; a malformed PDF returns `400 invalid_pdf_source_file`. When PDF inspection capacity is temporarily full, the response is `503 pdf_validation_capacity_unavailable`. These checks apply to both Document submission and Template generation, before saving a job or calling the Model gateway.
+
 Success returns `202 Accepted`:
 
 ```http

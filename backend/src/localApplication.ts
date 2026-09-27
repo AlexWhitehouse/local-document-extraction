@@ -5,7 +5,7 @@ import { rm } from "node:fs/promises";
 import { evaluateAccountPasswordPolicy } from "./lib/accountPasswordPolicy";
 import { HttpError } from "./lib/http";
 import { newId, nowIso } from "./lib/ids";
-import { InvalidPdfSourceFileError, countPdfSourceFilePages } from "./lib/sourceFilePageCount";
+import { InvalidPdfSourceFileError, PdfSourceFileCapacityError, PdfSourceFileLimitError, countPdfSourceFilePages } from "./lib/sourceFilePageCount";
 import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "./lib/validation";
 import { buildJobExportInWorker } from "./localJobExportWorker";
 import { assertKnownDocumentRequestBodyLength } from "./localDocumentBodyLimit";
@@ -232,7 +232,7 @@ export function createLocalApplication({
           });
           temporaryPath = sample.source.temporaryPath;
           if (sample.source.mimeType === "application/pdf") {
-            await countLocalSourceFilePages(sample.source.mimeType, await Bun.file(temporaryPath).arrayBuffer());
+            await countLocalSourceFilePages(sample.source.mimeType, await Bun.file(temporaryPath).arrayBuffer(), signal);
           }
           const template = await generateTemplate({
             AI_MODEL: configuration.model_name,
@@ -501,7 +501,8 @@ async function handleLocalDocumentSubmission({
 
   const maximumBytes = authorization.workspace.max_source_file_bytes ?? maxSourceFileBytes;
 
-  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore }) => {
+  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore, signal: workspaceSignal }) => {
+    const signal = AbortSignal.any([request.signal, workspaceSignal]);
     try {
       const configuration = productStore.getModelConfiguration();
       if (!configuration) throw configurationMissing();
@@ -521,7 +522,7 @@ async function handleLocalDocumentSubmission({
       if (sourceFileStore.promoteTemporary) {
         const streamed = await parseLocalMultipartSubmission({
           maxSourceFileBytes: maximumBytes,
-          request,
+          request: new Request(request, { signal }),
           stateDirectory,
         });
         templateId = streamed.templateId;
@@ -543,7 +544,8 @@ async function handleLocalDocumentSubmission({
           throw new HttpError(404, "template_not_found", "Template not found");
         }
         if (temporaryPath && sourceMimeType === "application/pdf") sourceBytes = await Bun.file(temporaryPath).arrayBuffer();
-        const sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!);
+        const sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!, signal);
+        signal.throwIfAborted();
         const templateFieldCount = productStore.getTemplate(template.template_id)?.fields.length ?? 0;
         const jobId = newId("job");
         const submittedAt = nowIso();
@@ -650,6 +652,9 @@ async function handleLocalDocumentSubmission({
         if (temporaryPath) await rm(temporaryPath, { force: true });
       }
     } catch (error) {
+      if (signal.aborted) {
+        return Response.json({ error: { code: "document_submission_cancelled", message: "Document submission cancelled" } }, { status: 499 });
+      }
       if (error instanceof HttpError) {
         return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
       }
@@ -1115,16 +1120,19 @@ async function authorizeLocalProductRequest({
   return { response: Response.json({ error: { code: response.code, message: response.message } }, { status: response.status }) };
 }
 
-async function countLocalSourceFilePages(sourceMimeType: string, sourceBytes: ArrayBuffer): Promise<number | null> {
+async function countLocalSourceFilePages(sourceMimeType: string, sourceBytes: ArrayBuffer, signal?: AbortSignal): Promise<number | null> {
   if (sourceMimeType !== "application/pdf") {
     return null;
   }
 
   try {
-    return await countPdfSourceFilePages(sourceBytes);
+    return await countPdfSourceFilePages(sourceBytes, signal);
   } catch (error) {
-    if (error instanceof InvalidPdfSourceFileError) {
+    if (error instanceof InvalidPdfSourceFileError || error instanceof PdfSourceFileLimitError) {
       throw new HttpError(400, error.code, error.message);
+    }
+    if (error instanceof PdfSourceFileCapacityError) {
+      throw new HttpError(503, error.code, error.message);
     }
     throw error;
   }

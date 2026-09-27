@@ -17,7 +17,7 @@ Use the installed launcher's `doctor` command (its printed absolute path, or `do
 | `DOCUMENT_EXTRACTION_ASSETS_DIR` | Checkout `frontend/dist/` | Built frontend directory. Installer selects the current release's build and overrides file-loaded values. |
 | `DOCUMENT_EXTRACTION_ADMIN_EMAILS` | Empty | Comma-separated emails granted Application admin role when their accounts are created. Does not promote existing accounts on restart. |
 | `AUTH_TRUSTED_ORIGINS` | Empty | Additional comma-separated exact HTTP(S) origins allowed by auth. The configured application origin is trusted automatically. No wildcard or maintainer domain is included. |
-| `AUTH_TRUSTED_IP_HEADERS` | Empty | Comma-separated client-IP headers to trust. Header-derived IP tracking is disabled by default. |
+| `AUTH_TRUSTED_IP_HEADERS` | Empty | Comma-separated client-IP header names to trust. The socket peer address is used by default. Configured headers must contain one valid IP address; forwarding chains and invalid values fall back to the socket peer. |
 | `DEV_API_ORIGIN` | `http://127.0.0.1:<PORT or 8787>` | Development-only Vite proxy target for `/api/auth` and `/v1`. Has no effect on the built SPA. |
 
 Auth URLs must be origins, without credentials, paths, query parameters, or fragments. Use the same hostname consistently: `localhost` and `127.0.0.1` are different browser origins. For a loopback application origin, standard localhost/127.0.0.1 Vite origins on port 5173 and loopback aliases at the application port are trusted automatically. For other development origins, add the exact Vite origin to `AUTH_TRUSTED_ORIGINS`.
@@ -25,6 +25,8 @@ Auth URLs must be origins, without credentials, paths, query parameters, or frag
 Use a dedicated real directory for state. The filesystem root, home root, and repository root are rejected as state locations; symlink state roots and child directories are refused before permission changes. Startup repairs owner-only permissions on existing state without erasing its contents.
 
 For remote access, set a browser-facing HTTPS `BETTER_AUTH_URL` and place a TLS proxy in front of the app. Forward `/api/auth`, `/v1`, and the Workspace WebSocket route. Changing `HOST` to `0.0.0.0` exposes the listener to other machines; use firewall rules and a trusted proxy appropriate to your environment. Only set `AUTH_TRUSTED_IP_HEADERS` when that proxy overwrites the selected header and clients cannot bypass it. `cf-connecting-ip` is appropriate only for an actual trusted Cloudflare path; it is not enabled by default.
+
+Authentication rate limits are always enabled, including the normal local launcher and development startup; they do not depend on `NODE_ENV`. Better Auth applies per-client, per-endpoint limits, with stricter limits for sensitive account operations. Excess attempts return HTTP 429 with `X-Retry-After` in seconds. Counters are bounded, atomic, private to the running installation and reset on restart. IPv6 clients share a `/64` budget. Behind a proxy, configure an overwritten single-address header as described above so all users do not share the proxy's address. Client-supplied forwarding headers are ignored unless explicitly trusted.
 
 ## Authentication
 
@@ -124,7 +126,11 @@ MAX_SOURCE_FILE_BYTES=52428800
 SUBMISSION_MAX_RESERVED_BYTES=268435456
 ```
 
-This accepts a 50 MiB source within a 256 MiB shared upload budget. It does not guarantee that every PDF can be rendered within the preparation limit or sent within your model provider's limits. PDFs can expand substantially during decoding and image/base64 preparation.
+This allows a 50 MiB upload within a 256 MiB shared upload budget. Each format still has independent processing limits: PDF inspection accepts at most 32 MiB of source bytes, and images remain subject to the preparation limits. Increasing the upload limit does not guarantee that a source can be processed or sent within your model provider's limits.
+
+PDF page inspection runs in a disposable subprocess with bounded concurrency, a deadline, and limits checked before allocating decoded buffers or expanding parser structures. A small compressed file may therefore be rejected with `400 pdf_source_file_limit_exceeded`; increasing `MAX_SOURCE_FILE_BYTES` does not relax these parser limits. Temporary parser saturation returns `503 pdf_validation_capacity_unavailable`. These checks cover admission/page counting; rendered images retain their separate preparation limits.
+
+The fixed inspection limits include 32 MiB of source bytes per PDF, 16 MiB per decoded stream, a 32 MiB cumulative decoder-allocation budget (including buffer growth and filter stages), 10,000 pages and a five-second process deadline. At most two inspections run and eight wait, sharing a 64 MiB source reservation. Waiting also expires after five seconds. Parser object, nesting, token, scan and copy budgets provide additional bounds; these allocation budgets are not a whole-process RSS ceiling.
 
 Gateway URL, model name, outbound credential, direct-PDF support, structured-output support, and sequential-call preference are configured **per Workspace in the UI**. They are not deployment environment variables. All capability switches start off. An unconfigured Workspace rejects upload before storing the source. A credential is encrypted using `secrets/model-gateway.key`; preserve that key with the databases. Local/private HTTP gateways are supported, so Workspace owners/admins should be trusted to choose reachable endpoints.
 

@@ -28,7 +28,7 @@ export async function startLocalRuntimeSmokeProcess({
     resolveOrigin = resolve;
     rejectOrigin = reject;
   });
-  const child = Bun.spawn([process.execPath, "src/server.ts"], {
+  const child = Bun.spawn([process.execPath, "--no-env-file", "src/server.ts"], {
     cwd: backendDirectory,
     env: {
       ...env,
