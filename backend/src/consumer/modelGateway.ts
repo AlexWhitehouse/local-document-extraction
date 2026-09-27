@@ -65,47 +65,40 @@ export function getModelGatewayRequestTimeoutMs(env: ModelGatewayConfiguration):
   return Math.trunc(configured);
 }
 
-export async function runExtraction(
+/** Prepare a document once, under the same memory and sequencing limits as extraction. */
+export async function withPreparedModelSource<T>(
   env: ModelGatewayConfiguration,
-  fields: FieldDefinition[],
   source: ArrayBuffer | Blob,
   sourceMimeType: string,
-  signal?: AbortSignal,
-): Promise<ModelFieldResult[]> {
+  signal: AbortSignal | undefined,
+  work: (parts: Record<string, unknown>[], onPrepared: (characters: number) => void) => Promise<T>,
+): Promise<T> {
   const sourceSize = source instanceof Blob ? source.size : source.byteLength;
   const rendered = sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
   const reservation = Math.max(1024 * 1024, rendered
     ? MAX_RENDERED_PDF_BYTES * 3 + sourceSize + 16 * 1024 * 1024
     : sourceSize * 4);
   if (reservation > localMemoryLimits.preparationMaxBytes) throw new ModelGatewayRequestError("Source exceeds the local model preparation budget");
-  return scheduleModelCall(env, () => preparationBudget.run(reservation,
-    (lease) => prepareAndRunExtraction(env, fields, source, sourceMimeType, signal, (requestCharacters) => {
-      // Rendering has finished. Retain an estimate for the source, content strings,
-      // serialized body and transport copy instead of the maximum PDF render size.
-      const retainedBytes = sourceSize + requestCharacters * 6 + 16 * 1024 * 1024;
+  return scheduleModelCall(env, () => preparationBudget.run(reservation, async (lease) => {
+    if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
+    const sourceBytes = source instanceof Blob ? await source.arrayBuffer() : source;
+    const parts = await prepareSourceContent(sourceBytes, sourceMimeType, rendered, signal);
+    return work(parts, (characters) => {
+      const retainedBytes = sourceSize + characters * 6 + 16 * 1024 * 1024;
       lease.shrinkTo(Math.min(reservation, retainedBytes));
-    }), signal)).catch((error) => {
-      if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
-      throw error;
     });
+  }, signal), signal).catch((error) => {
+    if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
+    throw error;
+  });
 }
 
-async function prepareAndRunExtraction(
-  env: ModelGatewayConfiguration,
-  fields: FieldDefinition[],
-  source: ArrayBuffer | Blob,
+async function prepareSourceContent(
+  sourceBytes: ArrayBuffer,
   sourceMimeType: string,
+  renderPdfAsImages: boolean,
   signal?: AbortSignal,
-  onPrepared?: (requestCharacters: number) => void,
-): Promise<ModelFieldResult[]> {
-  if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
-  const model = getExtractionModelName(env);
-  const renderPdfAsImages =
-    sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
-  const sourceBytes = source instanceof Blob ? await source.arrayBuffer() : source;
-  const prompt = buildPrompt(fields, sourceMimeType, renderPdfAsImages);
-  const systemPrompt =
-    "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.";
+): Promise<Record<string, unknown>[]> {
   let sourceContentParts: Record<string, unknown>[];
   try {
     sourceContentParts = [];
@@ -125,38 +118,54 @@ async function prepareAndRunExtraction(
       `PDF Source file could not be prepared for the model: ${errorToMessage(error)}`,
     );
   }
-  const runInput = buildChatCompletionsInput(
-    model,
-    fields,
-    prompt,
-    sourceContentParts,
-    systemPrompt,
-    readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT),
-  );
-  const requestBody = JSON.stringify(runInput);
-  onPrepared?.(requestBody.length);
-  const runResult = await runViaModelGateway(env, requestBody, signal);
-  const content = readRunResultContent(runResult);
+  return sourceContentParts;
+}
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new RetryableError("Model response content was not valid JSON");
-  }
+export async function runExtraction(
+  env: ModelGatewayConfiguration,
+  fields: FieldDefinition[],
+  source: ArrayBuffer | Blob,
+  sourceMimeType: string,
+  signal?: AbortSignal,
+): Promise<ModelFieldResult[]> {
+  return withPreparedModelSource(env, source, sourceMimeType, signal, async (sourceContentParts, onPrepared) => {
+    const model = getExtractionModelName(env);
+    const renderPdfAsImages = sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
+    const prompt = buildPrompt(fields, sourceMimeType, renderPdfAsImages);
+    const systemPrompt = "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.";
+    const runInput = buildChatCompletionsInput(
+      model,
+      fields,
+      prompt,
+      sourceContentParts,
+      systemPrompt,
+      readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT),
+    );
+    const requestBody = JSON.stringify(runInput);
+    onPrepared?.(requestBody.length);
+    const runResult = await runViaModelGateway(env, requestBody, signal);
+    const content = readRunResultContent(runResult);
 
-  const results = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as { results?: unknown }).results
-    : undefined;
-  if (!Array.isArray(results)) {
-    throw new RetryableError("Model JSON missing results array");
-  }
-  if (results.some((row) => !row || typeof row !== "object" || Array.isArray(row) ||
-    typeof row.field_id !== "string" || !row.field_id.trim() || typeof row.status !== "string" || !("answer" in row))) {
-    throw new RetryableError("Model JSON contains invalid result entries");
-  }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      throw new RetryableError("Model response content was not valid JSON");
+    }
 
-  return results as ModelFieldResult[];
+    const results = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as { results?: unknown }).results
+      : undefined;
+    if (!Array.isArray(results)) {
+      throw new RetryableError("Model JSON missing results array");
+    }
+    if (results.some((row) => !row || typeof row !== "object" || Array.isArray(row) ||
+      typeof row.field_id !== "string" || !row.field_id.trim() || typeof row.status !== "string" || !("answer" in row))) {
+      throw new RetryableError("Model JSON contains invalid result entries");
+    }
+
+    return results as ModelFieldResult[];
+  });
 }
 
 function buildChatCompletionsInput(
@@ -192,58 +201,49 @@ function buildResponseFormat(
   model: string,
   fields: FieldDefinition[],
 ): Record<string, unknown> {
-  const normalizedModel = model.toLowerCase();
-  if (
-    !normalizedModel.includes("gemma-4") &&
-    !isQwenMultimodalModel(normalizedModel)
-  ) {
-    return { type: "json_object" };
-  }
-
-  return {
-    type: "json_schema",
-    json_schema: {
-      name: "extraction_results",
-      strict: true,
-      schema: {
-        type: "object",
-        properties: {
-          results: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                field_id: { type: "string" },
-                status: {
-                  type: "string",
-                  enum: [
-                    "ok",
-                    "not_found",
-                    "invalid_type",
-                    "unreadable",
-                    "error",
-                  ],
-                },
-                answer: buildAnswerSchema(fields),
-                confidence: { type: ["number", "null"] },
-                evidence: { type: ["string", "null"] },
-              },
-              required: [
-                "field_id",
-                "status",
-                "answer",
-                "confidence",
-                "evidence",
+  return buildModelResponseFormat(model, "extraction_results", {
+    type: "object",
+    properties: {
+      results: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            field_id: { type: "string" },
+            status: {
+              type: "string",
+              enum: [
+                "ok",
+                "not_found",
+                "invalid_type",
+                "unreadable",
+                "error",
               ],
-              additionalProperties: false,
             },
+            answer: buildAnswerSchema(fields),
+            confidence: { type: ["number", "null"] },
+            evidence: { type: ["string", "null"] },
           },
+          required: [
+            "field_id",
+            "status",
+            "answer",
+            "confidence",
+            "evidence",
+          ],
+          additionalProperties: false,
         },
-        required: ["results"],
-        additionalProperties: false,
       },
     },
-  };
+    required: ["results"],
+    additionalProperties: false,
+  });
+}
+
+export function buildModelResponseFormat(model: string, name: string, schema: Record<string, unknown>): Record<string, unknown> {
+  const normalizedModel = model.toLowerCase();
+  if (!normalizedModel.includes("gemma-4") && !isQwenMultimodalModel(normalizedModel)) return { type: "json_object" };
+  return { type: "json_schema", json_schema: { name, strict: true, schema } };
 }
 
 function buildAnswerSchema(fields: FieldDefinition[]): Record<string, unknown> {
@@ -408,6 +408,7 @@ function isQwenMultimodalModel(normalizedModel: string): boolean {
 function scheduleModelCall<T>(
   env: ModelGatewayConfiguration,
   task: () => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   if (!readBooleanConfiguration(env.MODEL_GATEWAY_SEQUENTIAL_CALLS)) {
     return task();
@@ -415,11 +416,28 @@ function scheduleModelCall<T>(
 
   const scope = env.MODEL_GATEWAY_WORKSPACE_ID ?? "transport-test";
   const previous = sequentialModelCallTails.get(scope) ?? Promise.resolve();
-  const result = previous.then(task, task);
-  const tail = result.then(() => undefined, () => undefined);
+  const result = waitForModelTurn(previous, signal).then(task);
+  // A cancelled waiter must not let later work overtake the call already running.
+  const tail = Promise.allSettled([previous, result]).then(() => undefined);
   sequentialModelCallTails.set(scope, tail);
   void tail.then(() => { if (sequentialModelCallTails.get(scope) === tail) sequentialModelCallTails.delete(scope); });
   return result;
+}
+
+function waitForModelTurn(previous: Promise<void>, signal?: AbortSignal): Promise<void> {
+  if (!signal) return previous;
+  return new Promise((resolve, reject) => {
+    const aborted = () => {
+      signal.removeEventListener("abort", aborted);
+      reject(new ExtractionCancelledError("Queued model call cancelled"));
+    };
+    if (signal.aborted) { aborted(); return; }
+    signal.addEventListener("abort", aborted, { once: true });
+    void previous.then(() => {
+      signal.removeEventListener("abort", aborted);
+      resolve();
+    });
+  });
 }
 
 function isRetryableHttpStatus(status: number): boolean {
@@ -521,7 +539,7 @@ function readContentValue(value: unknown): string | null {
   return null;
 }
 
-async function runViaModelGateway(
+export async function runViaModelGateway(
   env: ModelGatewayConfiguration,
   requestBody: string,
   signal?: AbortSignal,

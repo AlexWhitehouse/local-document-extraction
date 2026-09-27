@@ -27,6 +27,7 @@ import {
 } from "./features/layout/MainLayout.jsx";
 import { TemplateContextList } from "./features/templates/TemplateContextList.jsx";
 import { TemplatePage } from "./features/templates/TemplatePage.jsx";
+import { TemplateGenerationModal } from "./features/templates/TemplateGenerationModal.jsx";
 import { TemplateJsonModal } from "./features/templates/TemplateJsonModal.jsx";
 import { useTemplateController } from "./features/templates/useTemplateController.js";
 import { WorkspaceContextList } from "./features/workspaces/WorkspaceContextList.jsx";
@@ -138,6 +139,7 @@ function AuthenticatedApp({ configuration }) {
     [request],
   );
   const templateController = useTemplateController({
+    maxSourceFileBytes: configuration.limits.maxSourceFileBytes,
     initialWorkspace,
     request,
     addLog,
@@ -453,6 +455,7 @@ function AuthenticatedApp({ configuration }) {
               </div>
             ) : null}
 
+            <TemplateGenerationModal {...templateController.generationModal} />
             <TemplateJsonModal
               {...templateController.jsonModal}
             />
@@ -488,6 +491,7 @@ function AuthenticatedApp({ configuration }) {
                 documentController.toolbar.exportableDocumentCount
               }
               updateTemplateId={templateController.toolbar.selectedTemplateId}
+              onAutoGenerateTemplate={templateController.toolbar.onAutoGenerateTemplate}
               onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
               onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
               onExportDocuments={documentController.toolbar.onExportDocuments}

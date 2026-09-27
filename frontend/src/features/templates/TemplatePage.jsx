@@ -1,4 +1,5 @@
 import React from "react";
+import { MagicIcon } from "./MagicIcon.jsx";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 
 export function TemplatePage({
@@ -7,6 +8,8 @@ export function TemplatePage({
   templateFields,
   isEditingTemplate,
   isSavingTemplate,
+  isGeneratingTemplate = false,
+  onAutoGenerate,
   isEditedTemplateDirty,
   hasApiAccess,
   onTemplateNameChange,
@@ -21,7 +24,7 @@ export function TemplatePage({
       className="studio-text-button studio-save-action"
       data-tour="save-template"
       disabled={
-        isSavingTemplate ||
+        isSavingTemplate || isGeneratingTemplate ||
         !hasApiAccess ||
         (isEditingTemplate && !isEditedTemplateDirty)
       }
@@ -43,7 +46,7 @@ export function TemplatePage({
           <input
             data-tour="template-name"
             value={templateName}
-            disabled={isSavingTemplate || !hasApiAccess}
+            disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess}
             onChange={(event) => onTemplateNameChange(event.target.value)}
           />
         </label>
@@ -51,7 +54,7 @@ export function TemplatePage({
           Description
           <input
             value={templateDescription}
-            disabled={isSavingTemplate || !hasApiAccess}
+            disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess}
             onChange={(event) =>
               onTemplateDescriptionChange(event.target.value)
             }
@@ -62,7 +65,17 @@ export function TemplatePage({
         fields={templateFields}
         onChange={onTemplateFieldsChange}
         saveAction={saveAction}
-        disabled={isSavingTemplate || !hasApiAccess}
+        jsonAction={
+          <button
+            type="button"
+            className="studio-text-button"
+            disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess}
+            onClick={onOpenJsonModal}
+          >
+            View JSON
+          </button>
+        }
+        disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess}
       />
       <footer className="studio-editor-footer">
         <span>
@@ -73,13 +86,10 @@ export function TemplatePage({
               : "All changes saved"
             : "New template"}
         </span>
-        <button
-          type="button"
-          className="studio-text-button"
-          disabled={isSavingTemplate || !hasApiAccess}
-          onClick={onOpenJsonModal}
-        >
-          View JSON
+        <button type="button" className="studio-generate-button"
+          disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess} onClick={onAutoGenerate}>
+          <MagicIcon />
+          Auto generate
         </button>
       </footer>
     </section>

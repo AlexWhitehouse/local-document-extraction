@@ -1,4 +1,5 @@
 import React from "react";
+import { MagicIcon } from "../templates/MagicIcon.jsx";
 
 const SIDEBAR_ITEMS = [
   { id: "workspace", label: "Workspaces", icon: "WS" },
@@ -122,6 +123,7 @@ export function WorkspaceToolbar({
   exportableDocumentCount = 0,
   updateTemplateId,
   onCreateTemplate,
+  onAutoGenerateTemplate,
   onCreateWorkspace,
   onExportDocuments,
   onUploadDocument,
@@ -191,21 +193,24 @@ export function WorkspaceToolbar({
           </>
         ) : (
           <>
-            <button
-              type="button"
-              className="secondary"
-              data-tour={activePage === "templates" ? "create-template" : "create-workspace"}
-              disabled={activePage === "templates" ? !hasApiAccess : isWorkspaceBusy}
-              onClick={
-                activePage === "templates"
-                  ? onCreateTemplate
-                  : onCreateWorkspace
-              }
-            >
-              {activePage === "templates"
-                ? "Create Template"
-                : "Create Workspace"}
-            </button>
+            {activePage === "templates" ? (
+              <div className="studio-create-template-split" role="group" aria-label="Create template">
+                <button type="button" className="secondary" data-tour="create-template"
+                  disabled={!hasApiAccess} onClick={onCreateTemplate}>
+                  Create Template
+                </button>
+                <button type="button" className="secondary studio-create-template-magic"
+                  aria-label="Auto generate new template" title="Auto generate new template"
+                  disabled={!hasApiAccess} onClick={onAutoGenerateTemplate}>
+                  <MagicIcon />
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="secondary" data-tour="create-workspace"
+                disabled={isWorkspaceBusy} onClick={onCreateWorkspace}>
+                Create Workspace
+              </button>
+            )}
             {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
               <button
                 type="button"

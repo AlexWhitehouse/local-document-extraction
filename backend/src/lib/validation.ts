@@ -397,12 +397,7 @@ export function validateExtractSubmissionMetadata({
   if (typeof templateIdRaw !== "string" || templateIdRaw.trim().length === 0) {
     throw new HttpError(400, "invalid_template_id", "template_id is required");
   }
-  if (!ALLOWED_MIME_TYPES.has(sourceMimeType)) {
-    throw new HttpError(400, "invalid_document", `Unsupported Document MIME type: ${sourceMimeType}`);
-  }
-  if (sourceSize > maxSourceFileBytes) {
-    throw new HttpError(400, "source_file_too_large", `Source file exceeds max size of ${maxSourceFileBytes} bytes`);
-  }
+  validateSourceFileMetadata(sourceMimeType, sourceSize, maxSourceFileBytes);
   return {
     templateId: templateIdRaw.trim(),
     options: parseOptions(optionsRaw),
@@ -451,4 +446,13 @@ function parseOptions(value: FormDataEntryValue | null): ExtractOptions {
   }
 
   return options;
+}
+
+export function validateSourceFileMetadata(sourceMimeType: string, sourceSize: number, maxSourceFileBytes: number): void {
+  if (!ALLOWED_MIME_TYPES.has(sourceMimeType)) {
+    throw new HttpError(400, "invalid_document", `Unsupported Document MIME type: ${sourceMimeType}`);
+  }
+  if (sourceSize > maxSourceFileBytes) {
+    throw new HttpError(400, "source_file_too_large", `Source file exceeds max size of ${maxSourceFileBytes} bytes`);
+  }
 }

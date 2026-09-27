@@ -39,7 +39,22 @@ try {
       if (request.headers.get("authorization") !== "Bearer browser-journey-key") {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
-      await request.json();
+      const input = await request.json() as { model?: string; messages?: Array<{ role: string }> };
+      if (input.model === "browser/template-generator") {
+        const corrected = (input.messages?.length ?? 0) > 2;
+        return Response.json({ choices: [{ message: { content: JSON.stringify({
+          name: "Generated Receipt", description: "Capture receipt totals and purchases.",
+          fields: [
+            { name: "Total", description: "Total amount paid", data_type: corrected ? "number" : "integer" },
+            { name: "Purchases", description: "Purchased items", data_type: "array<object>", object_schema: {
+              mode: "table", columns: [
+                { heading: "Item", description: "Name of the purchased item", data_type: "string" },
+                { heading: "Amount", description: "Amount paid for the item", data_type: "number" },
+              ],
+            } },
+          ],
+        }) } }] });
+      }
       return Response.json({
         choices: [{
           message: {

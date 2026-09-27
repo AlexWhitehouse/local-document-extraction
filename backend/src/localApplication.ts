@@ -1,3 +1,5 @@
+import { generateTemplate } from "./consumer/templateGeneration";
+import { ExtractionCancelledError, ModelGatewayRequestError, RetryableError } from "./consumer/modelGateway";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { evaluateAccountPasswordPolicy } from "./lib/accountPasswordPolicy";
@@ -53,6 +55,7 @@ export function createLocalApplication({
   jobPageSize = DEFAULT_JOB_PAGE_SIZE,
   maxSourceFileBytes = DEFAULT_MAX_SOURCE_FILE_BYTES,
   maxJsonRequestBytes = 1024 * 1024,
+  modelGatewayRequestTimeoutMs = "300000",
   liveUpdateHub,
   productAnalytics,
   productStoreFactory,
@@ -69,6 +72,7 @@ export function createLocalApplication({
   jobPageSize?: number;
   maxSourceFileBytes?: number;
   maxJsonRequestBytes?: number;
+  modelGatewayRequestTimeoutMs?: string;
   liveUpdateHub?: LocalLiveUpdateHub;
   productAnalytics?: LocalProductAnalytics;
   productStoreFactory?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
@@ -113,7 +117,7 @@ export function createLocalApplication({
       const rejection = localRequestOriginFailure(request, auth);
       if (rejection) return rejection;
     }
-    if (request.body && !(request.method === "POST" && url.pathname === "/v1/extract")) {
+    if (request.body && !(request.method === "POST" && ["/v1/extract", "/v1/templates/generate"].includes(url.pathname))) {
       try {
         request = await boundLocalApiBody(request, maxJsonRequestBytes);
       } catch (error) {
@@ -205,6 +209,55 @@ export function createLocalApplication({
       try {
         return Response.json(workspaceControl.declineInvitation({ invitationId: decodeURIComponent(declineInvitationMatch[1] || ""), userEmail: session.email }));
       } catch (error) { return workspaceErrorResponse(error); }
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/templates/generate") {
+      if (!auth || !workspaceControl || !stateDirectory || !localProductDataAccess) {
+        return Response.json({ error: { code: "local_product_store_unavailable", message: "Workspace storage is unavailable" } }, { status: 503 });
+      }
+      const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
+      if ("response" in authorization) return authorization.response;
+      const workspaceId = authorization.workspace.id;
+      return localProductDataAccess.run({ workspaceId, mode: "create" }, async ({ store, signal: workspaceSignal }) => {
+        let temporaryPath: string | undefined;
+        const signal = AbortSignal.any([request.signal, workspaceSignal]);
+        try {
+          const configuration = store.getModelConfiguration();
+          if (!configuration) throw configurationMissing();
+          const credential = createWorkspaceCredentialVault(stateDirectory).decrypt(workspaceId, configuration.credential_ciphertext);
+          const maximumBytes = authorization.workspace.max_source_file_bytes ?? maxSourceFileBytes;
+          assertKnownDocumentRequestBodyLength(request, maximumBytes);
+          const sample = await parseLocalMultipartSubmission({
+            request: new Request(request, { signal }), stateDirectory, maxSourceFileBytes: maximumBytes, purpose: "template-generation",
+          });
+          temporaryPath = sample.source.temporaryPath;
+          if (sample.source.mimeType === "application/pdf") {
+            await countLocalSourceFilePages(sample.source.mimeType, await Bun.file(temporaryPath).arrayBuffer());
+          }
+          const template = await generateTemplate({
+            AI_MODEL: configuration.model_name,
+            MODEL_GATEWAY_URL: configuration.gateway_url,
+            LITELLM_KEY: credential,
+            MODEL_GATEWAY_SEQUENTIAL_CALLS: String(configuration.sequential_calls),
+            MODEL_SUPPORTS_PDF_INPUT: String(configuration.supports_pdf_input),
+            MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(configuration.supports_structured_output),
+            MODEL_GATEWAY_WORKSPACE_ID: workspaceId,
+            MODEL_GATEWAY_REQUEST_TIMEOUT_MS: modelGatewayRequestTimeoutMs,
+          }, Bun.file(temporaryPath), sample.source.mimeType, sample.instructions || "", signal);
+          return Response.json(template, { headers: { "cache-control": "no-store" } });
+        } catch (error) {
+          if (signal.aborted || error instanceof ExtractionCancelledError) {
+            return Response.json({ error: { code: "template_generation_cancelled", message: "Template generation cancelled" } }, { status: 499 });
+          }
+          if (error instanceof HttpError) return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+          if (error instanceof ModelGatewayRequestError || error instanceof RetryableError) {
+            return Response.json({ error: { code: "template_generation_failed", message: `${error.message}. Check the workspace model configuration or try again.` } }, { status: 502 });
+          }
+          return Response.json({ error: { code: "template_generation_failed", message: "Template generation failed. Please try again." } }, { status: 500 });
+        } finally {
+          if (temporaryPath) await rm(temporaryPath, { force: true });
+        }
+      }).catch(workspaceProductDataAccessErrorResponse);
     }
 
     const templateMatch = url.pathname.match(/^\/v1\/templates(?:\/([^/]+))?$/);

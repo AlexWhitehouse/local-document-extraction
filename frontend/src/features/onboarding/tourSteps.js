@@ -5,7 +5,7 @@ export const TOUR_STEPS = [
   { id: "create-workspace", title: "A space for your documents", text: "Workspaces keep templates, documents and teammates together. Click Create Workspace to create a real workspace for this walkthrough.", action: "workspace" },
   { id: "workspace-name", title: "Make it yours", text: "Give your workspace a useful name, then click Save name. Everything you create during this tour stays in this workspace.", check: "workspaceName" },
   { id: "nav-templates", title: "Choose what to extract", text: "Open Templates. A template describes the information you want to find in each document.", click: true },
-  { id: "create-template", title: "Create your first template", text: "Click Create Template to begin a fresh extraction schema.", click: true },
+  { id: "create-template", title: "Create your first template", text: "Click Create Template to build one manually for this walkthrough. Once your workspace’s model is configured, the magic icon can generate a template from a sample document.", click: true },
   { id: "template-name", title: "Name your template", text: "Choose a name such as Invoice. You’ll select this template when you upload a document.", check: "templateName" },
   { id: "field-name", title: "Start with one value", text: "Name your first field, for example Invoice Number. Field IDs are generated from these names.", check: "firstName" },
   { id: "field-description", title: "Tell the model what to find", text: "Write clear extraction instructions, such as: The invoice identifier printed near the top of the document.", check: "firstDescription" },
