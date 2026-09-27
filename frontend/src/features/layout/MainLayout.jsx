@@ -105,6 +105,7 @@ function SidebarNavigation({
 }
 
 export function WorkspaceToolbar({
+  actions,
   activePage,
   workspaceLabel,
   pageTitle,
@@ -147,7 +148,7 @@ export function WorkspaceToolbar({
       </p>
       <h1 title={pageTitle}>{pageTitle}</h1>
       <div className="studio-heading-actions">
-        {activePage === "documents" ? (
+        {actions ?? (activePage === "documents" ? (
           <>
             <button
               type="button"
@@ -245,7 +246,7 @@ export function WorkspaceToolbar({
               </button>
             ) : null}
           </>
-        )}
+        ))}
       </div>
       <p className="studio-page-description">{pageDescription}</p>
     </header>

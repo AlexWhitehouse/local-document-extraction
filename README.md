@@ -37,6 +37,14 @@ When it finishes, open **[http://127.0.0.1:8787](http://127.0.0.1:8787)**, or yo
 
 4. **Review the results.** Follow progress in **Documents**, then open a completed document to review its extracted fields. You can retrieve results through the API or select completed documents and click **Export** to download an Excel spreadsheet.
 
+## Compare models and templates
+
+Open **Evaluations** to compare up to eight candidates on one document. Compare different models against the same template, or edit template variants while keeping the model fixed. **Run all** processes candidates through the shared scheduler, and the comparison matrix displays their results as they finish.
+
+Add verified expected answers to compare field and table-cell accuracy. For tables, choose a unique row identifier or compare by row order. Save useful candidate edits as a new template. Evaluations are temporary: refreshing or closing the tab discards their document, candidates, expected answers, and results.
+
+See the [Evaluations guide](docs/evaluations.md) for scoring and run behavior.
+
 ## Automate with the API
 
 After configuring your Workspace and creating a template, generate a Workspace API key in the app. Use it to submit documents with `POST /v1/extract`, then poll `GET /v1/jobs/{job_id}` to track progress and retrieve the extracted fields when the job completes. This lets scripts and applications send documents and use the results as part of an automated workflow.

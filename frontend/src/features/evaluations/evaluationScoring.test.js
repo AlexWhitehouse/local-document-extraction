@@ -80,3 +80,26 @@ it("withholds duplicated field links instead of double-counting a reference", ()
   const score = scoreCandidate({ result: { fields: [a, b], raw: [a, b].map(f => ({ field_id: f.id, ...raw(1) })) } }, { [identity]: ref(1) }, { [identity]: a }, { [b.id]: identity });
   expect(score.fields).toBeNull(); expect(score.byField[a.id].state).toBe("Needs review");
 });
+
+it("scores table-object results by their rows, preserving empty versus invalid output", () => {
+  const reference = { ...ref(expectedTable), rows: { mode: "position" } };
+  expect(scoreField(table, raw({ columns: ["sku", "quantity"], rows: expectedTable }), reference)).toMatchObject({ state: "Match", matched: 4, total: 4 });
+  expect(scoreField(table, raw({ columns: ["sku", "quantity"], rows: [] }), reference)).toMatchObject({ state: "Mismatch", missing: [1, 2] });
+  const empty = { ...ref([]), rows: { mode: "position" } };
+  expect(scoreField(table, raw({ columns: ["sku", "quantity"], rows: [] }), empty).state).toBe("Match");
+  expect(scoreField(table, raw({ columns: ["sku", "quantity"], rows: null }), empty).state).toBe("Mismatch");
+});
+it("requires a valid row matching choice before verifying table answers", () => {
+  expect(validateReference(table, ref(expectedTable))).toMatch(/Choose how to match rows/);
+  expect(validateReference(table, { ...ref(expectedTable), rows: { mode: "key", key: "missing" } })).toMatch(/Choose a column/);
+  expect(validateReference(table, { ...ref([{ sku: "A", quantity: 1 }, { sku: "A", quantity: 2 }]), rows: { mode: "key", key: "sku" } })).toMatch(/unique/);
+  expect(validateReference(table, { ...ref(expectedTable), rows: { mode: "position" } })).toBe("");
+  expect(validateReference(table, { ...ref(expectedTable), rows: { mode: "key", key: "sku" } })).toBe("");
+  expect(validateReference(table, { verified: true, absent: true })).toBe("");
+});
+it("reports tables needing review separately from unscored tables", () => {
+  const candidate = { result: { fields: [table], raw: [{ field_id: table.id, ...raw(expectedTable) }] } };
+  const identity = fieldIdentity(table);
+  expect(scoreCandidate(candidate, { [identity]: ref(expectedTable) }, { [identity]: table }).tablesNeedingReview).toBe(1);
+  expect(scoreCandidate(candidate, {}, { [identity]: table }).tablesNeedingReview).toBe(0);
+});

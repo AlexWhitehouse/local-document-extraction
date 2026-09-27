@@ -1,6 +1,4 @@
-import React, { useState } from "react";
-import { TemplateEditorModal } from "./TemplateEditorModal.jsx";
-import { hydrateFieldFromTemplate } from "./templateFields.js";
+import React from "react";
 import { MagicIcon } from "./MagicIcon.jsx";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 
@@ -20,7 +18,6 @@ export function TemplatePage({
   onOpenJsonModal,
   onSaveTemplate,
 }) {
-  const [fullEditor, setFullEditor] = useState(false);
   const saveAction = (
     <button
       type="button"
@@ -43,10 +40,6 @@ export function TemplatePage({
 
   return (
     <section className="studio-template-page" aria-label="Template editor">
-      <button type="button" className="studio-text-button" disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess} onClick={() => setFullEditor(true)}>Open full Template editor</button>
-      {fullEditor && <TemplateEditorModal initial={{ name: templateName, description: templateDescription, fields: templateFields }} onClose={() => setFullEditor(false)} onSubmit={payload => {
-        onTemplateNameChange(payload.name); onTemplateDescriptionChange(payload.description || ""); onTemplateFieldsChange(payload.fields.map(hydrateFieldFromTemplate));
-      }} />}
       <div className="studio-template-meta">
         <label>
           Template name

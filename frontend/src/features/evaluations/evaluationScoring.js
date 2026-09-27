@@ -45,6 +45,12 @@ export function scalarValue(value, type, exact = false) {
   }
   return invalid();
 }
+// The gateway supports both row arrays and structured { columns, rows } answers.
+// Preserve cell values so matching still validates their original types.
+export function tableAnswerRows(answer) {
+  const rows = Array.isArray(answer) ? answer : answer?.rows;
+  return Array.isArray(rows) && rows.every(row => row && typeof row === "object" && !Array.isArray(row)) ? rows : null;
+}
 export function tableColumns(field) {
   return hydrateFieldFromTemplate(field).object_schema?.columns || [];
 }
@@ -54,6 +60,13 @@ export function validateReference(field, reference) {
   if (field.data_type !== "array<object>" || !tableColumns(field).length) return "This field is not automatically scored.";
   const columns = tableColumns(field);
   if (!Array.isArray(reference.value) || reference.value.some(row => !row || typeof row !== "object" || columns.some(c => !scalarValue(row[c.key], c.data_type).valid))) return "Provide the complete table with valid values for every declared column.";
+  if (!["position", "key"].includes(reference.rows?.mode)) return "Choose how to match rows before verifying: use a unique column or row position.";
+  if (reference.rows.mode === "key") {
+    const column = columns.find(c => c.key === reference.rows.key);
+    if (!column) return "Choose a column from this table to identify rows.";
+    const keys = reference.value.map(row => scalarValue(row[column.key], column.data_type).value);
+    if (new Set(keys).size !== keys.length) return "Row identifiers must be unique. Choose another column or compare by row position.";
+  }
   return "";
 }
 export function scoreField(field, raw, reference, referenceField = field, options = {}) {
@@ -75,7 +88,8 @@ function scoreTable(field, value, reference, referenceField, mappings) {
   if (!reference.rows || !["position", "key"].includes(reference.rows.mode)) return { state: "Needs review", reason: "Choose a row identifier or row-position comparison." };
   const expectedRows = reference.value;
   if (!Array.isArray(expectedRows)) return { state: "Needs review", reason: "Verify the complete expected table." };
-  const rows = Array.isArray(value) ? value : [];
+  const parsedRows = tableAnswerRows(value);
+  const rows = parsedRows || [];
   const keyPair = pairs.find(([c]) => c.key === reference.rows.key);
   if (reference.rows.mode === "key" && !keyPair) return { state: "Needs review", reason: "Choose a compatible row identifier." };
   const keys = (list, actual) => list.map((row, index) => {
@@ -101,10 +115,10 @@ function scoreTable(field, value, reference, referenceField, mappings) {
   });
   actualKeys.forEach((key, index) => { if (!expectedKeys.includes(key)) extra.push(index + 1); });
   const total = expectedRows.length * pairs.length;
-  return { state: Array.isArray(value) && matched === total && !extra.length ? "Match" : "Mismatch", kind: "table", matched, total, missing, extra, cells };
+  return { state: parsedRows !== null && matched === total && !extra.length ? "Match" : "Mismatch", kind: "table", matched, total, missing, extra, cells };
 }
 export function scoreCandidate(candidate, references, definitions, alignments = {}, columns = {}) {
-  if (!candidate.result) return { fields: null, tables: null, coverage: null, byField: {} };
+  if (!candidate.result) return { fields: null, tables: null, tablesNeedingReview: 0, coverage: null, byField: {} };
   const byField = {};
   const requested = new Set();
   const identities = candidate.result.fields.map(f => alignments[f.id] || fieldIdentity(f));
@@ -123,5 +137,6 @@ export function scoreCandidate(candidate, references, definitions, alignments = 
     const scored = Object.values(byField).filter(score => score.kind === kind);
     return scored.length ? { matched: scored.reduce((s, r) => s + r.matched, 0), total: scored.reduce((s, r) => s + r.total, 0) } : null;
   };
-  return { fields: sum("field"), tables: sum("table"), coverage: { requested: requested.size, total: Object.values(references).filter(r => r.verified).length }, byField };
+  const tablesNeedingReview = candidate.result.fields.filter(field => field.data_type === "array<object>" && byField[field.id]?.state === "Needs review").length;
+  return { fields: sum("field"), tables: sum("table"), tablesNeedingReview, coverage: { requested: requested.size, total: Object.values(references).filter(r => r.verified).length }, byField };
 }

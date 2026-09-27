@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import "./TemplateEditorModal.css";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "./templateFields.js";
 
@@ -34,15 +35,20 @@ export function TemplateEditorModal({ initial, title = "Edit Template", action =
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   };
   return createPortal(<div className="modal-backdrop" onClick={() => !saving && onClose()}>
-    <div ref={dialog} className="modal-card evaluation-template-editor" role="dialog" aria-modal="true" aria-label={title} onKeyDown={keyboard} onClick={event => event.stopPropagation()}>
-      <h2>{title}</h2>{notice && <p className="hint">{notice}</p>}
+    <div ref={dialog} className="modal-card studio-main template-editor-modal" role="dialog" aria-modal="true" aria-label={title} onKeyDown={keyboard} onClick={event => event.stopPropagation()}>
+      <header className="template-editor-modal-header">
+        <div><h2>{title}</h2>{notice && <p>{notice}</p>}</div>
+        <button type="button" className="icon-action-button template-editor-modal-close" aria-label="Close Template editor" disabled={saving} onClick={onClose}>×</button>
+      </header>
       <div className="studio-template-meta">
         <label>Template name<input value={draft.name} disabled={saving} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
         <label>Description<input value={draft.description || ""} disabled={saving} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
       </div>
       <TemplateFieldEditor fields={draft.fields} disabled={saving} onChange={next => setDraft(previous => ({ ...previous, fields: typeof next === "function" ? next(previous.fields) : next }))} />
+      <footer className="template-editor-modal-footer">
       {error && <p role="alert">{error}</p>}
       <div className="actions"><button type="button" className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button type="button" disabled={saving} onClick={submit}>{saving ? "Saving…" : action}</button></div>
+      </footer>
     </div>
   </div>, document.body);
 }

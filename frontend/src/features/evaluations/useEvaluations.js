@@ -108,7 +108,7 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
     }
   };
   return { state, patch, edit, start, run, clear, api,
-    duplicate(candidateId) { const candidate = state.candidates.find(c => c.id === candidateId); if (candidate && state.candidates.length < 8) patch({ candidates: [...state.candidates, makeCandidate(candidate.template, candidate)] }); },
+    duplicate(candidateId) { const candidate = state.candidates.find(c => c.id === candidateId); if (candidate && state.candidates.length < 8) { const copy = makeCandidate(candidate.template, candidate); patch({ candidates: [...state.candidates, copy] }); return copy.id; } },
     changeMode(mode) { if (state.candidates.some(candidateBusy) || mode === state.mode) return; if (state.candidates.length && !window.confirm("Change mode and discard candidate drafts, results and expected answers? The document will be kept.")) return; patch({ mode, candidates: [], references: {}, definitions: {}, alignments: {}, columns: {} }); },
     confirmDiscard() { return !stateRef.current.document && !stateRef.current.candidates.length || window.confirm("Discard this temporary Evaluation and switch Workspace?"); },
   };

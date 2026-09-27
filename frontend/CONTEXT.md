@@ -313,4 +313,4 @@ _Avoid_: demo mode, sample data sandbox
 
 **Comparison candidates** either share Template fields and compare models, or share model/capabilities and compare independently editable Templates. A result carries its tested input snapshot; later edits require an explicit rerun. Only an explicitly verified Expected answer supplies a correctness reference. Coverage and matches are separate; table-cell matches are separate from scalar-field matches.
 
-The full **Template editor** is shared between Templates and Evaluation candidate editing. Apply updates a draft. Save as new Template explicitly persists an independent normal Template from the current draft.
+The **Template field editor** is shared between the Templates page and the full modal used for Evaluation candidate editing. Apply updates a draft. Save as new Template explicitly persists an independent normal Template from the current draft.
