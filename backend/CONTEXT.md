@@ -73,7 +73,7 @@ The opaque generated string format for **Workspace API keys**.
 _Avoid_: user-facing key schema, guaranteed key length
 
 **Model gateway credential**:
-The recoverable secret a **Workspace** supplies for the **Extraction processor** to authenticate outbound requests to its **Model gateway**.
+The recoverable secret a **Workspace** supplies to authenticate outbound extraction and **Template generation** requests to its **Model gateway**.
 _Avoid_: Workspace API key, application API key, global gateway key
 
 **Model gateway connection test**:
@@ -157,11 +157,11 @@ The local background processor that claims, retries, and completes persisted **E
 _Avoid_: external worker, cron task
 
 **Model gateway**:
-The external model-routing service used by the **Extraction processor** to request field extraction from a model.
+The external model-routing service used for field extraction and **Template generation**.
 _Avoid_: AI gateway, provider endpoint, model API
 
 **Workspace model configuration**:
-The Workspace-owned extraction configuration that identifies the **Model gateway**, model, credential, and declared processing capabilities available to the **Extraction processor**.
+The Workspace-owned configuration that identifies the **Model gateway**, model, credential, and declared processing capabilities available for extraction and **Template generation**.
 _Avoid_: application model settings, profile model settings, global gateway configuration
 
 **Extraction result**:
@@ -171,6 +171,14 @@ _Avoid_: answer row, model response, result item
 **Template**:
 A reusable extraction schema selected when submitting **Documents**.
 _Avoid_: form, prompt, extraction config
+
+**Template generation**:
+The model-assisted proposal of a complete, validated **Template** definition from a **Template sample** and optional user guidance, for review before explicit saving.
+_Avoid_: extraction job, automatic template save
+
+**Template sample**:
+A temporary user-provided file used to infer a reusable **Template**, without becoming a **Document** submitted for extraction.
+_Avoid_: extraction job source, retained document
 
 **Template field**:
 An individual answer definition inside a **Template**.

@@ -52,7 +52,8 @@ const server = bun.serve<{ workspaceId: string }>({
     if (request.method === "GET" && new URL(request.url).pathname === "/v1/config") {
       return Response.json(publicLocalConfiguration(configuration), { headers: { "cache-control": "no-store" } });
     }
-    if (request.method === "POST" && new URL(request.url).pathname === "/v1/extract") {
+    if (request.method === "POST" && ["/v1/extract", "/v1/templates/generate"].includes(new URL(request.url).pathname)) {
+      if (new URL(request.url).pathname === "/v1/templates/generate") bunServer.timeout(request, 0);
       return localSubmissionAdmission.run(request, () => runtimeFetch(request));
     }
     return localRuntimeRequestDrain.run(() => {
@@ -207,6 +208,7 @@ const sourceRetentionTimer = setInterval(() => {
   runRecurringWork("Local Source retention sweep", localSourceFileRetention.run);
 }, sourceRetentionSweepIntervalMs);
 const application = createLocalApplication({
+  modelGatewayRequestTimeoutMs: String(configuration.modelGatewayRequestTimeoutMs),
   auth: localAuth.auth,
   diagnostics: () => ({
     admission: localSubmissionAdmission.snapshot(),

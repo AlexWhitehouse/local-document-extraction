@@ -1,4 +1,5 @@
-import React, { useRef } from "react";
+import React from "react";
+import { DocumentUploadPanel } from "./DocumentUploadPanel.jsx";
 
 export function DocumentUploadModal({
   isOpen,
@@ -18,8 +19,6 @@ export function DocumentUploadModal({
   onRemoveSourceFile,
   onSubmit,
 }) {
-  const uploadInputRef = useRef(null);
-
   if (!isOpen) {
     return null;
   }
@@ -55,70 +54,18 @@ export function DocumentUploadModal({
               ))}
             </select>
           </label>
-          <label data-tour="upload-files">
-            Source files
-            <input
-              ref={uploadInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp,application/pdf"
-              className="upload-input-hidden"
-              multiple
-              onChange={(event) => {
-                onSelectSourceFiles(Array.from(event.target.files || []));
-                event.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              className={
-                isDragActive ? "upload-dropzone is-active" : "upload-dropzone"
-              }
-              onClick={() => uploadInputRef.current?.click()}
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onDrop={onDrop}
-            >
-              <strong>Drag and drop source files here</strong>
-              <span>or click to browse Documents (PNG, JPG, WEBP, PDF)</span>
-              <span>Maximum file size: {new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(maxSourceFileBytes / (1024 * 1024))} MiB</span>
-              <em>
-                {sourceFiles.length
-                  ? `${sourceFiles.length} Source file${sourceFiles.length === 1 ? "" : "s"} selected`
-                  : "No Source files selected"}
-              </em>
-            </button>
-            {sourceFiles.length ? (
-              <div className="upload-file-list" role="list">
-                {sourceFiles.map((entry) => (
-                  <div className="upload-file-row" role="listitem" key={entry.id}>
-                    <span className="upload-file-name" title={entry.file.name}>
-                      {entry.file.name}
-                    </span>
-                    <div className="upload-file-actions">
-                      <span
-                        className={`status-pill ${queueStatusTone(entry.queueStatus)}`}
-                      >
-                        {formatQueueStatus(entry.queueStatus)}
-                      </span>
-                      {entry.queueStatus === "pending" ? (
-                        <button
-                          type="button"
-                          className="ghost"
-                          disabled={isUploadingDocuments}
-                          onClick={() => onRemoveSourceFile(entry.id)}
-                        >
-                          Remove
-                        </button>
-                      ) : null}
-                    </div>
-                    {entry.queueError ? (
-                      <p className="hint upload-file-error">{entry.queueError}</p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </label>
+          <DocumentUploadPanel
+            sourceFiles={sourceFiles}
+            isDragActive={isDragActive}
+            disabled={isUploadingDocuments}
+            maxSourceFileBytes={maxSourceFileBytes}
+            onSelectSourceFiles={onSelectSourceFiles}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+            onRemoveSourceFile={onRemoveSourceFile}
+            tourTarget="upload-files"
+          />
         </div>
         <div className="actions">
           <button type="button" className="secondary" onClick={onClose}>
@@ -136,18 +83,4 @@ export function DocumentUploadModal({
       </div>
     </div>
   );
-}
-
-function queueStatusTone(status) {
-  if (status === "success") return "good";
-  if (status === "failed") return "bad";
-  return "pending";
-}
-
-function formatQueueStatus(status) {
-  const normalizedStatus = String(status || "").trim();
-  if (!normalizedStatus) {
-    return "";
-  }
-  return `${normalizedStatus.charAt(0).toUpperCase()}${normalizedStatus.slice(1)}`;
 }

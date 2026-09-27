@@ -12,10 +12,11 @@ import {
   localDocumentRequestBodyLimit,
 } from "./localDocumentBodyLimit";
 import { HttpError } from "./lib/http";
-import { validateExtractSubmissionMetadata } from "./lib/validation";
+import { validateExtractSubmissionMetadata, validateSourceFileMetadata } from "./lib/validation";
 
 export type LocalStreamedExtractRequest = {
   templateId: string;
+  instructions?: string;
   source: {
     mimeType: string;
     name: string;
@@ -28,10 +29,12 @@ export async function parseLocalMultipartSubmission({
   maxSourceFileBytes,
   request,
   stateDirectory,
+  purpose = "extraction",
 }: {
   maxSourceFileBytes: number;
   request: Request;
   stateDirectory: string;
+  purpose?: "extraction" | "template-generation";
 }): Promise<LocalStreamedExtractRequest> {
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("multipart/form-data")) {
@@ -106,7 +109,7 @@ export async function parseLocalMultipartSubmission({
       fail(new HttpError(400, "invalid_multipart", `Duplicate multipart field: ${name}`));
       return;
     }
-    if (!["fields", "options", "template_id"].includes(name)) {
+    if (!(purpose === "template-generation" ? ["instructions"] : ["fields", "options", "template_id"]).includes(name)) {
       fail(new HttpError(400, "invalid_multipart", `Unsupported multipart field: ${name}`));
       return;
     }
@@ -151,6 +154,11 @@ export async function parseLocalMultipartSubmission({
     const parsedDocument = document as { mimeType: string; name: string; size: number } | null;
     if (!parsedDocument || !documentWrite) {
       throw new HttpError(400, "invalid_document", "document is required");
+    }
+    if (purpose === "template-generation") {
+      validateSourceFileMetadata(parsedDocument.mimeType, parsedDocument.size, maxSourceFileBytes);
+      if (!parsedDocument.size) throw new HttpError(400, "invalid_document", "The sample file is empty");
+      return { templateId: "", instructions: fields.get("instructions")?.trim() || "", source: { ...parsedDocument, temporaryPath } };
     }
     const { templateId } = validateExtractSubmissionMetadata({
       hasInlineFields: fields.has("fields"),

@@ -20,6 +20,7 @@ export function TemplateFieldEditor({
   fields,
   onChange,
   saveAction,
+  jsonAction,
   disabled = false,
 }) {
   const [activeFieldIndex, setActiveFieldIndex] = useState(0);
@@ -361,6 +362,7 @@ export function TemplateFieldEditor({
                 </button>
               </div>
               <div className="studio-field-save">
+                {jsonAction}
                 <button
                   type="button"
                   className="studio-text-button studio-destructive"
@@ -398,7 +400,7 @@ export function TemplateFieldEditor({
         ) : (
           <div className="field-detail">
             <p className="muted">No fields yet. Add at least one.</p>
-            {saveAction}
+            <div className="studio-field-save">{jsonAction}{saveAction}</div>
           </div>
         )}
       </div>

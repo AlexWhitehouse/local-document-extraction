@@ -1,3 +1,4 @@
+import { useTemplateGeneration } from "./useTemplateGeneration.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -95,6 +96,7 @@ export function useTemplateController({
   workspaceId,
   sessionId = "",
   activePage,
+  maxSourceFileBytes,
   onActivePageChange,
 }) {
   const [templates, setTemplates] = useState(
@@ -105,6 +107,7 @@ export function useTemplateController({
     DEFAULT_TEMPLATE_DESCRIPTION,
   );
   const [templateFields, setTemplateFields] = useState(DEFAULT_FIELDS);
+  const [hasNewDraftEdits, setHasNewDraftEdits] = useState(false);
   const [loadedTemplateSnapshot, setLoadedTemplateSnapshot] = useState(null);
 
   const [updateTemplateId, setUpdateTemplateId] = useState("");
@@ -155,6 +158,25 @@ export function useTemplateController({
     !loadedTemplateSnapshot ||
     templateDraftSnapshot !== loadedTemplateSnapshot;
 
+  const templateGeneration = useTemplateGeneration({
+    request, workspaceId, sessionId, activePage, templateId: updateTemplateId, hasApiAccess,
+    maxSourceFileBytes,
+    hasUnsavedChanges: isEditingTemplate ? isEditedTemplateDirty : hasNewDraftEdits,
+    onApply: (payload, { createNew }) => {
+      editorRequestRef.current += 1;
+      setTemplateName(payload.name);
+      setTemplateDescription(payload.description || "");
+      setTemplateFields(payload.fields.map(hydrateFieldFromTemplate));
+      setHasNewDraftEdits(true);
+      if (createNew) {
+        setUpdateTemplateId("");
+        setLoadedTemplateSnapshot(null);
+      }
+      if (createNew || !isEditingTemplate) setShowDraftTemplateNav(true);
+    },
+  });
+  const cancelGeneration = templateGeneration.cancel;
+
   const filteredTemplates = useMemo(() => {
     const query = templateSearch.trim().toLowerCase();
     if (!query) {
@@ -183,6 +205,8 @@ export function useTemplateController({
 
   const clearWorkspaceScopedTemplates = useCallback(() => {
     generationRef.current += 1;
+    cancelGeneration();
+    setHasNewDraftEdits(false);
     setTemplates([]);
     setSelectedUploadTemplateId("");
     setUpdateTemplateId("");
@@ -198,7 +222,7 @@ export function useTemplateController({
     setTemplateJsonCopied(false);
     setTemplateSearch("");
     setShowDraftTemplateNav(false);
-  }, []);
+  }, [cancelGeneration]);
 
   useEffect(() => {
     addLogRef.current = addLog;
@@ -227,7 +251,7 @@ export function useTemplateController({
   }, []);
 
   async function createTemplate() {
-    if (isSavingTemplate) {
+    if (isSavingTemplate || templateGeneration.modal.isOpen) {
       return;
     }
 
@@ -277,7 +301,7 @@ export function useTemplateController({
       addLog("Update template failed: template ID is required");
       return;
     }
-    if (isSavingTemplate) {
+    if (isSavingTemplate || templateGeneration.modal.isOpen) {
       return;
     }
 
@@ -347,7 +371,7 @@ export function useTemplateController({
   }
 
   function closeTemplateJsonModal() {
-    if (isSavingTemplate) {
+    if (isSavingTemplate || templateGeneration.modal.isOpen) {
       return;
     }
     setShowTemplateJsonModal(false);
@@ -368,7 +392,7 @@ export function useTemplateController({
   }
 
   async function saveTemplateJsonDraft() {
-    if (isSavingTemplate) {
+    if (isSavingTemplate || templateGeneration.modal.isOpen) {
       return;
     }
 
@@ -443,6 +467,7 @@ export function useTemplateController({
   }
 
   async function deleteTemplate() {
+    cancelGeneration();
     const deletedTemplateId = updateTemplateId.trim();
     if (!deletedTemplateId) {
       addLog("Delete template failed: template ID is required");
@@ -504,6 +529,7 @@ export function useTemplateController({
   }
 
   async function loadTemplateForEditing(templateIdOverride = "") {
+    cancelGeneration();
     const targetTemplateId = String(
       templateIdOverride || updateTemplateId,
     ).trim();
@@ -546,6 +572,8 @@ export function useTemplateController({
   }
 
   function startNewTemplateDraft({ empty = false } = {}) {
+    cancelGeneration();
+    setHasNewDraftEdits(false);
     editorRequestRef.current += 1;
     setShowDraftTemplateNav(true);
     setUpdateTemplateId("");
@@ -595,12 +623,15 @@ export function useTemplateController({
       isSavingTemplate,
       isEditedTemplateDirty,
       hasApiAccess,
-      onTemplateNameChange: setTemplateName,
-      onTemplateDescriptionChange: setTemplateDescription,
-      onTemplateFieldsChange: setTemplateFields,
+      isGeneratingTemplate: templateGeneration.modal.isOpen,
+      onTemplateNameChange: (value) => { setHasNewDraftEdits(true); setTemplateName(value); },
+      onTemplateDescriptionChange: (value) => { setHasNewDraftEdits(true); setTemplateDescription(value); },
+      onTemplateFieldsChange: (value) => { setHasNewDraftEdits(true); setTemplateFields(value); },
+      onAutoGenerate: () => { editorRequestRef.current += 1; templateGeneration.open(); },
       onOpenJsonModal: openTemplateJsonModal,
       onSaveTemplate: isEditingTemplate ? updateTemplate : createTemplate,
     },
+    generationModal: templateGeneration.modal,
     jsonModal: {
       isOpen: showTemplateJsonModal,
       draft: templateJsonDraft,
@@ -622,6 +653,10 @@ export function useTemplateController({
       isDeletingTemplate,
       selectedTemplateId: updateTemplateId,
       onCreateTemplate: startNewTemplateDraft,
+      onAutoGenerateTemplate: () => {
+        editorRequestRef.current += 1;
+        templateGeneration.open({ createNew: true });
+      },
       onDeleteTemplate: deleteTemplate,
     },
     actions: {
