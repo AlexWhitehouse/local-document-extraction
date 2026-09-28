@@ -97,12 +97,15 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-add-col { width: 160px; }
 .evaluation-matrix thead .evaluation-add-col { vertical-align: middle; }
 .evaluation-add-col small { display: block; margin-top: 6px; font: 10px var(--font-mono); color: var(--text-3); }
-.evaluation-matrix td.evaluation-cell { padding: 0; }
+/* A 1px cell height lets the answer button stretch to the full row height. */
+.evaluation-matrix td.evaluation-cell { height: 1px; padding: 0; }
 .evaluation-cell.mismatch { background: rgba(255, 111, 143, .045) !important; }
+.evaluation-matrix td.evaluation-cell:has(.evaluation-cell-button:hover) { background: var(--row-hover) !important; }
+.evaluation-matrix td.evaluation-cell.mismatch:has(.evaluation-cell-button:hover) { background: rgba(255, 111, 143, .09) !important; }
 .evaluation-cell.active { box-shadow: inset 0 0 0 1px var(--accent); }
 .evaluation-cell > .evaluation-muted { display: block; padding: 9px 12px; font-size: 11px; }
-.studio-main .evaluation-cell-button { display: flex; align-items: flex-start; gap: 8px; width: 100%; height: auto; min-height: 44px; padding: 9px 12px; border: 0; background: transparent; color: var(--text-0); text-align: left; font-weight: 400; font-size: 12px; white-space: normal; }
-.studio-main .evaluation-cell-button:hover:not(:disabled) { background: var(--row-hover); }
+.studio-main .evaluation-cell-button { display: flex; align-items: flex-start; gap: 8px; width: 100%; height: 100%; min-height: 44px; padding: 9px 12px; border: 0; background: transparent; color: var(--text-0); text-align: left; font-weight: 400; font-size: 12px; white-space: normal; }
+.studio-main .evaluation-cell-button:hover:not(:disabled) { background: transparent; }
 .evaluation-cell-value { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .evaluation-cell-value code { font: 11px var(--font-mono); }
 .evaluation-cell-value small { color: #ffadc2; font-size: 10.5px; }
