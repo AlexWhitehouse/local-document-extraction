@@ -125,6 +125,8 @@ _Avoid_: demo mode, sample data sandbox
 - The **Getting started tour** is offered after an authenticated user's Workspace context resolves, unless that Account has already started or dismissed it in this browser.
 - Tour preference is browser-local and keyed by Account; impersonated sessions do not show the tour.
 - The tour can be restarted from the left sidebar within the profile modal, which closes when the tour starts. Starting again begins a new Workspace walkthrough; it does not resume earlier progress.
+- On desktop the left navigation sidebar collapses to an icon rail (toggle button or `[`). The choice is browser-local and not tied to an Account.
+- The tour invitation card is hidden while the navigation sidebar is collapsed; the tour stays available from the profile modal.
 - Tour actions create real Workspaces, Templates and Extraction jobs. Exiting or refreshing leaves saved data intact and does not save unfinished drafts.
 - While the tour is active, only the highlighted control or editor group and the tour controls accept pointer or keyboard interaction. Escape and Exit tour release the interaction restriction.
 - Creation and upload steps advance on successful state changes, while validation or request failures keep the user on the relevant step for retry.

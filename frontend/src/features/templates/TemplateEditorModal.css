@@ -1,6 +1,6 @@
 /* The portalled editor uses the same Studio field styling as the Templates tab. */
 .template-editor-modal.modal-card {
-  --studio-rule: #202b39;
+  --studio-rule: var(--rule);
   --studio-muted: #8e9cb0;
   width: min(1120px, 95vw);
   max-width: 1120px;
@@ -12,31 +12,32 @@
   padding: 0;
   border-radius: 0;
   overflow: hidden;
-  background: var(--bg-1);
+  background: var(--pane-main);
 }
 .template-editor-modal-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
-  padding: 24px;
+  gap: 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--studio-rule);
+  background: var(--pane-nav);
 }
-.template-editor-modal-header h2 { margin: 0; font: 500 23px/1.2 var(--font-display); letter-spacing: -.035em; }
-.template-editor-modal-header p { margin: 8px 0 0; color: var(--studio-muted); font-size: 13px; line-height: 1.5; }
-.template-editor-modal .template-editor-modal-close { width: 34px; height: 34px; min-height: 34px; flex-shrink: 0; padding: 0; border: 0; background: transparent; color: var(--text-2); font-size: 22px; }
-.template-editor-modal .template-editor-modal-close:hover:not(:disabled) { background: var(--bg-2); color: var(--text-0); transform: none; }
-.template-editor-modal .studio-template-meta { padding: 20px 24px; margin: 0; border: 0; gap: 24px; }
+.template-editor-modal-header h2 { margin: 0; font: 500 15px/1.3 var(--font-display); letter-spacing: -.01em; }
+.template-editor-modal-header p { margin: 4px 0 0; color: var(--studio-muted); font-size: 12px; line-height: 1.5; }
+.template-editor-modal .template-editor-modal-close { width: 28px; height: 28px; min-height: 28px; flex-shrink: 0; padding: 0; border: 0; background: transparent; color: var(--text-2); font-size: 18px; }
+.template-editor-modal .template-editor-modal-close:hover:not(:disabled) { background: var(--row-hover); color: var(--text-0); transform: none; }
+.template-editor-modal .studio-template-meta { padding: 12px 16px; margin: 0; gap: 16px; }
 .template-editor-modal.studio-main .field-editor { overflow: hidden; }
-.template-editor-modal.studio-main .field-studio { height: 100%; flex: 1; grid-template-columns: 230px minmax(0, 1fr); }
-.template-editor-modal.studio-main .field-nav { padding: 12px; }
-.template-editor-modal.studio-main .field-detail { padding: 24px; }
-.template-editor-modal.studio-main .field-detail-head { margin-bottom: 24px; }
+.template-editor-modal.studio-main .field-studio { height: 100%; flex: 1; grid-template-columns: 232px minmax(0, 1fr); }
+.template-editor-modal.studio-main .field-nav { padding: 0; }
+.template-editor-modal.studio-main .field-detail { padding: 16px 20px; }
+.template-editor-modal.studio-main .field-detail-head { margin-bottom: 16px; }
 .template-editor-modal.studio-main .field-detail-head h2 { text-align: left; }
-.template-editor-modal-footer { padding: 16px 24px; border-top: 1px solid var(--studio-rule); }
+.template-editor-modal-footer { padding: 10px 16px; border-top: 1px solid var(--studio-rule); }
 .template-editor-modal-footer .actions { margin: 0; display: flex; justify-content: flex-end; gap: 8px; }
-.template-editor-modal-footer > p { margin: 0 0 12px; font-size: 13px; }
-.template-editor-modal-footer button { min-height: 35px; padding: 8px 12px; font-size: 12px; }
+.template-editor-modal-footer > p { margin: 0 0 10px; font-size: 12px; }
+.template-editor-modal-footer button { min-height: 28px; padding: 0 11px; font-size: 11.5px; }
 @media (max-width: 700px) {
   .template-editor-modal.modal-card { width: calc(100vw - 24px); height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); }
   .template-editor-modal-header, .template-editor-modal .studio-template-meta { padding: 16px; }

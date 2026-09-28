@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { MagicIcon } from "../templates/MagicIcon.jsx";
+
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "studio.sidebarCollapsed";
 
 const SIDEBAR_ITEMS = [
   { id: "workspace", label: "Workspaces", icon: "WS" },
@@ -25,12 +27,28 @@ export function MainLayout({
   children,
   modalSlot,
 }) {
+  const [isSidebarCollapsed, toggleSidebar] = useSidebarCollapsed();
+  const collapseLabel = isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
+
   return (
-    <div className="app-frame">
+    <div className={isSidebarCollapsed ? "app-frame sidebar-collapsed" : "app-frame"}>
       <aside className="left-sidebar">
         <div className="sidebar-brand">
-          <p className="eyebrow">Document Extraction</p>
-          <h1>Studio</h1>
+          <div className="sidebar-brand-text">
+            <p className="eyebrow">Document Extraction</p>
+            <h1>Studio</h1>
+          </div>
+          <span className="sidebar-brand-mark" aria-hidden="true">DX</span>
+          <button
+            type="button"
+            className="sidebar-collapse-toggle"
+            aria-label={collapseLabel}
+            aria-expanded={!isSidebarCollapsed}
+            title={`${collapseLabel} ([)`}
+            onClick={toggleSidebar}
+          >
+            <SidebarToggleIcon collapsed={isSidebarCollapsed} />
+          </button>
         </div>
 
         <SidebarNavigation
@@ -48,7 +66,8 @@ export function MainLayout({
           disabled={isUploadDisabled}
           onClick={onUploadDocument}
         >
-          Upload Document
+          <span className="sidebar-upload-icon" aria-hidden="true">+</span>
+          <span className="sidebar-upload-label">Upload Document</span>
         </button>
 
         <div className="sidebar-spacer" aria-hidden="true" />
@@ -65,6 +84,68 @@ export function MainLayout({
 
       {modalSlot}
     </div>
+  );
+}
+
+// A per-browser preference: collapsing is a layout choice, not account state.
+function useSidebarCollapsed() {
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = useCallback(() => setIsCollapsed((current) => !current), []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(isCollapsed));
+    } catch {
+      // Storage can be unavailable (private windows, blocked site data); the toggle still works.
+    }
+  }, [isCollapsed]);
+
+  useEffect(() => {
+    function toggleOnShortcut(event) {
+      if (
+        event.key !== "[" ||
+        event.defaultPrevented ||
+        event.altKey ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.target.closest?.('input, textarea, select, [contenteditable], [role="dialog"]')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      toggle();
+    }
+
+    window.addEventListener("keydown", toggleOnShortcut);
+    return () => window.removeEventListener("keydown", toggleOnShortcut);
+  }, [toggle]);
+
+  return [isCollapsed, toggle];
+}
+
+function SidebarToggleIcon({ collapsed }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="4" width="18" height="16" rx="1" />
+      <path d="M9 4v16" />
+      <path d={collapsed ? "M13 10l2 2-2 2" : "M16 10l-2 2 2 2"} />
+    </svg>
   );
 }
 
@@ -94,7 +175,7 @@ function SidebarNavigation({
           <span className="sidebar-link-icon" aria-hidden="true">
             {item.icon}
           </span>
-          <span>{item.label}</span>
+          <span className="sidebar-link-label">{item.label}</span>
           {item.id === "admin" ? null : (
             <span className="sidebar-link-count">{counts[item.id] ?? ""}</span>
           )}
