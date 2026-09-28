@@ -534,6 +534,7 @@ function AuthenticatedApp({ configuration }) {
           ) : null}
           {activeVisiblePage === "evaluations" ? <EvaluationsPage evaluation={evaluation} templates={templates} enabled={hasApiAccess} onTemplateSaved={templateController.actions.listTemplates}
             maxSourceFileBytes={workspaceContext.availableWorkspaces.find(w => w.id === workspaceId)?.max_source_file_bytes ?? configuration.limits.maxSourceFileBytes}
+            suggestedModels={documentController.contextList.availableModels}
             workspaceLabel={workspaceToolbar.workspaceLabel} /> : null}
           {activeVisiblePage === "documents" ? (
             <DocumentPage {...documentController.documentPage} />

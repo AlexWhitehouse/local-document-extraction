@@ -140,3 +140,73 @@ export function scoreCandidate(candidate, references, definitions, alignments = 
   const tablesNeedingReview = candidate.result.fields.filter(field => field.data_type === "array<object>" && byField[field.id]?.state === "Needs review").length;
   return { fields: sum("field"), tables: sum("table"), tablesNeedingReview, coverage: { requested: requested.size, total: Object.values(references).filter(r => r.verified).length }, byField };
 }
+
+// Share of scored fields (scalars and tables) that match; null until something is scored.
+export function candidateAccuracy(score) {
+  const states = Object.values(score?.byField || {}).map(field => field.state);
+  const scored = states.filter(state => state === "Match" || state === "Mismatch").length;
+  return scored ? { matched: states.filter(state => state === "Match").length, total: scored, ratio: states.filter(state => state === "Match").length / scored } : null;
+}
+
+// Accuracy first, then table cells, then processing time, so ties still produce one leader.
+export function rankCandidates(candidates, scores) {
+  const accuracy = candidate => candidateAccuracy(scores[candidate.id])?.ratio ?? -1;
+  const cells = candidate => scores[candidate.id]?.tables ? scores[candidate.id].tables.matched / scores[candidate.id].tables.total : -1;
+  return [...candidates].sort((a, b) => (!!b.result - !!a.result) || (accuracy(b) - accuracy(a)) || (cells(b) - cells(a)) || ((a.result?.processingMs ?? 0) - (b.result?.processingMs ?? 0)));
+}
+export function bestCandidateId(candidates, scores) {
+  const scored = candidates.filter(candidate => candidate.result && candidateAccuracy(scores[candidate.id]));
+  return scored.length > 1 ? rankCandidates(scored, scores)[0].id : null;
+}
+
+// A comparable form of one answer, used to tell whether candidates disagree.
+export function answerSignature(field, raw) {
+  if (!raw || raw.status === "not_found" || raw.answer === null || raw.answer === undefined || raw.answer === "") return "absent";
+  if (field.data_type === "array<object>") return JSON.stringify(tableAnswerRows(raw.answer) ?? raw.answer);
+  const normalized = scalarValue(raw.answer, field.data_type);
+  return JSON.stringify(normalized.valid ? normalized.value : raw.answer);
+}
+
+// Expected columns paired with a candidate's columns, using the same rules as table scoring.
+export function tableColumnPairs(expectedField, actualField, mappings = {}) {
+  const actualColumns = tableColumns(actualField);
+  return tableColumns(expectedField).map(expected => [expected, actualColumns.find(c => c.data_type === expected.data_type && (mappings[expected.key] ? c.key === mappings[expected.key] : c.key === expected.key || c.heading.toLowerCase() === expected.heading.toLowerCase()))]);
+}
+
+export function tableCellsEqual(column, a, b, exact = false) {
+  const blank = value => value === undefined || value === null || (typeof value === "string" && !value.trim());
+  if (blank(a) || blank(b)) return blank(a) && blank(b);
+  const left = scalarValue(a, column.data_type, exact), right = scalarValue(b, column.data_type, exact);
+  return left.valid && right.valid ? left.value === right.value : String(a) === String(b);
+}
+
+// Lines up expected rows and every candidate's rows on the expected columns, matching rows the
+// way scoring does: by row position, or by the chosen key column.
+export function alignTableRows(definition, reference, sources) {
+  const columns = tableColumns(definition);
+  const keyColumn = reference?.rows?.mode === "key" ? columns.find(c => c.key === reference.rows.key) : null;
+  const order = [], lines = new Map(), expectedKeys = new Set();
+  const projected = sources.map(source => {
+    const pairs = source.expected ? columns.map(column => [column, column]) : tableColumnPairs(definition, source.field, source.mappings);
+    const rows = (tableAnswerRows(source.rows) || []).map(row => Object.fromEntries(pairs.map(([expected, actual]) => [expected.key, actual ? row?.[actual.key] : undefined])));
+    return { unaligned: pairs.filter(([, actual]) => !actual).map(([expected]) => expected.heading), rows };
+  });
+  projected.forEach((source, sourceIndex) => {
+    const used = new Set();
+    source.rows.forEach((row, index) => {
+      const value = keyColumn && scalarValue(row[keyColumn.key], keyColumn.data_type);
+      let key = keyColumn ? (value.valid ? `key:${JSON.stringify(value.value)}` : `row:${index}`) : `position:${index}`;
+      if (used.has(key)) key = `${key}:duplicate:${index}`;
+      used.add(key);
+      if (sources[sourceIndex].expected) expectedKeys.add(key);
+      if (!lines.has(key)) { lines.set(key, sources.map(() => null)); order.push(key); }
+      lines.get(key)[sourceIndex] = row;
+    });
+  });
+  const hasExpected = sources.some(source => source.expected);
+  return {
+    columns,
+    unaligned: projected.map(source => source.unaligned),
+    lines: order.map((key, index) => ({ key, number: index + 1, extra: hasExpected && !expectedKeys.has(key), rows: lines.get(key) })),
+  };
+}
