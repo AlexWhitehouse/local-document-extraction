@@ -269,8 +269,12 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
 .evaluation-compare-stack-item h3 strong { font-size: 12.5px; font-weight: 500; color: var(--text-0); }
 .evaluation-compare-stack-item.expected h3 strong { color: var(--accent-strong); }
 .evaluation-compare-stack-item h3 small { font: 10px var(--font-mono); color: var(--text-3); }
-/* Fixed layout keeps every stacked table's columns aligned, even with missing rows. */
-.evaluation-compare-stack-item table { table-layout: fixed; border: 1px solid var(--rule-strong); }
+/* Fixed layout keeps every stacked table's columns aligned, even with missing rows. Cells
+   wrap within a minimum column width; wide tables scroll sideways instead of overlapping. */
+.evaluation-compare-stack { min-width: min-content; }
+.evaluation-compare-stack-item table { table-layout: fixed; min-width: calc(52px + var(--compare-columns, 1) * 130px); border: 1px solid var(--rule-strong); }
+.evaluation-compare-stack-item td, .evaluation-compare-stack-item tbody th { vertical-align: top; white-space: normal; overflow-wrap: anywhere; }
+.evaluation-compare-stack-item thead th { white-space: normal; overflow-wrap: anywhere; vertical-align: bottom; }
 .evaluation-compare-stack-item thead th { position: static; }
 .evaluation-compare-stack-item .evaluation-compare-number em { display: block; margin-top: 2px; font: 9px var(--font-mono); font-style: normal; color: #ffdca1; }
 .evaluation-compare-stack-item tbody tr:last-child > * { border-bottom: 0; }

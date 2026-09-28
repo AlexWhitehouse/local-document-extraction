@@ -83,7 +83,7 @@ export function TableComparison({ row, candidates, reference, scores, columnMapp
           const candidate = !source.expected && answered[index - firstCandidate];
           return <section key={source.id} className={`evaluation-compare-stack-item ${source.expected ? "expected" : ""}`} aria-label={`${source.label} rows`}>
             <h3>{candidate && <Mark state={scoreFor(candidate)?.state} />}<strong>{source.label}</strong><small>{candidate ? summary(candidate, index - firstCandidate) : `${own.length} ${own.length === 1 ? "row" : "rows"}`}</small></h3>
-            <table className="evaluation-compare-rows" aria-label={`${source.label} table`}>
+            <table className="evaluation-compare-rows" aria-label={`${source.label} table`} style={{ "--compare-columns": columns.length }}>
               <thead><tr><th className="evaluation-compare-number">Row</th>{columns.map(c => <th key={c.key}>{c.heading}</th>)}</tr></thead>
               <tbody>{own.length ? own.map(line => {
                 const state = rowState(line, index);
