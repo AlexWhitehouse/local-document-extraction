@@ -208,6 +208,13 @@ it("compares every candidate's table rows against the expected rows in one view"
   expect(within(rows).getByTitle("Expected: 2").textContent).toBe("3");
   fireEvent.click(within(dialog).getByRole("checkbox", { name: "Only rows with differences" }));
   expect(within(rows).getAllByText("alpha")).toHaveLength(2);
+  expect(within(dialog).queryByRole("button", { name: /Review as expected/ })).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Stacked" }));
+  const betaTable = within(dialog).getByRole("table", { name: "beta table" });
+  expect(within(dialog).getAllByRole("table", { name: /table$/ })).toHaveLength(3);
+  expect(within(betaTable).getByText("Row missing")).toBeTruthy();
+  expect(within(betaTable).getByTitle("Expected: 2").textContent).toBe("3");
+  expect(within(within(dialog).getByRole("table", { name: "alpha table" })).queryByText("Row missing")).toBeNull();
   fireEvent.click(within(dialog).getByRole("button", { name: "Side by side" }));
   const side = within(dialog).getByRole("table", { name: "Candidates side by side" });
   expect(within(side).getAllByRole("columnheader", { name: "SKU" })).toHaveLength(3);

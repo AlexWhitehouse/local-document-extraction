@@ -42,6 +42,7 @@
 .evaluation-segmented button + button { border-left: 1px solid var(--rule-strong); }
 .evaluation-segmented button[aria-pressed=true], .studio-main .evaluation-segmented button[aria-pressed=true] { background: var(--row-selected); color: var(--accent-strong); }
 .evaluation-segmented button:hover:not(:disabled):not([aria-pressed=true]) { background: var(--row-hover); color: var(--text-0); }
+.evaluation-segmented button[aria-pressed=true]:hover:not(:disabled), .evaluation-segmented button[aria-pressed=true]:focus-visible { background: var(--row-selected); color: var(--accent-strong); }
 label.evaluation-check { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--text-1); font-size: 11.5px; font-weight: 400; }
 .evaluation-check input { width: auto; }
 .studio-main .icon-action-button { width: 26px; height: 26px; padding: 0; display: inline-grid; place-items: center; }
@@ -263,6 +264,16 @@ td.evaluation-compare-differs { color: #ffc2cf; background: rgba(255, 111, 143, 
 td.evaluation-compare-missing { color: #ffadc2; font-style: italic; background: repeating-linear-gradient(135deg, rgba(255, 111, 143, .07) 0 6px, transparent 6px 12px); }
 td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compare-missing { color: var(--text-3); font-style: normal; background: none; }
 .evaluation-compare-extra > td { background: rgba(244, 184, 79, .08); }
+.evaluation-compare-stack { display: grid; gap: 22px; padding: 16px 20px 24px; }
+.evaluation-compare-stack-item h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-weight: 400; }
+.evaluation-compare-stack-item h3 strong { font-size: 12.5px; font-weight: 500; color: var(--text-0); }
+.evaluation-compare-stack-item.expected h3 strong { color: var(--accent-strong); }
+.evaluation-compare-stack-item h3 small { font: 10px var(--font-mono); color: var(--text-3); }
+/* Fixed layout keeps every stacked table's columns aligned, even with missing rows. */
+.evaluation-compare-stack-item table { table-layout: fixed; border: 1px solid var(--rule-strong); }
+.evaluation-compare-stack-item thead th { position: static; }
+.evaluation-compare-stack-item .evaluation-compare-number em { display: block; margin-top: 2px; font: 9px var(--font-mono); font-style: normal; color: #ffdca1; }
+.evaluation-compare-stack-item tbody tr:last-child > * { border-bottom: 0; }
 .evaluation-compare-side .evaluation-compare-block { text-align: left; font: 500 11.5px var(--font-body); letter-spacing: 0; text-transform: none; color: var(--text-0); border-left: 1px solid var(--rule-strong); }
 .evaluation-compare-side .evaluation-compare-block.expected { color: var(--accent-strong); }
 .evaluation-compare-side .evaluation-compare-block-start { border-left: 1px solid var(--rule-strong); }
