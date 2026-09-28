@@ -148,7 +148,7 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
     const tableRows = tableAnswerRows(raw?.answer);
     return <div className="evaluation-value">
       <span className={`evaluation-score ${score?.state === "Match" ? "match" : score?.state === "Mismatch" ? "mismatch" : ""}`}>{score?.state || "Unscored"}</span>
-      <small>{raw?.status || "not_found"}</small>
+      {!["ok", "found"].includes(raw?.status) && <small>{raw?.status === "not_found" || !raw ? "Not found in document" : raw.status}</small>}
       {field.data_type === "array<object>" && tableRows !== null && columns.length ? <>
         <div className="evaluation-table-scroll"><table><thead><tr>{columns.map(c => <th key={c.key}>{c.heading}</th>)}</tr></thead><tbody>{tableRows.slice(0, full ? undefined : 3).map((r, i) => <tr key={i}>{columns.map(c => <td key={c.key}>{display(r?.[c.key])}</td>)}</tr>)}</tbody></table></div>
         <small>{tableRows.length} rows{!full && tableRows.length > 3 ? " · showing first 3" : ""}</small>

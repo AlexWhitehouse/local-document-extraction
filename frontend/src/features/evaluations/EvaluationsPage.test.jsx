@@ -55,6 +55,8 @@ it("candidate values stay unverified until an explicit reference confirmation", 
 it("uses a candidate's scalar answer as the expected answer in one explicit step", () => {
   const evaluation = setup();
   fireEvent.click(screen.getByRole("button", { name: "Inspect Total for Candidate 1" }));
+  const inspector = screen.getByRole("complementary", { name: "Answer inspector" });
+  expect(within(inspector).queryByText("ok")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Use as expected answer" }));
   expect(evaluation.patch.mock.calls[0][0].references["total:number"]).toEqual({ verified: true, absent: false, exact: false, value: 10 });
 });
