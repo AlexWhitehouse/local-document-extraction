@@ -3270,9 +3270,14 @@ td:last-child {
   cursor: pointer;
 }
 
-.icon-action-button:hover {
+button.icon-action-button:hover:where(:not(:disabled)) {
   border-color: rgba(79, 166, 255, 0.45);
   background: rgba(79, 166, 255, 0.18);
+}
+
+.object-schema-modal .object-schema-modal-close:hover:not(:disabled) {
+  background: var(--row-hover);
+  color: var(--text-0);
 }
 
 .modal-card.template-json-modal {
