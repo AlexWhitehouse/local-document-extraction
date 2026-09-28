@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fieldIdentity, scalarValue, scoreCandidate, scoreField, validateReference } from "./evaluationScoring.js";
+import { fieldIdentity, scalarValue, scoreCandidate, scoreField, validateReference, alignTableRows, tableCellsEqual, candidateAccuracy, rankCandidates, bestCandidateId, answerSignature } from "./evaluationScoring.js";
 const field = (name = "Value", type = "string") => ({ id: name.toLowerCase(), name, data_type: type, description: "Extract value" });
 const ref = value => ({ verified: true, value });
 const raw = answer => ({ status: "ok", answer });
@@ -102,4 +102,46 @@ it("reports tables needing review separately from unscored tables", () => {
   const identity = fieldIdentity(table);
   expect(scoreCandidate(candidate, { [identity]: ref(expectedTable) }, { [identity]: table }).tablesNeedingReview).toBe(1);
   expect(scoreCandidate(candidate, {}, { [identity]: table }).tablesNeedingReview).toBe(0);
+});
+
+const itemsTable = { name: "Items", data_type: "array<object>", object_schema: { columns: [{ key: "sku", heading: "SKU", data_type: "string" }, { key: "qty", heading: "Quantity", data_type: "number" }] } };
+it("aligns expected and candidate rows by key, projecting renamed candidate columns", () => {
+  const renamed = { ...itemsTable, object_schema: { columns: [{ key: "code", heading: "SKU", data_type: "string" }, { key: "count", heading: "Count", data_type: "number" }] } };
+  const { columns, lines, unaligned } = alignTableRows(itemsTable, { rows: { mode: "key", key: "sku" } }, [
+    { expected: true, rows: [{ sku: "A", qty: 1 }, { sku: "B", qty: 2 }] },
+    { field: renamed, rows: { rows: [{ code: "b", count: 2 }, { code: "C", count: 9 }] }, mappings: { qty: "count" } },
+  ]);
+  expect(columns.map(c => c.key)).toEqual(["sku", "qty"]);
+  expect(unaligned).toEqual([[], []]);
+  expect(lines.map(line => [line.extra, line.rows.map(row => row && row.qty)])).toEqual([[false, [1, null]], [false, [2, 2]], [true, [null, 9]]]);
+});
+it("aligns by position without an expected answer and keeps duplicate keys apart", () => {
+  const { lines } = alignTableRows(itemsTable, { rows: { mode: "key", key: "sku" } }, [
+    { expected: true, rows: [{ sku: "A", qty: 1 }] }, { field: itemsTable, rows: [{ sku: "A", qty: 1 }, { sku: "A", qty: 3 }] },
+  ]);
+  expect(lines).toHaveLength(2); expect(lines[1].extra).toBe(true);
+  expect(alignTableRows(itemsTable, null, [{ field: itemsTable, rows: [{ sku: "A" }] }, { field: itemsTable, rows: [] }]).lines[0]).toMatchObject({ extra: false, rows: [{ sku: "A" }, null] });
+});
+it("compares table cells with scoring normalization and treats blanks as equal", () => {
+  expect(tableCellsEqual({ data_type: "number" }, "1,200", 1200)).toBe(true);
+  expect(tableCellsEqual({ data_type: "string" }, "Widget.", "widget")).toBe(true);
+  expect(tableCellsEqual({ data_type: "string" }, "Widget.", "widget", true)).toBe(false);
+  expect(tableCellsEqual({ data_type: "string" }, "", null)).toBe(true);
+  expect(tableCellsEqual({ data_type: "string" }, "", "A")).toBe(false);
+});
+it("ranks candidates by accuracy, then table cells, then time, and names one leader", () => {
+  const score = (states, tables) => ({ byField: Object.fromEntries(states.map((state, i) => [i, { state }])), tables });
+  const candidates = ["slow", "fast", "worse", "idle"].map((id, i) => ({ id, result: id === "idle" ? null : { processingMs: [900, 100, 50][i] } }));
+  const scores = { slow: score(["Match", "Mismatch"], { matched: 4, total: 4 }), fast: score(["Match", "Mismatch", "Unscored"], { matched: 4, total: 4 }), worse: score(["Mismatch"]), idle: score([]) };
+  expect(candidateAccuracy(scores.fast)).toEqual({ matched: 1, total: 2, ratio: 0.5 });
+  expect(candidateAccuracy(scores.idle)).toBeNull();
+  expect(rankCandidates(candidates, scores).map(c => c.id)).toEqual(["fast", "slow", "worse", "idle"]);
+  expect(bestCandidateId(candidates, scores)).toBe("fast");
+  expect(bestCandidateId(candidates.slice(0, 1), scores)).toBeNull();
+});
+it("normalizes answers before deciding whether candidates disagree", () => {
+  const number = { data_type: "number" };
+  expect(answerSignature(number, { status: "ok", answer: "1,200" })).toBe(answerSignature(number, { status: "ok", answer: 1200 }));
+  expect(answerSignature(number, { status: "not_found", answer: 5 })).toBe("absent");
+  expect(answerSignature(itemsTable, { status: "ok", answer: { rows: [{ sku: "A" }] } })).toBe(answerSignature(itemsTable, { status: "ok", answer: [{ sku: "A" }] }));
 });

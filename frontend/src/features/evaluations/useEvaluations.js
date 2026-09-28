@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { validateTemplateJsonPayload } from "../templates/templateFields.js";
 
 const id = () => crypto.randomUUID();
+export const MAX_CANDIDATES = 8;
 export const candidateBusy = candidate => ["submitting", "queued", "running", "retrying"].includes(candidate.status);
 const empty = () => ({ id: id(), mode: "models", document: null, setup: null, candidates: [], references: {}, definitions: {}, alignments: {}, columns: {}, error: "", stale: false });
 const makeCandidate = (template, setup) => ({ id: id(), revision: 0, template: structuredClone(template), model: setup.model, pdf: setup.pdf, structured: setup.structured, status: "idle", result: null });
@@ -55,10 +56,12 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
   }, [active, enabled, scope, state.setup]);
   const patch = update => setState(previous => ({ ...previous, ...update }));
   const edit = (candidateId, update) => setState(previous => ({ ...previous, candidates: previous.candidates.map(candidate => candidate.id === candidateId ? { ...candidate, ...update, revision: candidate.revision + 1 } : candidate) }));
-  const start = template => {
-    const validated = { ...validateTemplateJsonPayload(template), source: template.source };
+  // Each entry is one candidate: a loaded Template, plus a model name when comparing models.
+  const start = (mode, entries) => {
     if (!state.setup?.configured) throw new Error("Configure the Workspace model first.");
-    patch({ candidates: [makeCandidate(validated, state.setup), makeCandidate(validated, state.setup)], references: {}, definitions: {}, alignments: {}, columns: {}, error: "" });
+    const candidates = entries.slice(0, MAX_CANDIDATES).map(({ template, model }) => makeCandidate({ ...validateTemplateJsonPayload(template), source: template.source }, { ...state.setup, model: model ?? state.setup.model }));
+    patch({ mode, candidates, references: {}, definitions: {}, alignments: {}, columns: {}, error: "" });
+    return candidates.map(candidate => candidate.id);
   };
   const run = async candidateIds => {
     const before = stateRef.current;
@@ -108,7 +111,8 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
     }
   };
   return { state, patch, edit, start, run, clear, api,
-    duplicate(candidateId) { const candidate = state.candidates.find(c => c.id === candidateId); if (candidate && state.candidates.length < 8) { const copy = makeCandidate(candidate.template, candidate); patch({ candidates: [...state.candidates, copy] }); return copy.id; } },
+    duplicate(candidateId) { const candidate = state.candidates.find(c => c.id === candidateId); if (candidate && state.candidates.length < MAX_CANDIDATES) { const copy = makeCandidate(candidate.template, candidate); patch({ candidates: [...state.candidates, copy] }); return copy.id; } },
+    remove(candidateId) { if (!candidateBusy(state.candidates.find(c => c.id === candidateId) || {}) && state.candidates.length > 1) patch({ candidates: state.candidates.filter(c => c.id !== candidateId) }); },
     changeMode(mode) { if (state.candidates.some(candidateBusy) || mode === state.mode) return; if (state.candidates.length && !window.confirm("Change mode and discard candidate drafts, results and expected answers? The document will be kept.")) return; patch({ mode, candidates: [], references: {}, definitions: {}, alignments: {}, columns: {} }); },
     confirmDiscard() { return !stateRef.current.document && !stateRef.current.candidates.length || window.confirm("Discard this temporary Evaluation and switch Workspace?"); },
   };

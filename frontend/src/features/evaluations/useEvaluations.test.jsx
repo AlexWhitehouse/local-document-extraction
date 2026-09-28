@@ -16,7 +16,7 @@ afterEach(() => vi.unstubAllGlobals());
 async function initialized(extra = {}) {
   const hook = renderHook(value => useEvaluations(value), { initialProps: { ...props, ...extra } });
   await waitFor(() => expect(hook.result.current.state.setup).toEqual(setup));
-  act(() => { hook.result.current.start(template); hook.result.current.patch({ document: new File(["image"], "a.png", { type: "image/png" }) }); });
+  act(() => { hook.result.current.start("models", [{ template }, { template }]); hook.result.current.patch({ document: new File(["image"], "a.png", { type: "image/png" }) }); });
   return hook;
 }
 function send(event) { stream.enqueue(new TextEncoder().encode(JSON.stringify({ submissionId: submitted.id, ...event }) + "\n")); }
@@ -81,4 +81,18 @@ it("ignores an old Workspace denial after switching scope", async () => {
   rerender({ ...props, workspaceId: "other", onForbidden: forbidden });
   await act(async () => { resolve(Response.json({ error: { message: "Old denial" } }, { status: 403 })); await request; });
   expect(forbidden).not.toHaveBeenCalled();
+});
+it("starts the chosen candidates in the chosen mode and removes idle candidates", async () => {
+  const hook = renderHook(value => useEvaluations(value), { initialProps: props });
+  await waitFor(() => expect(hook.result.current.state.setup).toEqual(setup));
+  let ids;
+  act(() => { ids = hook.result.current.start("templates", [{ template }, { template: { ...template, name: "Invoice v2" } }, { template }]); });
+  expect(hook.result.current.state.mode).toBe("templates");
+  expect(hook.result.current.state.candidates.map(c => [c.id, c.model, c.template.name])).toEqual([[ids[0], "model", "Invoice"], [ids[1], "model", "Invoice v2"], [ids[2], "model", "Invoice"]]);
+  act(() => { hook.result.current.start("models", [{ template, model: "alpha" }, { template, model: "beta" }]); });
+  expect(hook.result.current.state.candidates.map(c => c.model)).toEqual(["alpha", "beta"]);
+  act(() => hook.result.current.remove(hook.result.current.state.candidates[0].id));
+  expect(hook.result.current.state.candidates.map(c => c.model)).toEqual(["beta"]);
+  act(() => hook.result.current.remove(hook.result.current.state.candidates[0].id));
+  expect(hook.result.current.state.candidates).toHaveLength(1);
 });
