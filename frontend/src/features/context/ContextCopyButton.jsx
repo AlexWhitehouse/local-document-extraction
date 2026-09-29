@@ -2,13 +2,10 @@ import React from "react";
 
 export function ContextCopyButton({ ariaLabel, value }) {
   async function handleCopy() {
-    if (!navigator.clipboard?.writeText) {
-      return;
-    }
     try {
-      await navigator.clipboard.writeText(String(value ?? ""));
+      await navigator.clipboard.writeText(value);
     } catch {
-      // The sidebar copy affordance is intentionally silent if clipboard access is denied.
+      // The sidebar copy affordance is intentionally silent if clipboard access is unavailable.
     }
   }
 

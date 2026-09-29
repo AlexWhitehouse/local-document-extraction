@@ -1,4 +1,5 @@
 import React, { useId, useRef } from "react";
+import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 
 export function DocumentUploadPanel({
   label = "Source files", multiple = true, sourceFiles = [],
@@ -17,7 +18,7 @@ export function DocumentUploadPanel({
         tabIndex={-1}
         disabled={disabled || !showDropzone}
         type="file"
-        accept="image/png,image/jpeg,image/webp,application/pdf"
+        accept={SOURCE_FILE_MIME_TYPES.join(",")}
         className="upload-input-hidden"
         multiple={multiple}
         onChange={(event) => {
@@ -87,9 +88,5 @@ function queueStatusTone(status) {
 }
 
 function formatQueueStatus(status) {
-  const normalizedStatus = String(status || "").trim();
-  if (!normalizedStatus) {
-    return "";
-  }
-  return `${normalizedStatus.charAt(0).toUpperCase()}${normalizedStatus.slice(1)}`;
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }

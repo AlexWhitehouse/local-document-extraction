@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-export const ADMIN_USERS_PAGE_SIZE = 25;
+const ADMIN_USERS_PAGE_SIZE = 25;
 
 const INITIAL_SEARCH = { field: "email", value: "" };
 
@@ -96,13 +96,36 @@ export function useApplicationAdminController({
     setOffset(0);
   }
 
-  async function changeRole(user, role) {
-    const userId = String(user?.id || "").trim();
+  // Runs a Better Auth admin mutation for one user, then reloads the list.
+  async function mutateUser(user, toastAction, mutate, fallbackMessage) {
+    const userId = userIdOf(user);
     if (!userId) {
+      return false;
+    }
+
+    setMutatingUserId(userId);
+    try {
+      const result = await mutate(userId);
+      if (result?.error) {
+        throw new Error(result.error.message || fallbackMessage);
+      }
+      showActionToast(toastAction, "success", { targetEmail: userLabel(user) });
+      setReloadToken((current) => current + 1);
+      return true;
+    } catch {
+      showActionToast(toastAction, "failure");
+      return false;
+    } finally {
+      setMutatingUserId("");
+    }
+  }
+
+  async function changeRole(user, role) {
+    if (!userIdOf(user)) {
       return;
     }
 
-    const email = String(user?.email || "this user").trim() || "this user";
+    const email = userLabel(user);
     const message = role === "user"
       ? `Remove Application admin access from ${email}? This revokes application-wide account management access.`
       : `Make ${email} an Application admin? This grants application-wide account management access.`;
@@ -110,19 +133,12 @@ export function useApplicationAdminController({
       return;
     }
 
-    setMutatingUserId(userId);
-    try {
-      const result = await authClient.admin.setRole({ userId, role });
-      if (result?.error) {
-        throw new Error(result.error.message || "Unable to update application role.");
-      }
-      showActionToast?.("applicationRole.change", "success", { targetEmail: email });
-      setReloadToken((current) => current + 1);
-    } catch {
-      showActionToast?.("applicationRole.change", "failure");
-    } finally {
-      setMutatingUserId("");
-    }
+    await mutateUser(
+      user,
+      "applicationRole.change",
+      (userId) => authClient.admin.setRole({ userId, role }),
+      "Unable to update application role.",
+    );
   }
 
   function openBanDialog(user) {
@@ -137,74 +153,40 @@ export function useApplicationAdminController({
     setBanReasonError("");
   }
 
-  function openUnbanDialog(user) {
-    setUnbanDialogUser(user);
-  }
-
-  function closeUnbanDialog() {
-    setUnbanDialogUser(null);
-  }
-
   async function confirmBan(event) {
     event.preventDefault();
-    const userId = String(banDialogUser?.id || "").trim();
     const reason = banReason.trim();
     if (!reason) {
       setBanReasonError("Enter a ban reason before banning this user.");
       return;
     }
-    if (!userId) {
-      return;
-    }
 
-    const email = String(banDialogUser?.email || "this user").trim() || "this user";
-    setMutatingUserId(userId);
-    try {
-      const result = await authClient.admin.banUser({ userId, banReason: reason });
-      if (result?.error) {
-        throw new Error(result.error.message || "Unable to ban user.");
-      }
-      showActionToast?.("applicationUser.ban", "success", { targetEmail: email });
-      closeBanDialog();
-      setReloadToken((current) => current + 1);
-    } catch {
-      showActionToast?.("applicationUser.ban", "failure");
-    } finally {
-      setMutatingUserId("");
-    }
+    const banned = await mutateUser(
+      banDialogUser,
+      "applicationUser.ban",
+      (userId) => authClient.admin.banUser({ userId, banReason: reason }),
+      "Unable to ban user.",
+    );
+    if (banned) closeBanDialog();
   }
 
   async function confirmUnban() {
-    const userId = String(unbanDialogUser?.id || "").trim();
-    if (!userId) {
-      return;
-    }
-
-    const email = String(unbanDialogUser?.email || "this user").trim() || "this user";
-    setMutatingUserId(userId);
-    try {
-      const result = await authClient.admin.unbanUser({ userId });
-      if (result?.error) {
-        throw new Error(result.error.message || "Unable to unban user.");
-      }
-      showActionToast?.("applicationUser.unban", "success", { targetEmail: email });
-      closeUnbanDialog();
-      setReloadToken((current) => current + 1);
-    } catch {
-      showActionToast?.("applicationUser.unban", "failure");
-    } finally {
-      setMutatingUserId("");
-    }
+    const unbanned = await mutateUser(
+      unbanDialogUser,
+      "applicationUser.unban",
+      (userId) => authClient.admin.unbanUser({ userId }),
+      "Unable to unban user.",
+    );
+    if (unbanned) setUnbanDialogUser(null);
   }
 
   async function startImpersonation(user) {
-    const userId = String(user?.id || "").trim();
+    const userId = userIdOf(user);
     if (!userId) {
       return;
     }
 
-    const email = String(user?.email || "this user").trim() || "this user";
-    if (!window.confirm(`Start impersonating ${email}? You will leave the Admin page and enter this user's normal app experience.`)) {
+    if (!window.confirm(`Start impersonating ${userLabel(user)}? You will leave the Admin page and enter this user's normal app experience.`)) {
       return;
     }
 
@@ -217,7 +199,7 @@ export function useApplicationAdminController({
       }
       onImpersonationStarted?.();
     } catch {
-      showActionToast?.("applicationUser.impersonate", "failure");
+      showActionToast("applicationUser.impersonate", "failure");
     } finally {
       setMutatingUserId("");
     }
@@ -226,8 +208,6 @@ export function useApplicationAdminController({
   return {
     users,
     total,
-    pageSize: ADMIN_USERS_PAGE_SIZE,
-    offset,
     currentPage: Math.floor(offset / ADMIN_USERS_PAGE_SIZE) + 1,
     hasPreviousPage: offset > 0,
     hasNextPage: offset + ADMIN_USERS_PAGE_SIZE < total,
@@ -258,9 +238,17 @@ export function useApplicationAdminController({
       setBanReasonError("");
     },
     onConfirmBan: confirmBan,
-    onOpenUnbanDialog: openUnbanDialog,
-    onCloseUnbanDialog: closeUnbanDialog,
+    onOpenUnbanDialog: setUnbanDialogUser,
+    onCloseUnbanDialog: () => setUnbanDialogUser(null),
     onConfirmUnban: confirmUnban,
     onStartImpersonation: startImpersonation,
   };
+}
+
+function userIdOf(user) {
+  return String(user?.id || "").trim();
+}
+
+function userLabel(user) {
+  return String(user?.email || "this user").trim() || "this user";
 }

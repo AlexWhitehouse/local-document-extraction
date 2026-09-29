@@ -1,152 +1,214 @@
 # Setup and maintenance
 
-## Installer layout and options
+This guide covers everything after the quick install in the [README](../README.md): installer options, day-to-day commands, running from source, backups, updates, and troubleshooting.
 
-The release installer targets macOS and glibc-based Linux, x64 and arm64. It uses Bash, curl, tar, and unzip. Dependencies include native canvas support; a successful JavaScript build alone is not enough to qualify a new platform. [Release qualification](releasing.md) records the required checks.
+- [Installing](#installing)
+- [Everyday commands](#everyday-commands)
+- [Running from source](#running-from-source)
+- [Backing up and restoring](#backing-up-and-restoring)
+- [Updating](#updating)
+- [Uninstalling](#uninstalling)
+- [Troubleshooting](#troubleshooting)
 
-Installation is user-owned and does not use sudo. The default directories are the same on macOS and Linux:
+## Installing
 
-| Purpose | Default | Override |
+### Supported systems
+
+The installer supports **macOS** and **Linux distributions that use glibc** (most mainstream ones), on both Intel/AMD (x64) and ARM (arm64). It needs Bash, `curl`, `tar`, and `unzip`, and downloads its own copy of the Bun runtime.
+
+It installs everything under your user account and never uses `sudo`. It does not install a system service, so the app won't start automatically at login.
+
+### Where files go
+
+The app keeps three kinds of files in separate folders:
+
+| What | Default location | Change with |
 | --- | --- | --- |
-| Releases, Bun, launcher | `${XDG_DATA_HOME:-$HOME/.local/share}/document-extraction` | `--install-dir DIR` |
-| Private `config.env` | `${XDG_CONFIG_HOME:-$HOME/.config}/document-extraction` | `--config-dir DIR` |
-| Persistent state | `${XDG_STATE_HOME:-$HOME/.local/state}/document-extraction` | `--state-dir DIR` |
+| The app itself, its runtime, and the launcher | `~/.local/share/document-extraction` | `--install-dir DIR` |
+| Your settings (`config.env`) | `~/.config/document-extraction` | `--config-dir DIR` |
+| Your data: accounts, documents, results, secrets | `~/.local/state/document-extraction` | `--state-dir DIR` |
 
-Paths may contain spaces. Keep application, configuration, and state directories separate. Do not place secrets or state inside a versioned release directory. The installer retains existing configuration and state on repeat installation.
+If you set the `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, or `XDG_STATE_HOME` environment variables, the defaults follow them. Paths may contain spaces.
 
-Download `install.sh` from the chosen repository's release assets. Review it, then:
+Keep these three folders separate. Running the installer again, or updating, keeps your existing settings and data.
+
+### First-time setup questions
+
+On a fresh install, the installer asks:
+
+1. **Are you using a reverse proxy?** If yes, enter the address people will use in their browser, for example `https://documents.example.com`. The app still listens only on your machine; you set up the proxy yourself.
+2. **Do you want Google sign-in?** If yes, enter your Google client ID and secret. The installer shows the redirect address to register with Google, then asks whether to keep email and password login as well.
+3. **Do you want to send email through Cloudflare?** If yes, enter your Cloudflare account ID, API token, and sender details. Without it, account emails are saved on this machine instead of being sent (see [Transactional email](configuration.md#transactional-email)).
+4. **Require new accounts to verify their email?** This question only appears if you set up Cloudflare email and kept email and password login.
+
+Press Enter to accept the default for each question. Google and Cloudflare are off by default. Secrets are hidden as you type, and nothing is saved until you have answered every question, so Ctrl+C cancels safely.
+
+The installer does not check your Google or Cloudflare credentials. Try signing in, or sending a password reset, afterwards to confirm they work.
+
+To change your answers later, edit `config.env` and restart the app. See [Configuration](configuration.md).
+
+### Installer options
+
+Download `install.sh` from the [releases page](https://github.com/AlexWhitehouse/local-document-extraction/releases), review it, then run it with any of these options:
+
+| Option | What it does |
+| --- | --- |
+| `--version vX.Y.Z` | Install a specific release instead of the latest one. |
+| `--no-start` | Check that the app starts, then leave it stopped. |
+| `--install-dir`, `--config-dir`, `--state-dir` | Use different folders (see [Where files go](#where-files-go)). |
+| `--non-interactive` | Skip the setup questions and use the defaults from `.env.example`. This happens automatically when there is no terminal. |
+| `--interactive` | Insist on asking the setup questions; fails without a terminal. |
+| `--repo OWNER/REPO` | Install from a fork's releases. The fork must publish compatible release files. |
+| `--archive PATH --sha256 HASH` | Install from a release archive you have already downloaded. |
+| `--ref COMMIT --sha256 HASH` | Install directly from a commit's GitHub source archive. Use the full commit ID. |
+
+For example:
 
 ```bash
-bash install.sh --no-start
-bash install.sh --version vX.Y.Z
-bash install.sh --repo your-account/your-fork --version vX.Y.Z
+bash install.sh --version v0.1.4 --no-start
+
 bash install.sh --install-dir "$HOME/Applications/Document Extraction" \
   --config-dir "$HOME/.config/document-extraction" \
   --state-dir "$HOME/.local/state/document-extraction"
 ```
 
-Replace `vX.Y.Z` with an existing release tag. Omit `--version` for the latest published release. Forks need to publish compatible release assets; `--repo` never changes where document data is sent. Only per-Workspace gateway settings do that.
+A few things to know:
 
-For a downloaded source release archive:
+- **Checksums.** `--sha256` confirms the archive hasn't changed, but only if the hash comes from a source you trust. A hash downloaded from the same place as a tampered archive proves nothing.
+- **Forks.** `--repo` only changes where the app is downloaded from. It never changes where your documents are sent; only each Workspace's model settings control that.
+- **Unattended installs.** To use custom settings without the questions, put a `config.env` in the config folder before running the installer.
+- **What the installer does.** It downloads the release, installs dependencies, builds the web app, checks your settings, prepares the data folder, then starts the app and waits until it responds. If any step fails, the installer reports failure.
 
-```bash
-bash install.sh --archive /path/to/release.tar.gz --sha256 EXPECTED_SHA256 --no-start
-```
+## Everyday commands
 
-An explicit source bootstrap can use `--ref COMMIT --sha256 EXPECTED_SHA256`; use the full commit and the SHA-256 of its exact GitHub source archive. Obtain hashes from a source you trust. A checksum detects a different archive, but an archive and checksum from the same compromised source are not independent authenticity checks. Offline archive mode still needs cached dependencies and a suitable Bun runtime, or network access to obtain them.
-
-The installer stages a release, installs frozen dependencies, builds assets, validates configuration, and initializes state. It starts the app and waits for health and SPA readiness. `--no-start` stops it again after this check. Failure is reported as failure, not as a successful installation.
-
-### First-time setup questions
-
-When run in a terminal with no existing `config.env`, the installer asks:
-
-1. **Reverse proxy?** If yes, enter the browser-facing URL, such as `https://documents.example.com`. This sets `BETTER_AUTH_URL`; the app still listens on loopback. Configure your proxy separately.
-2. **Google sign-in?** If yes, enter the client ID and secret. The wizard links to Google's credentials console and shows the exact redirect URI to register. It then asks whether to keep email/password login enabled. Without Google, email/password login stays enabled.
-3. **Cloudflare email?** If yes, enter the account ID, Email API token, sender address, and sender name. The wizard links to the dashboard and token page and explains the required sending permission and domain setup.
-4. **Require signup verification?** Asked only when Cloudflare email and email/password login are both enabled; defaults to yes in that case. Without Cloudflare, verification stays off and account emails are captured locally.
-
-Google and Cloudflare default to off. Credentials are hidden while typing. Answers are validated and saved together to owner-only `config.env` after all questions finish. Ctrl+C cancels without saving answers. Provider credentials are not tested against Google or Cloudflare during installation; finish provider setup and test sign-in or email delivery yourself.
-
-Use `--non-interactive` to skip questions explicitly. When stdin or stdout is not a terminal, questions are skipped automatically. A fresh unattended install copies `.env.example` defaults; for custom settings, prepare a private `config.env` in `--config-dir` before running the installer. `--interactive` requires a terminal for fresh setup. Existing configuration always skips questions, including during upgrades; edit that file and restart to change settings. Process environment variables still override file values, so unset conflicting exported variables to use the saved answers.
-
-## Launcher
-
-Use the absolute launcher path printed by the installer. For default paths:
+The installer prints the full path to the launcher. With the default location:
 
 ```bash
 ~/.local/share/document-extraction/document-extraction start
-~/.local/share/document-extraction/document-extraction status
-~/.local/share/document-extraction/document-extraction doctor
-~/.local/share/document-extraction/document-extraction mail
-~/.local/share/document-extraction/document-extraction stop
 ```
 
-`mail` displays locally captured account action links; keep its output private. It is not a mail inbox for Cloudflare mode. `doctor` validates configuration and reports installation details. The installer does not install a system service or arrange login/reboot startup.
+| Command | What it does |
+| --- | --- |
+| `start` | Start the app. |
+| `stop` | Stop the app. |
+| `status` | Show whether the app is running. |
+| `doctor` | Check your settings and show installation details. |
+| `mail` | Show verification and password-reset links saved on this machine (only when email isn't sent through Cloudflare). Keep this output private: the links give access to accounts. |
+| `update [TAG]` | Update to the latest release, or to a specific one. See [Updating](#updating). |
 
-No global command or shell-profile edit is installed. For the short commands used below, add the launcher directory to the current terminal's PATH, or continue using its absolute path:
+To type just `document-extraction start`, add the launcher folder to your `PATH` in the current terminal:
 
 ```bash
 export PATH="${XDG_DATA_HOME:-$HOME/.local/share}/document-extraction:$PATH"
 ```
 
-For a custom install directory, use that directory instead. This affects only the current shell unless you choose to add it to your own shell profile.
+Add that line to your shell profile if you want it to stick.
 
-Configuration is loaded from `config.env`. Edit it and stop/start the process to apply changes. See [configuration](configuration.md) for optional Google login, Cloudflare email, custom ports, data locations, and limits. Start only one server against a state directory; another process may own its databases or queued work even if it listens on a different port.
+Settings are read from `config.env` when the app starts, so restart after editing it. Only run one copy of the app against a data folder at a time, even on different ports.
 
-## Source checkout
+## Running from source
 
-Install the Bun version declared in [package.json](../package.json) using the [Bun installation guide](https://bun.com/docs/installation), then:
+Install the Bun version listed in [package.json](../package.json) (see the [Bun installation guide](https://bun.com/docs/installation)), then:
 
 ```bash
 git clone https://github.com/AlexWhitehouse/local-document-extraction.git
 cd local-document-extraction
 bun install --frozen-lockfile
-cp .env.example .env
+cp .env.example .env          # first time only; don't overwrite it later
 bun backend/src/checkConfiguration.ts
 bun run migrate
 bun run build
 bun run start
 ```
 
-Copy `.env.example` only on first setup; do not overwrite your existing `.env` during updates. No private endpoint or API key is required to start, create accounts, or manage templates. Extraction requires each Workspace to configure its own gateway/model/credential.
+Then open http://127.0.0.1:8787. You don't need a model or API key to start the app, create accounts, or build templates. Each Workspace sets up its own model before it can extract documents.
 
-For development, run `bun run dev` and `bun run dev:frontend` in separate terminals. Add `http://127.0.0.1:5173` or the actual Vite origin to `AUTH_TRUSTED_ORIGINS`. The Vite proxy follows root `.env`'s `PORT`, or an explicit `DEV_API_ORIGIN`.
+A source checkout stores its settings in `.env` and its data in `.local/`.
 
-## Backup and restore
+For development with live reload, see [Contributing](../CONTRIBUTING.md#run-the-app-for-development).
 
-Stop the app and ensure no server is using the state directory before copying databases. Store backups **outside the repository and release directories**. Backups contain accounts, active-session data, captured action links, documents, extracted answers, and decryptable credentials.
+## Backing up and restoring
 
-For default installer paths, after stopping:
+A backup contains everything sensitive: accounts, sessions, documents, extracted results, account-action links, and the keys that decrypt saved model credentials. Store it somewhere private, **outside** the app and repository folders.
+
+### Make a backup
+
+1. Stop the app, and make sure nothing else is using the data folder.
+2. Copy the whole data folder and your settings file.
+
+For a default installer setup:
 
 ```bash
 umask 077
-document_extraction_backup="$HOME/document-extraction-backups/$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$document_extraction_backup"
-cp -R "${XDG_STATE_HOME:-$HOME/.local/state}/document-extraction" "$document_extraction_backup/state"
-cp "${XDG_CONFIG_HOME:-$HOME/.config}/document-extraction/config.env" "$document_extraction_backup/config.env"
+backup="$HOME/document-extraction-backups/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$backup"
+cp -R "${XDG_STATE_HOME:-$HOME/.local/state}/document-extraction" "$backup/state"
+cp "${XDG_CONFIG_HOME:-$HOME/.config}/document-extraction/config.env" "$backup/config.env"
 ```
 
-For source setup, copy `.local/` (or your configured state path) into that external backup directory and copy `.env` privately. Preserve all of `data/`, `secrets/`, and any retained source files. In particular, keep `data/better-auth-secret` and `secrets/model-gateway.key` alongside the matching databases. A Workspace export is not a full application backup.
+For a source checkout, copy `.local/` (or your custom data folder) and `.env` instead.
 
-Restore with the app stopped: preserve the current state separately, copy the complete backup into the intended state directory, restore the matching private configuration, and start a compatible application version. Recheck path/origin settings if moving machines. Do not merge individual SQLite files from different backups. Never assume an older release can read a migrated database; restore a matching pre-upgrade backup when a downgrade is necessary.
+Always copy the **whole** data folder. In particular, `data/better-auth-secret` and `secrets/model-gateway.key` must stay with the databases they belong to. Without them, sessions and saved model credentials can't be read. Exporting a Workspace's jobs is not a backup.
 
-## Updates
+### Restore a backup
 
-For an installer-managed application:
+1. Stop the app.
+2. Move the current data folder somewhere safe, in case you need it.
+3. Copy the complete backup into the data folder, and restore the matching settings file.
+4. Start the same app version the backup was made with, or a newer one.
 
-1. Stop it with the launcher and make an external backup.
-2. Run `document-extraction update` (latest release) or `document-extraction update TAG` with the same launcher, or rerun the installer with the desired `--version TAG` and original directory options.
-3. Check `status` and open the UI. Start it if you chose `--no-start`.
+Don't mix individual database files from different backups. An older app version may not be able to read a database that a newer version has upgraded, so to downgrade, restore a backup taken before the upgrade. If you are moving to another machine, check the address settings in `config.env`.
 
-The installer refuses to upgrade a running managed process. It stages the new release, preserves the private configuration/state, and keeps a pre-migration state backup. It does not promise automatic database rollback. Retaining old application files alone is not enough to downgrade safely.
+## Updating
 
-Automatic pre-migration backups live under the application directory at `backups/before-*`; copy important backups elsewhere before removing the application. If migration or subsequent startup fails, `upgrade-incomplete.json` records the candidate, state, and backup paths. The launcher refuses `start`/`doctor` against the previous release while that marker exists. Resolve the failure and rerun installation, or deliberately restore the matching pre-migration state/configuration with the app stopped. Do not delete the marker to bypass a database-version mismatch.
+### Installer setup
 
-For source checkouts: stop, back up outside the checkout, select the intended tag/commit, run `bun install --frozen-lockfile`, validate config, run `bun run migrate`, build, and start. Read release notes before every update. Do not run `git clean -xfd` on a checkout containing local data or secrets.
+1. Stop the app and make a backup.
+2. Run `document-extraction update` for the latest release, or `document-extraction update v0.1.4` for a specific one. Alternatively, rerun the installer with `--version` and the same folder options you used originally.
+3. Run `status` and open the app to check it works.
 
-When upgrading from the earlier source-only runtime, explicitly set `AUTH_GOOGLE_ENABLED=true` if you already use Google credentials. Google credentials alone no longer enable sign-in. Configure your own `BETTER_AUTH_URL` and additional trusted origins; the old maintainer deployment origin is no longer trusted automatically. The shared configuration validator now rejects invalid booleans, incomplete credential pairs, and inconsistent upload/resource limits instead of silently accepting them. Existing database and machine-secret files remain in place.
+The update refuses to run while the app is running. It keeps your settings and data and makes an automatic backup under `backups/before-*` inside the app folder before upgrading the database. Copy anything important out of there before removing the app. Keeping the old app files alone is not enough to downgrade.
 
-## Uninstall
+**If an update fails partway**, the launcher writes `upgrade-incomplete.json` and refuses to `start` or `doctor` the old version until you resolve it. Either fix the problem and run the update again, or stop the app and restore the automatic backup listed in that file. Don't delete the file to get around the check: the database may already be upgraded.
 
-Stop the app first. Remove the installer-managed application directory and any launcher shortcut you created. Leave the separate configuration and state directories in place to preserve your accounts and documents for reinstalling later. Deleting those directories is a separate, irreversible data-removal choice; back them up first if you may need them.
+### Source checkout
 
-For a source checkout, keep or move `.local/` and `.env` before deleting the checkout. The installer does not register a system service to remove.
+1. Stop the app and back up outside the checkout.
+2. Check out the tag or commit you want.
+3. Run `bun install --frozen-lockfile`, `bun backend/src/checkConfiguration.ts`, `bun run migrate`, and `bun run build`.
+4. Start the app.
+
+Read the release notes before each update. Never run `git clean -xfd` in a checkout that contains `.local/` or `.env`.
+
+### Upgrading from the early source-only versions
+
+- Google sign-in now has to be switched on explicitly with `AUTH_GOOGLE_ENABLED=true`.
+- Set your own `BETTER_AUTH_URL` and any extra trusted origins; no maintainer address is trusted by default.
+- Invalid settings (bad true/false values, half-filled credential pairs, inconsistent limits) now stop the app from starting instead of being ignored.
+
+## Uninstalling
+
+1. Stop the app.
+2. Delete the app folder (`~/.local/share/document-extraction` by default) and any shortcut you made.
+
+Your settings and data folders are left alone, so you can reinstall later and pick up where you left off. Deleting them permanently removes all accounts and documents, so back them up first if you might need them.
+
+For a source checkout, move `.local/` and `.env` somewhere safe before deleting the checkout.
 
 ## Troubleshooting
 
-| Symptom | Check |
+| Problem | What to check |
 | --- | --- |
-| No verification email in your inbox | Verification is optional; enable `AUTH_REQUIRE_EMAIL_VERIFICATION` if needed. `EMAIL_PROVIDER=local` captures links for `mail` or the private server log; Cloudflare sends to an inbox. |
-| Verification/OAuth link opens the wrong site | Set `BETTER_AUTH_URL` to the browser-facing origin, including the chosen port, and request a fresh link. |
-| Google button is absent | Enable `AUTH_GOOGLE_ENABLED` and supply both credentials; restart. |
-| Registration is unavailable | Check `AUTH_SIGNUP_ENABLED`; create initial accounts before disabling signup. |
-| Port already in use | Stop the existing application or choose a different `PORT`; update explicit auth and development origins too. |
-| Frontend build not found | Run `bun run build`, or check `DOCUMENT_EXTRACTION_ASSETS_DIR`. |
-| Workspace model not configured | Open that Workspace's Model gateway settings; global model environment variables do not configure it. |
-| Saved model credentials unavailable | Restore the matching machine secret, or enter a replacement credential in Workspace settings. |
-| Upload too large | Check `MAX_SOURCE_FILE_BYTES`, the submission budget, JSON limits, and any reverse proxy's body limit. |
-| Admission busy or preparation rejected | Check RAM/disk availability, competing model processes, PDF expansion, and `/v1/health` diagnostics. |
-| External email fails | Verify domain onboarding, account entitlement, token scope, sender identity, and provider logs. |
+| No verification email arrives | Email verification is off by default. Without Cloudflare, emails aren't sent: read the links with the launcher's `mail` command or in the server log. |
+| Email or Google sign-in links open the wrong address | Set `BETTER_AUTH_URL` to the address you open in your browser, including the port, then request a new link. |
+| There is no Google sign-in button | Set `AUTH_GOOGLE_ENABLED=true`, provide both Google credentials, and restart. |
+| Nobody can create an account | Check `AUTH_SIGNUP_ENABLED`. Create the accounts you need before turning signup off. |
+| Port already in use | Stop the other copy of the app, or choose a different `PORT` and update any addresses that include it. |
+| "Frontend build not found" | Run `bun run build`, or check `DOCUMENT_EXTRACTION_ASSETS_DIR`. |
+| "Workspace model not configured" | Open that Workspace's **Model gateway** settings. Old global model environment variables no longer apply. |
+| Saved model credentials can't be read | Restore the matching `secrets/model-gateway.key` from a backup, or enter the credential again in the Workspace settings. |
+| Upload rejected as too large | Check `MAX_SOURCE_FILE_BYTES` and the related limits in [Configuration](configuration.md#uploads-and-extraction), plus any reverse proxy's upload limit. |
+| Uploads rejected as busy, or documents fail during preparation | Check free memory and disk space, other heavy programs such as a local model server, and very large PDFs. `/v1/health` shows the app's resource use. |
+| Cloudflare email isn't delivered | Check the sending domain setup, API token permissions, sender address, and Cloudflare's delivery logs. |
 
-Support reports should contain versions, OS/architecture, the command used, and redacted error codes. Do not attach `.env`, `config.env`, local state, captured mail, gateway credentials, or real documents.
+When asking for help, include the app version, your operating system and chip type, the command you ran, and the error code. Remove anything private first. Never share `.env`, `config.env`, your data folder, saved mail, model credentials, or real documents.

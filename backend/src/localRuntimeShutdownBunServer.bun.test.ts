@@ -4,8 +4,8 @@ import { createLocalRuntimeRequestDrain } from "./localRuntimeRequestDrain";
 import { createLocalRuntimeShutdown } from "./localRuntimeShutdown";
 
 test("runtime shutdown settles an in-flight request after closing idle server connections", async () => {
-  const activeRequest = deferred<void>();
-  const requestStarted = deferred<void>();
+  const activeRequest = Promise.withResolvers<void>();
+  const requestStarted = Promise.withResolvers<void>();
   const events: string[] = [];
   const requestDrain = createLocalRuntimeRequestDrain();
   const server = Bun.serve({
@@ -65,11 +65,3 @@ test("runtime shutdown settles an in-flight request after closing idle server co
     await server.stop(true);
   }
 });
-
-function deferred<T = void>(): { promise: Promise<T>; resolve(value?: T): void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}

@@ -12,11 +12,9 @@ describe("useDocumentController Workspace live updates", () => {
       jobs, total: 137, status_counts: { queued: 7, processing: 5, completed: 120, failed: 5 },
       has_more: true, next_cursor: "next",
     } : { available_models: [] });
-    const documentRequests = createDocumentRequestAdapter({ request });
-    let controller;
-    render(<DocumentControllerHarness workspaceId="ws_1" documentRequests={documentRequests} onController={(value) => { controller = value; }} />);
-    await waitFor(() => expect(controller.contextList.documents).toHaveLength(50));
-    expect(controller.metrics.documentStatusMetrics).toEqual({ queued: 7, processing: 5, completed: 120, failed: 5 });
+    const { controller } = renderController({ documentRequests: createDocumentRequestAdapter({ request }) });
+    await waitFor(() => expect(controller().contextList.documents).toHaveLength(50));
+    expect(controller().statusCounts).toEqual({ queued: 7, processing: 5, completed: 120, failed: 5 });
   });
 
   it("opens one session-only live update connection for the accepted Workspace context", async () => {
@@ -43,24 +41,7 @@ describe("useDocumentController Workspace live updates", () => {
     const intervalSpy = vi.spyOn(window, "setInterval").mockReturnValue(123);
     vi.spyOn(window, "clearInterval").mockImplementation(() => {});
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        initialWorkspace={{
-          selectedDocumentId: "job_processing_1",
-          jobHistory: [
-            {
-              job_id: "job_processing_1",
-              status: "processing",
-              source_name: "invoice.pdf",
-              template_id: "template_test",
-              created_at: "2026-05-06T12:00:00.000Z",
-              updated_at: "2026-05-06T12:01:00.000Z",
-            },
-          ],
-        }}
-      />,
-    );
+    renderController({ initialWorkspace: seeded(processingJob()) });
 
     await waitFor(() => {
       expect(intervalSpy).not.toHaveBeenCalledWith(expect.any(Function), 1000);
@@ -78,14 +59,7 @@ describe("useDocumentController Workspace live updates", () => {
       }
       return nativeSetTimeout(callback, delay, ...args);
     });
-    const processingDetails = {
-      job_id: "job_processing_1",
-      status: "processing",
-      source_name: "invoice.pdf",
-      template_id: "template_test",
-      created_at: "2026-05-06T12:00:00.000Z",
-      updated_at: "2026-05-06T12:01:00.000Z",
-    };
+    const processingDetails = processingJob();
     let failDetailRequest = false;
     const request = vi.fn(async (path) => {
       if (path === "/jobs/job_processing_1") {
@@ -94,19 +68,10 @@ describe("useDocumentController Workspace live updates", () => {
         }
         return processingDetails;
       }
-      return { jobs: [processingDetails], next_cursor: null, has_more: false };
+      return jobList([processingDetails]);
     });
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        request={request}
-        initialWorkspace={{
-          selectedDocumentId: "job_processing_1",
-          jobHistory: [processingDetails],
-        }}
-      />,
-    );
+    renderController({ request, initialWorkspace: seeded(processingDetails) });
 
     await waitFor(() => {
       expect(polls).toHaveLength(1);
@@ -125,65 +90,23 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("hydrates selected document details when a live lifecycle update completes", async () => {
     const WebSocketStub = installWebSocketStub();
-    let controller = null;
+    const processingDetails = processingJob({ template_version: 1 });
     const completedDetails = {
-      job_id: "job_processing_1",
+      ...processingDetails,
       status: "completed",
-      source_name: "invoice.pdf",
-      template_id: "template_test",
-      template_version: 1,
-      created_at: "2026-05-06T12:00:00.000Z",
       updated_at: "2026-05-06T12:02:00.000Z",
       completed_at: "2026-05-06T12:02:00.000Z",
-      results: [
-        {
-          field_id: "invoice_total",
-          name: "Invoice Total",
-          answer: "$42.00",
-          confidence: 0.99,
-        },
-      ],
-    };
-    const processingDetails = {
-      job_id: "job_processing_1",
-      status: "processing",
-      source_name: "invoice.pdf",
-      template_id: "template_test",
-      template_version: 1,
-      created_at: "2026-05-06T12:00:00.000Z",
-      updated_at: "2026-05-06T12:01:00.000Z",
+      results: [{ field_id: "invoice_total", name: "Invoice Total", answer: "$42.00", confidence: 0.99 }],
     };
     let shouldReturnCompletedDetails = false;
     const request = vi.fn(async (path) => {
       if (path === "/jobs/job_processing_1") {
         return shouldReturnCompletedDetails ? completedDetails : processingDetails;
       }
-      return { jobs: [], next_cursor: null, has_more: false };
+      return jobList([]);
     });
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        request={request}
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-        initialWorkspace={{
-          selectedDocumentId: "job_processing_1",
-          jobHistory: [
-            {
-              job_id: "job_processing_1",
-              status: "processing",
-              source_name: "invoice.pdf",
-              template_id: "template_test",
-              template_version: 1,
-              created_at: "2026-05-06T12:00:00.000Z",
-              updated_at: "2026-05-06T12:01:00.000Z",
-            },
-          ],
-        }}
-      />,
-    );
+    const { controller } = renderController({ request, initialWorkspace: seeded(processingDetails) });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
@@ -192,257 +115,113 @@ describe("useDocumentController Workspace live updates", () => {
 
     shouldReturnCompletedDetails = true;
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [
-            {
-              type: "extraction_job_lifecycle",
-              job: {
-                job_id: "job_processing_1",
-                status: "completed",
-                source_name: "invoice.pdf",
-                template_id: "template_test",
-                template_version: 1,
-                error_code: null,
-                error_message: null,
-                created_at: "2026-05-06T12:00:00.000Z",
-                updated_at: "2026-05-06T12:02:00.000Z",
-                completed_at: "2026-05-06T12:02:00.000Z",
-                current_attempt: 1,
-                completed_attempt: 1,
-                last_failed_attempt: 0,
-              },
-            },
-          ],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle({
+        ...processingDetails,
+        status: "completed",
+        error_code: null,
+        error_message: null,
+        updated_at: "2026-05-06T12:02:00.000Z",
+        completed_at: "2026-05-06T12:02:00.000Z",
+        current_attempt: 1,
+        completed_attempt: 1,
+        last_failed_attempt: 0,
+      })));
     });
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith("/jobs/job_processing_1", {
-        method: "GET",
-      });
+      expect(request).toHaveBeenCalledWith("/jobs/job_processing_1", { method: "GET" });
     });
     await waitFor(() => {
-      expect(controller.contextList.documents[0]).toMatchObject({
+      expect(controller().contextList.documents[0]).toMatchObject({
         job_id: "job_processing_1",
         status: "completed",
         completed_at: "2026-05-06T12:02:00.000Z",
-        results: [
-          expect.objectContaining({
-            field_id: "invoice_total",
-            answer: "$42.00",
-          }),
-        ],
+        results: [expect.objectContaining({ field_id: "invoice_total", answer: "$42.00" })],
       });
     });
   });
 
   it("deduplicates selected completed detail hydration while live updates are active", async () => {
     const WebSocketStub = installWebSocketStub();
-    const completedSummary = {
-      job_id: "job_completed_1",
-      status: "completed",
-      source_name: "invoice.pdf",
-      template_id: "template_test",
-      template_version: 1,
-      created_at: "2026-05-06T12:00:00.000Z",
-      updated_at: "2026-05-06T12:02:00.000Z",
-      completed_at: "2026-05-06T12:02:00.000Z",
-      results: [],
-    };
+    const completedSummary = completedJob({ template_version: 1, results: [] });
     const completedDetails = {
       ...completedSummary,
-      results: [
-        {
-          field_id: "invoice_total",
-          name: "Invoice Total",
-          answer: "$42.00",
-          confidence: 0.99,
-        },
-      ],
+      results: [{ field_id: "invoice_total", name: "Invoice Total", answer: "$42.00", confidence: 0.99 }],
     };
-    const request = vi.fn(async (path) => {
-      if (path === "/jobs/job_completed_1") {
-        return completedDetails;
-      }
-      return { jobs: [completedSummary], next_cursor: null, has_more: false };
-    });
-
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        request={request}
-        initialWorkspace={{
-          selectedDocumentId: "job_completed_1",
-          jobHistory: [completedSummary],
-        }}
-      />,
+    const request = vi.fn(async (path) =>
+      path === "/jobs/job_completed_1" ? completedDetails : jobList([completedSummary]),
     );
+    const detailRequests = () => request.mock.calls.filter(([path]) => path === "/jobs/job_completed_1");
+
+    renderController({ request, initialWorkspace: seeded(completedSummary) });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
-      expect(
-        request.mock.calls.filter(([path]) => path === "/jobs/job_completed_1"),
-      ).toHaveLength(1);
+      expect(detailRequests()).toHaveLength(1);
     });
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(
-      request.mock.calls.filter(([path]) => path === "/jobs/job_completed_1"),
-    ).toHaveLength(1);
+    expect(detailRequests()).toHaveLength(1);
   });
 
   it("does not select a background document when its live lifecycle update completes", async () => {
     const WebSocketStub = installWebSocketStub();
-    let controller = null;
     const jobs = [
-      {
-        job_id: "job_reviewing_1",
-        status: "completed",
-        source_name: "selected.pdf",
-        template_id: "template_test",
-        created_at: "2026-05-06T12:00:00.000Z",
-        updated_at: "2026-05-06T12:02:00.000Z",
-      },
-      {
-        job_id: "job_processing_1",
-        status: "processing",
-        source_name: "background.pdf",
-        template_id: "template_test",
-        created_at: "2026-05-06T12:01:00.000Z",
-        updated_at: "2026-05-06T12:01:00.000Z",
-      },
+      completedJob({ job_id: "job_reviewing_1", source_name: "selected.pdf" }),
+      processingJob({ source_name: "background.pdf", created_at: "2026-05-06T12:01:00.000Z" }),
     ];
-    const request = vi.fn(async (path) => {
-      if (path === "/jobs") {
-        return { jobs, next_cursor: null, has_more: false };
-      }
-      return jobs.find((job) => path === `/jobs/${job.job_id}`) || jobs[0];
-    });
-
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        request={request}
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-        initialWorkspace={{
-          selectedDocumentId: "job_reviewing_1",
-          jobHistory: jobs,
-        }}
-      />,
+    const request = vi.fn(async (path) =>
+      path === "/jobs" ? jobList(jobs) : jobs.find((job) => path === `/jobs/${job.job_id}`) || jobs[0],
     );
+
+    const { controller } = renderController({ request, initialWorkspace: seeded(...jobs) });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
-      expect(controller.contextList.selectedDocumentId).toBe("job_reviewing_1");
+      expect(controller().contextList.selectedDocumentId).toBe("job_reviewing_1");
     });
     request.mockClear();
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [
-            {
-              type: "extraction_job_lifecycle",
-              job: {
-                job_id: "job_processing_1",
-                status: "completed",
-                source_name: "background.pdf",
-                template_id: "template_test",
-                error_code: null,
-                error_message: null,
-                updated_at: "2026-05-06T12:03:00.000Z",
-                completed_at: "2026-05-06T12:03:00.000Z",
-              },
-            },
-          ],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(completedUpdate("2026-05-06T12:03:00.000Z", {
+        source_name: "background.pdf",
+        error_code: null,
+        error_message: null,
+      }))));
     });
 
     await waitFor(() => {
-      expect(
-        controller.contextList.documents.find(
-          (document) => document.job_id === "job_processing_1",
-        ),
-      ).toMatchObject({
+      expect(findDocument(controller(), "job_processing_1")).toMatchObject({
         status: "completed",
         completed_at: "2026-05-06T12:03:00.000Z",
       });
     });
-    expect(controller.contextList.selectedDocumentId).toBe("job_reviewing_1");
-    expect(request).not.toHaveBeenCalledWith("/jobs/job_processing_1", {
-      method: "GET",
-    });
+    expect(controller().contextList.selectedDocumentId).toBe("job_reviewing_1");
+    expect(request).not.toHaveBeenCalledWith("/jobs/job_processing_1", { method: "GET" });
   });
 
   it("updates Documents UI without refreshing Workspace context when live lifecycle updates arrive", async () => {
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
     const timeoutSpy = vi.spyOn(window, "setTimeout");
-    let controller = null;
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-        initialWorkspace={{
-          selectedDocumentId: "job_processing_1",
-          jobHistory: [
-            {
-              job_id: "job_processing_1",
-              status: "processing",
-              source_name: "invoice.pdf",
-              template_id: "template_test",
-              created_at: "2026-05-06T12:00:00.000Z",
-              updated_at: "2026-05-06T12:01:00.000Z",
-            },
-          ],
-        }}
-      />,
-    );
+    const { controller } = renderController({
+      onWorkspaceCapacityRefresh,
+      initialWorkspace: seeded(processingJob()),
+    });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [
-            {
-              type: "extraction_job_lifecycle",
-              job: {
-                job_id: "job_processing_1",
-                status: "completed",
-                source_name: "invoice.pdf",
-                template_id: "template_test",
-                updated_at: "2026-05-06T12:02:00.000Z",
-                completed_at: "2026-05-06T12:02:00.000Z",
-              },
-            },
-          ],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(completedUpdate("2026-05-06T12:02:00.000Z"))));
     });
 
     await waitFor(() => {
-      expect(
-        controller.contextList.documents.find(
-          (document) => document.job_id === "job_processing_1",
-        ),
-      ).toMatchObject({
+      expect(findDocument(controller(), "job_processing_1")).toMatchObject({
         status: "completed",
         completed_at: "2026-05-06T12:02:00.000Z",
       });
@@ -453,101 +232,46 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("increments the document total once when live updates add a new Document", async () => {
     const WebSocketStub = installWebSocketStub();
-    let controller = null;
+    const liveJob = processingJob({ job_id: "job_live_1", status: "queued", updated_at: "2026-05-06T12:00:00.000Z" });
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-        request={vi.fn(async () => ({
-          jobs: [],
-          total: 0,
-          next_cursor: null,
-          has_more: false,
-        }))}
-      />,
-    );
+    const { controller } = renderController({ request: vi.fn(async () => jobList([], { total: 0 })) });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
-      expect(controller.toolbar.documentCount).toBe(0);
+      expect(controller().toolbar.documentCount).toBe(0);
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [{
-            type: "extraction_job_lifecycle",
-            job: {
-              job_id: "job_live_1",
-              status: "queued",
-              source_name: "invoice.pdf",
-              template_id: "template_test",
-              created_at: "2026-05-06T12:00:00.000Z",
-              updated_at: "2026-05-06T12:00:00.000Z",
-            },
-          }],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(liveJob)));
     });
 
     await waitFor(() => {
-      expect(controller.toolbar.documentCount).toBe(1);
+      expect(controller().toolbar.documentCount).toBe(1);
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [{
-            type: "extraction_job_lifecycle",
-            job: {
-              job_id: "job_live_1",
-              status: "processing",
-              source_name: "invoice.pdf",
-              template_id: "template_test",
-              created_at: "2026-05-06T12:00:00.000Z",
-              updated_at: "2026-05-06T12:01:00.000Z",
-            },
-          }],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle({
+        ...liveJob,
+        status: "processing",
+        updated_at: "2026-05-06T12:01:00.000Z",
+      })));
     });
 
-    expect(controller.toolbar.documentCount).toBe(1);
+    expect(controller().toolbar.documentCount).toBe(1);
   });
 
   it("refreshes Workspace context when live invalidation updates arrive", async () => {
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-      />,
-    );
+    renderController({ onWorkspaceCapacityRefresh });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [
-            {
-              type: "workspace_context_invalidated",
-              reason: "workspace_product_changed",
-              occurred_at: "2026-05-06T12:02:00.000Z",
-            },
-          ],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(invalidation("workspace_product_changed")));
     });
 
     await waitFor(() => {
@@ -561,28 +285,12 @@ describe("useDocumentController Workspace live updates", () => {
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
 
     try {
-      render(
-        <DocumentControllerHarness
-          workspaceId="ws_1"
-          onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-        />,
-      );
+      renderController({ onWorkspaceCapacityRefresh });
 
       expect(WebSocketStub.instances).toHaveLength(1);
 
       await act(async () => {
-        WebSocketStub.instances[0].onmessage({
-          data: JSON.stringify({
-            version: 1,
-            events: [
-              {
-                type: "workspace_context_invalidated",
-                reason: "workspace_access",
-                occurred_at: "2026-05-06T12:02:00.000Z",
-              },
-            ],
-          }),
-        });
+        WebSocketStub.instances[0].onmessage(liveMessage(invalidation("workspace_access")));
         await Promise.resolve();
       });
 
@@ -596,28 +304,13 @@ describe("useDocumentController Workspace live updates", () => {
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        isWorkspaceDeletionInProgress
-        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-      />,
-    );
+    renderController({ isWorkspaceDeletionInProgress: true, onWorkspaceCapacityRefresh });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
     });
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [{
-            type: "workspace_context_invalidated",
-            reason: "workspace_access",
-            occurred_at: "2026-05-06T12:02:00.000Z",
-          }],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(invalidation("workspace_access")));
     });
 
     expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
@@ -625,92 +318,35 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("blocks useful live update effects until Workspace access revalidation succeeds", async () => {
     const WebSocketStub = installWebSocketStub();
-    let controller = null;
     let resolveAccessRevalidation;
     const accessRevalidation = new Promise((resolve) => {
       resolveAccessRevalidation = resolve;
     });
     const onWorkspaceCapacityRefresh = vi.fn(() => accessRevalidation);
-    const processingJob = {
-      job_id: "job_processing_1",
-      status: "processing",
-      source_name: "invoice.pdf",
-      template_id: "template_test",
-      created_at: "2026-05-06T12:00:00.000Z",
-      updated_at: "2026-05-06T12:01:00.000Z",
-    };
-    const request = vi.fn(async () => ({
-      jobs: [processingJob],
-      next_cursor: null,
-      has_more: false,
-    }));
+    const job = processingJob();
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        request={request}
-        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-        initialWorkspace={{
-          jobHistory: [processingJob],
-        }}
-      />,
-    );
+    const { controller } = renderController({
+      request: vi.fn(async () => jobList([job])),
+      onWorkspaceCapacityRefresh,
+      initialWorkspace: { jobHistory: [job] },
+    });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
-      expect(
-        controller.contextList.documents.find(
-          (document) => document.job_id === "job_processing_1",
-        ),
-      ).toMatchObject({ status: "processing" });
+      expect(findDocument(controller(), "job_processing_1")).toMatchObject({ status: "processing" });
     });
 
     await act(async () => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [
-            {
-              type: "workspace_context_invalidated",
-              reason: "workspace_access",
-              occurred_at: "2026-05-06T12:02:00.000Z",
-            },
-          ],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(invalidation("workspace_access")));
       await Promise.resolve();
     });
     expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [
-            {
-              type: "extraction_job_lifecycle",
-              job: {
-                job_id: "job_processing_1",
-                status: "completed",
-                source_name: "invoice.pdf",
-                template_id: "template_test",
-                updated_at: "2026-05-06T12:03:00.000Z",
-                completed_at: "2026-05-06T12:03:00.000Z",
-              },
-            },
-          ],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(completedUpdate("2026-05-06T12:03:00.000Z"))));
     });
 
-    expect(
-      controller.contextList.documents.find(
-        (document) => document.job_id === "job_processing_1",
-      ),
-    ).toMatchObject({ status: "processing" });
+    expect(findDocument(controller(), "job_processing_1")).toMatchObject({ status: "processing" });
 
     await act(async () => {
       resolveAccessRevalidation();
@@ -719,32 +355,11 @@ describe("useDocumentController Workspace live updates", () => {
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [
-            {
-              type: "extraction_job_lifecycle",
-              job: {
-                job_id: "job_processing_1",
-                status: "completed",
-                source_name: "invoice.pdf",
-                template_id: "template_test",
-                updated_at: "2026-05-06T12:04:00.000Z",
-                completed_at: "2026-05-06T12:04:00.000Z",
-              },
-            },
-          ],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(completedUpdate("2026-05-06T12:04:00.000Z"))));
     });
 
     await waitFor(() => {
-      expect(
-        controller.contextList.documents.find(
-          (document) => document.job_id === "job_processing_1",
-        ),
-      ).toMatchObject({
+      expect(findDocument(controller(), "job_processing_1")).toMatchObject({
         status: "completed",
         completed_at: "2026-05-06T12:04:00.000Z",
       });
@@ -755,71 +370,26 @@ describe("useDocumentController Workspace live updates", () => {
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
     const timeoutSpy = vi.spyOn(window, "setTimeout");
-    let controller = null;
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-        initialWorkspace={{
-          selectedDocumentId: "job_processing_1",
-          jobHistory: [
-            {
-              job_id: "job_processing_1",
-              status: "processing",
-              source_name: "invoice.pdf",
-              template_id: "template_test",
-              created_at: "2026-05-06T12:00:00.000Z",
-              updated_at: "2026-05-06T12:01:00.000Z",
-            },
-          ],
-        }}
-      />,
-    );
+    const { controller } = renderController({
+      onWorkspaceCapacityRefresh,
+      initialWorkspace: seeded(processingJob()),
+    });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [
-            {
-              type: "workspace_context_invalidated",
-              reason: "",
-              occurred_at: "2026-05-06T12:02:00.000Z",
-            },
-            {
-              type: "future_event",
-              payload: { value: "ignored" },
-            },
-            {
-              type: "extraction_job_lifecycle",
-              job: {
-                job_id: "job_processing_1",
-                status: "completed",
-                source_name: "invoice.pdf",
-                template_id: "template_test",
-                updated_at: "2026-05-06T12:03:00.000Z",
-                completed_at: "2026-05-06T12:03:00.000Z",
-              },
-            },
-          ],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(
+        invalidation(""),
+        { type: "future_event", payload: { value: "ignored" } },
+        lifecycle(completedUpdate("2026-05-06T12:03:00.000Z")),
+      ));
     });
 
     await waitFor(() => {
-      expect(
-        controller.contextList.documents.find(
-          (document) => document.job_id === "job_processing_1",
-        ),
-      ).toMatchObject({
+      expect(findDocument(controller(), "job_processing_1")).toMatchObject({
         status: "completed",
         completed_at: "2026-05-06T12:03:00.000Z",
       });
@@ -832,68 +402,34 @@ describe("useDocumentController Workspace live updates", () => {
     vi.useFakeTimers();
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+    const advance = (ms) => act(async () => {
+      vi.advanceTimersByTime(ms);
+      await Promise.resolve();
+    });
 
     try {
-      render(
-        <DocumentControllerHarness
-          workspaceId="ws_1"
-          onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-        />,
-      );
+      renderController({ onWorkspaceCapacityRefresh });
 
       expect(WebSocketStub.instances).toHaveLength(1);
 
       act(() => {
-        WebSocketStub.instances[0].onmessage({
-          data: JSON.stringify({
-            version: 1,
-            events: [
-              {
-                type: "workspace_context_invalidated",
-                reason: "workspace_product_changed",
-                occurred_at: "2026-05-06T12:02:00.000Z",
-              },
-            ],
-          }),
-        });
+        WebSocketStub.instances[0].onmessage(liveMessage(invalidation("workspace_product_changed")));
       });
 
-      await act(async () => {
-        vi.advanceTimersByTime(150);
-        await Promise.resolve();
-      });
+      await advance(150);
       expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
 
       act(() => {
-        WebSocketStub.instances[0].onmessage({
-          data: JSON.stringify({
-            version: 1,
-            events: [
-              {
-                type: "workspace_context_invalidated",
-                reason: "workspace_product_changed",
-                occurred_at: "2026-05-06T12:02:01.000Z",
-              },
-              {
-                type: "workspace_context_invalidated",
-                reason: "template_shape_changed",
-                occurred_at: "2026-05-06T12:02:02.000Z",
-              },
-            ],
-          }),
-        });
+        WebSocketStub.instances[0].onmessage(liveMessage(
+          invalidation("workspace_product_changed", "2026-05-06T12:02:01.000Z"),
+          invalidation("template_shape_changed", "2026-05-06T12:02:02.000Z"),
+        ));
       });
 
-      await act(async () => {
-        vi.advanceTimersByTime(2999);
-        await Promise.resolve();
-      });
+      await advance(2999);
       expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
 
-      await act(async () => {
-        vi.advanceTimersByTime(1);
-        await Promise.resolve();
-      });
+      await advance(1);
       expect(onWorkspaceCapacityRefresh).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
@@ -904,83 +440,42 @@ describe("useDocumentController Workspace live updates", () => {
     vi.useFakeTimers();
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+    const advance = (ms) => act(async () => {
+      vi.advanceTimersByTime(ms);
+      await Promise.resolve();
+    });
 
     try {
       const { rerender } = render(
-        <DocumentControllerHarness
-          workspaceId="ws_1"
-          onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-        />,
+        <DocumentControllerHarness workspaceId="ws_1" onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh} />,
       );
 
       expect(WebSocketStub.instances).toHaveLength(1);
       const staleSocket = WebSocketStub.instances[0];
 
       act(() => {
-        staleSocket.onmessage({
-          data: JSON.stringify({
-            version: 1,
-            events: [
-              {
-                type: "workspace_context_invalidated",
-                reason: "workspace_product_changed",
-                occurred_at: "2026-05-06T12:01:00.000Z",
-              },
-            ],
-          }),
-        });
+        staleSocket.onmessage(liveMessage(invalidation("workspace_product_changed", "2026-05-06T12:01:00.000Z")));
       });
 
       rerender(
-        <DocumentControllerHarness
-          workspaceId="ws_2"
-          onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-        />,
+        <DocumentControllerHarness workspaceId="ws_2" onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh} />,
       );
 
       expect(WebSocketStub.instances).toHaveLength(2);
       expect(staleSocket.close).toHaveBeenCalled();
 
       act(() => {
-        staleSocket.onmessage({
-          data: JSON.stringify({
-            version: 1,
-            events: [
-              {
-                type: "workspace_context_invalidated",
-                reason: "workspace_product_changed",
-                occurred_at: "2026-05-06T12:02:00.000Z",
-              },
-            ],
-          }),
-        });
+        staleSocket.onmessage(liveMessage(invalidation("workspace_product_changed")));
       });
 
-      await act(async () => {
-        vi.advanceTimersByTime(150);
-        await Promise.resolve();
-      });
+      await advance(150);
       expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
 
       act(() => {
-        WebSocketStub.instances[1].onmessage({
-          data: JSON.stringify({
-            version: 1,
-            events: [
-              {
-                type: "workspace_context_invalidated",
-                reason: "workspace_product_changed",
-                occurred_at: "2026-05-06T12:03:00.000Z",
-              },
-            ],
-          }),
-        });
+        WebSocketStub.instances[1].onmessage(liveMessage(invalidation("workspace_product_changed", "2026-05-06T12:03:00.000Z")));
       });
 
-      await act(async () => {
-        vi.advanceTimersByTime(150);
-        await Promise.resolve();
-      });
+      await advance(150);
       expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
@@ -990,39 +485,13 @@ describe("useDocumentController Workspace live updates", () => {
   it("does not refresh Workspace capacity when selecting a document whose status is unchanged", async () => {
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
     const timeoutSpy = vi.spyOn(window, "setTimeout");
-    const completedJob = {
-      job_id: "job_completed_1",
-      status: "completed",
-      source_name: "invoice.pdf",
-      template_id: "template_test",
-      created_at: "2026-05-06T12:00:00.000Z",
-      updated_at: "2026-05-06T12:02:00.000Z",
-      completed_at: "2026-05-06T12:02:00.000Z",
-      results: [],
-    };
-    const request = vi.fn(async (path) => {
-      if (path === "/jobs/job_completed_1") {
-        return completedJob;
-      }
-      return { jobs: [completedJob], next_cursor: null, has_more: false };
-    });
+    const job = completedJob({ results: [] });
+    const request = vi.fn(async (path) => path === "/jobs/job_completed_1" ? job : jobList([job]));
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        request={request}
-        onWorkspaceCapacityRefresh={onWorkspaceCapacityRefresh}
-        initialWorkspace={{
-          selectedDocumentId: "job_completed_1",
-          jobHistory: [completedJob],
-        }}
-      />,
-    );
+    renderController({ request, onWorkspaceCapacityRefresh, initialWorkspace: seeded(job) });
 
     await waitFor(() => {
-      expect(request).toHaveBeenCalledWith("/jobs/job_completed_1", {
-        method: "GET",
-      });
+      expect(request).toHaveBeenCalledWith("/jobs/job_completed_1", { method: "GET" });
     });
 
     expect(timeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 150);
@@ -1031,110 +500,58 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("preserves document list order when a live lifecycle update omits the created timestamp", async () => {
     const WebSocketStub = installWebSocketStub();
-    let controller = null;
     const jobs = [
-      {
+      completedJob({
         job_id: "job_newer_1",
-        status: "completed",
         source_name: "newer.pdf",
-        template_id: "template_test",
         created_at: "2026-05-06T12:03:00.000Z",
         updated_at: "2026-05-06T12:04:00.000Z",
-      },
-      {
-        job_id: "job_processing_1",
-        status: "processing",
+      }),
+      processingJob({
         source_name: "processing.pdf",
-        template_id: "template_test",
         created_at: "2026-05-06T12:02:00.000Z",
         updated_at: "2026-05-06T12:02:30.000Z",
-      },
-      {
+      }),
+      completedJob({
         job_id: "job_older_1",
-        status: "completed",
         source_name: "older.pdf",
-        template_id: "template_test",
         created_at: "2026-05-06T12:01:00.000Z",
         updated_at: "2026-05-06T12:01:30.000Z",
-      },
+      }),
     ];
-    const completedProcessingJob = {
-      job_id: "job_processing_1",
-      status: "completed",
-      source_name: "processing.pdf",
-      template_id: "template_test",
-      updated_at: "2026-05-06T12:05:00.000Z",
-      completed_at: "2026-05-06T12:05:00.000Z",
-    };
+    const completedProcessingJob = completedUpdate("2026-05-06T12:05:00.000Z", { source_name: "processing.pdf" });
     const request = vi.fn(async (path) => {
-      if (path === "/jobs") {
-        return { jobs, next_cursor: null, has_more: false };
-      }
-      if (path === "/jobs/job_processing_1") {
-        return completedProcessingJob;
-      }
+      if (path === "/jobs") return jobList(jobs);
+      if (path === "/jobs/job_processing_1") return completedProcessingJob;
       return jobs.find((job) => path === `/jobs/${job.job_id}`) || jobs[0];
     });
+    const documentIds = () => controller().contextList.documents.map((job) => job.job_id);
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        request={request}
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-        initialWorkspace={{
-          selectedDocumentId: "job_newer_1",
-          jobHistory: jobs,
-        }}
-      />,
-    );
+    const { controller } = renderController({ request, initialWorkspace: seeded(...jobs) });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
-      expect(controller.contextList.documents.map((job) => job.job_id)).toEqual([
-        "job_newer_1",
-        "job_processing_1",
-        "job_older_1",
-      ]);
+      expect(documentIds()).toEqual(["job_newer_1", "job_processing_1", "job_older_1"]);
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [
-            {
-              type: "extraction_job_lifecycle",
-              job: completedProcessingJob,
-            },
-          ],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(completedProcessingJob)));
     });
 
     await waitFor(() => {
-      expect(
-        controller.contextList.documents.find(
-          (document) => document.job_id === "job_processing_1",
-        )?.status,
-      ).toBe("completed");
+      expect(findDocument(controller(), "job_processing_1")?.status).toBe("completed");
     });
-    expect(controller.contextList.documents.map((job) => job.job_id)).toEqual([
-      "job_newer_1",
-      "job_processing_1",
-      "job_older_1",
-    ]);
+    expect(documentIds()).toEqual(["job_newer_1", "job_processing_1", "job_older_1"]);
   });
 
   it("revalidates job and model configuration state over HTTP after reconnecting live updates", async () => {
     vi.useFakeTimers();
     const WebSocketStub = installWebSocketStub();
-    const request = vi.fn(async () => ({ jobs: [], next_cursor: null, has_more: false }));
+    const request = vi.fn(async () => jobList([]));
     const onModelConfigurationInvalidation = vi.fn();
 
     try {
-      render(<DocumentControllerHarness workspaceId="ws_1" request={request} onModelConfigurationInvalidation={onModelConfigurationInvalidation} />);
+      renderController({ request, onModelConfigurationInvalidation });
 
       expect(WebSocketStub.instances).toHaveLength(1);
       request.mockClear();
@@ -1151,7 +568,9 @@ describe("useDocumentController Workspace live updates", () => {
       act(() => { WebSocketStub.instances[1].onopen(); });
       expect(request).toHaveBeenCalledWith("/jobs", { method: "GET" });
       expect(onModelConfigurationInvalidation).toHaveBeenCalledTimes(1);
-      act(() => { WebSocketStub.instances[1].onmessage({ data: JSON.stringify({ version: 1, events: [{ type: "workspace_context_invalidated", reason: "model_configuration_changed", occurred_at: "2026-09-03T00:00:00.000Z" }] }) }); });
+      act(() => {
+        WebSocketStub.instances[1].onmessage(liveMessage(invalidation("model_configuration_changed", "2026-09-03T00:00:00.000Z")));
+      });
       expect(onModelConfigurationInvalidation).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
@@ -1160,110 +579,52 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("does not restore a locally deleted Document when a stale lifecycle message arrives", async () => {
     const WebSocketStub = installWebSocketStub();
-    let controller = null;
-    const job = {
-      job_id: "job_deleted_1",
-      status: "processing",
-      source_name: "invoice.pdf",
-      template_id: "template_test",
-      template_version: 1,
-      created_at: "2026-05-06T12:00:00.000Z",
-      updated_at: "2026-05-06T12:01:00.000Z",
-    };
-    const documentRequests = {
-      deleteDocument: vi.fn(async () => ({ deleted: true, job_id: "job_deleted_1" })),
-    };
+    const job = processingJob({ job_id: "job_deleted_1", template_version: 1 });
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        documentRequests={documentRequests}
-        initialWorkspace={{ selectedDocumentId: "job_deleted_1", jobHistory: [job] }}
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-        request={vi.fn(async () => ({ jobs: [job], next_cursor: null, has_more: false }))}
-      />,
-    );
+    const { controller } = renderController({
+      documentRequests: { deleteDocument: vi.fn(async () => ({ deleted: true, job_id: "job_deleted_1" })) },
+      initialWorkspace: seeded(job),
+      request: vi.fn(async () => jobList([job])),
+    });
 
     await waitFor(() => {
       expect(WebSocketStub.instances).toHaveLength(1);
-      expect(controller.contextList.selectedDocumentId).toBe("job_deleted_1");
-      expect(controller.toolbar.documentCount).toBe(1);
+      expect(controller().contextList.selectedDocumentId).toBe("job_deleted_1");
+      expect(controller().toolbar.documentCount).toBe(1);
     });
     await act(async () => {
-      await controller.actions.deleteSelectedDocument();
+      await controller().toolbar.onDeleteDocument();
     });
-    expect(controller.contextList.documents).toEqual([]);
-    expect(controller.toolbar.documentCount).toBe(0);
+    expect(controller().contextList.documents).toEqual([]);
+    expect(controller().toolbar.documentCount).toBe(0);
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [{ type: "extraction_job_lifecycle", job }],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(job)));
     });
-    expect(controller.contextList.documents).toEqual([]);
+    expect(controller().contextList.documents).toEqual([]);
   });
 
   it("uses the backend's unfiltered total for the Documents count while rendering a filtered collection", async () => {
     installWebSocketStub();
-    let controller = null;
-    const filteredJob = {
-      job_id: "job_invoice_1",
-      status: "completed",
-      source_name: "invoice.pdf",
-      template_id: "template_invoice",
-      created_at: "2026-05-06T12:00:00.000Z",
-      updated_at: "2026-05-06T12:01:00.000Z",
-    };
+    const filteredJob = completedJob({ job_id: "job_invoice_1", template_id: "template_invoice" });
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-        request={vi.fn(async () => ({
-          jobs: [filteredJob],
-          total: 4,
-          next_cursor: null,
-          has_more: false,
-        }))}
-      />,
-    );
+    const { controller } = renderController({ request: vi.fn(async () => jobList([filteredJob], { total: 4 })) });
 
     await waitFor(() => {
-      expect(controller.contextList.documents).toEqual([expect.objectContaining({ job_id: "job_invoice_1" })]);
-      expect(controller.toolbar.documentCount).toBe(4);
+      expect(controller().contextList.documents).toEqual([expect.objectContaining({ job_id: "job_invoice_1" })]);
+      expect(controller().toolbar.documentCount).toBe(4);
     });
   });
 
   it("reloads paginated Documents with applied advanced filters and exposes model choices", async () => {
     const WebSocketStub = installWebSocketStub();
-    let controller = null;
-    const listDocuments = vi.fn(async () => ({
-      jobs: [],
-      total: 4,
-      next_cursor: null,
-      has_more: false,
-    }));
+    const listDocuments = vi.fn(async () => jobList([], { total: 4 }));
     const getFilterOptions = vi.fn(async () => ({
       available_models: ["provider/model-b", "provider/model-a", "provider/model-a"],
     }));
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        documentRequests={{ getFilterOptions, listDocuments }}
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-      />,
-    );
+    const { controller } = renderController({ documentRequests: { getFilterOptions, listDocuments } });
 
     await waitFor(() => {
       expect(listDocuments).toHaveBeenCalledWith({
@@ -1271,55 +632,31 @@ describe("useDocumentController Workspace live updates", () => {
         filters: { dateFrom: "", dateTo: "", model: "" },
         cursor: null,
       });
-      expect(controller.contextList.availableModels).toEqual([
-        "provider/model-a",
-        "provider/model-b",
-      ]);
+      expect(controller().contextList.availableModels).toEqual(["provider/model-a", "provider/model-b"]);
       expect(getFilterOptions).toHaveBeenCalledOnce();
     });
 
+    const filters = { dateFrom: "2026-08-01", dateTo: "2026-08-16", model: "provider/model-b" };
     act(() => {
-      controller.contextList.onFiltersChange({
-        dateFrom: "2026-08-01",
-        dateTo: "2026-08-16",
-        model: "provider/model-b",
-      });
+      controller().contextList.onFiltersChange(filters);
     });
 
     await waitFor(() => {
-      expect(listDocuments).toHaveBeenLastCalledWith({
-        search: "",
-        filters: {
-          dateFrom: "2026-08-01",
-          dateTo: "2026-08-16",
-          model: "provider/model-b",
-        },
-        cursor: null,
-      });
-      expect(controller.contextList.hasActiveFilters).toBe(true);
+      expect(listDocuments).toHaveBeenLastCalledWith({ search: "", filters, cursor: null });
+      expect(controller().contextList.hasActiveFilters).toBe(true);
       expect(getFilterOptions).toHaveBeenCalledOnce();
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage({
-        data: JSON.stringify({
-          version: 1,
-          events: [{
-            type: "extraction_job_lifecycle",
-            job: {
-              job_id: "job_new_model",
-              status: "completed",
-              source_name: "new-model.pdf",
-              template_id: "template_test",
-              model_name: "provider/model-c",
-              created_at: "2026-08-16T12:00:00.000Z",
-              updated_at: "2026-08-16T12:01:00.000Z",
-            },
-          }],
-        }),
-      });
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(completedJob({
+        job_id: "job_new_model",
+        source_name: "new-model.pdf",
+        model_name: "provider/model-c",
+        created_at: "2026-08-16T12:00:00.000Z",
+        updated_at: "2026-08-16T12:01:00.000Z",
+      }))));
     });
-    expect(controller.contextList.availableModels).toEqual([
+    expect(controller().contextList.availableModels).toEqual([
       "provider/model-a",
       "provider/model-b",
       "provider/model-c",
@@ -1329,45 +666,113 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("appends a cursor page without duplicates while retaining the selected Document", async () => {
     installWebSocketStub();
-    let controller = null;
-    const firstPage = [
-      { job_id: "job_2", status: "completed", source_name: "two.pdf", template_id: "template_test", created_at: "2026-05-06T12:02:00.000Z", updated_at: "2026-05-06T12:02:00.000Z" },
-      { job_id: "job_1", status: "completed", source_name: "one.pdf", template_id: "template_test", created_at: "2026-05-06T12:01:00.000Z", updated_at: "2026-05-06T12:01:00.000Z" },
-    ];
-    const nextPage = [
-      firstPage[1],
-      { job_id: "job_0", status: "completed", source_name: "zero.pdf", template_id: "template_test", created_at: "2026-05-06T12:00:00.000Z", updated_at: "2026-05-06T12:00:00.000Z" },
-    ];
+    const page = (id, minute) => completedJob({
+      job_id: id,
+      source_name: `${id}.pdf`,
+      created_at: `2026-05-06T12:0${minute}:00.000Z`,
+      updated_at: `2026-05-06T12:0${minute}:00.000Z`,
+    });
+    const firstPage = [page("job_2", 2), page("job_1", 1)];
+    const nextPage = [firstPage[1], page("job_0", 0)];
     const listDocuments = vi.fn(async ({ cursor } = {}) => (
       cursor
-        ? { jobs: nextPage, total: 3, next_cursor: null, has_more: false }
-        : { jobs: firstPage, total: 3, next_cursor: "cursor_1", has_more: true }
+        ? jobList(nextPage, { total: 3 })
+        : jobList(firstPage, { total: 3, next_cursor: "cursor_1", has_more: true })
     ));
+    const documentIds = () => controller().contextList.documents.map((job) => job.job_id);
 
-    render(
-      <DocumentControllerHarness
-        workspaceId="ws_1"
-        documentRequests={{ listDocuments }}
-        initialWorkspace={{ selectedDocumentId: "job_2" }}
-        onController={(nextController) => {
-          controller = nextController;
-        }}
-      />,
-    );
+    const { controller } = renderController({
+      documentRequests: { listDocuments },
+      initialWorkspace: { selectedDocumentId: "job_2" },
+    });
 
     await waitFor(() => {
-      expect(controller.contextList.documents.map((job) => job.job_id)).toEqual(["job_2", "job_1"]);
-      expect(controller.contextList.hasMoreDocuments).toBe(true);
+      expect(documentIds()).toEqual(["job_2", "job_1"]);
+      expect(controller().contextList.hasMoreDocuments).toBe(true);
     });
     await act(async () => {
-      await controller.actions.listJobs({ append: true });
+      await controller().contextList.onLoadMoreDocuments();
     });
-    expect(controller.contextList.documents.map((job) => job.job_id)).toEqual(["job_2", "job_1", "job_0"]);
-    expect(controller.contextList.selectedDocumentId).toBe("job_2");
-    expect(controller.contextList.hasMoreDocuments).toBe(false);
-    expect(controller.toolbar.documentCount).toBe(3);
+    expect(documentIds()).toEqual(["job_2", "job_1", "job_0"]);
+    expect(controller().contextList.selectedDocumentId).toBe("job_2");
+    expect(controller().contextList.hasMoreDocuments).toBe(false);
+    expect(controller().toolbar.documentCount).toBe(3);
   });
 });
+
+function processingJob(overrides = {}) {
+  return {
+    job_id: "job_processing_1",
+    status: "processing",
+    source_name: "invoice.pdf",
+    template_id: "template_test",
+    created_at: "2026-05-06T12:00:00.000Z",
+    updated_at: "2026-05-06T12:01:00.000Z",
+    ...overrides,
+  };
+}
+
+function completedJob(overrides = {}) {
+  return {
+    job_id: "job_completed_1",
+    status: "completed",
+    source_name: "invoice.pdf",
+    template_id: "template_test",
+    created_at: "2026-05-06T12:00:00.000Z",
+    updated_at: "2026-05-06T12:02:00.000Z",
+    completed_at: "2026-05-06T12:02:00.000Z",
+    ...overrides,
+  };
+}
+
+// A lifecycle payload completing job_processing_1; like real live updates, it omits created_at.
+function completedUpdate(at, overrides = {}) {
+  return {
+    job_id: "job_processing_1",
+    status: "completed",
+    source_name: "invoice.pdf",
+    template_id: "template_test",
+    updated_at: at,
+    completed_at: at,
+    ...overrides,
+  };
+}
+
+function seeded(...jobs) {
+  return { selectedDocumentId: jobs[0].job_id, jobHistory: jobs };
+}
+
+function jobList(jobs, overrides = {}) {
+  return { jobs, next_cursor: null, has_more: false, ...overrides };
+}
+
+function findDocument(controller, jobId) {
+  return controller.contextList.documents.find((document) => document.job_id === jobId);
+}
+
+function lifecycle(job) {
+  return { type: "extraction_job_lifecycle", job };
+}
+
+function invalidation(reason, occurredAt = "2026-05-06T12:02:00.000Z") {
+  return { type: "workspace_context_invalidated", reason, occurred_at: occurredAt };
+}
+
+function liveMessage(...events) {
+  return { data: JSON.stringify({ version: 1, events }) };
+}
+
+function renderController(props = {}) {
+  let controller = null;
+  const view = render(
+    <DocumentControllerHarness
+      workspaceId="ws_1"
+      onController={(value) => { controller = value; }}
+      {...props}
+    />,
+  );
+  return { ...view, controller: () => controller };
+}
 
 function DocumentControllerHarness({
   workspaceId,
@@ -1375,12 +780,10 @@ function DocumentControllerHarness({
   isWorkspaceDeletionInProgress = false,
   documentRequests,
   onController,
-  onWorkspaceAccessRevalidation,
   onWorkspaceCapacityRefresh,
   onModelConfigurationInvalidation,
-  request = vi.fn(async () => ({ jobs: [], next_cursor: null, has_more: false })),
+  request = vi.fn(async () => jobList([])),
 }) {
-  const [latestResponse, setLatestResponse] = React.useState(null);
   const resolvedDocumentRequests = {
     deleteDocument: vi.fn(async () => ({ deleted: true, job_id: "" })),
     getFilterOptions: () => request("/jobs/filter-options", { method: "GET" }),
@@ -1408,8 +811,6 @@ function DocumentControllerHarness({
     selectedUploadTemplateId: "",
     onSelectedUploadTemplateChange: vi.fn(),
     documentRequests: resolvedDocumentRequests,
-    request,
-    addLog: vi.fn(),
     showActionToast: vi.fn(),
     showDocumentUploadToast: vi.fn(),
     hasApiAccess: true,
@@ -1418,10 +819,7 @@ function DocumentControllerHarness({
     isWorkspaceDeletionInProgress,
     workspaceId,
     sessionId: "user_1",
-    latestResponse,
-    setLatestResponse,
-    onWorkspaceAccessRevalidation:
-      onWorkspaceAccessRevalidation || onWorkspaceCapacityRefresh,
+    onWorkspaceAccessRevalidation: onWorkspaceCapacityRefresh,
     onWorkspaceCapacityRefresh,
     onModelConfigurationInvalidation,
     onActivePageChange: vi.fn(),
@@ -1438,18 +836,12 @@ function installWebSocketStub() {
     onerror = null;
     onmessage = null;
     onopen = null;
-    readyState = 0;
 
     constructor(url) {
       this.url = url;
       WebSocketStub.instances.push(this);
     }
   }
-
-  WebSocketStub.CONNECTING = 0;
-  WebSocketStub.OPEN = 1;
-  WebSocketStub.CLOSING = 2;
-  WebSocketStub.CLOSED = 3;
 
   globalThis.WebSocket = WebSocketStub;
   return WebSocketStub;

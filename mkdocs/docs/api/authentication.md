@@ -1,9 +1,19 @@
-# API Keys
+# API keys
 
-Owners and admins generate or rotate a Workspace API key in the app. Copy the key immediately; the raw value is shown only once.
+Scripts and applications authenticate with a **Workspace API key**.
+
+1. An owner or admin opens the Workspace page and generates (or rotates) the key.
+2. Copy it straight away. It's only shown once.
+3. Send it with every request:
 
 ```http
 Authorization: Bearer <workspace_api_key>
 ```
 
-The key is scoped to one Workspace and may access Template, document-submission, and extraction-job routes. Keep it like a password. It cannot access account, Workspace membership, invitation, admin, or live-update routes.
+The key belongs to one Workspace, so you don't need to say which Workspace a request is for. Treat it like a password. Rotating the key stops the old one working.
+
+An API key can use templates, submit documents, and read, delete, and export jobs. It can't manage accounts, members, invitations, or model settings, and it can't open live updates.
+
+This key is separate from the model gateway credential, which the app uses to call your AI model.
+
+See [Authentication and setup](overview.md#authentication-and-setup) in the full specification.

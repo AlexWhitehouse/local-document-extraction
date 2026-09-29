@@ -1,6 +1,5 @@
 import type { FieldDefinition } from "../lib/types";
 import type { ModelFieldResult } from "./modelResultNormalizer";
-import { encodeModelPayloadBase64 } from "./modelPayloadBase64";
 import { iteratePdfPagesToPng, MAX_RENDERED_PDF_BYTES, PdfPreparationLimitError } from "./pdfPageRenderer";
 import { createByteBudget } from "../lib/byteBudget";
 import { localMemoryLimits } from "../localMemoryLimits";
@@ -99,26 +98,20 @@ async function prepareSourceContent(
   renderPdfAsImages: boolean,
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>[]> {
-  let sourceContentParts: Record<string, unknown>[];
+  if (!renderPdfAsImages) return [buildInlineSourceContentPart(sourceBytes, sourceMimeType)];
+  const parts: Record<string, unknown>[] = [];
   try {
-    sourceContentParts = [];
-    if (renderPdfAsImages) {
-      for await (const pageBytes of iteratePdfPagesToPng(sourceBytes, signal)) {
-        sourceContentParts.push(buildInlineImageContentPart(pageBytes, "image/png"));
-      }
-    } else {
-      sourceContentParts.push(buildInlineSourceContentPart(sourceBytes, sourceMimeType));
+    for await (const pageBytes of iteratePdfPagesToPng(sourceBytes, signal)) {
+      parts.push(buildInlineImageContentPart(pageBytes, "image/png"));
     }
   } catch (error) {
-    if (signal?.aborted) {
-      throw new ExtractionCancelledError("PDF page rendering cancelled");
-    }
+    if (signal?.aborted) throw new ExtractionCancelledError("PDF page rendering cancelled");
     if (error instanceof PdfPreparationLimitError) throw new ModelGatewayRequestError(error.message);
     throw new RetryableError(
-      `PDF Source file could not be prepared for the model: ${errorToMessage(error)}`,
+      `PDF Source file could not be prepared for the model: ${error instanceof Error ? error.message : "unknown error"}`,
     );
   }
-  return sourceContentParts;
+  return parts;
 }
 
 export type ExtractionUsage = { input_tokens: number | null; output_tokens: number | null; scope: "successful attempt" };
@@ -134,18 +127,23 @@ export async function runExtraction(
   return withPreparedModelSource(env, source, sourceMimeType, signal, async (sourceContentParts, onPrepared) => {
     const model = getExtractionModelName(env);
     const renderPdfAsImages = sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
-    const prompt = buildPrompt(fields, sourceMimeType, renderPdfAsImages);
-    const systemPrompt = "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.";
-    const runInput = buildChatCompletionsInput(
+    const requestBody = JSON.stringify({
       model,
-      fields,
-      prompt,
-      sourceContentParts,
-      systemPrompt,
-      readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT),
-    );
-    const requestBody = JSON.stringify(runInput);
-    onPrepared?.(requestBody.length);
+      messages: [
+        {
+          role: "system",
+          content: "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.",
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: buildPrompt(fields, sourceMimeType, renderPdfAsImages) }, ...sourceContentParts],
+        },
+      ],
+      ...(readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT)
+        ? { response_format: buildResponseFormat(model, fields) }
+        : {}),
+    });
+    onPrepared(requestBody.length);
     const runResult = await runViaModelGateway(env, requestBody, signal);
     const content = readRunResultContent(runResult);
     const usage = runResult && typeof runResult === "object" ? (runResult as { usage?: Record<string, unknown> }).usage : undefined;
@@ -172,35 +170,6 @@ export async function runExtraction(
 
     return results as ModelFieldResult[];
   });
-}
-
-function buildChatCompletionsInput(
-  model: string,
-  fields: FieldDefinition[],
-  prompt: string,
-  sourceContentParts: Record<string, unknown>[],
-  systemPrompt: string,
-  useStructuredOutput: boolean,
-): Record<string, unknown> {
-  return {
-    model,
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: prompt },
-          ...sourceContentParts,
-        ],
-      },
-    ],
-    ...(useStructuredOutput
-      ? { response_format: buildResponseFormat(model, fields) }
-      : {}),
-  };
 }
 
 function buildResponseFormat(
@@ -248,7 +217,10 @@ function buildResponseFormat(
 
 export function buildModelResponseFormat(model: string, name: string, schema: Record<string, unknown>): Record<string, unknown> {
   const normalizedModel = model.toLowerCase();
-  if (!normalizedModel.includes("gemma-4") && !isQwenMultimodalModel(normalizedModel)) return { type: "json_object" };
+  const supportsJsonSchema = normalizedModel.includes("gemma-4")
+    || normalizedModel.includes("qwen3-vl")
+    || /qwen3\.(?:5|6|8)/.test(normalizedModel);
+  if (!supportsJsonSchema) return { type: "json_object" };
   return { type: "json_schema", json_schema: { name, strict: true, schema } };
 }
 
@@ -306,7 +278,7 @@ function buildObjectAnswerSchema(field: FieldDefinition): Record<string, unknown
   const rowProperties = Object.fromEntries(
     columns.map((column) => [
       column.key,
-      { type: [schemaTypeForDataType(column.dataType), "null"] },
+      { type: [column.dataType === "number" || column.dataType === "boolean" ? column.dataType : "string", "null"] },
     ]),
   );
   return {
@@ -330,7 +302,7 @@ function buildObjectAnswerSchema(field: FieldDefinition): Record<string, unknown
 
 function readObjectSchemaColumns(
   description: string,
-): Array<{ key: string; dataType: FieldDefinition["data_type"] }> {
+): Array<{ key: string; dataType: "string" | "number" | "boolean" | "date" }> {
   const match = description.match(
     /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/,
   );
@@ -366,15 +338,6 @@ function readObjectSchemaColumns(
   }
 }
 
-function schemaTypeForDataType(
-  dataType: FieldDefinition["data_type"],
-): "string" | "number" | "boolean" {
-  if (dataType === "number" || dataType === "boolean") {
-    return dataType;
-  }
-  return "string";
-}
-
 function buildInlineSourceContentPart(
   sourceBytes: ArrayBuffer,
   sourceMimeType: string,
@@ -383,7 +346,7 @@ function buildInlineSourceContentPart(
     return {
       type: "file",
       file: {
-        file_data: `data:${sourceMimeType};base64,${encodeModelPayloadBase64(sourceBytes)}`,
+        file_data: `data:${sourceMimeType};base64,${Buffer.from(sourceBytes).toString("base64")}`,
         format: sourceMimeType,
       },
     };
@@ -399,16 +362,9 @@ function buildInlineImageContentPart(
   return {
     type: "image_url",
     image_url: {
-      url: `data:${sourceMimeType};base64,${encodeModelPayloadBase64(sourceBytes)}`,
+      url: `data:${sourceMimeType};base64,${Buffer.from(sourceBytes).toString("base64")}`,
     },
   };
-}
-
-function isQwenMultimodalModel(normalizedModel: string): boolean {
-  return (
-    /qwen3\.(?:5|6|8)/.test(normalizedModel) ||
-    normalizedModel.includes("qwen3-vl")
-  );
 }
 
 function scheduleModelCall<T>(
@@ -446,10 +402,6 @@ function waitForModelTurn(previous: Promise<void>, signal?: AbortSignal): Promis
   });
 }
 
-function isRetryableHttpStatus(status: number): boolean {
-  return status === 408 || status === 429 || status >= 500;
-}
-
 function retryAfterDelayMs(value: string | null, now = Date.now()): number | null {
   const normalized = value?.trim();
   if (!normalized) return null;
@@ -460,7 +412,7 @@ function retryAfterDelayMs(value: string | null, now = Date.now()): number | nul
   return Number.isFinite(retryAt) ? Math.max(0, retryAt - now) : null;
 }
 
-function readBooleanConfiguration(value: string | undefined): boolean {
+export function readBooleanConfiguration(value: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() || "");
 }
 
@@ -498,32 +450,13 @@ export function readRunResultContent(payload: unknown): string {
   }
 
   const record = payload as Record<string, unknown>;
-
-  const directText = readContentValue(record.output_text);
-  if (directText) {
-    return directText;
-  }
-
-  const textField = readContentValue(record.text);
-  if (textField) {
-    return textField;
-  }
-
   const choices = record.choices as Array<Record<string, unknown>> | undefined;
   const message = choices?.[0]?.message as Record<string, unknown> | undefined;
-  const messageContent = readContentValue(message?.content);
-  if (messageContent) {
-    return messageContent;
+  for (const candidate of [record.output_text, record.text, message?.content, message?.reasoning_content]) {
+    const content = readContentValue(candidate);
+    if (content) return content;
   }
-
-  const reasoningContent = readContentValue(message?.reasoning_content);
-  if (reasoningContent) {
-    return reasoningContent;
-  }
-
-  throw new RetryableError(
-    "Model response did not include readable text content",
-  );
+  throw new RetryableError("Model response did not include readable text content");
 }
 
 function readContentValue(value: unknown): string | null {
@@ -581,7 +514,7 @@ export async function runViaModelGateway(
       // Do not consume or surface upstream error bodies, including redirect destinations.
       await response.body?.cancel().catch(() => {});
       const message = `Model gateway request failed with HTTP ${response.status}`;
-      if (isRetryableHttpStatus(response.status)) {
+      if (response.status === 408 || response.status === 429 || response.status >= 500) {
         throw new RetryableError(message, {
           retryAfterMs: retryAfterDelayMs(response.headers.get("retry-after")),
           status: response.status,
@@ -607,7 +540,7 @@ export async function runViaModelGateway(
     if (error instanceof RetryableError || error instanceof ModelGatewayRequestError) {
       throw error;
     }
-    if (isAbortError(error)) {
+    if (error instanceof DOMException && error.name === "AbortError") {
       throw new RetryableError("Model gateway request timed out");
     }
     throw new RetryableError("Model gateway request failed");
@@ -627,21 +560,7 @@ export function buildChatCompletionsUrl(env: ModelGatewayConfiguration): string 
   }
 }
 
-export function getModelGatewayBaseUrl(env: ModelGatewayConfiguration): string {
+function getModelGatewayBaseUrl(env: ModelGatewayConfiguration): string {
   if (!env.MODEL_GATEWAY_URL) throw new ModelGatewayRequestError("Workspace gateway is not configured");
   return env.MODEL_GATEWAY_URL;
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    error instanceof DOMException &&
-    error.name === "AbortError"
-  );
-}
-
-function errorToMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "unknown error";
 }

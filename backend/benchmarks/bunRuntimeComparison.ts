@@ -26,14 +26,14 @@ export type BunRuntimeRun = {
   sqliteBusyRetries: number;
 };
 
-export type MetricSummary = {
+type MetricSummary = {
   coefficientOfVariation: number;
   maximum: number;
   mean: number;
   minimum: number;
 };
 
-export type BunRuntimeAggregate = {
+type BunRuntimeAggregate = {
   completedTotal: number;
   failedTotal: number;
   lifecycleP50Ms: MetricSummary;
@@ -47,19 +47,19 @@ export type BunRuntimeAggregate = {
   throughputJobsPerSecond: MetricSummary;
 };
 
-export type RegressionCheck = {
+type RegressionCheck = {
   actual: string;
   metric: string;
   passed: boolean;
   threshold: string;
 };
 
-export type RegressionAssessment = {
+type RegressionAssessment = {
   checks: RegressionCheck[];
   passed: boolean;
 };
 
-export type BunRuntimeComparisonSettings = {
+type BunRuntimeComparisonSettings = {
   boundedAdmissionConcurrency: number;
   boundedRunnerConcurrency: number;
   gatewayConcurrency: number;
@@ -70,7 +70,7 @@ export type BunRuntimeComparisonSettings = {
   workers: number;
 };
 
-export type BunRuntimeComparisonEvidence = {
+type BunRuntimeComparisonEvidence = {
   command: string;
   fixtureIdentities: Array<{ bytes: number; pageCount: number; sha256: string }>;
   generatedAt?: string;
@@ -277,7 +277,7 @@ export function condenseBunProfileMarkdown(markdown: string, kind: "cpu" | "heap
   return `${introduction}\n\n${hot}\n\n${tree}${note}`;
 }
 
-export function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): string {
+function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): string {
   if (evidence.runtimes.length !== 2) throw new Error("Exactly two Bun runtimes are required");
   const baseline = evidence.runtimes[0]!;
   const candidate = evidence.runtimes[1]!;

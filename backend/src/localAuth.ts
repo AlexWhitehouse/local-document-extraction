@@ -4,8 +4,7 @@ import { admin } from "better-auth/plugins/admin";
 import { defaultAc, userAc } from "better-auth/plugins/admin/access";
 import type { Database } from "bun:sqlite";
 
-import { renderAccountEmailVerificationEmail } from "./lib/email/accountEmailVerification";
-import { renderAccountPasswordResetEmail } from "./lib/email/accountPasswordReset";
+import { renderAccountEmailVerificationEmail, renderAccountPasswordResetEmail } from "./lib/email/accountEmails";
 import type { LocalMailSink } from "./localMailSink";
 import { createLocalAuthRateLimitStorage } from "./localAuthRateLimit";
 import { LOCAL_AUTH_CLIENT_ADDRESS_HEADER, localAuthRequestHeaders } from "./localAuthClientAddress";
@@ -65,6 +64,7 @@ export async function createLocalAuth({
   mailSink: LocalMailSink;
   secret: string;
 }): Promise<LocalAuth> {
+  const allowedOrigins = localTrustedOrigins(baseURL, trustedOrigins);
   const configuredAdminEmails = new Set(adminEmails.map((email) => email.trim().toLowerCase()).filter(Boolean));
   const configuredGoogleClientId = googleClientId?.trim();
   const configuredGoogleClientSecret = googleClientSecret?.trim();
@@ -90,7 +90,7 @@ export async function createLocalAuth({
     database,
     secret,
     rateLimit: { enabled: true, customStorage: createLocalAuthRateLimitStorage() },
-    trustedOrigins: localTrustedOrigins(baseURL, trustedOrigins),
+    trustedOrigins: allowedOrigins,
     emailAndPassword: {
       enabled: emailPasswordEnabled,
       disableSignUp: !signupEnabled,
@@ -145,21 +145,10 @@ export async function createLocalAuth({
     },
   });
 
-  const migrations = await getMigrations(auth.options);
-  await migrations.runMigrations();
-
-  const handler = async (request: Request): Promise<Response> => {
-    request = new Request(request, { headers: localAuthRequestHeaders(request, trustedIpHeaders) });
-    const session = await auth.api.getSession({ headers: request.headers });
-    const rejection = await validateLocalAdminAction(request, {
-      id: session?.user?.id ?? undefined,
-      role: session?.user?.role ?? undefined,
-    });
-    return rejection ?? auth.handler(request);
-  };
+  await (await getMigrations(auth.options)).runMigrations();
 
   return {
-    isTrustedOrigin: (origin) => localTrustedOrigins(baseURL, trustedOrigins).includes(origin),
+    isTrustedOrigin: (origin) => allowedOrigins.includes(origin),
     getSession: async (request) => {
       const session = await auth.api.getSession({ headers: localAuthRequestHeaders(request, trustedIpHeaders) });
       if (!session?.user?.id) {
@@ -177,15 +166,20 @@ export async function createLocalAuth({
         ...(typeof session.user.role === "string" ? { role: session.user.role } : {}),
       };
     },
-    handler,
+    handler: async (request) => {
+      request = new Request(request, { headers: localAuthRequestHeaders(request, trustedIpHeaders) });
+      const session = await auth.api.getSession({ headers: request.headers });
+      return (await validateLocalAdminAction(request, session?.user)) ?? auth.handler(request);
+    },
   };
 }
 
+/** Admin-plugin guard rails Better Auth does not provide itself. */
 async function validateLocalAdminAction(
   request: Request,
-  sessionUser: { id?: string; role?: string },
+  sessionUser: { id: string; role?: string | null } | undefined,
 ): Promise<Response | null> {
-  if (request.method !== "POST" || sessionUser.role !== "admin") {
+  if (request.method !== "POST" || sessionUser?.role !== "admin") {
     return null;
   }
 

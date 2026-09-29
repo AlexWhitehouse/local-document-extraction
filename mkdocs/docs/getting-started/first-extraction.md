@@ -1,13 +1,32 @@
-# First Extraction
+# Your first extraction
 
-1. Create an account with your name, email address, and password, or sign in to an existing account.
-2. Select an accepted Workspace. A new account receives a personal Workspace and starter invoice Template.
-3. As a Workspace owner or admin, open **Workspaces → Model gateway → Set up**. Save the gateway base URL, model name, and gateway credential. These are mandatory per Workspace and are separate from its inbound API key.
-4. Enable direct PDF input or structured output only if supported by your model. Without direct PDF input, pages are rendered as images; select an image-capable model. The optional connection test sends only a small text prompt and does not certify PDF/image capabilities.
-5. Use the starter Template, or open **Templates** and create one with field names, descriptions, and data types.
-6. Open **Documents**, select the Template, and upload a PNG, JPEG, WebP, or PDF within the displayed file-size limit (10 MiB by default).
-7. Wait for the queued job to reach `completed` or `failed`. Select a completed job to review extracted fields and evidence; select jobs to export an Excel workbook.
+## 1. Connect a model
 
-Templates are reusable and can be refined as document layouts change.
+As a Workspace owner or admin, open **Workspaces → Model gateway → Set up** and enter:
 
-Document input and extraction instructions are sent to the configured model gateway. Choose a local endpoint for local inference or a remote provider according to your data requirements. Review important extracted values; model output can be incorrect. Completed source binaries are deleted after successful cleanup, while extracted results remain until deleted.
+- **Gateway URL:** the address of an OpenAI-compatible service or local model server.
+- **Model name:** the model to use.
+- **Gateway API key:** the key for that service. This is different from the Workspace API key your own scripts use to call this app.
+
+Pick a model that accepts images. Unless you turn on **Direct PDF input**, PDF pages are sent to the model as images. Only turn on **Direct PDF input** or **Structured output** if your model supports them.
+
+**Test connection** sends a short text message to check the model answers. It doesn't check PDF or image support.
+
+## 2. Choose or create a template
+
+Use the example invoice template, or open **Templates** and create your own. Give each field a name, a description of what to extract, and a data type.
+
+## 3. Upload a document
+
+Open **Documents**, pick the template, and upload a PNG, JPEG, WebP, or PDF file. Files can be up to 10 MiB by default; the app shows the current limit.
+
+## 4. Review the results
+
+Each upload becomes a job that moves from `queued` to `processing`, and then to `completed` or `failed`. Open a completed job to see each extracted field and the evidence behind it. Select several jobs to export them to an Excel workbook.
+
+## Good to know
+
+- Always check important values. AI models can make mistakes.
+- Documents and your field instructions are sent to the model gateway you configured. Choose a local model if they must not leave your machine, or a remote provider whose data policy suits you.
+- Uploaded files are deleted once a job succeeds. Extracted results stay until you delete them.
+- Templates can be edited at any time as your documents change. Existing jobs keep the template version they were run with.

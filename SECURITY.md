@@ -2,18 +2,30 @@
 
 ## Reporting a vulnerability
 
-Use the repository's [private vulnerability reporting form](https://github.com/AlexWhitehouse/local-document-extraction/security/advisories/new) (**Security → Report a vulnerability**). Do not post exploit details, credentials, account action links, or real documents in a public issue. If private reporting is unavailable, open an issue asking the maintainers to provide a private contact channel without disclosing the vulnerability itself.
+Please report vulnerabilities privately using the repository's [vulnerability reporting form](https://github.com/AlexWhitehouse/local-document-extraction/security/advisories/new) (**Security → Report a vulnerability**).
 
-Include the affected version/commit, OS and architecture, reproduction steps using synthetic data, expected behavior, observed behavior, and impact. Redact configuration values, tokens, cookies, database contents, and document data.
+Don't put exploit details, credentials, account links, or real documents in a public issue. If private reporting isn't available to you, open an issue asking for a private contact, without describing the vulnerability.
 
-Private reporting is enabled for this repository; the [release checklist](docs/releasing.md) records publication checks. There is no published security support lifetime or promised response time yet. Use the latest qualified release and review its notes before upgrades.
+A helpful report includes:
 
-## Deployment boundaries
+- the version or commit, operating system, and chip type
+- steps to reproduce, using made-up data
+- what you expected to happen, what actually happened, and the impact
 
-- The default listener is loopback. Remote access requires deliberate network, TLS, origin, and trusted-proxy configuration.
-- Local email mode records usable verification/reset links for the person operating the machine. Use real email delivery for users who do not control the host.
-- Documents and extraction instructions are sent to each Workspace's selected gateway. A remote provider's data policy applies to that traffic. Workspace owners/admins can configure private-network endpoints and should be trusted accordingly.
-- State, logs, and backups contain sensitive data. Keep them private and outside published artifacts. Retain matching encryption secrets when backing up databases.
-- The auth secret and gateway-credential encryption key are generated per installation. There is no shared default credential.
+Remove configuration values, tokens, cookies, database contents, and document data before sending.
 
-Run full-history secret scanning before publishing an existing repository. Removing a file or adding an ignore rule does not remove old commits. If a real secret was exposed, revoke it before considering history cleanup.
+There's no fixed support period or guaranteed response time yet. Please use the latest release, and read its notes before upgrading.
+
+## Running the app safely
+
+- **Network.** The app only listens on your own machine by default. Making it reachable from elsewhere needs deliberate setup: a proxy with HTTPS, the right addresses, and trusted proxy headers. See [Access from other machines](docs/configuration.md#access-from-other-machines).
+- **Email.** By default, account emails aren't sent. Verification and password-reset links are saved on the machine, so whoever runs the machine can use them. If other people use the app, set up real email delivery.
+- **Your model provider sees your documents.** Documents and extraction instructions are sent to each Workspace's chosen model gateway, and that provider's data policy applies. Workspace owners and admins can point the gateway at any address, including ones on your private network, so only give those roles to people you trust.
+- **Data and backups are sensitive.** The data folder, logs, and backups contain accounts, documents, and the keys that decrypt saved credentials. Keep them private and never publish them. Back up the encryption keys together with the databases.
+- **No shared default secrets.** The session-signing secret and the credential encryption key are generated separately for each installation.
+
+## Before publishing a fork
+
+Scan the full Git history for secrets before making a repository public. Deleting a file or adding it to `.gitignore` doesn't remove it from earlier commits. If a real secret was ever committed, revoke it first, then decide whether to rewrite history.
+
+The [release checklist](docs/releasing.md) lists the checks run before each public release.

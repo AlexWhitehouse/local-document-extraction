@@ -1,23 +1,19 @@
 # Document Extraction
 
-Document Extraction is a local Workspace app for turning PDFs and image documents into structured data. Sign in, choose a Workspace, define Templates, submit Documents, and review asynchronous Extraction jobs.
+Document Extraction turns PDFs and images into structured data. You describe the fields you want in a **template**, upload documents, and the app uses an AI model you choose to fill in those fields. Results can be reviewed in the browser, exported to Excel, or collected by your own scripts through the API.
 
-The local app and API run at `http://127.0.0.1:8787`.
+The app runs on your own computer at `http://127.0.0.1:8787`. Your accounts, templates, and results are stored locally. Documents are sent only to the model gateway each Workspace is set up to use, so extraction stays local too if you choose a local model.
 
-## What You Can Do
+## What you can do
 
-- Create Workspaces and invite members.
-- Generate Workspace API keys for external local clients.
-- Define Templates with typed fields and one table-shaped field when needed.
-- Configure a model gateway separately for each Workspace.
-- Submit PNG, JPEG, WebP, and PDF Documents for extraction.
-- Track Extraction jobs and review completed results.
-- Export selected results to Excel.
+- Create Workspaces and invite other people to them.
+- Define templates with typed fields, including one table per template.
+- Upload PNG, JPEG, WebP, and PDF documents and track their extraction.
+- Review results and export them to Excel.
+- Compare models and template versions on the same document.
+- Automate everything with a Workspace API key.
 
-Document input is sent to the chosen model gateway. Application storage is local; inference is local only when you select a local gateway. By default, account email is captured on the machine rather than delivered to an inbox. The getting-started pages explain verification and mandatory model setup.
+## Where to start
 
-## Quick Links
-
-- [Start Using The App](getting-started/index.md)
-- [First Extraction](getting-started/first-extraction.md)
-- [Workspace API Overview](api/overview.md)
+- New here? [Start using the app](getting-started/index.md), then run your [first extraction](getting-started/first-extraction.md).
+- Writing a script or integration? Go to the [API specification](api/overview.md).

@@ -23,7 +23,7 @@ export function Meter({ value, best }) {
   return <span className={`evaluation-meter ${best ? "best" : ""}`} aria-hidden="true"><i style={{ width: `${Math.round((value ?? 0) * 100)}%` }} /></span>;
 }
 
-export function RunDetails({ candidate }) {
+function RunDetails({ candidate }) {
   const result = candidate.result;
   if (!result) return <p className="evaluation-muted">Run this candidate to see timings and token use.</p>;
   return <dl className="evaluation-details">

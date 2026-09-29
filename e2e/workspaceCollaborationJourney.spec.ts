@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { access } from "node:fs/promises";
 
 import { signUpAndVerify } from "./support/journeyHelpers";
-import { startRuntimeHarness } from "./support/runtimeHarnessClient";
+import { startRuntimeHarness, type RuntimeHarness } from "./support/runtimeHarnessClient";
 
 const OWNER = {
   email: "workspace-owner@example.test",
@@ -20,7 +20,7 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
   browser,
   page: ownerPage,
 }) => {
-  let harness: Awaited<ReturnType<typeof startRuntimeHarness>> | undefined;
+  let harness: RuntimeHarness | undefined;
   const memberContext = await browser.newContext();
   const memberPage = await memberContext.newPage();
 

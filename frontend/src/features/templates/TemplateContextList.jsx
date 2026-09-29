@@ -24,22 +24,15 @@ export function TemplateContextList({
       <ScrollArea className="context-list" role="region" aria-label="Template list" tabIndex={0}>
         {templates.slice(0, 12).map((template) => {
           const itemDetail = template.is_draft ? "Unsaved" : template.id;
+          const isActive = template.is_draft ? !isEditingTemplate : selectedTemplateId === template.id;
           return (
             <div
               key={`context-${template.id}`}
-              className={getTemplateItemClassName({
-                template,
-                selectedTemplateId,
-                isEditingTemplate,
-              })}
+              className={isActive ? "context-item-card active" : "context-item-card"}
             >
               <button
                 type="button"
-                className={getTemplateItemButtonClassName({
-                  template,
-                  selectedTemplateId,
-                  isEditingTemplate,
-                })}
+                className={isActive ? "context-item-main active" : "context-item-main"}
                 onClick={() => {
                   if (template.is_draft) {
                     onSelectDraftTemplate();
@@ -67,23 +60,3 @@ export function TemplateContextList({
   );
 }
 
-function getTemplateItemClassName({ template, selectedTemplateId, isEditingTemplate }) {
-  if (template.is_draft) {
-    return !isEditingTemplate ? "context-item-card active" : "context-item-card";
-  }
-  return selectedTemplateId === template.id
-    ? "context-item-card active"
-    : "context-item-card";
-}
-
-function getTemplateItemButtonClassName({
-  template,
-  selectedTemplateId,
-  isEditingTemplate,
-}) {
-  return getTemplateItemClassName({
-    template,
-    selectedTemplateId,
-    isEditingTemplate,
-  }).replace("context-item-card", "context-item-main");
-}

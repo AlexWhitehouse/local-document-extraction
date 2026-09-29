@@ -4,11 +4,6 @@ import { ensurePrivateStateDirectory } from "./localStatePaths";
 
 export type FetchApplication = (request: Request) => Response | Promise<Response>;
 
-export type LocalRuntimeOptions = {
-  api: FetchApplication;
-  assetsDirectory: string;
-};
-
 export async function ensureLocalStateDirectories(stateDirectory: string): Promise<void> {
   // Restrict the root first: existing databases and captured action links must
   // also be protected when upgrading an installation made with a broad umask.
@@ -29,7 +24,10 @@ export async function ensureLocalStateDirectories(stateDirectory: string): Promi
 export function createLocalRuntimeFetchHandler({
   api,
   assetsDirectory,
-}: LocalRuntimeOptions): FetchApplication {
+}: {
+  api: FetchApplication;
+  assetsDirectory: string;
+}): FetchApplication {
   let canonicalAssetsDirectory: Promise<string | null> | null = null;
   const getCanonicalAssetsDirectory = () => {
     canonicalAssetsDirectory ??= realpath(assetsDirectory)
@@ -44,22 +42,13 @@ export function createLocalRuntimeFetchHandler({
   return async (request) => {
     const url = new URL(request.url);
 
-    if (isApiPath(url.pathname)) {
-      return api(request);
-    }
-
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return new Response("Not found", { status: 404 });
-    }
+    if (isApiPath(url.pathname)) return api(request);
+    if (request.method !== "GET" && request.method !== "HEAD") return new Response("Not found", { status: 404 });
 
     const assetsRoot = getCanonicalAssetsDirectory();
-    const assetResponse = await readAssetResponse(assetsRoot, url.pathname, request);
-    if (assetResponse) {
-      return assetResponse;
-    }
-
-    const spaResponse = await readAssetResponse(assetsRoot, "/index.html", request);
-    return spaResponse ?? new Response("Frontend build not found", { status: 503 });
+    return await readAssetResponse(assetsRoot, url.pathname, request)
+      ?? await readAssetResponse(assetsRoot, "/index.html", request)
+      ?? new Response("Frontend build not found", { status: 503 });
   };
 }
 
@@ -73,19 +62,11 @@ async function readAssetResponse(
   request: Request,
 ): Promise<Response | null> {
   const assetsDirectory = await canonicalAssetsDirectory;
-  if (!assetsDirectory) {
-    return null;
-  }
-
+  if (!assetsDirectory) return null;
   const assetPath = await resolveAssetPath(assetsDirectory, pathname);
-  if (!assetPath) {
-    return null;
-  }
-
+  if (!assetPath) return null;
   const details = await stat(assetPath).catch(() => null);
-  if (!details?.isFile()) {
-    return null;
-  }
+  if (!details?.isFile()) return null;
 
   const etag = createWeakEtag(details.size, details.mtimeMs);
   const headers = new Headers({
@@ -139,9 +120,7 @@ async function resolveAssetPath(assetsDirectory: string, pathname: string): Prom
 
   const normalizedPathname = decodedPathname.replaceAll("\\", "/");
   const assetPath = resolve(assetsDirectory, normalizedPathname.replace(/^\/+/, ""));
-  if (!isInsideRoot(assetsDirectory, assetPath)) {
-    return null;
-  }
+  if (!isInsideRoot(assetsDirectory, assetPath)) return null;
 
   const canonicalAssetPath = await realpath(assetPath).catch(() => null);
   return canonicalAssetPath && isInsideRoot(assetsDirectory, canonicalAssetPath)

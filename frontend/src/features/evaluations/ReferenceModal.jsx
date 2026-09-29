@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { EvaluationDialog } from "./EvaluationDialog.jsx";
+import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { getDataTypeLabel } from "../templates/templateFields.js";
 import { scalarValue, tableAnswerRows, tableColumns, validateReference } from "./evaluationScoring.js";
@@ -39,7 +39,7 @@ export function ReferenceModal({ row, initial, onSave, onClose }) {
     if (problem) { setError(problem); return; }
     onSave(reference);
   };
-  return <EvaluationDialog className={`evaluation-reference ${table ? "object-schema-modal evaluation-table-reference" : ""}`} label="Verify expected answer" onClose={onClose}>
+  return <ModalDialog className={`evaluation-reference ${table ? "object-schema-modal evaluation-table-reference" : ""}`} label="Verify expected answer" onClose={onClose}>
     <div className={table ? "object-schema-modal-head" : "evaluation-heading"}>
       <div><h2>{row.field.name} · Expected answer</h2><p>Review against the document before verifying. Only verified answers affect scores.</p></div>
       <button type="button" className="icon-action-button object-schema-modal-close" aria-label="Close expected answer editor" onClick={onClose}>×</button>
@@ -72,5 +72,5 @@ export function ReferenceModal({ row, initial, onSave, onClose }) {
       {error && <p role="alert">{error}</p>}
       <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button>{initial.verified && <button type="button" className="secondary" onClick={() => onSave({ ...initial, verified: false })}>Remove verification</button>}<button type="button" onClick={verify}>Use as expected answer</button></div>
     </div>
-  </EvaluationDialog>;
+  </ModalDialog>;
 }

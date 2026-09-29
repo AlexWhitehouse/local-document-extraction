@@ -21,15 +21,11 @@
     "test:bun:changed": "bun test --changed=${BUN_CHANGED_BASE:-HEAD} --pass-with-no-tests --isolate --parallel=2 --max-concurrency=1 --retry=0 --no-orphans --path-ignore-patterns='**/localRuntimeSmoke.bun.test.ts'",
     "test:bun:flake": "bun scripts/runBackendFlake.ts",
     "test:bun:parallel": "bun test --isolate --parallel=2 --max-concurrency=1 --retry=0 --no-orphans --path-ignore-patterns='**/localRuntimeSmoke.bun.test.ts'",
-    "test:bun:merge": "bun test --isolate --max-concurrency=1 --retry=0 --no-orphans --randomize --seed=9140001",
-    "test:bun:serial": "bun test --isolate --max-concurrency=1 --retry=0 --no-orphans --path-ignore-patterns='**/localRuntimeSmoke.bun.test.ts'",
     "test:bun:smoke": "bun test src/localRuntimeSmoke.bun.test.ts --isolate --max-concurrency=1 --retry=0 --no-orphans",
-    "test:bun:verify-changed": "bun scripts/verifyChangedTestSelection.ts",
     "test:evidence": "bun scripts/runBackendTestEvidence.ts",
     "test:target": "bun test --only-failures --bail=1 --isolate --max-concurrency=1 --retry=0 --no-orphans",
     "typecheck": "bunx tsc --noEmit",
-    "migrate": "bun src/migrate.ts",
-    "stress:runtime-smoke": "bun benchmarks/localRuntimeSmokeStress.ts"
+    "migrate": "bun src/migrate.ts"
   },
   "devDependencies": {
     "@types/busboy": "1.5.4",

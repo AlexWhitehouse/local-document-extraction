@@ -1,19 +1,22 @@
-# Extraction Jobs API
+# Extraction jobs API
 
-Submit a document using multipart form data:
+## Submit a document
 
 ```http
 POST /v1/extract
 Authorization: Bearer <workspace_api_key>
 ```
 
-Required form fields are `template_id` and `document`. Successful submission returns `202` with a queued `job_id`.
+Send multipart form data with a `template_id` and one `document`. The response is `202 Accepted` with a `job_id`. That means the document is queued, not that extraction has finished.
 
-Read jobs with:
+## Get the results
 
 ```http
-GET /v1/jobs
 GET /v1/jobs/{job_id}
 ```
 
-Completed job detail contains normalized field results. Failed detail contains an operational error code and message.
+Check this until `status` is `completed` or `failed`. A completed job has a `results` array with one entry per template field; a failed job has an `error_code` and `error_message`.
+
+To list jobs, use `GET /v1/jobs`, which supports search, date filters, and paging.
+
+The [quickstart](overview.md#quickstart-document-to-structured-data) has a complete script. [Jobs and results](overview.md#jobs-and-results) covers efficient polling with `ETag`s, retries, exports, and deletion.

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 
-const ACCOUNT_PASSWORD_REQUIREMENTS = [
+export const ACCOUNT_PASSWORD_REQUIREMENTS = [
   { label: "At least 8 characters", test: (password) => password.length >= 8 },
   { label: "One uppercase letter", test: (password) => /[A-Z]/.test(password) },
   { label: "One number", test: (password) => /[0-9]/.test(password) },
@@ -16,7 +16,6 @@ export function useAuthProfileController({
   authOptions = DEFAULT_RUNTIME_CONFIGURATION.auth,
   authClient,
   refetchSession,
-  addLog,
   initialAuthMode = "signin",
   hasSession,
   sessionUserName,
@@ -45,7 +44,6 @@ export function useAuthProfileController({
   const [profileEmail, setProfileEmail] = useState("");
   const [profileDraftName, setProfileDraftName] = useState("");
   const profilePanelRef = useRef(null);
-  const addLogRef = useRef(addLog);
 
   const currentProfileName = (profileName.trim() || sessionUserName).trim();
   const currentProfileEmail = (profileEmail.trim() || sessionUserEmail).trim();
@@ -61,10 +59,6 @@ export function useAuthProfileController({
     authMode === "signup" &&
     authConfirmPassword.length > 0 &&
     authPassword !== authConfirmPassword;
-
-  useEffect(() => {
-    addLogRef.current = addLog;
-  }, [addLog]);
 
   useEffect(() => {
     if (!hasSession) {
@@ -102,7 +96,6 @@ export function useAuthProfileController({
 
   async function signIn() {
     if (!authEmail.trim() || !authPassword.trim()) {
-      addLog("Sign in failed: email and password are required");
       toast.error("Email and password are required.");
       return;
     }
@@ -118,9 +111,7 @@ export function useAuthProfileController({
       }
       setAuthPassword("");
       await refetchSession();
-      addLog(`Signed in as ${authEmail.trim()}`);
     } catch (error) {
-      addLog(`Sign in failed: ${error.message}`);
       toast.error(getSignInErrorToastMessage(error.message, authOptions.mailDelivery));
     } finally {
       setBusy(false);
@@ -147,17 +138,14 @@ export function useAuthProfileController({
             : `${leadingFields.join(", ")}, and ${lastField}`;
       const requiredVerb = missingSignUpFields.length === 1 ? "is" : "are";
       const displayFieldList = fieldList[0].toUpperCase() + fieldList.slice(1);
-      addLog(`Sign up failed: ${fieldList} required`);
       toast.error(`${displayFieldList} ${requiredVerb} required.`);
       return;
     }
     if (unmetAccountPasswordRequirements.length > 0) {
-      addLog("Sign up failed: password does not meet complexity requirements");
       toast.error("Password must meet all complexity requirements.");
       return;
     }
     if (hasSignUpPasswordMismatch) {
-      addLog("Sign up failed: passwords do not match");
       toast.error("Passwords do not match.");
       return;
     }
@@ -179,13 +167,10 @@ export function useAuthProfileController({
       setSignUpSubmitAttempted(false);
       if (authOptions.requireEmailVerification) {
         setAccountVerificationPromptEmail(signedUpEmail);
-        addLog(`Account verification required for ${signedUpEmail}`);
       } else {
         await refetchSession();
-        addLog("Account created");
       }
     } catch (error) {
-      addLog(`Sign up failed: ${error.message}`);
       toast.error(getSignUpErrorToastMessage(error.message));
     } finally {
       setBusy(false);
@@ -202,8 +187,7 @@ export function useAuthProfileController({
       if (result?.error) {
         throw new Error(result.error.message || "Google sign in failed");
       }
-    } catch (error) {
-      addLog(`Google sign in failed: ${error.message}`);
+    } catch {
       toast.error("Google sign-in could not start. Please try again.");
       setBusy(false);
     }
@@ -211,7 +195,6 @@ export function useAuthProfileController({
 
   async function requestAccountPasswordReset() {
     if (!authEmail.trim()) {
-      addLog("Account password reset request failed: email is required");
       toast.error("Email is required.");
       return;
     }
@@ -227,9 +210,7 @@ export function useAuthProfileController({
         throw new Error(result.error.message || "Account password reset request failed");
       }
       setAccountPasswordResetRequestedEmail(requestedEmail);
-      addLog(`Account password reset requested for ${requestedEmail}`);
-    } catch (error) {
-      addLog(`Account password reset request failed: ${error.message}`);
+    } catch {
       toast.error("Password reset request failed. Please try again.");
     } finally {
       setBusy(false);
@@ -270,9 +251,8 @@ export function useAuthProfileController({
       onClearWorkspaceScopedDocuments();
       onClearSessionWorkspaceData();
       await refetchSession();
-      addLog("Signed out");
-    } catch (error) {
-      addLog(`Sign out failed: ${error.message}`);
+    } catch {
+      // A failed sign out keeps the current session in place.
     } finally {
       setBusy(false);
     }
@@ -282,7 +262,6 @@ export function useAuthProfileController({
     const name = profileDraftName.trim();
 
     if (!name) {
-      addLog("Profile update failed: name is required");
       return;
     }
 
@@ -296,10 +275,9 @@ export function useAuthProfileController({
       setProfileName(nextName);
       setAuthName(nextName);
       await refetchSession();
-      addLog("Profile updated");
       setIsProfileMenuOpen(false);
-    } catch (error) {
-      addLog(`Profile update failed: ${error.message}`);
+    } catch {
+      // A failed save keeps the menu open with the draft name for another attempt.
     } finally {
       setIsSavingProfile(false);
     }

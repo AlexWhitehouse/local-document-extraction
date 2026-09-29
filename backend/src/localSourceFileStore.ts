@@ -1,12 +1,12 @@
 import { mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 
-const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "application/pdf": "pdf",
-};
+const EXTENSION_BY_MIME_TYPE = new Map([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/webp", "webp"],
+  ["application/pdf", "pdf"],
+]);
 
 export type LocalSourceFileStore = {
   delete(sourceFileKey: string): Promise<void>;
@@ -51,12 +51,8 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
       return await file.exists() ? file : null;
     },
     promoteTemporary: async ({ workspaceId, jobId, mimeType, temporaryPath }) => {
-      assertIdentifier(workspaceId, "Workspace ID");
-      assertIdentifier(jobId, "Extraction job ID");
-      const extension = EXTENSION_BY_MIME_TYPE[mimeType];
-      if (!extension) throw new Error("Unsupported Source file MIME type");
+      const sourceFileKey = newSourceFileKey(workspaceId, jobId, mimeType);
       assertPathWithinRoot(temporaryDirectory, temporaryPath, "Temporary Source file");
-      const sourceFileKey = `workspaces/${workspaceId}/jobs/${jobId}/source.${extension}`;
       const destination = pathForKey(rootDirectory, sourceFileKey);
       await mkdir(dirname(destination), { recursive: true });
       await rename(temporaryPath, destination);
@@ -64,20 +60,21 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
     },
     read: async (sourceFileKey) => readFile(pathForKey(rootDirectory, sourceFileKey)).catch(() => null),
     write: async ({ workspaceId, jobId, mimeType, bytes }) => {
-      assertIdentifier(workspaceId, "Workspace ID");
-      assertIdentifier(jobId, "Extraction job ID");
-      const extension = EXTENSION_BY_MIME_TYPE[mimeType];
-      if (!extension) {
-        throw new Error("Unsupported Source file MIME type");
-      }
-
-      const sourceFileKey = `workspaces/${workspaceId}/jobs/${jobId}/source.${extension}`;
+      const sourceFileKey = newSourceFileKey(workspaceId, jobId, mimeType);
       const path = pathForKey(rootDirectory, sourceFileKey);
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, new Uint8Array(bytes));
       return sourceFileKey;
     },
   };
+}
+
+function newSourceFileKey(workspaceId: string, jobId: string, mimeType: string): string {
+  assertIdentifier(workspaceId, "Workspace ID");
+  assertIdentifier(jobId, "Extraction job ID");
+  const extension = EXTENSION_BY_MIME_TYPE.get(mimeType);
+  if (!extension) throw new Error("Unsupported Source file MIME type");
+  return `workspaces/${workspaceId}/jobs/${jobId}/source.${extension}`;
 }
 
 function assertIdentifier(value: string, label: string): void {

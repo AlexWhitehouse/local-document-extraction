@@ -54,7 +54,6 @@ export function TemplateGenerationModal({
             label="Sample file"
             multiple={false}
             sourceFiles={file ? [{ id: "sample", file, queueStatus: "pending" }] : []}
-            disabled={isGenerating}
             isDragActive={isDragActive}
             maxSourceFileBytes={maxSourceFileBytes}
             onSelectSourceFiles={selectFiles}
@@ -70,13 +69,13 @@ export function TemplateGenerationModal({
           />
           <label>
             What should this template capture? (optional)
-            <textarea rows={3} maxLength={8192} value={instructions} disabled={isGenerating}
+            <textarea rows={3} maxLength={8192} value={instructions}
               placeholder="For example, supplier details and line items, excluding payment information."
               onChange={(event) => onInstructionsChange(event.target.value)} />
           </label>
           {hasUnsavedChanges && (
             <label className="template-generation-confirm">
-              <input type="checkbox" checked={confirmed} disabled={isGenerating}
+              <input type="checkbox" checked={confirmed}
                 onChange={(event) => onConfirmedChange(event.target.checked)} />
               <span>I understand that successful generation will replace my unsaved name, description, and fields.</span>
             </label>
@@ -94,7 +93,6 @@ export function TemplateGenerationModal({
     </div>
   );
 }
-
 
 const GENERATION_PHRASES = [
   "Combobulating response…",

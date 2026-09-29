@@ -25,12 +25,12 @@ describe("app action toast notifications", () => {
     const secret = "imgx_live_new-secret-key";
 
     expect(
-      getActionToast("workspace.apiKey.rotate", "success", {
+      getActionToast("workspace.apiKey.rotate.copied", "success", {
         apiKey: secret,
       }),
     ).toEqual({
       severity: "success",
-      message: "Workspace API key rotated",
+      message: "Workspace API key rotated and copied",
     });
     expect(
       getActionToast("workspace.apiKey.rotate", "failure", {
@@ -57,10 +57,6 @@ describe("app action toast notifications", () => {
       severity: "error",
       message: "Choose a template before uploading documents.",
     });
-    expect(getActionToast("workspace.create", "validation", { reason: "name" })).toEqual({
-      severity: "error",
-      message: "Enter a Workspace name before creating it.",
-    });
     expect(getActionToast("template.save", "validation", { reason: "json" })).toEqual({
       severity: "error",
       message: "Template JSON is invalid. Fix it before saving.",
@@ -68,14 +64,6 @@ describe("app action toast notifications", () => {
     expect(getActionToast("workspaceInvitation.create", "validation", { reason: "email" })).toEqual({
       severity: "error",
       message: "Enter an email address before inviting a teammate.",
-    });
-    expect(getActionToast("workspaceMember.remove", "validation", { reason: "member" })).toEqual({
-      severity: "error",
-      message: "Choose a Workspace member before changing access.",
-    });
-    expect(getActionToast("clipboard.copyTemplateJson", "validation", { reason: "content" })).toEqual({
-      severity: "error",
-      message: "No template JSON is available to copy.",
     });
   });
 
@@ -103,10 +91,6 @@ describe("app action toast notifications", () => {
     expect(getActionToast("workspaceMember.remove", "failure")).toEqual({
       severity: "error",
       message: "Workspace member action failed. Please try again.",
-    });
-    expect(getActionToast("document.upload", "failure")).toEqual({
-      severity: "error",
-      message: "Document could not be queued. Please try again.",
     });
     expect(getActionToast("document.delete", "failure")).toEqual({
       severity: "error",

@@ -33,10 +33,9 @@ export function createLocalMailSink({
 }): LocalMailSink {
   return {
     async capture(message) {
-      const occurredAt = now();
-      const actionUrl = extractActionUrl(message.text);
+      const actionUrl = message.text.match(/https?:\/\/[^\s<>'"]+/)?.[0];
       const record = {
-        occurred_at: occurredAt.toISOString(),
+        occurred_at: now().toISOString(),
         type: message.type,
         to: message.to,
         from: message.from,
@@ -47,7 +46,7 @@ export function createLocalMailSink({
       };
 
       await ensurePrivateStateDirectory(directory, { recursive: true });
-      const path = join(directory, `${localDay(occurredAt)}.jsonl`);
+      const path = join(directory, `${record.occurred_at.slice(0, 10)}.jsonl`);
       await assertRegularStateFile(path);
       const file = await open(path, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
       try {
@@ -55,20 +54,9 @@ export function createLocalMailSink({
         await file.writeFile(`${JSON.stringify(record)}\n`, "utf8");
       } finally { await file.close(); }
 
-      if (actionUrl) {
-        logger.info(`Local mail ${message.type} for ${message.to}: ${actionUrl}`);
-      } else {
-        logger.info(`Local mail ${message.type} captured for ${message.to}`);
-      }
+      logger.info(actionUrl
+        ? `Local mail ${message.type} for ${message.to}: ${actionUrl}`
+        : `Local mail ${message.type} captured for ${message.to}`);
     },
   };
-}
-
-function localDay(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
-function extractActionUrl(text: string): string | null {
-  const match = text.match(/https?:\/\/[^\s<>'"]+/);
-  return match?.[0] || null;
 }

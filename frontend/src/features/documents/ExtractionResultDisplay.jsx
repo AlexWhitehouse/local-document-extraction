@@ -1,13 +1,9 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
 export function ExtractionJobStatusDisplay({ job }) {
-  if (!job) {
-    return <p className="muted">Select an uploaded document.</p>;
-  }
-
   const isFailure = job.status === "failed";
   const isCompleted = job.status === "completed";
   const isProcessing = LIVE_DOCUMENT_STATUSES.has(job.status);
@@ -49,25 +45,13 @@ export function ExtractionJobStatusDisplay({ job }) {
 }
 
 export function ExtractionResultDisplay({ job, isLoading = false }) {
-  const rows = useMemo(() => {
-    if (!Array.isArray(job.results)) {
-      return [];
-    }
-
-    const withIndex = job.results.map((result, index) => ({ result, index }));
-    withIndex.sort((left, right) => {
-      const leftArrayObject =
-        left.result?.data_type === "array<object>" ? 1 : 0;
-      const rightArrayObject =
-        right.result?.data_type === "array<object>" ? 1 : 0;
-      if (leftArrayObject !== rightArrayObject) {
-        return leftArrayObject - rightArrayObject;
-      }
-      return left.index - right.index;
-    });
-
-    return withIndex.map((entry) => entry.result);
-  }, [job.results]);
+  // Array.prototype.sort is stable, so this only moves object-array fields last.
+  const rows = Array.isArray(job.results)
+    ? [...job.results].sort(
+        (left, right) =>
+          (left?.data_type === "array<object>") - (right?.data_type === "array<object>"),
+      )
+    : [];
 
   const structured = rows.filter(isStructuredResult);
   const scalar = rows.filter((result) => !isStructuredResult(result));
@@ -154,12 +138,12 @@ function isStructuredResult(result) {
   return (
     result.data_type === "array<object>" ||
     isTableAnswer(result.answer) ||
-    (Array.isArray(result.answer) &&
-      result.answer.length > 0 &&
-      result.answer.every(
-        (item) => item && typeof item === "object" && !Array.isArray(item),
-      ))
+    (Array.isArray(result.answer) && result.answer.length > 0 && result.answer.every(isPlainObject))
   );
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function ResultConfidence({ value }) {
@@ -189,44 +173,9 @@ function renderAnswer(answer) {
       return <p className="muted">No rows returned.</p>;
     }
 
-    const allObjects = answer.every(
-      (item) => item && typeof item === "object" && !Array.isArray(item),
-    );
-
-    if (allObjects) {
-      const keys = Array.from(
-        new Set(answer.flatMap((row) => Object.keys(row))),
-      );
-
-      return (
-        <ScrollArea
-          className="table-scroll"
-          role="region"
-          aria-label="Structured result scroll area"
-          tabIndex={0}
-        >
-          <table className="studio-table">
-            <thead>
-              <tr>
-                {keys.map((key) => (
-                  <th key={key}>{key}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {answer.map((row, rowIndex) => (
-                <tr key={`row-${rowIndex}`}>
-                  {keys.map((key) => (
-                    <td key={`${key}-${rowIndex}`}>
-                      {formatAnswerValue(row?.[key])}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </ScrollArea>
-      );
+    if (answer.every(isPlainObject)) {
+      const keys = [...new Set(answer.flatMap((row) => Object.keys(row)))];
+      return <StructuredTable columns={keys.map((key) => ({ key, heading: key }))} rows={answer} />;
     }
 
     return (
@@ -242,46 +191,15 @@ function renderAnswer(answer) {
   }
 
   if (isTableAnswer(answer)) {
-    const columns = answer.columns.map((column, index) => {
-      if (typeof column === "string") {
-        return { key: column, heading: column, index };
-      }
-      return {
-        key: column.key || String(index),
-        heading: column.heading || column.key || `Column ${index + 1}`,
-        index,
-      };
-    });
-
-    return (
-      <ScrollArea
-        className="table-scroll"
-        role="region"
-        aria-label="Structured result scroll area"
-        tabIndex={0}
-      >
-        <table className="studio-table">
-          <thead>
-            <tr>
-              {columns.map((column) => (
-                <th key={column.key}>{column.heading}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {answer.rows.map((row, rowIndex) => (
-              <tr key={`row-${rowIndex}`}>
-                {columns.map((column) => (
-                  <td key={`${column.key}-${rowIndex}`}>
-                    {formatAnswerValue(row?.[column.key])}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </ScrollArea>
+    const columns = answer.columns.map((column, index) =>
+      typeof column === "string"
+        ? { key: column, heading: column }
+        : {
+            key: column.key || String(index),
+            heading: column.heading || column.key || `Column ${index + 1}`,
+          },
     );
+    return <StructuredTable columns={columns} rows={answer.rows} />;
   }
 
   if (typeof answer === "object") {
@@ -305,6 +223,36 @@ function renderAnswer(answer) {
   return <p className="answer-text">{String(answer)}</p>;
 }
 
+function StructuredTable({ columns, rows }) {
+  return (
+    <ScrollArea
+      className="table-scroll"
+      role="region"
+      aria-label="Structured result scroll area"
+      tabIndex={0}
+    >
+      <table className="studio-table">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.key}>{column.heading}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={`row-${rowIndex}`}>
+              {columns.map((column) => (
+                <td key={`${column.key}-${rowIndex}`}>{formatAnswerValue(row?.[column.key])}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </ScrollArea>
+  );
+}
+
 function formatAnswerValue(value) {
   if (value === null || value === undefined) {
     return "-";
@@ -326,11 +274,5 @@ function isTableAnswer(value) {
 
 function confidenceTone(confidence) {
   const percent = confidence * 100;
-  if (percent > 90) {
-    return "good";
-  }
-  if (percent >= 80) {
-    return "pending";
-  }
-  return "bad";
+  return percent > 90 ? "good" : percent >= 80 ? "pending" : "bad";
 }

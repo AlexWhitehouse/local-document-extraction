@@ -1,32 +1,105 @@
 # Evaluations
 
-Evaluations compare up to eight candidates on one document. Model comparison shares Template fields and varies model names/capabilities. Template comparison shares the model/capabilities and varies complete Template drafts. All accepted Workspace members may use the signed-in frontend.
+Evaluations help you choose the best setup for a kind of document. You run the same document through several **candidates** side by side and compare the results. Each candidate is a model plus a template.
 
-An empty or cleared Evaluation opens a setup screen with four steps: the document, what to compare, the Template, and the candidates. Choose a saved Template or an earlier field version. Historical versions contain historical fields and current descriptive metadata. Model comparison lists the models to run, starting with the Workspace model; models already used for Documents in this Workspace are offered as suggestions. Template comparison selects the field versions to compare on the Workspace model, which the setup screen shows only in this mode; a single version starts two copies so one can be edited as a draft. When a document is present, **Start and run** submits every candidate straight away.
+There are two kinds of comparison:
 
-The comparison is a matrix with one column per candidate. Each column head shows the candidate's accuracy (matched verified fields, including whole tables, out of those scored), table-cell matches, status and a run button; one candidate is marked **Best**, breaking accuracy ties by table cells and then processing time. Input settings, run details, Template editing, **Save as new Template**, duplication and removal are in the candidate's ⋯ menu. **Add candidate** copies the last candidate's current inputs without results. Template candidates can replace their draft with another Template/version. Filters show fields where candidates differ, fields with a mismatch, or unverified fields. Selecting an answer opens an inspector with the full answer, scoring detail, column alignment and the other candidates' answers. Candidate editing and **Save as new Template** use the same field editor as the Templates page, presented in a full modal.
+- **Models:** one template, different models. Use this to find the most accurate or fastest model.
+- **Template versions:** one model, different templates. Use this to check whether rewording your field instructions improves the results.
 
-Run all uploads the document once and admits all candidates to the existing extraction scheduler. Individual results arrive as they finish. There is no separate Evaluation concurrency pool or persisted Document job. Queue-full rejection applies independently to affected candidates. Candidates remain editable while submitted work uses its immutable snapshot. Rerun failures retain the previous successful result; connection loss requires manual rerunning.
+You can compare up to eight candidates. Any member of a Workspace can use Evaluations.
 
-Expected answers are optional and explicitly verified against the document. Scalar answers are entered inline in the Expected column, or taken from a candidate with **Use as expected answer**; **More options** and **Review as expected answer** open the full editor (for example, for Exact match). Reference values and scoring stay in browser memory. Text ignores case/punctuation and normalizes whitespace unless Exact match is selected. Numbers compare without rounding tolerance; booleans normalize yes/no and true/false; dates must represent an unambiguous calendar day. Explicit absence differs from an unverified value and cannot match unreadable/error output.
+> **Evaluations are temporary.** Nothing is saved. Refreshing or closing the tab, clearing the Evaluation, or switching Workspace discards the document, candidates, answers, and results. Moving between pages in the same Workspace keeps them.
 
-Table comparisons use declared scalar columns, with compatible names/types or explicit column links in the inspector. **Compare all tables** shows the expected rows and every candidate’s rows aligned in one view, grouped by row, stacked one candidate below another, or side by side, using the same row key/position and column pairing as scoring. Cells that differ from the expected rows are highlighted; before rows are verified, cells are compared with the most common candidate value. Missing and extra rows are marked, and the view can show only rows with differences. The expected-answer editor displays one record at a time against the schema’s column names, types and descriptions. New tables start with one blank row; reviewing a returned table imports all its rows, including structured table objects. Yes/No answers use a selector. Choose a unique row key or explicit position comparison before verifying; the editor requires this choice and preserves it when reviewing another result. Missing/duplicate keys withhold the table score for review. Missing/extra rows are reported separately. Free-form lists and nested objects remain visual comparisons. Coverage reports requested verified fields separately from scalar and table-cell match counts.
+## Set up an Evaluation
 
-Save as new Template copies the current draft into the same editor and requires explicit Save. It does not save an Evaluation or alter the original Template. Expected answers and results are never included.
+Open **Evaluations**. The setup screen walks you through four steps:
 
-## Runtime boundaries
+1. **Document:** upload the PDF or image to test with.
+2. **What to compare:** models or template versions.
+3. **Template:** pick a saved template, or an earlier version of one.
+4. **Candidates:**
+   - When comparing models, list the models to try. The Workspace's model comes first, and models already used in this Workspace are suggested.
+   - When comparing templates, pick the versions to compare. They all use the Workspace's model. If you pick just one version, you get two copies so you can edit one.
 
-- `localEvaluations.ts` owns session-only setup/historical reads and per-submission multipart streaming. Bearer access is rejected even alongside cookies. Credentials and gateway destinations remain server-owned; configuration revision drift blocks new submissions while admitted work retains its captured configuration.
-- `localExtractionQueue.ts` dispatches tagged temporary tasks alongside durable Documents with the same permits, Workspace fairness, sequential policy and delayed retry scheduling. Temporary admission returns explicit outcomes instead of durable deferral.
-- `extractionRetryPolicy.ts` shares the three-attempt transient retry policy. Evaluation gateway feedback reaches the existing adaptive resource controller without completed-Document analytics.
-- `runExtraction` and `normalizeModelResults` remain the shared computation. Evaluations retain bounded original field values for strict browser matching. Actual gateway token metadata is optional and labelled as the successful attempt only; missing counts remain Unavailable.
-- One request-scoped NDJSON response delivers progress/results to the initiating tab. No Workspace broadcast, polling result store, saved expected answers or replay mechanism is introduced. Buffers are bounded; failed delivery stops queued/retry work. Already-sent model requests finish under their operation deadline, and their late results are discarded.
-- Multipart metadata is capped at 1 MiB, in addition to the existing Workspace Source byte/MIME/PDF and global upload/preparation limits. Upload lifetime is bounded by at least 60 seconds or the configured gateway timeout. The subsequent submission deadline is four configured gateway timeouts plus two minutes, with a minimum of one minute; this bounds queue/preparation waits, three calls and retry delays. Excessive Retry-After fails the candidate instead of extending ownership indefinitely. These are operation deadlines, not idle Evaluation expiry.
-- Sources use the private `temporary/evaluations` namespace. Last candidate settlement deletes the shared upload. Failure reports Cleanup pending independently of extraction success; scoped startup and 30-second runtime sweeps retry orphan deletion without restoring model work. Currently owned/uploading files are excluded. Only confirmed deletion reports complete; a closed/lost response leaves pending/unconfirmed status in the browser.
-- Clear, Workspace change and session/access loss invalidate browser generations, stop queued work and suppress late delivery. Same-Workspace navigation preserves state. Refresh and tab closure discard it. No cancellation controls are exposed for submitted candidates.
+Click **Start and run** to send every candidate for extraction straight away.
 
-## Verification
+## Read the results
 
-Focused backend integration tests cover eight candidates with ordinary Documents, explicit queue/retry rejection, duplicate uploads, configuration snapshots, session/key/origin/Workspace isolation, revocation, historical reads, deletion failure/recovery and real Bun fetch disconnects. Frontend tests cover scoring/coverage/type/table edge cases, ranking and table row alignment, setup, inline expected answers, filters, the all-candidate table view, snapshot edits, duplicate candidates, interruption, retained results, shared editor behavior and explicit save/reference flows.
+Results appear in a table with one column per candidate, filled in as each candidate finishes. The top of each column shows:
 
-Run `bun run typecheck`, `bun run lint`, `TZ=UTC bun run test`, and `bun run build`. The existing frontend admin date assertion assumes UTC. `e2e/evaluationJourney.spec.ts` sets up, runs and scores a model comparison in the browser. Browser validation uses an isolated local state directory and a synthetic gateway/document, with no paid model requests or user data.
+- **Accuracy:** how many of the fields you have checked it got right (see [Check accuracy](#check-accuracy)).
+- **Table cells:** how many table cells matched.
+- The candidate's status, and a button to run it again.
+
+The best candidate is marked **Best**. Ties are broken by table-cell matches, then by speed.
+
+Click any answer to open the inspector. It shows the full answer, how it was scored, how table columns were matched up, and what the other candidates answered.
+
+Use the filters to show only the fields where candidates disagree, fields with a wrong answer, or fields you haven't checked yet.
+
+## Change candidates
+
+Each candidate's **⋯** menu lets you change its settings, see run details, edit its template, duplicate it, remove it, or **Save as new Template**.
+
+- **Add candidate** copies the last candidate's settings, without its results.
+- In a template comparison, you can swap a candidate's template for another template or version.
+- Template editing uses the same editor as the Templates page.
+- You can keep editing while candidates are running. Each run uses the settings it started with, and edited candidates are marked as needing another run.
+
+**Save as new Template** opens the candidate's template in the editor. Nothing is saved until you click Save. It creates a new template and never changes the original. Your answers and results aren't included.
+
+## Check accuracy
+
+Candidates are only scored once you tell the Evaluation what the correct answers are. These are called **expected answers**, and they're optional.
+
+- Type a correct answer into the **Expected** column, or pick a candidate's answer with **Use as expected answer**.
+- **More options** and **Review as expected answer** open the full editor, where you can also turn on **Exact match**.
+
+Answers are compared like this:
+
+| Type | How answers are compared |
+| --- | --- |
+| Text | Ignores capitals, punctuation, and extra spaces, unless **Exact match** is on. |
+| Number | Must be exactly equal; there is no rounding tolerance. |
+| Yes/No | "yes"/"no" and "true"/"false" are treated the same. |
+| Date | Must be the same calendar day, written unambiguously. |
+
+Saying a value is *absent from the document* is different from leaving it unchecked. An "absent" answer never matches an error or an unreadable result.
+
+Expected answers only live in the browser tab, like the rest of the Evaluation.
+
+### Tables
+
+For a table field, the editor shows one row at a time, using the template's column names and types. A new table starts with one empty row. Reviewing a candidate's table copies in all of its rows.
+
+Before checking a table, choose how rows are matched: by a column that uniquely identifies each row (such as an invoice line number), or by position. If some rows are missing that column, or have the same value in it, the table isn't scored until you fix them. Missing and extra rows are reported separately.
+
+**Compare all tables** shows the expected rows and every candidate's rows together, grouped by row, stacked, or side by side. Cells that differ from the expected answer are highlighted. Before you've entered expected rows, cells are compared with the most common answer across candidates. You can show only the rows that differ.
+
+Free-form lists and nested objects are shown side by side for you to compare by eye, but aren't scored.
+
+## How runs behave
+
+- **Run all** uploads the document once and sends every candidate to the same extraction queue that normal documents use. Evaluations don't get a separate pool, and they don't appear in your Documents list.
+- If the queue is full, only the affected candidates are rejected.
+- If a rerun fails, the previous successful result is kept.
+- If you lose your connection, rerun the affected candidates yourself.
+- A submitted candidate can't be cancelled, and model requests may cost money with your provider.
+
+## For developers
+
+How Evaluations fit into the backend:
+
+- **Access.** `localEvaluations.ts` only accepts browser sessions: API keys are rejected, even alongside a cookie. Model credentials and gateway addresses never leave the server. A submission made against an out-of-date revision of the Workspace's model settings is rejected, while work already running keeps the settings it started with.
+- **Scheduling.** Candidates go through `localExtractionQueue.ts` as temporary tasks, sharing the same concurrency, Workspace fairness, sequential-call, and retry rules as documents (`extractionRetryPolicy.ts`). Instead of being deferred like documents, a temporary task is either accepted or rejected immediately.
+- **Extraction.** Candidates reuse `runExtraction` and `normalizeModelResults`. Original field values are kept, within limits, so the browser can do strict matching. Token counts are shown only when the gateway reports them.
+- **Delivery.** Each run streams progress and results back to the tab that started it as NDJSON. Nothing is broadcast to other tabs, stored, or replayed. If delivery fails, queued and retrying work stops; model requests already sent finish within their deadline and the results are discarded.
+- **Limits.**
+  - Upload metadata is capped at 1 MiB, on top of the usual file, PDF, and memory limits.
+  - The upload itself must finish within 60 seconds or the gateway timeout, whichever is longer.
+  - The whole submission must finish within four gateway timeouts plus two minutes, with a minimum of one minute. That covers queueing, preparation, three attempts, and retry delays. A model asking the app to retry too far in the future fails the candidate.
+- **Cleanup.** Uploads live in the private `temporary/evaluations` folder and are deleted when the last candidate finishes. Leftover files are retried at startup and every 30 seconds. The browser shows cleanup as pending until deletion is confirmed.
+- **Cancellation.** Clearing the Evaluation, switching Workspace, or losing the session stops queued work and ignores late results.
+
+Backend integration tests cover eight candidates, queue and retry rejection, duplicate uploads, configuration snapshots, access isolation, revocation, historical template reads, cleanup, and disconnects. Frontend tests cover scoring and table-alignment edge cases, ranking, setup, expected answers, filters, the table comparison, editing, and saving. `e2e/evaluationJourney.spec.ts` sets up, runs, and scores a model comparison in a real browser using a fake model gateway.

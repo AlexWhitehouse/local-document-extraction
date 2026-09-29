@@ -1,5 +1,4 @@
 const successMessages = {
-  "workspace.apiKey.rotate": () => "Workspace API key rotated",
   "workspace.apiKey.generate.copied": () => "Workspace API key generated and copied",
   "workspace.apiKey.rotate.copied": () => "Workspace API key rotated and copied",
   "workspace.apiKey.generate.manualCopy": () =>
@@ -62,7 +61,6 @@ const failureMessages = {
   "applicationUser.unban": "User could not be unbanned. Please try again.",
   "applicationUser.impersonate": "Impersonation could not be started. Please try again.",
   "applicationUser.stopImpersonating": "Impersonation could not be stopped. Please try again.",
-  "document.upload": "Document could not be queued. Please try again.",
   "document.delete": "Document could not be deleted. Please try again.",
   "document.bulkDelete":
     "Some selected documents could not be deleted. Try again.",
@@ -71,9 +69,6 @@ const failureMessages = {
 };
 
 const validationMessages = {
-  "workspace.create": {
-    name: "Enter a Workspace name before creating it.",
-  },
   "template.save": {
     draft: "Template draft is incomplete. Fix required fields before saving.",
     json: "Template JSON is invalid. Fix it before saving.",
@@ -81,15 +76,9 @@ const validationMessages = {
   "workspaceInvitation.create": {
     email: "Enter an email address before inviting a teammate.",
   },
-  "workspaceMember.remove": {
-    member: "Choose a Workspace member before changing access.",
-  },
   "document.upload": {
     template: "Choose a template before uploading documents.",
     files: "Choose at least one document to upload.",
-  },
-  "clipboard.copyTemplateJson": {
-    content: "No template JSON is available to copy.",
   },
 };
 
@@ -101,43 +90,23 @@ export function getActionToast(action, outcome, options = {}) {
   const target = options.targetName || options.targetEmail || options.targetId || "";
 
   if (outcome === "success" && successMessages[action]) {
-    return {
-      severity: "success",
-      message: successMessages[action]({
-        target,
-        exportedCount: options.exportedCount,
-        skippedCount: options.skippedCount,
-        replacementPersonalWorkspaceCreated:
-          options.replacementPersonalWorkspaceCreated,
-      }),
-    };
+    return { severity: "success", message: successMessages[action]({ ...options, target }) };
   }
 
   if (outcome === "alreadyRemoved" && alreadyRemovedMessages[action]) {
-    return {
-      severity: "success",
-      message: alreadyRemovedMessages[action]({ target }),
-    };
+    return { severity: "success", message: alreadyRemovedMessages[action]({ target }) };
   }
 
   if (outcome === "validation") {
-    const validationMessage = validationMessages[action]?.[options.reason];
     return {
       severity: "error",
-      message: validationMessage ?? "Action blocked. Check the form and try again.",
-    };
-  }
-
-  if (outcome === "failure") {
-    return {
-      severity: "error",
-      message: failureMessages[action] ?? "Action failed. Please try again.",
+      message: validationMessages[action]?.[options.reason] ?? "Action blocked. Check the form and try again.",
     };
   }
 
   return {
     severity: "error",
-    message: "Action failed. Please try again.",
+    message: (outcome === "failure" && failureMessages[action]) || "Action failed. Please try again.",
   };
 }
 

@@ -1,6 +1,6 @@
 # Errors
 
-Errors use a consistent envelope:
+Every error has the same shape:
 
 ```json
 {
@@ -11,6 +11,19 @@ Errors use a consistent envelope:
 }
 ```
 
-Common statuses are `400` for invalid input, `401` for missing authentication, `403` for unauthorized Workspace access, `404` for missing routes or resources, `415` for unsupported content type, and `500` for unexpected local errors.
+Check both the HTTP status and `error.code` in your code. The `message` is for people to read, and may change.
 
-Client code should branch on both the HTTP status and `error.code`.
+| Status | Usually means |
+| --- | --- |
+| `400` | Something in the request is invalid. |
+| `401` | No API key or session was sent. |
+| `403` | The API key is wrong, or you don't have access to that Workspace. |
+| `404` | The route or resource doesn't exist. |
+| `409` | The request conflicts with the current state, for example the Workspace has no model set up yet. |
+| `413` | The request or export is too large. |
+| `415` | Wrong content type; file uploads must be multipart form data. |
+| `503` | The app is temporarily busy, starting, or stopping. Wait and retry, honouring `Retry-After`. |
+
+A job that fails still returns `200` when you read it. Its failure is reported in the job's own `error_code` and `error_message`.
+
+Every error code is listed in [Errors and limits](overview.md#errors-and-limits).

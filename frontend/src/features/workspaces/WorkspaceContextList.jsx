@@ -1,6 +1,7 @@
 import React from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
+import { formatRoleLabel } from "../../lib/workspaceSelection";
 
 export function WorkspaceContextList({
   search,
@@ -35,49 +36,48 @@ export function WorkspaceContextList({
             </button>
           </>
         ) : (
-          workspaces.map((workspace) => (
-            <div
-              key={
-                workspace.type === "invitation"
-                  ? `workspace-invitation-${workspace.invitation_id}`
-                  : `workspace-${workspace.id}`
-              }
-              className={getWorkspaceItemClassName({
-                workspace,
-                selectedWorkspaceId,
-                selectedWorkspaceInvitationId,
-              })}
-            >
-              <button
-                type="button"
-                className={getWorkspaceItemButtonClassName({
-                  workspace,
-                  selectedWorkspaceId,
-                  selectedWorkspaceInvitationId,
-                })}
-                onClick={() => {
-                  if (workspace.type === "invitation") {
-                    onSelectInvitedWorkspace(workspace);
-                    return;
-                  }
-                  onSelectAcceptedWorkspace(workspace);
-                }}
+          workspaces.map((workspace) => {
+            const itemClassName = getWorkspaceItemClassName({
+              workspace,
+              selectedWorkspaceId,
+              selectedWorkspaceInvitationId,
+            });
+            return (
+              <div
+                key={
+                  workspace.type === "invitation"
+                    ? `workspace-invitation-${workspace.invitation_id}`
+                    : `workspace-${workspace.id}`
+                }
+                className={itemClassName}
               >
-                <strong>{workspace.name}</strong>
-                <span>{workspace.id}</span>
-                {workspace.type === "invitation" ? (
-                  <span className="workspace-invited-meta">
-                    Invited as {formatRoleLabel(workspace.role)}
-                  </span>
-                ) : null}
-                {workspace.connected ? <span>Connected</span> : null}
-              </button>
-              <ContextCopyButton
-                ariaLabel={`Copy workspace ID ${workspace.id}`}
-                value={workspace.id}
-              />
-            </div>
-          ))
+                <button
+                  type="button"
+                  className={itemClassName.replace("context-item-card", "context-item-main")}
+                  onClick={() => {
+                    if (workspace.type === "invitation") {
+                      onSelectInvitedWorkspace(workspace);
+                      return;
+                    }
+                    onSelectAcceptedWorkspace(workspace);
+                  }}
+                >
+                  <strong>{workspace.name}</strong>
+                  <span>{workspace.id}</span>
+                  {workspace.type === "invitation" ? (
+                    <span className="workspace-invited-meta">
+                      Invited as {formatRoleLabel(workspace.role)}
+                    </span>
+                  ) : null}
+                  {workspace.connected ? <span>Connected</span> : null}
+                </button>
+                <ContextCopyButton
+                  ariaLabel={`Copy workspace ID ${workspace.id}`}
+                  value={workspace.id}
+                />
+              </div>
+            );
+          })
         )}
       </ScrollArea>
     </>
@@ -89,39 +89,15 @@ function getWorkspaceItemClassName({
   selectedWorkspaceId,
   selectedWorkspaceInvitationId,
 }) {
+  const isActive =
+    workspace.type === "invitation"
+      ? workspace.invitation_id === selectedWorkspaceInvitationId
+      : workspace.id === selectedWorkspaceId && !selectedWorkspaceInvitationId;
   return [
     "context-item-card context-item-workspace",
     workspace.type === "invitation" ? "invited" : "",
-    workspace.type === "invitation"
-      ? workspace.invitation_id === selectedWorkspaceInvitationId
-        ? "active"
-        : ""
-      : workspace.id === selectedWorkspaceId && !selectedWorkspaceInvitationId
-        ? "active"
-        : "",
+    isActive ? "active" : "",
   ]
     .filter(Boolean)
     .join(" ");
-}
-
-function getWorkspaceItemButtonClassName({
-  workspace,
-  selectedWorkspaceId,
-  selectedWorkspaceInvitationId,
-}) {
-  return getWorkspaceItemClassName({
-    workspace,
-    selectedWorkspaceId,
-    selectedWorkspaceInvitationId,
-  }).replace("context-item-card", "context-item-main");
-}
-
-function formatRoleLabel(value) {
-  const role = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (!role) {
-    return "-";
-  }
-  return role.charAt(0).toUpperCase() + role.slice(1);
 }

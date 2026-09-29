@@ -1,8 +1,9 @@
 import type { LocalAuth } from "./localAuth";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import { localRequestOriginFailure } from "./localRequestOrigin";
+import { bearerApiKey } from "./lib/http";
 
-export type LocalLiveUpdateUpgradeServer = {
+type LocalLiveUpdateUpgradeServer = {
   upgrade(request: Request, options: { data: { workspaceId: string; isAuthorized: () => boolean } }): boolean;
 };
 
@@ -65,10 +66,4 @@ export async function upgradeLocalLiveUpdate({
     { error: { code: "websocket_upgrade_failed", message: "WebSocket upgrade failed" } },
     { status: 500 },
   );
-}
-
-function bearerApiKey(request: Request): string | null {
-  const authorization = request.headers.get("authorization") || "";
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim() || null;
 }

@@ -82,8 +82,7 @@ export function scoreField(field, raw, reference, referenceField = field, option
   return { state: matches ? "Match" : "Mismatch", matched: matches ? 1 : 0, total: 1, kind: "field" };
 }
 function scoreTable(field, value, reference, referenceField, mappings) {
-  const expectedColumns = tableColumns(referenceField), actualColumns = tableColumns(field);
-  const pairs = expectedColumns.map(expected => [expected, actualColumns.find(c => c.data_type === expected.data_type && (mappings[expected.key] ? c.key === mappings[expected.key] : c.key === expected.key || c.heading.toLowerCase() === expected.heading.toLowerCase()))]);
+  const pairs = tableColumnPairs(referenceField, field, mappings);
   if (pairs.some(([, actual]) => !actual) || new Set(pairs.map(([, actual]) => actual.key)).size !== pairs.length) return { state: "Needs review", reason: "Align the table columns." };
   if (!reference.rows || !["position", "key"].includes(reference.rows.mode)) return { state: "Needs review", reason: "Choose a row identifier or row-position comparison." };
   const expectedRows = reference.value;
@@ -118,27 +117,23 @@ function scoreTable(field, value, reference, referenceField, mappings) {
   return { state: parsedRows !== null && matched === total && !extra.length ? "Match" : "Mismatch", kind: "table", matched, total, missing, extra, cells };
 }
 export function scoreCandidate(candidate, references, definitions, alignments = {}, columns = {}) {
-  if (!candidate.result) return { fields: null, tables: null, tablesNeedingReview: 0, coverage: null, byField: {} };
+  if (!candidate.result) return { fields: null, tables: null, tablesNeedingReview: 0, byField: {} };
   const byField = {};
-  const requested = new Set();
   const identities = candidate.result.fields.map(f => alignments[f.id] || fieldIdentity(f));
   for (const field of candidate.result.fields) {
     const identity = alignments[field.id] || fieldIdentity(field);
-    const reference = references[identity];
-    const definition = definitions[identity] || field;
-    if (reference?.verified && definition.data_type === field.data_type) requested.add(identity);
     if (identities.filter(id => id === identity).length > 1) {
       byField[field.id] = { state: "Needs review", reason: "Link each expected field to only one candidate field." };
       continue;
     }
-    byField[field.id] = scoreField(field, candidate.result.raw.find(r => r.field_id === field.id), reference, definition, { columns: columns[field.id] });
+    byField[field.id] = scoreField(field, candidate.result.raw.find(r => r.field_id === field.id), references[identity], definitions[identity] || field, { columns: columns[field.id] });
   }
   const sum = kind => {
     const scored = Object.values(byField).filter(score => score.kind === kind);
     return scored.length ? { matched: scored.reduce((s, r) => s + r.matched, 0), total: scored.reduce((s, r) => s + r.total, 0) } : null;
   };
   const tablesNeedingReview = candidate.result.fields.filter(field => field.data_type === "array<object>" && byField[field.id]?.state === "Needs review").length;
-  return { fields: sum("field"), tables: sum("table"), tablesNeedingReview, coverage: { requested: requested.size, total: Object.values(references).filter(r => r.verified).length }, byField };
+  return { fields: sum("field"), tables: sum("table"), tablesNeedingReview, byField };
 }
 
 // Share of scored fields (scalars and tables) that match; null until something is scored.
@@ -168,7 +163,7 @@ export function answerSignature(field, raw) {
 }
 
 // Expected columns paired with a candidate's columns, using the same rules as table scoring.
-export function tableColumnPairs(expectedField, actualField, mappings = {}) {
+function tableColumnPairs(expectedField, actualField, mappings = {}) {
   const actualColumns = tableColumns(actualField);
   return tableColumns(expectedField).map(expected => [expected, actualColumns.find(c => c.data_type === expected.data_type && (mappings[expected.key] ? c.key === mappings[expected.key] : c.key === expected.key || c.heading.toLowerCase() === expected.heading.toLowerCase()))]);
 }

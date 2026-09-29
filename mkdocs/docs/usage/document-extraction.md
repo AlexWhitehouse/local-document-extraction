@@ -1,7 +1,14 @@
-# Document Extraction
+# Document extraction
 
-Document extraction is asynchronous. Select a Template, submit a supported Source file, and receive a queued job ID. The local runner persists results before it marks a job `completed`.
+Extraction runs in the background. When you upload a document, the app creates a **job** and returns straight away. The job moves through these states:
 
-Supported MIME types are `image/png`, `image/jpeg`, `image/webp`, and `application/pdf`. Source files are kept only while processing needs them and removed after successful cleanup.
+| State | Meaning |
+| --- | --- |
+| `queued` | Waiting its turn. A job that failed temporarily and will be retried also goes back to `queued`. |
+| `processing` | Being read by the model. |
+| `completed` | Finished. Results are saved before a job is marked completed. |
+| `failed` | Couldn't be completed. The job shows an error code and message. |
 
-Job states are `queued`, `processing`, `completed`, and `failed`. The browser receives lifecycle updates and revalidates job data; API clients poll job detail.
+Supported files are PNG, JPEG, WebP, and PDF. The uploaded file is kept only while it's needed: it's deleted once the job succeeds, or after a retention period (seven days by default) if it fails.
+
+The browser updates job status automatically. Scripts using the API check the job instead; see [Extraction jobs](../api/extraction-jobs.md).

@@ -1,11 +1,9 @@
 import { createByteBoundedCache } from "../../lib/byteBoundedCache";
 
-export function createDocumentRequestAdapter({ request, cacheMaxBytes } ) {
-  // Reconciliation owns publication and access-recovery effects, after checking
-  // the session and Workspace that originated the request.
-  const documentRequest = (path, options) => request(path, {
-    ...options, publishResponse: false, recoverForbiddenAccess: false,
-  });
+export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
+  // Reconciliation owns access-recovery effects, after checking the session and
+  // Workspace that originated the request.
+  const documentRequest = (path, options) => request(path, { ...options, recoverForbiddenAccess: false });
   const documentValidators = createByteBoundedCache({ maxBytes: cacheMaxBytes });
   function normalizedDocumentId(documentId) {
     const value = String(documentId || "").trim();
@@ -60,25 +58,15 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes } ) {
     },
     async listDocuments({ search = "", cursor = null, filters = {} } = {}) {
       const params = new URLSearchParams();
-      const normalizedSearch = String(search || "").trim();
-      const normalizedCursor = String(cursor || "").trim();
-      const normalizedDateFrom = String(filters?.dateFrom || "").trim();
-      const normalizedDateTo = String(filters?.dateTo || "").trim();
-      const normalizedModel = String(filters?.model || "").trim();
-      if (normalizedSearch) {
-        params.set("search", normalizedSearch);
-      }
-      if (normalizedDateFrom) {
-        params.set("date_from", normalizedDateFrom);
-      }
-      if (normalizedDateTo) {
-        params.set("date_to", normalizedDateTo);
-      }
-      if (normalizedModel) {
-        params.set("model", normalizedModel);
-      }
-      if (normalizedCursor) {
-        params.set("cursor", normalizedCursor);
+      for (const [name, value] of [
+        ["search", search],
+        ["date_from", filters.dateFrom],
+        ["date_to", filters.dateTo],
+        ["model", filters.model],
+        ["cursor", cursor],
+      ]) {
+        const normalized = String(value || "").trim();
+        if (normalized) params.set(name, normalized);
       }
       const result = await documentRequest(
         `/jobs${params.size ? `?${params.toString()}` : ""}`,

@@ -3,10 +3,7 @@ import { PDF_INSPECTION_LIMITS as limits, type PdfInspectionResult } from "./pdf
 
 export class InvalidPdfSourceFileError extends Error {
   code = "invalid_pdf_source_file" as const;
-
-  constructor() {
-    super("PDF Source file could not be read");
-  }
+  constructor() { super("PDF Source file could not be read"); }
 }
 
 export class PdfSourceFileLimitError extends Error {
@@ -123,5 +120,4 @@ export function createPdfSourceFilePageCounter({
   };
 }
 
-const counter = createPdfSourceFilePageCounter();
-export const countPdfSourceFilePages = counter.count;
+export const countPdfSourceFilePages = createPdfSourceFilePageCounter().count;

@@ -3,7 +3,8 @@ import { access, mkdir, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { createBrowserEvidence } from "./support/browserEvidence";
-import { startRuntimeHarness } from "./support/runtimeHarnessClient";
+import { ONE_PIXEL_PNG, saveModelGateway, submitSignUp } from "./support/journeyHelpers";
+import { startRuntimeHarness, type RuntimeHarness } from "./support/runtimeHarnessClient";
 
 const ACCOUNT = {
   email: "browser-journey@example.test",
@@ -24,28 +25,17 @@ const TEMPLATE = {
 
 test("a new user completes a Document Extraction job without email verification by default", async ({ page }, testInfo) => {
   const evidence = await createBrowserEvidence(page);
-  let harness: Awaited<ReturnType<typeof startRuntimeHarness>> | undefined;
+  let harness: RuntimeHarness | undefined;
 
   try {
     harness = await startRuntimeHarness();
-    await page.goto(harness.origin);
-
-    await page.getByRole("link", { name: "Sign Up" }).click();
-    await page.getByLabel("Name").fill(ACCOUNT.name);
-    await page.getByLabel("Email").fill(ACCOUNT.email);
-    await page.getByLabel("Password", { exact: true }).fill(ACCOUNT.password);
-    await page.getByLabel("Confirm Password").fill(ACCOUNT.password);
-    await page.getByRole("button", { name: "Create Account" }).click();
+    await submitSignUp(page, harness, ACCOUNT);
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await expect(page.getByText("API Ready", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Open your local verification link.", { exact: true })).toHaveCount(0);
     expect(await readdir(join(harness.stateDirectory, "mail"))).toEqual([]);
 
-    await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
-    await page.getByLabel("Model name", { exact: true }).fill("browser/model");
-    await page.getByLabel("Gateway API key", { exact: true }).fill("browser-journey-key");
-    await page.getByRole("button", { name: "Save configuration", exact: true }).click();
-    await expect(page.getByText("Model gateway saved.", { exact: true })).toBeVisible();
+    await saveModelGateway(page, harness, "browser/model");
     await expect(page.getByLabel("Gateway API key", { exact: true })).toHaveValue("");
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
@@ -82,10 +72,7 @@ test("a new user completes a Document Extraction job without email verification 
     await uploadDialog.locator('input[type="file"]').setInputFiles({
       name: "invoice-e2e.png",
       mimeType: "image/png",
-      buffer: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-        "base64",
-      ),
+      buffer: ONE_PIXEL_PNG,
     });
     const extractionQueued = page.waitForResponse((response) =>
       new URL(response.url()).pathname === "/v1/extract" &&

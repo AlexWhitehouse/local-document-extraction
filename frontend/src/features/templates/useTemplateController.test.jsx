@@ -10,7 +10,7 @@ function deferred() {
 const template = (id) => ({ id, name: id, fields: [{ id: "total", name: "Total", data_type: "number" }] });
 const propsFor = (request) => ({
   request, workspaceId: "workspace_a", sessionId: "session_1", hasApiAccess: true,
-  activePage: "templates", addLog: vi.fn(), showActionToast: vi.fn(), onActivePageChange: vi.fn(),
+  activePage: "templates", showActionToast: vi.fn(), onActivePageChange: vi.fn(),
 });
 
 describe("template request scope", () => {

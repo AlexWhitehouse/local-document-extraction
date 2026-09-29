@@ -48,27 +48,35 @@ import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
 // These existing cases exercise deployments with Google and delivered email.
 const configuration = { ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, googleEnabled: true, requireEmailVerification: true, mailDelivery: "cloudflare" } };
 
-describe("auth sign-in feedback", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    authClientMock.useSession.mockReturnValue({
-      data: null,
-      isPending: false,
-      refetch: authClientMock.refetchSession,
-    });
-    window.history.replaceState(null, "", "/");
-    const storage = new Map();
-    Object.defineProperty(window, "localStorage", {
-      configurable: true,
-      value: {
-        getItem: vi.fn((key) => storage.get(key) ?? null),
-        setItem: vi.fn((key, value) => storage.set(key, String(value))),
-        removeItem: vi.fn((key) => storage.delete(key)),
-        clear: vi.fn(() => storage.clear()),
-      },
-    });
+beforeEach(() => {
+  vi.clearAllMocks();
+  authClientMock.useSession.mockReturnValue({
+    data: null,
+    isPending: false,
+    refetch: authClientMock.refetchSession,
   });
+  window.history.replaceState(null, "", "/");
+  const storage = new Map();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: vi.fn((key) => storage.get(key) ?? null),
+      setItem: vi.fn((key, value) => storage.set(key, String(value))),
+      removeItem: vi.fn((key) => storage.delete(key)),
+      clear: vi.fn(() => storage.clear()),
+    },
+  });
+});
 
+async function fillSignUp(user, { name = "Ada Lovelace", password = "Password1!", confirmPassword = password } = {}) {
+  await user.click(screen.getByRole("link", { name: "Sign Up" }));
+  await user.type(screen.getByLabelText("Name"), name);
+  await user.type(screen.getByLabelText("Email"), "ada@example.com");
+  await user.type(screen.getByLabelText("Password"), password);
+  await user.type(screen.getByLabelText("Confirm Password"), confirmPassword);
+}
+
+describe("auth sign-in feedback", () => {
   it("shows one error toast reporting all missing sign-in fields", async () => {
     const user = userEvent.setup();
 
@@ -363,30 +371,9 @@ describe("auth sign-in feedback", () => {
     expect(toastMock.error).toHaveBeenCalledOnce();
     expect(toastMock.error).toHaveBeenCalledWith("Passwords do not match.");
   });
-
 });
 
 describe("auth sign-up password policy feedback", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    authClientMock.useSession.mockReturnValue({
-      data: null,
-      isPending: false,
-      refetch: authClientMock.refetchSession,
-    });
-    window.history.replaceState(null, "", "/");
-    const storage = new Map();
-    Object.defineProperty(window, "localStorage", {
-      configurable: true,
-      value: {
-        getItem: vi.fn((key) => storage.get(key) ?? null),
-        setItem: vi.fn((key, value) => storage.set(key, String(value))),
-        removeItem: vi.fn((key) => storage.delete(key)),
-        clear: vi.fn(() => storage.clear()),
-      },
-    });
-  });
-
   it("requires confirm password for sign-up without sending it to auth", async () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ error: null });
@@ -449,11 +436,7 @@ describe("auth sign-up password policy feedback", () => {
 
     render(<App configuration={configuration} />);
 
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.type(screen.getByLabelText("Confirm Password"), "Password2!");
+    await fillSignUp(user, { confirmPassword: "Password2!" });
     await user.click(screen.getByRole("button", { name: "Create Account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
@@ -466,11 +449,7 @@ describe("auth sign-up password policy feedback", () => {
 
     render(<App configuration={configuration} />);
 
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.type(screen.getByLabelText("Confirm Password"), "Password2!");
+    await fillSignUp(user, { confirmPassword: "Password2!" });
 
     expect(screen.getByText("Passwords do not match.")).toBeTruthy();
 
@@ -496,14 +475,7 @@ describe("auth sign-up password policy feedback", () => {
 
     render(<App configuration={configuration} />);
 
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.type(
-      screen.getByLabelText("Confirm Password"),
-      "Password1!{Enter}",
-    );
+    await fillSignUp(user, { confirmPassword: "Password1!{Enter}" });
 
     expect(screen.getByText("Check your email to verify your account.")).toBeTruthy();
     expect(toastMock.error).not.toHaveBeenCalled();
@@ -539,11 +511,7 @@ describe("auth sign-up password policy feedback", () => {
 
     render(<App configuration={configuration} />);
 
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "password");
-    await user.type(screen.getByLabelText("Confirm Password"), "password");
+    await fillSignUp(user, { password: "password" });
     await user.click(screen.getByRole("button", { name: "Create Account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
@@ -568,82 +536,35 @@ describe("auth sign-up password policy feedback", () => {
     );
   });
 
-  it("shows an actionable toast when sign-up email is already in use", async () => {
-    const user = userEvent.setup();
-    authClientMock.signUpEmail.mockResolvedValue({
-      error: { message: "User already exists for ada@example.com" },
-    });
-
-    render(<App configuration={configuration} />);
-
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
-
-    expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
+  it.each([
+    [
+      "the email is already in use",
+      "User already exists for ada@example.com",
       "An account already exists for this email. Sign in instead.",
-    );
-    expect(toastMock.error).not.toHaveBeenCalledWith(
-      expect.stringContaining("ada@example.com"),
-    );
-  });
-
-  it("shows an actionable toast when sign-up email is invalid", async () => {
-    const user = userEvent.setup();
-    authClientMock.signUpEmail.mockResolvedValue({
-      error: { message: "Invalid email address" },
-    });
-
-    render(<App configuration={configuration} />);
-
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
-
-    expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Enter a valid email address and try again.",
-    );
-  });
-
-  it("shows a generic safe toast when sign-up fails for an unknown reason", async () => {
-    const user = userEvent.setup();
-    authClientMock.signUpEmail.mockResolvedValue({
-      error: { message: "Database constraint failed near secret_table" },
-    });
-
-    render(<App configuration={configuration} />);
-
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
-
-    expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
+    ],
+    ["the email is invalid", "Invalid email address", "Enter a valid email address and try again."],
+    [
+      "an unknown reason",
+      "Database constraint failed near secret_table",
       "Account creation failed. Please try again.",
-    );
-    expect(toastMock.error).not.toHaveBeenCalledWith(
-      expect.stringContaining("Database"),
-    );
+    ],
+  ])("shows one safe, actionable toast when sign-up fails because %s", async (_reason, serverMessage, toastMessage) => {
+    const user = userEvent.setup();
+    authClientMock.signUpEmail.mockResolvedValue({ error: { message: serverMessage } });
+
+    render(<App configuration={configuration} />);
+
+    await fillSignUp(user);
+    await user.click(screen.getByRole("button", { name: "Create Account" }));
+
+    expect(toastMock.error).toHaveBeenCalledOnce();
+    expect(toastMock.error).toHaveBeenCalledWith(toastMessage);
+    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("ada@example.com"));
+    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("Database"));
   });
 });
 
 describe("deployment auth configuration", () => {
-  beforeEach(() => {
-    authClientMock.useSession.mockReturnValue({ data: null, isPending: false, refetch: authClientMock.refetchSession });
-    window.history.replaceState(null, "", "/");
-  });
-
   it("hides unconfigured providers and closed registration", () => {
     render(<App configuration={{ ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, signupEnabled: false } }} />);
     expect(screen.queryByRole("button", { name: "Sign in with Google" })).toBeNull();
@@ -663,11 +584,7 @@ describe("deployment auth configuration", () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ data: { user: { email: "ada@example.com" } } });
     render(<App configuration={{ ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, requireEmailVerification: true } }} />);
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
+    await fillSignUp(user, { name: "Ada" });
     await user.click(screen.getByRole("button", { name: "Create Account" }));
     expect(screen.getByRole("heading", { name: "Open your local verification link." })).toBeTruthy();
     expect(screen.getByText("document-extraction mail")).toBeTruthy();
@@ -677,11 +594,7 @@ describe("deployment auth configuration", () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ data: { user: { email: "ada@example.com" } } });
     render(<App />);
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
-    await user.type(screen.getByLabelText("Name"), "Ada");
-    await user.type(screen.getByLabelText("Email"), "ada@example.com");
-    await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
+    await fillSignUp(user, { name: "Ada" });
     await user.click(screen.getByRole("button", { name: "Create Account" }));
     expect(authClientMock.refetchSession).toHaveBeenCalledOnce();
     expect(screen.queryByText(/Open your local verification link/)).toBeNull();

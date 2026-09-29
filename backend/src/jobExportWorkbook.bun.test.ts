@@ -168,14 +168,14 @@ describe("job export workbook", () => {
     const objectField = field("details", "Details", "object", 0);
     const jobs = [
       job({
-        fields: objectField ? [objectField] : [],
+        fields: [objectField],
         job_id: "job_one",
         results: [result("details", "Details", "object", "ok", {})],
         template_id: "tpl_one",
         template_name: longName,
       }),
       job({
-        fields: objectField ? [objectField] : [],
+        fields: [objectField],
         job_id: "job_two",
         results: [result("details", "Details", "object", "ok", {})],
         template_id: "tpl_two",

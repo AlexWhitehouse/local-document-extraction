@@ -21,7 +21,7 @@ type UnchangedPackageReview = {
   to: string;
 };
 
-export const sensitivePackageReviews: Array<PackageUpgradeReview | UnchangedPackageReview> = [
+const sensitivePackageReviews: Array<PackageUpgradeReview | UnchangedPackageReview> = [
   { category: "parser", from: "6.1.200", kind: "upgrade", name: "pdfjs-dist", rationale: "Malicious-PDF JavaScript execution advisory repair.", to: "6.2.108" },
   { category: "build-tool", from: "5.4.21", kind: "upgrade", name: "vite", rationale: "Remove the vulnerable Vite/esbuild line and align build/test tooling.", to: "8.2.2" },
   { category: "spreadsheet", from: "8.3.2", kind: "upgrade", name: "uuid", rationale: "Narrow override removes ExcelJS's vulnerable transitive UUID release.", to: "11.1.1" },

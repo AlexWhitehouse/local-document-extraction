@@ -5,11 +5,10 @@ export const COMPLETED_DOCUMENT_CACHE_STORAGE_KEY =
 
 const MAX_COMPLETED_DOCUMENTS_PER_WORKSPACE = 50;
 
-export function createCompletedDocumentCache({ storage, maxBytes = 2 * 1024 * 1024 } = {}) {
-  const backingStorage = storage || getBrowserStorage();
+export function createCompletedDocumentCache({ storage = window.localStorage, maxBytes = 2 * 1024 * 1024 } = {}) {
   const cache = createByteBoundedCache({ maxBytes, maxEntries: 500 });
   const key = (workspaceId, jobId) => `${workspaceId}\0${jobId}`;
-  const initial = loadCache(backingStorage, maxBytes);
+  const initial = loadCache(storage, maxBytes);
   for (const [workspaceId, documents] of Object.entries(initial)) {
     if (!Array.isArray(documents)) continue;
     for (const document of documents.slice(0, MAX_COMPLETED_DOCUMENTS_PER_WORKSPACE).reverse()) {
@@ -18,12 +17,11 @@ export function createCompletedDocumentCache({ storage, maxBytes = 2 * 1024 * 10
     }
   }
   function persist() {
-    if (!backingStorage) return;
     const serialized = Object.create(null);
     for (const { workspaceId, document } of cache.values().reverse()) {
       (serialized[workspaceId] ||= []).push(document);
     }
-    backingStorage.setItem(COMPLETED_DOCUMENT_CACHE_STORAGE_KEY, JSON.stringify(serialized));
+    storage.setItem(COMPLETED_DOCUMENT_CACHE_STORAGE_KEY, JSON.stringify(serialized));
   }
   function removeMatching(predicate) {
     let changed = false;
@@ -37,7 +35,7 @@ export function createCompletedDocumentCache({ storage, maxBytes = 2 * 1024 * 10
   return {
     get(workspaceId, jobId) {
       const entry = cache.get(key(normalizeId(workspaceId), normalizeId(jobId)));
-      return entry ? clone(entry.document) : null;
+      return entry ? structuredClone(entry.document) : null;
     },
     store(workspaceId, document) {
       workspaceId = normalizeId(workspaceId);
@@ -49,7 +47,7 @@ export function createCompletedDocumentCache({ storage, maxBytes = 2 * 1024 * 10
         cache.delete(key(workspaceId, entry.document.job_id));
       }
       persist();
-      return accepted ? clone(sanitized) : null;
+      return accepted ? structuredClone(sanitized) : null;
     },
     remove(workspaceId, jobId) {
       removeMatching((entry) => entry.workspaceId === normalizeId(workspaceId) && entry.document.job_id === normalizeId(jobId));
@@ -78,7 +76,7 @@ function sanitizeCompletedDocument(document) {
     job_id: jobId,
     status: "completed",
     source_name: document.source_name || null,
-    results: Array.isArray(document.results) ? clone(document.results) : [],
+    results: Array.isArray(document.results) ? structuredClone(document.results) : [],
   };
 
   for (const key of [
@@ -100,10 +98,6 @@ function sanitizeCompletedDocument(document) {
 }
 
 function loadCache(storage, maxBytes) {
-  if (!storage) {
-    return {};
-  }
-
   try {
     const raw = storage.getItem(COMPLETED_DOCUMENT_CACHE_STORAGE_KEY) || "{}";
     if (raw.length * 2 > maxBytes) return {};
@@ -116,17 +110,6 @@ function loadCache(storage, maxBytes) {
   }
 }
 
-function getBrowserStorage() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  return window.localStorage;
-}
-
 function normalizeId(value) {
   return String(value || "").trim();
-}
-
-function clone(value) {
-  return structuredClone(value);
 }

@@ -141,6 +141,12 @@ export function readLocalMemoryLimits(env: { LOCAL_MEMORY_LIMIT_RATIO?: string; 
   return { totalMemoryBytes, memoryLimitRatio, processLimitBytes, preparationMaxBytes };
 }
 
+/** The origin a browser on this machine uses to reach a listener bound to `host`. */
+export function localBrowserOrigin(host: string, port: number): string {
+  const browserHost = host === "0.0.0.0" ? "127.0.0.1" : host === "::" ? "[::1]" : host.includes(":") ? `[${host}]` : host;
+  return `http://${browserHost}:${port}`;
+}
+
 export function publicLocalConfiguration(configuration: LocalConfiguration) {
   const { emailPasswordEnabled, googleEnabled, signupEnabled, requireEmailVerification } = configuration.auth;
   return {

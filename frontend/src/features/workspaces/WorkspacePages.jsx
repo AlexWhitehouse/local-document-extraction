@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
 
 export function WorkspaceInvitationPage({
@@ -226,7 +227,6 @@ export function AcceptedWorkspacePage({
           <WorkspaceModelConfiguration
             key={modelConfigurationKey}
             controller={modelConfiguration}
-            inline
           />
         ) : null}
       </div>
@@ -433,13 +433,55 @@ function formatTimestamp(value) {
   return date.toLocaleString();
 }
 
-function formatRoleLabel(value) {
-  const normalized = String(value || "").trim();
-  if (!normalized) {
-    return "-";
+export function WorkspaceUserActionModal({ target, options, busy, onClose, onApplyAction }) {
+  if (!target) {
+    return null;
   }
-  return normalized
-    .split(/[_\s-]+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(" ");
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal-card workspace-user-action-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Manage workspace user"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="workspace-head">
+          <h2>Manage User</h2>
+          <p>
+            {String(target.name || "Unknown User")} - {formatRoleLabel(target.role)}
+          </p>
+        </div>
+        {options.length ? (
+          <div className="workspace-user-action-list">
+            {options.map((action) => (
+              <button
+                key={action}
+                type="button"
+                className={action === "remove_user" ? "danger" : "ghost"}
+                disabled={busy}
+                onClick={() => onApplyAction(action)}
+              >
+                {WORKSPACE_USER_ACTION_LABELS[action]}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">No actions available for this user.</p>
+        )}
+        <div className="actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
+
+const WORKSPACE_USER_ACTION_LABELS = {
+  remove_user: "Remove User",
+  make_admin: "Make Admin",
+  make_owner: "Make Owner",
+};

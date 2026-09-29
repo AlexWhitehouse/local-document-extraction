@@ -60,12 +60,7 @@ export function AuthScreen({
                 {localMail ? <>A verification link for <b>{accountVerificationPromptEmail}</b> was saved on the computer running this app. Open the link printed in the server terminal, or run <code>document-extraction mail</code> after an installer setup. Manual installs save messages under <code>DOCUMENT_EXTRACTION_STATE_DIR/mail</code> (default <code>.local/mail</code>).</>
                   : <>We sent an Account verification link to <b>{accountVerificationPromptEmail}</b>. Open it to finish setting up your account.</>}
               </p>
-              <button
-                type="button"
-                className="auth-primary-action"
-                disabled={busy}
-                onClick={() => onSwitchMode("signin")}
-              >
+              <button type="button" className="auth-primary-action" disabled={busy} onClick={() => onSwitchMode("signin")}>
                 Back to sign in
               </button>
             </div>
@@ -75,12 +70,7 @@ export function AuthScreen({
               <p>
                 If an account exists for <b>{accountPasswordResetRequestedEmail}</b>, a reset link has {localMail ? "been saved in the server terminal and local mail capture. Run document-extraction mail after an installer setup, or inspect your state directory's mail folder." : "been sent."}
               </p>
-              <button
-                type="button"
-                className="auth-primary-action"
-                disabled={busy}
-                onClick={() => onSwitchMode("signin")}
-              >
+              <button type="button" className="auth-primary-action" disabled={busy} onClick={() => onSwitchMode("signin")}>
                 Back to sign in
               </button>
             </div>
@@ -125,18 +115,9 @@ export function AuthScreen({
                         Password
                       </label>
                       {isSignIn ? (
-                        <a
-                          href="#"
-                          className="auth-forgot-password-link"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            if (!busy) {
-                              onSwitchMode("reset-request");
-                            }
-                          }}
-                        >
+                        <SwitchModeLink className="auth-forgot-password-link" mode="reset-request" busy={busy} onSwitchMode={onSwitchMode}>
                           Forgot password?
-                        </a>
+                        </SwitchModeLink>
                       ) : null}
                     </div>
                     <input
@@ -195,18 +176,7 @@ export function AuthScreen({
                   </button>
                   {signupEnabled ? <p className="auth-switch-copy">
                     Don&apos;t have an account?{" "}
-                    <a
-                      href="#"
-                      className="auth-switch-link"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        if (!busy) {
-                          onSwitchMode("signup");
-                        }
-                      }}
-                    >
-                      Sign Up
-                    </a>
+                    <SwitchModeLink mode="signup" busy={busy} onSwitchMode={onSwitchMode}>Sign Up</SwitchModeLink>
                   </p> : <p className="muted">Account registration is closed. Contact the administrator for access.</p>}
                 </>
               ) : isResetRequest ? (
@@ -220,18 +190,7 @@ export function AuthScreen({
                   </button>
                   <p className="auth-switch-copy">
                     Remember your password?{" "}
-                    <a
-                      href="#"
-                      className="auth-switch-link"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        if (!busy) {
-                          onSwitchMode("signin");
-                        }
-                      }}
-                    >
-                      Sign In
-                    </a>
+                    <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>Sign In</SwitchModeLink>
                   </p>
                 </>
               ) : (
@@ -245,18 +204,7 @@ export function AuthScreen({
                   </button>
                   <p className="auth-switch-copy">
                     Already have an account?{" "}
-                    <a
-                      href="#"
-                      className="auth-switch-link"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        if (!busy) {
-                          onSwitchMode("signin");
-                        }
-                      }}
-                    >
-                      Sign In
-                    </a>
+                    <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>Sign In</SwitchModeLink>
                   </p>
                 </>
               )}
@@ -271,5 +219,20 @@ export function AuthScreen({
         </section>
       </div>
     </>
+  );
+}
+
+function SwitchModeLink({ className = "auth-switch-link", mode, busy, onSwitchMode, children }) {
+  return (
+    <a
+      href="#"
+      className={className}
+      onClick={(event) => {
+        event.preventDefault();
+        if (!busy) onSwitchMode(mode);
+      }}
+    >
+      {children}
+    </a>
   );
 }

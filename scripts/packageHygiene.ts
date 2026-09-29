@@ -15,9 +15,9 @@ type LicenseEntry = {
   [key: string]: unknown;
 };
 
-export type LicenseInventory = Record<string, LicenseEntry[]>;
+type LicenseInventory = Record<string, LicenseEntry[]>;
 
-export type PackageHygieneSummary = {
+type PackageHygieneSummary = {
   auditAdvisories: number;
   bunRevision: string;
   bunVersion: string;
@@ -75,7 +75,7 @@ export function validateProductionAudit(json: string): { advisoryCount: number }
   return { advisoryCount };
 }
 
-export function renderPackageHygieneSummary(summary: PackageHygieneSummary): string {
+function renderPackageHygieneSummary(summary: PackageHygieneSummary): string {
   return [
     "# Bun package hygiene",
     "",

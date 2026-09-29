@@ -20,30 +20,9 @@ type LocalLiveUpdateJob = {
   [key: string]: unknown;
 };
 
-export type LocalLiveUpdateHub = {
-  broadcastWorkspaceContextInvalidation(input: {
-    workspaceId: string;
-    reason: "workspace_access" | "model_configuration_changed";
-    occurredAt: string;
-  }): void;
-  broadcastJob(workspaceId: string, job: LocalLiveUpdateJob): void;
-  closeAll(): void;
-  diagnostics(): {
-    connections: { closed: number; open: number; opened: number; pending: number };
-    delivery: { backpressured: number; delivered: number; dropped: number; failed: number };
-    workspaces: {
-      maximumSubscribers: number;
-      minimumSubscribers: number;
-      total: number;
-      totalSubscribers: number;
-    };
-  };
-  drain(socket: LocalLiveUpdateSocket): void;
-  subscribe(input: { workspaceId: string; socket: LocalLiveUpdateSocket }): () => void;
-  unsubscribe(input: { workspaceId: string; socket: LocalLiveUpdateSocket }): void;
-};
+export type LocalLiveUpdateHub = ReturnType<typeof createLocalLiveUpdateHub>;
 
-export function createLocalLiveUpdateHub(): LocalLiveUpdateHub {
+export function createLocalLiveUpdateHub() {
   const socketsByWorkspace = new Map<string, Set<LocalLiveUpdateSocket>>();
   const openSockets = new Set<LocalLiveUpdateSocket>();
   const pendingSockets = new Set<LocalLiveUpdateSocket>();
@@ -63,24 +42,19 @@ export function createLocalLiveUpdateHub(): LocalLiveUpdateHub {
     return false;
   }
 
-  function unsubscribe(input: { workspaceId: string; socket: LocalLiveUpdateSocket }): void {
-    const sockets = socketsByWorkspace.get(input.workspaceId);
-    if (!sockets) {
-      return;
-    }
-    sockets.delete(input.socket);
-    if (sockets.size === 0) {
-      socketsByWorkspace.delete(input.workspaceId);
-    }
-    pendingSockets.delete(input.socket);
-    if (openSockets.delete(input.socket)) connectionsClosed += 1;
+  function unsubscribe({ workspaceId, socket }: { workspaceId: string; socket: LocalLiveUpdateSocket }): void {
+    const sockets = socketsByWorkspace.get(workspaceId);
+    if (!sockets) return;
+    sockets.delete(socket);
+    if (sockets.size === 0) socketsByWorkspace.delete(workspaceId);
+    pendingSockets.delete(socket);
+    if (openSockets.delete(socket)) connectionsClosed += 1;
   }
 
-  function deliver(
-    workspaceId: string,
-    sockets: Set<LocalLiveUpdateSocket>,
-    message: string,
-  ): void {
+  function deliver(workspaceId: string, event: Record<string, unknown>): void {
+    const sockets = socketsByWorkspace.get(workspaceId);
+    if (!sockets?.size) return;
+    const message = JSON.stringify({ version: 1, events: [event] });
     for (const socket of sockets) {
       if (!authorize(workspaceId, socket)) continue;
       try {
@@ -104,47 +78,31 @@ export function createLocalLiveUpdateHub(): LocalLiveUpdateHub {
   }
 
   return {
-    broadcastWorkspaceContextInvalidation: ({ workspaceId, reason, occurredAt }) => {
-      const sockets = socketsByWorkspace.get(workspaceId);
-      if (!sockets?.size) {
-        return;
-      }
-      const message = JSON.stringify({
-        version: 1,
-        events: [{
-          type: "workspace_context_invalidated",
-          reason,
-          occurred_at: occurredAt,
-        }],
-      });
-      deliver(workspaceId, sockets, message);
+    broadcastWorkspaceContextInvalidation: ({ workspaceId, reason, occurredAt }: {
+      workspaceId: string;
+      reason: "workspace_access" | "model_configuration_changed";
+      occurredAt: string;
+    }) => {
+      deliver(workspaceId, { type: "workspace_context_invalidated", reason, occurred_at: occurredAt });
     },
-    broadcastJob: (workspaceId, job) => {
-      const sockets = socketsByWorkspace.get(workspaceId);
-      if (!sockets?.size) {
-        return;
-      }
-      const message = JSON.stringify({
-        version: 1,
-        events: [{
-          type: "extraction_job_lifecycle",
-          job: {
-            job_id: job.job_id,
-            status: job.status,
-            template_id: job.template_id,
-            template_version: job.template_version,
-            error_code: job.error_code,
-            error_message: job.error_message,
-            created_at: job.created_at,
-            updated_at: job.updated_at,
-            completed_at: job.completed_at,
-            current_attempt: job.current_attempt,
-            completed_attempt: job.completed_attempt,
-            last_failed_attempt: job.last_failed_attempt,
-          },
-        }],
+    broadcastJob: (workspaceId: string, job: LocalLiveUpdateJob) => {
+      deliver(workspaceId, {
+        type: "extraction_job_lifecycle",
+        job: {
+          job_id: job.job_id,
+          status: job.status,
+          template_id: job.template_id,
+          template_version: job.template_version,
+          error_code: job.error_code,
+          error_message: job.error_message,
+          created_at: job.created_at,
+          updated_at: job.updated_at,
+          completed_at: job.completed_at,
+          current_attempt: job.current_attempt,
+          completed_attempt: job.completed_attempt,
+          last_failed_attempt: job.last_failed_attempt,
+        },
       });
-      deliver(workspaceId, sockets, message);
     },
     closeAll: () => {
       if (closed) return;
@@ -176,10 +134,10 @@ export function createLocalLiveUpdateHub(): LocalLiveUpdateHub {
         },
       };
     },
-    drain: (socket) => {
+    drain: (socket: LocalLiveUpdateSocket) => {
       pendingSockets.delete(socket);
     },
-    subscribe: ({ workspaceId, socket }) => {
+    subscribe: ({ workspaceId, socket }: { workspaceId: string; socket: LocalLiveUpdateSocket }) => {
       if (closed) {
         socket.close?.(1001, "Local Bun Runtime shutting down");
         return () => {};

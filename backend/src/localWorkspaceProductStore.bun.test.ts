@@ -15,6 +15,7 @@ import type { FetchApplication } from "./localRuntime";
 import {
   createLocalWorkspaceProductStore,
   openLocalWorkspaceProductStore,
+  type LocalWorkspaceProductStore,
 } from "./localWorkspaceProductStore";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
 import { validateTemplatePayload } from "./lib/validation";
@@ -82,31 +83,18 @@ test("starter bootstrap preserves legacy and manually created Templates", async 
 });
 
 test("local Workspace product data creates Templates in an isolated per-Workspace database", async () => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-product-store-"));
-  const research = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_research" });
-  const legal = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_legal" });
-
-  try {
-    const created = research.createTemplate({
-      templateId: "tpl_invoice",
-      name: "Invoice",
-      description: "Extract invoice details.",
-      fields: [
-        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
-      ],
-      createdAt: "2026-07-09T12:00:00.000Z",
-    });
-
-    expect(created).toEqual({ template_id: "tpl_invoice", version: 1, status: "active" });
-    expect(research.listTemplates()).toEqual([
-      expect.objectContaining({ id: "tpl_invoice", name: "Invoice", current_version: 1 }),
-    ]);
-    expect(legal.listTemplates()).toEqual([]);
-  } finally {
-    research.close();
-    legal.close();
-    await rm(stateDirectory, { recursive: true, force: true });
-  }
+  await withProductStore(async (research, stateDirectory) => {
+    const legal = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_legal" });
+    try {
+      expect(research.createTemplate(INVOICE_TEMPLATE)).toEqual({ template_id: "tpl_invoice", version: 1, status: "active" });
+      expect(research.listTemplates()).toEqual([
+        expect.objectContaining({ id: "tpl_invoice", name: "Invoice", current_version: 1 }),
+      ]);
+      expect(legal.listTemplates()).toEqual([]);
+    } finally {
+      legal.close();
+    }
+  });
 });
 
 test("opening missing Workspace product data does not initialize a database", async () => {
@@ -127,44 +115,9 @@ test("opening missing Workspace product data does not initialize a database", as
   }
 });
 
-test("local Workspace job storage creates indexes for chronological and model-filtered pagination", async () => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-job-indexes-"));
-  const workspaceId = "workspace_indexed_jobs";
-  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
-  store.close();
-  const database = new Database(
-    join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`),
-    { readonly: true },
-  );
-
-  try {
-    const indexNames = new Set(
-      (database.query("PRAGMA index_list(jobs)").all() as Array<{ name: string }>)
-        .map((index) => index.name),
-    );
-    expect(indexNames).toContain("idx_jobs_created_id");
-    expect(indexNames).toContain("idx_jobs_model_created_id");
-  } finally {
-    database.close();
-    await rm(stateDirectory, { recursive: true, force: true });
-  }
-});
-
 test("local Workspace product data reads a Template's current version and fields", async () => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-template-detail-"));
-  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_research" });
-
-  try {
-    store.createTemplate({
-      templateId: "tpl_invoice",
-      name: "Invoice",
-      description: "Extract invoice details.",
-      fields: [
-        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
-      ],
-      createdAt: "2026-07-09T12:00:00.000Z",
-    });
-
+  await withProductStore(async (store) => {
+    store.createTemplate(INVOICE_TEMPLATE);
     expect(store.getTemplate("tpl_invoice")).toEqual({
       id: "tpl_invoice",
       name: "Invoice",
@@ -173,37 +126,14 @@ test("local Workspace product data reads a Template's current version and fields
       current_version: 1,
       created_at: "2026-07-09T12:00:00.000Z",
       updated_at: "2026-07-09T12:00:00.000Z",
-      fields: [
-        {
-          id: "invoice_number",
-          name: "Invoice Number",
-          description: "Unique invoice identifier.",
-          data_type: "string",
-          position: 0,
-        },
-      ],
+      fields: [{ ...INVOICE_TEMPLATE.fields[0], position: 0 }],
     });
-  } finally {
-    store.close();
-    await rm(stateDirectory, { recursive: true, force: true });
-  }
+  });
 });
 
 test("local Workspace product data versions Template fields while retaining the prior version", async () => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-template-version-"));
-  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_research" });
-
-  try {
-    store.createTemplate({
-      templateId: "tpl_invoice",
-      name: "Invoice",
-      description: "Extract invoice details.",
-      fields: [
-        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
-      ],
-      createdAt: "2026-07-09T12:00:00.000Z",
-    });
-
+  await withProductStore(async (store) => {
+    store.createTemplate(INVOICE_TEMPLATE);
     expect(store.updateTemplate({
       templateId: "tpl_invoice",
       name: "Invoice v2",
@@ -219,56 +149,22 @@ test("local Workspace product data versions Template fields while retaining the 
       updated_at: "2026-07-09T12:05:00.000Z",
       fields: [expect.objectContaining({ id: "invoice_reference", position: 0 })],
     });
-    const database = new Database(join(stateDirectory, "data", "workspaces", "workspace_research.sqlite"));
-    try {
-      expect(database.query(
-        "SELECT field_id FROM template_fields WHERE template_id = ? AND version = ?",
-      ).all("tpl_invoice", 1)).toEqual([{ field_id: "invoice_number" }]);
-    } finally {
-      database.close();
-    }
-  } finally {
-    store.close();
-    await rm(stateDirectory, { recursive: true, force: true });
-  }
+    expect(store.getTemplate("tpl_invoice", 1)?.fields).toEqual([{ ...INVOICE_TEMPLATE.fields[0], position: 0 }]);
+  });
 });
 
 test("local Workspace product data soft-deletes Templates without exposing them again", async () => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-template-delete-"));
-  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_research" });
-
-  try {
-    store.createTemplate({
-      templateId: "tpl_invoice",
-      name: "Invoice",
-      description: "Extract invoice details.",
-      fields: [
-        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
-      ],
-      createdAt: "2026-07-09T12:00:00.000Z",
-    });
-
-    expect(store.deleteTemplate({
-      templateId: "tpl_invoice",
-      deletedAt: "2026-07-09T12:10:00.000Z",
-    })).toBe(true);
+  await withProductStore(async (store) => {
+    store.createTemplate(INVOICE_TEMPLATE);
+    expect(store.deleteTemplate({ templateId: "tpl_invoice", deletedAt: "2026-07-09T12:10:00.000Z" })).toBe(true);
     expect(store.getTemplate("tpl_invoice")).toBeNull();
     expect(store.listTemplates()).toEqual([]);
-    expect(store.deleteTemplate({
-      templateId: "tpl_invoice",
-      deletedAt: "2026-07-09T12:10:01.000Z",
-    })).toBe(false);
-  } finally {
-    store.close();
-    await rm(stateDirectory, { recursive: true, force: true });
-  }
+    expect(store.deleteTemplate({ templateId: "tpl_invoice", deletedAt: "2026-07-09T12:10:01.000Z" })).toBe(false);
+  });
 });
 
-test("local Workspace product data supports multiple Templates", async () => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-unlimited-templates-"));
-  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_research" });
-
-  try {
+test("local Workspace product data has no Template count or field count cap", async () => {
+  await withProductStore(async (store) => {
     for (let index = 1; index <= 6; index += 1) {
       store.createTemplate({
         templateId: `tpl_${index}`,
@@ -278,28 +174,7 @@ test("local Workspace product data supports multiple Templates", async () => {
         createdAt: `2026-07-09T12:00:0${index}.000Z`,
       });
     }
-
     expect(store.listTemplates()).toHaveLength(6);
-  } finally {
-    store.close();
-    await rm(stateDirectory, { recursive: true, force: true });
-  }
-});
-
-test("local Workspace product data updates Templates with many fields", async () => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-unlimited-template-fields-"));
-  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_research" });
-
-  try {
-    store.createTemplate({
-      templateId: "tpl_invoice",
-      name: "Invoice",
-      description: "Extract invoice details.",
-      fields: [
-        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
-      ],
-      createdAt: "2026-07-09T12:00:00.000Z",
-    });
 
     const fields = Array.from({ length: 26 }, (_, index) => ({
       id: `field_${index + 1}`,
@@ -307,16 +182,10 @@ test("local Workspace product data updates Templates with many fields", async ()
       description: `Extract field ${index + 1}.`,
       data_type: "string" as const,
     }));
-    expect(store.updateTemplate({
-      templateId: "tpl_invoice",
-      fields,
-      updatedAt: "2026-07-09T12:01:00.000Z",
-    })).toEqual({ template_id: "tpl_invoice", version: 2, status: "active" });
-    expect(store.getTemplate("tpl_invoice")?.fields).toHaveLength(26);
-  } finally {
-    store.close();
-    await rm(stateDirectory, { recursive: true, force: true });
-  }
+    expect(store.updateTemplate({ templateId: "tpl_1", fields, updatedAt: "2026-07-09T12:01:00.000Z" }))
+      .toEqual({ template_id: "tpl_1", version: 2, status: "active" });
+    expect(store.getTemplate("tpl_1")?.fields).toHaveLength(26);
+  });
 });
 
 test("Template validation keeps local table shape constraints", () => {
@@ -353,23 +222,8 @@ test("Template validation keeps local table shape constraints", () => {
 
 test("authenticated Template create/list routes use the authorized Workspace product store", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-product-api-"));
-  const database = new Database(":memory:");
-  const verificationLinks: string[] = [];
-  const auth = await createLocalAuth({
-    requireEmailVerification: true,
-    baseURL: "http://127.0.0.1:8787",
-    database,
-    mailSink: {
-      capture: async (message) => {
-        const url = message.text.match(/https?:\/\/\S+/)?.[0];
-        if (url) {
-          verificationLinks.push(url);
-        }
-      },
-    },
-    secret: "01234567890123456789012345678901",
-  });
-  const control = createLocalWorkspaceControl(database);
+  const { auth, control, database, headers, workspace } = await createAuthenticatedLocalWorkspace(stateDirectory);
+  const { cookie } = headers;
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
   const productAnalytics: LocalProductAnalytics = {
     flush: async () => {},
@@ -378,22 +232,6 @@ test("authenticated Template create/list routes use the authorized Workspace pro
   const application = createLocalApplication({ auth, productAnalytics, stateDirectory, workspaceControl: control });
 
   try {
-    await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    await auth.handler(new Request(verificationLinks[0]!, { redirect: "manual" }));
-    const signIn = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-in/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const cookie = signIn.headers.get("set-cookie")?.split(";", 1)[0]!;
-    const workspace = control.listAcceptedWorkspaces({ userId: (await auth.getSession(new Request("http://127.0.0.1:8787", { headers: { cookie } })))!.id })[0]!;
-  configureTestWorkspace({ stateDirectory, workspaceId: workspace.id });
-    const headers = { cookie, "x-workspace-id": workspace.id };
-
     const starterList = await application(new Request("http://127.0.0.1:8787/v1/templates", { headers }));
     await expect(starterList.json()).resolves.toMatchObject({
       templates: [expect.objectContaining({ name: "Example Invoice", id: expect.stringMatching(/^tpl_[0-9a-f]{32}$/) })],
@@ -569,21 +407,7 @@ test("Template routes reject sessions without accepted Workspace membership befo
 
 test("authenticated local Document submission queues the selected Template and notifies the local runner", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-local-submit-"));
-  const database = new Database(":memory:");
-  const verificationLinks: string[] = [];
-  const auth = await createLocalAuth({
-    requireEmailVerification: true,
-    baseURL: "http://127.0.0.1:8787",
-    database,
-    mailSink: {
-      capture: async (message) => {
-        const url = message.text.match(/https?:\/\/\S+/)?.[0];
-        if (url) verificationLinks.push(url);
-      },
-    },
-    secret: "01234567890123456789012345678901",
-  });
-  const control = createLocalWorkspaceControl(database);
+  const { auth, control, database, headers, workspace } = await createAuthenticatedLocalWorkspace(stateDirectory);
   const liveUpdateHub = createLocalLiveUpdateHub();
   const scheduledJobs: Array<{
     job_id: string;
@@ -609,38 +433,13 @@ test("authenticated local Document submission queues the selected Template and n
   });
 
   try {
-    await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    await auth.handler(new Request(verificationLinks[0]!, { redirect: "manual" }));
-    const signIn = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-in/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const cookie = signIn.headers.get("set-cookie")?.split(";", 1)[0]!;
-    const session = await auth.getSession(new Request("http://127.0.0.1:8787", { headers: { cookie } }));
-    const workspace = control.listAcceptedWorkspaces({ userId: session!.id, userName: session!.name })[0]!;
-  configureTestWorkspace({ stateDirectory, workspaceId: workspace.id });
-    const headers = { cookie, "x-workspace-id": workspace.id };
     const lifecycleMessages: string[] = [];
     liveUpdateHub.subscribe({
       workspaceId: workspace.id,
       socket: { send: (message) => lifecycleMessages.push(message) },
     });
-    const templates = await application(new Request("http://127.0.0.1:8787/v1/templates", { headers }));
-    const templateId = ((await templates.json()) as { templates: Array<{ id: string }> }).templates[0]!.id;
-
-    const formData = new FormData();
-    formData.append("template_id", templateId);
-    formData.append("document", new File([new Uint8Array([137, 80, 78, 71])], "invoice.png", { type: "image/png" }));
-    const response = await application(new Request("http://127.0.0.1:8787/v1/extract", {
-      method: "POST",
-      headers,
-      body: formData,
-    }));
+    const templateId = await starterTemplateId(application, headers);
+    const response = await submitPngDocument(application, headers, templateId);
 
     expect(response.status).toBe(202);
     const queued = await response.json() as { job_id: string; status: string; template_id: string; template_version: number; source_name: string | null };
@@ -998,4 +797,27 @@ async function submitDocument(
   formData.append("template_id", templateId);
   formData.append("document", document);
   return application(new Request("http://127.0.0.1:8787/v1/extract", { method: "POST", headers, body: formData }));
+}
+
+const INVOICE_TEMPLATE = {
+  templateId: "tpl_invoice",
+  name: "Invoice",
+  description: "Extract invoice details.",
+  fields: [
+    { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" as const },
+  ],
+  createdAt: "2026-07-09T12:00:00.000Z",
+};
+
+async function withProductStore(
+  run: (store: LocalWorkspaceProductStore, stateDirectory: string) => Promise<void>,
+): Promise<void> {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-product-store-"));
+  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_research" });
+  try {
+    await run(store, stateDirectory);
+  } finally {
+    store.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
 }

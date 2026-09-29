@@ -214,7 +214,7 @@ describe("Workspace Model gateway", () => {
     expect(result.current.conflict).toBe(false);
   });
 
-  it("shows the approved expandable editor, write-only input, capability declarations, and clear confirmation", async () => {
+  it("shows the editor, write-only input, capability declarations, and clear confirmation", async () => {
     const coreRequest = apiFixture();
     function Editor() {
       const controller = useWorkspaceModelConfiguration({ ...props, coreRequest });
@@ -223,8 +223,6 @@ describe("Workspace Model gateway", () => {
     const { container } = render(<Editor />);
     await screen.findByText("Not configured");
     expect(container.querySelectorAll("article")).toHaveLength(1);
-    expect(screen.queryByLabelText("Gateway URL")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Set up" }));
     fireEvent.change(screen.getByLabelText("Gateway URL"), { target: { value: draft.gateway_url } });
     fireEvent.change(screen.getByLabelText("Model name"), { target: { value: draft.model_name } });
     fireEvent.change(screen.getByLabelText("Gateway API key"), { target: { value: draft.credential } });
@@ -249,7 +247,6 @@ describe("Workspace Model gateway", () => {
     render(<WorkspaceModelConfiguration controller={result.current} />);
     expect(screen.getByText("Configured")).toBeTruthy();
     expect(screen.queryByLabelText("Gateway URL")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
     expect(screen.queryByText(/Credential unavailable/)).toBeNull();
     await act(() => result.current.save());
     expect(coreRequest).toHaveBeenCalledTimes(1);

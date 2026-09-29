@@ -9,19 +9,16 @@ export class HttpError extends Error {
   }
 }
 
-export function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8"
-    }
-  });
-}
-
 export function toHttpError(error: unknown): HttpError {
   if (error instanceof HttpError) {
     return error;
   }
 
   return new HttpError(500, "internal_error", "Unexpected server error");
+}
+
+export function bearerApiKey(request: Request): string | null {
+  const value = request.headers.get("authorization")?.trim() || "";
+  if (!value.toLowerCase().startsWith("bearer ")) return null;
+  return value.slice(7).trim() || null;
 }

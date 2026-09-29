@@ -162,7 +162,9 @@ test("Workspace product stores apply the safe SQLite policy and focused indexes"
       (database.query("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>)
         .map((row) => row.name),
     );
-    expect(indexes.has("idx_jobs_active_updated_id")).toBe(true);
+    for (const index of ["idx_jobs_active_updated_id", "idx_jobs_created_id", "idx_jobs_model_created_id"]) {
+      expect(indexes.has(index)).toBe(true);
+    }
     expect(indexes.has("idx_jobs_status_updated")).toBe(false);
     expect(indexes.has("idx_source_files_job")).toBe(false);
     expect(indexes.has("idx_job_results_job")).toBe(false);

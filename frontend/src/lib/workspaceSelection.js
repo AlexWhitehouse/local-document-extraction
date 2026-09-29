@@ -1,700 +1,145 @@
-const DEFAULT_WORKSPACE_NAME = "Local Workspace";
+const UNTITLED_WORKSPACE_NAME = "Untitled Workspace";
 
 export function getWorkspaceContextDisplay({
-  apiBase,
   hasApiAccess,
-  canManageWorkspaceUsers,
   workspaceId,
   workspaceName,
   selectedWorkspaceInvitationId,
   userWorkspaces,
   userWorkspaceInvitations,
 }) {
-  const normalizedApiBase = apiBase || "/v1";
-  const activeWorkspaceId = String(workspaceId || "");
-  const workspaces = Array.isArray(userWorkspaces) ? userWorkspaces : [];
-  const invitations = Array.isArray(userWorkspaceInvitations)
-    ? userWorkspaceInvitations
-    : [];
-  const acceptedEntries = workspaces.map((workspace) => ({
-    id: String(workspace?.id || ""),
-    name: String(workspace?.name || "Untitled Workspace"),
-    api_base: normalizedApiBase,
-    connected: String(workspace?.id || "") === activeWorkspaceId,
+  const acceptedEntries = userWorkspaces.map((workspace) => ({
+    id: String(workspace.id || ""),
+    name: String(workspace.name || UNTITLED_WORKSPACE_NAME),
+    connected: String(workspace.id || "") === workspaceId,
     type: "workspace",
-    role: String(workspace?.role || ""),
+    role: String(workspace.role || ""),
   }));
-  const invitedEntries = invitations
+  const invitedEntries = userWorkspaceInvitations
     .map((invitation) => ({
-      id: String(invitation?.workspace_id || ""),
-      invitation_id: String(invitation?.id || ""),
-      name: String(invitation?.workspace_name || "Untitled Workspace"),
-      api_base: normalizedApiBase,
+      id: String(invitation.workspace_id || ""),
+      invitation_id: String(invitation.id || ""),
+      name: String(invitation.workspace_name || UNTITLED_WORKSPACE_NAME),
       connected: false,
       type: "invitation",
-      role: String(invitation?.role || ""),
-      email: String(invitation?.email || ""),
-      inviter_name: String(invitation?.inviter_name || ""),
-      inviter_email: String(invitation?.inviter_email || ""),
-      inviter_display: String(invitation?.inviter_display || ""),
-      updated_at: String(invitation?.updated_at || invitation?.created_at || ""),
+      role: String(invitation.role || ""),
+      email: String(invitation.email || ""),
+      inviter_name: String(invitation.inviter_name || ""),
+      inviter_email: String(invitation.inviter_email || ""),
+      inviter_display: String(invitation.inviter_display || ""),
+      updated_at: String(invitation.updated_at || invitation.created_at || ""),
     }))
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  const selectedInvitationId = String(selectedWorkspaceInvitationId || "").trim();
+  const availableWorkspaces = [...acceptedEntries, ...invitedEntries];
 
-  const toDisplay = (availableWorkspaces) => {
-    const selectedEntryId = activeWorkspaceId;
-    const effectiveSelectedWorkspaceInvitationId =
-      selectedInvitationId ||
-      (acceptedEntries.length === 0
-        ? String(invitedEntries[0]?.invitation_id || "")
-        : "");
-    const selectedWorkspaceName = String(
-      availableWorkspaces.find((workspace) => workspace.id === selectedEntryId)
-        ?.name || "",
-    );
-    const activeWorkspaceName =
-      selectedWorkspaceName.trim() ||
-      String(workspaceName || "").trim() ||
-      DEFAULT_WORKSPACE_NAME;
-    const selectedWorkspaceRole = String(
-      acceptedEntries.find((workspace) => workspace.id === selectedEntryId)
-        ?.role || "",
-    );
-
-    return {
-      availableWorkspaces,
-      selectedWorkspaceName,
-      activeWorkspaceName,
-      selectedWorkspaceInvitationId: effectiveSelectedWorkspaceInvitationId,
-      workspaceSelectionView: getWorkspaceSelectionView({
-        workspaceId,
-        workspaceName: activeWorkspaceName,
-        hasApiAccess,
-        canManageWorkspaceUsers,
-        workspaceRole: selectedWorkspaceRole,
-        selectedWorkspaceInvitationId: effectiveSelectedWorkspaceInvitationId,
-        userWorkspaceInvitations: invitations,
-      }),
-    };
-  };
-
-  if (acceptedEntries.length > 0) {
-    return toDisplay([...acceptedEntries, ...invitedEntries]);
-  }
-
-  if (invitedEntries.length > 0) {
-    return toDisplay(invitedEntries);
-  }
-
-  return toDisplay([]);
-}
-
-export function selectAcceptedWorkspaceContext({ workspace }) {
-  const workspaceId = String(workspace?.id || "");
+  // Without any accepted Workspace, the newest invitation is the only thing to show.
+  const effectiveInvitationId =
+    selectedWorkspaceInvitationId.trim() ||
+    (acceptedEntries.length === 0 ? invitedEntries[0]?.invitation_id || "" : "");
+  const selectedWorkspaceName =
+    availableWorkspaces.find((workspace) => workspace.id === workspaceId)?.name || "";
+  const invitation = userWorkspaceInvitations.find(
+    (candidate) => String(candidate.id || "").trim() === effectiveInvitationId,
+  );
 
   return {
-    workspaceId,
-    workspaceName: String(workspace?.name || "Untitled Workspace"),
+    availableWorkspaces,
+    selectedWorkspaceName,
+    selectedWorkspaceInvitationId: effectiveInvitationId,
+    workspaceSelectionView: invitation
+      ? {
+          type: "invitation",
+          workspaceName: String(invitation.workspace_name || UNTITLED_WORKSPACE_NAME),
+          hasWorkspaceApiAccess: false,
+          invitation: {
+            id: String(invitation.id || ""),
+            workspaceId: String(invitation.workspace_id || ""),
+            workspaceName: String(invitation.workspace_name || UNTITLED_WORKSPACE_NAME),
+            email: String(invitation.email || ""),
+            role: String(invitation.role || ""),
+            status: String(invitation.status || "pending"),
+            inviter: String(
+              invitation.inviter_display || invitation.inviter_name || invitation.inviter_email || "",
+            ),
+            invitedAt: String(invitation.created_at || ""),
+            expiresAt: String(invitation.expires_at || ""),
+          },
+        }
+      : {
+          type: "workspace",
+          workspaceName: selectedWorkspaceName.trim() || workspaceName.trim() || "Local Workspace",
+          hasWorkspaceApiAccess: hasApiAccess,
+          invitation: null,
+        },
+  };
+}
+
+export function selectAcceptedWorkspaceContext(workspace) {
+  return {
+    workspaceId: String(workspace.id || ""),
+    workspaceName: String(workspace.name || UNTITLED_WORKSPACE_NAME),
     selectedWorkspaceInvitationId: "",
     apiKey: "",
   };
 }
 
-export function resolveAcceptedWorkspaceContext({
-  storedWorkspacePreference,
-  userWorkspaces,
-}) {
-  const workspaces = Array.isArray(userWorkspaces) ? userWorkspaces : [];
-  const storedWorkspaceId = String(
-    storedWorkspacePreference?.workspaceId || "",
-  ).trim();
-  const matchedWorkspace = workspaces.find(
-    (workspace) => String(workspace?.id || "") === storedWorkspaceId,
+export function resolveAcceptedWorkspace({ storedWorkspacePreference, userWorkspaces }) {
+  const storedWorkspaceId = String(storedWorkspacePreference?.workspaceId || "").trim();
+  return (
+    userWorkspaces.find((workspace) => String(workspace.id || "") === storedWorkspaceId) ||
+    userWorkspaces[0] ||
+    null
   );
-  const resolvedWorkspace = matchedWorkspace || workspaces[0] || null;
-
-  if (!resolvedWorkspace) {
-    return {
-      type: "unresolved",
-      workspace: null,
-      nextWorkspaceContext: null,
-    };
-  }
-
-  return {
-    type: "resolved",
-    workspace: resolvedWorkspace,
-    nextWorkspaceContext: selectAcceptedWorkspaceContext({
-      workspace: resolvedWorkspace,
-    }),
-  };
 }
 
-export function selectPendingWorkspaceInvitationContext({ invitation }) {
-  return {
-    selectedWorkspaceInvitationId: String(invitation?.id || ""),
-  };
-}
-
-export function getInviteWorkspaceInvitationTransition({
-  workspaceId,
-  email,
-  role,
-  inviteResult,
-  inviteError,
-}) {
-  const targetWorkspaceId = String(workspaceId || "").trim();
-  if (!targetWorkspaceId) {
-    return {
-      type: "guard",
-      reason: "missing_accepted_workspace_context",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-    };
-  }
-
-  const normalizedEmail = String(email || "").trim();
-  if (!normalizedEmail) {
-    return {
-      type: "validation",
-      reason: "missing_invitation_email",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-    };
-  }
-
-  if (inviteResult) {
-    return {
-      type: "success",
-      workspaceId: targetWorkspaceId,
-      email: normalizedEmail,
-      request: null,
-      refresh: ["pendingWorkspaceInvitations"],
-      nextWorkspaceContext: null,
-    };
-  }
-
-  if (inviteError) {
-    return {
-      type: "failure",
-      workspaceId: targetWorkspaceId,
-      email: normalizedEmail,
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-    };
-  }
-
-  const normalizedRole = String(role || "member").trim() || "member";
-  return {
-    type: "request",
-    workspaceId: targetWorkspaceId,
-    email: normalizedEmail,
-    request: {
-      path: `/workspaces/${encodeURIComponent(targetWorkspaceId)}/invitations`,
-      method: "POST",
-      body: {
-        email: normalizedEmail,
-        role: normalizedRole,
-      },
-    },
-    refresh: [],
-    nextWorkspaceContext: null,
-  };
-}
-
-export function getCancelWorkspaceInvitationTransition({
-  workspaceId,
-  invitation,
-  confirmed,
-  cancelResult,
-  cancelError,
-}) {
-  const targetWorkspaceId = String(workspaceId || "").trim();
-  if (!targetWorkspaceId) {
-    return {
-      type: "guard",
-      reason: "missing_accepted_workspace_context",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      requiresConfirmation: false,
-    };
-  }
-
-  const invitationId = String(invitation?.id || "").trim();
-  if (!invitationId) {
-    return {
-      type: "guard",
-      reason: "missing_pending_workspace_invitation",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      requiresConfirmation: false,
-    };
-  }
-
-  const invitationEmail = String(
-    invitation?.email || "this invitation",
-  ).trim();
-
-  if (cancelResult) {
-    return {
-      type: "success",
-      workspaceId: targetWorkspaceId,
-      invitationId,
-      invitationEmail,
-      request: null,
-      refresh: ["pendingWorkspaceInvitations"],
-      nextWorkspaceContext: null,
-      requiresConfirmation: false,
-    };
-  }
-
-  if (cancelError) {
-    return {
-      type: "failure",
-      workspaceId: targetWorkspaceId,
-      invitationId,
-      invitationEmail,
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      requiresConfirmation: false,
-    };
-  }
-
-  if (!confirmed) {
-    return {
-      type: "confirmation_required",
-      workspaceId: targetWorkspaceId,
-      invitationId,
-      invitationEmail,
-      confirmationMessage: `Cancel pending invitation for ${invitationEmail}?`,
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      requiresConfirmation: true,
-    };
-  }
-
-  return {
-    type: "request",
-    workspaceId: targetWorkspaceId,
-    invitationId,
-    invitationEmail,
-    request: {
-      path: `/workspaces/${encodeURIComponent(targetWorkspaceId)}/invitations/${encodeURIComponent(invitationId)}`,
-      method: "DELETE",
-    },
-    refresh: [],
-    nextWorkspaceContext: null,
-    requiresConfirmation: false,
-  };
-}
-
-export function getWorkspacePrimaryAction({ workspaceRole }) {
-  const normalizedRole = String(workspaceRole || "").trim().toLowerCase();
-  if (normalizedRole === "owner") {
+export function getWorkspacePrimaryAction(workspaceRole) {
+  const role = workspaceRole.trim().toLowerCase();
+  if (role === "owner") {
     return { type: "delete", label: "Delete Workspace" };
   }
-  if (normalizedRole === "admin" || normalizedRole === "member") {
+  if (role === "admin" || role === "member") {
     return { type: "leave", label: "Leave Workspace" };
   }
   return { type: "none", label: "" };
 }
 
-export function getLeaveWorkspaceTransition({
-  workspaceId,
-  confirmed,
-  leaveResult,
-  leaveError,
-  refreshedUserWorkspaces,
-}) {
-  const targetWorkspaceId = String(workspaceId || "").trim();
-  if (!targetWorkspaceId) {
-    return {
-      type: "guard",
-      reason: "missing_accepted_workspace_context",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      removedApiKeyWorkspaceId: null,
-      requiresConfirmation: false,
-    };
-  }
-
-  if (leaveResult) {
-    const replacementWorkspaceId = String(
-      leaveResult?.replacement_workspace?.workspace_id || "",
-    ).trim();
-    const remainingWorkspaces = Array.isArray(refreshedUserWorkspaces)
-      ? refreshedUserWorkspaces.filter(
-          (workspace) => String(workspace?.id || "") !== targetWorkspaceId,
-        )
-      : [];
-    const replacementWorkspace = replacementWorkspaceId
-      ? remainingWorkspaces.find(
-          (workspace) => String(workspace?.id || "") === replacementWorkspaceId,
-        )
-      : null;
-    const nextWorkspace =
-      replacementWorkspace ||
-      remainingWorkspaces[0];
-    return {
-      type: "success",
-      workspaceId: targetWorkspaceId,
-      request: null,
-      refresh: ["acceptedWorkspaces", "workspaceContext"],
-      nextWorkspaceContext: nextWorkspace
-        ? selectAcceptedWorkspaceContext({
-            workspace: nextWorkspace,
-          })
-        : null,
-      removedApiKeyWorkspaceId: targetWorkspaceId,
-      requiresConfirmation: false,
-    };
-  }
-
-  if (leaveError) {
-    return {
-      type: "failure",
-      workspaceId: targetWorkspaceId,
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      removedApiKeyWorkspaceId: null,
-      requiresConfirmation: false,
-    };
-  }
-
-  if (!confirmed) {
-    return {
-      type: "confirmation_required",
-      workspaceId: targetWorkspaceId,
-      confirmationMessage: "Leave this workspace? You will lose access unless you are invited again.",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      removedApiKeyWorkspaceId: null,
-      requiresConfirmation: true,
-    };
-  }
-
+export function getWorkspaceMemberPermissions(role) {
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  const canManage = normalizedRole === "owner" || normalizedRole === "admin";
   return {
-    type: "request",
-    workspaceId: targetWorkspaceId,
-    request: {},
-    refresh: [],
-    nextWorkspaceContext: null,
-    removedApiKeyWorkspaceId: null,
-    requiresConfirmation: false,
+    canListUsers: canManage || normalizedRole === "member",
+    canManage,
+    isOwner: normalizedRole === "owner",
   };
 }
 
-export function getWorkspaceMemberActionTransition({
-  workspaceId,
-  targetUserId,
-  action,
-  actionResult,
-  actionError,
-  refreshedUserWorkspaces,
-}) {
-  const targetWorkspaceId = String(workspaceId || "").trim();
-  if (!targetWorkspaceId) {
-    return {
-      type: "guard",
-      reason: "missing_accepted_workspace_context",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-    };
-  }
-
-  const targetId = String(targetUserId || "").trim();
-  if (!targetId) {
-    return {
-      type: "guard",
-      reason: "missing_target_workspace_user",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-    };
-  }
-
-  const normalizedAction = String(action || "").trim();
-
-  if (actionResult) {
-    const refreshedWorkspace = Array.isArray(refreshedUserWorkspaces)
-      ? refreshedUserWorkspaces.find(
-          (workspace) => String(workspace?.id || "") === targetWorkspaceId,
-        )
-      : null;
-
-    return {
-      type: "success",
-      workspaceId: targetWorkspaceId,
-      targetUserId: targetId,
-      action: normalizedAction,
-      request: null,
-      refresh: ["acceptedWorkspaces", "workspaceUsers", "workspaceContext"],
-      nextWorkspaceContext: refreshedWorkspace
-        ? selectAcceptedWorkspaceContext({
-            workspace: refreshedWorkspace,
-          })
-        : null,
-    };
-  }
-
-  if (actionError) {
-    return {
-      type: "failure",
-      workspaceId: targetWorkspaceId,
-      targetUserId: targetId,
-      action: normalizedAction,
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-    };
-  }
-
-  return {
-    type: "request",
-    workspaceId: targetWorkspaceId,
-    targetUserId: targetId,
-    action: normalizedAction,
-    request: {
-      action: normalizedAction,
-    },
-    refresh: [],
-    nextWorkspaceContext: null,
-  };
+export function canShowWorkspaceUserAction(permissions, targetRole) {
+  const role = String(targetRole || "").trim().toLowerCase();
+  return role === "owner" ? permissions.isOwner : permissions.canManage;
 }
 
-export function getAcceptWorkspaceInvitationTransition({
-  selectedWorkspaceInvitation,
-  acceptResult,
-  acceptError,
-  refreshedUserWorkspaces,
-}) {
-  const invitationId = String(selectedWorkspaceInvitation?.id || "").trim();
-  if (!invitationId) {
-    return {
-      type: "guard",
-      reason: "missing_selected_workspace_invitation",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-    };
+export function getWorkspaceUserActions(permissions, targetRole) {
+  const role = String(targetRole || "").trim().toLowerCase();
+  if (role === "owner") {
+    return permissions.isOwner ? ["make_admin"] : [];
   }
-
-  if (
-    String(selectedWorkspaceInvitation?.status || "pending").toLowerCase() !==
-    "pending"
-  ) {
-    return {
-      type: "guard",
-      reason: "selected_workspace_invitation_not_pending",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-    };
+  if (role === "admin") {
+    return permissions.canManage ? ["remove_user", "make_owner"] : [];
   }
-
-  const acceptedWorkspaceId = String(acceptResult?.workspace_id || "").trim();
-  if (acceptedWorkspaceId) {
-    const refreshedWorkspace = Array.isArray(refreshedUserWorkspaces)
-      ? refreshedUserWorkspaces.find(
-          (workspace) => String(workspace?.id || "") === acceptedWorkspaceId,
-        )
-      : null;
-
-    return {
-      type: "success",
-      invitationId,
-      acceptedWorkspaceId,
-      request: null,
-      refresh: ["acceptedWorkspaces", "pendingWorkspaceInvitations"],
-      nextWorkspaceContext: selectAcceptedWorkspaceContext({
-        workspace: refreshedWorkspace || {
-          id: acceptedWorkspaceId,
-          name: selectedWorkspaceInvitation?.workspaceName,
-        },
-      }),
-    };
+  if (role === "member") {
+    if (permissions.isOwner) return ["remove_user", "make_admin", "make_owner"];
+    if (permissions.canManage) return ["remove_user"];
   }
-
-  if (acceptError) {
-    return {
-      type: "failure",
-      invitationId,
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-    };
-  }
-
-  return {
-    type: "request",
-    invitationId,
-    request: {
-      path: `/invitations/${encodeURIComponent(invitationId)}/accept`,
-      method: "POST",
-    },
-    refresh: [],
-    nextWorkspaceContext: null,
-  };
+  return [];
 }
 
-export function getDeclineWorkspaceInvitationTransition({
-  selectedWorkspaceInvitation,
-  declineResult,
-  declineError,
-}) {
-  const invitationId = String(selectedWorkspaceInvitation?.id || "").trim();
-  if (!invitationId) {
-    return {
-      type: "guard",
-      reason: "missing_selected_workspace_invitation",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      requiresConfirmation: false,
-    };
+export function formatRoleLabel(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "-";
   }
-
-  if (
-    String(selectedWorkspaceInvitation?.status || "pending").toLowerCase() !==
-    "pending"
-  ) {
-    return {
-      type: "guard",
-      reason: "selected_workspace_invitation_not_pending",
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      requiresConfirmation: false,
-    };
-  }
-
-  if (declineResult) {
-    return {
-      type: "success",
-      invitationId,
-      declinedWorkspaceId: String(selectedWorkspaceInvitation?.workspaceId || ""),
-      request: null,
-      refresh: ["acceptedWorkspaces", "pendingWorkspaceInvitations"],
-      nextWorkspaceContext: {
-        selectedWorkspaceInvitationId: "",
-      },
-      requiresConfirmation: false,
-    };
-  }
-
-  if (declineError) {
-    return {
-      type: "failure",
-      invitationId,
-      request: null,
-      refresh: [],
-      nextWorkspaceContext: null,
-      requiresConfirmation: false,
-    };
-  }
-
-  return {
-    type: "request",
-    invitationId,
-    request: {
-      path: `/invitations/${encodeURIComponent(invitationId)}/decline`,
-      method: "POST",
-    },
-    refresh: [],
-    nextWorkspaceContext: null,
-    requiresConfirmation: false,
-  };
-}
-
-export function getWorkspaceSelectionView({
-  workspaceName,
-  hasApiAccess,
-  canManageWorkspaceUsers,
-  workspaceRole,
-  selectedWorkspaceInvitationId,
-  userWorkspaceInvitations,
-}) {
-  const selectedInvitationId = String(selectedWorkspaceInvitationId || "").trim();
-  const invitation = Array.isArray(userWorkspaceInvitations)
-    ? userWorkspaceInvitations.find(
-        (candidate) => String(candidate?.id || "").trim() === selectedInvitationId,
-      )
-    : null;
-
-  if (invitation) {
-    const userManagement = getWorkspaceUserManagementVisibility("");
-
-    return {
-      type: "invitation",
-      workspaceName: String(invitation.workspace_name || "Untitled Workspace"),
-      hasWorkspaceApiAccess: false,
-      canManageWorkspace: false,
-      userManagement,
-      invitation: {
-        id: String(invitation.id || ""),
-        workspaceId: String(invitation.workspace_id || ""),
-        workspaceName: String(invitation.workspace_name || "Untitled Workspace"),
-        email: String(invitation.email || ""),
-        role: String(invitation.role || ""),
-        status: String(invitation.status || "pending"),
-        inviter: String(
-          invitation.inviter_display ||
-            invitation.inviter_name ||
-            invitation.inviter_email ||
-            "",
-        ),
-        invitedAt: String(invitation.created_at || ""),
-        expiresAt: String(invitation.expires_at || ""),
-      },
-    };
-  }
-
-  const userManagement = getWorkspaceUserManagementVisibility(
-    workspaceRole,
-    canManageWorkspaceUsers,
-  );
-
-  return {
-    type: "workspace",
-    workspaceName: String(workspaceName || ""),
-    hasWorkspaceApiAccess: Boolean(hasApiAccess),
-    canManageWorkspace: userManagement.canManageWorkspaceInvitations,
-    userManagement,
-    invitation: null,
-  };
-}
-
-function getWorkspaceUserManagementVisibility(role, canManageWorkspaceUsers) {
-  const normalizedRole = String(role || "")
-    .trim()
-    .toLowerCase();
-  const canListWorkspaceUsers =
-    normalizedRole === "owner" ||
-    normalizedRole === "admin" ||
-    normalizedRole === "member" ||
-    Boolean(canManageWorkspaceUsers);
-  const canManageWorkspace =
-    normalizedRole === "owner" ||
-    normalizedRole === "admin" ||
-    Boolean(canManageWorkspaceUsers);
-
-  return {
-    canListWorkspaceUsers,
-    canManageWorkspaceInvitations: canManageWorkspace,
-    canShowOwnerActions: normalizedRole === "owner",
-    canShowAdminActions: canManageWorkspace,
-    canShowMemberActions: canManageWorkspace,
-  };
+  return normalized
+    .split(/[_\s-]+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
 }
