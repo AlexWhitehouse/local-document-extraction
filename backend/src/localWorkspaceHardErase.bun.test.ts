@@ -12,6 +12,7 @@ import { createLocalProductAnalytics } from "./localProductAnalytics";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
 import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import { createFetchRequest } from "./testing/localAuthTestClient";
 
 test("the Workspace deletion adapter preserves policy errors and hard-erases an idle Workspace before success", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-workspace-delete-"));
@@ -119,26 +120,6 @@ test("the Workspace deletion adapter preserves policy errors and hard-erases an 
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });
-
-function createFetchRequest(application: (request: Request) => Response | Promise<Response>, cookie: string) {
-  return async (path: string, options: RequestInit = {}) => {
-    const headers = new Headers(options.headers);
-    headers.set("cookie", cookie);
-    const response = await application(new Request(`http://127.0.0.1:8787/v1${path}`, {
-      ...options,
-      headers,
-    }));
-    const data = await response.json() as { error?: { code?: string; message?: string } };
-    if (!response.ok) {
-      const error = Object.assign(new Error(data.error?.message || `Request failed (${response.status})`), {
-        code: data.error?.code || null,
-        status: response.status,
-      });
-      throw error;
-    }
-    return data;
-  };
-}
 
 async function expectPathMissing(path: string): Promise<void> {
   await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
