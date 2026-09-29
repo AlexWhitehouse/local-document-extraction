@@ -154,8 +154,7 @@ export function createLocalWorkspaceControl(database: Database): LocalWorkspaceC
 }
 
 function cancelInvitation(database: Database, input: { workspaceId: string; invitationId: string; userId: string }): { ok: true; invitation_id: string; status: "cancelled" } {
-  const membership = getMembership(database, input.workspaceId, input.userId);
-  if (!membership || (membership.role !== "owner" && membership.role !== "admin")) throw new LocalWorkspaceControlError("forbidden", "Only owners/admins can manage invitations");
+  requireManager(database, input.workspaceId, input.userId, "Only owners/admins can manage invitations");
   const invitation = database.query("SELECT id FROM workspace_invitations WHERE id = ? AND workspace_id = ? AND status = 'pending' LIMIT 1").get(input.invitationId, input.workspaceId);
   if (!invitation) throw new LocalWorkspaceControlError("not_found", "Invitation not found");
   database.query("UPDATE workspace_invitations SET status = 'cancelled', updated_at = ? WHERE id = ?").run(nowIso(), input.invitationId);
@@ -205,10 +204,7 @@ function createInvitation(
   database: Database,
   input: { workspaceId: string; inviterUserId: string; email: string; role?: string },
 ): LocalWorkspaceInvitation {
-  const membership = getMembership(database, input.workspaceId, input.inviterUserId);
-  if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
-    throw new LocalWorkspaceControlError("forbidden", "Only owners/admins can invite users");
-  }
+  requireManager(database, input.workspaceId, input.inviterUserId, "Only owners/admins can invite users");
   const email = normalizeEmail(input.email);
   if (!email) {
     throw new LocalWorkspaceControlError("not_found", "Invitation email is required");
@@ -231,7 +227,7 @@ function createInvitation(
     `INSERT INTO workspace_invitations (id, workspace_id, email, role, status, invited_by_user_id, accepted_by_user_id, created_at, updated_at, expires_at)
      VALUES (?, ?, ?, ?, 'pending', ?, NULL, ?, ?, ?)`,
   ).run(id, input.workspaceId, email, role, input.inviterUserId, createdAt, createdAt, expiresAt);
-  return invitationById(database, id)!;
+  return database.query(INVITATION_SELECT + " WHERE i.id = ? LIMIT 1").get(id) as LocalWorkspaceInvitation;
 }
 
 function listPendingInvitations(database: Database, input: { email: string }): LocalWorkspaceInvitation[] {
@@ -240,10 +236,7 @@ function listPendingInvitations(database: Database, input: { email: string }): L
 }
 
 function listWorkspaceInvitations(database: Database, input: { workspaceId: string; userId: string }): LocalWorkspaceInvitation[] {
-  const membership = getMembership(database, input.workspaceId, input.userId);
-  if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
-    throw new LocalWorkspaceControlError("forbidden", "Only owners/admins can manage invitations");
-  }
+  requireManager(database, input.workspaceId, input.userId, "Only owners/admins can manage invitations");
   return database.query(
     INVITATION_SELECT + " WHERE i.workspace_id = ? AND i.status = 'pending' AND i.expires_at > ? ORDER BY i.updated_at DESC",
   ).all(input.workspaceId, nowIso()) as LocalWorkspaceInvitation[];
@@ -351,18 +344,14 @@ function applyWorkspaceMemberAction(
   return apply();
 }
 
-function invitationById(database: Database, invitationId: string): LocalWorkspaceInvitation | null {
-  return database.query(INVITATION_SELECT + " WHERE i.id = ? LIMIT 1").get(invitationId) as LocalWorkspaceInvitation | null;
-}
-
 function authorizeApiKey(database: Database, input: { apiKey: string }): LocalApiKeyWorkspace | null {
-  const value = database.query(
+  const row = database.query(
     `SELECT id, name, created_at, max_source_file_bytes, api_key_hash IS NOT NULL AS has_api_key
      FROM workspaces
      WHERE api_key_hash = ?
      LIMIT 1`,
-  ).get(hashApiKey(input.apiKey));
-  return toApiKeyWorkspace(value);
+  ).get(hashApiKey(input.apiKey)) as WorkspaceRow<LocalApiKeyWorkspace> | null;
+  return row && withApiKeyFlag(row);
 }
 
 function listAcceptedWorkspaces(
@@ -425,20 +414,9 @@ function getAcceptedWorkspaceContext(
   database: Database,
   input: { workspaceId: string; userId: string },
 ): LocalWorkspace | null {
-  return toWorkspace(
-    database.query(
-      `SELECT w.id,
-              w.name,
-              w.created_at,
-              w.max_source_file_bytes,
-              w.api_key_hash IS NOT NULL AS has_api_key,
-              m.role
-       FROM workspaces w
-       JOIN workspace_memberships m ON m.workspace_id = w.id
-       WHERE w.id = ? AND m.user_id = ?
-       LIMIT 1`,
-    ).get(input.workspaceId, input.userId),
-  );
+  const row = database.query(`${MEMBERSHIP_WORKSPACE_SELECT} WHERE w.id = ? AND m.user_id = ? LIMIT 1`)
+    .get(input.workspaceId, input.userId) as WorkspaceRow<LocalWorkspace> | null;
+  return row && withApiKeyFlag(row);
 }
 
 function renameWorkspace(
@@ -461,11 +439,7 @@ function rotateApiKey(
   database: Database,
   input: { workspaceId: string; userId: string },
 ): { workspace_id: string; api_key: string; has_api_key: true; rotated_at: string } {
-  const membership = getMembership(database, input.workspaceId, input.userId);
-  if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
-    throw new LocalWorkspaceControlError("forbidden", "Only owners/admins can rotate workspace API keys");
-  }
-
+  requireManager(database, input.workspaceId, input.userId, "Only owners/admins can rotate workspace API keys");
   const apiKey = newId("key");
   const rotatedAt = nowIso();
   database.query("UPDATE workspaces SET api_key_hash = ? WHERE id = ?").run(hashApiKey(apiKey), input.workspaceId);
@@ -502,18 +476,9 @@ function assertWorkspaceDeletion(database: Database, input: { workspaceId: strin
 }
 
 function listMembershipWorkspaces(database: Database, userId: string): LocalWorkspace[] {
-  return database.query(
-    `SELECT w.id,
-            w.name,
-            w.created_at,
-            w.max_source_file_bytes,
-            w.api_key_hash IS NOT NULL AS has_api_key,
-            m.role
-     FROM workspaces w
-     JOIN workspace_memberships m ON m.workspace_id = w.id
-     WHERE m.user_id = ?
-     ORDER BY w.created_at DESC`,
-  ).all(userId).map(toWorkspace).filter((workspace): workspace is LocalWorkspace => workspace !== null);
+  const rows = database.query(`${MEMBERSHIP_WORKSPACE_SELECT} WHERE m.user_id = ? ORDER BY w.created_at DESC`)
+    .all(userId) as WorkspaceRow<LocalWorkspace>[];
+  return rows.map(withApiKeyFlag);
 }
 
 function getMembership(
@@ -526,25 +491,18 @@ function getMembership(
   ).get(workspaceId, userId) as { role: "owner" | "admin" | "member" } | null;
 }
 
-function toWorkspace(value: unknown): LocalWorkspace | null {
-  if (!value || typeof value !== "object") {
-    return null;
+function requireManager(database: Database, workspaceId: string, userId: string, message: string): void {
+  const membership = getMembership(database, workspaceId, userId);
+  if (membership?.role !== "owner" && membership?.role !== "admin") {
+    throw new LocalWorkspaceControlError("forbidden", message);
   }
-
-  const workspace = value as Omit<LocalWorkspace, "has_api_key"> & { has_api_key: number | boolean };
-  return {
-    ...workspace,
-    has_api_key: Boolean(workspace.has_api_key),
-  };
 }
 
-function toApiKeyWorkspace(value: unknown): LocalApiKeyWorkspace | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
+/** SQLite returns `has_api_key` as 0/1. */
+type WorkspaceRow<T extends { has_api_key: boolean }> = Omit<T, "has_api_key"> & { has_api_key: number };
 
-  const workspace = value as LocalApiKeyWorkspace & { has_api_key: number | boolean };
-  return { ...workspace, has_api_key: Boolean(workspace.has_api_key) };
+function withApiKeyFlag<T extends { has_api_key: boolean }>(row: WorkspaceRow<T>): T {
+  return { ...row, has_api_key: Boolean(row.has_api_key) } as T;
 }
 
 function hashApiKey(apiKey: string): string {
@@ -558,6 +516,11 @@ function normalizedUserName(value: string | null | undefined): string {
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
+
+const MEMBERSHIP_WORKSPACE_SELECT = `
+  SELECT w.id, w.name, w.created_at, w.max_source_file_bytes, w.api_key_hash IS NOT NULL AS has_api_key, m.role
+  FROM workspaces w
+  JOIN workspace_memberships m ON m.workspace_id = w.id`;
 
 const INVITATION_SELECT = `
   SELECT i.id, i.workspace_id, w.name AS workspace_name, i.email, i.role, i.status,

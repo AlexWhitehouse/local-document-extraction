@@ -1,7 +1,7 @@
 import { createLocalEvaluations, EVALUATION_METADATA_BYTES } from "./localEvaluations";
 import { getModelPreparationSnapshot } from "./consumer/modelGateway";
 import { createLocalApplication } from "./localApplication";
-import { readLocalConfiguration, publicLocalConfiguration } from "./localConfiguration";
+import { localBrowserOrigin, readLocalConfiguration, publicLocalConfiguration } from "./localConfiguration";
 import { createLocalAuthRuntime } from "./localAuthRuntime";
 import { setLocalAuthRequestPeerAddress } from "./localAuthClientAddress";
 import { localDocumentRequestBodyLimit, localDocumentServerBodyLimit } from "./localDocumentBodyLimit";
@@ -34,16 +34,13 @@ const {
   memoryPressureLargeSubmissionBytes, localDiskReserveBytes,
   sourceRetentionSweepIntervalMs, failedSourceRetentionMs, shutdownTimeoutMs,
 } = configuration;
-const bun = (globalThis as typeof globalThis & { Bun?: typeof Bun }).Bun;
-
-if (!bun) {
-  throw new Error("The local server must run with Bun.");
-}
+const LONG_RUNNING_SUBMISSION_PATHS = ["/v1/templates/generate", "/v1/evaluations/run"];
+const SUBMISSION_PATHS = ["/v1/extract", ...LONG_RUNNING_SUBMISSION_PATHS];
 
 await ensureLocalStateDirectories(stateDirectory);
 
 let runtimeReady = false;
-const server = bun.serve<{ workspaceId: string }>({
+const server = Bun.serve<{ workspaceId: string }>({
   fetch: async (request, bunServer) => {
     if (!runtimeReady) {
       return Response.json(
@@ -52,15 +49,17 @@ const server = bun.serve<{ workspaceId: string }>({
       );
     }
     setLocalAuthRequestPeerAddress(request, bunServer.requestIP(request)?.address);
-    if (request.method === "GET" && new URL(request.url).pathname === "/v1/config") {
+    const { pathname } = new URL(request.url);
+    if (request.method === "GET" && pathname === "/v1/config") {
       return Response.json(publicLocalConfiguration(configuration), { headers: { "cache-control": "no-store" } });
     }
-    if (request.method === "POST" && ["/v1/extract", "/v1/templates/generate", "/v1/evaluations/run"].includes(new URL(request.url).pathname)) {
-      if (["/v1/templates/generate", "/v1/evaluations/run"].includes(new URL(request.url).pathname)) bunServer.timeout(request, 0);
+    if (request.method === "POST" && SUBMISSION_PATHS.includes(pathname)) {
+      // Model-backed generation and evaluation can outlast Bun's idle timeout.
+      if (LONG_RUNNING_SUBMISSION_PATHS.includes(pathname)) bunServer.timeout(request, 0);
       return localSubmissionAdmission.run(request, () => runtimeFetch(request));
     }
     return localRuntimeRequestDrain.run(() => {
-      if (isWorkspaceLiveUpdatePath(request)) {
+      if (/^\/v1\/workspaces\/[^/]+\/live$/.test(pathname)) {
         return upgradeLocalLiveUpdate({
           auth: localAuth.auth,
           request,
@@ -98,8 +97,7 @@ const server = bun.serve<{ workspaceId: string }>({
     },
   },
 });
-const browserHost = configuration.host === "0.0.0.0" ? "127.0.0.1" : configuration.host === "::" ? "[::1]" : configuration.host.includes(":") ? `[${configuration.host}]` : configuration.host;
-const serverOrigin = `http://${browserHost}:${server.port}`;
+const serverOrigin = localBrowserOrigin(configuration.host, server.port!);
 
 const localAuth = await createLocalAuthRuntime({
   ...configuration.auth,
@@ -230,8 +228,8 @@ const application = createLocalApplication({
     productStores: localProductStoreRegistry.diagnostics(),
     resources: localResourceController.snapshot(),
     runtime: {
-      bunRevision: bun.revision,
-      bunVersion: bun.version,
+      bunRevision: Bun.revision,
+      bunVersion: Bun.version,
       nodeVersion: process.versions.node,
     },
     sourceRetention: localSourceFileRetention.snapshot(),
@@ -301,7 +299,3 @@ const requestShutdown = () => {
 process.on("SIGINT", requestShutdown);
 process.on("SIGTERM", requestShutdown);
 process.once("beforeExit", requestShutdown);
-
-function isWorkspaceLiveUpdatePath(request: Request): boolean {
-  return /^\/v1\/workspaces\/[^/]+\/live$/.test(new URL(request.url).pathname);
-}
