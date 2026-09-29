@@ -2,12 +2,6 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { relative, resolve } from "node:path";
 
-import {
-  assertCoverageBaseline,
-  findAbsentModules,
-  summarizeCoverage,
-} from "./frontendCoverage.js";
-
 const frontendDirectory = resolve(import.meta.dir, "..");
 const workspaceDirectory = resolve(frontendDirectory, "..");
 const artifactDirectory = resolve(
@@ -76,19 +70,18 @@ if (!await globalThis.Bun.file(jsonSummaryPath).exists()) {
 
 const lcov = await readFile(lcovPath, "utf8");
 const jsonSummary = JSON.parse(await readFile(jsonSummaryPath, "utf8"));
-const current = summarizeCoverage(jsonSummary);
+const current = {
+  branches: readPercentage(jsonSummary.total?.branches),
+  functions: readPercentage(jsonSummary.total?.functions),
+  lines: readPercentage(jsonSummary.total?.lines),
+};
 const productionModules = await discoverProductionModules();
 const absentModules = findAbsentModules(productionModules, lcov);
 const zeroCoveredModules = Object.entries(jsonSummary)
   .filter(([path, value]) => path !== "total" && Number(value?.lines?.covered) === 0)
   .map(([path]) => normalizeModulePath(path))
   .sort();
-let coverageFailure;
-try {
-  assertCoverageBaseline(current, baseline);
-} catch (error) {
-  coverageFailure = error instanceof Error ? error.message : String(error);
-}
+const coverageFailure = coverageRegressions(current, baseline).join("; ") || undefined;
 const markdown = coverageMarkdown({
   absentModules,
   baseline,
@@ -101,6 +94,29 @@ await writeFile(markdownPath, markdown);
 console.log(markdown);
 console.log(`Frontend coverage artifacts: ${relative(workspaceDirectory, artifactDirectory)}`);
 process.exitCode = testExitCode === 0 && !coverageFailure ? 0 : 1;
+
+function readPercentage(metric) {
+  const percentage = Number(metric?.pct);
+  return Number.isFinite(percentage) ? percentage : 0;
+}
+
+function findAbsentModules(productionModules, lcov) {
+  const loadedModules = new Set(
+    lcov
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("SF:"))
+      .map((line) => normalizeModulePath(line.slice(3))),
+  );
+  return productionModules.filter((module) => !loadedModules.has(module));
+}
+
+function coverageRegressions(current, baseline) {
+  const labels = { lines: "line", functions: "function", branches: "branch" };
+  return Object.entries(labels)
+    .filter(([metric]) => current[metric] + Number.EPSILON < baseline[metric])
+    .map(([metric, label]) =>
+      `${label} coverage ${current[metric].toFixed(2)}% is below baseline ${baseline[metric].toFixed(2)}%`);
+}
 
 async function discoverProductionModules() {
   const modules = [];
@@ -115,28 +131,20 @@ async function discoverProductionModules() {
   return [...new Set(modules)].sort();
 }
 
-function coverageMarkdown(options) {
-  const {
-    absentModules,
-    baseline: checkedBaseline,
-    coverageFailure,
-    current: measured,
-    testExitCode: exitCode,
-    zeroCoveredModules,
-  } = options;
+function coverageMarkdown({ absentModules, baseline, coverageFailure, current, testExitCode, zeroCoveredModules }) {
   return [
     "# Frontend coverage evidence",
     "",
     `- Runtime: Bun ${globalThis.Bun.version} (${globalThis.Bun.revision})`,
     `- Platform: ${process.platform} ${process.arch}`,
-    `- Test exit code: ${exitCode}`,
+    `- Test exit code: ${testExitCode}`,
     `- Coverage gate: ${coverageFailure ? `FAIL — ${coverageFailure}` : "PASS"}`,
     "",
     "| Metric | Current | Checked baseline |",
     "| --- | ---: | ---: |",
-    `| Lines | ${measured.lines.toFixed(2)}% | ${checkedBaseline.lines.toFixed(2)}% |`,
-    `| Functions | ${measured.functions.toFixed(2)}% | ${checkedBaseline.functions.toFixed(2)}% |`,
-    `| Branches | ${measured.branches.toFixed(2)}% | ${checkedBaseline.branches.toFixed(2)}% |`,
+    `| Lines | ${current.lines.toFixed(2)}% | ${baseline.lines.toFixed(2)}% |`,
+    `| Functions | ${current.functions.toFixed(2)}% | ${baseline.functions.toFixed(2)}% |`,
+    `| Branches | ${current.branches.toFixed(2)}% | ${baseline.branches.toFixed(2)}% |`,
     "",
     `## Production modules absent from LCOV (${absentModules.length})`,
     "",

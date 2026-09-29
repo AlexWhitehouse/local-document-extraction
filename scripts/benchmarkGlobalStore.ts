@@ -3,7 +3,7 @@ import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } fro
 import { arch, platform, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
-export type GlobalStoreWorktreeResult = {
+type GlobalStoreWorktreeResult = {
   cleanAfterInstall: boolean;
   globalStoreLinks: number;
   installMs: number;
@@ -14,7 +14,7 @@ export type GlobalStoreWorktreeResult = {
   registryDenied: boolean;
 };
 
-export type GlobalStoreBenchmarkResult = {
+type GlobalStoreBenchmarkResult = {
   bunRevision: string;
   bunVersion: string;
   cacheDiskKiB: number;
@@ -25,7 +25,7 @@ export type GlobalStoreBenchmarkResult = {
 const repositoryRoot = resolve(import.meta.dir, "..");
 const evidencePath = resolve(repositoryRoot, ".scratch/bun-1-4-review/evidence/20-global-store-worktrees.md");
 
-export function renderGlobalStoreBenchmark(result: GlobalStoreBenchmarkResult): string {
+function renderGlobalStoreBenchmark(result: GlobalStoreBenchmarkResult): string {
   return [
     "# Bun 1.4 global isolated-store worktree benchmark",
     "",
@@ -144,7 +144,7 @@ async function installDependencies({
   globalStore: boolean;
   registryDenied: boolean;
 }): Promise<void> {
-  const arguments_ = [
+  await run([
     process.execPath,
     "--no-env-file",
     "ci",
@@ -152,26 +152,7 @@ async function installDependencies({
     "--cache-dir",
     cacheDirectory,
     ...(registryDenied ? ["--registry", "http://127.0.0.1:9"] : []),
-  ];
-  const child = Bun.spawn(arguments_, {
-    cwd: directory,
-    env: {
-      BUN_INSTALL_GLOBAL_STORE: globalStore ? "1" : "0",
-      NO_COLOR: "1",
-      PATH: process.env.PATH ?? "",
-      TMPDIR: tmpdir(),
-    },
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(`Frozen install failed in ${directory}:\n${(stderr || stdout).slice(-4_000)}`);
-  }
+  ], directory, { ...isolatedEnvironment(), BUN_INSTALL_GLOBAL_STORE: globalStore ? "1" : "0" });
 }
 
 async function countGlobalStoreLinks(directory: string, cacheDirectory: string): Promise<number> {
@@ -197,18 +178,7 @@ async function nativeCanvasSmoke(directory: string): Promise<number> {
     "if (png.byteLength < 8) process.exit(2);",
     "process.stdout.write(String(png.byteLength));",
   ].join("\n");
-  const child = Bun.spawn([process.execPath, "--no-env-file", "-e", source], {
-    cwd: join(directory, "backend"),
-    env: { NO_COLOR: "1", PATH: process.env.PATH ?? "", TMPDIR: tmpdir() },
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (exitCode !== 0) throw new Error(`Native canvas smoke failed: ${stderr}`);
+  const stdout = await run([process.execPath, "--no-env-file", "-e", source], join(directory, "backend"), isolatedEnvironment());
   return Number(stdout.trim());
 }
 
@@ -235,15 +205,19 @@ async function fileSha256(path: string): Promise<string> {
   return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
-async function run(command: string[], cwd: string): Promise<string> {
-  const child = Bun.spawn(command, { cwd, stderr: "pipe", stdout: "pipe" });
+function isolatedEnvironment(): Record<string, string> {
+  return { NO_COLOR: "1", PATH: process.env.PATH ?? "", TMPDIR: tmpdir() };
+}
+
+async function run(command: string[], cwd: string, env?: Record<string, string>): Promise<string> {
+  const child = Bun.spawn(command, { cwd, env, stderr: "pipe", stdout: "pipe" });
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  if (exitCode !== 0) throw new Error(`${command.join(" ")} failed: ${stderr || stdout}`);
+  if (exitCode !== 0) throw new Error(`${command.join(" ")} failed in ${cwd}:\n${(stderr || stdout).slice(-4_000)}`);
   return stdout;
 }
 
-if (import.meta.main) await runGlobalStoreBenchmark();
+await runGlobalStoreBenchmark();

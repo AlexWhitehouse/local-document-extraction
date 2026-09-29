@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 
-import { sanitizeArtifact } from "./backendTestEvidence";
+import { discoverSensitiveValues, sanitizeArtifact, sanitizedTestEnvironment } from "./backendTestEvidence";
 
 const backendDirectory = resolve(import.meta.dir, "..");
 const workspaceDirectory = resolve(backendDirectory, "..");
@@ -74,29 +74,4 @@ function randomSeed() {
   const values = new Uint32Array(1);
   crypto.getRandomValues(values);
   return values[0] || 1;
-}
-
-function sanitizedTestEnvironment() {
-  const environment: Record<string, string> = {
-    NODE_ENV: "test",
-  };
-  for (const name of [
-    "CI", "COMSPEC", "GITHUB_ACTIONS", "HOME", "LANG", "LC_ALL", "PATH",
-    "PATHEXT", "RUNNER_OS", "SHELL", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR",
-    "TZ", "WINDIR",
-  ]) {
-    const value = process.env[name];
-    if (value !== undefined) environment[name] = value;
-  }
-  return environment;
-}
-
-function discoverSensitiveValues() {
-  return [
-    "litellm-secret",
-    "synthetic-test-key",
-    ...Object.entries(process.env)
-      .filter(([name, value]) => /(AUTH|COOKIE|CREDENTIAL|KEY|PASSWORD|SECRET|TOKEN)/i.test(name) && value)
-      .map(([, value]) => value as string),
-  ];
 }

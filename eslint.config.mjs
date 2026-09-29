@@ -4,6 +4,13 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
+const unusedVariables = {
+  argsIgnorePattern: "^_",
+  caughtErrors: "none",
+  caughtErrorsIgnorePattern: "^_",
+  varsIgnorePattern: "^_",
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -27,15 +34,7 @@ export default tseslint.config(
     },
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        {
-          argsIgnorePattern: "^_",
-          caughtErrors: "none",
-          caughtErrorsIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-        },
-      ],
+      "@typescript-eslint/no-unused-vars": ["error", unusedVariables],
     },
   },
   {
@@ -49,26 +48,7 @@ export default tseslint.config(
       },
     },
     rules: {
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        {
-          argsIgnorePattern: "^_",
-          caughtErrors: "none",
-          caughtErrorsIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-        },
-      ],
-    },
-  },
-  {
-    files: ["backend/scripts/**/*.mjs"],
-    extends: [js.configs.recommended],
-    languageOptions: {
-      ecmaVersion: "latest",
-      sourceType: "module",
-      globals: {
-        ...globals.node,
-      },
+      "@typescript-eslint/no-unused-vars": ["error", unusedVariables],
     },
   },
   {
@@ -78,7 +58,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["frontend/**/*.{js,jsx}", "frontend/vite.config.js"],
+    files: ["frontend/**/*.{js,jsx}"],
     extends: [js.configs.recommended],
     languageOptions: {
       ecmaVersion: "latest",
@@ -114,14 +94,6 @@ export default tseslint.config(
           allowConstantExport: true,
         },
       ],
-    },
-  },
-  {
-    files: ["frontend/**/*.test.{js,jsx}"],
-    languageOptions: {
-      globals: {
-        ...globals.browser,
-      },
     },
   },
 );
