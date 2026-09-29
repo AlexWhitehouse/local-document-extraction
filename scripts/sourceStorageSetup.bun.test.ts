@@ -53,7 +53,7 @@ describe("Source storage setup", () => {
   test("S3 setup shows the bucket requirement, needs explicit confirmation and probes before returning", async () => {
     const probed: string[] = [];
     const probe = async (s3: { bucket: string }) => { probed.push(s3.bucket); };
-    const fixture = answers(["s3", "http://rustfs:9000", "", "documents", "", "", "access", "secret", "y"]);
+    const fixture = answers(["s3", "http://rustfs:9000", "", "documents", "", "", "access", "secret", "", "y"]);
     const settings = await collectSourceStorageSettings(fixture.prompt, { probe });
     expect(settings).toMatchObject({
       SOURCE_STORAGE_PROVIDER: "s3", SOURCE_STORAGE_S3_ENDPOINT: "http://rustfs:9000", SOURCE_STORAGE_S3_REGION: "us-east-1",
@@ -62,22 +62,24 @@ describe("Source storage setup", () => {
     });
     expect(probed).toEqual(["documents"]);
     expect(fixture.questions.find((q) => q.question.startsWith("Confirm this bucket"))?.question).toContain("[y/N]");
-    expect(fixture.questions.filter((q) => q.secret).map((q) => q.question)).toEqual(["Secret access key (hidden)"]);
+    expect(fixture.questions.filter((q) => q.secret).map((q) => q.question)).toEqual([
+      "Secret access key (hidden)", "Session token for temporary credentials (hidden, optional) (Enter for none)",
+    ]);
     expect(fixture.messages.join("\n")).toContain("must not use object versioning or Object Lock");
     expect(fixture.messages.join("\n")).not.toContain("secret\n");
   });
 
   test("declining the requirement or failing the probe saves nothing", async () => {
-    const declined = answers(["s3", "", "eu-west-2", "documents", "", "", "access", "secret", ""]);
+    const declined = answers(["s3", "", "eu-west-2", "documents", "", "", "access", "secret", "", ""]);
     await expect(collectSourceStorageSettings(declined.prompt, { probe: async () => {} })).rejects.toThrow("requirement was not confirmed");
-    const failing = answers(["s3", "", "eu-west-2", "documents", "", "", "access", "secret"]);
+    const failing = answers(["s3", "", "eu-west-2", "documents", "", "", "access", "secret", ""]);
     await expect(collectSourceStorageSettings(failing.prompt, { probe: async () => { throw new Error("could not write a test object"); }, confirmUnversionedBucket: true }))
       .rejects.toThrow("Storage settings unchanged: could not write a test object");
   });
 
   test("credential rotation keeps the destination, skips the confirmation and still probes", async () => {
     let probes = 0;
-    const fixture = answers(["", "", "", "", "", "", "", "new-secret", ""]);
+    const fixture = answers(["", "", "", "", "", "", "", "new-secret", "", ""]);
     const settings = await collectSourceStorageSettings(fixture.prompt, {
       current: S3_CURRENT, probe: async () => { probes += 1; }, askRetention: true,
       dependentDestination: sourceObjectDestination(readLocalConfiguration({ environment: S3_CURRENT }).sourceStorage.s3!),
@@ -91,12 +93,29 @@ describe("Source storage setup", () => {
   test("a destination with dependent originals cannot be changed or removed, but retention can stop for new uploads", async () => {
     const dependentDestination = sourceObjectDestination(readLocalConfiguration({ environment: S3_CURRENT }).sourceStorage.s3!);
     const probe = async () => {};
-    await expect(collectSourceStorageSettings(answers(["", "", "", "other-bucket", "", "", "", ""]).prompt, { current: S3_CURRENT, probe, dependentDestination }))
+    await expect(collectSourceStorageSettings(answers(["", "", "", "other-bucket", "", "", "", "", ""]).prompt, { current: S3_CURRENT, probe, dependentDestination }))
       .rejects.toThrow("still depend on the current S3");
     await expect(collectSourceStorageSettings(answers(["local"]).prompt, { current: S3_CURRENT, probe, dependentDestination }))
       .rejects.toThrow("still depend on the current S3");
-    const stopped = await collectSourceStorageSettings(answers(["", "", "", "", "", "", "", "", "n"]).prompt, { current: S3_CURRENT, probe, dependentDestination, askRetention: true });
+    const stopped = await collectSourceStorageSettings(answers(["", "", "", "", "", "", "", "", "", "n"]).prompt, { current: S3_CURRENT, probe, dependentDestination, askRetention: true });
     expect(stopped).toMatchObject({ SOURCE_STORAGE_PROVIDER: "s3", SOURCE_STORAGE_S3_BUCKET: "documents", SOURCE_ORIGINAL_RETENTION_ENABLED: "false" });
+  });
+});
+
+describe("S3 session tokens", () => {
+  test("temporary credentials can be added, rotated and removed without echoing the token", async () => {
+    let probes = 0;
+    const probe = async () => { probes += 1; };
+    const current = { ...S3_CURRENT, SOURCE_STORAGE_S3_SESSION_TOKEN: "old-token" };
+    const keep = answers(["", "", "", "", "", "", "", "", "", ""]);
+    expect(await collectSourceStorageSettings(keep.prompt, { current, probe, askRetention: true })).toMatchObject({ SOURCE_STORAGE_S3_SESSION_TOKEN: "old-token" });
+    expect(probes).toBe(0);
+    const rotated = answers(["", "", "", "", "", "", "", "", "new-token", ""]);
+    expect(await collectSourceStorageSettings(rotated.prompt, { current, probe, askRetention: true })).toMatchObject({ SOURCE_STORAGE_S3_SESSION_TOKEN: "new-token" });
+    expect(probes).toBe(1);
+    const removed = answers(["", "", "", "", "", "", "", "", "-", ""]);
+    expect(await collectSourceStorageSettings(removed.prompt, { current, probe, askRetention: true })).toMatchObject({ SOURCE_STORAGE_S3_SESSION_TOKEN: "" });
+    expect([...keep.questions, ...rotated.questions].some((q) => q.question.includes("old-token"))).toBe(false);
   });
 });
 
@@ -108,7 +127,7 @@ describe("storage configure", () => {
     await writeFile(configFile, renderInstallerConfiguration("# Settings\nPORT=8787\nSOURCE_STORAGE_PROVIDER=none\n", { EMAIL_FROM_NAME: "Docs $HOME's `app`" }), { mode: 0o600 });
     expect(parseConfigurationValues(await readFile(configFile, "utf8"))).toMatchObject({ PORT: "8787", EMAIL_FROM_NAME: "Docs $HOME's `app`" });
     const installation = { configFile, state: join(root, "state") } as Installation;
-    const fixture = answers(["s3", "", "eu-west-2", "documents", "", "", "access", "top$secret", ""]);
+    const fixture = answers(["s3", "", "eu-west-2", "documents", "", "", "access", "top$secret", "", ""]);
     await configureSourceStorage(installation, { prompt: fixture.prompt, probe: async () => {}, confirmUnversionedBucket: true });
     const saved = await readFile(configFile, "utf8");
     expect(parseConfigurationValues(saved)).toMatchObject({
@@ -143,6 +162,6 @@ describe("storage configure", () => {
     expect(s3.state.puts).toBe(1);
     expect(s3.objects.size).toBe(0);
     s3.state.down = true;
-    await expect(probeS3SourceStorage(configuration)).rejects.toThrow("could not write a test object");
+    await expect(probeS3SourceStorage(configuration)).rejects.toThrow(/could not write a test object.*\.setup-probe\/.*appears in the bucket later/);
   });
 });

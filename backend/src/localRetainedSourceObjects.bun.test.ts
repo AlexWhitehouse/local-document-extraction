@@ -24,7 +24,7 @@ const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 const LATER = 60 * 60_000;
 
-async function s3Harness() {
+async function s3Harness({ failLink = false } = {}) {
   const s3 = startFakeS3Server();
   cleanups.push(s3.stop);
   const stateDirectory = await mkdtemp(join(tmpdir(), "retained-source-objects-"));
@@ -64,7 +64,11 @@ async function s3Harness() {
     productStoreRegistry: registry,
     sourceFileStore: sourceFiles,
     sourceStorage: { provider: "s3", originalRetentionEnabled: true, s3: configuration },
-    sourceObjects: { store, manifest, keyFor: (input) => retainedObjectKey({ prefix: configuration.prefix, namespace, ...input }) },
+    sourceObjects: {
+      store,
+      manifest: failLink ? { ...manifest, link: () => { throw new Error("control database I/O error"); } } : manifest,
+      keyFor: (input) => retainedObjectKey({ prefix: configuration.prefix, namespace, ...input }),
+    },
     scheduleQueuedJob: async () => {},
   });
   const call = (path: string, init: RequestInit = {}) => {
@@ -265,4 +269,17 @@ test("the S3 destination is recorded and cannot change while objects or cleanup 
   manifest.remove({ objectKey: "app/key.pdf" });
   manifest.assertDestination("s3|aws|other-bucket|app/|virtual-hosted");
   expect(manifest.namespace()).toBe(namespace);
+});
+
+test("a bookkeeping failure after the job commits keeps the accepted job and its working copy", async () => {
+  const harness = await s3Harness({ failLink: true });
+  const response = await harness.submit(await pdfBytes());
+  expect(response.status).toBe(202);
+  const { job_id: jobId } = await response.json() as { job_id: string };
+  expect(await harness.workingFiles()).toHaveLength(1);
+  expect(harness.s3.objects.has(harness.retained(jobId)!.retained_object_key!)).toBe(true);
+  // Recovery later links the stale entry because the accepted job references it.
+  expect(harness.manifest.counts()).toEqual({ preparing: 1, linked: 0, deleting: 0 });
+  await harness.cleanupAt(Date.now() + LATER).run();
+  expect(harness.manifest.counts()).toEqual({ preparing: 0, linked: 1, deleting: 0 });
 });

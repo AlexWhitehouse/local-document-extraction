@@ -487,28 +487,40 @@ function handleLocalDocumentSubmission({
             retainedObjectKey,
             submittedAt,
           });
-          // The job transaction is the durable acceptance point; linking only records it for recovery.
-          if (retainedObjectKey) product.sourceObjects!.manifest.link({ objectKey: retainedObjectKey });
-          const queuedJob = productStore.getExtractionJob(jobId);
-          if (queuedJob) liveUpdateHub?.broadcastJob(workspaceId, queuedJob);
-          recordLocalProductAnalytics(productAnalytics, {
-            type: "document_submitted",
-            workspaceId,
-            templateId: template.template_id,
-            templateVersion: template.template_version,
-            extractionJobId: jobId,
-            status: "queued",
-            attempt: 1,
-            sourceMimeType,
-            sourceByteSize,
-          });
         } catch (error) {
-          if (retainedObjectKey && !productStore.getExtractionJobSummary(jobId)) {
-            product.sourceObjects!.manifest.markDeleting({ objectKey: retainedObjectKey });
+          // Only an uncommitted job may release its files; a committed one owns them.
+          if (!productStore.getExtractionJobSummary(jobId)) {
+            if (retainedObjectKey) product.sourceObjects!.manifest.markDeleting({ objectKey: retainedObjectKey });
+            await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
           }
-          await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
           throw error;
         }
+        // The job transaction is the durable acceptance point. Linking only records it for recovery,
+        // which links stale entries itself, so later bookkeeping failures must not undo acceptance.
+        if (retainedObjectKey) {
+          try {
+            product.sourceObjects!.manifest.link({ objectKey: retainedObjectKey });
+          } catch (error) {
+            console.warn("Retained object manifest link failed; recovery will link it", error);
+          }
+        }
+        try {
+          const queuedJob = productStore.getExtractionJob(jobId);
+          if (queuedJob) liveUpdateHub?.broadcastJob(workspaceId, queuedJob);
+        } catch (error) {
+          console.warn("Queued Document live update failed", error);
+        }
+        recordLocalProductAnalytics(productAnalytics, {
+          type: "document_submitted",
+          workspaceId,
+          templateId: template.template_id,
+          templateVersion: template.template_version,
+          extractionJobId: jobId,
+          status: "queued",
+          attempt: 1,
+          sourceMimeType,
+          sourceByteSize,
+        });
 
         try {
           await scheduleQueuedJob({

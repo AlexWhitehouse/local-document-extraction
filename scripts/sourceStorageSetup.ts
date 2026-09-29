@@ -65,13 +65,14 @@ export async function collectSourceStorageSettings(prompt: SetupPrompt, {
     settings.SOURCE_STORAGE_S3_FORCE_PATH_STYLE = String(await yesNo("Use path-style addressing? (usual for RustFS and other self-hosted endpoints)", pathStyleDefault));
     settings.SOURCE_STORAGE_S3_ACCESS_KEY_ID = await keepOrReplace("Access key ID", current.SOURCE_STORAGE_S3_ACCESS_KEY_ID, false);
     settings.SOURCE_STORAGE_S3_SECRET_ACCESS_KEY = await keepOrReplace("Secret access key (hidden)", current.SOURCE_STORAGE_S3_SECRET_ACCESS_KEY, true);
-    settings.SOURCE_STORAGE_S3_SESSION_TOKEN = current.SOURCE_STORAGE_S3_SESSION_TOKEN ?? "";
+    settings.SOURCE_STORAGE_S3_SESSION_TOKEN = await optionalSecret("Session token for temporary credentials (hidden, optional)", current.SOURCE_STORAGE_S3_SESSION_TOKEN);
 
     const s3 = readStorage({ ...settings, SOURCE_ORIGINAL_RETENTION_ENABLED: "true" }).s3!;
     const destination = sourceObjectDestination(s3);
     if (dependentDestination && dependentDestination !== destination) throw dependentDestinationError();
     const destinationChanged = !currentS3 || sourceObjectDestination(currentS3) !== destination;
-    const credentialsChanged = !currentS3 || currentS3.accessKeyId !== s3.accessKeyId || currentS3.secretAccessKey !== s3.secretAccessKey;
+    const credentialsChanged = !currentS3 || currentS3.accessKeyId !== s3.accessKeyId
+      || currentS3.secretAccessKey !== s3.secretAccessKey || currentS3.sessionToken !== s3.sessionToken;
     if (destinationChanged) {
       for (const line of BUCKET_REQUIREMENT_NOTICE) prompt.say(line);
       if (!confirmUnversionedBucket && !await yesNo("Confirm this bucket meets the requirement?", false)) {
@@ -95,6 +96,21 @@ export async function collectSourceStorageSettings(prompt: SetupPrompt, {
     : String(askRetention ? await yesNo("Retain originals of new uploads? (existing originals stay available either way)", retentionDefault) : true);
   readStorage(settings);
   return settings;
+
+  async function optionalSecret(question: string, existing: string | undefined) {
+    while (true) {
+      // Enter keeps an existing token (never echoed); "-" clears it.
+      const answer = (await prompt.ask(`${question}${existing ? " (Enter keeps the current value, - removes it)" : " (Enter for none)"}`, true)).trim();
+      if (!answer) return existing ?? "";
+      if (answer === "-") return "";
+      try {
+        dotenvValue(answer);
+        return answer;
+      } catch (error) {
+        prompt.say(error instanceof Error ? error.message : "Invalid value. Please try again.");
+      }
+    }
+  }
 
   async function keepOrReplace(question: string, existing: string | undefined, secret: boolean) {
     while (true) {
@@ -138,7 +154,13 @@ export const probeS3SourceStorage: SourceStorageProbe = async (configuration) =>
       throw new Error(`could not ${label}${code ? ` (${code})` : ""}`, { cause: error });
     }
   };
-  await stage("write a test object", () => store.put({ key, file: new Blob([body], { type: "text/plain" }), mimeType: "text/plain" }));
+  try {
+    await stage("write a test object", () => store.put({ key, file: new Blob([body], { type: "text/plain" }), mimeType: "text/plain" }));
+  } catch (error) {
+    // A timed-out write cannot be cancelled and may still land, so try to remove it and name it.
+    await store.delete(key).catch(() => undefined);
+    throw new Error(`${error instanceof Error ? error.message : "could not write a test object"}; if ${key} appears in the bucket later, delete it`, { cause: error });
+  }
   try {
     const object = await stage("read the test object back", () => store.open(key));
     const text = await stage("read the test object back", () => new Response(object.stream()).text());
