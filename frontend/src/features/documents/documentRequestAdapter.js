@@ -82,6 +82,18 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
         has_more: Boolean(result?.has_more),
       };
     },
+    /** Fetches a retained original into memory; errors carry `source_*` codes for availability messages. */
+    async getOriginal(documentId, { signal } = {}) {
+      const normalizedId = normalizedDocumentId(documentId);
+      const result = await documentRequest(
+        `/jobs/${encodeURIComponent(normalizedId)}/source`,
+        { method: "GET", cache: "no-store", responseType: "blob", signal },
+      );
+      if (!result?.blob) {
+        throw new Error("Original document returned an invalid response");
+      }
+      return { blob: result.blob, filename: responseFilename(result.headers) || "document" };
+    },
     async deleteDocument(documentId) {
       const normalizedId = normalizedDocumentId(documentId);
       const result = await documentRequest(
@@ -127,6 +139,15 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
 
 function responseFilename(headers) {
   const contentDisposition = headers?.get?.("content-disposition") || "";
+  // RFC 6266: prefer the UTF-8 `filename*` form, which carries non-ASCII names.
+  const extended = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (extended?.[1]) {
+    try {
+      return decodeURIComponent(extended[1].trim());
+    } catch {
+      // Fall through to the plain filename.
+    }
+  }
   const quoted = contentDisposition.match(/filename="([^"]+)"/i);
   if (quoted?.[1]) {
     return quoted[1];

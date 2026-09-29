@@ -8,6 +8,8 @@ export type LocalWorkspace = {
   name: string;
   created_at: string;
   max_source_file_bytes: number | null;
+  /** The Workspace opted out of the installation's Source file retention default. */
+  source_retention_disabled: boolean;
   has_api_key: boolean;
   role: "owner" | "admin" | "member";
 };
@@ -98,6 +100,7 @@ export type LocalWorkspaceControl = {
   recordWorkspaceDeletionIntent(input: { workspaceId: string }): void;
   listAcceptedWorkspaces(input: { userId: string; userName?: string | null }): LocalWorkspace[];
   renameWorkspace(input: { workspaceId: string; userId: string; name: string }): { workspace_id: string; name: string };
+  setWorkspaceSourceRetention(input: { workspaceId: string; userId: string; disabled: boolean }): { workspace_id: string; source_retention_disabled: boolean };
   rotateApiKey(input: { workspaceId: string; userId: string }): {
     workspace_id: string;
     api_key: string;
@@ -110,6 +113,7 @@ export type LocalWorkspaceControl = {
 export function createLocalWorkspaceControl(database: Database): LocalWorkspaceControl {
   database.exec("PRAGMA foreign_keys = ON;");
   database.exec(CONTROL_SCHEMA);
+  ensureControlSchemaColumns(database);
 
   return {
     acceptInvitation: (input) => acceptInvitation(database, input),
@@ -146,6 +150,7 @@ export function createLocalWorkspaceControl(database: Database): LocalWorkspaceC
     },
     listAcceptedWorkspaces: (input) => listAcceptedWorkspaces(database, input),
     renameWorkspace: (input) => renameWorkspace(database, input),
+    setWorkspaceSourceRetention: (input) => setWorkspaceSourceRetention(database, input),
     rotateApiKey: (input) => rotateApiKey(database, input),
     workspaceExists: (input) => Boolean(
       database.query("SELECT 1 FROM workspaces WHERE id = ? LIMIT 1").get(input.workspaceId),
@@ -346,7 +351,7 @@ function applyWorkspaceMemberAction(
 
 function authorizeApiKey(database: Database, input: { apiKey: string }): LocalApiKeyWorkspace | null {
   const row = database.query(
-    `SELECT id, name, created_at, max_source_file_bytes, api_key_hash IS NOT NULL AS has_api_key
+    `SELECT id, name, created_at, max_source_file_bytes, source_retention_disabled, api_key_hash IS NOT NULL AS has_api_key
      FROM workspaces
      WHERE api_key_hash = ?
      LIMIT 1`,
@@ -435,6 +440,19 @@ function renameWorkspace(
   return { workspace_id: input.workspaceId, name: input.name };
 }
 
+function setWorkspaceSourceRetention(
+  database: Database,
+  input: { workspaceId: string; userId: string; disabled: boolean },
+): { workspace_id: string; source_retention_disabled: boolean } {
+  const membership = getMembership(database, input.workspaceId, input.userId);
+  if (!membership) throw new LocalWorkspaceControlError("not_found", "Workspace not found");
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    throw new LocalWorkspaceControlError("forbidden", "Only owners/admins can update workspace settings");
+  }
+  database.query("UPDATE workspaces SET source_retention_disabled = ? WHERE id = ?").run(Number(input.disabled), input.workspaceId);
+  return { workspace_id: input.workspaceId, source_retention_disabled: input.disabled };
+}
+
 function rotateApiKey(
   database: Database,
   input: { workspaceId: string; userId: string },
@@ -498,11 +516,19 @@ function requireManager(database: Database, workspaceId: string, userId: string,
   }
 }
 
-/** SQLite returns `has_api_key` as 0/1. */
-type WorkspaceRow<T extends { has_api_key: boolean }> = Omit<T, "has_api_key"> & { has_api_key: number };
+/** SQLite returns flags as 0/1. */
+type WorkspaceFlags = { has_api_key: boolean; source_retention_disabled: boolean };
+type WorkspaceRow<T extends WorkspaceFlags> = Omit<T, keyof WorkspaceFlags> & { has_api_key: number; source_retention_disabled: number };
 
-function withApiKeyFlag<T extends { has_api_key: boolean }>(row: WorkspaceRow<T>): T {
-  return { ...row, has_api_key: Boolean(row.has_api_key) } as T;
+function withApiKeyFlag<T extends WorkspaceFlags>(row: WorkspaceRow<T>): T {
+  return { ...row, has_api_key: Boolean(row.has_api_key), source_retention_disabled: Boolean(row.source_retention_disabled) } as T;
+}
+
+function ensureControlSchemaColumns(database: Database): void {
+  const columns = new Set((database.query("PRAGMA table_info(workspaces)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!columns.has("source_retention_disabled")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN source_retention_disabled INTEGER NOT NULL DEFAULT 0 CHECK (source_retention_disabled IN (0, 1))");
+  }
 }
 
 function hashApiKey(apiKey: string): string {
@@ -518,7 +544,7 @@ function normalizeEmail(value: string): string {
 }
 
 const MEMBERSHIP_WORKSPACE_SELECT = `
-  SELECT w.id, w.name, w.created_at, w.max_source_file_bytes, w.api_key_hash IS NOT NULL AS has_api_key, m.role
+  SELECT w.id, w.name, w.created_at, w.max_source_file_bytes, w.source_retention_disabled, w.api_key_hash IS NOT NULL AS has_api_key, m.role
   FROM workspaces w
   JOIN workspace_memberships m ON m.workspace_id = w.id`;
 

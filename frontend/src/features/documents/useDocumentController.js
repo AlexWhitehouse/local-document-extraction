@@ -23,6 +23,7 @@ export function useDocumentController({
   const [uploadFiles, setUploadFiles] = useState([]);
   const [isUploadDragActive, setIsUploadDragActive] = useState(false);
   const [liveUpdatesUnavailable, setLiveUpdatesUnavailable] = useState(false);
+  const [isDownloadingOriginal, setIsDownloadingOriginal] = useState(false);
   const liveUpdateSocketRef = useRef(null);
   const liveUpdateReconnectTimerRef = useRef(null);
   const liveUpdateAccessRevalidationPendingRef = useRef(false);
@@ -265,6 +266,25 @@ export function useDocumentController({
     });
   }
 
+  const loadOriginal = useCallback(
+    (documentId, options) => documentRequests.getOriginal(documentId, options),
+    [documentRequests],
+  );
+
+  async function downloadSelectedOriginal() {
+    const documentId = selectedDocument?.job_id;
+    if (!documentId || selectedDocument.source_retained !== true || isDownloadingOriginal) return;
+    setIsDownloadingOriginal(true);
+    try {
+      const original = await loadOriginal(documentId);
+      downloadBlob(original.blob, original.filename);
+    } catch (error) {
+      showActionToast(error?.code === "source_missing" ? "document.downloadOriginalMissing" : "document.downloadOriginal", "failure");
+    } finally {
+      setIsDownloadingOriginal(false);
+    }
+  }
+
   useEffect(() => {
     if (!canOpenLiveUpdates || liveUpdatesUnavailable) {
       if (!canOpenLiveUpdates) {
@@ -456,11 +476,15 @@ export function useDocumentController({
       onExportDocuments: exportSelectedDocuments,
       onUploadDocument: openUploadModal,
       onDeleteDocument: deleteSelectedDocument,
+      canDownloadOriginal: selectedDocument?.source_retained === true,
+      isDownloadingOriginal,
+      onDownloadOriginal: downloadSelectedOriginal,
     },
     documentPage: {
       selectedDocument,
       selectedDocumentTemplateName,
       loadingDocumentDetailsId,
+      loadOriginal,
     },
     statusCounts: snapshot.statusCounts,
     actions: {

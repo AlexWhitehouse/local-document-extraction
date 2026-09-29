@@ -239,6 +239,7 @@ const application = createLocalApplication({
   productAnalytics: localProductAnalytics,
   scheduleQueuedJob: localExtractionQueue.schedule,
   sourceFileStore: localSourceFiles,
+  sourceStorage: configuration.sourceStorage,
   stateDirectory,
   workspaceControl: localAuth.workspaceControl,
   workspaceDeletion: localWorkspaceDeletion,

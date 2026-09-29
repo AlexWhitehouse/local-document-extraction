@@ -18,6 +18,7 @@ import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from 
 import { handleWorkspaceModelConfiguration } from "./workspaceModelConfigurationHttp";
 import { configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 import type { FetchApplication } from "./localRuntime";
+import type { LocalSourceStorageConfiguration } from "./localConfiguration";
 import type { LocalAuth, LocalSession } from "./localAuth";
 import { LocalWorkspaceControlError, type LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalWorkspaceExtractionJobSummary, LocalWorkspaceProductStore } from "./localWorkspaceProductStore";
@@ -49,11 +50,14 @@ type ProductServices = {
   access: LocalWorkspaceProductDataAccess;
   operations: LocalWorkspaceProductOperations;
   sourceFileStore: LocalSourceFileStore;
+  sourceStorage: LocalSourceStorageConfiguration;
   stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
 };
 
-type AuthorizedWorkspace = { id: string; name: string; max_source_file_bytes: number | null };
+type AuthorizedWorkspace = { id: string; name: string; max_source_file_bytes: number | null; source_retention_disabled: boolean };
+
+const NO_SOURCE_STORAGE: LocalSourceStorageConfiguration = { provider: "none", originalRetentionEnabled: false };
 
 export function createLocalApplication({
   auth,
@@ -69,6 +73,7 @@ export function createLocalApplication({
   productStoreRegistry,
   scheduleQueuedJob = async () => {},
   sourceFileStore,
+  sourceStorage = NO_SOURCE_STORAGE,
   stateDirectory,
   workspaceControl,
   workspaceDeletion,
@@ -87,6 +92,7 @@ export function createLocalApplication({
   productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
   scheduleQueuedJob?: (job: LocalQueuedExtractionJob) => void | Promise<void>;
   sourceFileStore?: LocalSourceFileStore;
+  sourceStorage?: LocalSourceStorageConfiguration;
   stateDirectory?: string;
   workspaceControl?: LocalWorkspaceControl;
   workspaceDeletion?: LocalWorkspaceDeletion;
@@ -116,6 +122,7 @@ export function createLocalApplication({
         access: createLocalWorkspaceProductDataAccess({ registry, operations }),
         operations,
         sourceFileStore: files,
+        sourceStorage,
         stateDirectory,
         workspaceControl,
       };
@@ -176,7 +183,7 @@ export function createLocalApplication({
       const session = await auth.getSession(request);
       if (!session) return unauthorized();
       try {
-        return await handleControlRequest(request, pathname, session, workspaceControl, localWorkspaceDeletion);
+        return await handleControlRequest(request, pathname, session, workspaceControl, localWorkspaceDeletion, sourceStorage);
       } catch (error) {
         return workspaceErrorResponse(error);
       }
@@ -212,6 +219,12 @@ export function createLocalApplication({
       if (!product) return productStoreUnavailable();
       return withAuthorizedProductStore(product, request, ({ store }) =>
         Response.json({ available_models: store.listExtractionJobModels() }));
+    }
+
+    const sourceMatch = pathname.match(/^\/v1\/jobs\/([^/]+)\/source$/);
+    if ((request.method === "GET" || request.method === "HEAD") && sourceMatch) {
+      if (!product) return productStoreUnavailable();
+      return handleRetainedSourceFileRead({ product, jobId: decodeURIComponent(sourceMatch[1]!), request });
     }
 
     const jobMatch = pathname.match(/^\/v1\/jobs(?:\/([^/]+))?$/);
@@ -386,9 +399,11 @@ function handleLocalDocumentSubmission({
   request: Request;
   scheduleQueuedJob: (job: LocalQueuedExtractionJob) => void | Promise<void>;
 }): Promise<Response> {
-  const { sourceFileStore, stateDirectory, workspaceControl } = product;
+  const { sourceFileStore, sourceStorage, stateDirectory, workspaceControl } = product;
   return withAuthorizedProductStore(product, request, async ({ store: productStore, signal: workspaceSignal, workspace }) => {
     const workspaceId = workspace.id;
+    // Captured once, when the server begins accepting the upload; later setting changes apply to later uploads.
+    const sourceRetained = retainsNewOriginals(sourceStorage, workspace);
     const maximumBytes = workspace.max_source_file_bytes ?? maxSourceFileBytes;
     const signal = AbortSignal.any([request.signal, workspaceSignal]);
     try {
@@ -449,6 +464,7 @@ function handleLocalDocumentSubmission({
             sourceMimeType,
             sourceName,
             sourceFilePageCount,
+            sourceRetained,
             submittedAt,
           });
           const queuedJob = productStore.getExtractionJob(jobId);
@@ -650,6 +666,7 @@ async function handleControlRequest(
   session: LocalSession,
   workspaceControl: LocalWorkspaceControl,
   workspaceDeletion: LocalWorkspaceDeletion | null,
+  sourceStorage: LocalSourceStorageConfiguration,
 ): Promise<Response> {
   const { method } = request;
   if (pathname === "/v1/invitations") {
@@ -720,6 +737,20 @@ async function handleControlRequest(
     }
     case "DELETE invitations :id":
       return Response.json(workspaceControl.cancelInvitation({ workspaceId, invitationId: resourceId!, userId }));
+    case "GET source-retention": {
+      const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId });
+      return workspace ? Response.json(sourceRetentionSettings(sourceStorage, workspace)) : forbidden();
+    }
+    case "PUT source-retention": {
+      const { disabled } = await readJsonObject(request);
+      if (typeof disabled !== "boolean") return errorResponse(400, "invalid_source_retention", "disabled must be true or false");
+      if (disabled === false && sourceStorage.provider === "none") {
+        return errorResponse(409, "source_storage_not_configured", "This installation has no storage configured for original documents");
+      }
+      workspaceControl.setWorkspaceSourceRetention({ workspaceId, userId, disabled });
+      const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId });
+      return workspace ? Response.json(sourceRetentionSettings(sourceStorage, workspace)) : forbidden();
+    }
     case "PATCH": {
       const { name } = await readJsonObject(request);
       if (typeof name !== "string" || !name.trim()) return invalidName();
@@ -732,6 +763,58 @@ async function handleControlRequest(
     default:
       return routeNotFound();
   }
+}
+
+function retainsNewOriginals(sourceStorage: LocalSourceStorageConfiguration, workspace: AuthorizedWorkspace): boolean {
+  return sourceStorage.provider !== "none" && sourceStorage.originalRetentionEnabled && !workspace.source_retention_disabled;
+}
+
+function sourceRetentionSettings(sourceStorage: LocalSourceStorageConfiguration, workspace: AuthorizedWorkspace) {
+  return {
+    workspace_id: workspace.id,
+    storage_configured: sourceStorage.provider !== "none",
+    installation_retains_originals: sourceStorage.originalRetentionEnabled,
+    source_retention_disabled: workspace.source_retention_disabled,
+    retains_new_originals: retainsNewOriginals(sourceStorage, workspace),
+  };
+}
+
+/**
+ * Streams a retained original. Workspace access is checked on every request; only the product
+ * store's retained flag grants retrieval, so processing-only files are never served.
+ */
+function handleRetainedSourceFileRead({ product, jobId, request }: { product: ProductServices; jobId: string; request: Request }): Promise<Response> {
+  const noStore = { "cache-control": "private, no-store" };
+  return withAuthorizedProductStore(product, request, async ({ store }) => {
+    if (!store.getExtractionJobSummary(jobId)) return errorResponse(404, "not_found", "Job not found", noStore);
+    const retained = store.getRetainedSourceFile(jobId);
+    if (!retained) return errorResponse(404, "source_not_retained", "The original document was not retained", noStore);
+    let file: Blob | null;
+    try {
+      if (!product.sourceFileStore.open) throw new Error("Source file store cannot open retained originals");
+      file = await product.sourceFileStore.open(retained.source_file_key);
+    } catch (error) {
+      console.warn("Retained Source file could not be opened", error);
+      return errorResponse(503, "source_unavailable", "The original document is temporarily unavailable", { ...noStore, "retry-after": "5" });
+    }
+    if (!file) return errorResponse(404, "source_missing", "The original document is missing from storage", noStore);
+    const headers = new Headers({
+      ...noStore,
+      "content-type": retained.source_mime_type,
+      "content-length": String(file.size),
+      "content-disposition": attachmentDisposition(retained.source_name, retained.source_mime_type),
+      "x-content-type-options": "nosniff",
+    });
+    return new Response(request.method === "HEAD" ? null : file.stream(), { headers });
+  });
+}
+
+const DOWNLOAD_EXTENSIONS: Record<string, string> = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+
+function attachmentDisposition(sourceName: string | null, mimeType: string): string {
+  const name = sourceName?.trim() || `document.${DOWNLOAD_EXTENSIONS[mimeType] ?? "bin"}`;
+  const fallback = name.replace(/[^A-Za-z0-9._ -]/g, "_").replace(/^\.+/, "_").slice(0, 200) || "document";
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 function readJsonObject(request: Request): Promise<Record<string, unknown>> {
@@ -753,6 +836,7 @@ function extractionJobEntityTag(workspaceId: string, job: LocalWorkspaceExtracti
     job.source_name,
     job.source_mime_type,
     job.source_file_page_count,
+    job.source_retained,
     job.template_id,
     job.template_version,
     job.model_name,

@@ -1,10 +1,21 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ExtractionJobStatusDisplay,
   ExtractionResultDisplay,
 } from "./ExtractionResultDisplay.jsx";
+import { SourceFilePreview } from "./SourceFilePreview.jsx";
+import "./DocumentViewing.css";
 
-export function DocumentPage({ selectedDocument, loadingDocumentDetailsId }) {
+const NARROW_SPLIT_WIDTH = 600;
+
+export function DocumentPage({
+  selectedDocument,
+  loadingDocumentDetailsId,
+  viewingLayout = "results",
+  onViewingLayoutChange,
+  loadOriginal,
+  sourceStorageConfigured = false,
+}) {
   if (!selectedDocument)
     return (
       <p className="studio-empty-state">
@@ -31,8 +42,27 @@ export function DocumentPage({ selectedDocument, loadingDocumentDetailsId }) {
         hour: "2-digit",
         minute: "2-digit",
       });
+  // A Document without a retained original shows results only; the Account preference is kept.
+  const canViewOriginal = selectedDocument.source_retained === true && Boolean(loadOriginal);
+  const layout = canViewOriginal ? viewingLayout : "results";
+  const resultDisplay = (
+    <>
+      {status !== "completed" ? (
+        <ExtractionJobStatusDisplay job={selectedDocument} />
+      ) : null}
+      <ExtractionResultDisplay
+        job={selectedDocument}
+        isLoading={
+          loadingDocumentDetailsId === String(selectedDocument.job_id || "")
+        }
+      />
+    </>
+  );
   return (
-    <section className="studio-document-page" aria-label="Document results">
+    <section
+      className={`studio-document-page document-layout-${layout}`}
+      aria-label="Document results"
+    >
       <div className="studio-document-summary">
         <span className={`studio-document-status ${status}`}>
           <i aria-hidden="true" />
@@ -52,16 +82,122 @@ export function DocumentPage({ selectedDocument, loadingDocumentDetailsId }) {
         {dateLabel ? (
           <time dateTime={date.toISOString()}>{dateLabel}</time>
         ) : null}
+        {canViewOriginal ? (
+          <DocumentLayoutToggle layout={layout} onChange={onViewingLayoutChange} />
+        ) : sourceStorageConfigured ? (
+          <span className="document-original-note">Original not retained</span>
+        ) : null}
       </div>
-      {status !== "completed" ? (
-        <ExtractionJobStatusDisplay job={selectedDocument} />
-      ) : null}
-      <ExtractionResultDisplay
-        job={selectedDocument}
-        isLoading={
-          loadingDocumentDetailsId === String(selectedDocument.job_id || "")
-        }
-      />
+      {layout === "side-by-side" ? (
+        <SideBySide key={selectedDocument.job_id} document={selectedDocument} loadOriginal={loadOriginal}>
+          {resultDisplay}
+        </SideBySide>
+      ) : (
+        resultDisplay
+      )}
     </section>
+  );
+}
+
+function DocumentLayoutToggle({ layout, onChange }) {
+  return (
+    <span className="document-layout-toggle" role="radiogroup" aria-label="Document view">
+      {[["results", "Results"], ["side-by-side", "Side by side"]].map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          role="radio"
+          aria-checked={layout === value}
+          onClick={() => onChange?.(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+function SideBySide({ document, loadOriginal, children }) {
+  const host = useRef(null);
+  const [split, setSplit] = useState(50);
+  const [isNarrow, setIsNarrow] = useState(false);
+  // Narrow screens open on Results; the tab resets per Document and is never stored.
+  const [narrowTab, setNarrowTab] = useState("results");
+
+  useEffect(() => {
+    const element = host.current;
+    if (!element || typeof ResizeObserver !== "function") return undefined;
+    const observer = new ResizeObserver(([entry]) => {
+      setIsNarrow(entry.contentRect.width < NARROW_SPLIT_WIDTH);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const startDrag = (event) => {
+    event.preventDefault();
+    const move = (moveEvent) => {
+      const box = host.current?.getBoundingClientRect();
+      if (!box?.width) return;
+      setSplit(Math.min(70, Math.max(30, ((moveEvent.clientX - box.left) / box.width) * 100)));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+  const nudge = (event) => {
+    const step = { ArrowLeft: -5, ArrowRight: 5 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    setSplit((value) => Math.min(70, Math.max(30, value + step)));
+  };
+
+  const showDocument = !isNarrow || narrowTab === "document";
+  const showResults = !isNarrow || narrowTab === "results";
+  return (
+    <div
+      ref={host}
+      className={`document-split${isNarrow ? " is-narrow" : ""}`}
+      style={{ "--document-split": `${split}%` }}
+    >
+      {isNarrow ? (
+        <div className="document-split-tabs" role="tablist" aria-label="Document view">
+          {[["results", "Results"], ["document", "Document"]].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={narrowTab === value}
+              onClick={() => setNarrowTab(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {showDocument ? (
+        <section className="document-split-source" aria-label="Original document">
+          <SourceFilePreview document={document} loadOriginal={loadOriginal} />
+        </section>
+      ) : null}
+      {!isNarrow ? (
+        <div
+          className="document-split-divider"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize original and results"
+          aria-valuemin={30}
+          aria-valuemax={70}
+          aria-valuenow={Math.round(split)}
+          tabIndex={0}
+          onPointerDown={startDrag}
+          onKeyDown={nudge}
+        />
+      ) : null}
+      {showResults ? <div className="document-split-results">{children}</div> : null}
+    </div>
   );
 }

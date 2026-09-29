@@ -23,6 +23,7 @@ test("the real server publishes runtime capabilities and keeps analytics disable
     expect(config).toEqual({
       auth: { emailPasswordEnabled: true, googleEnabled: false, signupEnabled: true, requireEmailVerification: false, mailDelivery: "local" },
       limits: { maxSourceFileBytes: 512 },
+      sourceStorage: { configured: false, retainsOriginals: false },
     });
     expect(JSON.stringify(config)).not.toContain("private-");
     const signup = await fetch(`${origin}/api/auth/sign-up/email`, {

@@ -59,6 +59,8 @@ export async function parseLocalMultipartSubmission({
   try {
     parser = Busboy({
       headers: Object.fromEntries(request.headers.entries()),
+      // Browsers send filenames as raw UTF-8; Busboy otherwise decodes them as Latin-1.
+      defParamCharset: "utf8",
       highWaterMark: 64 * 1024,
       fileHwm: 64 * 1024,
       limits: {

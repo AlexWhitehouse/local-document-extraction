@@ -132,6 +132,14 @@ _Avoid_: image, upload, input file
 The original uploaded binary for a **Document**.
 _Avoid_: object-store record, file blob
 
+**Source file retention**:
+Keeping a **Source file** beyond temporary processing needs so it remains available through its **Extraction job**.
+_Avoid_: processing storage, result retention
+
+**Workspace source retention**:
+A **Workspace**'s choice to inherit the installation's **Source file retention** default or disable retention, within the storage capability configured by the installation operator.
+_Avoid_: Workspace storage provider, Workspace bucket configuration
+
 **Source file page count**:
 The detected number of pages in a PDF **Source file**.
 _Avoid_: PDF page metadata, upload page count
@@ -419,7 +427,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Use **Document** synonymously for supported source formats, including PNG, JPEG, WebP, and PDF, unless a standards-level MIME type must be named.
 - The background processor that processes submitted **Documents** should use **Document** or **Source file** terminology in application-owned code.
 - Local Source file storage should use non-legacy **Document** or **Source file** naming for physical paths and application configuration.
-- Local Source file storage remains the authoritative binary store for **Source files**.
+- Local Source file storage remains the authoritative binary store for **Source files**. With local **Source file retention**, the processing file and the retained original are the same local file; only its retained flag decides whether processing cleanup may remove it.
 - Local runtime state is grouped under one local state directory so reset and backup behavior is explicit.
 - A **Source file page count** applies only to PDF **Source files** and is absent for non-PDF **Source files**.
 - PDF **Source files** require a **Source file page count** at Document submission time; if the count cannot be determined, the Document submission is rejected.
@@ -449,7 +457,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Missing or unreadable **Workspace model configuration** does not consume the Model gateway retry budget.
 - A persisted queued **Extraction job** notifies the local runner asynchronously, so Document acceptance is not delayed by Model gateway processing.
 - After the **Extraction processor** receives a **Model gateway** response, **Extraction results** should be persisted and the **Extraction job** should be marked `completed`.
-- A completed **Extraction job** should not retain its **Source file** binary after processing cleanup succeeds.
+- Without **Source file retention**, a completed **Extraction job** does not keep its **Source file** binary after processing cleanup succeeds. A retained original outlives processing for both completed and failed jobs until its **Document** or **Workspace** is deleted.
 - **Document** admission checks **Workspace model configuration** readiness immediately after Workspace authorisation and before parsing the request body, persisting a **Source file**, or creating an **Extraction job**.
 - Workspace model-configuration HTTP errors use the product error envelope without echoing credential material: invalid representations are `400 invalid_workspace_model_configuration`, missing mutation preconditions are `428 precondition_required`, and failed or stale preconditions are `412 precondition_failed`.
 - Workspace model-configuration responses use `Cache-Control: no-store`; only a configured owner/admin representation exposes an ETag, and that ETag is a mutation concurrency token rather than a conditional-read cache validator.
@@ -458,13 +466,17 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Admission count, reserved bytes, process memory, and disk reserve are local capacity limits; shared pressure returns retry guidance without creating an **Extraction job**.
 - If local **Workspace product data** rejects a queued **Extraction job** after its **Source file** is written, the local Source file binary is deleted.
 - If queuing an **Extraction processor** fails during Document submission, the **Extraction job** is marked `failed` and its **Source file** follows the failed-source retention window.
-- A processing failure marks the **Extraction job** `failed` with durable error details and retains its **Source file** for recovery or inspection for seven days by default.
+- A processing failure marks the **Extraction job** `failed` with durable error details. A Source file that is not retained is kept for recovery or inspection for seven days by default.
 - Configuration-related terminal processing failures follow the same failed **Source file** retention policy as other processing failures.
-- Completed **Source files** are deleted immediately; a restart-safe sweep also removes interrupted completed cleanup and expired failed-source binaries without deleting retained job metadata, errors, or results.
+- Completed **Source files** that are not retained are deleted immediately; a restart-safe sweep also removes interrupted completed cleanup and expired failed-source binaries without deleting job metadata, errors, or results. Neither path removes a retained original.
 - The in-memory extraction queue is a bounded, Workspace-fair metadata accelerator over authoritative queued **Workspace product data**; periodic reconciliation recovers work left only in SQLite.
 - Individual **Extraction job** retrieval uses entity validators and server-directed retry timing so unchanged polls do not hydrate or serialize **Extraction results**.
 - Each active **Workspace product data** database has one lease-aware process owner; SQLite write transactions remain short and journal mode stays on the safe rollback journal until the bundled SQLite passes the WAL safety gate.
 - **Workspace** deletion cleanup sweeps residual **Source files** that normal **Extraction job lifecycle** cleanup did not delete.
+- **Source file retention** is captured once per Document when the server begins accepting its upload: installation storage configured, installation retention enabled, and no **Workspace source retention** opt-out. Later setting changes affect later uploads only.
+- **Workspace source retention** is stored with Workspace control data and may be changed only by a signed-in Workspace owner or admin, not by a **Workspace API key**.
+- Existing **Extraction jobs** migrate as not retained, whether or not their processing file still exists.
+- A retained original is streamed only through its **Extraction job** in the same **Workspace**, for sessions and **Workspace API keys**, with `private, no-store` caching. Retrieval failure never changes the job's status or results; not retained, missing from storage, and temporarily unavailable are reported separately.
 - A **Template** must have at least one **Template field** before it can be used for extraction.
 - Changing **Template fields** creates a new **Template version**.
 - An **Extraction job** is interpreted against the **Template version** selected at submission time.

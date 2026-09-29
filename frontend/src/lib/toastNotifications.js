@@ -65,6 +65,8 @@ const failureMessages = {
   "document.bulkDelete":
     "Some selected documents could not be deleted. Try again.",
   "document.export": "Selected documents could not be exported. Please try again.",
+  "document.downloadOriginal": "The original document couldn't be downloaded because storage can't be reached. Please try again.",
+  "document.downloadOriginalMissing": "The original document couldn't be downloaded because it's missing from storage.",
   "clipboard.copyTemplateJson": "Template JSON could not be copied. Please try again.",
 };
 

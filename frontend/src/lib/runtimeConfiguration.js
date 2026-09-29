@@ -10,6 +10,7 @@ export const DEFAULT_RUNTIME_CONFIGURATION = Object.freeze({
     mailDelivery: "local",
   }),
   limits: Object.freeze({ maxSourceFileBytes: 10 * 1024 * 1024 }),
+  sourceStorage: Object.freeze({ configured: false, retainsOriginals: false }),
 });
 
 export async function fetchRuntimeConfiguration(signal) {
@@ -24,5 +25,13 @@ export async function fetchRuntimeConfiguration(signal) {
     || configuration.limits.maxSourceFileBytes < 1) {
     throw new Error("Application configuration is invalid. Check that the server and frontend versions match.");
   }
-  return configuration;
+  // Older servers omit Source storage; treat that as no installation storage.
+  const sourceStorage = configuration.sourceStorage;
+  return {
+    ...configuration,
+    sourceStorage: {
+      configured: sourceStorage?.configured === true,
+      retainsOriginals: sourceStorage?.retainsOriginals === true,
+    },
+  };
 }

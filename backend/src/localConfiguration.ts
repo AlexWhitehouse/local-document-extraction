@@ -5,6 +5,13 @@ import { fileURLToPath } from "node:url";
 import { localDocumentRequestBodyLimit } from "./localDocumentBodyLimit";
 
 type Environment = Record<string, string | undefined>;
+export type SourceStorageProvider = "none" | "local";
+export type LocalSourceStorageConfiguration = {
+  provider: SourceStorageProvider;
+  /** Installation default for retaining originals of new uploads; Workspaces may opt out. */
+  originalRetentionEnabled: boolean;
+};
+
 export type LocalEmailConfiguration = {
   provider: "local" | "cloudflare";
   fromAddress: string;
@@ -89,6 +96,7 @@ export function readLocalConfiguration({
   if (extractionMaxConcurrency > extractionMaximumConcurrency) throw new Error("EXTRACTION_MAX_CONCURRENCY must not exceed EXTRACTION_MAX_CONCURRENCY_LIMIT.");
   const { memoryLimitRatio: localMemoryLimitRatio, preparationMaxBytes: modelPreparationMaxBytes } = readLocalMemoryLimits(env, totalMemoryBytes);
   const email: LocalEmailConfiguration = { provider, fromAddress, fromName, cloudflareAccountId, cloudflareApiToken };
+  const sourceStorage = readSourceStorageConfiguration(text, boolean);
   return {
     host, port, stateDirectory,
     assetsDirectory: resolve(repositoryRoot, text("DOCUMENT_EXTRACTION_ASSETS_DIR") ?? "frontend/dist"),
@@ -111,6 +119,7 @@ export function readLocalConfiguration({
     shutdownTimeoutMs: integer("LOCAL_SHUTDOWN_TIMEOUT_MS", 10000, 1, 2147483647),
     modelGatewayRequestTimeoutMs: integer("MODEL_GATEWAY_REQUEST_TIMEOUT_MS", 300000, 1, 2147483647),
     analyticsEnabled: boolean("LOCAL_ANALYTICS_ENABLED", true),
+    sourceStorage,
     auth: {
       baseURL: text("BETTER_AUTH_URL") ? origin(text("BETTER_AUTH_URL")!, "BETTER_AUTH_URL") : undefined,
       adminEmails: list("DOCUMENT_EXTRACTION_ADMIN_EMAILS").map((email) => emailAddress(email, "DOCUMENT_EXTRACTION_ADMIN_EMAILS").toLowerCase()),
@@ -125,6 +134,25 @@ export function readLocalConfiguration({
 }
 
 export type LocalConfiguration = ReturnType<typeof readLocalConfiguration>;
+
+/**
+ * Source file retention is distinct from processing cleanup: FAILED_SOURCE_RETENTION_MS and
+ * SOURCE_RETENTION_SWEEP_INTERVAL_MS govern processing files whose originals are not retained.
+ */
+function readSourceStorageConfiguration(
+  text: (name: string) => string | undefined,
+  boolean: (name: string, fallback: boolean) => boolean,
+): LocalSourceStorageConfiguration {
+  const provider = text("SOURCE_STORAGE_PROVIDER")?.toLowerCase() ?? "none";
+  if (provider === "s3") throw new Error("SOURCE_STORAGE_PROVIDER=s3 is not supported by this version; use none or local.");
+  if (provider !== "none" && provider !== "local") throw new Error("SOURCE_STORAGE_PROVIDER must be none or local.");
+  // Selecting a store enables retention by default; installations without one never retain.
+  const originalRetentionEnabled = boolean("SOURCE_ORIGINAL_RETENTION_ENABLED", provider !== "none");
+  if (originalRetentionEnabled && provider === "none") {
+    throw new Error("SOURCE_ORIGINAL_RETENTION_ENABLED requires SOURCE_STORAGE_PROVIDER to be local.");
+  }
+  return { provider, originalRetentionEnabled };
+}
 
 export function readLocalMemoryLimits(env: { LOCAL_MEMORY_LIMIT_RATIO?: string; MODEL_PREPARATION_MAX_BYTES?: string }, totalMemoryBytes: number) {
   if (!Number.isSafeInteger(totalMemoryBytes) || totalMemoryBytes < 1) throw new Error("System memory must be a positive integer byte count.");
@@ -152,5 +180,9 @@ export function publicLocalConfiguration(configuration: LocalConfiguration) {
   return {
     auth: { emailPasswordEnabled, googleEnabled, signupEnabled, requireEmailVerification, mailDelivery: configuration.email.provider },
     limits: { maxSourceFileBytes: configuration.maxSourceFileBytes },
+    sourceStorage: {
+      configured: configuration.sourceStorage.provider !== "none",
+      retainsOriginals: configuration.sourceStorage.originalRetentionEnabled,
+    },
   };
 }

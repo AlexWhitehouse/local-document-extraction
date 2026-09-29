@@ -268,7 +268,8 @@ export function createLocalExtractionRunner({
               modelName: model.modelName,
               fieldCount: claimed.fields.length,
             });
-            await cleanupCompletedSourceFile({
+            // A retained original outlives processing; only processing-only Source files are removed.
+            if (!claimed.source_retained) await cleanupCompletedSourceFile({
               jobId: claimed.job_id,
               productStore,
               sourceFileKey: claimed.source_file_key,

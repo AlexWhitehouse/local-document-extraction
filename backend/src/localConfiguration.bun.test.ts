@@ -11,7 +11,22 @@ test("a clean local install has usable private defaults and a secret-free public
   expect(publicLocalConfiguration(config)).toEqual({
     auth: { emailPasswordEnabled: true, googleEnabled: false, signupEnabled: true, requireEmailVerification: false, mailDelivery: "local" },
     limits: { maxSourceFileBytes: 10485760 },
+    sourceStorage: { configured: false, retainsOriginals: false },
   });
+  expect(config.sourceStorage).toEqual({ provider: "none", originalRetentionEnabled: false });
+});
+
+test("selecting local Source storage retains originals by default and can be turned off for new uploads", () => {
+  expect(read({ SOURCE_STORAGE_PROVIDER: "local" }).sourceStorage).toEqual({ provider: "local", originalRetentionEnabled: true });
+  expect(read({ SOURCE_STORAGE_PROVIDER: "local", SOURCE_ORIGINAL_RETENTION_ENABLED: "false" }).sourceStorage)
+    .toEqual({ provider: "local", originalRetentionEnabled: false });
+  expect(publicLocalConfiguration(read({ SOURCE_STORAGE_PROVIDER: "local" })).sourceStorage).toEqual({ configured: true, retainsOriginals: true });
+});
+
+test("Source storage settings reject retention without a store and unsupported providers", () => {
+  expect(() => read({ SOURCE_ORIGINAL_RETENTION_ENABLED: "true" })).toThrow("requires SOURCE_STORAGE_PROVIDER");
+  expect(() => read({ SOURCE_STORAGE_PROVIDER: "s3" })).toThrow("not supported by this version");
+  expect(() => read({ SOURCE_STORAGE_PROVIDER: "ftp" })).toThrow("must be none or local");
 });
 
 test("configured deployment and secret values remain outside the public response", () => {
