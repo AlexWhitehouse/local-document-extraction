@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 
 import { createLocalLiveUpdateHub } from "../src/localLiveUpdateHub";
 
-export type LiveUpdateFanoutResult = {
+type LiveUpdateFanoutResult = {
   attemptedSends: number;
   events: number;
   microsecondsPerSend: number;
@@ -15,7 +15,7 @@ export type LiveUpdateFanoutResult = {
 
 const repositoryRoot = resolve(import.meta.dir, "../..");
 
-export function renderLiveUpdateFanoutBenchmark({
+function renderLiveUpdateFanoutBenchmark({
   bunRevision,
   bunVersion,
   platform,

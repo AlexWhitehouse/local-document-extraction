@@ -6,6 +6,7 @@ import {
   AsyncCleanupStack,
   startLocalRuntimeSmokeProcess,
 } from "../../backend/src/testSupport/localRuntimeProcess";
+import { sanitizeConsoleText } from "./browserEvidence";
 
 const rootDirectory = resolve(import.meta.dir, "../..");
 const cleanup = new AsyncCleanupStack();
@@ -108,13 +109,13 @@ try {
   await waitForShutdownRequest(shutdownRequested);
 } catch (error) {
   exitCode = 1;
-  console.error(`E2E_RUNTIME_ERROR ${sanitizeError(error)}`);
+  console.error(`E2E_RUNTIME_ERROR ${sanitizeConsoleText(error instanceof Error ? error.message : String(error))}`);
 } finally {
   try {
     await cleanup.dispose();
   } catch (error) {
     exitCode = 1;
-    console.error(`E2E_RUNTIME_CLEANUP_ERROR ${sanitizeError(error)}`);
+    console.error(`E2E_RUNTIME_CLEANUP_ERROR ${sanitizeConsoleText(error instanceof Error ? error.message : String(error))}`);
   }
   process.exitCode = exitCode;
 }
@@ -152,19 +153,4 @@ function waitForShutdownRequest(shutdownRequested: Promise<void>): Promise<void>
     void shutdownRequested.then(finish);
     process.stdin.resume();
   });
-}
-
-function sanitizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message
-    .replace(/https?:\/\/[^\s"'<>]+/gi, (value) => {
-      try {
-        const url = new URL(value);
-        return `${url.protocol}//${url.host}${url.pathname}`;
-      } catch {
-        return "[invalid-url]";
-      }
-    })
-    .replace(/\b(Bearer|token|password|secret|api[_-]?key)\s*[:=]?\s*[^\s,;]+/gi, "$1 [REDACTED]")
-    .slice(0, 4_000);
 }

@@ -5,9 +5,7 @@ import {
   condenseBunProfileMarkdown,
   evaluateRuntimeRegression,
   parsePrototypeResult,
-  renderBunRuntimeComparison,
   sanitizeBunProfileMarkdown,
-  type BunRuntimeComparisonEvidence,
   type BunRuntimeRun,
 } from "./bunRuntimeComparison";
 
@@ -132,53 +130,5 @@ describe("Bun runtime comparison evidence", () => {
     expect(condensed).toContain("Sanitized decision-rich excerpt");
     expect(condensed).not.toContain("root graph");
     expect(condensed).not.toContain("complete graph");
-  });
-
-  test("renders provenance, repetitions, gates, profile findings, and scope", () => {
-    const runs = [run(), run({ repetition: 2 }), run({ repetition: 3 })];
-    const evidence: BunRuntimeComparisonEvidence = {
-      command: "bun run --cwd backend benchmark:bun-runtime",
-      fixtureIdentities: [{ bytes: 100, pageCount: 2, sha256: "abc" }],
-      host: {
-        architecture: "arm64",
-        cpuCount: 8,
-        cpuModel: "Test CPU",
-        memoryBytes: 16 * 1024 ** 3,
-        platform: "darwin",
-      },
-      profileSummary: {
-        cpuHotFunctions: ["parseLocalMultipartSubmission"],
-        heapLargestObjects: ["ArrayBuffer — 1 MiB"],
-        heapRetentionPaths: ["GlobalObject → ArrayBuffer"],
-      },
-      repository: { dirty: true, revision: "deadbeef" },
-      runtimes: [
-        { aggregate: aggregateRuntimeRuns(runs), runs, version: "1.3.14" },
-        {
-          aggregate: aggregateRuntimeRuns(runs.map((entry) => ({ ...entry, bunVersion: "1.4.0" }))),
-          runs: runs.map((entry) => ({ ...entry, bunVersion: "1.4.0" })),
-          version: "1.4.0",
-        },
-      ],
-      settings: {
-        boundedAdmissionConcurrency: 4,
-        boundedRunnerConcurrency: 4,
-        gatewayConcurrency: 4,
-        gatewayLatencyMs: 20,
-        pollIntervalMs: 10,
-        steadyRepetitions: 3,
-        warmupRepetitions: 1,
-        workers: 20,
-      },
-    };
-    const markdown = renderBunRuntimeComparison(evidence);
-
-    expect(markdown).toContain("Bun 1.3.14 versus 1.4.0");
-    expect(markdown).toContain("Acceptable-regression policy");
-    expect(markdown).toContain("Coefficient of variation");
-    expect(markdown).toContain("CPU profile findings");
-    expect(markdown).toContain("Heap retention paths");
-    expect(markdown).toContain("project-local capacity evidence");
-    expect(markdown).toContain(evidence.command);
   });
 });

@@ -1,30 +1,21 @@
 import { expect, test } from "@playwright/test";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { ONE_PIXEL_PNG, saveModelGateway, submitSignUp } from "./support/journeyHelpers";
 import { startRuntimeHarness } from "./support/runtimeHarnessClient";
 
 test("generate a template from a sample, review the draft, then explicitly save", async ({ page }, testInfo) => {
   const harness = await startRuntimeHarness();
   try {
-    await page.goto(harness.origin);
-    await page.getByRole("link", { name: "Sign Up" }).click();
-    await page.getByLabel("Name").fill("Template Designer");
-    await page.getByLabel("Email").fill("template-designer@example.test");
-    await page.getByLabel("Password", { exact: true }).fill("Strong1!");
-    await page.getByLabel("Confirm Password").fill("Strong1!");
-    await page.getByRole("button", { name: "Create Account" }).click();
+    await submitSignUp(page, harness, { name: "Template Designer", email: "template-designer@example.test", password: "Strong1!" });
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
-    await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
-    await page.getByLabel("Model name", { exact: true }).fill("browser/template-generator");
-    await page.getByLabel("Gateway API key", { exact: true }).fill("browser-journey-key");
-    await page.getByRole("button", { name: "Save configuration", exact: true }).click();
-    await expect(page.getByText("Model gateway saved.", { exact: true })).toBeVisible();
+    await saveModelGateway(page, harness, "browser/template-generator");
     await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Unsaved work");
     await page.getByRole("button", { name: "Auto generate", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Auto generate template" });
-    const sample = { name: "Purchase order with a very long document name that should truncate without moving the Pending pill or Remove button.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64") };
+    const sample = { name: "Purchase order with a very long document name that should truncate without moving the Pending pill or Remove button.png", mimeType: "image/png", buffer: ONE_PIXEL_PNG };
     await dialog.getByLabel("Sample file").setInputFiles(sample);
     await expect(dialog.getByRole("button", { name: /Drag and drop a sample document/ })).toBeHidden();
     await dialog.getByRole("button", { name: "Remove", exact: true }).click();

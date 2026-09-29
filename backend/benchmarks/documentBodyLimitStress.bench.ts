@@ -11,7 +11,7 @@ import {
 } from "../src/localDocumentBodyLimit";
 import { parseLocalMultipartSubmission } from "../src/localMultipartSubmission";
 
-export type DocumentBodyLimitStressResult = {
+type DocumentBodyLimitStressResult = {
   abortedConnectionsSettled: number;
   abortedRequests: number;
   chunkedRequests: number;
@@ -29,7 +29,7 @@ export type DocumentBodyLimitStressResult = {
   wallTimeMs: number;
 };
 
-export type DocumentBodyLimitStressParameters = {
+type DocumentBodyLimitStressParameters = {
   abortedRequests: number;
   chunkedRequests: number;
   concurrency: number;
@@ -39,7 +39,7 @@ export type DocumentBodyLimitStressParameters = {
 
 const repositoryRoot = resolve(import.meta.dir, "../..");
 
-export function renderDocumentBodyLimitStress({
+function renderDocumentBodyLimitStress({
   bunRevision,
   bunVersion,
   maxSourceBytes,

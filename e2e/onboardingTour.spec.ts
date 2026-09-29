@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { startRuntimeHarness } from "./support/runtimeHarnessClient";
-import { signUpAndVerify } from "./support/journeyHelpers";
+import { ONE_PIXEL_PNG, signUpAndVerify } from "./support/journeyHelpers";
 
 test("optional tour guides real creation, isolates controls and queues a document", async ({ page }, testInfo) => {
   const harness = await startRuntimeHarness({ requireEmailVerification: true });
@@ -88,7 +88,7 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await next();
     await page.locator('input[type="file"]').setInputFiles({
       name: "tour-invoice.png", mimeType: "image/png",
-      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"),
+      buffer: ONE_PIXEL_PNG,
     });
     await next();
     await target("upload-submit").click();

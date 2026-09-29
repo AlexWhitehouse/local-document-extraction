@@ -3,10 +3,14 @@ import { relative, resolve } from "node:path";
 
 import {
   assertCoverageBaseline,
+  discoverSensitiveValues,
   findMissingProductionModules,
+  normalizePath,
   parseLcovSummary,
   sanitizeArtifact,
+  sanitizedTestEnvironment,
   type CoverageBaseline,
+  type LcovSummary,
 } from "./backendTestEvidence";
 
 const backendDirectory = resolve(import.meta.dir, "..");
@@ -47,7 +51,9 @@ const child = Bun.spawn([
   "--update-timings",
 ], {
   cwd: backendDirectory,
-  env: sanitizedTestEnvironment(),
+  env: sanitizedTestEnvironment({
+    DOCUMENT_EXTRACTION_STATE_DIR: resolve(artifactDirectory, "synthetic-state"),
+  }),
   stderr: "pipe",
   stdout: "pipe",
   timeout: 120_000,
@@ -131,7 +137,7 @@ async function discoverProductionModules() {
 function coverageMarkdown(options: {
   baseline: CoverageBaseline;
   coverageFailure?: string;
-  coverageSummary: ReturnType<typeof parseLcovSummary>;
+  coverageSummary: LcovSummary;
   missingModules: string[];
   testExitCode: number;
 }) {
@@ -159,47 +165,6 @@ function coverageMarkdown(options: {
   ].join("\n");
 }
 
-function sanitizedTestEnvironment() {
-  const allowlistedNames = [
-    "CI",
-    "COMSPEC",
-    "GITHUB_ACTIONS",
-    "HOME",
-    "LANG",
-    "LC_ALL",
-    "PATH",
-    "PATHEXT",
-    "RUNNER_OS",
-    "SHELL",
-    "SYSTEMROOT",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-    "TZ",
-    "WINDIR",
-  ];
-  const environment: Record<string, string> = {
-    DOCUMENT_EXTRACTION_STATE_DIR: resolve(artifactDirectory, "synthetic-state"),
-    NODE_ENV: "test",
-  };
-  for (const name of allowlistedNames) {
-    const value = process.env[name];
-    if (value !== undefined) environment[name] = value;
-  }
-  return environment;
-}
-
-function discoverSensitiveValues() {
-  const sensitiveName = /(AUTH|COOKIE|CREDENTIAL|KEY|PASSWORD|SECRET|TOKEN)/i;
-  return [
-    "litellm-secret",
-    "synthetic-test-key",
-    ...Object.entries(process.env)
-      .filter(([name, value]) => sensitiveName.test(name) && value !== undefined)
-      .map(([, value]) => value as string),
-  ];
-}
-
 function fallbackJunit(exitCode: number, output: string) {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
@@ -215,8 +180,4 @@ function escapeXml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
-}
-
-function normalizePath(path: string) {
-  return path.replaceAll("\\", "/");
 }

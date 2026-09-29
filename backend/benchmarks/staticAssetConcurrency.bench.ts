@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-export type StaticAssetBenchmarkResult = {
+type StaticAssetBenchmarkResult = {
   currentRssBytes: number;
   mode: "buffered" | "lazy";
   p50LatencyMs: number;
@@ -19,7 +19,7 @@ type WorkerMetrics = {
 
 const repositoryRoot = resolve(import.meta.dir, "../..");
 
-export function percentile(samples: number[], quantile: number): number {
+function percentile(samples: number[], quantile: number): number {
   if (!samples.length) return 0;
   const sorted = [...samples].sort((left, right) => left - right);
   const position = Math.max(0, Math.min(1, quantile)) * (sorted.length - 1);
@@ -29,7 +29,7 @@ export function percentile(samples: number[], quantile: number): number {
   return sorted[lowerIndex]! + (sorted[upperIndex]! - sorted[lowerIndex]!) * fraction;
 }
 
-export function renderStaticAssetBenchmark({
+function renderStaticAssetBenchmark({
   assetBytes,
   bunRevision,
   bunVersion,

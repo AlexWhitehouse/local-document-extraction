@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { createLocalExtractionQueue } from "../src/localExtractionQueue";
 import { createLocalResourceController } from "../src/localResourceController";
 
-export type MemoryPressureBenchmarkResult = {
+type MemoryPressureBenchmarkResult = {
   completed: number;
   failed: number;
   mode: "disabled" | "enabled";
@@ -29,7 +29,7 @@ type BenchmarkParameters = {
 
 const repositoryRoot = resolve(import.meta.dir, "../..");
 
-export function renderMemoryPressureBenchmark({
+function renderMemoryPressureBenchmark({
   bunRevision,
   bunVersion,
   documentBytes,
