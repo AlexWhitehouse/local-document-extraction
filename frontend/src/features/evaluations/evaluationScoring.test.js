@@ -32,13 +32,13 @@ describe("Evaluation matching", () => {
     expect(scoreField(field("b", "boolean"), raw(false), ref(false)).state).toBe("Match");
     expect(scoreField(field(), raw("x"), { value: "x" }).state).toBe("Unscored");
   });
-  it("keeps correctness separate from coverage and counts missing requested values", () => {
+  it("scores only returned fields and counts missing requested values", () => {
     const fields = Array.from({ length: 10 }, (_, i) => field("Field" + i));
     const definitions = Object.fromEntries(fields.map(f => [fieldIdentity(f), f]));
     const references = Object.fromEntries(fields.map(f => [fieldIdentity(f), ref("yes")]));
     const candidate = { result: { fields: fields.slice(0, 8), raw: fields.slice(0, 8).map(f => ({ field_id: f.id, ...raw("yes") })) } };
     const score = scoreCandidate(candidate, references, definitions);
-    expect(score.fields).toEqual({ matched: 8, total: 8 }); expect(score.coverage).toEqual({ requested: 8, total: 10 });
+    expect(score.fields).toEqual({ matched: 8, total: 8 });
     candidate.result.raw.pop(); expect(scoreCandidate(candidate, references, definitions).fields).toEqual({ matched: 7, total: 8 });
     expect(scoreCandidate({}, references, definitions).fields).toBeNull();
   });

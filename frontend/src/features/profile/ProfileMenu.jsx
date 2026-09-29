@@ -74,16 +74,50 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                     </button>
                   </header>
 
-                    <AccountSettings
-                      busy={busy}
-                      displayEmail={displayEmail}
-                      draftName={draftName}
-                      isDirty={isDirty}
-                      isSavingProfile={isSavingProfile}
-                      onDraftNameChange={onDraftNameChange}
-                      onSaveProfile={onSaveProfile}
-                      onSignOut={onSignOut}
-                    />
+                  <div className="settings-section-body">
+                    <div className="settings-section-intro">
+                      <h4>Your local profile</h4>
+                      <p>Update the name shown throughout Document Extraction.</p>
+                    </div>
+                    <div className="settings-form-card">
+                      <label>
+                        Name
+                        <input
+                          value={draftName}
+                          onChange={(event) => onDraftNameChange(event.target.value)}
+                          placeholder="Jane Doe"
+                          autoComplete="name"
+                        />
+                      </label>
+                      <label>
+                        Email
+                        <input value={displayEmail} readOnly aria-readonly="true" />
+                      </label>
+                      <div className="settings-form-actions">
+                        <button
+                          type="button"
+                          disabled={isSavingProfile || !isDirty}
+                          onClick={onSaveProfile}
+                        >
+                          {isSavingProfile ? "Saving..." : "Save Profile"}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="settings-danger-row">
+                      <div>
+                        <strong>End this session</strong>
+                        <span>You’ll need to sign in again to access local workspaces.</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={busy || isSavingProfile}
+                        onClick={onSignOut}
+                      >
+                        Sign Out
+                      </button>
+                    </div>
+                  </div>
                 </section>
               </div>
             </div>,
@@ -93,64 +127,6 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
     </div>
   );
 });
-
-function AccountSettings({
-  busy,
-  displayEmail,
-  draftName,
-  isDirty,
-  isSavingProfile,
-  onDraftNameChange,
-  onSaveProfile,
-  onSignOut,
-}) {
-  return (
-    <div className="settings-section-body">
-      <div className="settings-section-intro">
-        <h4>Your local profile</h4>
-        <p>Update the name shown throughout Document Extraction.</p>
-      </div>
-      <div className="settings-form-card">
-        <label>
-          Name
-          <input
-            value={draftName}
-            onChange={(event) => onDraftNameChange(event.target.value)}
-            placeholder="Jane Doe"
-            autoComplete="name"
-          />
-        </label>
-        <label>
-          Email
-          <input value={displayEmail} readOnly aria-readonly="true" />
-        </label>
-        <div className="settings-form-actions">
-          <button
-            type="button"
-            disabled={isSavingProfile || !isDirty}
-            onClick={onSaveProfile}
-          >
-            {isSavingProfile ? "Saving..." : "Save Profile"}
-          </button>
-        </div>
-      </div>
-      <div className="settings-danger-row">
-        <div>
-          <strong>End this session</strong>
-          <span>You’ll need to sign in again to access local workspaces.</span>
-        </div>
-        <button
-          type="button"
-          className="danger"
-          disabled={busy || isSavingProfile}
-          onClick={onSignOut}
-        >
-          Sign Out
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function profileInitials(name, email) {
   const source = String(name || "").trim() || String(email || "").trim();

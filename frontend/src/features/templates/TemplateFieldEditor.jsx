@@ -152,10 +152,6 @@ export function TemplateFieldEditor({
           };
         }
 
-        if (key === "key") {
-          return column;
-        }
-
         return { ...column, [key]: value };
       }),
     }));
@@ -191,10 +187,6 @@ export function TemplateFieldEditor({
 
   function duplicateField(index) {
     const source = fields[index];
-    if (!source) {
-      return;
-    }
-
     const copyName = source.name ? `${source.name} Copy` : "";
 
     const copy = {
