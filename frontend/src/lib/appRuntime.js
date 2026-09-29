@@ -1,38 +1,15 @@
 import { getActionToast, getDocumentUploadToast } from "./toastNotifications";
 
-export function createAppRuntimeCore({
-  apiBase,
-  setLatestResponse,
-  setLogLines,
-  toast,
-}) {
+export function createAppRuntimeCore({ apiBase, toast }) {
   const baseUrl = apiBase.replace(/\/+$/, "");
-
-  function addLog(message) {
-    const time = new Date().toLocaleTimeString();
-    setLogLines((prev) => [`[${time}] ${message}`, ...prev].slice(0, 80));
-  }
-
-  function showActionToast(action, outcome, options) {
-    const notification = getActionToast(action, outcome, options);
-    toast[notification.severity](notification.message);
-  }
-
-  function showDocumentUploadToast(options) {
-    showNotification(getDocumentUploadToast(options));
-  }
 
   function showNotification(notification) {
     toast[notification.severity](notification.message);
   }
 
-  function endpoint(path) {
-    return `${baseUrl}${path}`;
-  }
-
   async function request(path, options = {}) {
-    const { responseType, publishResponse = true, ...fetchOptions } = options;
-    const response = await fetch(endpoint(path), {
+    const { responseType, ...fetchOptions } = options;
+    const response = await fetch(`${baseUrl}${path}`, {
       ...fetchOptions,
       credentials: "include",
     });
@@ -72,7 +49,6 @@ export function createAppRuntimeCore({
       throw error;
     }
 
-    if (publishResponse && responseType !== "resource-json") setLatestResponse(data ?? rawText);
     if (responseType === "conditional-json" || responseType === "resource-json") {
       return {
         data,
@@ -85,12 +61,10 @@ export function createAppRuntimeCore({
   }
 
   return {
-    addLog,
-    endpoint,
     request,
-    showActionToast,
-    showDocumentUploadToast,
-    showNotification,
+    showActionToast: (action, outcome, options) =>
+      showNotification(getActionToast(action, outcome, options)),
+    showDocumentUploadToast: (options) => showNotification(getDocumentUploadToast(options)),
   };
 }
 

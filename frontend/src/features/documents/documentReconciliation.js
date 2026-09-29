@@ -175,7 +175,6 @@ export function createDocumentReconciliation({
         if (ctx.revision !== revision) { scheduleCountsRefresh(ctx); return; }
         publish(ctx, { totalDocuments: data.total, statusCounts: data.status_counts });
       } catch (error) {
-        emit(ctx, "onLog", `Refresh document counts failed: ${error.message}`);
         if (error.status === 403) emit(ctx, "onAccessDenied");
       }
     }, 150);
@@ -254,11 +253,9 @@ export function createDocumentReconciliation({
         statusCounts: !overlap && countsRequestId === ctx.countsRequest && data?.status_counts ? data.status_counts : snapshot.statusCounts,
         nextCursor: data?.next_cursor || null, hasMore: Boolean(data?.has_more),
       });
-      emit(ctx, "onResponse", data);
       if (overlap) { scheduleRefresh(ctx); scheduleCountsRefresh(ctx); }
     } catch (error) {
       if (isCurrent(ctx) && queryRevision === ctx.queryRevision && requestId === ctx.listRequest) {
-        emit(ctx, "onLog", `List documents failed: ${error.message}`);
         if (error.status === 403) emit(ctx, "onAccessDenied");
       }
     } finally {
@@ -311,7 +308,6 @@ export function createDocumentReconciliation({
     if (ctx.previews.has(id)) revokePreview(ctx.previews.get(id));
     ctx.previews.delete(id);
     cached("remove", ctx.workspaceId, id);
-    emit(ctx, "onResponse", null);
   }
 
   function ensureSelectedDetails() {
@@ -350,7 +346,6 @@ export function createDocumentReconciliation({
         ctx.hydrated.set(id, version(next));
         if (next.status === "completed") cached("store", ctx.workspaceId, next);
         publish(ctx);
-        emit(ctx, "onResponse", data);
         if (wasLive && TERMINAL_STATUSES.has(next.status)) emit(ctx, "onCapacityChange");
         return next;
       } catch (error) {
@@ -392,7 +387,6 @@ export function createDocumentReconciliation({
         return models;
       } catch (error) {
         if (error.status === 403) emit(ctx, "onAccessDenied");
-        emit(ctx, "onLog", `Load job filter options failed: ${error.message}`);
         return [];
       }
     })().finally(() => { ctx.modelsRequest = null; });
@@ -440,7 +434,6 @@ export function createDocumentReconciliation({
             source_preview_url: preview, queued_at: new Date().toISOString(),
           }, { countNew: true });
           publish(ctx, { selectedDocumentId: result.job_id });
-          emit(ctx, "onResponse", result);
           emit(ctx, "onCapacityChange");
           onProgress?.(entry.id, "success", "");
         } catch (error) {
@@ -448,7 +441,6 @@ export function createDocumentReconciliation({
           if (!acceptsBatch()) continue;
           if (preview) revokePreview(preview);
           onProgress?.(entry.id, "failed", error.message || "Queue failed");
-          emit(ctx, "onLog", `Queue failed for ${entry.file.name}: ${error.message}`);
           if (error.status === 403) emit(ctx, "onAccessDenied");
         }
       }

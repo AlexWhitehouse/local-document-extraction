@@ -1,47 +1,57 @@
-import { useEvaluations } from "./features/evaluations/useEvaluations.js";
-import { EvaluationsPage } from "./features/evaluations/EvaluationsPage.jsx";
 import React, { useMemo, useState } from "react";
-import { OnboardingTour } from "./features/onboarding/OnboardingTour.jsx";
 import { Toaster, toast } from "sonner";
 import { createRuntimeAuthClient } from "./lib/authClient";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
-import {
-  createAppRuntimeCore,
-  createWorkspaceRequestLayer,
-} from "./lib/appRuntime";
+import { createAppRuntimeCore, createWorkspaceRequestLayer } from "./lib/appRuntime";
 import { AuthScreen } from "./features/auth/AuthScreen.jsx";
-import { useAuthProfileController } from "./features/auth/useAuthProfileController.js";
+import {
+  ACCOUNT_PASSWORD_REQUIREMENTS,
+  useAuthProfileController,
+} from "./features/auth/useAuthProfileController.js";
 import { ApplicationAdminPage } from "./features/admin/ApplicationAdminPage.jsx";
 import { useApplicationAdminController } from "./features/admin/useApplicationAdminController.js";
-import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
-import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
-import {
-  DocumentPage,
-} from "./features/documents/DocumentPage.jsx";
 import { ContextSidebar } from "./features/context/ContextSidebar.jsx";
 import { DocumentContextList } from "./features/documents/DocumentContextList.jsx";
+import { DocumentPage } from "./features/documents/DocumentPage.jsx";
 import { DocumentUploadModal } from "./features/documents/DocumentUploadModal.jsx";
 import { createDocumentRequestAdapter } from "./features/documents/documentRequestAdapter.js";
 import { useDocumentController } from "./features/documents/useDocumentController.js";
-import {
-  MainLayout,
-  WorkspaceToolbar,
-} from "./features/layout/MainLayout.jsx";
+import { EvaluationsPage } from "./features/evaluations/EvaluationsPage.jsx";
+import { useEvaluations } from "./features/evaluations/useEvaluations.js";
+import { MainLayout, WorkspaceToolbar } from "./features/layout/MainLayout.jsx";
+import { OnboardingTour } from "./features/onboarding/OnboardingTour.jsx";
+import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
 import { TemplateContextList } from "./features/templates/TemplateContextList.jsx";
-import { TemplatePage } from "./features/templates/TemplatePage.jsx";
 import { TemplateGenerationModal } from "./features/templates/TemplateGenerationModal.jsx";
 import { TemplateJsonModal } from "./features/templates/TemplateJsonModal.jsx";
+import { TemplatePage } from "./features/templates/TemplatePage.jsx";
 import { useTemplateController } from "./features/templates/useTemplateController.js";
 import { WorkspaceContextList } from "./features/workspaces/WorkspaceContextList.jsx";
 import {
   AcceptedWorkspacePage,
   WorkspaceInvitationPage,
+  WorkspaceUserActionModal,
 } from "./features/workspaces/WorkspacePages.jsx";
-import {
-  useWorkspaceController,
-  workspaceUserActionLabel,
-} from "./features/workspaces/useWorkspaceController.js";
+import { useWorkspaceController } from "./features/workspaces/useWorkspaceController.js";
+import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
 import "./features/layout/StudioLayouts.css";
+
+const API_BASE = "/v1";
+
+// The template and auth controllers still report to a debug log that nothing displays.
+const discardLog = () => {};
+
+const PAGE_DESCRIPTIONS = {
+  workspace: "Your extraction environment, connections and people.",
+  templates: "Define what Studio should look for in each document.",
+};
+
+const CONTEXT_SIDEBAR_TITLES = {
+  documents: "Documents",
+  templates: "Templates",
+  admin: "Admin",
+  workspace: "Workspaces",
+};
 
 export function App({ configuration = DEFAULT_RUNTIME_CONFIGURATION }) {
   const [resetPasswordRoute, setResetPasswordRoute] = useState(() =>
@@ -61,10 +71,7 @@ export function App({ configuration = DEFAULT_RUNTIME_CONFIGURATION }) {
 }
 
 function AuthenticatedApp({ configuration }) {
-  const initialWorkspace = {};
-
-  const [apiBase] = useState("/v1");
-  const authClient = useMemo(() => createRuntimeAuthClient(apiBase), [apiBase]);
+  const authClient = useMemo(() => createRuntimeAuthClient(API_BASE), []);
   const {
     data: session,
     isPending: isSessionPending,
@@ -74,36 +81,25 @@ function AuthenticatedApp({ configuration }) {
   const [busy, setBusy] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
   const [isStoppingImpersonation, setIsStoppingImpersonation] = useState(false);
-  const [, setLogLines] = useState([]);
-  const [, setLatestResponse] = useState(null);
+  const [activePage, setActivePage] = useState("workspace");
 
-  const [activePage, setActivePage] = useState(() => getInitialActivePage());
-
-  const hasSession = Boolean(session?.user?.id);
   const sessionUserId = String(session?.user?.id || "").trim();
-  const sessionId = hasSession ? `${sessionUserId}:${session?.session?.id || ""}:${session?.session?.impersonatedBy || ""}` : "";
+  const hasSession = Boolean(session?.user?.id);
+  const impersonatedBy = String(session?.session?.impersonatedBy || "").trim();
+  const sessionId = hasSession ? `${sessionUserId}:${session.session?.id || ""}:${impersonatedBy}` : "";
   const sessionUserName = String(session?.user?.name || "").trim();
   const sessionUserEmail = String(session?.user?.email || "").trim();
-  const isImpersonating = Boolean(String(session?.session?.impersonatedBy || "").trim());
-  const impersonatedUserLabel = sessionUserEmail || sessionUserName || "this user";
+  const isImpersonating = Boolean(impersonatedBy);
   const isApplicationAdmin = String(session?.user?.role || "").trim() === "admin";
-  const adminVisiblePage = activePage === "admin" && !isApplicationAdmin ? "workspace" : activePage;
-  const runtimeCore = useMemo(() => createAppRuntimeCore({
-    apiBase,
-    setLatestResponse,
-    setLogLines,
-    toast,
-  }), [apiBase]);
-  const {
-    addLog,
-    request: coreRequest,
-    showActionToast,
-    showDocumentUploadToast,
-  } = runtimeCore;
+  const visiblePage = activePage === "admin" && !isApplicationAdmin ? "workspace" : activePage;
+  const maxSourceFileBytes = configuration.limits.maxSourceFileBytes;
+
+  const { request: coreRequest, showActionToast, showDocumentUploadToast } = useMemo(
+    () => createAppRuntimeCore({ apiBase: API_BASE, toast }),
+    [],
+  );
   const workspaceController = useWorkspaceController({
-    apiBase,
     coreRequest,
-    addLog,
     showActionToast,
     hasSession,
     sessionUserId,
@@ -116,37 +112,35 @@ function AuthenticatedApp({ configuration }) {
       evaluation.clear();
       templateController.actions.clearWorkspaceScopedTemplates();
       documentController.actions.clearWorkspaceScopedDocuments(options);
-      setLatestResponse(null);
     },
   });
-  const { workspaceId, hasApiAccess, isDeletingWorkspace, workspaceSelectionView } =
-    workspaceController.context;
-  const { request } = useMemo(() => createWorkspaceRequestLayer({
-    coreRequest,
-    hasSession,
-    workspaceId,
-    onForbiddenWorkspaceAccess:
-      workspaceController.actions.recoverForbiddenWorkspaceAccess,
-  }), [
-    coreRequest,
-    hasSession,
-    workspaceController.actions.recoverForbiddenWorkspaceAccess,
-    workspaceId,
-  ]);
+  const workspaceContext = workspaceController.context;
+  const { workspaceId, hasApiAccess, hasWorkspaceApiAccess, isWorkspaceInvitationSelected } =
+    workspaceContext;
+  const { recoverForbiddenWorkspaceAccess, refreshSelectedWorkspaceContext } =
+    workspaceController.actions;
+  const workspaceToolbar = workspaceController.toolbar;
+
+  const documentRequests = useMemo(() => {
+    const { request } = createWorkspaceRequestLayer({
+      coreRequest,
+      hasSession,
+      workspaceId,
+      onForbiddenWorkspaceAccess: recoverForbiddenWorkspaceAccess,
+    });
+    return { request, documents: createDocumentRequestAdapter({ request }) };
+  }, [coreRequest, hasSession, recoverForbiddenWorkspaceAccess, workspaceId]);
   const workspaceModel = useWorkspaceModelConfiguration({
-    coreRequest, workspaceId, sessionUserId,
-    role: workspaceController.context.selectedWorkspaceRole,
-    enabled: hasApiAccess && !workspaceController.context.isWorkspaceInvitationSelected,
+    coreRequest,
+    workspaceId,
+    sessionUserId,
+    role: workspaceContext.selectedWorkspaceRole,
+    enabled: hasApiAccess && !isWorkspaceInvitationSelected,
   });
-  const documentRequests = useMemo(
-    () => createDocumentRequestAdapter({ request }),
-    [request],
-  );
   const templateController = useTemplateController({
-    maxSourceFileBytes: configuration.limits.maxSourceFileBytes,
-    initialWorkspace,
-    request,
-    addLog,
+    maxSourceFileBytes,
+    request: documentRequests.request,
+    addLog: discardLog,
     showActionToast,
     hasApiAccess,
     workspaceId,
@@ -155,41 +149,37 @@ function AuthenticatedApp({ configuration }) {
     onActivePageChange: setActivePage,
   });
   const templates = templateController.templates;
-  const isEditingTemplate = templateController.templatePage.isEditingTemplate;
-  const workspaceContext = workspaceController.context;
-  const activeVisiblePage = adminVisiblePage;
-
   const documentController = useDocumentController({
-    maxSourceFileBytes: configuration.limits.maxSourceFileBytes,
-    apiBase,
-    initialWorkspace,
+    maxSourceFileBytes,
+    apiBase: API_BASE,
     templates,
     selectedUploadTemplateId: templateController.selectedUploadTemplateId,
     onSelectedUploadTemplateChange: templateController.setSelectedUploadTemplateId,
-    documentRequests,
-    addLog,
+    documentRequests: documentRequests.documents,
     showActionToast,
     showDocumentUploadToast,
     hasApiAccess,
-    hasWorkspaceApiAccess: workspaceSelectionView.hasWorkspaceApiAccess,
+    hasWorkspaceApiAccess,
     isAppBusy: busy,
-    isWorkspaceDeletionInProgress: isDeletingWorkspace,
+    isWorkspaceDeletionInProgress: workspaceContext.isDeletingWorkspace,
     workspaceId,
     sessionId,
-    setLatestResponse,
     onActivePageChange: setActivePage,
-    onWorkspaceCapacityRefresh:
-      workspaceController.actions.refreshSelectedWorkspaceContext,
+    onWorkspaceCapacityRefresh: refreshSelectedWorkspaceContext,
     modelReady: workspaceModel.ready,
     onModelConfigurationInvalidation: workspaceModel.invalidate,
-    onWorkspaceAccessRevalidation:
-      workspaceController.actions.recoverForbiddenWorkspaceAccess,
+    onWorkspaceAccessRevalidation: recoverForbiddenWorkspaceAccess,
   });
-  const evaluation = useEvaluations({ workspaceId, sessionId, enabled: hasApiAccess && !workspaceContext.isWorkspaceInvitationSelected,
-    active: activePage === "evaluations", onForbidden: workspaceController.actions.recoverForbiddenWorkspaceAccess });
-  const documentCount = documentController.toolbar.documentCount;
-  const selectedDocument = documentController.documentPage.selectedDocument;
-  const { documentStatusMetrics } = documentController.metrics;
+  const evaluation = useEvaluations({
+    workspaceId,
+    sessionId,
+    enabled: hasApiAccess && !isWorkspaceInvitationSelected,
+    active: activePage === "evaluations",
+    onForbidden: recoverForbiddenWorkspaceAccess,
+  });
+  const documentToolbar = documentController.toolbar;
+  const documentStatusCounts = documentController.statusCounts;
+
   async function handleImpersonationStarted() {
     workspaceController.actions.clearSessionWorkspaceData();
     await refetchSession();
@@ -207,9 +197,9 @@ function AuthenticatedApp({ configuration }) {
       workspaceController.actions.clearSessionWorkspaceData();
       await refetchSession();
       setActivePage("admin");
-      showActionToast?.("applicationUser.stopImpersonating", "success");
-    } catch (error) {
-      showActionToast?.("applicationUser.stopImpersonating", "failure");
+      showActionToast("applicationUser.stopImpersonating", "success");
+    } catch {
+      showActionToast("applicationUser.stopImpersonating", "failure");
     } finally {
       setIsStoppingImpersonation(false);
     }
@@ -217,44 +207,30 @@ function AuthenticatedApp({ configuration }) {
 
   const adminController = useApplicationAdminController({
     authClient,
-    isActive: activeVisiblePage === "admin",
+    isActive: visiblePage === "admin",
     sessionUserId,
     showActionToast,
     onImpersonationStarted: handleImpersonationStarted,
     onImpersonationStarting: documentController.actions.cancelPendingSubmissions,
   });
-  const workspaceSidebar = workspaceController.sidebar;
-  const workspaceToolbar = workspaceController.toolbar;
-  const pageTitle = activeVisiblePage === "evaluations" ? "Evaluations" : activeVisiblePage === "workspace"
-    ? workspaceToolbar.workspaceLabel
-    : activeVisiblePage === "templates"
-      ? templateController.templatePage.templateName || "Create Template"
-      : selectedDocument?.source_name || "Documents";
-  const pageDescription = activeVisiblePage === "evaluations" ? "Compare models and Template variants on one document." : activeVisiblePage === "workspace"
-    ? "Your extraction environment, connections and people."
-    : activeVisiblePage === "templates"
-      ? "Define what Studio should look for in each document."
-      : documentController.documentPage.selectedDocumentTemplateName || "Select a document to see its extraction results.";
-  const workspaceUserActionModal = workspaceController.userActionModal;
-  const authProfileController = useAuthProfileController({
+  const { authScreen, profileMenu } = useAuthProfileController({
     authOptions: configuration.auth,
     authClient,
     refetchSession,
-    addLog,
+    addLog: discardLog,
     hasSession,
     sessionUserName,
     sessionUserEmail,
     busy,
     setBusy,
-    onClearWorkspaceScopedTemplates:
-      templateController.actions.clearWorkspaceScopedTemplates,
-    onClearWorkspaceScopedDocuments:
-      documentController.actions.clearWorkspaceScopedDocuments,
+    onClearWorkspaceScopedTemplates: templateController.actions.clearWorkspaceScopedTemplates,
+    onClearWorkspaceScopedDocuments: documentController.actions.clearWorkspaceScopedDocuments,
     onClearSessionWorkspaceData: workspaceController.actions.clearSessionWorkspaceData,
-    onSessionChanging: () => { evaluation.clear(); documentController.actions.cancelPendingSubmissions(); },
+    onSessionChanging: () => {
+      evaluation.clear();
+      documentController.actions.cancelPendingSubmissions();
+    },
   });
-  const { authScreen, profileMenu } = authProfileController;
-
 
   function handleSidebarNavigation(pageId) {
     if (pageId === "admin" && !isApplicationAdmin) {
@@ -263,11 +239,9 @@ function AuthenticatedApp({ configuration }) {
     }
 
     setActivePage(pageId);
-    if (pageId !== "templates") {
-      return;
+    if (pageId === "templates") {
+      templateController.actions.handleTemplateNavigation();
     }
-
-    templateController.actions.handleTemplateNavigation();
   }
 
   if (isSessionPending) {
@@ -275,33 +249,39 @@ function AuthenticatedApp({ configuration }) {
   }
 
   if (!hasSession) {
-    return (
-      <AuthScreen {...authScreen} />
-    );
+    return <AuthScreen {...authScreen} />;
   }
+
+  const selectedDocument = documentController.documentPage.selectedDocument;
+  const pageTitle =
+    visiblePage === "workspace"
+      ? workspaceToolbar.workspaceLabel
+      : visiblePage === "templates"
+        ? templateController.templatePage.templateName || "Create Template"
+        : selectedDocument?.source_name || "Documents";
+  const pageDescription =
+    PAGE_DESCRIPTIONS[visiblePage] ||
+    documentController.documentPage.selectedDocumentTemplateName ||
+    "Select a document to see its extraction results.";
 
   return (
     <>
       <Toaster richColors />
       <MainLayout
-        contentClassName={activeVisiblePage === "admin" ? "" : `studio-main studio-main-${activeVisiblePage}`}
-        activePage={activeVisiblePage}
+        contentClassName={visiblePage === "admin" ? "" : `studio-main studio-main-${visiblePage}`}
+        activePage={visiblePage}
         counts={{
           workspace: workspaceContext.availableWorkspaces.length,
           templates: templates.length,
-          documents: documentCount,
+          documents: documentToolbar.documentCount,
         }}
-        uploadAriaDisabled={busy || !workspaceContext.hasWorkspaceApiAccess || !workspaceModel.ready}
-        isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess || !workspaceModel.ready}
+        uploadAriaDisabled={busy || !hasWorkspaceApiAccess || !workspaceModel.ready}
+        isUploadDisabled={!hasWorkspaceApiAccess || !workspaceModel.ready}
         showAdminNavigation={isApplicationAdmin}
         impersonationSlot={
           isImpersonating ? (
-            <div
-              role="status"
-              aria-label="Impersonation mode"
-              className="impersonation-banner"
-            >
-              <strong>Impersonating {impersonatedUserLabel}</strong>
+            <div role="status" aria-label="Impersonation mode" className="impersonation-banner">
+              <strong>Impersonating {sessionUserEmail || sessionUserName || "this user"}</strong>
               <button
                 type="button"
                 className="secondary"
@@ -314,232 +294,174 @@ function AuthenticatedApp({ configuration }) {
           ) : null
         }
         onNavigate={handleSidebarNavigation}
-        onUploadDocument={documentController.toolbar.onUploadDocument}
-        profileSlot={!isImpersonating ? (
-          <OnboardingTour
-            key={sessionUserId}
-            userId={sessionUserId}
-            ready={workspaceContext.hasWorkspaceApiAccess}
-            workspaceId={workspaceId}
-            workspace={workspaceController.acceptedPage}
-            template={templateController.templatePage}
-            model={workspaceModel}
-            upload={documentController.uploadModal}
-            busy={busy}
-            onActiveChange={setIsTourActive}
-            returnFocusRef={profileMenu.panelRef}
-            renderProfile={(tourAction) => (
-              <ProfileMenu ref={profileMenu.panelRef} {...profileMenu} tourAction={tourAction} />
-            )}
-            onStart={() => {
-              if (profileMenu.isOpen) profileMenu.onToggle();
-              setActivePage("workspace");
-              documentController.uploadModal.onClose();
-            }}
-          />
-        ) : (
-          <ProfileMenu ref={profileMenu.panelRef} {...profileMenu} />
-        )}
-        contextSidebar={activeVisiblePage === "evaluations" ? null :
-          <ContextSidebar
-            title={
-              activePage === "documents"
-                ? "Documents"
-                : activePage === "templates"
-                  ? "Templates"
-                  : activeVisiblePage === "admin"
-                    ? "Admin"
-                    : "Workspaces"
-            }
-            footer={
-              activeVisiblePage === "admin" ? null : activePage === "documents" ? (
-                <>
-                  {documentController.toolbar.selectedDocumentCount ? (
-                    <span className="status-chip good">
-                      Selected {documentController.toolbar.selectedDocumentCount}
+        onUploadDocument={documentToolbar.onUploadDocument}
+        profileSlot={
+          isImpersonating ? (
+            <ProfileMenu ref={profileMenu.panelRef} {...profileMenu} />
+          ) : (
+            <OnboardingTour
+              key={sessionUserId}
+              userId={sessionUserId}
+              ready={hasWorkspaceApiAccess}
+              workspaceId={workspaceId}
+              workspace={workspaceController.acceptedPage}
+              template={templateController.templatePage}
+              model={workspaceModel}
+              upload={documentController.uploadModal}
+              busy={busy}
+              onActiveChange={setIsTourActive}
+              returnFocusRef={profileMenu.panelRef}
+              renderProfile={(tourAction) => (
+                <ProfileMenu ref={profileMenu.panelRef} {...profileMenu} tourAction={tourAction} />
+              )}
+              onStart={() => {
+                if (profileMenu.isOpen) profileMenu.onToggle();
+                setActivePage("workspace");
+                documentController.uploadModal.onClose();
+              }}
+            />
+          )
+        }
+        contextSidebar={
+          visiblePage === "evaluations" ? null : (
+            <ContextSidebar
+              title={CONTEXT_SIDEBAR_TITLES[visiblePage]}
+              footer={
+                visiblePage === "admin" ? null : visiblePage === "documents" ? (
+                  <>
+                    {documentToolbar.selectedDocumentCount ? (
+                      <span className="status-chip good">
+                        Selected {documentToolbar.selectedDocumentCount}
+                      </span>
+                    ) : null}
+                    <span className="status-chip" title="All queued documents in this workspace">
+                      Queued {documentStatusCounts.queued}
                     </span>
-                  ) : null}
-                  <span className="status-chip" title="All queued documents in this workspace">
-                    Queued {documentStatusMetrics.queued}
-                  </span>
-                  <span className="status-chip good" title="All completed documents in this workspace">
-                    Completed {documentStatusMetrics.completed}
-                  </span>
-                </>
-              ) : activePage === "templates" ? (
-                <>
-                  <span className="status-chip">Templates {templates.length}</span>
-                  <span className="status-chip good">
-                    {isEditingTemplate ? "Editing" : "Draft"}
-                  </span>
-                </>
+                    <span className="status-chip good" title="All completed documents in this workspace">
+                      Completed {documentStatusCounts.completed}
+                    </span>
+                  </>
+                ) : visiblePage === "templates" ? (
+                  <>
+                    <span className="status-chip">Templates {templates.length}</span>
+                    <span className="status-chip good">
+                      {templateController.templatePage.isEditingTemplate ? "Editing" : "Draft"}
+                    </span>
+                  </>
+                ) : (
+                  <WorkspaceSidebarFooter context={workspaceContext} />
+                )
+              }
+            >
+              {visiblePage === "admin" ? (
+                <AdminContextList />
+              ) : visiblePage === "documents" ? (
+                <DocumentContextList {...documentController.contextList} />
+              ) : visiblePage === "templates" ? (
+                <TemplateContextList {...templateController.contextList} />
               ) : (
-                <>
-                  <span className="status-chip">
-                    Workspaces {workspaceContext.isWorkspaceContextLoading || workspaceContext.hasWorkspaceResolutionError ? 0 : workspaceContext.availableWorkspaces.length}
-                  </span>
-                  <span
-                    className={`status-chip ${
-                      workspaceContext.hasWorkspaceApiAccess ? "good" : "warn"
-                    }`}
-                  >
-                    {workspaceContext.isWorkspaceContextLoading
-                      ? "Loading"
-                      : workspaceContext.hasWorkspaceResolutionError
-                        ? "Resolution Error"
-                        : workspaceContext.isWorkspaceInvitationSelected
-                          ? "Invitation Pending"
-                          : `API ${
-                              workspaceContext.hasWorkspaceApiAccess
-                                ? "Ready"
-                                : "Missing"
-                            }`}
-                  </span>
-                </>
-              )
-            }
-          >
-            {activeVisiblePage === "admin" ? (
-              <AdminContextList />
-            ) : activePage === "documents" ? (
-              <DocumentContextList documentLabels {...documentController.contextList} />
-            ) : activePage === "templates" ? (
-              <TemplateContextList {...templateController.contextList} />
-            ) : (
-              <WorkspaceContextList {...workspaceSidebar} />
-            )}
-          </ContextSidebar>
+                <WorkspaceContextList {...workspaceController.sidebar} />
+              )}
+            </ContextSidebar>
+          )
         }
         modalSlot={
           <>
-            {workspaceUserActionModal.target ? (
-              <div
-                className="modal-backdrop"
-                onClick={workspaceUserActionModal.onClose}
-              >
-                <div
-                  className="modal-card workspace-user-action-modal"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Manage workspace user"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="workspace-head">
-                    <h2>Manage User</h2>
-                    <p>
-                      {String(workspaceUserActionModal.target.name || "Unknown User")} -{" "}
-                      {formatRoleLabel(workspaceUserActionModal.target.role)}
-                    </p>
-                  </div>
-                  {workspaceUserActionModal.options.length ? (
-                    <div className="workspace-user-action-list">
-                      {workspaceUserActionModal.options.map((action) => (
-                        <button
-                          key={action}
-                          type="button"
-                          className={action === "remove_user" ? "danger" : "ghost"}
-                          disabled={busy}
-                          onClick={() => workspaceUserActionModal.onApplyAction(action)}
-                        >
-                          {workspaceUserActionLabel(action)}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="muted">No actions available for this user.</p>
-                  )}
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={workspaceUserActionModal.onClose}
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
+            <WorkspaceUserActionModal {...workspaceController.userActionModal} />
             <TemplateGenerationModal {...templateController.generationModal} />
-            <TemplateJsonModal
-              {...templateController.jsonModal}
-            />
-
+            <TemplateJsonModal {...templateController.jsonModal} />
             <DocumentUploadModal {...documentController.uploadModal} />
           </>
         }
       >
-        {activeVisiblePage !== "admin" && activeVisiblePage !== "evaluations" ? (
-          <>
-            <WorkspaceToolbar
-              activePage={activeVisiblePage}
-              pageTitle={pageTitle}
-              pageDescription={pageDescription}
-              workspaceLabel={
-                workspaceToolbar.workspaceLabel
-              }
-              isWorkspaceInvitationSelected={workspaceContext.isWorkspaceInvitationSelected}
-              hasApiAccess={hasApiAccess}
-              isUploadDisabled={!workspaceContext.hasWorkspaceApiAccess}
-              workspaceId={workspaceToolbar.workspaceId}
-              workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
-              isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
-              isWorkspaceBusy={busy}
-              isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
-              isDeletingDocument={documentController.toolbar.isDeletingDocument}
-              isExportingDocuments={documentController.toolbar.isExportingDocuments}
-              selectedDocumentId={documentController.toolbar.selectedDocumentId}
-              selectedDocumentCount={
-                documentController.toolbar.selectedDocumentCount
-              }
-              exportableDocumentCount={
-                documentController.toolbar.exportableDocumentCount
-              }
-              updateTemplateId={templateController.toolbar.selectedTemplateId}
-              onAutoGenerateTemplate={templateController.toolbar.onAutoGenerateTemplate}
-              onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
-              onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
-              onExportDocuments={documentController.toolbar.onExportDocuments}
-              onUploadDocument={documentController.toolbar.onUploadDocument}
-              onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
-              onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
-              onDeleteDocument={documentController.toolbar.onDeleteDocument}
-            />
-          </>
+        {visiblePage !== "admin" && visiblePage !== "evaluations" ? (
+          <WorkspaceToolbar
+            activePage={visiblePage}
+            pageTitle={pageTitle}
+            pageDescription={pageDescription}
+            workspaceLabel={workspaceToolbar.workspaceLabel}
+            isWorkspaceInvitationSelected={isWorkspaceInvitationSelected}
+            hasApiAccess={hasApiAccess}
+            isUploadDisabled={!hasWorkspaceApiAccess}
+            workspaceId={workspaceToolbar.workspaceId}
+            workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
+            isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
+            isWorkspaceBusy={busy}
+            isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
+            isDeletingDocument={documentToolbar.isDeletingDocument}
+            isExportingDocuments={documentToolbar.isExportingDocuments}
+            selectedDocumentId={documentToolbar.selectedDocumentId}
+            selectedDocumentCount={documentToolbar.selectedDocumentCount}
+            exportableDocumentCount={documentToolbar.exportableDocumentCount}
+            updateTemplateId={templateController.toolbar.selectedTemplateId}
+            onAutoGenerateTemplate={templateController.toolbar.onAutoGenerateTemplate}
+            onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
+            onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
+            onExportDocuments={documentToolbar.onExportDocuments}
+            onUploadDocument={documentToolbar.onUploadDocument}
+            onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
+            onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
+            onDeleteDocument={documentToolbar.onDeleteDocument}
+          />
         ) : null}
 
-          {activeVisiblePage === "admin" ? (
-            <ApplicationAdminPage admin={adminController} />
-          ) : null}
+        {visiblePage === "admin" ? <ApplicationAdminPage admin={adminController} /> : null}
 
-        {activeVisiblePage === "workspace" ? (
-            workspaceContext.isWorkspaceInvitationSelected && workspaceContext.selectedWorkspaceInvitation ? (
-              <WorkspaceInvitationPage
-                {...workspaceController.invitationPage}
-              />
-            ) : (
-              <AcceptedWorkspacePage
-                {...workspaceController.acceptedPage}
-                workspaceId={workspaceId}
-                workspaceRole={workspaceContext.selectedWorkspaceRole}
-                modelConfiguration={workspaceModel}
-                modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
-              />
-            )
-          ) : null}
+        {visiblePage === "workspace" ? (
+          isWorkspaceInvitationSelected && workspaceContext.selectedWorkspaceInvitation ? (
+            <WorkspaceInvitationPage {...workspaceController.invitationPage} />
+          ) : (
+            <AcceptedWorkspacePage
+              {...workspaceController.acceptedPage}
+              workspaceId={workspaceId}
+              workspaceRole={workspaceContext.selectedWorkspaceRole}
+              modelConfiguration={workspaceModel}
+              modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
+            />
+          )
+        ) : null}
 
-          {activeVisiblePage === "templates" ? (
-            <TemplatePage {...templateController.templatePage} />
-          ) : null}
-          {activeVisiblePage === "evaluations" ? <EvaluationsPage evaluation={evaluation} templates={templates} enabled={hasApiAccess} onTemplateSaved={templateController.actions.listTemplates}
-            maxSourceFileBytes={workspaceContext.availableWorkspaces.find(w => w.id === workspaceId)?.max_source_file_bytes ?? configuration.limits.maxSourceFileBytes}
+        {visiblePage === "templates" ? <TemplatePage {...templateController.templatePage} /> : null}
+        {visiblePage === "evaluations" ? (
+          <EvaluationsPage
+            evaluation={evaluation}
+            templates={templates}
+            enabled={hasApiAccess}
+            onTemplateSaved={templateController.actions.listTemplates}
+            maxSourceFileBytes={maxSourceFileBytes}
             suggestedModels={documentController.contextList.availableModels}
-            workspaceLabel={workspaceToolbar.workspaceLabel} /> : null}
-          {activeVisiblePage === "documents" ? (
-            <DocumentPage {...documentController.documentPage} />
-          ) : null}
+            workspaceLabel={workspaceToolbar.workspaceLabel}
+          />
+        ) : null}
+        {visiblePage === "documents" ? <DocumentPage {...documentController.documentPage} /> : null}
       </MainLayout>
+    </>
+  );
+}
+
+function WorkspaceSidebarFooter({ context }) {
+  const {
+    availableWorkspaces,
+    hasWorkspaceApiAccess,
+    hasWorkspaceResolutionError,
+    isWorkspaceContextLoading,
+    isWorkspaceInvitationSelected,
+  } = context;
+  const status = isWorkspaceContextLoading
+    ? "Loading"
+    : hasWorkspaceResolutionError
+      ? "Resolution Error"
+      : isWorkspaceInvitationSelected
+        ? "Invitation Pending"
+        : `API ${hasWorkspaceApiAccess ? "Ready" : "Missing"}`;
+
+  return (
+    <>
+      <span className="status-chip">
+        Workspaces{" "}
+        {isWorkspaceContextLoading || hasWorkspaceResolutionError ? 0 : availableWorkspaces.length}
+      </span>
+      <span className={`status-chip ${hasWorkspaceApiAccess ? "good" : "warn"}`}>{status}</span>
     </>
   );
 }
@@ -551,13 +473,12 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
-  const authClient = useMemo(() => createRuntimeAuthClient("/v1"), []);
+  const authClient = useMemo(() => createRuntimeAuthClient(API_BASE), []);
   const authProfileController = useAuthProfileController({
     authOptions,
     authClient,
     refetchSession: async () => {},
-    request: async () => {},
-    addLog: () => {},
+    addLog: discardLog,
     initialAuthMode: "reset-request",
     hasSession: false,
     sessionUserName: "",
@@ -573,8 +494,10 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
     return <AuthScreen {...authProfileController.authScreen} />;
   }
 
-  if (resetState?.token) {
-    const unmetPasswordRequirements = getUnmetAccountPasswordRequirements(newPassword);
+  if (resetState.token) {
+    const unmetPasswordRequirements = ACCOUNT_PASSWORD_REQUIREMENTS
+      .filter((requirement) => !requirement.test(newPassword))
+      .map((requirement) => requirement.label);
     const shouldShowPasswordRequirements = passwordTouched || submitAttempted;
     const hasPasswordMismatch =
       confirmNewPassword.length > 0 && newPassword !== confirmNewPassword;
@@ -611,7 +534,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
         setSubmitAttempted(false);
         window.history.replaceState(null, "", "/");
         onResetComplete();
-      } catch (error) {
+      } catch {
         toast.error("Password reset failed. Please request a new reset link.");
       } finally {
         setBusy(false);
@@ -655,31 +578,22 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
                     value={confirmNewPassword}
                     aria-invalid={hasPasswordMismatch}
                     className={hasPasswordMismatch ? "auth-input-error" : ""}
-                    onChange={(event) =>
-                      setConfirmNewPassword(event.target.value)
-                    }
+                    onChange={(event) => setConfirmNewPassword(event.target.value)}
                     placeholder="Repeat password"
                   />
                 </label>
               </div>
               {hasPasswordMismatch ? (
-                <p className="auth-password-mismatch">
-                  Passwords do not match.
-                </p>
+                <p className="auth-password-mismatch">Passwords do not match.</p>
               ) : null}
-              {shouldShowPasswordRequirements &&
-              unmetPasswordRequirements.length > 0 ? (
+              {shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0 ? (
                 <ul className="auth-password-requirements">
                   {unmetPasswordRequirements.map((requirement) => (
                     <li key={requirement}>{requirement}</li>
                   ))}
                 </ul>
               ) : null}
-              <button
-                type="submit"
-                className="auth-primary-action"
-                disabled={busy}
-              >
+              <button type="submit" className="auth-primary-action" disabled={busy}>
                 Set new password
               </button>
             </form>
@@ -689,14 +603,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
     );
   }
 
-  const title =
-    resetState === "token-error"
-      ? "Reset link has expired or is invalid"
-      : "Reset link is missing or invalid";
-  const message =
-    resetState === "token-error"
-      ? "This Account password reset link can no longer be used."
-      : "Request a new Account password reset link to continue.";
+  const isTokenError = resetState.error === "token";
 
   return (
     <>
@@ -709,8 +616,16 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
             <p>Use Account password reset to recover access to your account.</p>
           </div>
           <div className="panel auth-verification-prompt" role="status">
-            <h2>{title}</h2>
-            <p>{message}</p>
+            <h2>
+              {isTokenError
+                ? "Reset link has expired or is invalid"
+                : "Reset link is missing or invalid"}
+            </h2>
+            <p>
+              {isTokenError
+                ? "This Account password reset link can no longer be used."
+                : "Request a new Account password reset link to continue."}
+            </p>
             <button
               type="button"
               className="auth-primary-action"
@@ -733,62 +648,20 @@ function getAccountPasswordResetRoute(location) {
 
   const params = new URLSearchParams(location.search);
   if (params.has("error")) {
-    return "token-error";
+    return { error: "token" };
   }
-  if (!params.get("token")) {
-    return "missing-token";
-  }
-  return { token: params.get("token") };
+  const token = params.get("token");
+  return token ? { token } : { error: "missing-token" };
 }
 
 function AdminContextList() {
-  const items = [
-    {
-      id: "accounts",
-      title: "Account Management",
-      summary: "Users, roles, bans, and impersonation",
-      meta: "Application-wide",
-    },
-  ];
-
   return (
     <div className="context-list admin-context-list">
-      {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className="context-item active"
-        >
-          <strong>{item.title}</strong>
-          <span>{item.summary}</span>
-          <span>{item.meta}</span>
-        </button>
-      ))}
+      <button type="button" className="context-item active">
+        <strong>Account Management</strong>
+        <span>Users, roles, bans, and impersonation</span>
+        <span>Application-wide</span>
+      </button>
     </div>
   );
-}
-
-function getInitialActivePage() {
-  return "workspace";
-}
-
-function getUnmetAccountPasswordRequirements(password) {
-  return [
-    { label: "At least 8 characters", test: password.length >= 8 },
-    { label: "One uppercase letter", test: /[A-Z]/.test(password) },
-    { label: "One number", test: /[0-9]/.test(password) },
-    { label: "One special character", test: /[^A-Za-z0-9]/.test(password) },
-  ]
-    .filter((requirement) => !requirement.test)
-    .map((requirement) => requirement.label);
-}
-
-function formatRoleLabel(value) {
-  const role = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (!role) {
-    return "-";
-  }
-  return role.charAt(0).toUpperCase() + role.slice(1);
 }

@@ -10,12 +10,9 @@ describe("app runtime requests", () => {
     vi.restoreAllMocks();
   });
 
-  it("sends authenticated Workspace requests with session credentials and records the response", async () => {
-    const setLatestResponse = vi.fn();
+  it("sends authenticated Workspace requests with session credentials", async () => {
     const core = createAppRuntimeCore({
       apiBase: "/v1/",
-      setLatestResponse,
-      setLogLines: vi.fn(),
       toast: { success: vi.fn(), error: vi.fn() },
     });
     const runtime = createWorkspaceRequestLayer({
@@ -41,15 +38,11 @@ describe("app runtime requests", () => {
     });
     expect(options.headers.get("x-workspace-id")).toBe("ws_1");
     expect(data).toEqual({ templates: [{ id: "tpl_1" }] });
-    expect(setLatestResponse).toHaveBeenCalledWith({ templates: [{ id: "tpl_1" }] });
   });
 
-  it("returns binary responses without decoding or recording workbook bytes", async () => {
-    const setLatestResponse = vi.fn();
+  it("returns binary responses without decoding workbook bytes", async () => {
     const core = createAppRuntimeCore({
       apiBase: "/v1",
-      setLatestResponse,
-      setLogLines: vi.fn(),
       toast: { success: vi.fn(), error: vi.fn() },
     });
     globalThis.fetch = vi.fn().mockResolvedValue(
@@ -70,15 +63,11 @@ describe("app runtime requests", () => {
     });
     expect(await result.blob.text()).toBe("xlsx-bytes");
     expect(result.headers.get("x-exported-job-count")).toBe("2");
-    expect(setLatestResponse).not.toHaveBeenCalled();
   });
 
   it("treats a conditional 304 as a successful header-only response", async () => {
-    const setLatestResponse = vi.fn();
     const core = createAppRuntimeCore({
       apiBase: "/v1",
-      setLatestResponse,
-      setLogLines: vi.fn(),
       toast: { success: vi.fn(), error: vi.fn() },
     });
     globalThis.fetch = vi.fn().mockResolvedValue(
@@ -92,13 +81,11 @@ describe("app runtime requests", () => {
 
     expect(result).toMatchObject({ data: null, notModified: true, status: 304 });
     expect(result.headers.get("etag")).toBe('W/"job-v1-tag"');
-    expect(setLatestResponse).not.toHaveBeenCalled();
   });
-  it("lets Document reconciliation own response publication and forbidden-access effects", async () => {
-    const setLatestResponse = vi.fn();
+  it("lets Document reconciliation own forbidden-access effects", async () => {
     const onForbiddenWorkspaceAccess = vi.fn();
     const core = createAppRuntimeCore({
-      apiBase: "/v1", setLatestResponse, setLogLines: vi.fn(),
+      apiBase: "/v1",
       toast: { success: vi.fn(), error: vi.fn() },
     });
     const runtime = createWorkspaceRequestLayer({
@@ -110,10 +97,8 @@ describe("app runtime requests", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: "forbidden" }), { status: 403 }));
     await documents.listDocuments();
     await expect(documents.getDocument("job_1")).rejects.toMatchObject({ status: 403 });
-    expect(setLatestResponse).not.toHaveBeenCalled();
     expect(onForbiddenWorkspaceAccess).not.toHaveBeenCalled();
     for (const [, options] of globalThis.fetch.mock.calls) {
-      expect(options).not.toHaveProperty("publishResponse");
       expect(options).not.toHaveProperty("recoverForbiddenAccess");
       expect(options.headers.get("x-workspace-id")).toBe("ws_1");
     }

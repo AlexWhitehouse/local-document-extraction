@@ -27,7 +27,7 @@ function setup(options = {}) {
     deleteDocument: vi.fn(async () => ({ deleted: true })),
     exportDocuments: vi.fn(async () => ({ blob: new Blob() })),
   };
-  const callbacks = { onResponse: vi.fn(), onAccessDenied: vi.fn(), onCapacityChange: vi.fn(), onLog: vi.fn() };
+  const callbacks = { onAccessDenied: vi.fn(), onCapacityChange: vi.fn() };
   const module = createDocumentReconciliation({ cache, uploadConcurrency: 1, ...options });
   const configure = (patch = {}) => module.configure({ sessionId: "session-a", workspaceId: "workspace-a", enabled: true, requests, callbacks, ...patch });
   configure();
@@ -329,9 +329,8 @@ describe("Document reconciliation", () => {
     deleted.resolve({ deleted: true });
     await Promise.all(pending);
     expect(snapshot()).toMatchObject({ documents: [], availableModels: [], totalDocuments: 0 });
-    expect(callbacks.onResponse).not.toHaveBeenCalled();
+    expect(callbacks.onCapacityChange).not.toHaveBeenCalled();
     expect(callbacks.onAccessDenied).not.toHaveBeenCalled();
-    expect(callbacks.onLog).not.toHaveBeenCalled();
     expect(onComplete).not.toHaveBeenCalled();
     expect(cache.get("workspace-a", "a")).toBeNull();
   });
@@ -352,7 +351,7 @@ describe("Document reconciliation", () => {
     expect(nextRequests.submitDocument).not.toHaveBeenCalled();
     expect(onComplete).not.toHaveBeenCalled();
     expect(onProgress).toHaveBeenCalledTimes(1);
-    expect(callbacks.onResponse).not.toHaveBeenCalled();
+    expect(callbacks.onCapacityChange).not.toHaveBeenCalled();
     expect(createPreview).not.toHaveBeenCalled();
     expect(snapshot().documents).toEqual([]);
   });
@@ -373,7 +372,7 @@ describe("Document reconciliation", () => {
     await batch;
     expect(requests.submitDocument).toHaveBeenCalledTimes(1);
     expect(onComplete).not.toHaveBeenCalled();
-    expect(callbacks.onResponse).not.toHaveBeenCalled();
+    expect(callbacks.onCapacityChange).not.toHaveBeenCalled();
     expect(snapshot()).toMatchObject({ documents: [], uploading: false });
   });
 
