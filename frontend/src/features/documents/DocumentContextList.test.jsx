@@ -11,7 +11,7 @@ describe("DocumentContextList", () => {
     const props = { search: "", documents, selectedDocumentId: "job_0", selectedDocumentIds: ["job_500"], onSelectDocument, onToggleAllDocumentSelections, onSearchChange() {}, onLoadMoreDocuments() {} };
     const { container, rerender } = render(<DocumentContextList {...props} />);
     expect(container.querySelectorAll('[role="listitem"]').length).toBeLessThan(30);
-    fireEvent.click(within(container).getByRole("checkbox", { name: "Select all available jobs" }));
+    fireEvent.click(within(container).getByRole("checkbox", { name: "Select all available documents" }));
     expect(onToggleAllDocumentSelections.mock.lastCall[0]).toHaveLength(1000);
     fireEvent.keyDown(within(container).getByRole("button", { name: /invoice-0\.pdf/ }), { key: "End" });
     expect(onSelectDocument).toHaveBeenLastCalledWith("job_999");
@@ -19,7 +19,7 @@ describe("DocumentContextList", () => {
     expect(within(container).getByRole("button", { name: /invoice-999\.pdf/ })).toBe(document.activeElement);
     const list = container.querySelector(".context-list");
     fireEvent.scroll(list, { target: { scrollTop: 500 * 60 } });
-    expect(within(container).getByRole("checkbox", { name: "Select job job_500" }).checked).toBe(true);
+    expect(within(container).getByRole("checkbox", { name: "Select document job_500" }).checked).toBe(true);
     expect(container.querySelectorAll('[role="listitem"]').length).toBeLessThan(30);
   });
   it("uses the document status to colour each row's left edge", () => {
@@ -53,7 +53,7 @@ describe("DocumentContextList", () => {
     expect(rowFor("failed.pdf").classList.contains("active")).toBe(true);
   });
 
-  it("selects and deselects all available jobs", () => {
+  it("selects and deselects all available documents", () => {
     const documents = [
       {
         job_id: "job_1",
@@ -85,7 +85,7 @@ describe("DocumentContextList", () => {
     );
 
     const selectAll = within(container).getByRole("checkbox", {
-      name: "Select all available jobs",
+      name: "Select all available documents",
     });
     expect(selectAll.indeterminate).toBe(true);
     fireEvent.click(selectAll);
@@ -101,7 +101,7 @@ describe("DocumentContextList", () => {
       />,
     );
     const deselectAll = within(container).getByRole("checkbox", {
-      name: "Deselect all available jobs",
+      name: "Deselect all available documents",
     });
     expect(deselectAll.checked).toBe(true);
     fireEvent.click(deselectAll);
@@ -131,10 +131,10 @@ describe("DocumentContextList", () => {
     );
 
     expect(
-      within(container).getByRole("checkbox", { name: "Deselect all available jobs" }).disabled,
+      within(container).getByRole("checkbox", { name: "Deselect all available documents" }).disabled,
     ).toBe(true);
     expect(
-      within(container).getByRole("checkbox", { name: "Select job job_1" }).disabled,
+      within(container).getByRole("checkbox", { name: "Select document job_1" }).disabled,
     ).toBe(true);
   });
 
@@ -162,7 +162,7 @@ describe("DocumentContextList", () => {
     );
     const view = within(container);
 
-    fireEvent.click(view.getByRole("button", { name: "Advanced job filters" }));
+    fireEvent.click(view.getByRole("button", { name: "Advanced document filters" }));
     expect(view.getByRole("dialog", { name: "Advanced filters" })).toBeTruthy();
     fireEvent.change(view.getByLabelText("Date from"), {
       target: { value: "2026-08-01" },
@@ -193,7 +193,7 @@ describe("DocumentContextList", () => {
       />,
     );
     fireEvent.click(
-      view.getByRole("button", { name: "Advanced job filters, 3 active" }),
+      view.getByRole("button", { name: "Advanced document filters, 3 active" }),
     );
     fireEvent.click(view.getByRole("button", { name: "Clear" }));
     expect(onFiltersChange).toHaveBeenLastCalledWith({
@@ -221,7 +221,7 @@ describe("DocumentContextList", () => {
     );
     const view = within(container);
 
-    fireEvent.click(view.getByRole("button", { name: "Advanced job filters" }));
+    fireEvent.click(view.getByRole("button", { name: "Advanced document filters" }));
     fireEvent.change(view.getByLabelText("Date from"), {
       target: { value: "2026-08-16" },
     });

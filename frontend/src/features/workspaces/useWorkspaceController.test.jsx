@@ -20,8 +20,8 @@ function setup(contextRequest) {
     return { invitations: [], users: [] };
   });
   const props = {
-    apiBase: "/v1", coreRequest, hasSession: true, sessionUserId: "user_1", sessionId: "session_1",
-    addLog: vi.fn(), showActionToast: vi.fn(), setBusy: vi.fn(),
+    coreRequest, hasSession: true, sessionUserId: "user_1", sessionId: "session_1",
+    showActionToast: vi.fn(), setBusy: vi.fn(),
     onActivePageChange: vi.fn(), onClearWorkspaceScopedData: vi.fn(),
   };
   return { ...renderHook((value) => useWorkspaceController(value), { initialProps: props }), props, coreRequest };

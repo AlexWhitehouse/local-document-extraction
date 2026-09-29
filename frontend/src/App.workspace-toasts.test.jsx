@@ -58,23 +58,7 @@ import { COMPLETED_DOCUMENT_CACHE_STORAGE_KEY } from "./lib/completedDocumentCac
 describe("Workspace action toast feedback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      apiKey: "imgx_live_existing_key",
-      apiKeysByWorkspace: {
-        ws_1: "imgx_live_existing_key",
-      },
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [],
-    });
+    installLocalStorage({ workspaceId: "ws_1", workspaceName: "Research Workspace" });
     globalThis.fetch = vi.fn(mockWorkspaceFetch);
   });
 
@@ -102,51 +86,34 @@ describe("Workspace action toast feedback", () => {
       expect(screen.getByRole("button", { name: /Research Workspace/ })).toBeTruthy();
     });
 
-    const storedPayload = JSON.parse(
-      window.localStorage.setItem.mock.calls.at(-1)[1],
-    );
-    expect(storedPayload).toEqual({
+    expect(lastStoredWorkspacePreference()).toEqual({
       workspaceId: "ws_1",
       workspaceName: "Research Workspace",
     });
   });
 
   it("shows Loading workspace context without stored Workspace details while startup resolution is pending", async () => {
-    installLocalStorage({
-      workspaceId: "ws_stored",
-      workspaceName: "Stored Workspace",
-    });
-    globalThis.fetch = vi.fn((input) => {
-      const url = String(input);
+    installLocalStorage({ workspaceId: "ws_stored", workspaceName: "Stored Workspace" });
+    routeFetch((url) => {
       if (url.endsWith("/workspaces") || url.endsWith("/invitations")) {
         return new Promise(() => {});
       }
-      return mockWorkspaceFetch(input);
     });
 
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "Loading workspace context" })).toBeTruthy();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(
-      true,
-    );
-    expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(
-      true,
-    );
+    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(true);
   });
 
   it("shows a retryable Workspace resolution error when backend workspace listing fails", async () => {
-    installLocalStorage({
-      workspaceId: "ws_stored",
-      workspaceName: "Stored Workspace",
-    });
-    globalThis.fetch = vi.fn((input) => {
-      const url = String(input);
+    installLocalStorage({ workspaceId: "ws_stored", workspaceName: "Stored Workspace" });
+    routeFetch((url) => {
       if (url.endsWith("/workspaces")) {
-        return Promise.resolve(jsonResponse({ error: "unavailable" }, { status: 500 }));
+        return jsonResponse({ error: "unavailable" }, { status: 500 });
       }
-      return mockWorkspaceFetch(input);
     });
 
     render(<App />);
@@ -154,40 +121,29 @@ describe("Workspace action toast feedback", () => {
     expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry Workspaces" })).toBeTruthy();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(
-      true,
-    );
-    expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(
-      true,
-    );
+    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(true);
   });
 
   it("refreshes Workspaces and shows an Action toast when selected Workspace access is forbidden", async () => {
-    installLocalStorage({
-      workspaceId: "ws_removed",
-      workspaceName: "Removed Workspace",
-    });
+    installLocalStorage({ workspaceId: "ws_removed", workspaceName: "Removed Workspace" });
     let workspaceListCalls = 0;
-    globalThis.fetch = vi.fn((input, options = {}) => {
-      const url = String(input);
+    routeFetch((url, method, options) => {
       if (url.endsWith("/workspaces")) {
         workspaceListCalls += 1;
-        return Promise.resolve(
-          jsonResponse({
-            workspaces:
-              workspaceListCalls === 1
-                ? [{ id: "ws_removed", name: "Removed Workspace", role: "owner" }]
-                : [{ id: "ws_remaining", name: "Remaining Workspace", role: "owner" }],
-          }),
+        return workspaceList(
+          workspaceListCalls === 1
+            ? workspace({ id: "ws_removed", name: "Removed Workspace" })
+            : workspace({ id: "ws_remaining", name: "Remaining Workspace" }),
         );
       }
-      if (url.endsWith("/templates") && (!options.method || options.method === "GET")) {
-        const headers = new Headers(options.headers || {});
-        if (headers.get("x-workspace-id") === "ws_removed") {
-          return Promise.resolve(jsonResponse({ error: "forbidden" }, { status: 403 }));
-        }
+      if (
+        url.endsWith("/templates") &&
+        method === "GET" &&
+        new Headers(options.headers).get("x-workspace-id") === "ws_removed"
+      ) {
+        return jsonResponse({ error: "forbidden" }, { status: 403 });
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     // Flush the immediate mocked startup and 403 recovery responses before the
@@ -218,20 +174,15 @@ describe("Workspace action toast feedback", () => {
     }
     globalThis.WebSocket = WebSocketStub;
     let workspaceListCalls = 0;
-    globalThis.fetch = vi.fn((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces") && options.method === "GET") {
+    routeFetch((url, method) => {
+      if (url.endsWith("/workspaces") && method === "GET") {
         workspaceListCalls += 1;
-        return Promise.resolve(
-          jsonResponse({
-            workspaces:
-              workspaceListCalls === 1
-                ? [{ id: "ws_1", name: "Research Workspace", role: "owner" }]
-                : [{ id: "ws_2", name: "Remaining Workspace", role: "owner" }],
-          }),
+        return workspaceList(
+          workspaceListCalls === 1
+            ? workspace()
+            : workspace({ id: "ws_2", name: "Remaining Workspace" }),
         );
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -262,156 +213,54 @@ describe("Workspace action toast feedback", () => {
   it("generates a one-time visible Workspace API key for owners without persisting the secret", async () => {
     const user = userEvent.setup();
     const generatedKey = "generated-secret-key";
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
+    const writeText = installClipboard();
     const confirmSpy = vi.spyOn(window, "confirm");
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: [
-              {
-                id: "ws_1",
-                name: "Research Workspace",
-                role: "owner",
-                has_api_key: false,
-                created_at: "2026-01-01T00:00:00.000Z",
-              },
-            ],
-          }),
-        );
-      }
-      if (
-        url.endsWith("/workspaces/ws_1/api-key") &&
-        options.method === "POST"
-      ) {
-        return Promise.resolve(
-          jsonResponse({ workspace_id: "ws_1", api_key: generatedKey, has_api_key: true }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
-    });
+    routeApiKeyGeneration({ hasApiKey: false, apiKey: generatedKey });
 
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Generate API Key" }));
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Workspace API key generated and copied",
-      );
+      expect(toastMock.success).toHaveBeenCalledWith("Workspace API key generated and copied");
     });
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(writeText).toHaveBeenCalledWith(generatedKey);
     expect(screen.getByDisplayValue(generatedKey)).toBeTruthy();
-    const storedPayload = JSON.parse(window.localStorage.setItem.mock.calls.at(-1)[1]);
-    expect(storedPayload).toEqual({
+    expect(screen.queryByRole("button", { name: "Dismiss API key" })).toBeNull();
+    expect(lastStoredWorkspacePreference()).toEqual({
       workspaceId: "ws_1",
       workspaceName: "Research Workspace",
     });
-    expect(toastMock.success).not.toHaveBeenCalledWith(
-      expect.stringContaining(generatedKey),
-    );
-    expect(toastMock.error).not.toHaveBeenCalledWith(
-      expect.stringContaining(generatedKey),
-    );
+    expect(toastMock.success).not.toHaveBeenCalledWith(expect.stringContaining(generatedKey));
+    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining(generatedKey));
   });
 
   it("confirms and rotates an existing Workspace API key for owners", async () => {
     const user = userEvent.setup();
     const rotatedKey = "rotated-secret-key";
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
+    const writeText = installClipboard();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: [
-              {
-                id: "ws_1",
-                name: "Research Workspace",
-                role: "owner",
-                has_api_key: true,
-                created_at: "2026-01-01T00:00:00.000Z",
-              },
-            ],
-          }),
-        );
-      }
-      if (
-        url.endsWith("/workspaces/ws_1/api-key") &&
-        options.method === "POST"
-      ) {
-        return Promise.resolve(
-          jsonResponse({ workspace_id: "ws_1", api_key: rotatedKey, has_api_key: true }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
-    });
+    routeApiKeyGeneration({ hasApiKey: true, apiKey: rotatedKey });
 
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Rotate API Key" }));
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Workspace API key rotated and copied",
-      );
+      expect(toastMock.success).toHaveBeenCalledWith("Workspace API key rotated and copied");
     });
     expect(confirmSpy).toHaveBeenCalledOnce();
     expect(writeText).toHaveBeenCalledWith(rotatedKey);
     expect(screen.getByDisplayValue(rotatedKey)).toBeTruthy();
-    expect(toastMock.success).not.toHaveBeenCalledWith(
-      expect.stringContaining(rotatedKey),
-    );
+    expect(toastMock.success).not.toHaveBeenCalledWith(expect.stringContaining(rotatedKey));
   });
 
   it("keeps generated Workspace API key visible when clipboard copy needs manual retry", async () => {
     const user = userEvent.setup();
     const generatedKey = "manual-copy-secret-key";
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: undefined,
-    });
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: [
-              {
-                id: "ws_1",
-                name: "Research Workspace",
-                role: "owner",
-                has_api_key: false,
-                created_at: "2026-01-01T00:00:00.000Z",
-              },
-            ],
-          }),
-        );
-      }
-      if (
-        url.endsWith("/workspaces/ws_1/api-key") &&
-        options.method === "POST"
-      ) {
-        return Promise.resolve(
-          jsonResponse({ workspace_id: "ws_1", api_key: generatedKey, has_api_key: true }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
-    });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    routeApiKeyGeneration({ hasApiKey: false, apiKey: generatedKey });
 
     render(<App />);
 
@@ -424,148 +273,42 @@ describe("Workspace action toast feedback", () => {
     });
     expect(screen.getByDisplayValue(generatedKey)).toBeTruthy();
 
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
+    const writeText = installClipboard();
     await user.click(screen.getByRole("button", { name: "Copy API key" }));
 
     expect(writeText).toHaveBeenCalledWith(generatedKey);
   });
 
-  it("keeps one-time visible Workspace API key material without a dismiss control", async () => {
-    const user = userEvent.setup();
-    const generatedKey = "dismiss-secret-key";
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
-    });
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: [
-              {
-                id: "ws_1",
-                name: "Research Workspace",
-                role: "owner",
-                has_api_key: false,
-                created_at: "2026-01-01T00:00:00.000Z",
-              },
-            ],
-          }),
-        );
-      }
-      if (
-        url.endsWith("/workspaces/ws_1/api-key") &&
-        options.method === "POST"
-      ) {
-        return Promise.resolve(
-          jsonResponse({ workspace_id: "ws_1", api_key: generatedKey, has_api_key: true }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Generate API Key" }));
-    expect(await screen.findByDisplayValue(generatedKey)).toBeTruthy();
-
-    expect(screen.queryByRole("button", { name: "Dismiss API key" })).toBeNull();
-    expect(screen.getByDisplayValue(generatedKey)).toBeTruthy();
-  });
-
   it("shows Workspace API key display to members without an actionable generate control", async () => {
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      apiKey: "imgx_live_existing_key",
-      apiKeysByWorkspace: {
-        ws_1: "imgx_live_existing_key",
-      },
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "member",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [],
-    });
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: [
-              {
-                id: "ws_1",
-                name: "Research Workspace",
-                role: "member",
-                created_at: "2026-01-01T00:00:00.000Z",
-              },
-            ],
-          }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
+    routeFetch((url) => {
+      if (url.endsWith("/workspaces")) return workspaceList(workspace({ role: "member" }));
     });
 
     render(<App />);
 
     expect(await screen.findByLabelText("Workspace API key")).toBeTruthy();
     expect(screen.getByPlaceholderText("Generate an API key to view")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(
-      true,
-    );
+    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(true);
   });
 
   it("confirms explicit Workspace creation", async () => {
     const user = userEvent.setup();
     let created = false;
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces") && options.method === "POST") {
+    routeFetch((url, method) => {
+      if (url.endsWith("/workspaces") && method === "POST") {
         created = true;
-        return Promise.resolve(
-          jsonResponse({
-            workspace_id: "ws_2",
-            name: "New Workspace",
-            api_key: "imgx_live_new_workspace_key",
-          }),
+        return jsonResponse({
+          workspace_id: "ws_2",
+          name: "New Workspace",
+          api_key: "imgx_live_new_workspace_key",
+        });
+      }
+      if (url.endsWith("/workspaces")) {
+        return workspaceList(
+          workspace(),
+          ...(created ? [workspace({ id: "ws_2", name: "New Workspace", created_at: "2026-01-02T00:00:00.000Z" })] : []),
         );
       }
-      if (url.endsWith("/workspaces") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: [
-              {
-                id: "ws_1",
-                name: "Research Workspace",
-                role: "owner",
-                created_at: "2026-01-01T00:00:00.000Z",
-              },
-              ...(created
-                ? [
-                    {
-                      id: "ws_2",
-                      name: "New Workspace",
-                      role: "owner",
-                      created_at: "2026-01-02T00:00:00.000Z",
-                    },
-                  ]
-                : []),
-            ],
-          }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -573,73 +316,25 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getByRole("button", { name: "Create Workspace" }));
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Workspace created: New Workspace",
-      );
+      expect(toastMock.success).toHaveBeenCalledWith("Workspace created: New Workspace");
     });
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /New Workspace/ }).className).toContain(
-        "active",
-      );
+      expect(screen.getByRole("button", { name: /New Workspace/ }).className).toContain("active");
     });
   });
 
-  it("confirms Workspace rename after saving a changed name", async () => {
-    const user = userEvent.setup();
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1") && options.method === "PATCH") {
-        return Promise.resolve(jsonResponse({ id: "ws_1", name: "Clinical Workspace" }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await screen.findByRole("button", { name: /Research Workspace/ });
-
-    await user.clear(screen.getByLabelText("Workspace name"));
-    await user.type(screen.getByLabelText("Workspace name"), "Clinical Workspace");
-    await user.click(screen.getByRole("button", { name: "Save name" }));
-
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Workspace renamed: Clinical Workspace",
-      );
-    });
-  });
-
-  it("preserves visible Document data when renaming the current Workspace", async () => {
+  it("confirms Workspace rename while preserving visible Document data", async () => {
     const user = userEvent.setup();
     let renamed = false;
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({ jobs: [failedDocument()], next_cursor: null }),
-        );
-      }
-      if (url.endsWith("/workspaces/ws_1") && options.method === "PATCH") {
+    routeFetch((url, method) => {
+      if (url.endsWith("/jobs") && method === "GET") return jobList(failedDocument());
+      if (url.endsWith("/workspaces/ws_1") && method === "PATCH") {
         renamed = true;
-        return Promise.resolve(jsonResponse({ id: "ws_1", name: "Clinical Workspace" }));
+        return jsonResponse({ id: "ws_1", name: "Clinical Workspace" });
       }
       if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: [
-              {
-                id: "ws_1",
-                name: renamed ? "Clinical Workspace" : "Research Workspace",
-                role: "owner",
-                created_at: "2026-01-01T00:00:00.000Z",
-              },
-            ],
-          }),
-        );
+        return workspaceList(workspace({ name: renamed ? "Clinical Workspace" : "Research Workspace" }));
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -653,9 +348,7 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getByRole("button", { name: "Save name" }));
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Workspace renamed: Clinical Workspace",
-      );
+      expect(toastMock.success).toHaveBeenCalledWith("Workspace renamed: Clinical Workspace");
     });
     expect(screen.getByRole("button", { name: "Documents1" })).toBeTruthy();
 
@@ -666,61 +359,19 @@ describe("Workspace action toast feedback", () => {
   it("confirms Leave Workspace with replacement personal Workspace wording", async () => {
     const user = userEvent.setup();
     let leaveRequested = false;
-
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      apiKey: "imgx_live_existing_key",
-      apiKeysByWorkspace: {
-        ws_1: "imgx_live_existing_key",
-      },
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "member",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [],
-    });
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/leave") && options.method === "POST") {
+    routeFetch((url, method) => {
+      if (url.endsWith("/workspaces/ws_1/leave") && method === "POST") {
         leaveRequested = true;
-        return Promise.resolve(
-          jsonResponse({
-            replacement_workspace: {
-              workspace_id: "ws_personal",
-            },
-          }),
-        );
+        return jsonResponse({ replacement_workspace: { workspace_id: "ws_personal" } });
       }
       if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: leaveRequested
-              ? [
-                  {
-                    id: "ws_personal",
-                    name: "Personal Workspace",
-                    role: "owner",
-                    created_at: "2026-01-02T00:00:00.000Z",
-                  },
-                ]
-              : [
-                  {
-                    id: "ws_1",
-                    name: "Research Workspace",
-                    role: "member",
-                    created_at: "2026-01-01T00:00:00.000Z",
-                  },
-                ],
-          }),
+        return workspaceList(
+          leaveRequested
+            ? workspace({ id: "ws_personal", name: "Personal Workspace", created_at: "2026-01-02T00:00:00.000Z" })
+            : workspace({ role: "member" }),
         );
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -739,45 +390,16 @@ describe("Workspace action toast feedback", () => {
   it("confirms Workspace deletion and selects a remaining Workspace", async () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    const remaining = workspace({ id: "ws_2", name: "Remaining Workspace", created_at: "2026-01-02T00:00:00.000Z" });
     let workspaceListCalls = 0;
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces") && options.method === "GET") {
+    routeFetch((url, method) => {
+      if (url.endsWith("/workspaces") && method === "GET") {
         workspaceListCalls += 1;
-        return Promise.resolve(
-          jsonResponse({
-            workspaces:
-              workspaceListCalls === 1
-                ? [
-                    {
-                      id: "ws_1",
-                      name: "Research Workspace",
-                      role: "owner",
-                      created_at: "2026-01-01T00:00:00.000Z",
-                    },
-                    {
-                      id: "ws_2",
-                      name: "Remaining Workspace",
-                      role: "owner",
-                      created_at: "2026-01-02T00:00:00.000Z",
-                    },
-                  ]
-                : [
-                    {
-                      id: "ws_2",
-                      name: "Remaining Workspace",
-                      role: "owner",
-                      created_at: "2026-01-02T00:00:00.000Z",
-                    },
-                  ],
-          }),
-        );
+        return workspaceListCalls === 1 ? workspaceList(workspace(), remaining) : workspaceList(remaining);
       }
-      if (url.endsWith("/workspaces/ws_1") && options.method === "DELETE") {
-        return Promise.resolve(jsonResponse({ ok: true, workspace_id: "ws_1" }));
+      if (url.endsWith("/workspaces/ws_1") && method === "DELETE") {
+        return jsonResponse({ ok: true, workspace_id: "ws_1" });
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -802,8 +424,7 @@ describe("Workspace action toast feedback", () => {
 
     await user.click(screen.getByRole("button", { name: "Delete Workspace" }));
 
-    expect(toastMock.success).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
+    expectNoToasts();
   });
 
   it("does not toast for background Workspace listing and refresh", async () => {
@@ -815,8 +436,7 @@ describe("Workspace action toast feedback", () => {
         expect.objectContaining({ method: "GET" }),
       );
     });
-    expect(toastMock.success).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
+    expectNoToasts();
   });
 
   it("uses the signed-in session and accepted Workspace context for product requests", async () => {
@@ -840,65 +460,15 @@ describe("Workspace action toast feedback", () => {
 
   it("clears visible Document data immediately when switching accepted Workspaces", async () => {
     const user = userEvent.setup();
-    let resolveSecondWorkspaceJobs;
-    const secondWorkspaceJobs = new Promise((resolve) => {
-      resolveSecondWorkspaceJobs = resolve;
-    });
-
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-        {
-          id: "ws_2",
-          name: "Clinical Workspace",
-          role: "admin",
-          created_at: "2026-01-02T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [],
-    });
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: [
-              {
-                id: "ws_1",
-                name: "Research Workspace",
-                role: "owner",
-                created_at: "2026-01-01T00:00:00.000Z",
-              },
-              {
-                id: "ws_2",
-                name: "Clinical Workspace",
-                role: "admin",
-                created_at: "2026-01-02T00:00:00.000Z",
-              },
-            ],
-          }),
-        );
-      }
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        const headers = new Headers(options.headers || {});
-        if (headers.get("x-workspace-id") === "ws_2") {
-          return secondWorkspaceJobs;
+    const secondWorkspaceJobs = deferred();
+    routeFetch((url, method, options) => {
+      if (url.endsWith("/workspaces")) return twoWorkspaceList();
+      if (url.endsWith("/jobs") && method === "GET") {
+        if (new Headers(options.headers).get("x-workspace-id") === "ws_2") {
+          return secondWorkspaceJobs.promise;
         }
-        return Promise.resolve(
-          jsonResponse({
-            jobs: [failedDocument({ job_id: "job_ws_1", source_name: "research.pdf" })],
-            next_cursor: null,
-          }),
-        );
+        return jobList(failedDocument({ job_id: "job_ws_1", source_name: "research.pdf" }));
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -914,71 +484,22 @@ describe("Workspace action toast feedback", () => {
       expect(screen.getByRole("button", { name: "Documents0" })).toBeTruthy();
     });
 
-    resolveSecondWorkspaceJobs(
-      jsonResponse({
-        jobs: [failedDocument({ job_id: "job_ws_2", source_name: "clinical.pdf" })],
-        next_cursor: null,
-      }),
-    );
+    secondWorkspaceJobs.resolve(jobList(failedDocument({ job_id: "job_ws_2", source_name: "clinical.pdf" })));
     await user.click(screen.getByRole("button", { name: /Documents/ }));
     expect(await screen.findByRole("heading", { name: "clinical.pdf" })).toBeTruthy();
   });
 
   it("hides Workspace users placeholder while switching accepted Workspaces", async () => {
     const user = userEvent.setup();
-    let resolveSecondWorkspaceUsers;
-    const secondWorkspaceUsers = new Promise((resolve) => {
-      resolveSecondWorkspaceUsers = resolve;
-    });
-
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-        {
-          id: "ws_2",
-          name: "Clinical Workspace",
-          role: "admin",
-          created_at: "2026-01-02T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [],
-    });
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: [
-              {
-                id: "ws_1",
-                name: "Research Workspace",
-                role: "owner",
-                created_at: "2026-01-01T00:00:00.000Z",
-              },
-              {
-                id: "ws_2",
-                name: "Clinical Workspace",
-                role: "admin",
-                created_at: "2026-01-02T00:00:00.000Z",
-              },
-            ],
-          }),
-        );
+    const secondWorkspaceUsers = deferred();
+    routeFetch((url, method) => {
+      if (url.endsWith("/workspaces")) return twoWorkspaceList();
+      if (url.endsWith("/workspaces/ws_1/users") && method === "GET") {
+        return jsonResponse({ users: [workspaceMember()] });
       }
-      if (url.endsWith("/workspaces/ws_1/users") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ users: [workspaceMember()] }));
+      if (url.endsWith("/workspaces/ws_2/users") && method === "GET") {
+        return secondWorkspaceUsers.promise;
       }
-      if (url.endsWith("/workspaces/ws_2/users") && (!options.method || options.method === "GET")) {
-        return secondWorkspaceUsers;
-      }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -992,17 +513,9 @@ describe("Workspace action toast feedback", () => {
       expect(screen.queryByText("Loading workspace users...")).toBeNull();
     });
 
-    resolveSecondWorkspaceUsers(
-      jsonResponse({
-        users: [
-          workspaceMember({
-            user_id: "user_3",
-            name: "Katherine Johnson",
-            email: "katherine@example.com",
-          }),
-        ],
-      }),
-    );
+    secondWorkspaceUsers.resolve(jsonResponse({
+      users: [workspaceMember({ user_id: "user_3", name: "Katherine Johnson", email: "katherine@example.com" })],
+    }));
 
     expect(await screen.findByText("Katherine Johnson")).toBeTruthy();
   });
@@ -1029,477 +542,239 @@ describe("Workspace action toast feedback", () => {
     }
   });
 
-  it("confirms creating a Workspace invitation", async () => {
-    const user = userEvent.setup();
+  describe("Workspace invitations", () => {
+    async function inviteTeammate(email) {
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(screen.getByRole("button", { name: "+ Invite user" }));
+      if (email) await user.type(screen.getByLabelText("Invite email"), email);
+      await user.click(screen.getByRole("button", { name: "Invite User" }));
+    }
 
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/invitations") && options.method === "POST") {
-        return Promise.resolve(
-          jsonResponse({
-            invitation_id: "inv_1",
-            email: "grace@example.com",
-            role: "member",
-            status: "pending",
-          }),
+    function routeInvitationCreate(response) {
+      routeFetch((url, method) => {
+        if (url.endsWith("/workspaces/ws_1/invitations") && method === "POST") return response;
+      });
+    }
+
+    it("confirms creating a Workspace invitation", async () => {
+      routeInvitationCreate(jsonResponse({
+        invitation_id: "inv_1",
+        email: "grace@example.com",
+        role: "member",
+        status: "pending",
+      }));
+
+      await inviteTeammate("grace@example.com");
+
+      await waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Successfully invited grace@example.com");
+      });
+    });
+
+    it("shows a validation toast when creating a Workspace invitation without an email", async () => {
+      await inviteTeammate("");
+
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Enter an email address before inviting a teammate.",
+      );
+      expect(globalThis.fetch).not.toHaveBeenCalledWith(
+        expect.stringContaining("/workspaces/ws_1/invitations"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("shows friendly failure copy when creating a Workspace invitation fails", async () => {
+      routeInvitationCreate(jsonResponse({ error: "Database internal detail" }, { status: 500 }));
+
+      await inviteTeammate("grace@example.com");
+
+      await waitFor(() => {
+        expect(toastMock.error).toHaveBeenCalledWith(
+          "Workspace invitation could not be created. Please try again.",
         );
-      }
-      return mockWorkspaceFetch(input, options);
+      });
+      expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("Database"));
     });
 
-    render(<App />);
+    function routeInvitationCancel(response) {
+      routeFetch((url, method) => {
+        if (url.endsWith("/workspaces/ws_1/invitations") && method === "GET") {
+          return jsonResponse({ invitations: [pendingInvitation()] });
+        }
+        if (url.endsWith("/workspaces/ws_1/invitations/inv_1") && method === "DELETE") return response;
+      });
+    }
 
-    await user.click(screen.getByRole("button", { name: "+ Invite user" }));
-    await user.type(screen.getByLabelText("Invite email"), "grace@example.com");
-    await user.click(screen.getByRole("button", { name: "Invite User" }));
+    async function cancelInvitation() {
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(await screen.findByRole("button", { name: "Cancel invitation for grace@example.com" }));
+    }
 
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Successfully invited grace@example.com",
+    it("confirms cancelling a pending Workspace invitation", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      routeInvitationCancel(jsonResponse({ cancelled: true }));
+
+      await cancelInvitation();
+
+      await waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Invitation cancelled for grace@example.com");
+      });
+    });
+
+    it("stays quiet when cancelling a Workspace invitation confirmation is cancelled", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      routeInvitationCancel();
+
+      await cancelInvitation();
+
+      expectNoToasts();
+      expect(globalThis.fetch).not.toHaveBeenCalledWith(
+        expect.stringContaining("/workspaces/ws_1/invitations/inv_1"),
+        expect.objectContaining({ method: "DELETE" }),
       );
     });
-  });
 
-  it("shows a validation toast when creating a Workspace invitation without an email", async () => {
-    const user = userEvent.setup();
+    it("shows friendly failure copy when cancelling a Workspace invitation fails", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      routeInvitationCancel(jsonResponse({ error: "permission trace" }, { status: 403 }));
 
-    render(<App />);
+      await cancelInvitation();
 
-    await user.click(screen.getByRole("button", { name: "+ Invite user" }));
-    await user.click(screen.getByRole("button", { name: "Invite User" }));
-
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Enter an email address before inviting a teammate.",
-    );
-    expect(globalThis.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/workspaces/ws_1/invitations"),
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
-  it("shows friendly failure copy when creating a Workspace invitation fails", async () => {
-    const user = userEvent.setup();
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/invitations") && options.method === "POST") {
-        return Promise.resolve(jsonResponse({ error: "Database internal detail" }, { status: 500 }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(screen.getByRole("button", { name: "+ Invite user" }));
-    await user.type(screen.getByLabelText("Invite email"), "grace@example.com");
-    await user.click(screen.getByRole("button", { name: "Invite User" }));
-
-    await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "Workspace invitation could not be created. Please try again.",
-      );
-    });
-    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("Database"));
-  });
-
-  it("confirms cancelling a pending Workspace invitation", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/invitations") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ invitations: [pendingInvitation()] }));
-      }
-      if (url.endsWith("/workspaces/ws_1/invitations/inv_1") && options.method === "DELETE") {
-        return Promise.resolve(jsonResponse({ cancelled: true }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    const cancelButton = await screen.findByRole("button", {
-      name: "Cancel invitation for grace@example.com",
-    });
-    await user.click(cancelButton);
-
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Invitation cancelled for grace@example.com",
-      );
-    });
-  });
-
-  it("stays quiet when cancelling a Workspace invitation confirmation is cancelled", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/invitations") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ invitations: [pendingInvitation()] }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Cancel invitation for grace@example.com",
-      }),
-    );
-
-    expect(toastMock.success).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect(globalThis.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/workspaces/ws_1/invitations/inv_1"),
-      expect.objectContaining({ method: "DELETE" }),
-    );
-  });
-
-  it("shows friendly failure copy when cancelling a Workspace invitation fails", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/invitations") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ invitations: [pendingInvitation()] }));
-      }
-      if (url.endsWith("/workspaces/ws_1/invitations/inv_1") && options.method === "DELETE") {
-        return Promise.resolve(jsonResponse({ error: "permission trace" }, { status: 403 }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Cancel invitation for grace@example.com",
-      }),
-    );
-
-    await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "Workspace invitation could not be cancelled. Please try again.",
-      );
-    });
-  });
-
-  it("confirms accepting a Workspace invitation", async () => {
-    const user = userEvent.setup();
-    let accepted = false;
-
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      apiKey: "imgx_live_existing_key",
-      apiKeysByWorkspace: {
-        ws_1: "imgx_live_existing_key",
-      },
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [pendingUserWorkspaceInvitation()],
-    });
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/invitations/inv_1/accept") && options.method === "POST") {
-        accepted = true;
-        return Promise.resolve(jsonResponse({ workspace_id: "ws_invited" }));
-      }
-      if (url.endsWith("/invitations") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({
-            invitations: accepted ? [] : [pendingUserWorkspaceInvitation()],
-          }),
+      await waitFor(() => {
+        expect(toastMock.error).toHaveBeenCalledWith(
+          "Workspace invitation could not be cancelled. Please try again.",
         );
-      }
-      if (url.endsWith("/workspaces")) {
-        return Promise.resolve(
-          jsonResponse({
-            workspaces: accepted
-              ? [
-                  {
-                    id: "ws_invited",
-                    name: "Clinical Workspace",
-                    role: "member",
-                    created_at: "2026-01-02T00:00:00.000Z",
-                  },
-                ]
-              : [
-                  {
-                    id: "ws_1",
-                    name: "Research Workspace",
-                    role: "owner",
-                    created_at: "2026-01-01T00:00:00.000Z",
-                  },
-                ],
-          }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
+      });
     });
 
-    render(<App />);
+    it("confirms accepting a Workspace invitation", async () => {
+      const user = userEvent.setup();
+      let accepted = false;
+      routeFetch((url, method) => {
+        if (url.endsWith("/invitations/inv_1/accept") && method === "POST") {
+          accepted = true;
+          return jsonResponse({ workspace_id: "ws_invited" });
+        }
+        if (url.endsWith("/invitations") && method === "GET") {
+          return jsonResponse({ invitations: accepted ? [] : [pendingUserWorkspaceInvitation()] });
+        }
+        if (url.endsWith("/workspaces")) {
+          return workspaceList(
+            accepted
+              ? workspace({ id: "ws_invited", name: "Clinical Workspace", role: "member", created_at: "2026-01-02T00:00:00.000Z" })
+              : workspace(),
+          );
+        }
+      });
 
-    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
-    await user.click(await screen.findByRole("button", { name: "Accept Invitation" }));
+      render(<App />);
 
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith("Workspace invitation accepted");
-    });
-  });
+      await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
+      await user.click(await screen.findByRole("button", { name: "Accept Invitation" }));
 
-  it("shows friendly failure copy when accepting a Workspace invitation fails", async () => {
-    const user = userEvent.setup();
-
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      apiKey: "imgx_live_existing_key",
-      apiKeysByWorkspace: { ws_1: "imgx_live_existing_key" },
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [pendingUserWorkspaceInvitation()],
-    });
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/invitations/inv_1/accept") && options.method === "POST") {
-        return Promise.resolve(jsonResponse({ error: "expired detail" }, { status: 409 }));
-      }
-      if (url.endsWith("/invitations") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ invitations: [pendingUserWorkspaceInvitation()] }));
-      }
-      return mockWorkspaceFetch(input, options);
+      await waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Workspace invitation accepted");
+      });
     });
 
-    render(<App />);
+    it("confirms declining a Workspace invitation", async () => {
+      const user = userEvent.setup();
+      let declined = false;
+      routeFetch((url, method) => {
+        if (url.endsWith("/invitations/inv_1/decline") && method === "POST") {
+          declined = true;
+          return jsonResponse({ declined: true });
+        }
+        if (url.endsWith("/invitations") && method === "GET") {
+          return jsonResponse({ invitations: declined ? [] : [pendingUserWorkspaceInvitation()] });
+        }
+      });
 
-    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
-    await user.click(await screen.findByRole("button", { name: "Accept Invitation" }));
+      render(<App />);
 
-    await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "Workspace invitation could not be accepted. Please try again.",
-      );
-    });
-  });
+      await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
+      await user.click(await screen.findByRole("button", { name: "Decline Invitation" }));
 
-  it("confirms declining a Workspace invitation", async () => {
-    const user = userEvent.setup();
-    let declined = false;
-
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      apiKey: "imgx_live_existing_key",
-      apiKeysByWorkspace: { ws_1: "imgx_live_existing_key" },
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [pendingUserWorkspaceInvitation()],
-    });
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/invitations/inv_1/decline") && options.method === "POST") {
-        declined = true;
-        return Promise.resolve(jsonResponse({ declined: true }));
-      }
-      if (url.endsWith("/invitations") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({ invitations: declined ? [] : [pendingUserWorkspaceInvitation()] }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
+      await waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Invitation declined");
+      });
     });
 
-    render(<App />);
+    it.each([
+      ["accept", "Accept Invitation", 409, "Workspace invitation could not be accepted. Please try again."],
+      ["decline", "Decline Invitation", 403, "Workspace invitation could not be declined. Please try again."],
+    ])("shows friendly failure copy when a Workspace invitation %s fails", async (action, buttonName, status, message) => {
+      const user = userEvent.setup();
+      routeFetch((url, method) => {
+        if (url.endsWith(`/invitations/inv_1/${action}`) && method === "POST") {
+          return jsonResponse({ error: "policy detail" }, { status });
+        }
+        if (url.endsWith("/invitations") && method === "GET") {
+          return jsonResponse({ invitations: [pendingUserWorkspaceInvitation()] });
+        }
+      });
 
-    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
-    await user.click(await screen.findByRole("button", { name: "Decline Invitation" }));
+      render(<App />);
 
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith("Invitation declined");
+      await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
+      await user.click(await screen.findByRole("button", { name: buttonName }));
+
+      await waitFor(() => {
+        expect(toastMock.error).toHaveBeenCalledWith(message);
+      });
     });
   });
 
-  it("shows friendly failure copy when declining a Workspace invitation fails", async () => {
-    const user = userEvent.setup();
+  describe("Workspace member actions", () => {
+    function routeMemberAction(response) {
+      routeFetch((url, method) => {
+        if (url.endsWith("/workspaces/ws_1/users") && method === "GET") {
+          return jsonResponse({ users: [workspaceMember()] });
+        }
+        if (url.endsWith("/workspaces/ws_1/users/user_2") && method === "POST") return response;
+      });
+    }
 
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      apiKey: "imgx_live_existing_key",
-      apiKeysByWorkspace: { ws_1: "imgx_live_existing_key" },
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [pendingUserWorkspaceInvitation()],
-    });
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/invitations/inv_1/decline") && options.method === "POST") {
-        return Promise.resolve(jsonResponse({ error: "policy detail" }, { status: 403 }));
-      }
-      if (url.endsWith("/invitations") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ invitations: [pendingUserWorkspaceInvitation()] }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
+    async function applyMemberAction(actionName) {
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(await screen.findByRole("button", { name: "Edit user" }));
+      await user.click(await screen.findByRole("button", { name: actionName }));
+    }
 
-    render(<App />);
+    it.each([
+      ["Remove User", "Removed Grace Hopper from workspace"],
+      ["Make Admin", "Made Grace Hopper an admin"],
+      ["Make Owner", "Workspace ownership transferred to Grace Hopper"],
+    ])("confirms the %s member action with membership wording", async (actionName, message) => {
+      routeMemberAction(jsonResponse({ updated: true }));
 
-    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
-    await user.click(await screen.findByRole("button", { name: "Decline Invitation" }));
+      await applyMemberAction(actionName);
 
-    await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "Workspace invitation could not be declined. Please try again.",
-      );
-    });
-  });
-
-  it("confirms removing a Workspace member with membership wording", async () => {
-    const user = userEvent.setup();
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/users") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ users: [workspaceMember()] }));
-      }
-      if (url.endsWith("/workspaces/ws_1/users/user_2") && options.method === "POST") {
-        return Promise.resolve(jsonResponse({ updated: true }));
-      }
-      return mockWorkspaceFetch(input, options);
+      await waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith(message);
+      });
     });
 
-    render(<App />);
+    it("shows friendly failure copy when a Workspace member action fails", async () => {
+      routeMemberAction(jsonResponse({ error: "policy detail" }, { status: 403 }));
 
-    await user.click(await screen.findByRole("button", { name: "Edit user" }));
-    await user.click(await screen.findByRole("button", { name: "Remove User" }));
+      await applyMemberAction("Make Admin");
 
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Removed Grace Hopper from workspace",
-      );
-    });
-  });
-
-  it("confirms making a Workspace member an admin", async () => {
-    const user = userEvent.setup();
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/users") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ users: [workspaceMember()] }));
-      }
-      if (url.endsWith("/workspaces/ws_1/users/user_2") && options.method === "POST") {
-        return Promise.resolve(jsonResponse({ updated: true }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Edit user" }));
-    await user.click(await screen.findByRole("button", { name: "Make Admin" }));
-
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith("Made Grace Hopper an admin");
-    });
-  });
-
-  it("confirms transferring Workspace ownership to a member", async () => {
-    const user = userEvent.setup();
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/users") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ users: [workspaceMember()] }));
-      }
-      if (url.endsWith("/workspaces/ws_1/users/user_2") && options.method === "POST") {
-        return Promise.resolve(jsonResponse({ updated: true }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Edit user" }));
-    await user.click(await screen.findByRole("button", { name: "Make Owner" }));
-
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Workspace ownership transferred to Grace Hopper",
-      );
-    });
-  });
-
-  it("shows friendly failure copy when a Workspace member action fails", async () => {
-    const user = userEvent.setup();
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces/ws_1/users") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ users: [workspaceMember()] }));
-      }
-      if (url.endsWith("/workspaces/ws_1/users/user_2") && options.method === "POST") {
-        return Promise.resolve(jsonResponse({ error: "policy detail" }, { status: 403 }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Edit user" }));
-    await user.click(await screen.findByRole("button", { name: "Make Admin" }));
-
-    await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "Workspace member action failed. Please try again.",
-      );
+      await waitFor(() => {
+        expect(toastMock.error).toHaveBeenCalledWith("Workspace member action failed. Please try again.");
+      });
     });
   });
 
   it("confirms creating a template through the Template Builder", async () => {
     const user = userEvent.setup();
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/templates") && options.method === "POST") {
-        return Promise.resolve(
-          jsonResponse({
-            template_id: "tpl_created",
-            name: "Invoice Template",
-          }),
-        );
+    routeFetch((url, method) => {
+      if (url.endsWith("/templates") && method === "POST") {
+        return jsonResponse({ template_id: "tpl_created", name: "Invoice Template" });
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -1508,15 +783,12 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getByRole("button", { name: "Save new template" }));
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Template saved: Invoice Template",
-      );
+      expect(toastMock.success).toHaveBeenCalledWith("Template saved: Invoice Template");
     });
   });
 
   it("keeps existing template save disabled until the loaded template changes", async () => {
     const user = userEvent.setup();
-
     globalThis.fetch.mockImplementation(mockTemplateFetch({
       id: "tpl_existing",
       name: "Discharge Summary",
@@ -1538,9 +810,7 @@ describe("Workspace action toast feedback", () => {
     await user.click(saveButton);
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Template saved: Updated Discharge Summary",
-      );
+      expect(toastMock.success).toHaveBeenCalledWith("Template saved: Updated Discharge Summary");
     });
   });
 
@@ -1552,8 +822,7 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getByRole("button", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "+ Add field" }));
 
-    expect(toastMock.success).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
+    expectNoToasts();
 
     await user.click(screen.getByRole("button", { name: "Save new template" }));
 
@@ -1567,7 +836,6 @@ describe("Workspace action toast feedback", () => {
   it("confirms deleting a template and stays quiet when deletion is cancelled", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-
     globalThis.fetch.mockImplementation(mockTemplateFetch({
       id: "tpl_delete",
       name: "Delete Me",
@@ -1581,9 +849,7 @@ describe("Workspace action toast feedback", () => {
 
     await user.click(screen.getByRole("button", { name: "Delete Template" }));
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Delete template tpl_delete? This action cannot be undone.",
-    );
+    expect(confirmSpy).toHaveBeenCalledWith("Delete template tpl_delete? This action cannot be undone.");
     expect(toastMock.success).not.toHaveBeenCalledWith("Template deleted: Delete Me");
     expect(toastMock.error).not.toHaveBeenCalled();
 
@@ -1601,28 +867,19 @@ describe("Workspace action toast feedback", () => {
 
     await user.click(screen.getByRole("button", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "View JSON" }));
-    fireEvent.change(screen.getByLabelText("Template JSON"), {
-      target: { value: "{" },
-    });
+    fireEvent.change(screen.getByLabelText("Template JSON"), { target: { value: "{" } });
     await user.click(screen.getByRole("button", { name: "Save Template JSON" }));
 
     expect(await screen.findByText("Request body must be valid JSON")).not.toBeNull();
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Template JSON is invalid. Fix it before saving.",
-    );
+    expect(toastMock.error).toHaveBeenCalledWith("Template JSON is invalid. Fix it before saving.");
   });
 
   it("confirms successful template JSON saves", async () => {
     const user = userEvent.setup();
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/templates") && options.method === "POST") {
-        return Promise.resolve(
-          jsonResponse({ template_id: "tpl_json", name: "Imported Template" }),
-        );
+    routeFetch((url, method) => {
+      if (url.endsWith("/templates") && method === "POST") {
+        return jsonResponse({ template_id: "tpl_json", name: "Imported Template" });
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -1635,19 +892,14 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getByRole("button", { name: "Save Template JSON" }));
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Template saved: Imported Template",
-      );
+      expect(toastMock.success).toHaveBeenCalledWith("Template saved: Imported Template");
     });
   });
 
   it("toasts template JSON clipboard copy success and failure", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Denied"));
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 
     render(<App />);
 
@@ -1662,50 +914,29 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getByRole("button", { name: "Copy template JSON" }));
 
     await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "Template JSON could not be copied. Please try again.",
-      );
+      expect(toastMock.error).toHaveBeenCalledWith("Template JSON could not be copied. Please try again.");
     });
   });
 
   it("confirms a single document upload was queued", async () => {
     const user = userEvent.setup();
-    const template = { id: "tpl_document", name: "Invoice Template" };
     let extractFormData = null;
     let workspaceContextRefreshes = 0;
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/templates")) {
-        return Promise.resolve(jsonResponse({ templates: [template] }));
-      }
-      if (url.endsWith("/extract") && options.method === "POST") {
+    routeFetch((url, method, options) => {
+      if (url.endsWith("/templates")) return jsonResponse({ templates: [invoiceTemplate()] });
+      if (url.endsWith("/extract") && method === "POST") {
         extractFormData = options.body;
-        return Promise.resolve(jsonResponse({ job_id: "job_upload_1" }));
+        return jsonResponse({ job_id: "job_upload_1" });
       }
       if (url.endsWith("/workspaces/ws_1/context")) {
         workspaceContextRefreshes += 1;
-        return Promise.resolve(jsonResponse({
-          workspace: {
-            id: "ws_1",
-            name: "Research Workspace",
-            role: "owner",
-            created_at: "2026-01-01T00:00:00.000Z",
-          },
-        }));
+        return jsonResponse({ workspace: workspace() });
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     const { container } = render(<App />);
 
-    await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
-    fireEvent.change(container.querySelector('input[type="file"]'), {
-      target: {
-        files: [new File(["invoice"], "invoice.pdf", { type: "application/pdf" })],
-      },
-    });
-    await user.click(screen.getByRole("button", { name: "Upload Documents" }));
+    await uploadFiles(user, container, [new File(["invoice"], "invoice.pdf", { type: "application/pdf" })]);
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("1 document queued");
@@ -1718,9 +949,7 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(workspaceContextRefreshes).toBe(1);
     });
-    expect(toastMock.success).not.toHaveBeenCalledWith(
-      expect.stringContaining("Workspace access changed"),
-    );
+    expect(toastMock.success).not.toHaveBeenCalledWith(expect.stringContaining("Workspace access changed"));
   });
 
   it("uses Source file language in document upload controls", async () => {
@@ -1730,11 +959,7 @@ describe("Workspace action toast feedback", () => {
 
     await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
 
-    expect(
-      screen.getByText(
-        "Select a template and source files, then queue Document extraction.",
-      ),
-    ).toBeTruthy();
+    expect(screen.getByText("Select a template and source files, then queue Document extraction.")).toBeTruthy();
     expect(screen.getByText("Source files")).toBeTruthy();
     expect(screen.getByText("Drag and drop source files here")).toBeTruthy();
     expect(screen.getByText("No Source files selected")).toBeTruthy();
@@ -1743,56 +968,47 @@ describe("Workspace action toast feedback", () => {
     expect(screen.queryByText("No files selected")).toBeNull();
   });
 
+  it("summarizes a mixed multi-file upload with one aggregate toast", async () => {
+    const user = userEvent.setup();
+    let queueAttempts = 0;
+    routeFetch((url, method) => {
+      if (url.endsWith("/templates")) return jsonResponse({ templates: [invoiceTemplate()] });
+      if (url.endsWith("/extract") && method === "POST") {
+        queueAttempts += 1;
+        return queueAttempts === 1
+          ? jsonResponse({ job_id: "job_upload_1" })
+          : jsonResponse({ error: "queue detail" }, { status: 500 });
+      }
+    });
+
+    const { container } = render(<App />);
+
+    await uploadFiles(user, container, [
+      new File(["invoice"], "invoice.pdf", { type: "application/pdf" }),
+      new File(["receipt"], "receipt.pdf", { type: "application/pdf" }),
+    ]);
+
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenCalledWith("1 document queued, 1 failed");
+    });
+    expect(toastMock.error).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("receipt.pdf")).toBeTruthy();
+    expect(screen.getByText(/queue detail/)).toBeTruthy();
+  });
+
   it("keeps polling while a selected document is processing when live updates are unavailable", async () => {
     vi.stubGlobal("WebSocket", undefined);
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      apiKey: "imgx_live_existing_key",
-      apiKeysByWorkspace: {
-        ws_1: "imgx_live_existing_key",
-      },
-      selectedDocumentId: "job_processing_1",
-      jobHistory: [
-        {
+    const timeoutSpy = vi.spyOn(window, "setTimeout");
+    routeFetch((url, method) => {
+      if (url.endsWith("/jobs") && method === "GET") {
+        return jobList({
           job_id: "job_processing_1",
           status: "processing",
           source_name: "invoice.pdf",
           template_id: "tpl_document",
-          created_at: "2026-01-03T00:00:00.000Z",
           updated_at: "2026-01-03T00:00:01.000Z",
-        },
-      ],
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [],
-    });
-    const timeoutSpy = vi.spyOn(window, "setTimeout");
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({
-            jobs: [
-              {
-                job_id: "job_processing_1",
-                status: "processing",
-                source_name: "invoice.pdf",
-                template_id: "tpl_document",
-                updated_at: "2026-01-03T00:00:01.000Z",
-              },
-            ],
-            next_cursor: null,
-          }),
-        );
+        });
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -1803,68 +1019,19 @@ describe("Workspace action toast feedback", () => {
   });
 
   it("does not poll obsolete lifecycle metadata as an Extraction job lifecycle state", async () => {
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      apiKey: "imgx_live_existing_key",
-      apiKeysByWorkspace: {
-        ws_1: "imgx_live_existing_key",
-      },
-      selectedDocumentId: "job_legacy_unknown_1",
-      jobHistory: [
-        {
-          job_id: "job_legacy_unknown_1",
-          status: "legacy_unknown",
-          source_name: "invoice.pdf",
-          template_id: "tpl_document",
-          created_at: "2026-01-03T00:00:00.000Z",
-          updated_at: "2026-01-03T00:00:01.000Z",
-        },
-      ],
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [],
-    });
+    const legacyJob = {
+      job_id: "job_legacy_unknown_1",
+      status: "legacy_unknown",
+      source_name: "invoice.pdf",
+      template_id: "tpl_document",
+      created_at: "2026-01-03T00:00:00.000Z",
+      updated_at: "2026-01-03T00:00:01.000Z",
+    };
     const intervalSpy = vi.spyOn(window, "setInterval").mockReturnValue(123);
     vi.spyOn(window, "clearInterval").mockImplementation(() => {});
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs")) {
-        return Promise.resolve(
-          jsonResponse({
-            jobs: [
-              {
-                job_id: "job_legacy_unknown_1",
-                status: "legacy_unknown",
-                source_name: "invoice.pdf",
-                template_id: "tpl_document",
-                created_at: "2026-01-03T00:00:00.000Z",
-                updated_at: "2026-01-03T00:00:01.000Z",
-              },
-            ],
-            next_cursor: null,
-          }),
-        );
-      }
-      if (url.endsWith("/jobs/job_legacy_unknown_1")) {
-        return Promise.resolve(
-          jsonResponse({
-            job_id: "job_legacy_unknown_1",
-            status: "legacy_unknown",
-            source_name: "invoice.pdf",
-            template_id: "tpl_document",
-            created_at: "2026-01-03T00:00:00.000Z",
-            updated_at: "2026-01-03T00:00:01.000Z",
-          }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
+    routeFetch((url) => {
+      if (url.endsWith("/jobs")) return jobList(legacyJob);
+      if (url.endsWith("/jobs/job_legacy_unknown_1")) return jsonResponse(legacyJob);
     });
 
     render(<App />);
@@ -1879,34 +1046,14 @@ describe("Workspace action toast feedback", () => {
   });
 
   it("stores completed Extraction job details after the Document details load", async () => {
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({
-            jobs: [completedDocument({ results: [] })],
-            next_cursor: null,
-          }),
-        );
-      }
+    routeFetch((url, method) => {
+      if (url.endsWith("/jobs") && method === "GET") return jobList(completedDocument({ results: [] }));
       if (url.endsWith("/jobs/job_completed_1")) {
-        return Promise.resolve(
-          jsonResponse(
-            completedDocument({
-              source_preview_url: "blob:http://localhost/source-preview",
-              results: [
-                {
-                  field_id: "total",
-                  name: "Total",
-                  status: "found",
-                  answer: "$42.00",
-                },
-              ],
-            }),
-          ),
-        );
+        return jsonResponse(completedDocument({
+          source_preview_url: "blob:http://localhost/source-preview",
+          results: [totalResult()],
+        }));
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
@@ -1925,41 +1072,16 @@ describe("Workspace action toast feedback", () => {
 
   it("renders cached completed Extraction results after refresh for the same accepted Workspace", async () => {
     installLocalStorage(
-      {
-        workspaceId: "ws_1",
-        workspaceName: "Research Workspace",
-      },
+      { workspaceId: "ws_1", workspaceName: "Research Workspace" },
       {
         [COMPLETED_DOCUMENT_CACHE_STORAGE_KEY]: JSON.stringify({
-          ws_1: [
-            completedDocument({
-              results: [
-                {
-                  field_id: "total",
-                  name: "Total",
-                  status: "found",
-                  answer: "$42.00",
-                },
-              ],
-            }),
-          ],
+          ws_1: [completedDocument({ results: [totalResult()] })],
         }),
       },
     );
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({
-            jobs: [completedDocument({ results: [] })],
-            next_cursor: null,
-          }),
-        );
-      }
-      if (url.endsWith("/jobs/job_completed_1")) {
-        return new Promise(() => {});
-      }
-      return mockWorkspaceFetch(input, options);
+    routeFetch((url, method) => {
+      if (url.endsWith("/jobs") && method === "GET") return jobList(completedDocument({ results: [] }));
+      if (url.endsWith("/jobs/job_completed_1")) return new Promise(() => {});
     });
 
     render(<App />);
@@ -1969,183 +1091,72 @@ describe("Workspace action toast feedback", () => {
     expect(await screen.findByText("$42.00")).toBeTruthy();
   });
 
-  it("clears selected Document when backend refresh no longer lists it", async () => {
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      selectedDocumentId: "job_missing",
-      jobHistory: [failedDocument({ job_id: "job_missing", source_name: "missing.pdf" })],
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [],
-    });
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(jsonResponse({ jobs: [], next_cursor: null }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
+  describe("document deletion", () => {
+    async function deleteOpenDocument(deleteResponse) {
+      const user = userEvent.setup();
+      routeFetch((url, method) => {
+        if (url.endsWith("/jobs") && method === "GET") return jobList(failedDocument());
+        if (url.endsWith("/jobs/job_failed_1") && method === "DELETE") return deleteResponse;
+      });
 
-    render(<App />);
+      render(<App />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Documents0" })).toBeTruthy();
-    });
-    await userEvent.click(screen.getByRole("button", { name: /Documents/ }));
-    expect(screen.getByText("No documents uploaded yet.")).toBeTruthy();
-  });
+      await user.click(screen.getByRole("button", { name: /Documents/ }));
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+    }
 
-  it("selects the first available Document when the previous selection disappears", async () => {
-    installLocalStorage({
-      workspaceId: "ws_1",
-      workspaceName: "Research Workspace",
-      selectedDocumentId: "job_missing",
-      jobHistory: [failedDocument({ job_id: "job_missing", source_name: "missing.pdf" })],
-      userWorkspaces: [
-        {
-          id: "ws_1",
-          name: "Research Workspace",
-          role: "owner",
-          created_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      userWorkspaceInvitations: [],
-    });
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({
-            jobs: [failedDocument({ job_id: "job_available", source_name: "available.pdf" })],
-            next_cursor: null,
-          }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
+    it("confirms deleting a document", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+
+      await deleteOpenDocument(jsonResponse({ deleted: true, job_id: "job_failed_1" }));
+
+      await waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Document deleted: invoice.pdf");
+      });
+      expect(screen.queryByText("job_failed_1")).toBeNull();
     });
 
-    render(<App />);
+    it("treats delete 404 cleanup as already removed", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Documents1" })).toBeTruthy();
-    });
-  });
+      await deleteOpenDocument(jsonResponse({ error: "already gone" }, { status: 404 }));
 
-  it("summarizes a mixed multi-file upload with one aggregate toast", async () => {
-    const user = userEvent.setup();
-    const template = { id: "tpl_document", name: "Invoice Template" };
-    let queueAttempts = 0;
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/templates")) {
-        return Promise.resolve(jsonResponse({ templates: [template] }));
-      }
-      if (url.endsWith("/extract") && options.method === "POST") {
-        queueAttempts += 1;
-        if (queueAttempts === 1) {
-          return Promise.resolve(jsonResponse({ job_id: "job_upload_1" }));
-        }
-        return Promise.resolve(
-          jsonResponse({ error: "queue detail" }, { status: 500 }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
+      await waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Document already removed: invoice.pdf");
+      });
+      expect(screen.queryByText("job_failed_1")).toBeNull();
     });
 
-    const { container } = render(<App />);
+    it("stays quiet when document deletion confirmation is cancelled", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(false);
 
-    await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
-    fireEvent.change(container.querySelector('input[type="file"]'), {
-      target: {
-        files: [
-          new File(["invoice"], "invoice.pdf", { type: "application/pdf" }),
-          new File(["receipt"], "receipt.pdf", { type: "application/pdf" }),
-        ],
-      },
+      await deleteOpenDocument();
+
+      expectNoToasts();
     });
-    await user.click(screen.getByRole("button", { name: "Upload Documents" }));
-
-    await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith("1 document queued, 1 failed");
-    });
-    expect(toastMock.error).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("receipt.pdf")).toBeTruthy();
-    expect(screen.getByText(/queue detail/)).toBeTruthy();
-  });
-
-  it("confirms deleting a document", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({ jobs: [failedDocument()], next_cursor: null }),
-        );
-      }
-      if (url.endsWith("/jobs/job_failed_1") && options.method === "DELETE") {
-        return Promise.resolve(jsonResponse({ deleted: true, job_id: "job_failed_1" }));
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith("Document deleted: invoice.pdf");
-    });
-    expect(screen.queryByText("job_failed_1")).toBeNull();
   });
 
   it("deletes all ticked documents as one bulk action", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const deletedDocumentIds = [];
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({
-            jobs: [
-              failedDocument(),
-              failedDocument({ job_id: "job_failed_2", source_name: "receipt.pdf" }),
-            ],
-            next_cursor: null,
-          }),
-        );
+    routeFetch((url, method) => {
+      if (url.endsWith("/jobs") && method === "GET") {
+        return jobList(failedDocument(), failedDocument({ job_id: "job_failed_2", source_name: "receipt.pdf" }));
       }
       const deletedDocumentId = ["job_failed_1", "job_failed_2"].find(
-        (documentId) =>
-          url.endsWith(`/jobs/${documentId}`) && options.method === "DELETE",
+        (documentId) => url.endsWith(`/jobs/${documentId}`) && method === "DELETE",
       );
       if (deletedDocumentId) {
         deletedDocumentIds.push(deletedDocumentId);
-        return Promise.resolve(
-          jsonResponse({ deleted: true, job_id: deletedDocumentId }),
-        );
+        return jsonResponse({ deleted: true, job_id: deletedDocumentId });
       }
-      return mockWorkspaceFetch(input, options);
     });
 
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: /Documents/ }));
-    await user.click(
-      screen.getByRole("checkbox", { name: "Select all available documents" }),
-    );
+    await user.click(screen.getByRole("checkbox", { name: "Select all available documents" }));
     await user.click(screen.getByRole("button", { name: "Delete 2" }));
 
     await waitFor(() => {
@@ -2161,25 +1172,18 @@ describe("Workspace action toast feedback", () => {
 
   it("exports the open document when no document checkboxes are selected", async () => {
     const user = userEvent.setup();
-    const createObjectURL = vi.fn(() => "blob:single-export");
-    const revokeObjectURL = vi.fn();
-    const NativeURL = globalThis.URL;
-    class ExportURL extends NativeURL {}
-    ExportURL.createObjectURL = createObjectURL;
-    ExportURL.revokeObjectURL = revokeObjectURL;
-    vi.stubGlobal("URL", ExportURL);
+    const { createObjectURL, revokeObjectURL } = stubObjectUrls("blob:single-export");
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     const requestedIds = [];
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs/export") && options.method === "POST") {
+    routeFetch((url, method, options) => {
+      if (url.endsWith("/jobs/export") && method === "POST") {
         requestedIds.push(...JSON.parse(options.body).job_ids);
-        return Promise.resolve(new Response("xlsx", { headers: { "x-exported-job-count": "1" } }));
+        return new Response("xlsx", { headers: { "x-exported-job-count": "1" } });
       }
-      if (url.endsWith("/jobs")) return Promise.resolve(jsonResponse({ jobs: [completedDocument()], next_cursor: null }));
-      if (url.endsWith("/jobs/job_completed_1")) return Promise.resolve(jsonResponse(completedDocument()));
-      return mockWorkspaceFetch(input, options);
+      if (url.endsWith("/jobs")) return jobList(completedDocument());
+      if (url.endsWith("/jobs/job_completed_1")) return jsonResponse(completedDocument());
     });
+
     render(<App />);
     await user.click(screen.getByRole("button", { name: /Documents/ }));
     await screen.findByRole("checkbox", { name: "Select document job_completed_1" });
@@ -2191,94 +1195,65 @@ describe("Workspace action toast feedback", () => {
 
   it("exports checked terminal jobs while skipping and locking in-progress selections", async () => {
     const user = userEvent.setup();
-    const NativeURL = globalThis.URL;
-    const createObjectURL = vi.fn(() => "blob:job-export");
-    const revokeObjectURL = vi.fn();
-    class ExportURL extends NativeURL {}
-    ExportURL.createObjectURL = createObjectURL;
-    ExportURL.revokeObjectURL = revokeObjectURL;
-    vi.stubGlobal("URL", ExportURL);
+    const { createObjectURL, revokeObjectURL } = stubObjectUrls("blob:job-export");
     let downloaded = null;
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function click() {
       downloaded = { href: this.href, filename: this.download };
     });
-
-    let resolveExport;
-    const exportResponse = new Promise((resolve) => {
-      resolveExport = resolve;
-    });
+    const exportResponse = deferred();
     const requestedExportIds = [];
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs/export") && options.method === "POST") {
+    routeFetch((url, method, options) => {
+      if (url.endsWith("/jobs/export") && method === "POST") {
         requestedExportIds.push(...JSON.parse(options.body).job_ids);
-        return exportResponse;
+        return exportResponse.promise;
       }
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({
-            jobs: [
-              completedDocument(),
-              completedDocument({
-                job_id: "job_processing_1",
-                source_name: "processing.pdf",
-                status: "processing",
-                completed_at: null,
-              }),
-              failedDocument({ job_id: "job_failed_1" }),
-            ],
-            next_cursor: null,
+      if (url.endsWith("/jobs") && method === "GET") {
+        return jobList(
+          completedDocument(),
+          completedDocument({
+            job_id: "job_processing_1",
+            source_name: "processing.pdf",
+            status: "processing",
+            completed_at: null,
           }),
+          failedDocument({ job_id: "job_failed_1" }),
         );
       }
-      if (url.endsWith("/jobs/job_completed_1") && options.method === "GET") {
-        return Promise.resolve(jsonResponse(completedDocument()));
+      if (url.endsWith("/jobs/job_completed_1") && method === "GET") {
+        return jsonResponse(completedDocument());
       }
-      return mockWorkspaceFetch(input, options);
     });
+    const checkbox = (id) => screen.getByRole("checkbox", { name: `Select document ${id}` });
 
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: /Documents/ }));
-    await user.click(
-      await screen.findByRole("checkbox", { name: "Select all available documents" }),
-    );
+    await user.click(await screen.findByRole("checkbox", { name: "Select all available documents" }));
     const exportButton = screen.getByRole("button", { name: "Export 3" });
     expect(exportButton.title).toContain("2 of 3 selected documents are ready");
-    expect(screen.getByRole("button", { name: "Delete 3" }).disabled).toBe(
-      false,
-    );
+    expect(screen.getByRole("button", { name: "Delete 3" }).disabled).toBe(false);
 
     await user.click(exportButton);
 
-    expect(requestedExportIds).toEqual([
-      "job_completed_1",
-      "job_processing_1",
-      "job_failed_1",
-    ]);
+    expect(requestedExportIds).toEqual(["job_completed_1", "job_processing_1", "job_failed_1"]);
     expect(screen.getByRole("button", { name: "Exporting..." }).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Delete 3" }).disabled).toBe(
-      true,
-    );
-    expect(screen.getByRole("checkbox", { name: "Select document job_completed_1" }).disabled).toBe(
-      true,
-    );
+    expect(screen.getByRole("button", { name: "Delete 3" }).disabled).toBe(true);
+    expect(checkbox("job_completed_1").disabled).toBe(true);
 
     await act(async () => {
-      resolveExport(
+      exportResponse.resolve(
         new Response("xlsx-bytes", {
           status: 200,
           headers: {
             "content-disposition":
               'attachment; filename="research-workspace-job-export-2026-08-16-1430.xlsx"',
-            "content-type":
-              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "x-exported-job-count": "2",
             "x-skipped-job-count": "1",
           },
         }),
       );
-      await exportResponse;
+      await exportResponse.promise;
     });
 
     await waitFor(() => {
@@ -2293,88 +1268,18 @@ describe("Workspace action toast feedback", () => {
     expect(createObjectURL).toHaveBeenCalledOnce();
     const [downloadBlob] = createObjectURL.mock.calls[0];
     expect(downloadBlob.size).toBe(10);
-    expect(downloadBlob.type).toBe(
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    );
+    expect(downloadBlob.type).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:job-export");
     expect(screen.getByRole("button", { name: "Export 3" }).disabled).toBe(false);
-    expect(screen.getByRole("checkbox", { name: "Select document job_completed_1" }).checked).toBe(
-      true,
-    );
-    expect(screen.getByRole("checkbox", { name: "Select document job_processing_1" }).checked).toBe(
-      true,
-    );
-    expect(screen.getByRole("checkbox", { name: "Select document job_failed_1" }).checked).toBe(
-      true,
-    );
-  });
-
-  it("treats delete 404 cleanup as already removed", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({ jobs: [failedDocument()], next_cursor: null }),
-        );
-      }
-      if (url.endsWith("/jobs/job_failed_1") && options.method === "DELETE") {
-        return Promise.resolve(
-          jsonResponse({ error: "already gone" }, { status: 404 }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Document already removed: invoice.pdf",
-      );
-    });
-    expect(screen.queryByText("job_failed_1")).toBeNull();
-  });
-
-  it("stays quiet when document deletion confirmation is cancelled", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({ jobs: [failedDocument()], next_cursor: null }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
-    });
-
-    render(<App />);
-
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    expect(toastMock.success).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
+    for (const id of ["job_completed_1", "job_processing_1", "job_failed_1"]) {
+      expect(checkbox(id).checked).toBe(true);
+    }
   });
 
   it("does not toast for background document listing", async () => {
     const user = userEvent.setup();
-
-    globalThis.fetch.mockImplementation((input, options = {}) => {
-      const url = String(input);
-      if (url.endsWith("/jobs") && (!options.method || options.method === "GET")) {
-        return Promise.resolve(
-          jsonResponse({ jobs: [failedDocument()], next_cursor: null }),
-        );
-      }
-      return mockWorkspaceFetch(input, options);
+    routeFetch((url, method) => {
+      if (url.endsWith("/jobs") && method === "GET") return jobList(failedDocument());
     });
 
     render(<App />);
@@ -2383,8 +1288,7 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(screen.getByText("job_failed_1")).toBeTruthy();
     });
-    expect(toastMock.success).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
+    expectNoToasts();
   });
 });
 
@@ -2404,40 +1308,79 @@ function installLocalStorage(initialValue, extraEntries = {}) {
   });
 }
 
+function lastStoredWorkspacePreference() {
+  return JSON.parse(window.localStorage.setItem.mock.calls.at(-1)[1]);
+}
+
+function installClipboard() {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  return writeText;
+}
+
+function stubObjectUrls(url) {
+  const createObjectURL = vi.fn(() => url);
+  const revokeObjectURL = vi.fn();
+  class ExportURL extends globalThis.URL {}
+  ExportURL.createObjectURL = createObjectURL;
+  ExportURL.revokeObjectURL = revokeObjectURL;
+  vi.stubGlobal("URL", ExportURL);
+  return { createObjectURL, revokeObjectURL };
+}
+
+function expectNoToasts() {
+  expect(toastMock.success).not.toHaveBeenCalled();
+  expect(toastMock.error).not.toHaveBeenCalled();
+}
+
+async function uploadFiles(user, container, files) {
+  await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
+  fireEvent.change(container.querySelector('input[type="file"]'), { target: { files } });
+  await user.click(screen.getByRole("button", { name: "Upload Documents" }));
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+// Handles the routes a test cares about; anything the handler leaves
+// unanswered falls through to the default signed-in Workspace backend.
+function routeFetch(handler) {
+  globalThis.fetch.mockImplementation((input, options = {}) => {
+    const response = handler(String(input), options.method || "GET", options);
+    return response === undefined ? mockWorkspaceFetch(input, options) : Promise.resolve(response);
+  });
+}
+
+function routeApiKeyGeneration({ hasApiKey, apiKey }) {
+  routeFetch((url, method) => {
+    if (url.endsWith("/workspaces")) return workspaceList(workspace({ has_api_key: hasApiKey }));
+    if (url.endsWith("/workspaces/ws_1/api-key") && method === "POST") {
+      return jsonResponse({ workspace_id: "ws_1", api_key: apiKey, has_api_key: true });
+    }
+  });
+}
+
 function mockWorkspaceFetch(input) {
-  if (String(input).endsWith("/model-configuration")) return Promise.resolve(jsonResponse({ configured: true, credential_status: "configured", gateway_url: "http://localhost:1/v1", model_name: "test/model", revision: 1 }));
   const url = String(input);
-
-  if (url.endsWith("/workspaces")) {
-    return Promise.resolve(
-      jsonResponse({
-        workspaces: [
-          {
-            id: "ws_1",
-            name: "Research Workspace",
-            role: "owner",
-            created_at: "2026-01-01T00:00:00.000Z",
-          },
-        ],
-      }),
-    );
+  if (url.endsWith("/model-configuration")) {
+    return Promise.resolve(jsonResponse({
+      configured: true,
+      credential_status: "configured",
+      gateway_url: "http://localhost:1/v1",
+      model_name: "test/model",
+      revision: 1,
+    }));
   }
-  if (url.endsWith("/invitations")) {
-    return Promise.resolve(jsonResponse({ invitations: [] }));
-  }
-  if (url.endsWith("/templates")) {
-    return Promise.resolve(jsonResponse({ templates: [] }));
-  }
-  if (url.includes("/jobs")) {
-    return Promise.resolve(jsonResponse({ jobs: [], next_cursor: null }));
-  }
-  if (url.includes("/users")) {
-    return Promise.resolve(jsonResponse({ users: [] }));
-  }
-  if (url.includes("/workspaces/ws_1/invitations")) {
-    return Promise.resolve(jsonResponse({ invitations: [] }));
-  }
-
+  if (url.endsWith("/workspaces")) return Promise.resolve(workspaceList(workspace()));
+  if (url.endsWith("/invitations")) return Promise.resolve(jsonResponse({ invitations: [] }));
+  if (url.endsWith("/templates")) return Promise.resolve(jsonResponse({ templates: [] }));
+  if (url.includes("/jobs")) return Promise.resolve(jobList());
+  if (url.includes("/users")) return Promise.resolve(jsonResponse({ users: [] }));
   return Promise.resolve(jsonResponse({}));
 }
 
@@ -2445,11 +1388,7 @@ function mockTemplateFetch(template) {
   return (input, options = {}) => {
     const url = String(input);
     if (url.endsWith("/templates") && (!options.method || options.method === "GET")) {
-      return Promise.resolve(
-        jsonResponse({
-          templates: [template],
-        }),
-      );
+      return Promise.resolve(jsonResponse({ templates: [template] }));
     }
     if (url.endsWith(`/templates/${template.id}`) && options.method === "GET") {
       return Promise.resolve(jsonResponse(validTemplatePayload(template.name, template.description)));
@@ -2477,6 +1416,39 @@ function validTemplatePayload(name = "Prescription Template", description = "Ext
       },
     ],
   };
+}
+
+function workspace(overrides = {}) {
+  return {
+    id: "ws_1",
+    name: "Research Workspace",
+    role: "owner",
+    created_at: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function workspaceList(...workspaces) {
+  return jsonResponse({ workspaces });
+}
+
+function twoWorkspaceList() {
+  return workspaceList(
+    workspace(),
+    workspace({ id: "ws_2", name: "Clinical Workspace", role: "admin", created_at: "2026-01-02T00:00:00.000Z" }),
+  );
+}
+
+function jobList(...jobs) {
+  return jsonResponse({ jobs, next_cursor: null });
+}
+
+function invoiceTemplate() {
+  return { id: "tpl_document", name: "Invoice Template" };
+}
+
+function totalResult() {
+  return { field_id: "total", name: "Total", status: "found", answer: "$42.00" };
 }
 
 function pendingInvitation(overrides = {}) {

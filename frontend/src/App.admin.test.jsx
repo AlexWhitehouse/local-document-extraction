@@ -122,39 +122,19 @@ describe("Application admin page gate", () => {
   it("lists Application admin users through Better Auth without exposing internal user IDs", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_internal_1",
-            email: "grace@example.com",
-            name: "Grace Hopper",
-            emailVerified: true,
-            role: "admin",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-          {
-            id: "user_internal_2",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: false,
-            role: "user",
-            banned: true,
-            banReason: "Compromised credentials",
-            createdAt: "2025-12-31T20:30:00.000Z",
-          },
-        ],
-        total: 2,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
+    listUsersReturns(
+      // Midday UTC keeps the rendered local date stable across test time zones.
+      adminUser({ id: "user_internal_1", createdAt: "2026-01-02T12:04:05.000Z" }),
+      alan({
+        id: "user_internal_2",
+        emailVerified: false,
+        banned: true,
+        banReason: "Compromised credentials",
+        createdAt: "2025-12-31T20:30:00.000Z",
+      }),
+    );
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
 
     expect(await screen.findByText("Total users 2")).toBeTruthy();
     const usersTable = within(screen.getByRole("table"));
@@ -171,26 +151,14 @@ describe("Application admin page gate", () => {
     expect(usersTable.getByText("Compromised credentials")).toBeTruthy();
     expect(usersTable.getByText(/2026-01-02 \d{2}:\d{2}:\d{2}/)).toBeTruthy();
     expect(usersTable.queryByText("user_internal_1")).toBeNull();
-    expect(authClientMock.listUsers).toHaveBeenCalledWith({
-      query: {
-        limit: 25,
-        offset: 0,
-        sortBy: "createdAt",
-        sortDirection: "desc",
-      },
-    });
+    expect(authClientMock.listUsers).toHaveBeenCalledWith(listUsersQuery());
   });
 
   it("searches users manually by selected field and clears back to the first unfiltered page", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: { users: [], total: 0, limit: 25, offset: 0 },
-      error: null,
-    });
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
     await screen.findByText("Total users 0");
 
     expect(screen.getByLabelText("Search field").value).toBe("email");
@@ -199,30 +167,17 @@ describe("Application admin page gate", () => {
     await user.click(screen.getByRole("button", { name: "Search" }));
 
     await waitFor(() => {
-      expect(authClientMock.listUsers).toHaveBeenLastCalledWith({
-        query: {
-          limit: 25,
-          offset: 0,
-          sortBy: "createdAt",
-          sortDirection: "desc",
-          searchValue: "Grace",
-          searchField: "name",
-          searchOperator: "contains",
-        },
-      });
+      expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery({
+        searchValue: "Grace",
+        searchField: "name",
+        searchOperator: "contains",
+      }));
     });
 
     await user.click(screen.getByRole("button", { name: "Clear Search" }));
 
     await waitFor(() => {
-      expect(authClientMock.listUsers).toHaveBeenLastCalledWith({
-        query: {
-          limit: 25,
-          offset: 0,
-          sortBy: "createdAt",
-          sortDirection: "desc",
-        },
-      });
+      expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery());
     });
     expect(screen.getByLabelText("Search field").value).toBe("email");
     expect(screen.getByLabelText("Search users").value).toBe("");
@@ -236,33 +191,18 @@ describe("Application admin page gate", () => {
       error: null,
     });
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
     await screen.findByText("Total users 30");
 
     await user.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => {
-      expect(authClientMock.listUsers).toHaveBeenLastCalledWith({
-        query: {
-          limit: 25,
-          offset: 25,
-          sortBy: "createdAt",
-          sortDirection: "desc",
-        },
-      });
+      expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery({ offset: 25 }));
     });
     expect(screen.getByText("Page 2")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Previous" }));
     await waitFor(() => {
-      expect(authClientMock.listUsers).toHaveBeenLastCalledWith({
-        query: {
-          limit: 25,
-          offset: 0,
-          sortBy: "createdAt",
-          sortDirection: "desc",
-        },
-      });
+      expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery());
     });
     expect(screen.getByText("Page 1")).toBeTruthy();
   });
@@ -275,8 +215,7 @@ describe("Application admin page gate", () => {
       error: { message: "Admin list unavailable" },
     });
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
 
     const inlineError = await screen.findByRole("alert");
     expect(within(inlineError).getByText("Admin list unavailable")).toBeTruthy();
@@ -287,40 +226,10 @@ describe("Application admin page gate", () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_1",
-            email: "ada@example.com",
-            name: "Ada Lovelace",
-            emailVerified: true,
-            role: "admin",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-          {
-            id: "user_admin_2",
-            email: "grace@example.com",
-            name: "Grace Hopper",
-            emailVerified: true,
-            role: "admin",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-03T03:04:05.000Z",
-          },
-        ],
-        total: 2,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
+    listUsersReturns(currentAdmin(), adminUser());
     authClientMock.setRole.mockResolvedValue({ data: {}, error: null });
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
 
     const currentAdminRow = await openUserActions(user, "ada@example.com");
     expect(within(currentAdminRow).getByText("No actions available")).toBeTruthy();
@@ -342,33 +251,13 @@ describe("Application admin page gate", () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_regular_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-        ],
-        total: 1,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
+    listUsersReturns(alan());
     authClientMock.setRole.mockResolvedValue({
       data: null,
       error: { message: "Role update denied" },
     });
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Make admin");
 
     await waitFor(() => {
@@ -385,29 +274,9 @@ describe("Application admin page gate", () => {
   it("shows inline validation and does not call Better Auth when a ban reason is missing", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_regular_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-        ],
-        total: 1,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
+    listUsersReturns(alan());
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Ban user");
     await user.click(screen.getByRole("button", { name: "Confirm ban" }));
 
@@ -419,39 +288,9 @@ describe("Application admin page gate", () => {
   it("prevents self-ban but allows banning another Application admin through explicit confirmation", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_1",
-            email: "ada@example.com",
-            name: "Ada Lovelace",
-            emailVerified: true,
-            role: "admin",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-          {
-            id: "user_admin_2",
-            email: "grace@example.com",
-            name: "Grace Hopper",
-            emailVerified: true,
-            role: "admin",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-03T03:04:05.000Z",
-          },
-        ],
-        total: 2,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
+    listUsersReturns(currentAdmin(), adminUser());
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
 
     const currentAdminRow = await openUserActions(user, "ada@example.com");
     expect(within(currentAdminRow).getByText("No actions available")).toBeTruthy();
@@ -464,41 +303,14 @@ describe("Application admin page gate", () => {
   it("shows failure Action toasts without reloading when ban and unban operations fail", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_regular_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-          {
-            id: "user_banned_1",
-            email: "grace@example.com",
-            name: "Grace Hopper",
-            emailVerified: true,
-            role: "user",
-            banned: true,
-            banReason: "Compromised credentials",
-            createdAt: "2026-01-03T03:04:05.000Z",
-          },
-        ],
-        total: 2,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
+    listUsersReturns(
+      alan(),
+      adminUser({ id: "user_banned_1", role: "user", banned: true, banReason: "Compromised credentials" }),
+    );
     authClientMock.banUser.mockResolvedValue({ data: null, error: { message: "Ban denied" } });
     authClientMock.unbanUser.mockResolvedValue({ data: null, error: { message: "Unban denied" } });
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Ban user");
     await user.type(screen.getByLabelText("Ban reason"), "Compromised account");
     await user.click(screen.getByRole("button", { name: "Confirm ban" }));
@@ -522,59 +334,21 @@ describe("Application admin page gate", () => {
   it("only offers impersonation for active regular users other than the current admin", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_1",
-            email: "ada@example.com",
-            name: "Ada Lovelace",
-            emailVerified: true,
-            role: "admin",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-          {
-            id: "user_admin_2",
-            email: "grace@example.com",
-            name: "Grace Hopper",
-            emailVerified: true,
-            role: "admin",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-03T03:04:05.000Z",
-          },
-          {
-            id: "user_banned_1",
-            email: "katherine@example.com",
-            name: "Katherine Johnson",
-            emailVerified: true,
-            role: "user",
-            banned: true,
-            banReason: "Compromised credentials",
-            createdAt: "2026-01-04T03:04:05.000Z",
-          },
-          {
-            id: "user_regular_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-05T03:04:05.000Z",
-          },
-        ],
-        total: 4,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
+    listUsersReturns(
+      currentAdmin(),
+      adminUser(),
+      adminUser({
+        id: "user_banned_1",
+        email: "katherine@example.com",
+        name: "Katherine Johnson",
+        role: "user",
+        banned: true,
+        banReason: "Compromised credentials",
+      }),
+      alan(),
+    );
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
 
     await screen.findByText("Total users 4");
     const currentAdminRow = await openUserActions(user, "ada@example.com");
@@ -591,34 +365,14 @@ describe("Application admin page gate", () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_regular_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-        ],
-        total: 1,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
+    listUsersReturns(alan());
     authClientMock.impersonateUser.mockResolvedValue({ data: {}, error: null });
     authClientMock.refetchSession.mockImplementation(() => {
       currentSession = impersonatedSession();
       return Promise.resolve();
     });
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Impersonate user");
 
     await waitFor(() => {
@@ -640,33 +394,13 @@ describe("Application admin page gate", () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
-    authClientMock.listUsers.mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: "user_regular_1",
-            email: "alan@example.com",
-            name: "Alan Turing",
-            emailVerified: true,
-            role: "user",
-            banned: false,
-            banReason: null,
-            createdAt: "2026-01-02T03:04:05.000Z",
-          },
-        ],
-        total: 1,
-        limit: 25,
-        offset: 0,
-      },
-      error: null,
-    });
+    listUsersReturns(alan());
     authClientMock.impersonateUser.mockResolvedValue({
       data: null,
       error: { message: "Impersonation denied" },
     });
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Impersonate user");
 
     await waitFor(() => {
@@ -763,16 +497,11 @@ describe("Application admin page gate", () => {
   it("keeps the Application admin page available while Workspace context is loading", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
-    globalThis.fetch = vi.fn((input) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces")) {
-        return new Promise(() => {});
-      }
-      return mockWorkspaceFetch(input);
-    });
+    globalThis.fetch = vi.fn((input) =>
+      String(input).endsWith("/workspaces") ? new Promise(() => {}) : mockWorkspaceFetch(input),
+    );
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
 
     expect(await screen.findByRole("heading", { name: "Application Admin" })).toBeTruthy();
     expect(await screen.findByText("Total users 0")).toBeTruthy();
@@ -781,13 +510,11 @@ describe("Application admin page gate", () => {
   it("keeps the Application admin page available during Workspace resolution error", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
-    globalThis.fetch = vi.fn((input) => {
-      const url = String(input);
-      if (url.endsWith("/workspaces")) {
-        return Promise.resolve(jsonResponse({ error: "failed" }, { status: 500 }));
-      }
-      return mockWorkspaceFetch(input);
-    });
+    globalThis.fetch = vi.fn((input) =>
+      String(input).endsWith("/workspaces")
+        ? Promise.resolve(jsonResponse({ error: "failed" }, { status: 500 }))
+        : mockWorkspaceFetch(input),
+    );
 
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
@@ -801,8 +528,7 @@ describe("Application admin page gate", () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
 
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await openAdminPage(user);
 
     expect(await screen.findByRole("heading", { name: "Application Admin" })).toBeTruthy();
     expect(screen.getByText("Users, roles, bans, and impersonation")).toBeTruthy();
@@ -816,6 +542,51 @@ describe("Application admin page gate", () => {
     expect(screen.queryByText(/Audit log/i)).toBeNull();
   });
 });
+
+async function openAdminPage(user) {
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+}
+
+function listUsersQuery(overrides = {}) {
+  return { query: { limit: 25, offset: 0, sortBy: "createdAt", sortDirection: "desc", ...overrides } };
+}
+
+function listUsersReturns(...users) {
+  authClientMock.listUsers.mockResolvedValue({
+    data: { users, total: users.length, limit: 25, offset: 0 },
+    error: null,
+  });
+}
+
+function adminUser(overrides = {}) {
+  return {
+    id: "user_admin_2",
+    email: "grace@example.com",
+    name: "Grace Hopper",
+    emailVerified: true,
+    role: "admin",
+    banned: false,
+    banReason: null,
+    createdAt: "2026-01-03T03:04:05.000Z",
+    ...overrides,
+  };
+}
+
+function currentAdmin() {
+  return adminUser({ id: "user_1", email: "ada@example.com", name: "Ada Lovelace" });
+}
+
+function alan(overrides = {}) {
+  return adminUser({
+    id: "user_regular_1",
+    email: "alan@example.com",
+    name: "Alan Turing",
+    role: "user",
+    createdAt: "2026-01-02T03:04:05.000Z",
+    ...overrides,
+  });
+}
 
 function sessionForRole(role) {
   return {
@@ -844,12 +615,10 @@ function impersonatedSession() {
 
 function deferred() {
   let resolve;
-  let reject;
-  const promise = new Promise((promiseResolve, promiseReject) => {
+  const promise = new Promise((promiseResolve) => {
     resolve = promiseResolve;
-    reject = promiseReject;
   });
-  return { promise, resolve, reject };
+  return { promise, resolve };
 }
 
 function installLocalStorage() {
@@ -874,32 +643,14 @@ function mockWorkspaceFetch(input) {
   const url = String(input);
 
   if (url.endsWith("/workspaces")) {
-    return Promise.resolve(
-      jsonResponse({
-        workspaces: [
-          {
-            id: "ws_1",
-            name: "Research Workspace",
-            role: "owner",
-            created_at: "2026-01-01T00:00:00.000Z",
-          },
-        ],
-      }),
-    );
+    return Promise.resolve(jsonResponse({
+      workspaces: [{ id: "ws_1", name: "Research Workspace", role: "owner", created_at: "2026-01-01T00:00:00.000Z" }],
+    }));
   }
-  if (url.endsWith("/invitations")) {
-    return Promise.resolve(jsonResponse({ invitations: [] }));
-  }
-  if (url.endsWith("/templates")) {
-    return Promise.resolve(jsonResponse({ templates: [] }));
-  }
-  if (url.includes("/jobs")) {
-    return Promise.resolve(jsonResponse({ jobs: [], next_cursor: null }));
-  }
-  if (url.includes("/users")) {
-    return Promise.resolve(jsonResponse({ users: [] }));
-  }
-
+  if (url.endsWith("/invitations")) return Promise.resolve(jsonResponse({ invitations: [] }));
+  if (url.endsWith("/templates")) return Promise.resolve(jsonResponse({ templates: [] }));
+  if (url.includes("/jobs")) return Promise.resolve(jsonResponse({ jobs: [], next_cursor: null }));
+  if (url.includes("/users")) return Promise.resolve(jsonResponse({ users: [] }));
   return Promise.resolve(jsonResponse({}));
 }
 

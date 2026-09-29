@@ -11,13 +11,12 @@ const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_DELAY_MS = 150;
 const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_MIN_INTERVAL_MS = 3000;
 
 export function useDocumentController({
-  apiBase = "/v1", initialWorkspace = {}, templates, selectedUploadTemplateId,
-  onSelectedUploadTemplateChange, documentRequests, addLog, showActionToast,
+  apiBase = "/v1", initialWorkspace, templates, selectedUploadTemplateId,
+  onSelectedUploadTemplateChange, documentRequests, showActionToast,
   showDocumentUploadToast, hasApiAccess, hasWorkspaceApiAccess, isAppBusy,
-  isWorkspaceDeletionInProgress = false, sessionId, workspaceId, setLatestResponse,
+  isWorkspaceDeletionInProgress = false, sessionId, workspaceId,
   onActivePageChange, onWorkspaceCapacityRefresh, onWorkspaceAccessRevalidation,
-  onModelConfigurationInvalidation, modelReady = true,
-  maxSourceFileBytes = 10 * 1024 * 1024,
+  onModelConfigurationInvalidation, modelReady = true, maxSourceFileBytes,
 }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
@@ -30,22 +29,19 @@ export function useDocumentController({
   const workspaceDeletionInProgressRef = useRef(isWorkspaceDeletionInProgress);
   const workspaceCapacityRefreshTimerRef = useRef(null);
   const lastWorkspaceCapacityRefreshAtRef = useRef(0);
-  const addLogRef = useRef(addLog);
-  const listJobsRef = useRef(null);
   const onWorkspaceCapacityRefreshRef = useRef(onWorkspaceCapacityRefresh);
-  const onWorkspaceAccessRevalidationRef = useRef(onWorkspaceAccessRevalidation || onWorkspaceCapacityRefresh);
+  const onWorkspaceAccessRevalidationRef = useRef(onWorkspaceAccessRevalidation);
   const onModelConfigurationInvalidationRef = useRef(onModelConfigurationInvalidation);
   const normalizedWorkspaceId = String(workspaceId || "").trim();
   const canOpenLiveUpdates = hasApiAccess && Boolean(normalizedWorkspaceId) && typeof WebSocket === "function";
   const shouldUseLiveUpdates = canOpenLiveUpdates && !liveUpdatesUnavailable;
 
   useEffect(() => {
-    addLogRef.current = addLog;
     onWorkspaceCapacityRefreshRef.current = onWorkspaceCapacityRefresh;
-    onWorkspaceAccessRevalidationRef.current = onWorkspaceAccessRevalidation || onWorkspaceCapacityRefresh;
+    onWorkspaceAccessRevalidationRef.current = onWorkspaceAccessRevalidation;
     onModelConfigurationInvalidationRef.current = onModelConfigurationInvalidation;
     workspaceDeletionInProgressRef.current = isWorkspaceDeletionInProgress;
-  }, [addLog, onWorkspaceCapacityRefresh, onWorkspaceAccessRevalidation, onModelConfigurationInvalidation, isWorkspaceDeletionInProgress]);
+  }, [onWorkspaceCapacityRefresh, onWorkspaceAccessRevalidation, onModelConfigurationInvalidation, isWorkspaceDeletionInProgress]);
 
   const clearLiveUpdateReconnectTimer = useCallback(() => {
     if (!liveUpdateReconnectTimerRef.current) {
@@ -86,9 +82,7 @@ export function useDocumentController({
     workspaceCapacityRefreshTimerRef.current = window.setTimeout(() => {
       workspaceCapacityRefreshTimerRef.current = null;
       lastWorkspaceCapacityRefreshAtRef.current = Date.now();
-      Promise.resolve(refreshWorkspaceCapacity()).catch((error) => {
-        addLogRef.current?.(`Refresh workspace capacity failed: ${error.message}`);
-      });
+      Promise.resolve(refreshWorkspaceCapacity()).catch(() => {});
     }, refreshDelay);
   }, []);
 
@@ -105,49 +99,32 @@ export function useDocumentController({
       .then(() => {
         liveUpdateAccessRevalidationPendingRef.current = false;
       })
-      .catch((error) => {
-        addLogRef.current?.(`Refresh workspace access failed: ${error.message}`);
-      });
+      .catch(() => {});
   }, [clearWorkspaceCapacityRefreshTimer]);
 
   const { reconciliation, snapshot } = useDocumentReconciliation({
     sessionId, workspaceId: normalizedWorkspaceId, enabled: hasApiAccess,
     requests: documentRequests, initialWorkspace,
     callbacks: {
-      onResponse: setLatestResponse,
-      onLog: addLog,
       onCapacityChange: scheduleWorkspaceCapacityRefresh,
       onAccessDenied: revalidateWorkspaceAccessNow,
     },
   });
   const {
-    documents, selectedDocument, selectedDocumentId, selectedDocumentIds,
-    search: documentSearch, debouncedSearch: debouncedDocumentSearch, filters: documentFilters,
-    availableModels: availableDocumentModels, totalDocuments, hasMore: jobsHasMore,
-    loadingMore: isLoadingMoreJobs, loadingDocumentId: loadingDocumentDetailsId,
+    documents, selectedDocument, selectedDocumentId, selectedDocumentIds, totalDocuments,
+    loadingDocumentId: loadingDocumentDetailsId,
     uploading: isUploadingDocuments, deleting: isDeletingDocument, exporting: isExportingDocuments,
   } = snapshot;
-  const hasActiveDocumentFilters = Object.values(documentFilters).some(Boolean);
-  const listJobs = reconciliation.refresh;
-  const loadJobDetails = reconciliation.loadDetails;
-  const setDocumentSearch = reconciliation.setSearch;
-  const applyDocumentFilters = reconciliation.setFilters;
-  const setSelectedDocumentId = reconciliation.selectDocument;
-  const toggleDocumentSelection = (id, selected) => reconciliation.toggleSelection([id], selected);
-  const toggleAllDocumentSelections = reconciliation.toggleSelection;
-  const loadMoreJobs = () => reconciliation.refresh({ append: true });
   const clearWorkspaceScopedDocuments = useCallback((options) => {
     reconciliation.clear(options);
     clearWorkspaceCapacityRefreshTimer();
     lastWorkspaceCapacityRefreshAtRef.current = 0;
-    setLatestResponse(null);
-  }, [reconciliation, clearWorkspaceCapacityRefreshTimer, setLatestResponse]);
+  }, [reconciliation, clearWorkspaceCapacityRefreshTimer]);
   const exportableSelectedDocumentIds = useMemo(() => {
     const ids = new Set(selectedDocumentIds.length ? selectedDocumentIds : selectedDocument ? [selectedDocument.job_id] : []);
     return documents.filter((job) => ids.has(job.job_id) && EXPORTABLE_DOCUMENT_STATUSES.has(job.status)).map((job) => job.job_id);
   }, [documents, selectedDocumentIds, selectedDocument]);
 
-  useEffect(() => { listJobsRef.current = listJobs; }, [listJobs]);
   useEffect(() => {
     setShowUploadModal(false);
     setUploadFiles([]);
@@ -175,15 +152,8 @@ export function useDocumentController({
     return templateName || templateId;
   }, [selectedDocument, templates]);
 
-  const documentStatusMetrics = snapshot.statusCounts;
-  const statusTotal = Object.values(documentStatusMetrics).reduce((sum, count) => sum + count, 0);
-  const completionRate = statusTotal
-    ? Math.round(((documentStatusMetrics.completed + documentStatusMetrics.failed) / statusTotal) * 100)
-    : 0;
-
   function openUploadModal() {
-    if (!modelReady) return;
-    if (isAppBusy) {
+    if (!modelReady || isAppBusy) {
       return;
     }
     setUploadTemplateId(selectedUploadTemplateId || templates[0]?.id || "");
@@ -200,43 +170,22 @@ export function useDocumentController({
     setShowUploadModal(false);
   }
 
-  function handleUploadDragOver(event) {
-    event.preventDefault();
-    setIsUploadDragActive(true);
-  }
-
-  function handleUploadDragLeave(event) {
-    event.preventDefault();
-    setIsUploadDragActive(false);
-  }
-
   function handleUploadDrop(event) {
-    event.preventDefault();
     setIsUploadDragActive(false);
-    const droppedFiles = Array.from(event.dataTransfer?.files || []);
-    appendUploadFiles(droppedFiles);
+    appendUploadFiles(Array.from(event.dataTransfer?.files || []));
   }
 
   function appendUploadFiles(nextFiles) {
-    const filtered = nextFiles.filter(Boolean);
-    if (!filtered.length) {
+    if (!nextFiles.length) {
       return;
     }
 
     setUploadFiles((prev) => {
-      const existingKeys = new Set(
-        prev.map((entry) =>
-          fileDedupKey(
-            entry.file.name,
-            entry.file.size,
-            entry.file.lastModified,
-          ),
-        ),
-      );
+      const existingKeys = new Set(prev.map((entry) => fileDedupKey(entry.file)));
       const additions = [];
 
-      for (const file of filtered) {
-        const key = fileDedupKey(file.name, file.size, file.lastModified);
+      for (const file of nextFiles) {
+        const key = fileDedupKey(file);
         if (existingKeys.has(key)) {
           continue;
         }
@@ -312,10 +261,7 @@ export function useDocumentController({
         downloadBlob(exported.blob, exported.filename);
         showActionToast("document.export", "success", { exportedCount: exported.exportedCount, skippedCount: exported.skippedCount });
       },
-      onError: (error) => {
-        addLog(`Export selected jobs failed: ${error.message}`);
-        showActionToast("document.export", "failure");
-      },
+      onError: () => showActionToast("document.export", "failure"),
     });
   }
 
@@ -352,30 +298,23 @@ export function useDocumentController({
         liveUpdateReconnectTimerRef.current = window.setTimeout(() => {
           liveUpdateReconnectTimerRef.current = null;
           setLiveUpdatesUnavailable(false);
-          void listJobsRef.current?.();
+          void reconciliation.refresh();
         }, 1000);
       }
     };
     socket.onclose = scheduleReconnect;
-    socket.onerror = () => {
-      scheduleReconnect();
-    };
+    socket.onerror = scheduleReconnect;
     socket.onmessage = (event) => {
       if (liveUpdateSocketRef.current !== socket) {
         return;
       }
-      const parsed = parseWorkspaceLiveUpdateMessage(event?.data);
-      const jobs = parsed.jobs;
-      if (parsed.workspaceContextInvalidations.some((item) => item.reason === "model_configuration_changed")) {
+      const { jobs, invalidationReasons } = parseWorkspaceLiveUpdateMessage(event?.data);
+      if (invalidationReasons.includes("model_configuration_changed")) {
         void onModelConfigurationInvalidationRef.current?.();
       }
-      const workspaceContextInvalidations = parsed.workspaceContextInvalidations.filter((item) => item.reason !== "model_configuration_changed");
-      if (workspaceContextInvalidations.length) {
-        if (
-          workspaceContextInvalidations.some(
-            (invalidation) => invalidation.reason === "workspace_access",
-          )
-        ) {
+      const contextInvalidationReasons = invalidationReasons.filter((reason) => reason !== "model_configuration_changed");
+      if (contextInvalidationReasons.length) {
+        if (contextInvalidationReasons.includes("workspace_access")) {
           if (!workspaceDeletionInProgressRef.current) {
             revalidateWorkspaceAccessNow();
           }
@@ -433,7 +372,7 @@ export function useDocumentController({
     const schedulePoll = () => {
       const jitteredDelayMs = Math.ceil(nextDelayMs * (1 + Math.random() * 0.2));
       timeoutId = window.setTimeout(async () => {
-        const job = await loadJobDetails(selectedDocumentId);
+        const job = await reconciliation.loadDetails(selectedDocumentId);
         if (cancelled) {
           return;
         }
@@ -462,7 +401,7 @@ export function useDocumentController({
     };
   }, [
     hasApiAccess,
-    loadJobDetails,
+    reconciliation,
     selectedDocumentId,
     selectedDocument?.status,
     shouldUseLiveUpdates,
@@ -470,24 +409,24 @@ export function useDocumentController({
 
   return {
     contextList: {
-      search: documentSearch,
+      search: snapshot.search,
       documents,
       selectedDocumentId: selectedDocument?.job_id || "",
       selectedDocumentIds,
-      debouncedSearch: debouncedDocumentSearch,
-      filters: documentFilters,
-      availableModels: availableDocumentModels,
-      hasActiveFilters: hasActiveDocumentFilters,
-      hasMoreDocuments: jobsHasMore,
-      isLoadingMoreDocuments: isLoadingMoreJobs,
+      debouncedSearch: snapshot.debouncedSearch,
+      filters: snapshot.filters,
+      availableModels: snapshot.availableModels,
+      hasActiveFilters: Object.values(snapshot.filters).some(Boolean),
+      hasMoreDocuments: snapshot.hasMore,
+      isLoadingMoreDocuments: snapshot.loadingMore,
       isDeletingDocuments: isDeletingDocument,
       isExportingDocuments,
-      onSearchChange: setDocumentSearch,
-      onFiltersChange: applyDocumentFilters,
-      onSelectDocument: setSelectedDocumentId,
-      onToggleAllDocumentSelections: toggleAllDocumentSelections,
-      onToggleDocumentSelection: toggleDocumentSelection,
-      onLoadMoreDocuments: loadMoreJobs,
+      onSearchChange: reconciliation.setSearch,
+      onFiltersChange: reconciliation.setFilters,
+      onSelectDocument: reconciliation.selectDocument,
+      onToggleAllDocumentSelections: reconciliation.toggleSelection,
+      onToggleDocumentSelection: (id, selected) => reconciliation.toggleSelection([id], selected),
+      onLoadMoreDocuments: () => reconciliation.refresh({ append: true }),
     },
     uploadModal: {
       maxSourceFileBytes,
@@ -501,8 +440,8 @@ export function useDocumentController({
       onClose: closeUploadModal,
       onSelectTemplate: setUploadTemplateId,
       onSelectSourceFiles: appendUploadFiles,
-      onDragOver: handleUploadDragOver,
-      onDragLeave: handleUploadDragLeave,
+      onDragOver: () => setIsUploadDragActive(true),
+      onDragLeave: () => setIsUploadDragActive(false),
       onDrop: handleUploadDrop,
       onRemoveSourceFile: removeUploadFile,
       onSubmit: uploadFromModal,
@@ -523,17 +462,10 @@ export function useDocumentController({
       selectedDocumentTemplateName,
       loadingDocumentDetailsId,
     },
-    metrics: {
-      documentStatusMetrics,
-      completionRate,
-    },
+    statusCounts: snapshot.statusCounts,
     actions: {
       cancelPendingSubmissions: reconciliation.cancelPendingSubmissions,
       clearWorkspaceScopedDocuments,
-      deleteSelectedDocument,
-      exportSelectedDocuments,
-      listJobs,
-      openUploadModal,
     },
   };
 }
@@ -553,7 +485,7 @@ function downloadBlob(blob, filename) {
 }
 
 function createWorkspaceLiveUpdateUrl(apiBase, workspaceId) {
-  const basePath = String(apiBase || "/v1").replace(/\/+$/, "") || "/v1";
+  const basePath = apiBase.replace(/\/+$/, "");
   const url = new URL(
     `${basePath}/workspaces/${encodeURIComponent(workspaceId)}/live`,
     window.location.origin,
@@ -563,49 +495,32 @@ function createWorkspaceLiveUpdateUrl(apiBase, workspaceId) {
 }
 
 function parseWorkspaceLiveUpdateMessage(message) {
-  if (typeof message !== "string") {
-    return { jobs: [], workspaceContextInvalidations: [] };
-  }
-
-  let envelope;
+  const jobs = [];
+  const invalidationReasons = [];
+  let envelope = null;
   try {
     envelope = JSON.parse(message);
   } catch {
-    return { jobs: [], workspaceContextInvalidations: [] };
+    // Malformed messages carry nothing to apply.
   }
-
-  if (Number(envelope?.version) !== 1 || !Array.isArray(envelope?.events)) {
-    return { jobs: [], workspaceContextInvalidations: [] };
+  if (Number(envelope?.version) !== 1 || !Array.isArray(envelope.events)) {
+    return { jobs, invalidationReasons };
   }
-
-  const jobs = [];
-  const workspaceContextInvalidations = [];
 
   for (const event of envelope.events) {
-    if (event?.type === "extraction_job_lifecycle" && event?.job?.job_id) {
+    if (event?.type === "extraction_job_lifecycle" && event.job?.job_id) {
       jobs.push(event.job);
-      continue;
-    }
-
-    const invalidationReason =
-      typeof event?.reason === "string" ? event.reason.trim() : "";
-    const invalidationOccurredAt =
-      typeof event?.occurred_at === "string" ? event.occurred_at.trim() : "";
-    if (
+    } else if (
       event?.type === "workspace_context_invalidated" &&
-      invalidationReason &&
-      invalidationOccurredAt
+      typeof event.reason === "string" && event.reason.trim() &&
+      typeof event.occurred_at === "string" && event.occurred_at.trim()
     ) {
-      workspaceContextInvalidations.push({
-        reason: invalidationReason,
-        occurred_at: invalidationOccurredAt,
-      });
+      invalidationReasons.push(event.reason.trim());
     }
   }
-
-  return { jobs, workspaceContextInvalidations };
+  return { jobs, invalidationReasons };
 }
 
-function fileDedupKey(name, size, lastModified) {
-  return `${name}::${size}::${lastModified}`;
+function fileDedupKey(file) {
+  return `${file.name}::${file.size}::${file.lastModified}`;
 }

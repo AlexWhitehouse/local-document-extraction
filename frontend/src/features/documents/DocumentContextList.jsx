@@ -23,9 +23,7 @@ export function DocumentContextList({
   onToggleAllDocumentSelections = () => {},
   onToggleDocumentSelection = () => {},
   onLoadMoreDocuments,
-  documentLabels = false,
 }) {
-  const itemLabel = documentLabels ? "document" : "job";
   const availableDocumentIds = useMemo(() => documents.map((job) => String(job.job_id)), [documents]);
   const selectedIds = useMemo(() => new Set(selectedDocumentIds), [selectedDocumentIds]);
   const selectedAvailableCount = availableDocumentIds.filter((documentId) =>
@@ -37,8 +35,8 @@ export function DocumentContextList({
   const areSomeAvailableDocumentsSelected =
     selectedAvailableCount > 0 && !areAllAvailableDocumentsSelected;
   const selectAllLabel = areAllAvailableDocumentsSelected
-    ? `Deselect all available ${itemLabel}s`
-    : `Select all available ${itemLabel}s`;
+    ? "Deselect all available documents"
+    : "Select all available documents";
   const isSelectionLocked = isDeletingDocuments || isExportingDocuments;
   const listRef = useRef(null);
   const lastScrolledSelection = useRef(null);
@@ -78,7 +76,7 @@ export function DocumentContextList({
   return (
     <>
       <div className="context-search-field">
-        <label htmlFor="document-job-search">Search {documentLabels ? "Documents" : "Jobs"}</label>
+        <label htmlFor="document-job-search">Search Documents</label>
         <div className="context-search-row">
           <label className="context-select-all-control" title={selectAllLabel}>
             <input
@@ -104,22 +102,21 @@ export function DocumentContextList({
               id="document-job-search"
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder={`${documentLabels ? "Document" : "Job"} ID or Source file`}
+              placeholder="Document ID or Source file"
             />
             <AdvancedJobFilters
               filters={filters}
               availableModels={availableModels}
               onFiltersChange={onFiltersChange}
-              itemLabel={itemLabel}
             />
           </div>
         </div>
       </div>
       <ScrollArea className="context-list" ref={listRef}
-        role="region" aria-label={documentLabels ? "Document list" : "Job list"} tabIndex={0}
+        role="region" aria-label="Document list" tabIndex={0}
         style={virtual ? { display: "block" } : undefined}
         onScroll={virtual ? (event) => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight || 600 }) : undefined}>
-        <div role="list" aria-label={documentLabels ? "Documents" : "Jobs"}
+        <div role="list" aria-label="Documents"
           style={virtual ? { position: "relative", height: documents.length * rowStride } : { display: "contents" }}>
         {documents.slice(start, end).map((job, offset) => {
           const isActive = selectedDocumentId === job.job_id;
@@ -139,11 +136,11 @@ export function DocumentContextList({
             >
               <label
                 className="context-select-control"
-                title={`Select ${itemLabel} ${job.job_id}`}
+                title={`Select document ${job.job_id}`}
               >
                 <input
                   type="checkbox"
-                  aria-label={`Select ${itemLabel} ${job.job_id}`}
+                  aria-label={`Select document ${job.job_id}`}
                   checked={isChecked}
                   disabled={isSelectionLocked}
                   onChange={(event) =>
@@ -196,8 +193,8 @@ export function DocumentContextList({
             </strong>
             <span>
               {debouncedSearch || hasActiveFilters
-                ? `Continue searching older ${itemLabel}s`
-                : `Show older ${itemLabel}s`}
+                ? "Continue searching older documents"
+                : "Show older documents"}
             </span>
           </button>
         ) : null}
@@ -221,7 +218,7 @@ function documentStatusTone(status) {
   }
 }
 
-function AdvancedJobFilters({ filters, availableModels, onFiltersChange, itemLabel }) {
+function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState(() => ({ ...filters }));
   const containerRef = useRef(null);
@@ -240,11 +237,7 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange, itemLab
   ].filter(Boolean))].sort((left, right) => left.localeCompare(right));
 
   useEffect(() => {
-    setDraftFilters({
-      dateFrom: String(filters.dateFrom || ""),
-      dateTo: String(filters.dateTo || ""),
-      model: String(filters.model || ""),
-    });
+    setDraftFilters(toDraftFilters(filters));
   }, [filters]);
 
   useEffect(() => {
@@ -293,11 +286,7 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange, itemLab
 
   function toggleFilters() {
     if (!isOpen) {
-      setDraftFilters({
-        dateFrom: String(filters.dateFrom || ""),
-        dateTo: String(filters.dateTo || ""),
-        model: String(filters.model || ""),
-      });
+      setDraftFilters(toDraftFilters(filters));
     }
     setIsOpen((current) => !current);
   }
@@ -310,8 +299,8 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange, itemLab
         aria-controls={popoverId}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        aria-label={`Advanced ${itemLabel} filters${activeFilterCount ? `, ${activeFilterCount} active` : ""}`}
-        title={`Advanced ${itemLabel} filters`}
+        aria-label={`Advanced document filters${activeFilterCount ? `, ${activeFilterCount} active` : ""}`}
+        title="Advanced document filters"
         onClick={toggleFilters}
       >
         <FilterIcon />
@@ -403,6 +392,14 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange, itemLab
   );
 }
 
+function toDraftFilters(filters) {
+  return {
+    dateFrom: String(filters.dateFrom || ""),
+    dateTo: String(filters.dateTo || ""),
+    model: String(filters.model || ""),
+  };
+}
+
 function FilterIcon() {
   return (
     <svg
@@ -424,14 +421,8 @@ function FilterIcon() {
 }
 
 function defaultUploadedName(sourceMimeType) {
-  if (
-    typeof sourceMimeType === "string" &&
-    sourceMimeType.startsWith("image/")
-  ) {
-    return "Uploaded Document";
-  }
-  if (sourceMimeType === "application/pdf") {
-    return "Uploaded Document";
-  }
-  return "Uploaded Source file";
+  const mimeType = String(sourceMimeType || "");
+  return mimeType.startsWith("image/") || mimeType === "application/pdf"
+    ? "Uploaded Document"
+    : "Uploaded Source file";
 }

@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import "./WorkspaceModelConfiguration.css";
 
-export function WorkspaceModelConfiguration({ controller, inline = false }) {
-  const [expanded, setExpanded] = useState(false);
+export function WorkspaceModelConfiguration({ controller }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const {
     record,
@@ -41,24 +40,6 @@ export function WorkspaceModelConfiguration({ controller, inline = false }) {
           </div>
           <p>LLM Gateway settings for this workspace only.</p>
         </div>
-        {canManage && configured && !expanded && !inline ? (
-          <div className="workspace-model-summary">
-            <strong>{record.model_name}</strong>
-            <span>{record.gateway_url}</span>
-          </div>
-        ) : null}
-        {canManage && !inline ? (
-          <button
-            type="button"
-            className="secondary"
-            aria-expanded={expanded}
-            aria-controls="workspace-model-editor"
-            onClick={() => setExpanded(!expanded)}
-          >
-            {expanded ? "Collapse" : configured ? "Manage" : "Set up"}
-            <span aria-hidden="true">{expanded ? " −" : " +"}</span>
-          </button>
-        ) : null}
       </header>
       {!canManage ? (
         <div className="workspace-model-member">
@@ -82,8 +63,8 @@ export function WorkspaceModelConfiguration({ controller, inline = false }) {
             </>
           ) : null}
         </div>
-      ) : expanded || inline ? (
-        <div id="workspace-model-editor" className="workspace-model-body">
+      ) : (
+        <div className="workspace-model-body">
           {loading ? (
             <p role="status">Loading Workspace model configuration…</p>
           ) : !record ? (
@@ -315,7 +296,7 @@ export function WorkspaceModelConfiguration({ controller, inline = false }) {
             </form>
           )}
         </div>
-      ) : null}
+      )}
     </article>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 
-const ACCOUNT_PASSWORD_REQUIREMENTS = [
+export const ACCOUNT_PASSWORD_REQUIREMENTS = [
   { label: "At least 8 characters", test: (password) => password.length >= 8 },
   { label: "One uppercase letter", test: (password) => /[A-Z]/.test(password) },
   { label: "One number", test: (password) => /[0-9]/.test(password) },
