@@ -6,7 +6,7 @@ import {
   signOut,
   signUpAndVerify,
 } from "./support/journeyHelpers";
-import { startRuntimeHarness } from "./support/runtimeHarnessClient";
+import { startRuntimeHarness, type RuntimeHarness } from "./support/runtimeHarnessClient";
 
 const ACCOUNT = {
   email: "account-recovery@example.test",
@@ -15,7 +15,7 @@ const ACCOUNT = {
 };
 
 test("a user manages local settings and recovers access through the frontend", async ({ page }) => {
-  let harness: Awaited<ReturnType<typeof startRuntimeHarness>> | undefined;
+  let harness: RuntimeHarness | undefined;
 
   try {
     harness = await startRuntimeHarness({ requireEmailVerification: true });

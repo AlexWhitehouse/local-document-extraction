@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { access } from "node:fs/promises";
 
 import { signUpAndVerify } from "./support/journeyHelpers";
-import { startRuntimeHarness } from "./support/runtimeHarnessClient";
+import { startRuntimeHarness, type RuntimeHarness } from "./support/runtimeHarnessClient";
 
 const ADMIN = {
   email: "browser-admin@example.test",
@@ -20,7 +20,7 @@ test("an Application admin manages account access through the frontend", async (
   browser,
   page: adminPage,
 }) => {
-  let harness: Awaited<ReturnType<typeof startRuntimeHarness>> | undefined;
+  let harness: RuntimeHarness | undefined;
   const regularContext = await browser.newContext();
   const regularPage = await regularContext.newPage();
 

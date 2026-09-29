@@ -16,6 +16,8 @@ type ReadyPayload = {
   stateDirectory: string;
 };
 
+export type RuntimeHarness = Awaited<ReturnType<typeof startRuntimeHarness>>;
+
 export async function startRuntimeHarness({ timeoutMs = 20_000, requireEmailVerification }: { timeoutMs?: number; requireEmailVerification?: boolean } = {}) {
   const rootDirectory = resolve(process.cwd());
   const child = spawn(process.env.E2E_BUN_EXECUTABLE || "bun", [
@@ -102,58 +104,26 @@ export async function startRuntimeHarness({ timeoutMs = 20_000, requireEmailVeri
     origin: payload.origin,
     gatewayOrigin: payload.controlOrigin,
     stateDirectory: payload.stateDirectory,
-    waitForVerificationMail: (email: string) => waitForVerificationMail({
+    waitForVerificationMail: (email: string) => waitForTransactionalMail({
       email,
+      expectedPath: "/api/auth/verify-email",
       origin: payload.origin,
       stateDirectory: payload.stateDirectory,
+      type: "account_email_verification",
     }),
-    waitForPasswordResetMail: (email: string) => waitForPasswordResetMail({
+    waitForPasswordResetMail: (email: string) => waitForTransactionalMail({
       email,
+      expectedPath: "/api/auth/reset-password/",
+      pathMatch: "prefix",
       origin: payload.origin,
       stateDirectory: payload.stateDirectory,
+      type: "account_password_reset",
     }),
     stop(): Promise<void> {
       stopPromise ??= stopHarness(child, exited, payload.controlOrigin, () => ({ stderr, stdout }));
       return stopPromise;
     },
   };
-}
-
-async function waitForVerificationMail({
-  email,
-  origin,
-  stateDirectory,
-}: {
-  email: string;
-  origin: string;
-  stateDirectory: string;
-}): Promise<{ actionUrl: string }> {
-  return waitForTransactionalMail({
-    email,
-    expectedPath: "/api/auth/verify-email",
-    origin,
-    stateDirectory,
-    type: "account_email_verification",
-  });
-}
-
-async function waitForPasswordResetMail({
-  email,
-  origin,
-  stateDirectory,
-}: {
-  email: string;
-  origin: string;
-  stateDirectory: string;
-}): Promise<{ actionUrl: string }> {
-  return waitForTransactionalMail({
-    email,
-    expectedPath: "/api/auth/reset-password/",
-    pathMatch: "prefix",
-    origin,
-    stateDirectory,
-    type: "account_password_reset",
-  });
 }
 
 async function waitForTransactionalMail({
