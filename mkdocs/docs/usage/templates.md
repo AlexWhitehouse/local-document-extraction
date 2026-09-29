@@ -1,21 +1,35 @@
 # Templates
 
-Templates describe the structured data returned from a Document. A Template has a name, optional description, and 1 to 50 fields.
+A template describes the data you want from a document: a name, an optional description, and between 1 and 50 fields. Each field has a name, a description telling the model what to look for, and a data type.
 
-Supported field data types are `string`, `number`, `boolean`, `date`, `object`, `array`, and `array<object>`. Field names become stable generated IDs. Duplicate names and IDs are rejected.
+## Field types
 
-`object` and `array<object>` fields may define a table schema. A Template may have one table-shaped field, and that table can have at most 20 columns.
+| Type | Use for |
+| --- | --- |
+| `string` | Text |
+| `number` | Amounts, quantities |
+| `boolean` | Yes/no questions |
+| `date` | Dates (returned as `DD/MM/YYYY`) |
+| `object` | A group of related values |
+| `array` | A list of values |
+| `array<object>` | A table, such as invoice line items |
 
-## Generate from a sample
+Each field gets an ID made from its name, so field names must be unique. `object` and `array<object>` fields can define table columns. A template can have only one of them, with at most 20 columns.
 
-The **Create Template** button has two areas: select the text to start a manual Template, or its magic icon to generate a new Template. The **Auto generate** action in the editor replaces the current draft instead.
+## Generate a template from a sample
 
-Upload one PDF, PNG, JPEG, or WebP sample. The existing upload size limit applies. Optionally describe what the template should capture. Cancelling the magic action leaves the current editor untouched.
+Instead of writing fields by hand, you can let the model propose a template from an example document. The Workspace needs a model set up first.
 
-Generation uses the current Workspace's configured model. Configure the model on the Workspace page first. If the editor contains unsaved changes, confirm that successful generation will replace them.
+1. On the **Create Template** button, click the magic icon. The rest of the button starts an empty template. Inside the editor, **Auto generate** does the same for the current draft.
+2. Upload one PDF, PNG, JPEG, or WebP sample, within the normal upload limit.
+3. Optionally, describe what the template should capture.
+4. If the editor has unsaved changes, confirm that you're happy for them to be replaced.
 
-The model receives the supported template rules. Invalid proposals receive validation feedback, with up to three corrective retries after the first attempt. Connection failures stop immediately and allow a manual retry.
+The result is an **unsaved draft**. Review it, make any changes, then click **Save new template** or **Save changes**.
 
-A successful proposal replaces the name, description, and fields in the editor as an **unsaved draft**. Review it, make any changes, then select **Save new template** or **Save changes**. Failure or cancellation preserves the previous editor content. Leaving the template or changing Workspaces cancels generation.
+Behind the scenes:
 
-The app deletes its temporary sample copy when generation succeeds, fails, or is cancelled. Samples do not appear in Document history or create Extraction jobs.
+- If the model's proposal isn't a valid template, it's told what was wrong and gets up to three more tries.
+- If the model can't be reached, generation stops straight away and you can try again.
+- Cancelling, failing, leaving the template, or switching Workspace leaves your editor as it was.
+- The sample is deleted when generation finishes. It doesn't appear in your documents or create a job.

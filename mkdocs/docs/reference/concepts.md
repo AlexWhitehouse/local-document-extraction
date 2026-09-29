@@ -1,21 +1,13 @@
 # Concepts
 
-## Workspace
+**Workspace:** A shared space that holds templates, documents, jobs, members, API keys, and model settings. Everything you do happens inside a Workspace.
 
-A Workspace owns Templates, Documents, Extraction jobs, member access, and API keys.
+**Template:** A reusable description of the fields to extract from a kind of document, each with a name, a description, and a data type.
 
-## Template
+**Document:** A PDF or image you upload for extraction.
 
-A reusable extraction schema with typed fields.
+**Extraction job:** The record of one document being processed, including its status and, once completed, its results.
 
-## Document
+**Model gateway:** The AI service, remote or local, that a Workspace uses to read documents.
 
-A user-provided PDF or image Source file submitted for extraction.
-
-## Extraction Job
-
-The durable record of asynchronous processing and its results.
-
-## Workspace API Key
-
-An opaque external-client credential scoped to one Workspace.
+**Workspace API key:** A secret that lets scripts use one Workspace's templates, documents, and jobs without a browser sign-in.

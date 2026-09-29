@@ -1,16 +1,55 @@
-# Local runtime performance
+# Performance notes
 
-[ADR-0009](../backend/docs/adr/0009-indexed-work-and-resource-admission.md) records the durable indexing and scheduling trade-offs.
+How the app stays responsive as jobs, documents, and users add up. The design trade-offs are recorded in [ADR-0009](../backend/docs/adr/0009-indexed-work-and-resource-admission.md) and [ADR-0010](../backend/docs/adr/0010-ram-aware-model-preparation.md).
 
-- Upload admission samples free disk space without walking historical Source directories. Source deletion removes empty job directories, while slower background telemetry still reconciles actual storage usage.
-- Job pagination uses tuple seeks. Exact job totals and trigram search candidates are maintained by SQLite triggers. An initial schema migration backfills existing history; allow extra time and disk space on its first open. Search is still literal and case-normalized, including `%`, `_`, quotes and backslashes. Searches under three characters and broad terms retain the original ordered scan.
-- Workspace status totals are maintained by SQLite triggers on job creation, lifecycle transitions, and deletion, with a one-time migration backfill. Job-list responses include `status_counts` alongside the Workspace-wide `total`; `/v1/jobs/counts` returns the same summary without listing Documents. The browser coalesces lifecycle count refreshes and preserves loaded list pages.
-- The extraction queue checks each Workspace's current sequential-call policy before dispatch. Waiting serial work retains only queue metadata. A drained Workspace refills from SQLite; overflow also triggers recovery. `EXTRACTION_RECONCILE_INTERVAL_MS` now defaults to 60,000 ms as a repair path. Recovery preserves currently owned attempts and orders jobs by `COALESCE(next_retry_at, updated_at)`, then ID.
-- Model preparation uses shared estimated byte reservations, defaulting to 90% of the process memory allowance: 72% of physical RAM with the default `LOCAL_MEMORY_LIMIT_RATIO=0.8`. `MODEL_PREPARATION_MAX_BYTES` can set a smaller budget. [ADR-0010](../backend/docs/adr/0010-ram-aware-model-preparation.md) replaces the previous fixed 256 MiB budget. PDF pages retain their existing resolution and PNG encoding, are converted individually, and stop at 64 MiB of cumulative encoded page bytes. After rendering and request serialization, reservations shrink to an estimate based on the actual request size. Large requests can still wait for memory capacity. Reservations are conservative estimates, not a guarantee on native decoder RSS; process memory-pressure controls remain active. Health diagnostics expose the preparation limit, reserved bytes, and waiter count.
-- Export requests allow at most 500 Documents and 32 MiB of stored answer/evidence data. Two exports can run simultaneously. Workbook generation runs outside the HTTP thread, aborts on request/workspace cancellation, and times out after 60 seconds. Over-limit requests return `413 export_too_large`; saturated export admission returns `503 export_capacity_unavailable` with `Retry-After: 2`.
-- Browser upload batches use two workers and retry only explicit pre-admission capacity rejection, at most twice. Session transitions stop unsent files; Workspace transitions preserve the captured destination for the remaining batch.
-- Document lists above 100 rows render a scrolling window. Arrow/Home/End navigation follows selected rows. Selection changes reuse the ordered list instead of sorting again. Conditional response caches retain at most 50 entries/4 MiB, while the persistent completed-document cache has a 2 MiB total budget and at most 50 entries per Workspace. Oversized results are displayed without being cached. Cache sizes use conservative serialized UTF-16 estimates, not exact heap accounting.
-- Analytics events are batched into at most 64 KiB writes with a 1 MiB pending buffer. If disk writing cannot keep up, aggregate warnings report dropped analytics events; durable extraction data is unaffected. Shutdown flushes accepted events.
-- Hashed frontend assets have immutable caching; HTML and other paths revalidate. SQLite keeps FULL durability and uses WAL only on versions at least 3.51.3. Bun 1.4.2 embeds SQLite 3.54.0 on the verified macOS arm64 runtime, so it enables WAL. The runtime version check retains rollback journaling on older SQLite builds.
+## Job lists and search
 
-Worker behavior follows the [Bun Workers API](https://bun.sh/docs/runtime/workers). The SQLite version threshold follows the [WAL-reset fix](https://sqlite.org/wal.html#walreset). Trigram candidates follow [SQLite FTS5](https://sqlite.org/fts5.html#the_trigram_tokenizer); the residual literal check preserves the API's existing matching behavior.
+- **Paging** uses a cursor (keyset pagination), so later pages are as fast as the first.
+- **Totals and per-status counts** are kept up to date by SQLite triggers instead of being counted on every request. Job lists return them as `total` and `status_counts`, and `/v1/jobs/counts` returns just the counts.
+- **Search** uses a SQLite FTS5 trigram index to find candidate jobs, then checks each one for a literal, case-insensitive match. Results are the same as a plain substring search, including for `%`, `_`, quotes, and backslashes. Searches shorter than three characters, and very broad ones, fall back to scanning in order.
+- The migration that adds these indexes fills them from existing jobs. On a large existing database, the first start after upgrading takes longer and uses extra disk space.
+
+## Extraction queue
+
+- Before starting each job, the queue checks the Workspace's current sequential-calls setting. Jobs waiting behind a sequential Workspace hold only a small amount of queue metadata in memory.
+- When a Workspace's in-memory queue runs dry, it refills from SQLite. The same happens if the in-memory queue overflows.
+- The queue is also checked against the database every minute (`EXTRACTION_RECONCILE_INTERVAL_MS`), as a safety net for missed work. Recovery never takes over an attempt that's still running, and it picks up jobs in order of `COALESCE(next_retry_at, updated_at)`, then ID.
+
+## Memory for preparing documents
+
+Before a document is sent to the model it's prepared: PDF pages are rendered and the request is encoded. That memory is reserved from a shared budget:
+
+- The default budget is 90% of the process's memory allowance, which works out to 72% of physical RAM with the default `LOCAL_MEMORY_LIMIT_RATIO=0.8`. `MODEL_PREPARATION_MAX_BYTES` can lower it. This replaced an earlier fixed budget of 256 MiB.
+- PDF pages are rendered one at a time, as PNGs at their usual resolution, until they reach 64 MiB of encoded images in total.
+- Once the request is built, its reservation shrinks to match the request's actual size.
+- Large requests may wait until memory is free. Reservations are estimates and don't cap the memory native decoders actually use, so the memory-pressure controls stay active as a backstop.
+- `/v1/health` shows the budget, the amount reserved, and how many requests are waiting.
+
+## Uploads
+
+- The free-space check before accepting an upload doesn't walk old upload folders. Emptied job folders are removed when their files are deleted, and a slower background task keeps the storage figures accurate.
+- In the browser, a batch upload sends two files at a time. It retries a file at most twice, and only when the server says it's temporarily at capacity before accepting it.
+- Signing out stops files that haven't been sent yet. Switching Workspace mid-batch still sends the remaining files to the Workspace the batch started in.
+
+## Exports
+
+- One export can include at most 500 documents and 32 MiB of stored results. Larger requests get `413 export_too_large`.
+- At most two exports run at once. Others get `503 export_capacity_unavailable` with `Retry-After: 2`.
+- Spreadsheets are built in a worker thread, so they don't block other requests. A build is cancelled if the request or Workspace goes away, and it times out after 60 seconds.
+
+## Browser
+
+- Document lists with more than 100 rows only render the visible rows. Keyboard navigation (arrows, Home, End) follows the selection, and changing the selection doesn't re-sort the list.
+- Cached API responses are limited to 50 entries and 4 MiB. The cache of completed documents kept between visits is limited to 2 MiB in total and 50 entries per Workspace. Results too big for the cache are shown but not cached.
+- Cache sizes are estimated from the serialised text, not measured from actual memory use.
+
+## Analytics
+
+Analytics events are written in batches of up to 64 KiB, with at most 1 MiB waiting. If the disk can't keep up, events are dropped and a warning reports how many. Extraction data is unaffected. Accepted events are written out on shutdown.
+
+## Static files and SQLite
+
+- Frontend files with a content hash in their name are cached permanently. HTML and everything else is revalidated.
+- SQLite always uses `FULL` durability. It only uses WAL mode on SQLite 3.51.3 or newer, which includes [a fix for a WAL reset bug](https://sqlite.org/wal.html#walreset), and uses rollback journaling on anything older. Bun 1.4.2 bundles SQLite 3.54.0, so WAL is normally on.
+
+References: [Bun Workers](https://bun.sh/docs/runtime/workers), [SQLite FTS5 trigram tokenizer](https://sqlite.org/fts5.html#the_trigram_tokenizer).

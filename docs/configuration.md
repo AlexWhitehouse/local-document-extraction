@@ -1,65 +1,45 @@
 # Configuration
 
-The server reads environment variables at startup. For a source checkout, copy `.env.example` to `.env` at the repository root and run Bun commands from that root. The installer writes a private `config.env` outside the application release directory and its launcher loads that file. Existing process environment overrides Bun's file-loaded values. Restart after changes; the frontend discovers public capabilities at runtime through `GET /v1/config`.
+Most people never need to change a setting: the defaults give you a private app on your own machine with email and password accounts. This page explains how to change things when you do.
 
-The installer offers a [first-time setup wizard](setup.md#first-time-setup-questions) for the public URL, login methods, and Cloudflare email settings below. It preserves existing configuration during upgrades. `config.env` uses Bun dotenv syntax; do not execute or source it as a shell script.
+- [How settings work](#how-settings-work)
+- Guides: [access from other machines](#access-from-other-machines) · [Google sign-in](#google-sign-in) · [transactional email](#transactional-email) · [larger uploads](#allow-larger-uploads)
+- Reference: [network and access](#network-and-access) · [accounts and sign-in](#accounts-and-sign-in) · [email](#email) · [uploads and extraction](#uploads-and-extraction) · [resources and cleanup](#resources-and-cleanup)
+- [Model settings are per Workspace](#model-settings-are-per-workspace)
 
-Use the installed launcher's `doctor` command (its printed absolute path, or `document-extraction doctor` after the [PATH setup](setup.md#launcher)), or `bun backend/src/checkConfiguration.ts` from source, to validate settings without starting the server. Validation errors identify the setting without printing secret values. Empty optional values mean unset. Use `true` or `false` for booleans (case-insensitive aliases `1`/`0`, `yes`/`no`, and `on`/`off` are also accepted); byte counts and durations are integers. Do not put secrets in frontend variables, source files, issue reports, or Git.
+## How settings work
 
-## Network, paths, and access
+Settings are environment variables read once when the app starts. **Restart the app after changing them.**
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `HOST` | `127.0.0.1` | Address on which the server listens. Keep loopback for personal local use. |
-| `PORT` | `8787` | Server TCP port; `0` is available for tests using an ephemeral port. |
-| `BETTER_AUTH_URL` | Local server origin | Browser-facing HTTP(S) origin used in account links and OAuth callbacks. Set an explicit reachable origin behind a proxy. |
-| `DOCUMENT_EXTRACTION_STATE_DIR` | Checkout `.local/` | Persistent data root. Installer controls this through its saved `--state-dir`; its launcher overrides file-loaded values. Prefer an absolute path for source setup. |
-| `DOCUMENT_EXTRACTION_ASSETS_DIR` | Checkout `frontend/dist/` | Built frontend directory. Installer selects the current release's build and overrides file-loaded values. |
-| `DOCUMENT_EXTRACTION_ADMIN_EMAILS` | Empty | Comma-separated emails granted Application admin role when their accounts are created. Does not promote existing accounts on restart. |
-| `AUTH_TRUSTED_ORIGINS` | Empty | Additional comma-separated exact HTTP(S) origins allowed by auth. The configured application origin is trusted automatically. No wildcard or maintainer domain is included. |
-| `AUTH_TRUSTED_IP_HEADERS` | Empty | Comma-separated client-IP header names to trust. The socket peer address is used by default. Configured headers must contain one valid IP address; forwarding chains and invalid values fall back to the socket peer. |
-| `DEV_API_ORIGIN` | `http://127.0.0.1:<PORT or 8787>` | Development-only Vite proxy target for `/api/auth` and `/v1`. Has no effect on the built SPA. |
+| Setup | Settings file |
+| --- | --- |
+| Installer | `config.env` in the config folder (`~/.config/document-extraction/` by default). The installer's [setup questions](setup.md#first-time-setup-questions) write this file for you. |
+| Source checkout | `.env` in the repository root. Create it by copying `.env.example`. |
 
-Auth URLs must be origins, without credentials, paths, query parameters, or fragments. Use the same hostname consistently: `localhost` and `127.0.0.1` are different browser origins. For a loopback application origin, standard localhost/127.0.0.1 Vite origins on port 5173 and loopback aliases at the application port are trusted automatically. For other development origins, add the exact Vite origin to `AUTH_TRUSTED_ORIGINS`.
+A few rules apply to every setting:
 
-Use a dedicated real directory for state. The filesystem root, home root, and repository root are rejected as state locations; symlink state roots and child directories are refused before permission changes. Startup repairs owner-only permissions on existing state without erasing its contents.
+- The file uses dotenv syntax. Don't `source` it as a shell script.
+- An environment variable already set in your shell overrides the file. If a setting seems to be ignored, check for an exported variable with the same name.
+- Leaving an optional value empty is the same as not setting it.
+- True/false settings accept `true`/`false`, `1`/`0`, `yes`/`no`, or `on`/`off`. Sizes are whole numbers of bytes; durations are whole numbers of milliseconds.
+- Never put secrets in frontend files, source code, issue reports, or Git.
 
-For remote access, set a browser-facing HTTPS `BETTER_AUTH_URL` and place a TLS proxy in front of the app. Forward `/api/auth`, `/v1`, and the Workspace WebSocket route. Changing `HOST` to `0.0.0.0` exposes the listener to other machines; use firewall rules and a trusted proxy appropriate to your environment. Only set `AUTH_TRUSTED_IP_HEADERS` when that proxy overwrites the selected header and clients cannot bypass it. `cf-connecting-ip` is appropriate only for an actual trusted Cloudflare path; it is not enabled by default.
+To check your settings without starting the app, run the launcher's `doctor` command, or `bun backend/src/checkConfiguration.ts` from a source checkout. Errors name the setting at fault without printing secret values.
 
-Authentication rate limits are always enabled, including the normal local launcher and development startup; they do not depend on `NODE_ENV`. Better Auth applies per-client, per-endpoint limits, with stricter limits for sensitive account operations. Excess attempts return HTTP 429 with `X-Retry-After` in seconds. Counters are bounded, atomic, private to the running installation and reset on restart. IPv6 clients share a `/64` budget. Behind a proxy, configure an overwritten single-address header as described above so all users do not share the proxy's address. Client-supplied forwarding headers are ignored unless explicitly trusted.
+## Access from other machines
 
-## Authentication
+By default the app only accepts connections from the machine it runs on. To reach it from elsewhere:
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `AUTH_EMAIL_PASSWORD_ENABLED` | `true` | Allow email/password authentication. |
-| `AUTH_GOOGLE_ENABLED` | `false` | Enable Google OAuth explicitly. Requires both Google credential values. |
-| `AUTH_SIGNUP_ENABLED` | `true` | Permit new account registration, including new Google accounts. Existing users can still sign in when disabled. |
-| `AUTH_REQUIRE_EMAIL_VERIFICATION` | `false` | Set `true` to require verification before email/password account access. |
-| `GOOGLE_CLIENT_ID` | Unset | Google OAuth web-client ID. |
-| `GOOGLE_CLIENT_SECRET` | Unset | Google OAuth client secret. Never exposed to the browser. |
+1. Put a reverse proxy with HTTPS in front of the app, and have it forward `/api/auth`, `/v1`, and the Workspace live-update WebSocket.
+2. Set `BETTER_AUTH_URL` to the HTTPS address people will use, for example `https://documents.example.com`. Account emails and Google sign-in use this address.
+3. Leave `HOST` as `127.0.0.1` if the proxy runs on the same machine. Setting `HOST=0.0.0.0` exposes the app to your network; only do that with firewall rules in place.
+4. If the proxy sets a header with the visitor's real IP address, name it in `AUTH_TRUSTED_IP_HEADERS`. Without it, every visitor appears to come from the proxy and shares one sign-in rate limit. Only do this if the proxy always overwrites that header, so visitors can't fake it. For example, `cf-connecting-ip` is only safe when traffic really comes through Cloudflare.
 
-At least one login method must remain enabled. An incomplete Google ID/secret pair is rejected even if Google login is disabled. Configure administrator emails and create required accounts (and verify them if verification is enabled) before disabling signup. There is no automatic precreated administrator or default password. Changing the administrator list does not retroactively change persisted roles; use Application admin while an existing administrator is signed in.
+## Google sign-in
 
-The auth signing secret is generated in `data/better-auth-secret`. This application supplies that disk secret explicitly; `BETTER_AUTH_SECRET` is not a supported override. Preserve it in backups. Password policy requires at least eight characters, an ASCII uppercase letter, a number, and a special character. Reset links expire after one hour and successful password changes revoke existing sessions.
-
-### Optional email verification
-
-Accounts can sign up and sign in immediately by default. To require proof of email ownership, set this in your `.env` or installer `config.env`, then restart:
-
-```dotenv
-AUTH_REQUIRE_EMAIL_VERIFICATION=true
-```
-
-With the default `EMAIL_PROVIDER=local`, verification links are saved on the host; run the installed launcher's `mail` command to read them. For inbox delivery, configure [Cloudflare email](#cloudflare-email-setup). New accounts must then verify before signing in, and sign-in attempts by existing unverified accounts request a verification link. Existing sessions are not forcibly signed out.
-
-Updates preserve your configuration. Installations created with v0.1.0 may still have `AUTH_REQUIRE_EMAIL_VERIFICATION=true`; change it to `false` and restart to use the new default behavior.
-
-### Google sign-in
-
-1. Create an OAuth web client in your [Google credentials console](https://console.cloud.google.com/apis/credentials) and configure its consent screen and permitted test users as required by Google.
-2. Add the exact application callback: `http://127.0.0.1:8787/api/auth/callback/google` for the default local origin, or `https://app.example.com/api/auth/callback/google` for your HTTPS deployment. Use your actual configured origin and port.
-3. Set these values in the private configuration, restart, and test login. See [Better Auth's Google setup reference](https://better-auth.com/docs/authentication/google) for the callback contract:
+1. In the [Google credentials console](https://console.cloud.google.com/apis/credentials), create an OAuth web client, and set up its consent screen and test users as Google requires.
+2. Register this redirect address, using your own address and port: `http://127.0.0.1:8787/api/auth/callback/google` for a local install, or `https://documents.example.com/api/auth/callback/google` behind a proxy.
+3. Add these settings, restart, and try signing in:
 
 ```dotenv
 AUTH_GOOGLE_ENABLED=true
@@ -68,29 +48,22 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 BETTER_AUTH_URL=http://127.0.0.1:8787
 ```
 
-For Google-only login, set `AUTH_EMAIL_PASSWORD_ENABLED=false` after verifying the Google setup. Google is the only implemented social provider. Generic OIDC, SAML, Microsoft Entra ID, and other enterprise identity providers need additional integration; changing environment variables cannot enable them.
+To allow only Google sign-in, set `AUTH_EMAIL_PASSWORD_ENABLED=false` once Google sign-in works. Google is the only supported sign-in provider; OIDC, SAML, and Microsoft Entra ID would need code changes. See [Better Auth's Google guide](https://better-auth.com/docs/authentication/google) for more detail.
 
 ## Transactional email
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `EMAIL_PROVIDER` | `local` | `local` captures messages on disk; `cloudflare` sends through the Cloudflare Email REST API. |
-| `EMAIL_FROM_ADDRESS` | `no-reply@example.com` in local mode | Sender email. Cloudflare mode requires an explicit address on your onboarded sending domain. |
-| `EMAIL_FROM_NAME` | `Document Extraction` | Display name for verification and password-reset mail. |
-| `CLOUDFLARE_ACCOUNT_ID` | Unset | 32-character hexadecimal sending account identifier; required in Cloudflare mode. |
-| `CLOUDFLARE_EMAIL_API_TOKEN` | Unset | Send-capable account API token; required in Cloudflare mode. |
+The app sends two kinds of email: account verification and password reset. (Workspace invitations appear inside the app and are never emailed.)
 
-Cloudflare account ID and token must either both be absent or both be set, even in local mode.
+**By default, emails are not sent.** They are saved on this machine instead. The links in them appear in the server log and in `mail/YYYY-MM-DD.jsonl` inside the data folder. Installer users can read them with the launcher's `mail` command. Open each link in the same browser you use for the app. The links give access to accounts, so don't share them or include them in screenshots.
 
-Local mode is the zero-credential default. Account verification and password-reset URLs appear in the private server log and `mail/YYYY-MM-DD.jsonl` under the state directory. Installer users can run `document-extraction mail`; source users can open the current day's file or the server output. Open the link in the same browser/origin as the app. When verification is enabled, a sign-in attempt for an unverified account requests another verification message. These local links grant account access and should not be shared in screenshots or support reports.
+This works well when you are the only user, or when you control the machine. If other people need to receive their own emails, set up Cloudflare delivery.
 
-Local capture is suitable when the person operating the machine can read the logs. For other users to verify their own mailboxes, configure actual delivery. Workspace invitations remain in-app invitations; this email transport handles account verification and password reset.
+### Send email with Cloudflare
 
-### Cloudflare email setup
-
-Onboard a sending domain in Cloudflare Email Service and complete its DNS setup. Cloudflare currently requires Cloudflare DNS for Email Service. Use the account that owns that domain and an API token permitted to send email. Follow [Cloudflare's domain onboarding instructions](https://developers.cloudflare.com/email-service/get-started/send-emails/) and [REST authentication reference](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/).
-
-In the [Cloudflare dashboard](https://dash.cloudflare.com/), select your account and search for **Copy account ID** ([account ID help](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)). Create a custom token under [API Tokens](https://dash.cloudflare.com/profile/api-tokens) with **Account → Email Sending → Edit**, restricted to that account. Use the resulting token as `CLOUDFLARE_EMAIL_API_TOKEN`.
+1. Add a sending domain in Cloudflare Email Service and finish its DNS setup. Cloudflare requires the domain to use Cloudflare DNS. See [Cloudflare's setup guide](https://developers.cloudflare.com/email-service/get-started/send-emails/).
+2. In the [Cloudflare dashboard](https://dash.cloudflare.com/), find your account ID (search for **Copy account ID**, or see [where to find it](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)).
+3. Under [API Tokens](https://dash.cloudflare.com/profile/api-tokens), create a custom token with the **Account → Email Sending → Edit** permission, limited to that account.
+4. Add these settings with your own values, then restart:
 
 ```dotenv
 EMAIL_PROVIDER=cloudflare
@@ -98,62 +71,142 @@ EMAIL_FROM_ADDRESS=no-reply@your-domain.example
 EMAIL_FROM_NAME="Document Extraction"
 CLOUDFLARE_ACCOUNT_ID=your-account-id
 CLOUDFLARE_EMAIL_API_TOKEN=your-send-capable-token
-BETTER_AUTH_URL=https://app.your-domain.example
+BETTER_AUTH_URL=https://documents.your-domain.example
 ```
 
-Replace every example with your real configuration. `BETTER_AUTH_URL` must be reachable by the person opening the message. The Bun application uses HTTPS REST requests; deploying a Cloudflare Worker or adding a Workers email binding is unnecessary. Cloudflare mode does not also record usable verification/reset links through local capture. Restart and test password reset (and signup if verification is enabled) with an inbox you control; a successful queued API response is not proof of inbox delivery. Consult provider delivery logs for bounces, account entitlement, or sender-domain errors. Live delivery requires your account and is a separate release verification step.
+5. Test it by requesting a password reset for an inbox you control.
 
-## Payload, model, and extraction limits
+`BETTER_AUTH_URL` must be an address the person reading the email can open. When Cloudflare is on, links are no longer saved locally. Cloudflare accepting a message doesn't guarantee it arrives, so check Cloudflare's delivery logs if it doesn't. No Cloudflare Worker is needed.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `MAX_SOURCE_FILE_BYTES` | `10485760` (10 MiB) | Maximum PNG, JPEG, WebP, or PDF upload size. |
-| `MAX_JSON_REQUEST_BYTES` | `1048576` (1 MiB) | Maximum non-document JSON request body. |
-| `SUBMISSION_MAX_CONCURRENCY` | `8` | Maximum concurrent admitted uploads. |
-| `SUBMISSION_MAX_RESERVED_BYTES` | `134217728` (128 MiB) | Shared upload reservation budget. Must fit one maximum-sized source plus 32 KiB multipart envelope. |
-| `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` | `300000` (5 minutes) | Timeout for extraction model calls. |
-| `EXTRACTION_RETRY_DELAY_MS` | `1000` | Initial delay before retrying a transient model failure. |
-| `EXTRACTION_MAX_CONCURRENCY` | `8` | Initial concurrent extraction permits. Must not exceed the configured maximum. |
-| `EXTRACTION_MAX_BUFFERED` | `10000` | Bound on queued in-memory job metadata; authoritative jobs remain in SQLite. |
-| `EXTRACTION_RECONCILE_INTERVAL_MS` | `60000` | Durable queue reconciliation interval. |
-| `EXTRACTION_ADAPTIVE_CONCURRENCY` | `true` | Adjust processing permits in response to resource pressure. |
-| `EXTRACTION_MAX_CONCURRENCY_LIMIT` | `32` | Maximum adaptive extraction concurrency. |
+### Require email verification
 
-The logical document request cap is the source limit plus 32 KiB. The transport cap includes another 32 KiB envelope; raising the upload limit also requires enough submission reservation space. For example:
+New accounts can sign in straight away by default. To make people confirm their email address first, set:
 
 ```dotenv
-MAX_SOURCE_FILE_BYTES=52428800
-SUBMISSION_MAX_RESERVED_BYTES=268435456
+AUTH_REQUIRE_EMAIL_VERIFICATION=true
 ```
 
-This allows a 50 MiB upload within a 256 MiB shared upload budget. Each format still has independent processing limits: PDF inspection accepts at most 32 MiB of source bytes, and images remain subject to the preparation limits. Increasing the upload limit does not guarantee that a source can be processed or sent within your model provider's limits.
+With local email, you'll need to pass the verification links on yourself using the `mail` command, so this is most useful with Cloudflare delivery. Once it's on, anyone with an unverified account who tries to sign in is sent a new verification link. People who are already signed in stay signed in.
 
-PDF page inspection runs in a disposable subprocess with bounded concurrency, a deadline, and limits checked before allocating decoded buffers or expanding parser structures. A small compressed file may therefore be rejected with `400 pdf_source_file_limit_exceeded`; increasing `MAX_SOURCE_FILE_BYTES` does not relax these parser limits. Temporary parser saturation returns `503 pdf_validation_capacity_unavailable`. These checks cover admission/page counting; rendered images retain their separate preparation limits.
+If you installed v0.1.0, verification may still be switched on from that release's old default. Set it to `false` and restart if you don't want it.
 
-The fixed inspection limits include 32 MiB of source bytes per PDF, 16 MiB per decoded stream, a 32 MiB cumulative decoder-allocation budget (including buffer growth and filter stages), 10,000 pages and a five-second process deadline. At most two inspections run and eight wait, sharing a 64 MiB source reservation. Waiting also expires after five seconds. Parser object, nesting, token, scan and copy budgets provide additional bounds; these allocation budgets are not a whole-process RSS ceiling.
+## Allow larger uploads
 
-Gateway URL, model name, outbound credential, direct-PDF support, structured-output support, and sequential-call preference are configured **per Workspace in the UI**. They are not deployment environment variables. All capability switches start off. An unconfigured Workspace rejects upload before storing the source. A credential is encrypted using `secrets/model-gateway.key`; preserve that key with the databases. Local/private HTTP gateways are supported, so Workspace owners/admins should be trusted to choose reachable endpoints.
+Uploads are limited to 10 MiB per file by default. To raise the limit, increase both the file limit and the shared upload budget. The budget must fit at least one maximum-size file:
 
-Retired variables are ignored and reported by name only at startup: `MODEL_GATEWAY_URL`, `AI_MODEL`, `LITELLM_KEY`, `MODEL_GATEWAY_ROUTE_LABEL`, `MODEL_GATEWAY_SEQUENTIAL_CALLS`, `MODEL_SUPPORTS_PDF_INPUT`, `MODEL_SUPPORTS_STRUCTURED_OUTPUT`, and `MODEL_GATEWAY_USE_MANAGED_FILES`. Old global credentials are not imported. Managed-file uploads are not supported.
+```dotenv
+MAX_SOURCE_FILE_BYTES=52428800         # 50 MiB per file
+SUBMISSION_MAX_RESERVED_BYTES=268435456 # 256 MiB shared between uploads in progress
+```
 
-Some safety and protocol limits deliberately remain internal: three processing attempts, a 60-second retry-delay ceiling, a 30-second connection-test timeout, rendered PDF images at up to 2048 pixels per dimension with a 64 MiB aggregate budget, and two concurrent exports with a 32 MiB selected-results budget. Template shape limits and multipart/WebSocket protocol limits are also fixed. These are not hidden environment variables; changes require code changes and matching memory/protocol validation.
+A higher limit doesn't guarantee a file can be processed:
 
-## Resources, retention, and shutdown
+- PDFs have their own fixed safety limits: 32 MiB per PDF, and bounds on how much they can expand when decoded. A small but heavily compressed PDF can still be rejected with `pdf_source_file_limit_exceeded`.
+- Images go through separate memory limits while they're prepared for the model.
+- Your model provider may have its own request size limit.
 
-| Variable | Default | Meaning |
+If you use a reverse proxy, raise its upload limit too.
+
+## Reference
+
+### Network and access
+
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| `LOCAL_CPU_LIMIT_RATIO` | `0.85` | CPU pressure threshold as a fraction of host capacity. |
-| `LOCAL_MEMORY_LIMIT_RATIO` | `0.8` | Process RSS threshold as a fraction of physical host RAM. |
-| `MODEL_PREPARATION_MAX_BYTES` | 90% of the process memory allowance | Optional lower shared preparation reservation budget. Cannot exceed the RAM-derived maximum. |
-| `MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES` | `4194304` (4 MiB) | Reservation size considered large under OS warning pressure. |
-| `LOCAL_DISK_RESERVE_BYTES` | `1073741824` (1 GiB) | Free disk space reserved from admission. Zero disables this reserve. |
-| `SOURCE_RETENTION_SWEEP_INTERVAL_MS` | `3600000` (1 hour) | Interval for restart-safe source cleanup. |
-| `FAILED_SOURCE_RETENTION_MS` | `604800000` (7 days) | Failed source-binary retention; zero makes failed sources immediately eligible for cleanup. |
-| `LOCAL_SHUTDOWN_TIMEOUT_MS` | `10000` | Time allowed for graceful shutdown before forced completion. |
-| `LOCAL_ANALYTICS_ENABLED` | `true` | Write privacy-filtered operational events locally. No remote analytics service is used. |
+| `HOST` | `127.0.0.1` | Address the app listens on. Keep the default for personal use. |
+| `PORT` | `8787` | Port the app listens on. |
+| `BETTER_AUTH_URL` | The app's own local address | The address people open in their browser. Used in email links and Google sign-in. Must be just an origin: no path, query, or login details. |
+| `DOCUMENT_EXTRACTION_STATE_DIR` | `.local/` in a source checkout | Where data is stored. The installer manages this for you. Use an absolute path. |
+| `DOCUMENT_EXTRACTION_ASSETS_DIR` | `frontend/dist/` in a source checkout | Where the built web app is. The installer manages this for you. |
+| `DOCUMENT_EXTRACTION_ADMIN_EMAILS` | Empty | Comma-separated emails that become Application admins **when their account is created**. Adding an email later doesn't promote an existing account; an existing admin can do that in the app. |
+| `AUTH_TRUSTED_ORIGINS` | Empty | Extra comma-separated browser addresses allowed to sign in, such as a development server. The app's own address is always allowed. Wildcards aren't supported. |
+| `AUTH_TRUSTED_IP_HEADERS` | Empty | Header names a trusted proxy uses for the visitor's IP address. See [access from other machines](#access-from-other-machines). |
+| `DEV_API_ORIGIN` | `http://127.0.0.1:<PORT>` | Development only: where the Vite dev server forwards API requests. |
 
-Ratios are greater than zero and at most one. Most counts, bytes, and intervals must be positive safe integers; disk reserve and failed-source retention also accept zero. Timer intervals are additionally capped at 2,147,483,647 ms; failed-source retention is capped at 8,640,000,000,000,000 ms. Limits are validated together at startup.
+Notes:
 
-Default preparation reservations can total 72% of physical host RAM. These estimates do not preallocate memory or impose an OS memory cap. Other processes, including a local model server, consume separate memory; lower the limits when sharing a machine. `/v1/health` exposes aggregate runtime diagnostics. Do not treat a successful health response as proof that a model or email provider is configured correctly.
+- `localhost` and `127.0.0.1` count as different addresses in a browser, so use the same one consistently. When the app runs on a local address, the usual Vite development addresses on port 5173 are allowed automatically.
+- The data folder must be a dedicated, real folder. The app refuses to use the filesystem root, your home folder, the repository root, or a symlink. On startup it makes the folder readable only by you.
+- Sign-in rate limits are always on. Too many attempts return HTTP 429 with an `X-Retry-After` header in seconds. Limits reset when the app restarts, and IPv6 visitors are grouped by `/64` network.
 
-Successful jobs remove their source binaries after cleanup; failed sources follow retention. Job records, extracted results, accounts, mail capture, and analytics are not deleted by that source sweep. Remove old mail/analytics files deliberately if you need a retention policy, and stop the server before backing up SQLite state.
+### Accounts and sign-in
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `AUTH_EMAIL_PASSWORD_ENABLED` | `true` | Allow email and password sign-in. |
+| `AUTH_GOOGLE_ENABLED` | `false` | Allow Google sign-in. Needs both Google settings below. |
+| `AUTH_SIGNUP_ENABLED` | `true` | Allow new accounts, including new Google accounts. Existing accounts can still sign in when this is off. |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION` | `false` | Require people to confirm their email before signing in. |
+| `GOOGLE_CLIENT_ID` | Not set | Google OAuth client ID. |
+| `GOOGLE_CLIENT_SECRET` | Not set | Google OAuth client secret. Never sent to the browser. |
+
+Notes:
+
+- At least one sign-in method must be on. Setting only one of the two Google values is an error, even when Google sign-in is off.
+- There is no built-in admin account or default password. Set `DOCUMENT_EXTRACTION_ADMIN_EMAILS` and create the accounts you need before turning off signup.
+- Passwords need at least eight characters, including an uppercase letter, a number, and a special character. Password reset links expire after one hour, and changing a password signs out the account's other sessions.
+- The key that signs sessions is generated automatically in `data/better-auth-secret`. Keep it with your backups. `BETTER_AUTH_SECRET` is not used.
+
+### Email
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `EMAIL_PROVIDER` | `local` | `local` saves emails on this machine; `cloudflare` sends them. |
+| `EMAIL_FROM_ADDRESS` | `no-reply@example.com` (local only) | Sender address. With Cloudflare, it must be on your sending domain. |
+| `EMAIL_FROM_NAME` | `Document Extraction` | Sender name. |
+| `CLOUDFLARE_ACCOUNT_ID` | Not set | 32-character Cloudflare account ID. Required for Cloudflare. |
+| `CLOUDFLARE_EMAIL_API_TOKEN` | Not set | Cloudflare API token that can send email. Required for Cloudflare. |
+
+Set both Cloudflare values or neither, even with local email.
+
+### Uploads and extraction
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `MAX_SOURCE_FILE_BYTES` | 10 MiB (`10485760`) | Largest PDF, PNG, JPEG, or WebP file that can be uploaded. |
+| `MAX_JSON_REQUEST_BYTES` | 1 MiB (`1048576`) | Largest JSON request body (everything except file uploads). |
+| `SUBMISSION_MAX_CONCURRENCY` | `8` | How many uploads can be received at once. |
+| `SUBMISSION_MAX_RESERVED_BYTES` | 128 MiB (`134217728`) | Total space shared by uploads in progress. Must fit one maximum-size file plus 32 KiB. |
+| `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` | 5 minutes (`300000`) | How long to wait for the model to answer. |
+| `EXTRACTION_RETRY_DELAY_MS` | `1000` | Wait before retrying after a temporary model failure. |
+| `EXTRACTION_MAX_CONCURRENCY` | `8` | How many documents are extracted at once, to start with. |
+| `EXTRACTION_MAX_CONCURRENCY_LIMIT` | `32` | The most documents extracted at once when adaptive concurrency scales up. |
+| `EXTRACTION_ADAPTIVE_CONCURRENCY` | `true` | Scale the number of simultaneous extractions up or down with the machine's load. |
+| `EXTRACTION_MAX_BUFFERED` | `10000` | How many queued jobs are held in memory. All jobs are also stored in the database. |
+| `EXTRACTION_RECONCILE_INTERVAL_MS` | 1 minute (`60000`) | How often the queue is checked against the database to pick up missed work. |
+
+Some limits are fixed in the code rather than configurable:
+
+- Each document gets at most three extraction attempts, with retries at most 60 seconds apart.
+- The **Test connection** button times out after 30 seconds.
+- PDF pages sent as images are rendered at up to 2048 pixels on each side, with at most 64 MiB of images per document.
+- PDF checking: at most 32 MiB per PDF, 16 MiB per decoded stream, 32 MiB of decoding work in total, 10,000 pages, and five seconds. Two PDFs are checked at once, and up to eight more can wait for up to five seconds. When that queue is full, uploads get `503 pdf_validation_capacity_unavailable`.
+- Excel exports: at most 500 documents and 32 MiB of results, with two exports running at a time.
+
+### Resources and cleanup
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `LOCAL_CPU_LIMIT_RATIO` | `0.85` | CPU usage, as a fraction of the machine's capacity, above which the app slows down new work. |
+| `LOCAL_MEMORY_LIMIT_RATIO` | `0.8` | Memory usage, as a fraction of the machine's RAM, above which the app slows down new work. |
+| `MODEL_PREPARATION_MAX_BYTES` | 90% of the memory allowance | Memory set aside for preparing documents for the model. Can only be lowered. |
+| `MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES` | 4 MiB (`4194304`) | Uploads at least this size are refused while the operating system reports low memory. |
+| `LOCAL_DISK_RESERVE_BYTES` | 1 GiB (`1073741824`) | Free disk space to keep; uploads are refused below it. `0` turns this off. |
+| `SOURCE_RETENTION_SWEEP_INTERVAL_MS` | 1 hour (`3600000`) | How often uploaded files are cleaned up. |
+| `FAILED_SOURCE_RETENTION_MS` | 7 days (`604800000`) | How long to keep the uploaded file of a failed job. `0` removes it at the next cleanup. |
+| `LOCAL_SHUTDOWN_TIMEOUT_MS` | `10000` | How long to wait for work to finish when stopping. |
+| `LOCAL_ANALYTICS_ENABLED` | `true` | Write privacy-filtered usage events to local files. Nothing is sent anywhere. |
+
+Notes:
+
+- Ratios must be above 0 and at most 1. Other values must be positive whole numbers, except the disk reserve and failed-file retention, which can be 0.
+- With the default settings, the app may use up to 72% of the machine's RAM while preparing documents (90% of the 80% memory allowance). This is a budget, not a hard cap, and other programs, such as a local model server, need memory too. Lower these limits if you share the machine. `/v1/health` shows current usage.
+- Uploaded files are removed once a job succeeds, and kept for the retention period when it fails. Job records, results, accounts, saved emails, and analytics are never cleaned up automatically. Delete old `mail/` and `analytics/` files yourself if you need to.
+
+## Model settings are per Workspace
+
+The AI model isn't configured here. Each Workspace's owner or admin sets its gateway URL, model name, credential, and model capabilities in the app, under **Workspaces → Model gateway**. Until that's done, uploads to the Workspace are refused.
+
+Model credentials are encrypted with `secrets/model-gateway.key` in the data folder, so keep that file with your backups. Workspace admins can point the model at any address, including private network ones, so only give that role to people you trust.
+
+These old global settings are ignored; the app lists any it finds when it starts: `MODEL_GATEWAY_URL`, `AI_MODEL`, `LITELLM_KEY`, `MODEL_GATEWAY_ROUTE_LABEL`, `MODEL_GATEWAY_SEQUENTIAL_CALLS`, `MODEL_SUPPORTS_PDF_INPUT`, `MODEL_SUPPORTS_STRUCTURED_OUTPUT`, and `MODEL_GATEWAY_USE_MANAGED_FILES`. Old global credentials aren't imported.

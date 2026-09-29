@@ -1,33 +1,50 @@
-# Document Extraction Frontend
+# Frontend
 
-The production-like local path is the Bun server at `http://127.0.0.1:8787`, which serves the built frontend together with the API and live updates.
+The frontend is a React single-page app built with Vite. In normal use the Bun server serves the built app together with the API, at http://127.0.0.1:8787:
 
 ```bash
 bun run build
 bun run start
 ```
 
-For frontend iteration, run the Bun server in one terminal and Vite in another:
+For frontend work, run the Bun server and the Vite dev server in two terminals:
 
 ```bash
-bun run dev
-bun run dev:frontend
+bun run dev            # Bun server, restarts on backend changes
+bun run dev:frontend   # Vite, with hot reload, at http://127.0.0.1:5173
 ```
 
-Vite serves `http://127.0.0.1:5173` and proxies `/api/auth` and `/v1` to the Bun server.
+Vite forwards `/api/auth` and `/v1` requests to the Bun server. It uses `PORT` from the root `.env`, or `DEV_API_ORIGIN` if set.
 
-## Workspace model setup
+## Layout
 
-Each Workspace starts unconfigured. Owners/admins use the expandable **Model gateway**
-section on the Workspace page; its status is in the section header, with no separate
-readiness banner. Gateway URL, model, and write-only credential are separate from
-external-client Workspace API keys. All capability switches start off.
+| Path | What's there |
+| --- | --- |
+| `src/main.jsx` | Entry point. |
+| `src/ApplicationBootstrap.jsx` | Loads the public configuration from `/v1/config` before rendering the app. |
+| `src/App.jsx` | App shell: session, Workspace selection, and page switching. |
+| `src/features/` | One folder per area: `auth`, `workspaces`, `templates`, `documents`, `evaluations`, `admin`, `onboarding`, and so on. |
+| `src/lib/` | Shared code: the auth client, Workspace selection, caches, toast messages. |
 
-The optional connection test applies only to the current draft and never saves it.
-Saving does not contact the gateway. Editing a field clears prior test feedback.
-Leave a usable saved credential blank to preserve it; enter a replacement to rotate
-or repair it. Clearing requires confirmation. Members see presence only.
+`frontend/CONTEXT.md` defines the UI terms the code and copy use.
 
-The editor clears sensitive draft state on Workspace/session changes, ignores late
-responses, and reloads authoritative configuration after live invalidation. Concurrent
-edits require reload rather than silently overwriting another session's change.
+## Tests
+
+```bash
+bun run test            # all frontend tests (Vitest + Testing Library)
+bun run test:coverage   # the same, checked against coverage-baseline.json
+```
+
+Run both from `frontend/`, or use `bun run test` from the root to include the backend. The coverage floor in `coverage-baseline.json` only changes when someone deliberately edits it.
+
+## Workspace model settings
+
+The **Model gateway** section of the Workspace page is the most stateful part of the UI, so here is how it behaves:
+
+- A new Workspace starts with no model. The section header shows its status; there's no separate banner.
+- Only owners and admins can edit it. Members can only see whether a model is set up.
+- The model credential is separate from the Workspace API key, and it's write-only. Leave the credential blank when editing to keep the saved one, or type a new one to replace it. Clearing the whole configuration asks for confirmation.
+- All capability switches start off.
+- **Test connection** tests the current draft and never saves it. **Save** doesn't contact the gateway. Editing any field clears the previous test result.
+- Switching Workspace or signing out clears any unsaved credential. Responses that arrive after a switch are ignored.
+- When another browser changes the settings, a live update makes this one reload them. If someone else saved in the meantime, your save is rejected and you're asked to reload, rather than overwriting their change.

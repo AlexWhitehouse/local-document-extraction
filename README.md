@@ -6,7 +6,7 @@ Define the fields you need with reusable templates for invoices, receipts, or yo
 
 The app runs on your computer. You connect the AI model that reads your documents, using an OpenAI-compatible service or local model server. Documents are sent to whichever service you choose.
 
-[Install](#install) · [Your first extraction](#your-first-extraction) · [Automate with the API](#automate-with-the-api) · [Releases](https://github.com/AlexWhitehouse/local-document-extraction/releases)
+[Install](#install) · [Your first extraction](#your-first-extraction) · [Automate with the API](#automate-with-the-api) · [Documentation](#documentation) · [Releases](https://github.com/AlexWhitehouse/local-document-extraction/releases)
 
 ## Install
 
@@ -23,7 +23,7 @@ Paste this into your terminal:
 )
 ```
 
-First-time setup asks about a reverse proxy, Google sign-in, and Cloudflare email. Press Enter at each question for a local installation with email/password login. Secrets stay hidden while typing, and updates keep your settings.
+The installer asks a few questions about a reverse proxy, Google sign-in, and Cloudflare email. **Press Enter at each one** for a normal local installation with email and password login. You can change these later, and updates keep your settings.
 
 When it finishes, open **[http://127.0.0.1:8787](http://127.0.0.1:8787)**, or your public URL if you configured a reverse proxy.
 
@@ -39,38 +39,44 @@ When it finishes, open **[http://127.0.0.1:8787](http://127.0.0.1:8787)**, or yo
 
 ## Compare models and templates
 
-Open **Evaluations** to compare up to eight candidates on one document. Compare different models against the same template, or edit template variants while keeping the model fixed. **Run all** processes candidates through the shared scheduler, and the comparison matrix displays their results as they finish.
+Open **Evaluations** to compare up to eight candidates on one document. Compare different models against the same template, or edit template variants while keeping the model fixed. **Run all** sends every candidate for extraction, and results appear in the comparison table as each one finishes.
 
-Add verified expected answers to compare field and table-cell accuracy. For tables, choose a unique row identifier or compare by row order. Save useful candidate edits as a new template. Evaluations are temporary: refreshing or closing the tab discards their document, candidates, expected answers, and results.
+To measure accuracy, enter the correct answers for the document and each candidate is scored against them. If a candidate's template edits work well, save them as a new template.
 
-See the [Evaluations guide](docs/evaluations.md) for scoring and run behavior.
+Evaluations are temporary: refreshing or closing the tab discards the document, candidates, answers, and results. See the [Evaluations guide](docs/evaluations.md) for details.
 
 ## Automate with the API
 
-After configuring your Workspace and creating a template, generate a Workspace API key in the app. Use it to submit documents with `POST /v1/extract`, then poll `GET /v1/jobs/{job_id}` to track progress and retrieve the extracted fields when the job completes. This lets scripts and applications send documents and use the results as part of an automated workflow.
+Scripts and applications can send documents and collect the results without using the browser:
 
-See the [API specification](mkdocs/docs/api/overview.md), [API key authentication](mkdocs/docs/api/authentication.md), and [extraction endpoints](mkdocs/docs/api/extraction-jobs.md) for request details.
+1. In the app, set up your Workspace's model and create a template.
+2. Generate a **Workspace API key** on the Workspace page.
+3. Submit a document with `POST /v1/extract`. You get back a job ID.
+4. Check `GET /v1/jobs/{job_id}` until the job is `completed`, then read its `results`.
 
-## Next time
+The [API specification](mkdocs/docs/api/overview.md) has a copy-and-paste quickstart and the full endpoint reference.
 
-The installer starts the app for you. After restarting your computer, start it again with:
+## Starting and stopping
+
+The installer starts the app for you. It does not start automatically after a reboot, so use the launcher when you need it:
 
 ```bash
-~/.local/share/document-extraction/document-extraction start
+~/.local/share/document-extraction/document-extraction start    # start the app
+~/.local/share/document-extraction/document-extraction status   # check whether it is running
+~/.local/share/document-extraction/document-extraction stop     # stop the app
 ```
 
-To stop it:
+These paths assume the default install location. If you chose a different one, use the launcher path the installer printed.
 
-```bash
-~/.local/share/document-extraction/document-extraction stop
-```
+## Documentation
 
-These commands use the default installation path. If you chose a different location, use the launcher path printed by the installer.
-
-## More help
-
-- [Setup and maintenance](docs/setup.md) — updates, backups, troubleshooting, and running from source.
-- [Configuration](docs/configuration.md) — Google sign-in, email delivery, upload limits, and other settings.
+| I want to… | Read |
+| --- | --- |
+| Update, back up, uninstall, or fix a problem | [Setup and maintenance](docs/setup.md) |
+| Turn on Google sign-in or email, change ports or upload limits | [Configuration](docs/configuration.md) |
+| Compare models or templates | [Evaluations](docs/evaluations.md) |
+| Call the API from a script or application | [API specification](mkdocs/docs/api/overview.md) |
+| Work on the code | [Contributing](CONTRIBUTING.md) |
 
 ---
 

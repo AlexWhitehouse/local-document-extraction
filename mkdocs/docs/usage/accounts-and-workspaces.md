@@ -1,9 +1,31 @@
-# Accounts And Workspaces
+# Accounts and Workspaces
 
-Email/password accounts can sign up and sign in immediately by default. Operators can require email verification with `AUTH_REQUIRE_EMAIL_VERIFICATION=true`. Local email mode records verification/reset links in private server output and the local mail sink; installer users can retrieve them with the launcher's `mail` command. Optional Cloudflare mode delivers these messages to the account inbox. Account policy can disable registration or password login, and controls whether verification is required. Google sign-in appears only when the operator explicitly enables it and supplies both OAuth credentials; generic OIDC/SAML are not supported.
+## Accounts
 
-Most product actions require an accepted Workspace context. Owners and admins can manage members, invitations, Workspace names, and API keys. Members can use the Workspace product data they are authorized to access.
+You can sign up with an email address and password, or with Google if it's been set up. The person running the app decides:
 
-Each Workspace also owns its model gateway configuration. Owners/admins configure the endpoint, model, encrypted outbound credential, and capabilities before Documents can be uploaded. Members can see whether configuration is present but cannot view or change its details. Workspace invitations are in-app invitations, not outbound invitation emails.
+- whether new accounts can be created
+- whether email and password sign-in is allowed
+- whether new accounts must verify their email address
 
-Workspace API keys are scoped to one Workspace and shown only at generation or rotation. They are for Template, Document, and job API access; browser-only account, membership, invitation, and live-update flows continue to require a session.
+By default, account emails (verification and password reset) aren't sent. The links are saved on the machine running the app, and installer users can read them with the launcher's `mail` command. The app can also be set up to send them through Cloudflare. Only Google sign-in is supported; OIDC and SAML aren't.
+
+## Workspaces
+
+A Workspace holds its own templates, documents, jobs, members, API keys, and model settings. You need to be a member of a Workspace to use it.
+
+| Role | Can do |
+| --- | --- |
+| Member | Use the Workspace's templates, documents, and Evaluations, see whether a model is set up, and leave the Workspace. |
+| Admin | Everything a member can, plus invite people and manage invitations, remove members, rename the Workspace, rotate its API key, and set up its model. |
+| Owner | Everything an admin can, plus make members admins, make someone an owner, remove admins, and delete the Workspace. Owners can't leave their own Workspace. |
+
+Invitations appear inside the app when the invited person signs in. They aren't sent by email.
+
+## Model settings
+
+Each Workspace has its own model gateway: an address, a model name, an encrypted credential, and the model's capabilities. An owner or admin sets it up before anyone can upload documents. Members can see whether a model is set up, but not its details.
+
+## API keys
+
+A Workspace API key lets scripts use the Workspace's templates, documents, and jobs. It's shown only once, when you generate or rotate it. Account, membership, invitation, and live-update features always need a normal browser sign-in. See [API keys](../api/authentication.md).
