@@ -16,6 +16,7 @@ import { DocumentPage } from "./features/documents/DocumentPage.jsx";
 import { DocumentUploadModal } from "./features/documents/DocumentUploadModal.jsx";
 import { createDocumentRequestAdapter } from "./features/documents/documentRequestAdapter.js";
 import { useDocumentController } from "./features/documents/useDocumentController.js";
+import { useDocumentViewingPreference } from "./features/documents/documentViewing.js";
 import { EvaluationsPage } from "./features/evaluations/EvaluationsPage.jsx";
 import { useEvaluations } from "./features/evaluations/useEvaluations.js";
 import { MainLayout, WorkspaceToolbar } from "./features/layout/MainLayout.jsx";
@@ -34,6 +35,7 @@ import {
 } from "./features/workspaces/WorkspacePages.jsx";
 import { useWorkspaceController } from "./features/workspaces/useWorkspaceController.js";
 import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
+import { useWorkspaceSourceRetention } from "./features/workspaces/useWorkspaceSourceRetention.js";
 import "./features/layout/StudioLayouts.css";
 
 const API_BASE = "/v1";
@@ -91,6 +93,11 @@ function AuthenticatedApp({ configuration }) {
   const isApplicationAdmin = String(session?.user?.role || "").trim() === "admin";
   const visiblePage = activePage === "admin" && !isApplicationAdmin ? "workspace" : activePage;
   const maxSourceFileBytes = configuration.limits.maxSourceFileBytes;
+  const sourceStorageConfigured = configuration.sourceStorage?.configured === true;
+  const [documentViewingLayout, setDocumentViewingLayout] = useDocumentViewingPreference({
+    userId: sessionUserId,
+    readOnly: isImpersonating,
+  });
 
   const { request: coreRequest, showActionToast, showDocumentUploadToast } = useMemo(
     () => createAppRuntimeCore({ apiBase: API_BASE, toast }),
@@ -129,6 +136,13 @@ function AuthenticatedApp({ configuration }) {
     return { request, documents: createDocumentRequestAdapter({ request }) };
   }, [coreRequest, hasSession, recoverForbiddenWorkspaceAccess, workspaceId]);
   const workspaceModel = useWorkspaceModelConfiguration({
+    coreRequest,
+    workspaceId,
+    sessionUserId,
+    role: workspaceContext.selectedWorkspaceRole,
+    enabled: hasApiAccess && !isWorkspaceInvitationSelected,
+  });
+  const workspaceSourceRetention = useWorkspaceSourceRetention({
     coreRequest,
     workspaceId,
     sessionUserId,
@@ -398,6 +412,9 @@ function AuthenticatedApp({ configuration }) {
             onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
             onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
             onDeleteDocument={documentToolbar.onDeleteDocument}
+            canDownloadOriginal={documentToolbar.canDownloadOriginal}
+            isDownloadingOriginal={documentToolbar.isDownloadingOriginal}
+            onDownloadOriginal={documentToolbar.onDownloadOriginal}
           />
         ) : null}
 
@@ -412,6 +429,7 @@ function AuthenticatedApp({ configuration }) {
               workspaceId={workspaceId}
               workspaceRole={workspaceContext.selectedWorkspaceRole}
               modelConfiguration={workspaceModel}
+              sourceRetention={workspaceSourceRetention}
               modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
             />
           )
@@ -429,7 +447,14 @@ function AuthenticatedApp({ configuration }) {
             workspaceLabel={workspaceToolbar.workspaceLabel}
           />
         ) : null}
-        {visiblePage === "documents" ? <DocumentPage {...documentController.documentPage} /> : null}
+        {visiblePage === "documents" ? (
+          <DocumentPage
+            {...documentController.documentPage}
+            viewingLayout={documentViewingLayout}
+            onViewingLayoutChange={setDocumentViewingLayout}
+            sourceStorageConfigured={sourceStorageConfigured}
+          />
+        ) : null}
       </MainLayout>
     </>
   );

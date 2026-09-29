@@ -213,6 +213,9 @@ export function WorkspaceToolbar({
   onWorkspacePrimaryAction,
   onDeleteTemplate,
   onDeleteDocument,
+  canDownloadOriginal = false,
+  isDownloadingOriginal = false,
+  onDownloadOriginal,
 }) {
   const exportHint =
     exportableDocumentCount === 0
@@ -231,6 +234,16 @@ export function WorkspaceToolbar({
       <div className="studio-heading-actions">
         {actions ?? (activePage === "documents" ? (
           <>
+            {canDownloadOriginal ? (
+              <button
+                type="button"
+                className="secondary"
+                disabled={!hasApiAccess || isDownloadingOriginal}
+                onClick={onDownloadOriginal}
+              >
+                {isDownloadingOriginal ? "Downloading..." : "Download"}
+              </button>
+            ) : null}
             <button
               type="button"
               className="danger"

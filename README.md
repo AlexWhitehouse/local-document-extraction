@@ -23,7 +23,7 @@ Paste this into your terminal:
 )
 ```
 
-The installer asks a few questions about a reverse proxy, Google sign-in, and Cloudflare email. **Press Enter at each one** for a normal local installation with email and password login. You can change these later, and updates keep your settings.
+The installer asks a few questions about a reverse proxy, Google sign-in, Cloudflare email, and whether to keep original documents. **Press Enter at each one** for a normal local installation with email and password login. You can change these later, and updates keep your settings.
 
 When it finishes, open **[http://127.0.0.1:8787](http://127.0.0.1:8787)**, or your public URL if you configured a reverse proxy.
 
@@ -74,6 +74,7 @@ These paths assume the default install location. If you chose a different one, u
 | --- | --- |
 | Update, back up, uninstall, or fix a problem | [Setup and maintenance](docs/setup.md) |
 | Turn on Google sign-in or email, change ports or upload limits | [Configuration](docs/configuration.md) |
+| Keep original documents locally or in S3, and view them beside results | [Keep original documents](docs/configuration.md#keep-original-documents) |
 | Compare models or templates | [Evaluations](docs/evaluations.md) |
 | Call the API from a script or application | [API specification](mkdocs/docs/api/overview.md) |
 | Work on the code | [Contributing](CONTRIBUTING.md) |

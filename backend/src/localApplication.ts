@@ -18,6 +18,9 @@ import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from 
 import { handleWorkspaceModelConfiguration } from "./workspaceModelConfigurationHttp";
 import { configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 import type { FetchApplication } from "./localRuntime";
+import type { LocalSourceStorageConfiguration } from "./localConfiguration";
+import type { LocalSourceObjectManifest } from "./localSourceObjectManifest";
+import { SourceObjectMissingError, type SourceObjectStore } from "./s3SourceObjectStore";
 import type { LocalAuth, LocalSession } from "./localAuth";
 import { LocalWorkspaceControlError, type LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalWorkspaceExtractionJobSummary, LocalWorkspaceProductStore } from "./localWorkspaceProductStore";
@@ -49,11 +52,24 @@ type ProductServices = {
   access: LocalWorkspaceProductDataAccess;
   operations: LocalWorkspaceProductOperations;
   sourceFileStore: LocalSourceFileStore;
+  sourceStorage: LocalSourceStorageConfiguration;
+  sourceObjects?: LocalRetainedSourceObjects & { activeReads: { count: number } };
   stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
 };
 
-type AuthorizedWorkspace = { id: string; name: string; max_source_file_bytes: number | null };
+/** Remote retained originals: the object store, the installation manifest and the key scheme. */
+export type LocalRetainedSourceObjects = {
+  store: SourceObjectStore;
+  manifest: Pick<LocalSourceObjectManifest, "prepare" | "link" | "markDeleting" | "markJobDeleting" | "markWorkspaceDeleting">;
+  keyFor(input: { workspaceId: string; jobId: string; mimeType: string }): string;
+  /** Concurrent remote preview/download streams, so reads cannot starve uploads and cleanup. */
+  maxConcurrentReads?: number;
+};
+
+type AuthorizedWorkspace = { id: string; name: string; max_source_file_bytes: number | null; source_retention_disabled: boolean };
+
+const NO_SOURCE_STORAGE: LocalSourceStorageConfiguration = { provider: "none", originalRetentionEnabled: false };
 
 export function createLocalApplication({
   auth,
@@ -69,6 +85,8 @@ export function createLocalApplication({
   productStoreRegistry,
   scheduleQueuedJob = async () => {},
   sourceFileStore,
+  sourceStorage = NO_SOURCE_STORAGE,
+  sourceObjects,
   stateDirectory,
   workspaceControl,
   workspaceDeletion,
@@ -87,6 +105,8 @@ export function createLocalApplication({
   productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
   scheduleQueuedJob?: (job: LocalQueuedExtractionJob) => void | Promise<void>;
   sourceFileStore?: LocalSourceFileStore;
+  sourceStorage?: LocalSourceStorageConfiguration;
+  sourceObjects?: LocalRetainedSourceObjects;
   stateDirectory?: string;
   workspaceControl?: LocalWorkspaceControl;
   workspaceDeletion?: LocalWorkspaceDeletion;
@@ -108,6 +128,7 @@ export function createLocalApplication({
       workspaceControl,
       workspaceProductOperations: operations,
       productStoreRegistry: registry,
+      sourceObjectManifest: sourceObjects?.manifest,
       onWorkspaceAccessRevoked: liveUpdateHub?.broadcastWorkspaceContextInvalidation,
     });
     if (auth) {
@@ -116,6 +137,8 @@ export function createLocalApplication({
         access: createLocalWorkspaceProductDataAccess({ registry, operations }),
         operations,
         sourceFileStore: files,
+        sourceStorage,
+        sourceObjects: sourceObjects && { ...sourceObjects, activeReads: { count: 0 } },
         stateDirectory,
         workspaceControl,
       };
@@ -176,7 +199,7 @@ export function createLocalApplication({
       const session = await auth.getSession(request);
       if (!session) return unauthorized();
       try {
-        return await handleControlRequest(request, pathname, session, workspaceControl, localWorkspaceDeletion);
+        return await handleControlRequest(request, pathname, session, workspaceControl, localWorkspaceDeletion, sourceStorage);
       } catch (error) {
         return workspaceErrorResponse(error);
       }
@@ -212,6 +235,12 @@ export function createLocalApplication({
       if (!product) return productStoreUnavailable();
       return withAuthorizedProductStore(product, request, ({ store }) =>
         Response.json({ available_models: store.listExtractionJobModels() }));
+    }
+
+    const sourceMatch = pathname.match(/^\/v1\/jobs\/([^/]+)\/source$/);
+    if ((request.method === "GET" || request.method === "HEAD") && sourceMatch) {
+      if (!product) return productStoreUnavailable();
+      return handleRetainedSourceFileRead({ product, jobId: decodeURIComponent(sourceMatch[1]!), request });
     }
 
     const jobMatch = pathname.match(/^\/v1\/jobs(?:\/([^/]+))?$/);
@@ -386,9 +415,11 @@ function handleLocalDocumentSubmission({
   request: Request;
   scheduleQueuedJob: (job: LocalQueuedExtractionJob) => void | Promise<void>;
 }): Promise<Response> {
-  const { sourceFileStore, stateDirectory, workspaceControl } = product;
+  const { sourceFileStore, sourceStorage, stateDirectory, workspaceControl } = product;
   return withAuthorizedProductStore(product, request, async ({ store: productStore, signal: workspaceSignal, workspace }) => {
     const workspaceId = workspace.id;
+    // Captured once, when the server begins accepting the upload; later setting changes apply to later uploads.
+    const sourceRetained = retainsNewOriginals(sourceStorage, workspace);
     const maximumBytes = workspace.max_source_file_bytes ?? maxSourceFileBytes;
     const signal = AbortSignal.any([request.signal, workspaceSignal]);
     try {
@@ -438,6 +469,9 @@ function handleLocalDocumentSubmission({
           : await sourceFileStore.write({ workspaceId, jobId, mimeType: sourceMimeType, bytes: sourceBytes! });
         temporaryPath = null;
         sourceBytes = new ArrayBuffer(0);
+        const retainedObjectKey = sourceRetained && sourceStorage.provider === "s3"
+          ? await publishRetainedOriginal({ product, workspaceId, jobId, sourceFileKey, sourceMimeType, signal })
+          : null;
 
         let queued;
         try {
@@ -449,25 +483,44 @@ function handleLocalDocumentSubmission({
             sourceMimeType,
             sourceName,
             sourceFilePageCount,
+            sourceRetained,
+            retainedObjectKey,
             submittedAt,
           });
-          const queuedJob = productStore.getExtractionJob(jobId);
-          if (queuedJob) liveUpdateHub?.broadcastJob(workspaceId, queuedJob);
-          recordLocalProductAnalytics(productAnalytics, {
-            type: "document_submitted",
-            workspaceId,
-            templateId: template.template_id,
-            templateVersion: template.template_version,
-            extractionJobId: jobId,
-            status: "queued",
-            attempt: 1,
-            sourceMimeType,
-            sourceByteSize,
-          });
         } catch (error) {
-          await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
+          // Only an uncommitted job may release its files; a committed one owns them.
+          if (!productStore.getExtractionJobSummary(jobId)) {
+            if (retainedObjectKey) product.sourceObjects!.manifest.markDeleting({ objectKey: retainedObjectKey });
+            await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
+          }
           throw error;
         }
+        // The job transaction is the durable acceptance point. Linking only records it for recovery,
+        // which links stale entries itself, so later bookkeeping failures must not undo acceptance.
+        if (retainedObjectKey) {
+          try {
+            product.sourceObjects!.manifest.link({ objectKey: retainedObjectKey });
+          } catch (error) {
+            console.warn("Retained object manifest link failed; recovery will link it", error);
+          }
+        }
+        try {
+          const queuedJob = productStore.getExtractionJob(jobId);
+          if (queuedJob) liveUpdateHub?.broadcastJob(workspaceId, queuedJob);
+        } catch (error) {
+          console.warn("Queued Document live update failed", error);
+        }
+        recordLocalProductAnalytics(productAnalytics, {
+          type: "document_submitted",
+          workspaceId,
+          templateId: template.template_id,
+          templateVersion: template.template_version,
+          extractionJobId: jobId,
+          status: "queued",
+          attempt: 1,
+          sourceMimeType,
+          sourceByteSize,
+        });
 
         try {
           await scheduleQueuedJob({
@@ -521,6 +574,9 @@ function handleLocalDocumentSubmission({
         if (temporaryPath) await rm(temporaryPath, { force: true });
       }
     } catch (error) {
+      if (error instanceof SourceStorageUnavailableError) {
+        return errorResponse(503, "source_storage_unavailable", "The original document couldn't be saved. Please try again.", { "cache-control": "no-store", "retry-after": "5" });
+      }
       if (signal.aborted) return errorResponse(499, "document_submission_cancelled", "Document submission cancelled");
       if (error instanceof HttpError) return httpErrorResponse(error);
       return errorResponse(500, "document_submission_failed", "Document submission could not be queued");
@@ -550,7 +606,11 @@ function handleLocalJobRead({
         await operations.beginDocumentDeletion({ workspaceId, jobId });
         documentDeletionStarted = true;
         const deleted = productStore.deleteExtractionJob({ jobId });
-        if (deleted && await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key)) {
+        // A remote original is handed to durable object cleanup before the deletion intent clears;
+        // without object cleanup configured, the intent stays for the sweep to retry.
+        const releasedRemote = !deleted?.retained_object_key || Boolean(product.sourceObjects);
+        if (deleted?.retained_object_key) product.sourceObjects?.manifest.markJobDeleting({ workspaceId, jobId });
+        if (deleted && releasedRemote && await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key)) {
           productStore.markSourceFileCleaned({ jobId, sourceFileKey: deleted.source_file_key, cleanedAt: nowIso() });
         }
         operations.completeDocumentDeletion({ workspaceId, jobId });
@@ -650,6 +710,7 @@ async function handleControlRequest(
   session: LocalSession,
   workspaceControl: LocalWorkspaceControl,
   workspaceDeletion: LocalWorkspaceDeletion | null,
+  sourceStorage: LocalSourceStorageConfiguration,
 ): Promise<Response> {
   const { method } = request;
   if (pathname === "/v1/invitations") {
@@ -720,6 +781,20 @@ async function handleControlRequest(
     }
     case "DELETE invitations :id":
       return Response.json(workspaceControl.cancelInvitation({ workspaceId, invitationId: resourceId!, userId }));
+    case "GET source-retention": {
+      const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId });
+      return workspace ? Response.json(sourceRetentionSettings(sourceStorage, workspace)) : forbidden();
+    }
+    case "PUT source-retention": {
+      const { disabled } = await readJsonObject(request);
+      if (typeof disabled !== "boolean") return errorResponse(400, "invalid_source_retention", "disabled must be true or false");
+      if (disabled === false && sourceStorage.provider === "none") {
+        return errorResponse(409, "source_storage_not_configured", "This installation has no storage configured for original documents");
+      }
+      workspaceControl.setWorkspaceSourceRetention({ workspaceId, userId, disabled });
+      const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId });
+      return workspace ? Response.json(sourceRetentionSettings(sourceStorage, workspace)) : forbidden();
+    }
     case "PATCH": {
       const { name } = await readJsonObject(request);
       if (typeof name !== "string" || !name.trim()) return invalidName();
@@ -732,6 +807,133 @@ async function handleControlRequest(
     default:
       return routeNotFound();
   }
+}
+
+function retainsNewOriginals(sourceStorage: LocalSourceStorageConfiguration, workspace: AuthorizedWorkspace): boolean {
+  return sourceStorage.provider !== "none" && sourceStorage.originalRetentionEnabled && !workspace.source_retention_disabled;
+}
+
+function sourceRetentionSettings(sourceStorage: LocalSourceStorageConfiguration, workspace: AuthorizedWorkspace) {
+  return {
+    workspace_id: workspace.id,
+    storage_configured: sourceStorage.provider !== "none",
+    installation_retains_originals: sourceStorage.originalRetentionEnabled,
+    source_retention_disabled: workspace.source_retention_disabled,
+    retains_new_originals: retainsNewOriginals(sourceStorage, workspace),
+  };
+}
+
+/**
+ * Streams a retained original. Workspace access is checked on every request; only the product
+ * store's retained flag grants retrieval, so processing-only files are never served.
+ */
+function handleRetainedSourceFileRead({ product, jobId, request }: { product: ProductServices; jobId: string; request: Request }): Promise<Response> {
+  const noStore = { "cache-control": "private, no-store" };
+  return withAuthorizedProductStore(product, request, async ({ store }) => {
+    if (!store.getExtractionJobSummary(jobId)) return errorResponse(404, "not_found", "Job not found", noStore);
+    const retained = store.getRetainedSourceFile(jobId);
+    if (!retained) return errorResponse(404, "source_not_retained", "The original document was not retained", noStore);
+    const unavailable = () => errorResponse(503, "source_unavailable", "The original document is temporarily unavailable", { ...noStore, "retry-after": "5" });
+    const headers = new Headers({
+      ...noStore,
+      "content-type": retained.source_mime_type,
+      "content-disposition": attachmentDisposition(retained.source_name, retained.source_mime_type),
+      "x-content-type-options": "nosniff",
+    });
+    if (retained.retained_object_key) {
+      const objects = product.sourceObjects;
+      if (!objects || objects.activeReads.count >= (objects.maxConcurrentReads ?? 8)) return unavailable();
+      objects.activeReads.count += 1;
+      let released = false;
+      const release = () => { if (!released) { released = true; objects.activeReads.count -= 1; } };
+      try {
+        const object = await objects.store.open(retained.retained_object_key);
+        headers.set("content-length", String(object.size));
+        if (request.method === "HEAD") { release(); return new Response(null, { headers }); }
+        return new Response(releaseWhenDone(object.stream(), release), { headers });
+      } catch (error) {
+        release();
+        if (error instanceof SourceObjectMissingError) return errorResponse(404, "source_missing", "The original document is missing from storage", noStore);
+        console.warn("Retained original could not be read from object storage", error);
+        return unavailable();
+      }
+    }
+    let file: Blob | null;
+    try {
+      if (!product.sourceFileStore.open) throw new Error("Source file store cannot open retained originals");
+      file = await product.sourceFileStore.open(retained.source_file_key);
+    } catch (error) {
+      console.warn("Retained Source file could not be opened", error);
+      return unavailable();
+    }
+    if (!file) return errorResponse(404, "source_missing", "The original document is missing from storage", noStore);
+    headers.set("content-length", String(file.size));
+    return new Response(request.method === "HEAD" ? null : file.stream(), { headers });
+  });
+}
+
+/** Releases a read permit when the stream ends, errors or the client disconnects. */
+function releaseWhenDone(stream: ReadableStream<Uint8Array>, release: () => void): ReadableStream<Uint8Array> {
+  const reader = stream.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) { release(); controller.close(); return; }
+        controller.enqueue(value);
+      } catch (error) {
+        release();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      release();
+      await reader.cancel(reason).catch(() => undefined);
+    },
+  });
+}
+
+class SourceStorageUnavailableError extends Error {}
+
+/**
+ * Saves a retained original to object storage before its job is accepted. The manifest entry is
+ * recorded first so a crash or late write can always be found and cleaned up.
+ */
+async function publishRetainedOriginal({ product, workspaceId, jobId, sourceFileKey, sourceMimeType, signal }: {
+  product: ProductServices;
+  workspaceId: string;
+  jobId: string;
+  sourceFileKey: string;
+  sourceMimeType: string;
+  signal: AbortSignal;
+}): Promise<string> {
+  const objects = product.sourceObjects;
+  const file = objects && await product.sourceFileStore.open?.(sourceFileKey);
+  if (!objects || !file) {
+    await deleteLocalSourceFileQuietly(product.sourceFileStore, sourceFileKey);
+    throw new SourceStorageUnavailableError("Object storage is not available for retained originals");
+  }
+  const objectKey = objects.keyFor({ workspaceId, jobId, mimeType: sourceMimeType });
+  objects.manifest.prepare({ objectKey, workspaceId, jobId });
+  try {
+    await objects.store.put({ key: objectKey, file, mimeType: sourceMimeType });
+    signal.throwIfAborted();
+  } catch (error) {
+    objects.manifest.markDeleting({ objectKey });
+    await deleteLocalSourceFileQuietly(product.sourceFileStore, sourceFileKey);
+    if (signal.aborted) throw error;
+    console.warn("Retained original could not be saved to object storage", error);
+    throw new SourceStorageUnavailableError("The original could not be saved");
+  }
+  return objectKey;
+}
+
+const DOWNLOAD_EXTENSIONS: Record<string, string> = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+
+function attachmentDisposition(sourceName: string | null, mimeType: string): string {
+  const name = sourceName?.trim() || `document.${DOWNLOAD_EXTENSIONS[mimeType] ?? "bin"}`;
+  const fallback = name.replace(/[^A-Za-z0-9._ -]/g, "_").replace(/^\.+/, "_").slice(0, 200) || "document";
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 function readJsonObject(request: Request): Promise<Record<string, unknown>> {
@@ -753,6 +955,7 @@ function extractionJobEntityTag(workspaceId: string, job: LocalWorkspaceExtracti
     job.source_name,
     job.source_mime_type,
     job.source_file_page_count,
+    job.source_retained,
     job.template_id,
     job.template_version,
     job.model_name,

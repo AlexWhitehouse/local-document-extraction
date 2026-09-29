@@ -78,6 +78,8 @@
 .studio-workspace-facts dd { margin: 0; text-align: right; min-width: 0; }
 .studio-workspace-facts code { font: 10px var(--font-mono); color: #b1c0d3; overflow-wrap: anywhere; }
 .studio-api-access { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--studio-rule); }
+.studio-main .studio-source-retention-toggle { display: flex; flex-direction: row; align-items: center; gap: 8px; color: #d6dde6; font-size: 12px; }
+.studio-main .studio-source-retention-toggle input { width: auto; height: auto; margin: 0; }
 .studio-api-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--studio-muted); }
 .studio-main .workspace-model { border: 0; border-left: 1px solid var(--studio-rule); background: transparent; margin: 0; padding-left: 28px; overflow: visible; }
 .studio-main .workspace-model-header { padding: 0; margin-bottom: 12px; }

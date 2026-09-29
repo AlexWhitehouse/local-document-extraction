@@ -286,6 +286,7 @@ function job(
     source_name: "document.pdf",
     source_mime_type: "application/pdf",
     source_file_page_count: 3,
+    source_retained: false,
     template_id: "tpl_invoice",
     template_name: "Invoice",
     template_version: 1,

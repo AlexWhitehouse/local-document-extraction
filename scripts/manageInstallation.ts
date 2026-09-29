@@ -189,6 +189,24 @@ async function manage() {
     process.exitCode = result.status ?? 1;
     return;
   }
+  if (command === "storage") {
+    const [action, ...flags] = args;
+    if (action !== "configure" || flags.some((flag) => flag !== "--confirm-unversioned-bucket")) {
+      throw new Error("Usage: document-extraction storage configure [--confirm-unversioned-bucket]");
+    }
+    await withManagementLock(root, async () => {
+      // Checks run against a stopped application so dependencies cannot change before restart.
+      if (await runningInstallation(root)) throw new Error("Stop the application before configuring storage: document-extraction stop");
+      // The launcher copy of this file stands alone; storage setup runs from the installed release.
+      const result = spawnSync(installation.bun, [join(installation.release, "scripts/sourceStorageSetup.ts"), root, ...flags], {
+        cwd: installation.release,
+        env: applicationEnvironment(installation),
+        stdio: "inherit",
+      });
+      process.exitCode = result.status ?? 1;
+    });
+    return;
+  }
   await withManagementLock(root, async () => {
     switch (command) {
       case "start": console.log(`Application ready: ${(await startInstallation(installation)).origin}`); break;
@@ -208,7 +226,7 @@ async function manage() {
         break;
       }
       case "mail": await showMail(installation); break;
-      default: throw new Error("Commands: start, stop, status, doctor, mail, update [release-tag]");
+      default: throw new Error("Commands: start, stop, status, doctor, mail, update [release-tag], storage configure");
     }
   });
 }

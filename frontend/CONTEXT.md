@@ -68,6 +68,10 @@ _Avoid_: job merging, cache synchronization
 The original uploaded binary for a **Document**.
 _Avoid_: image file, browser file, upload blob
 
+**Document viewing preference**:
+A user's per-Account, browser-local choice between viewing **Extraction results** alone and viewing the **Source file** alongside the results.
+_Avoid_: Workspace layout setting, Source file retention setting
+
 **Product safety limit**:
 A non-commercial guardrail that prevents unsupported or excessive Documents from being submitted.
 _Avoid_: commercial quota, account tier
@@ -263,6 +267,9 @@ _Avoid_: demo mode, sample data sandbox
 - React owns Document presentation, confirmations, toasts, downloads, and **Workspace live updates** transport; **Document reconciliation** decides which Document updates and request outcomes are accepted.
 - **Completed document cache** may render completed **Extraction job** details immediately after an accepted **Workspace context** is resolved, while the backend remains the source of truth.
 - **Completed document cache** contains backend-returned completed job metadata and **Extraction results**, not source file contents, `File` objects, blob URLs, or source preview URLs.
+- The **Document viewing preference** defaults to results, is keyed by Account in browser storage, and is read-only during impersonation: changes then apply to the page without being stored.
+- A **Document** whose **Source file** was not retained shows results only, with no layout switch or Download, while keeping the Account's stored preference for other Documents.
+- The retained **Source file** is fetched only while its side-by-side pane is visible, held in memory as an object URL, and released when the Document, layout, session or Workspace changes. Below a 600px main area, side by side shows Results | Document tabs and opens on Results.
 - **Completed document cache** stores a completed **Extraction job** only after the user opens that **Document** and its details load.
 - **Completed document cache** keeps at most 50 completed **Documents** per accepted **Workspace**.
 - **Completed document cache** may survive page refresh for the same resolved accepted **Workspace**.

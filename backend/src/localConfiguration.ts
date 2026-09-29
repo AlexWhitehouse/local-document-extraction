@@ -5,6 +5,26 @@ import { fileURLToPath } from "node:url";
 import { localDocumentRequestBodyLimit } from "./localDocumentBodyLimit";
 
 type Environment = Record<string, string | undefined>;
+export type SourceStorageProvider = "none" | "local" | "s3";
+export type S3SourceStorageConfiguration = {
+  bucket: string;
+  region: string;
+  /** Custom S3-compatible endpoint origin; AWS S3 when absent. */
+  endpoint?: string;
+  forcePathStyle: boolean;
+  /** Object key prefix owned by this installation, ending in "/". */
+  prefix: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+};
+export type LocalSourceStorageConfiguration = {
+  provider: SourceStorageProvider;
+  /** Installation default for retaining originals of new uploads; Workspaces may opt out. */
+  originalRetentionEnabled: boolean;
+  s3?: S3SourceStorageConfiguration;
+};
+
 export type LocalEmailConfiguration = {
   provider: "local" | "cloudflare";
   fromAddress: string;
@@ -89,6 +109,7 @@ export function readLocalConfiguration({
   if (extractionMaxConcurrency > extractionMaximumConcurrency) throw new Error("EXTRACTION_MAX_CONCURRENCY must not exceed EXTRACTION_MAX_CONCURRENCY_LIMIT.");
   const { memoryLimitRatio: localMemoryLimitRatio, preparationMaxBytes: modelPreparationMaxBytes } = readLocalMemoryLimits(env, totalMemoryBytes);
   const email: LocalEmailConfiguration = { provider, fromAddress, fromName, cloudflareAccountId, cloudflareApiToken };
+  const sourceStorage = readSourceStorageConfiguration(text, boolean, secret);
   return {
     host, port, stateDirectory,
     assetsDirectory: resolve(repositoryRoot, text("DOCUMENT_EXTRACTION_ASSETS_DIR") ?? "frontend/dist"),
@@ -111,6 +132,7 @@ export function readLocalConfiguration({
     shutdownTimeoutMs: integer("LOCAL_SHUTDOWN_TIMEOUT_MS", 10000, 1, 2147483647),
     modelGatewayRequestTimeoutMs: integer("MODEL_GATEWAY_REQUEST_TIMEOUT_MS", 300000, 1, 2147483647),
     analyticsEnabled: boolean("LOCAL_ANALYTICS_ENABLED", true),
+    sourceStorage,
     auth: {
       baseURL: text("BETTER_AUTH_URL") ? origin(text("BETTER_AUTH_URL")!, "BETTER_AUTH_URL") : undefined,
       adminEmails: list("DOCUMENT_EXTRACTION_ADMIN_EMAILS").map((email) => emailAddress(email, "DOCUMENT_EXTRACTION_ADMIN_EMAILS").toLowerCase()),
@@ -125,6 +147,57 @@ export function readLocalConfiguration({
 }
 
 export type LocalConfiguration = ReturnType<typeof readLocalConfiguration>;
+
+/**
+ * Source file retention is distinct from processing cleanup: FAILED_SOURCE_RETENTION_MS and
+ * SOURCE_RETENTION_SWEEP_INTERVAL_MS govern processing files whose originals are not retained.
+ */
+function readSourceStorageConfiguration(
+  text: (name: string) => string | undefined,
+  boolean: (name: string, fallback: boolean) => boolean,
+  secret: (name: string) => string | undefined,
+): LocalSourceStorageConfiguration {
+  const provider = text("SOURCE_STORAGE_PROVIDER")?.toLowerCase() ?? "none";
+  if (provider !== "none" && provider !== "local" && provider !== "s3") throw new Error("SOURCE_STORAGE_PROVIDER must be none, local or s3.");
+  // Selecting a store enables retention by default; installations without one never retain.
+  const originalRetentionEnabled = boolean("SOURCE_ORIGINAL_RETENTION_ENABLED", provider !== "none");
+  if (originalRetentionEnabled && provider === "none") {
+    throw new Error("SOURCE_ORIGINAL_RETENTION_ENABLED requires SOURCE_STORAGE_PROVIDER to be local or s3.");
+  }
+  if (provider !== "s3") return { provider, originalRetentionEnabled };
+
+  const bucket = text("SOURCE_STORAGE_S3_BUCKET");
+  const region = text("SOURCE_STORAGE_S3_REGION");
+  const accessKeyId = secret("SOURCE_STORAGE_S3_ACCESS_KEY_ID");
+  const secretAccessKey = secret("SOURCE_STORAGE_S3_SECRET_ACCESS_KEY");
+  if (!bucket || !region || !accessKeyId || !secretAccessKey) {
+    throw new Error("SOURCE_STORAGE_PROVIDER=s3 requires SOURCE_STORAGE_S3_BUCKET, SOURCE_STORAGE_S3_REGION, SOURCE_STORAGE_S3_ACCESS_KEY_ID and SOURCE_STORAGE_S3_SECRET_ACCESS_KEY.");
+  }
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error("SOURCE_STORAGE_S3_BUCKET must be a valid S3 bucket name.");
+  if (!/^[a-z0-9-]{1,64}$/.test(region)) throw new Error("SOURCE_STORAGE_S3_REGION must be an S3 region name such as eu-west-2.");
+  const rawEndpoint = text("SOURCE_STORAGE_S3_ENDPOINT");
+  let endpoint: string | undefined;
+  if (rawEndpoint) {
+    try {
+      const url = new URL(rawEndpoint);
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new Error();
+      endpoint = url.origin;
+    } catch { throw new Error("SOURCE_STORAGE_S3_ENDPOINT must be an HTTP(S) origin without credentials, a path or a query."); }
+  }
+  const prefix = text("SOURCE_STORAGE_S3_PREFIX") ?? "document-extraction/";
+  if (!/^(?:[A-Za-z0-9!_.*'()-]+\/)+$/.test(prefix) || prefix.split("/").some((part) => part === "." || part === "..")) {
+    throw new Error("SOURCE_STORAGE_S3_PREFIX must be one or more safe path segments ending in \"/\".");
+  }
+  return {
+    provider,
+    originalRetentionEnabled,
+    s3: {
+      bucket, region, endpoint, prefix, accessKeyId, secretAccessKey,
+      forcePathStyle: boolean("SOURCE_STORAGE_S3_FORCE_PATH_STYLE", Boolean(endpoint)),
+      sessionToken: secret("SOURCE_STORAGE_S3_SESSION_TOKEN"),
+    },
+  };
+}
 
 export function readLocalMemoryLimits(env: { LOCAL_MEMORY_LIMIT_RATIO?: string; MODEL_PREPARATION_MAX_BYTES?: string }, totalMemoryBytes: number) {
   if (!Number.isSafeInteger(totalMemoryBytes) || totalMemoryBytes < 1) throw new Error("System memory must be a positive integer byte count.");
@@ -152,5 +225,9 @@ export function publicLocalConfiguration(configuration: LocalConfiguration) {
   return {
     auth: { emailPasswordEnabled, googleEnabled, signupEnabled, requireEmailVerification, mailDelivery: configuration.email.provider },
     limits: { maxSourceFileBytes: configuration.maxSourceFileBytes },
+    sourceStorage: {
+      configured: configuration.sourceStorage.provider !== "none",
+      retainsOriginals: configuration.sourceStorage.originalRetentionEnabled,
+    },
   };
 }

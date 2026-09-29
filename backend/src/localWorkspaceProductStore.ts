@@ -44,6 +44,8 @@ export type LocalWorkspaceExtractionJobSummary = {
   source_name: string | null;
   source_mime_type: string;
   source_file_page_count: number | null;
+  /** The original is kept for viewing and download (Source file retention), rather than only for processing. */
+  source_retained: boolean;
   template_id: string;
   template_version: number;
   model_name: string | null;
@@ -83,6 +85,9 @@ export type LocalClaimedExtractionJob = {
   template_version: number;
   source_file_key: string;
   source_mime_type: string;
+  source_retained: boolean;
+  /** The original is retained in remote object storage; the local file is only a working copy. */
+  source_retained_remotely: boolean;
   fields: FieldDefinition[];
 };
 
@@ -97,12 +102,23 @@ export type LocalScheduledExtractionJob = {
 export type DeletedLocalWorkspaceExtractionJob = {
   job_id: string;
   source_file_key: string;
+  retained_object_key: string | null;
   status: LocalWorkspaceExtractionJobSummary["status"];
+};
+
+export type LocalRetainedSourceFile = {
+  source_file_key: string;
+  /** Remote object holding the original; null when the local file is the original. */
+  retained_object_key: string | null;
+  source_mime_type: string;
+  source_name: string | null;
 };
 
 export type LocalRetainedTerminalSourceFile = {
   job_id: string;
   source_file_key: string;
+  /** Set for deleted Documents whose remote original must be released before the intent clears. */
+  retained_object_key: string | null;
 };
 
 export type LocalWorkspaceProductStore = {
@@ -145,6 +161,8 @@ export type LocalWorkspaceProductStore = {
     sourceMimeType: string;
     sourceName: string | null;
     sourceFilePageCount: number | null;
+    sourceRetained?: boolean;
+    retainedObjectKey?: string | null;
     submittedAt: string;
   }): LocalQueuedExtractionJob;
   failQueuedExtractionJob(input: {
@@ -204,6 +222,8 @@ export type LocalWorkspaceProductStore = {
   getExtractionJob(jobId: string): LocalWorkspaceExtractionJob | null;
   getExtractionJobResults(jobId: string): LocalWorkspaceExtractionResult[];
   getExtractionJobSummary(jobId: string): LocalWorkspaceExtractionJobSummary | null;
+  /** The retained original for a job, or null when the job is absent or its original was not retained. */
+  getRetainedSourceFile(jobId: string): LocalRetainedSourceFile | null;
   getExtractionJobExports(jobIds: string[]): LocalWorkspaceExtractionJobExport[];
   getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
   listTemplates(): LocalWorkspaceTemplate[];
@@ -295,7 +315,8 @@ function workspaceProductDatabasePath({ stateDirectory, workspaceId }: Workspace
 }
 
 const JOB_SUMMARY_SELECT = `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
-    s.page_count AS source_file_page_count, j.template_id, j.template_version,
+    s.page_count AS source_file_page_count, (s.retained = 1 AND (s.retained_key IS NOT NULL OR s.deleted_at IS NULL)) AS source_retained,
+    j.template_id, j.template_version,
     j.model_name, j.model_configuration_revision, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
     j.current_attempt, j.completed_attempt, j.last_failed_attempt
   FROM jobs j
@@ -340,8 +361,10 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
      ORDER BY position ASC`,
   ).all(templateId, version) as PositionedField[];
 
-  const readJobSummary = (jobId: string) =>
-    database.query(`${JOB_SUMMARY_SELECT} WHERE j.id = ?`).get(jobId) as LocalWorkspaceExtractionJobSummary | null;
+  const readJobSummary = (jobId: string) => {
+    const row = database.query(`${JOB_SUMMARY_SELECT} WHERE j.id = ?`).get(jobId) as JobSummaryRow | null;
+    return row && withRetainedFlag(row);
+  };
 
   const readJobResults = (jobId: string): LocalWorkspaceExtractionResult[] => {
     const results = database.query(
@@ -465,9 +488,10 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     createQueuedExtractionJob: (input) => {
       database.transaction(() => {
         database.query(
-          `INSERT INTO source_files (key, job_id, mime_type, name, page_count, created_at, deleted_at)
-           VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-        ).run(input.sourceFileKey, input.jobId, input.sourceMimeType, input.sourceName, input.sourceFilePageCount, input.submittedAt);
+          `INSERT INTO source_files (key, job_id, mime_type, name, page_count, created_at, deleted_at, retained, retained_key)
+           VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        ).run(input.sourceFileKey, input.jobId, input.sourceMimeType, input.sourceName, input.sourceFilePageCount, input.submittedAt,
+          Number(Boolean(input.sourceRetained || input.retainedObjectKey)), input.retainedObjectKey ?? null);
         database.query(
           `INSERT INTO jobs (
              id, template_id, template_version, status,
@@ -501,10 +525,12 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     ).run(input.errorCode, input.errorMessage.slice(0, MAX_ERROR_MESSAGE_LENGTH), input.failedAt, input.jobId).changes > 0,
     claimExtractionJobForProcessing: (input) => database.transaction(() => {
       const job = database.query(
-        `SELECT id, template_id, template_version, source_file_key, source_mime_type
-         FROM jobs
-         WHERE id = ?`,
-      ).get(input.jobId) as Omit<LocalClaimedExtractionJob, "job_id" | "fields"> & { id: string } | null;
+        `SELECT j.id, j.template_id, j.template_version, j.source_file_key, j.source_mime_type, s.retained AS source_retained,
+           s.retained_key IS NOT NULL AS source_retained_remotely
+         FROM jobs j
+         JOIN source_files s ON s.job_id = j.id
+         WHERE j.id = ?`,
+      ).get(input.jobId) as Omit<LocalClaimedExtractionJob, "job_id" | "fields" | "source_retained" | "source_retained_remotely"> & { id: string; source_retained: number; source_retained_remotely: number } | null;
       if (!job) return null;
 
       const claimed = database.query(
@@ -527,6 +553,8 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
         template_version: job.template_version,
         source_file_key: job.source_file_key,
         source_mime_type: job.source_mime_type,
+        source_retained: Boolean(job.source_retained),
+        source_retained_remotely: Boolean(job.source_retained_remotely),
         fields,
       };
     })(),
@@ -678,13 +706,14 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     },
     deleteExtractionJob: (input) => database.transaction(() => {
       const job = database.query(
-        "SELECT id AS job_id, status, source_file_key FROM jobs WHERE id = ? LIMIT 1",
+        `SELECT j.id AS job_id, j.status, j.source_file_key, s.retained_key AS retained_object_key
+         FROM jobs j LEFT JOIN source_files s ON s.job_id = j.id WHERE j.id = ? LIMIT 1`,
       ).get(input.jobId) as DeletedLocalWorkspaceExtractionJob | null;
       if (!job) return null;
       // Commit cleanup intent with logical deletion so crashes and unlink errors
-      // cannot lose the only pointer to a retained Source binary.
-      database.query("INSERT OR REPLACE INTO source_file_deletion_intents (job_id, source_file_key) VALUES (?, ?)")
-        .run(job.job_id, job.source_file_key);
+      // cannot lose the only pointer to a local Source binary or remote original.
+      database.query("INSERT OR REPLACE INTO source_file_deletion_intents (job_id, source_file_key, retained_key) VALUES (?, ?, ?)")
+        .run(job.job_id, job.source_file_key, job.retained_object_key ?? null);
       database.query("DELETE FROM job_results WHERE job_id = ?").run(job.job_id);
       database.query("DELETE FROM source_files WHERE job_id = ?").run(job.job_id);
       database.query("DELETE FROM jobs WHERE id = ?").run(job.job_id);
@@ -693,6 +722,12 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     getExtractionJob: readJob,
     getExtractionJobResults: readJobResults,
     getExtractionJobSummary: readJobSummary,
+    getRetainedSourceFile: (jobId) => database.query(
+      `SELECT key AS source_file_key, retained_key AS retained_object_key, mime_type AS source_mime_type, name AS source_name
+       FROM source_files
+       WHERE job_id = ? AND retained = 1 AND (retained_key IS NOT NULL OR deleted_at IS NULL)
+       LIMIT 1`,
+    ).get(jobId) as LocalRetainedSourceFile | null,
     getExtractionJobExports: (jobIds) => database.transaction(() => {
       if (!jobIds.length) return [];
       const placeholders = jobIds.map(() => "?").join(",");
@@ -794,21 +829,23 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
       // The limit is interpolated, so only a positive safe integer may reach the SQL text.
       const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? ` LIMIT ${input.limit}` : "";
-      return database.query(
+      return (database.query(
         `${JOB_SUMMARY_SELECT}${where} ORDER BY j.created_at DESC, j.id DESC${limit}`,
-      ).all(...parameters) as LocalWorkspaceExtractionJobSummary[];
+      ).all(...parameters) as JobSummaryRow[]).map(withRetainedFlag);
     },
     listRetainedTerminalSourceFiles: (input) => {
       const limit = input.limit ?? 1_000;
-      const deleted = database.query("SELECT job_id, source_file_key FROM source_file_deletion_intents ORDER BY job_id LIMIT ?")
+      const deleted = database.query("SELECT job_id, source_file_key, retained_key AS retained_object_key FROM source_file_deletion_intents ORDER BY job_id LIMIT ?")
         .all(limit) as LocalRetainedTerminalSourceFile[];
       if (deleted.length === limit) return deleted;
       const terminal = database.query(
-        `SELECT j.id AS job_id, s.key AS source_file_key
+        `SELECT j.id AS job_id, s.key AS source_file_key, NULL AS retained_object_key
          FROM source_files s
          CROSS JOIN jobs j ON j.id = s.job_id
          WHERE s.deleted_at IS NULL
-           AND (j.status = 'completed' OR (j.status = 'failed' AND j.updated_at <= ?))
+           AND ((s.retained = 0 AND (j.status = 'completed' OR (j.status = 'failed' AND j.updated_at <= ?)))
+             -- A remotely retained original needs no local working copy once processing ends.
+             OR (s.retained_key IS NOT NULL AND j.status IN ('completed', 'failed')))
          ORDER BY j.updated_at ASC, j.id ASC
          LIMIT ?`,
       ).all(input.failedBefore, limit - deleted.length) as LocalRetainedTerminalSourceFile[];
@@ -825,6 +862,13 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       return source.changes > 0 || intent.changes > 0;
     })(),
   };
+}
+
+/** SQLite returns `source_retained` as 0/1. */
+type JobSummaryRow = Omit<LocalWorkspaceExtractionJobSummary, "source_retained"> & { source_retained: number };
+
+function withRetainedFlag(row: JobSummaryRow): LocalWorkspaceExtractionJobSummary {
+  return { ...row, source_retained: Boolean(row.source_retained) };
 }
 
 function parseStoredAnswer(answerJson: string | null): unknown {
@@ -1024,6 +1068,20 @@ const PRODUCT_MIGRATIONS: Array<[version: number, sql: string]> = [
       UPDATE job_status_totals SET count = count - 1 WHERE status = old.status;
       UPDATE job_status_totals SET count = count + 1 WHERE status = new.status;
     END;
+  `],
+  // Existing jobs predate Source file retention: none of their originals were retained.
+  [6, `
+    ALTER TABLE source_files ADD COLUMN retained INTEGER NOT NULL DEFAULT 0 CHECK (retained IN (0, 1));
+    DROP INDEX IF EXISTS idx_sources_uncleaned;
+    CREATE INDEX idx_sources_uncleaned ON source_files(job_id, key) WHERE deleted_at IS NULL AND retained = 0;
+  `],
+  // Remote originals: the local key stays the working copy; retained_key names the retained object.
+  [7, `
+    ALTER TABLE source_files ADD COLUMN retained_key TEXT;
+    ALTER TABLE source_file_deletion_intents ADD COLUMN retained_key TEXT;
+    DROP INDEX IF EXISTS idx_sources_uncleaned;
+    CREATE INDEX idx_sources_uncleaned ON source_files(job_id, key)
+      WHERE deleted_at IS NULL AND (retained = 0 OR retained_key IS NOT NULL);
   `],
 ];
 

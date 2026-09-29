@@ -107,6 +107,43 @@ A higher limit doesn't guarantee a file can be processed:
 
 If you use a reverse proxy, raise its upload limit too.
 
+## Keep original documents
+
+By default the app keeps only extraction results: each uploaded file is deleted once its job succeeds, or after seven days if it fails. You can keep originals instead, so people can view a document beside its results and download it. Choose where they're kept:
+
+- `none` (default): originals aren't kept.
+- `local`: originals stay in the private state directory, so backups of that directory include them.
+- `s3`: originals go to an S3-compatible bucket, such as AWS S3 or a RustFS server you run. While a document is processed, the app also keeps a temporary local copy.
+
+For an installed app, stop it and run the storage command. It asks the storage questions, checks S3 settings by writing, reading and deleting a small test file, and saves nothing if a step fails:
+
+```sh
+document-extraction stop
+document-extraction storage configure
+document-extraction start
+```
+
+For a source install, set the same values in `.env`:
+
+```dotenv
+SOURCE_STORAGE_PROVIDER=s3
+SOURCE_STORAGE_S3_ENDPOINT=http://rustfs.internal:9000   # leave unset for AWS S3
+SOURCE_STORAGE_S3_REGION=us-east-1
+SOURCE_STORAGE_S3_BUCKET=document-extraction
+SOURCE_STORAGE_S3_PREFIX=document-extraction/
+SOURCE_STORAGE_S3_FORCE_PATH_STYLE=true
+SOURCE_STORAGE_S3_ACCESS_KEY_ID=...
+SOURCE_STORAGE_S3_SECRET_ACCESS_KEY=...
+```
+
+Things to know:
+
+- **The bucket must not use object versioning or Object Lock.** The app doesn't check this. It deletes files by key, so on a versioned or locked bucket, earlier copies of deleted originals stay in the bucket. `storage configure` asks you to confirm this; scripted setups pass `--confirm-unversioned-bucket`.
+- Workspace owners and admins can switch off **Retain original documents** on the Workspace page. That, and `SOURCE_ORIGINAL_RETENTION_ENABLED=false` for the whole installation, affect new uploads only. Originals already kept stay available until their Document or Workspace is deleted.
+- If the bucket can't be reached, the app still starts and existing results stay available, but uploads that need to keep their original fail with a message asking to try again.
+- Deleting a Document or Workspace removes access straight away. The original is then deleted from storage in the background, and retried until storage confirms it.
+- You can rotate S3 credentials at any time. You can't change the endpoint, bucket, prefix or addressing style while any originals, or deletions still in progress, use the current ones; the app refuses to start if you try. Moving originals to a new location isn't supported yet.
+
 ## Reference
 
 ### Network and access
@@ -192,8 +229,11 @@ Some limits are fixed in the code rather than configurable:
 | `MODEL_PREPARATION_MAX_BYTES` | 90% of the memory allowance | Memory set aside for preparing documents for the model. Can only be lowered. |
 | `MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES` | 4 MiB (`4194304`) | Uploads at least this size are refused while the operating system reports low memory. |
 | `LOCAL_DISK_RESERVE_BYTES` | 1 GiB (`1073741824`) | Free disk space to keep; uploads are refused below it. `0` turns this off. |
-| `SOURCE_RETENTION_SWEEP_INTERVAL_MS` | 1 hour (`3600000`) | How often uploaded files are cleaned up. |
-| `FAILED_SOURCE_RETENTION_MS` | 7 days (`604800000`) | How long to keep the uploaded file of a failed job. `0` removes it at the next cleanup. |
+| `SOURCE_RETENTION_SWEEP_INTERVAL_MS` | 1 hour (`3600000`) | How often uploaded files that aren't kept as originals are cleaned up. |
+| `FAILED_SOURCE_RETENTION_MS` | 7 days (`604800000`) | How long to keep the uploaded file of a failed job when originals aren't kept. `0` removes it at the next cleanup. |
+| `SOURCE_STORAGE_PROVIDER` | `none` | Where to keep original documents: `none`, `local` or `s3`. See [Keep original documents](#keep-original-documents). |
+| `SOURCE_ORIGINAL_RETENTION_ENABLED` | `true` when storage is set | Keep originals of new uploads. `false` stops keeping new ones without removing existing ones. |
+| `SOURCE_STORAGE_S3_*` | — | S3 endpoint, region, bucket, prefix (default `document-extraction/`), path-style addressing, access key ID, secret access key and optional session token. |
 | `LOCAL_SHUTDOWN_TIMEOUT_MS` | `10000` | How long to wait for work to finish when stopping. |
 | `LOCAL_ANALYTICS_ENABLED` | `true` | Write privacy-filtered usage events to local files. Nothing is sent anywhere. |
 
@@ -201,7 +241,7 @@ Notes:
 
 - Ratios must be above 0 and at most 1. Other values must be positive whole numbers, except the disk reserve and failed-file retention, which can be 0.
 - With the default settings, the app may use up to 72% of the machine's RAM while preparing documents (90% of the 80% memory allowance). This is a budget, not a hard cap, and other programs, such as a local model server, need memory too. Lower these limits if you share the machine. `/v1/health` shows current usage.
-- Uploaded files are removed once a job succeeds, and kept for the retention period when it fails. Job records, results, accounts, saved emails, and analytics are never cleaned up automatically. Delete old `mail/` and `analytics/` files yourself if you need to.
+- Unless originals are kept, uploaded files are removed once a job succeeds, and kept for the retention period when it fails. Job records, results, accounts, saved emails, and analytics are never cleaned up automatically. Delete old `mail/` and `analytics/` files yourself if you need to.
 
 ## Model settings are per Workspace
 

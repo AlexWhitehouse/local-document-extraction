@@ -26,6 +26,7 @@ export function createLocalSourceFileRetention({
   failedSourceRetentionMs = DEFAULT_FAILED_SOURCE_RETENTION_MS,
   now = Date.now,
   productStoreRegistry,
+  releaseRetainedObject,
   sourceFileStore,
   stateDirectory,
   workspaceControl,
@@ -33,6 +34,8 @@ export function createLocalSourceFileRetention({
   failedSourceRetentionMs?: number;
   now?: () => number;
   productStoreRegistry: LocalWorkspaceProductStoreRegistry;
+  /** Durably schedules a deleted Document's remote original for deletion before its intent clears. */
+  releaseRetainedObject?: (input: { workspaceId: string; jobId: string; objectKey: string }) => void;
   sourceFileStore: Pick<LocalSourceFileStore, "delete">;
   stateDirectory: string;
   workspaceControl?: Pick<LocalWorkspaceControl, "workspaceExists">;
@@ -79,6 +82,10 @@ export function createLocalSourceFileRetention({
           for (const source of due) {
             visited += 1;
             try {
+              if (source.retained_object_key) {
+                if (!releaseRetainedObject) throw new Error("A remote original cannot be released without object cleanup");
+                releaseRetainedObject({ workspaceId, jobId: source.job_id, objectKey: source.retained_object_key });
+              }
               await sourceFileStore.delete(source.source_file_key);
               if (lease.store.markSourceFileCleaned({
                 jobId: source.job_id,

@@ -11,7 +11,43 @@ test("a clean local install has usable private defaults and a secret-free public
   expect(publicLocalConfiguration(config)).toEqual({
     auth: { emailPasswordEnabled: true, googleEnabled: false, signupEnabled: true, requireEmailVerification: false, mailDelivery: "local" },
     limits: { maxSourceFileBytes: 10485760 },
+    sourceStorage: { configured: false, retainsOriginals: false },
   });
+  expect(config.sourceStorage).toEqual({ provider: "none", originalRetentionEnabled: false });
+});
+
+test("selecting local Source storage retains originals by default and can be turned off for new uploads", () => {
+  expect(read({ SOURCE_STORAGE_PROVIDER: "local" }).sourceStorage).toEqual({ provider: "local", originalRetentionEnabled: true });
+  expect(read({ SOURCE_STORAGE_PROVIDER: "local", SOURCE_ORIGINAL_RETENTION_ENABLED: "false" }).sourceStorage)
+    .toEqual({ provider: "local", originalRetentionEnabled: false });
+  expect(publicLocalConfiguration(read({ SOURCE_STORAGE_PROVIDER: "local" })).sourceStorage).toEqual({ configured: true, retainsOriginals: true });
+});
+
+test("Source storage settings reject retention without a store and unsupported providers", () => {
+  expect(() => read({ SOURCE_ORIGINAL_RETENTION_ENABLED: "true" })).toThrow("requires SOURCE_STORAGE_PROVIDER");
+  expect(() => read({ SOURCE_STORAGE_PROVIDER: "s3" })).toThrow("requires SOURCE_STORAGE_S3_BUCKET");
+  expect(() => read({ SOURCE_STORAGE_PROVIDER: "ftp" })).toThrow("must be none, local or s3");
+});
+
+test("S3 Source storage reads a private destination and keeps credentials out of the public configuration", () => {
+  const s3 = {
+    SOURCE_STORAGE_PROVIDER: "s3", SOURCE_STORAGE_S3_BUCKET: "document-extraction-qual", SOURCE_STORAGE_S3_REGION: "us-east-1",
+    SOURCE_STORAGE_S3_ENDPOINT: "http://vps-hetzner:9000/", SOURCE_STORAGE_S3_ACCESS_KEY_ID: "private-access",
+    SOURCE_STORAGE_S3_SECRET_ACCESS_KEY: "private-secret",
+  };
+  const config = read(s3);
+  expect(config.sourceStorage).toEqual({
+    provider: "s3", originalRetentionEnabled: true,
+    s3: {
+      bucket: "document-extraction-qual", region: "us-east-1", endpoint: "http://vps-hetzner:9000", prefix: "document-extraction/",
+      forcePathStyle: true, accessKeyId: "private-access", secretAccessKey: "private-secret", sessionToken: undefined,
+    },
+  });
+  expect(JSON.stringify(publicLocalConfiguration(config))).not.toMatch(/private-|hetzner|qual/);
+  expect(read({ ...s3, SOURCE_STORAGE_S3_ENDPOINT: undefined }).sourceStorage.s3?.forcePathStyle).toBe(false);
+  expect(() => read({ ...s3, SOURCE_STORAGE_S3_ENDPOINT: "http://user:pass@host:9000" })).toThrow("SOURCE_STORAGE_S3_ENDPOINT");
+  expect(() => read({ ...s3, SOURCE_STORAGE_S3_PREFIX: "../escape/" })).toThrow("SOURCE_STORAGE_S3_PREFIX");
+  expect(() => read({ ...s3, SOURCE_STORAGE_S3_BUCKET: "Bad_Bucket" })).toThrow("valid S3 bucket name");
 });
 
 test("configured deployment and secret values remain outside the public response", () => {

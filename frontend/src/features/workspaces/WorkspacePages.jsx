@@ -97,7 +97,50 @@ export function WorkspaceInvitationPage({
   );
 }
 
+function WorkspaceSourceRetention({ controller }) {
+  const { settings, loading, saving, error, canManage } = controller;
+  const configured = settings?.storage_configured === true;
+  const retaining = settings?.source_retention_disabled === false && configured;
+  const explanation = !settings
+    ? loading ? "Loading document retention…" : ""
+    : !configured
+      ? "This installation has no storage for original documents, so only extraction results are kept."
+      : !settings.installation_retains_originals
+        ? "Retention is turned off for this installation, so new uploads keep only their extraction results."
+        : retaining
+          ? "New uploads keep their original document for viewing and download until it is deleted."
+          : "New uploads keep only their extraction results. Originals already retained stay available.";
+  return (
+    <section className="studio-api-access studio-source-retention" aria-label="Original documents">
+      <div className="studio-section-heading">
+        <div>
+          <h2>Original documents</h2>
+          <p>Whether new uploads keep their original file.</p>
+        </div>
+      </div>
+      <label className="studio-source-retention-toggle">
+        <input
+          type="checkbox"
+          checked={retaining}
+          disabled={!settings || !configured || !canManage || saving}
+          onChange={(event) => void controller.setRetainOriginals(event.target.checked)}
+        />
+        <span>Retain original documents</span>
+      </label>
+      {explanation ? <p className="studio-users-note">{explanation}</p> : null}
+      {configured && !canManage ? <p className="studio-users-note">An owner or admin manages this setting.</p> : null}
+      {error ? (
+        <p role="alert" className="studio-users-note">
+          {error}{" "}
+          <button type="button" className="studio-text-button" onClick={controller.reload}>Try again</button>
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 export function AcceptedWorkspacePage({
+  sourceRetention,
   modelConfiguration,
   modelConfigurationKey,
   workspaceId,
@@ -222,6 +265,7 @@ export function AcceptedWorkspacePage({
               </button>
             </div>
           </section>
+          {sourceRetention ? <WorkspaceSourceRetention controller={sourceRetention} /> : null}
         </section>
         {modelConfiguration ? (
           <WorkspaceModelConfiguration

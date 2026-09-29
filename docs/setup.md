@@ -40,12 +40,13 @@ On a fresh install, the installer asks:
 2. **Do you want Google sign-in?** If yes, enter your Google client ID and secret. The installer shows the redirect address to register with Google, then asks whether to keep email and password login as well.
 3. **Do you want to send email through Cloudflare?** If yes, enter your Cloudflare account ID, API token, and sender details. Without it, account emails are saved on this machine instead of being sent (see [Transactional email](configuration.md#transactional-email)).
 4. **Require new accounts to verify their email?** This question only appears if you set up Cloudflare email and kept email and password login.
+5. **Keep original documents?** Answer `none` (the default) to keep only extraction results, `local` to keep originals in the data folder, or `s3` to keep them in an S3-compatible bucket. For S3, the installer asks for the bucket details, checks them with a small test file, and asks you to confirm the bucket doesn't use versioning or Object Lock. See [Keep original documents](configuration.md#keep-original-documents).
 
 Press Enter to accept the default for each question. Google and Cloudflare are off by default. Secrets are hidden as you type, and nothing is saved until you have answered every question, so Ctrl+C cancels safely.
 
-The installer does not check your Google or Cloudflare credentials. Try signing in, or sending a password reset, afterwards to confirm they work.
+The installer does not check your Google or Cloudflare credentials. It does check S3 storage settings. Try signing in, or sending a password reset, afterwards to confirm they work.
 
-To change your answers later, edit `config.env` and restart the app. See [Configuration](configuration.md).
+To change your answers later, edit `config.env` and restart the app, or use `storage configure` for document storage. See [Configuration](configuration.md).
 
 ### Installer options
 
@@ -95,6 +96,7 @@ The installer prints the full path to the launcher. With the default location:
 | `doctor` | Check your settings and show installation details. |
 | `mail` | Show verification and password-reset links saved on this machine (only when email isn't sent through Cloudflare). Keep this output private: the links give access to accounts. |
 | `update [TAG]` | Update to the latest release, or to a specific one. See [Updating](#updating). |
+| `storage configure` | Choose where original documents are kept, rotate S3 credentials, or stop keeping new originals. Stop the app first. See [Keep original documents](configuration.md#keep-original-documents). |
 
 To type just `document-extraction start`, add the launcher folder to your `PATH` in the current terminal:
 
@@ -147,6 +149,8 @@ cp "${XDG_CONFIG_HOME:-$HOME/.config}/document-extraction/config.env" "$backup/c
 ```
 
 For a source checkout, copy `.local/` (or your custom data folder) and `.env` instead.
+
+If you keep originals in S3, they are **not** in this backup: back up the bucket separately with your storage provider's tools. Originals kept with `local` storage are inside the data folder and are included.
 
 Always copy the **whole** data folder. In particular, `data/better-auth-secret` and `secrets/model-gateway.key` must stay with the databases they belong to. Without them, sessions and saved model credentials can't be read. Exporting a Workspace's jobs is not a backup.
 

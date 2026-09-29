@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { collectInstallerConfiguration, createSetupTerminal, renderInstallerConfiguration, shouldPromptForConfiguration } from "./installerConfiguration";
+import { collectSourceStorageSettings, probeS3SourceStorage } from "./sourceStorageSetup";
 import {
   privateDirectory, runApplicationCommand, runningInstallation, startInstallation,
   stopInstallation, withManagementLock, writePrivateFile, type Installation,
@@ -116,7 +117,10 @@ async function install() {
         if (shouldPromptForConfiguration(values.get("--setup-mode"))) {
           const terminal = createSetupTerminal();
           try {
-            const answers = await collectInstallerConfiguration(terminal, `http://127.0.0.1:${process.env.PORT || 8787}`);
+            const answers = {
+              ...await collectInstallerConfiguration(terminal, `http://127.0.0.1:${process.env.PORT || 8787}`),
+              ...await collectSourceStorageSettings(terminal, { probe: probeS3SourceStorage }),
+            };
             contents = renderInstallerConfiguration(example, answers);
             const overrides = Object.keys(answers).filter((key) => process.env[key] !== undefined);
             if (overrides.length) terminal.say(`Existing process environment overrides saved settings: ${overrides.join(", ")}. Unset these variables to use config.env.`);
