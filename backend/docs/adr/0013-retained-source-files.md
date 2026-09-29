@@ -25,4 +25,4 @@ An installation may keep the original **Source file** of each Document, so autho
 
 - Local retained originals live in the private state directory, so application-state backups include them.
 - Local Workspace erasure still awaits local file removal, as before; only remote erasure is asynchronous.
-- Destination identity checks and the `storage configure` command are a later increment of the same design. Until then, changing the S3 destination while objects exist is unsupported.
+- The S3 destination (endpoint, bucket, prefix, addressing style; not credentials) is recorded in `control.sqlite`. Startup and `document-extraction storage configure` refuse to change it while objects or unfinished cleanup depend on it; moving originals is not supported. `storage configure` runs only with the app stopped, probes S3 with a synthetic object, requires the operator to confirm the bucket requirement, and saves `config.env` atomically.
