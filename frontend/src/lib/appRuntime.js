@@ -83,17 +83,14 @@ export function createWorkspaceRequestLayer({
     const { recoverForbiddenAccess = true, ...requestOptions } = options;
     const headers = new Headers(requestOptions.headers || {});
 
-    if (authRequired) {
-      if (hasSession) {
-        if (workspaceRequired) {
-          if (!workspaceId.trim()) {
-            throw new Error("Workspace ID is required");
-          }
-          headers.set("x-workspace-id", workspaceId.trim());
-        }
-      } else {
-        throw new Error("Sign in to continue");
+    if (authRequired && !hasSession) {
+      throw new Error("Sign in to continue");
+    }
+    if (authRequired && workspaceRequired) {
+      if (!workspaceId.trim()) {
+        throw new Error("Workspace ID is required");
       }
+      headers.set("x-workspace-id", workspaceId.trim());
     }
 
     try {

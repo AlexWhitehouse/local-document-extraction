@@ -87,9 +87,5 @@ function queueStatusTone(status) {
 }
 
 function formatQueueStatus(status) {
-  const normalizedStatus = String(status || "").trim();
-  if (!normalizedStatus) {
-    return "";
-  }
-  return `${normalizedStatus.charAt(0).toUpperCase()}${normalizedStatus.slice(1)}`;
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }

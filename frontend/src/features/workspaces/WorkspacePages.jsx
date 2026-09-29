@@ -227,7 +227,6 @@ export function AcceptedWorkspacePage({
           <WorkspaceModelConfiguration
             key={modelConfigurationKey}
             controller={modelConfiguration}
-            inline
           />
         ) : null}
       </div>

@@ -71,7 +71,7 @@ export function App({ configuration = DEFAULT_RUNTIME_CONFIGURATION }) {
 }
 
 function AuthenticatedApp({ configuration }) {
-  const authClient = useMemo(() => createRuntimeAuthClient(API_BASE), []);
+  const authClient = useMemo(() => createRuntimeAuthClient(), []);
   const {
     data: session,
     isPending: isSessionPending,
@@ -473,7 +473,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
-  const authClient = useMemo(() => createRuntimeAuthClient(API_BASE), []);
+  const authClient = useMemo(() => createRuntimeAuthClient(), []);
   const authProfileController = useAuthProfileController({
     authOptions,
     authClient,
