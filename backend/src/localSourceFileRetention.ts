@@ -6,6 +6,8 @@ import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 
 const DEFAULT_FAILED_SOURCE_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+const BATCH_SIZE = 500;
+const MAX_FILES_PER_RUN = 5_000;
 
 export type LocalSourceFileRetentionSnapshot = {
   deleted: number;
@@ -21,27 +23,20 @@ export type LocalSourceFileRetention = {
 };
 
 export function createLocalSourceFileRetention({
-  batchSize = 500,
   failedSourceRetentionMs = DEFAULT_FAILED_SOURCE_RETENTION_MS,
-  maxFilesPerRun = 5_000,
   now = Date.now,
   productStoreRegistry,
   sourceFileStore,
   stateDirectory,
   workspaceControl,
 }: {
-  batchSize?: number;
   failedSourceRetentionMs?: number;
-  maxFilesPerRun?: number;
   now?: () => number;
   productStoreRegistry: LocalWorkspaceProductStoreRegistry;
   sourceFileStore: Pick<LocalSourceFileStore, "delete">;
   stateDirectory: string;
   workspaceControl?: Pick<LocalWorkspaceControl, "workspaceExists">;
 }): LocalSourceFileRetention {
-  const normalizedBatchSize = positiveInteger(batchSize, 500);
-  const normalizedMaxFilesPerRun = positiveInteger(maxFilesPerRun, 5_000);
-  const normalizedRetentionMs = Math.max(0, Math.trunc(failedSourceRetentionMs));
   let activeRun: Promise<void> | null = null;
   const snapshot: LocalSourceFileRetentionSnapshot = {
     deleted: 0,
@@ -55,12 +50,12 @@ export function createLocalSourceFileRetention({
     const startedAt = now();
     snapshot.lastStartedAt = new Date(startedAt).toISOString();
     snapshot.runs += 1;
-    const failedBefore = new Date(startedAt - normalizedRetentionMs).toISOString();
+    const failedBefore = new Date(startedAt - failedSourceRetentionMs).toISOString();
     const workspaceIds = await listLocalWorkspaceIds(stateDirectory);
     let visited = 0;
 
     for (const workspaceId of workspaceIds) {
-      if (visited >= normalizedMaxFilesPerRun) break;
+      if (visited >= MAX_FILES_PER_RUN) break;
       if (workspaceControl && !workspaceControl.workspaceExists({ workspaceId })) continue;
 
       let lease;
@@ -74,10 +69,10 @@ export function createLocalSourceFileRetention({
       if (!lease) continue;
 
       try {
-        while (visited < normalizedMaxFilesPerRun) {
+        while (visited < MAX_FILES_PER_RUN) {
           const due = lease.store.listRetainedTerminalSourceFiles({
             failedBefore,
-            limit: Math.min(normalizedBatchSize, normalizedMaxFilesPerRun - visited),
+            limit: Math.min(BATCH_SIZE, MAX_FILES_PER_RUN - visited),
           });
           if (due.length === 0) break;
 
@@ -98,7 +93,7 @@ export function createLocalSourceFileRetention({
             }
           }
 
-          if (due.length < normalizedBatchSize) break;
+          if (due.length < BATCH_SIZE) break;
         }
       } finally {
         lease.release();
@@ -110,9 +105,7 @@ export function createLocalSourceFileRetention({
   return {
     run: () => {
       if (activeRun) return activeRun;
-      activeRun = sweep().finally(() => {
-        activeRun = null;
-      });
+      activeRun = sweep().finally(() => { activeRun = null; });
       return activeRun;
     },
     snapshot: () => ({ ...snapshot }),
@@ -126,8 +119,4 @@ async function listLocalWorkspaceIds(stateDirectory: string): Promise<string[]> 
     .filter((entry) => entry.isFile() && entry.name.endsWith(".sqlite"))
     .map((entry) => entry.name.slice(0, -".sqlite".length))
     .filter((workspaceId) => /^[a-zA-Z0-9_-]+$/.test(workspaceId));
-}
-
-function positiveInteger(value: number, fallback: number): number {
-  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
