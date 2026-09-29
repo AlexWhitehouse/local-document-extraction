@@ -19,9 +19,17 @@ export type SourceObjectManifestEntry = {
  * deletion is confirmed. It lives in the control database so cleanup survives removal of a
  * Workspace's product database. It holds only opaque IDs, phases and retry state.
  */
+export class SourceObjectDestinationError extends Error {}
+
 export type LocalSourceObjectManifest = {
   /** A stable random namespace that scopes this installation's objects within the bucket prefix. */
   namespace(): string;
+  /**
+   * Records the configured S3 destination (or none), refusing a change while objects or unfinished
+   * cleanup still depend on the recorded one. Moving retained objects is not supported.
+   */
+  assertDestination(destination: string | null): void;
+  recordedDestination(): string | null;
   prepare(input: { objectKey: string; workspaceId: string; jobId: string }): void;
   /** Records that an accepted job references the object; only a preparing object can be linked. */
   link(input: { objectKey: string }): boolean;
@@ -38,6 +46,11 @@ export type LocalSourceObjectManifest = {
 
 export function createLocalSourceObjectManifest(database: Database): LocalSourceObjectManifest {
   database.exec(MANIFEST_SCHEMA);
+  const installationColumns = new Set((database.query("PRAGMA table_info(source_storage_installation)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!installationColumns.has("destination")) database.exec("ALTER TABLE source_storage_installation ADD COLUMN destination TEXT");
+  const pendingEntries = () => (database.query("SELECT COUNT(*) AS count FROM source_object_manifest").get() as { count: number }).count;
+  const recordedDestination = () =>
+    (database.query("SELECT destination FROM source_storage_installation WHERE singleton = 1").get() as { destination: string | null } | null)?.destination ?? null;
   const setPhase = (where: string, ...parameters: string[]) => database.query(
     `UPDATE source_object_manifest SET phase = 'deleting', next_attempt_at = ?, updated_at = ? WHERE phase != 'deleting' AND ${where}`,
   ).run(nowIso(), nowIso(), ...parameters);
@@ -49,6 +62,23 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
       const namespace = randomBytes(12).toString("hex");
       database.query("INSERT INTO source_storage_installation (singleton, namespace, created_at) VALUES (1, ?, ?)").run(namespace, nowIso());
       return namespace;
+    }).immediate(),
+    recordedDestination,
+    assertDestination: (destination) => database.transaction(() => {
+      const recorded = recordedDestination();
+      if (recorded === destination || (!destination && !recorded)) return;
+      const pending = pendingEntries();
+      if (recorded && pending > 0) {
+        throw new SourceObjectDestinationError(
+          `S3 storage settings changed, but ${pending} retained original(s) or unfinished cleanup still depend on the previous destination. `
+          + "Restore the previous endpoint, bucket, prefix and addressing style (credentials may change), or run document-extraction storage configure.",
+        );
+      }
+      if (!destination) return;
+      database.query(
+        `INSERT INTO source_storage_installation (singleton, namespace, created_at, destination) VALUES (1, ?, ?, ?)
+         ON CONFLICT(singleton) DO UPDATE SET destination = excluded.destination`,
+      ).run(randomBytes(12).toString("hex"), nowIso(), destination);
     }).immediate(),
     prepare: ({ objectKey, workspaceId, jobId }) => {
       const at = nowIso();

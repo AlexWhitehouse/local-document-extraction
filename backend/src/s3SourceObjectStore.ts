@@ -33,6 +33,20 @@ export function retainedObjectKey({ prefix, namespace, workspaceId, jobId, mimeT
   return `${prefix}${namespace}/workspaces/${workspaceId}/jobs/${jobId}/${crypto.randomUUID()}.${extension}`;
 }
 
+/**
+ * Identifies where this installation's objects live. Credentials are not part of it: rotating them
+ * keeps the destination, while a new endpoint, bucket, prefix or addressing style is a different one.
+ */
+export function sourceObjectDestination(configuration: S3SourceStorageConfiguration): string {
+  return [
+    "s3",
+    configuration.endpoint ?? "aws",
+    configuration.bucket,
+    configuration.prefix,
+    configuration.forcePathStyle ? "path" : "virtual-hosted",
+  ].join("|");
+}
+
 const DEFAULT_WRITE_DEADLINE_MS = 60_000;
 const DEFAULT_READ_DEADLINE_MS = 15_000;
 

@@ -242,3 +242,27 @@ test("Workspace deletion releases every remote original without waiting on objec
   expect(harness.s3.objects.size).toBe(0);
   expect(harness.manifest.counts().deleting).toBe(0);
 });
+
+test("the S3 destination is recorded and cannot change while objects or cleanup depend on it", () => {
+  const database = new Database(":memory:");
+  cleanups.push(() => database.close());
+  const manifest = createLocalSourceObjectManifest(database);
+  manifest.assertDestination(null);
+  expect(manifest.recordedDestination()).toBeNull();
+  manifest.assertDestination("s3|http://rustfs:9000|documents|app/|path");
+  const namespace = manifest.namespace();
+  // Nothing depends on it yet, so a different destination may replace it.
+  manifest.assertDestination("s3|aws|documents|app/|virtual-hosted");
+  expect(manifest.recordedDestination()).toBe("s3|aws|documents|app/|virtual-hosted");
+
+  manifest.prepare({ objectKey: "app/key.pdf", workspaceId: "workspace_a", jobId: "job_a" });
+  expect(() => manifest.assertDestination("s3|aws|other-bucket|app/|virtual-hosted")).toThrow("1 retained original(s)");
+  expect(() => manifest.assertDestination(null)).toThrow("still depend on the previous destination");
+  manifest.assertDestination("s3|aws|documents|app/|virtual-hosted");
+
+  manifest.markDeleting({ objectKey: "app/key.pdf" });
+  expect(() => manifest.assertDestination("s3|aws|other-bucket|app/|virtual-hosted")).toThrow("unfinished cleanup");
+  manifest.remove({ objectKey: "app/key.pdf" });
+  manifest.assertDestination("s3|aws|other-bucket|app/|virtual-hosted");
+  expect(manifest.namespace()).toBe(namespace);
+});

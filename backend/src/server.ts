@@ -1,7 +1,7 @@
 import { createLocalEvaluations, EVALUATION_METADATA_BYTES } from "./localEvaluations";
 import { getModelPreparationSnapshot } from "./consumer/modelGateway";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";
-import { createS3SourceObjectStore, retainedObjectKey } from "./s3SourceObjectStore";
+import { createS3SourceObjectStore, retainedObjectKey, sourceObjectDestination } from "./s3SourceObjectStore";
 import { createLocalApplication } from "./localApplication";
 import { localBrowserOrigin, readLocalConfiguration, publicLocalConfiguration } from "./localConfiguration";
 import { createLocalAuthRuntime } from "./localAuthRuntime";
@@ -150,6 +150,8 @@ const localSubmissionAdmission = createLocalSubmissionAdmission({
 const localRuntimeRequestDrain = createLocalRuntimeRequestDrain();
 const sourceObjectManifest = localAuth.sourceObjectManifest;
 const s3SourceStorage = configuration.sourceStorage.s3;
+// An illegal destination change is a configuration error, unlike a storage outage: refuse to start.
+sourceObjectManifest.assertDestination(s3SourceStorage ? sourceObjectDestination(s3SourceStorage) : null);
 const sourceObjectStore = s3SourceStorage ? createS3SourceObjectStore(s3SourceStorage) : null;
 const retainedSourceObjects = s3SourceStorage && sourceObjectStore ? (() => {
   const namespace = sourceObjectManifest.namespace();

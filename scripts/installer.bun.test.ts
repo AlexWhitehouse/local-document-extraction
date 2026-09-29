@@ -108,9 +108,10 @@ describe("macOS/Linux release installer", () => {
         ["Cloudflare Email API token (hidden): ", `${emailToken}\n`],
         ["From email address (on your onboarded domain): ", "sender@example.com\n"], ["From name [Document Extraction]: ", "Installer Test\n"],
         ["email and password? [Y/n]: ", "y\n"],
+        ["Keep original documents? (none, local or s3) [none]: ", "local\n"],
       ], { cwd: repository, env: { HOME: process.env.HOME!, PATH: path, TMPDIR: tmpdir(), PORT: "0", TERM: "xterm" }, timeout: 120_000 });
       passed(result);
-      expect(result.answered).toBe(12);
+      expect(result.answered).toBe(13);
       expect(result.output).not.toContain(googleSecret);
       expect(result.output).not.toContain(emailToken);
       const savedPath = join(configRoot, "config.env");
@@ -118,9 +119,9 @@ describe("macOS/Linux release installer", () => {
       expect((await stat(savedPath)).mode & 0o777).toBe(0o600);
       const metadata = JSON.parse(await readFile(join(installRoot, "installation.json"), "utf8"));
       const configuration = await command([metadata.bun, `--env-file=${savedPath}`, "-e",
-        `import {readLocalConfiguration} from ${JSON.stringify(join(metadata.release, "backend/src/localConfiguration.ts"))}; const c=readLocalConfiguration(); console.log(JSON.stringify({origin:c.auth.baseURL,google:c.auth.googleEnabled,verify:c.auth.requireEmailVerification,provider:c.email.provider,secret:process.env.GOOGLE_CLIENT_SECRET,token:process.env.CLOUDFLARE_EMAIL_API_TOKEN}));`]);
+        `import {readLocalConfiguration} from ${JSON.stringify(join(metadata.release, "backend/src/localConfiguration.ts"))}; const c=readLocalConfiguration(); console.log(JSON.stringify({origin:c.auth.baseURL,google:c.auth.googleEnabled,verify:c.auth.requireEmailVerification,provider:c.email.provider,storage:c.sourceStorage,secret:process.env.GOOGLE_CLIENT_SECRET,token:process.env.CLOUDFLARE_EMAIL_API_TOKEN}));`]);
       passed(configuration);
-      expect(JSON.parse(configuration.output)).toEqual({ origin: "https://docs.example.com", google: true, verify: true, provider: "cloudflare", secret: googleSecret, token: emailToken });
+      expect(JSON.parse(configuration.output)).toEqual({ origin: "https://docs.example.com", google: true, verify: true, provider: "cloudflare", storage: { provider: "local", originalRetentionEnabled: true }, secret: googleSecret, token: emailToken });
       // Even --interactive on a piped upgrade skips the wizard when config already exists.
       const upgraded = await command(args);
       passed(upgraded);

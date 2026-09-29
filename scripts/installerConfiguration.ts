@@ -17,14 +17,8 @@ export function shouldPromptForConfiguration(mode = "auto", terminal = Boolean(p
   return mode !== "non-interactive" && terminal;
 }
 
-/** Nothing is persisted until every answer has been collected and validated. */
-export async function collectInstallerConfiguration(prompt: SetupPrompt, localOrigin = "http://127.0.0.1:8787") {
-  const settings: Record<string, string> = {
-    AUTH_GOOGLE_ENABLED: "false", GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "",
-    AUTH_EMAIL_PASSWORD_ENABLED: "true", AUTH_REQUIRE_EMAIL_VERIFICATION: "false",
-    EMAIL_PROVIDER: "local", CLOUDFLARE_ACCOUNT_ID: "", CLOUDFLARE_EMAIL_API_TOKEN: "",
-    EMAIL_FROM_ADDRESS: "no-reply@example.com", EMAIL_FROM_NAME: "Document Extraction",
-  };
+/** Asks yes/no and validated single-line questions; validators report requirements, never the supplied value. */
+export function setupQuestions(prompt: SetupPrompt) {
   async function yesNo(question: string, fallback = false) {
     while (true) {
       const answer = (await prompt.ask(`${question} ${fallback ? "[Y/n]" : "[y/N]"}`)).trim().toLowerCase();
@@ -47,6 +41,18 @@ export async function collectInstallerConfiguration(prompt: SetupPrompt, localOr
       }
     }
   }
+  return { yesNo, value };
+}
+
+/** Nothing is persisted until every answer has been collected and validated. */
+export async function collectInstallerConfiguration(prompt: SetupPrompt, localOrigin = "http://127.0.0.1:8787") {
+  const settings: Record<string, string> = {
+    AUTH_GOOGLE_ENABLED: "false", GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "",
+    AUTH_EMAIL_PASSWORD_ENABLED: "true", AUTH_REQUIRE_EMAIL_VERIFICATION: "false",
+    EMAIL_PROVIDER: "local", CLOUDFLARE_ACCOUNT_ID: "", CLOUDFLARE_EMAIL_API_TOKEN: "",
+    EMAIL_FROM_ADDRESS: "no-reply@example.com", EMAIL_FROM_NAME: "Document Extraction",
+  };
+  const { yesNo, value } = setupQuestions(prompt);
   const identity = (answer: string) => answer;
   prompt.say("\nFirst-time setup. Press Enter to use the defaults. Ctrl+C cancels without saving answers.");
   const behindProxy = await yesNo("Will this app run behind a reverse proxy?");
@@ -93,7 +99,7 @@ export async function collectInstallerConfiguration(prompt: SetupPrompt, localOr
 }
 
 /** Serialize for Bun's dotenv loader, not a shell: values must never expand $VAR. */
-function dotenvValue(value: string) {
+export function dotenvValue(value: string) {
   // Bun preserves backslashes (except dollar escapes) in single/backtick quotes.
   // JSON escaping would silently change credentials containing quotes or slashes.
   const quote = ["'", "`", '"'].find((candidate) => !value.includes(candidate)
