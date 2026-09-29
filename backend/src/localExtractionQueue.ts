@@ -8,7 +8,7 @@ export type LocalQueuedExtractionJob = {
   not_before?: string;
 };
 
-export type LocalTransientExtractionTask = {
+type LocalTransientExtractionTask = {
   kind: "evaluation";
   job_id: string;
   workspace_id: string;
@@ -20,7 +20,7 @@ export type LocalTransientExtractionTask = {
   discard(): void;
 };
 type ScheduledWork = LocalQueuedExtractionJob | LocalTransientExtractionTask;
-export type TransientAdmission = "accepted" | "duplicate" | "full" | "closed";
+type TransientAdmission = "accepted" | "duplicate" | "full" | "closed";
 const isTransient = (job: ScheduledWork): job is LocalTransientExtractionTask => "kind" in job && job.kind === "evaluation";
 
 export type LocalExtractionQueueSnapshot = {
@@ -113,6 +113,18 @@ export function createLocalExtractionQueue({
     if (!readyWorkspaceSet.has(job.workspace_id)) {
       readyWorkspaceSet.add(job.workspace_id);
       readyWorkspaces.push(job.workspace_id);
+    }
+  };
+
+  const admit = (job: ScheduledWork) => {
+    knownJobs.add(jobKey(job));
+    const dueAt = job.not_before ? Date.parse(job.not_before) : Number.NaN;
+    if (Number.isFinite(dueAt) && dueAt > now()) {
+      deferredJobs.push({ dueAt, job });
+      armDeferredTimer();
+    } else {
+      enqueueReady(job);
+      pump();
     }
   };
 
@@ -219,37 +231,19 @@ export function createLocalExtractionQueue({
         durableDeferrals += 1;
         return;
       }
-      const key = jobKey(job);
-      if (knownJobs.has(key)) return;
+      if (knownJobs.has(jobKey(job))) return;
       if (pending + deferredJobs.length >= normalizedMaxBuffered) {
         durableDeferrals += 1;
         overflowed = true;
         return;
       }
-      knownJobs.add(key);
-      const notBeforeMs = job.not_before ? Date.parse(job.not_before) : Number.NaN;
-      if (Number.isFinite(notBeforeMs) && notBeforeMs > now()) {
-        deferredJobs.push({ dueAt: notBeforeMs, job });
-        armDeferredTimer();
-        return;
-      }
-      enqueueReady(job);
-      pump();
+      admit(job);
     },
     scheduleTransient: (task) => {
       if (!accepting) return "closed";
-      const key = jobKey(task);
-      if (knownJobs.has(key)) return "duplicate";
+      if (knownJobs.has(jobKey(task))) return "duplicate";
       if (pending + deferredJobs.length >= normalizedMaxBuffered) return "full";
-      knownJobs.add(key);
-      const dueAt = task.not_before ? Date.parse(task.not_before) : NaN;
-      if (Number.isFinite(dueAt) && dueAt > now()) {
-        deferredJobs.push({ dueAt, job: task });
-        armDeferredTimer();
-      } else {
-        enqueueReady(task);
-        pump();
-      }
+      admit(task);
       return "accepted";
     },
     discardTransient: (owner) => {

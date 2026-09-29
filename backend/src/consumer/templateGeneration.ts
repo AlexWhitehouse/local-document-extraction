@@ -4,13 +4,14 @@ import {
   buildModelResponseFormat,
   ExtractionCancelledError,
   getExtractionModelName,
+  readBooleanConfiguration,
   readRunResultContent,
   runViaModelGateway,
   withPreparedModelSource,
   type ModelGatewayConfiguration,
 } from "./modelGateway";
 
-export const TEMPLATE_GENERATION_RULES = `Propose a reusable extraction Template from the sample document and the user's optional instructions.
+const TEMPLATE_GENERATION_RULES = `Propose a reusable extraction Template from the sample document and the user's optional instructions.
 Return only a JSON object in the application's Template format, not standard JSON Schema and not extracted values.
 The top-level keys are name (nonempty string), description (string), and fields (1 to 50 items).
 Each field has ONLY name, description (nonempty extraction guidance), data_type, and optionally object_schema.
@@ -104,6 +105,7 @@ export async function generateTemplate(
   signal: AbortSignal,
 ) {
   return withPreparedModelSource(configuration, source, sourceMimeType, signal, async (parts, onPrepared) => {
+    const model = getExtractionModelName(configuration);
     const messages: Record<string, unknown>[] = [
       { role: "system", content: TEMPLATE_GENERATION_RULES },
       { role: "user", content: [{ type: "text", text: instructions || "Propose a reusable Template for this sample." }, ...parts] },
@@ -111,9 +113,9 @@ export async function generateTemplate(
     for (let attempt = 0; attempt < 4; attempt += 1) {
       if (signal.aborted) throw new ExtractionCancelledError("Template generation cancelled");
       const body = JSON.stringify({
-        model: getExtractionModelName(configuration), messages,
-        ...(["true", "1", "yes", "on"].includes(configuration.MODEL_SUPPORTS_STRUCTURED_OUTPUT || "")
-          ? { response_format: buildModelResponseFormat(getExtractionModelName(configuration), "generated_template", proposalSchema) } : {}),
+        model, messages,
+        ...(readBooleanConfiguration(configuration.MODEL_SUPPORTS_STRUCTURED_OUTPUT)
+          ? { response_format: buildModelResponseFormat(model, "generated_template", proposalSchema) } : {}),
       });
       // Reserve for bounded correction history before shrinking the shared preparation lease.
       if (attempt === 0) onPrepared(body.length + 128 * 1024);

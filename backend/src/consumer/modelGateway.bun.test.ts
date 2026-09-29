@@ -4,7 +4,6 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import type { FieldDefinition } from "../lib/types";
 import {
   ExtractionCancelledError,
-  getExtractionModelName,
   getModelGatewayRequestTimeoutMs,
   getModelGatewayRouteLabel,
   ModelGatewayRequestError,
@@ -724,9 +723,5 @@ describe("model gateway configuration", () => {
     expect(getModelGatewayRequestTimeoutMs(createEnv({ MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "120000" }))).toBe(120_000);
     expect(getModelGatewayRequestTimeoutMs(createEnv({ MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "bad" }))).toBe(300_000);
     expect(getModelGatewayRequestTimeoutMs(createEnv({ MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "-1" }))).toBe(300_000);
-  });
-
-  it("rejects missing Extraction model configuration", () => {
-    expect(() => getExtractionModelName(createEnv({ AI_MODEL: undefined }))).toThrow(ModelGatewayRequestError);
   });
 });

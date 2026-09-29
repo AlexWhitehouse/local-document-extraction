@@ -1,7 +1,3 @@
-export type LocalRuntimeShutdown = {
-  request(): Promise<void>;
-};
-
 export function createLocalRuntimeShutdown({
   cancelTimeout = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
   closeAdmission,
@@ -28,66 +24,43 @@ export function createLocalRuntimeShutdown({
   scheduleTimeout?: (handler: () => void, delayMs: number) => unknown;
   stopRecurringWork: () => void | Promise<void>;
   stopServer: (force: boolean) => void | Promise<void>;
-}): LocalRuntimeShutdown {
+}) {
   let completion: Promise<void> | null = null;
   let deadline: unknown = null;
   let finished = false;
   let forced = false;
-  let releaseDrainingBarriers: (() => void) | null = null;
-  let resolveServerStopped: (() => void) | null = null;
-  let rejectServerStopped: ((error: unknown) => void) | null = null;
-  const drainingBarriersReleased = new Promise<void>((resolve) => {
-    releaseDrainingBarriers = resolve;
-  });
+  const drainingBarriersReleased = Promise.withResolvers<void>();
+  const serverStopped = Promise.withResolvers<void>();
+  const requestServerStop = (force: boolean) => {
+    void callBoundary(() => stopServer(force)).then(serverStopped.resolve, serverStopped.reject);
+  };
 
   const forceServerStop = () => {
     if (finished || forced || !completion) return;
     forced = true;
-    try {
-      Promise.resolve(stopServer(true)).then(
-        () => resolveServerStopped?.(),
-        (error) => rejectServerStopped?.(error),
-      );
-    } catch (error) {
-      rejectServerStopped?.(error);
-    } finally {
-      releaseDrainingBarriers?.();
-    }
+    requestServerStop(true);
+    drainingBarriersReleased.resolve();
   };
 
   return {
-    request: () => {
+    request: (): Promise<void> => {
       if (completion) {
         forceServerStop();
         return completion;
       }
 
-      const admissionClosed = callBoundary(closeAdmission);
-      const queueClosed = callBoundary(closeQueue);
-      const recurringWorkStopped = callBoundary(stopRecurringWork);
-      const serverStopped = new Promise<void>((resolve, reject) => {
-        resolveServerStopped = resolve;
-        rejectServerStopped = reject;
-      });
-      try {
-        Promise.resolve(stopServer(false)).then(
-          () => resolveServerStopped?.(),
-          (error) => rejectServerStopped?.(error),
-        );
-      } catch (error) {
-        rejectServerStopped?.(error);
-      }
+      const barriers = [
+        callBoundary(closeAdmission),
+        callBoundary(closeQueue),
+        callBoundary(stopRecurringWork),
+        serverStopped.promise,
+      ];
+      requestServerStop(false);
       completion = (async () => {
-        const failures: unknown[] = [];
-        const barriers = await Promise.allSettled([
-          stopWaitingWhenForced(admissionClosed, drainingBarriersReleased),
-          stopWaitingWhenForced(queueClosed, drainingBarriersReleased),
-          stopWaitingWhenForced(recurringWorkStopped, drainingBarriersReleased),
-          stopWaitingWhenForced(serverStopped, drainingBarriersReleased),
-        ]);
-        for (const result of barriers) {
-          if (result.status === "rejected") failures.push(result.reason);
-        }
+        const settled = await Promise.allSettled(
+          barriers.map((barrier) => Promise.race([barrier, drainingBarriersReleased.promise])),
+        );
+        const failures: unknown[] = settled.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
 
         for (const cleanup of [flushAnalytics, closeAuth, closeProductStores]) {
           try {
@@ -117,11 +90,4 @@ function callBoundary(action: () => void | Promise<void>): Promise<void> {
   } catch (error) {
     return Promise.reject(error);
   }
-}
-
-function stopWaitingWhenForced(
-  barrier: Promise<void>,
-  drainingBarriersReleased: Promise<void>,
-) {
-  return Promise.race([barrier, drainingBarriersReleased]);
 }

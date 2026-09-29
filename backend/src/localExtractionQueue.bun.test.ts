@@ -159,7 +159,7 @@ test("the local extraction queue leaves overflow in the durable store for reconc
 
 test("closing the local extraction queue stops new claims and waits only for active handlers", async () => {
   const queue = createLocalExtractionQueue({ maxConcurrent: 1 });
-  const activeHandler = deferred();
+  const activeHandler = Promise.withResolvers<void>();
   const started: string[] = [];
   queue.subscribe(async (queued) => {
     started.push(queued.job_id);
@@ -239,12 +239,4 @@ async function waitFor(condition: () => boolean): Promise<void> {
     await Bun.sleep(1);
   }
   throw new Error("Timed out waiting for queue state");
-}
-
-function deferred(): { promise: Promise<void>; resolve(): void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
 }

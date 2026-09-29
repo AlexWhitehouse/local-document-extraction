@@ -17,12 +17,6 @@ export function registerLocalMemoryPressureListener({
   const listener = (level: LocalMemoryPressureLevel) => {
     void Promise.resolve(onPressure(level)).catch(onError);
   };
-  let listening = true;
   emitter.on("memoryPressure", listener);
-
-  return () => {
-    if (!listening) return;
-    listening = false;
-    emitter.off("memoryPressure", listener);
-  };
+  return () => { emitter.off("memoryPressure", listener); };
 }

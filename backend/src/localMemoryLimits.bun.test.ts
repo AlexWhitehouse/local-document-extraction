@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createByteBudget } from "./lib/byteBudget";
-import { readLocalMemoryLimits } from "./localMemoryLimits";
+import { readLocalMemoryLimits } from "./localConfiguration";
 
 const GiB = 1024 ** 3;
 

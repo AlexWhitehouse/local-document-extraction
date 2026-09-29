@@ -4,7 +4,7 @@ import { createLocalRuntimeRequestDrain } from "./localRuntimeRequestDrain";
 
 test("closing runtime request handling waits for active work and rejects new handlers", async () => {
   const drain = createLocalRuntimeRequestDrain();
-  const activeHandler = deferred<Response>();
+  const activeHandler = Promise.withResolvers<Response>();
   const first = drain.run(() => activeHandler.promise);
   expect(drain.snapshot()).toEqual({ accepting: true, active: 1 });
 
@@ -36,11 +36,3 @@ test("closing runtime request handling waits for active work and rejects new han
   expect(closed).toBe(true);
   expect(drain.snapshot()).toEqual({ accepting: false, active: 0 });
 });
-
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}

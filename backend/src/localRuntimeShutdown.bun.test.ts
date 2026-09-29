@@ -4,11 +4,11 @@ import { createLocalRuntimeShutdown } from "./localRuntimeShutdown";
 
 test("Local Bun Runtime shutdown drains active work before durable resources close", async () => {
   const events: string[] = [];
-  const admission = deferred();
-  const extraction = deferred();
-  const server = deferred();
-  const analytics = deferred();
-  const analyticsStarted = deferred();
+  const admission = Promise.withResolvers<void>();
+  const extraction = Promise.withResolvers<void>();
+  const server = Promise.withResolvers<void>();
+  const analytics = Promise.withResolvers<void>();
+  const analyticsStarted = Promise.withResolvers<void>();
   const shutdown = createLocalRuntimeShutdown({
     closeAdmission: () => {
       events.push("admission:closed");
@@ -70,7 +70,7 @@ test("Local Bun Runtime shutdown drains active work before durable resources clo
 
 test("a repeated shutdown request forces the server without duplicating cleanup", async () => {
   const events: string[] = [];
-  const server = deferred();
+  const server = Promise.withResolvers<void>();
   let forceDeadline: (() => void) | undefined;
   const shutdown = createLocalRuntimeShutdown({
     cancelTimeout: () => {
@@ -131,7 +131,7 @@ test("a repeated shutdown request forces the server without duplicating cleanup"
 
 test("the shutdown deadline forces a stalled network stop", async () => {
   const events: string[] = [];
-  const gracefulServer = deferred();
+  const gracefulServer = Promise.withResolvers<void>();
   let forceDeadline: (() => void) | undefined;
   const shutdown = createLocalRuntimeShutdown({
     closeAdmission: async () => {},
@@ -160,7 +160,7 @@ test("the shutdown deadline forces a stalled network stop", async () => {
 
 test("the shutdown deadline releases every stalled draining barrier", async () => {
   const events: string[] = [];
-  const stalled = deferred();
+  const stalled = Promise.withResolvers<void>();
   let forceDeadline: (() => void) | undefined;
   let settled = false;
   const shutdown = createLocalRuntimeShutdown({
@@ -205,7 +205,7 @@ test("the shutdown deadline releases every stalled draining barrier", async () =
 });
 
 test("shutdown waits for recurring runtime work before flushing analytics", async () => {
-  const recurring = deferred();
+  const recurring = Promise.withResolvers<void>();
   let analyticsFlushed = false;
   const shutdown = createLocalRuntimeShutdown({
     closeAdmission: async () => {},
@@ -266,13 +266,6 @@ test("shutdown attempts every durable cleanup and reports all failures", async (
   ]);
 });
 
-function deferred(): { promise: Promise<void>; resolve(): void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}
 
 async function drainMicrotasks(): Promise<void> {
   for (let index = 0; index < 10; index += 1) await Promise.resolve();

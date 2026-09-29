@@ -14,7 +14,7 @@ import {
 import { HttpError } from "./lib/http";
 import { validateExtractSubmissionMetadata, validateSourceFileMetadata } from "./lib/validation";
 
-export type LocalStreamedExtractRequest = {
+type LocalStreamedExtractRequest = {
   templateId: string;
   instructions?: string;
   evaluation?: string;

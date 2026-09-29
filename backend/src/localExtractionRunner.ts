@@ -37,10 +37,8 @@ import { createLocalWorkspaceProductDataAccess, LocalWorkspaceProductDataAccessE
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-const DEFAULT_MAX_ATTEMPTS = EXTRACTION_MAX_ATTEMPTS;
 const DEFAULT_STALE_PROCESSING_AFTER_MS = 5 * 60 * 1000;
 const DEFAULT_RECOVERY_BATCH_SIZE = 1_000;
-const DEFAULT_MAX_RETRY_DELAY_MS = EXTRACTION_MAX_RETRY_DELAY_MS;
 
 export type LocalExtractionRunner = {
   recover(workspaceId?: string): Promise<void>;
@@ -57,8 +55,8 @@ type ExtractionFunction = (input: {
 export function createLocalExtractionRunner({
   extract,
   modelGatewayRequestTimeoutMs,
-  maxAttempts = DEFAULT_MAX_ATTEMPTS,
-  maxRetryDelayMs = DEFAULT_MAX_RETRY_DELAY_MS,
+  maxAttempts = EXTRACTION_MAX_ATTEMPTS,
+  maxRetryDelayMs = EXTRACTION_MAX_RETRY_DELAY_MS,
   now = nowIso,
   onGatewayOutcome,
   onJobLifecycleChange,
@@ -100,7 +98,7 @@ export function createLocalExtractionRunner({
     : 0;
   const normalizedMaxRetryDelayMs = Number.isFinite(maxRetryDelayMs)
     ? Math.max(normalizedRetryDelayMs, Math.trunc(maxRetryDelayMs))
-    : DEFAULT_MAX_RETRY_DELAY_MS;
+    : EXTRACTION_MAX_RETRY_DELAY_MS;
   const localSourceFileStore = sourceFileStore ?? createLocalSourceFileStore({ stateDirectory });
   const localProductStoreRegistry = productStoreRegistry ?? (productStoreOpener
     ? createEphemeralLocalWorkspaceProductStoreRegistry({
@@ -131,25 +129,18 @@ export function createLocalExtractionRunner({
       Date.parse(recoveredAt) - Math.max(0, staleProcessingAfterMs),
     ).toISOString();
     for (const workspaceId of workspaceIds) {
-      if (!workspaceExists(workspaceControl, workspaceId)) {
-        continue;
-      }
+      if (!workspaceExists(workspaceControl, workspaceId)) continue;
       let productStoreLease;
       try {
         productStoreLease = localProductStoreRegistry.acquire({ workspaceId, mode: "existing" });
       } catch (error) {
-        if (error instanceof LocalWorkspaceProductStoreRegistryError) {
-          continue;
-        }
+        if (error instanceof LocalWorkspaceProductStoreRegistryError) continue;
         throw error;
       }
-      if (!productStoreLease) {
-        continue;
-      }
-      const productStore = productStoreLease.store;
+      if (!productStoreLease) continue;
       let recovered;
       try {
-        recovered = productStore.recoverExtractionJobs({
+        recovered = productStoreLease.store.recoverExtractionJobs({
           limit: normalizedRecoveryBatchSize,
           maxAttempts,
           recoveredAt,
@@ -160,18 +151,16 @@ export function createLocalExtractionRunner({
         productStoreLease.release();
       }
       for (const job of recovered) {
-          if (!workspaceExists(workspaceControl, workspaceId)) {
-            break;
-          }
-          await scheduleJob({
-            job_id: job.job_id,
-            workspace_id: workspaceId,
-            template_id: job.template_id,
-            template_version: job.template_version,
-            enqueued_at: recoveredAt,
-            attempt: job.attempt,
-            not_before: job.not_before,
-          });
+        if (!workspaceExists(workspaceControl, workspaceId)) break;
+        await scheduleJob({
+          job_id: job.job_id,
+          workspace_id: workspaceId,
+          template_id: job.template_id,
+          template_version: job.template_version,
+          enqueued_at: recoveredAt,
+          attempt: job.attempt,
+          not_before: job.not_before,
+        });
       }
     }
   };
@@ -188,9 +177,7 @@ export function createLocalExtractionRunner({
       return recovery;
     },
     run: async (job) => {
-      if (!workspaceExists(workspaceControl, job.workspace_id)) {
-        return;
-      }
+      if (!workspaceExists(workspaceControl, job.workspace_id)) return;
       const owned = activeJobs.get(job.workspace_id) ?? new Set<string>();
       if (owned.has(job.job_id)) return;
       owned.add(job.job_id);
@@ -203,21 +190,18 @@ export function createLocalExtractionRunner({
           attempt,
           claimedAt: now(),
         });
-        if (!claimed) {
-          return;
-        }
+        if (!claimed) return;
         if (signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
           return;
         }
         notifyJobLifecycle(onJobLifecycleChange, job.workspace_id, productStore, claimed.job_id);
 
-        let activeModelGatewayConfiguration: ModelGatewayConfiguration | null = null;
+        let recordedModel: { modelName: string; route: string } | null = null;
         let gatewayStarted = false;
-        let modelRecorded = false;
         try {
           const configuration = productStore.getModelConfiguration();
           if (!configuration) throw configurationMissing();
-          activeModelGatewayConfiguration = {
+          const gatewayConfiguration: ModelGatewayConfiguration = {
             AI_MODEL: configuration.model_name,
             MODEL_GATEWAY_URL: configuration.gateway_url,
             LITELLM_KEY: credentialVault.decrypt(job.workspace_id, configuration.credential_ciphertext),
@@ -230,27 +214,27 @@ export function createLocalExtractionRunner({
           const sourceBytes = await localSourceFileStore.read(claimed.source_file_key);
           if (!sourceBytes) throw new MissingSourceFileError();
           const sourceByteSize = sourceBytes.byteLength;
-          const recordedModel = productStore.recordExtractionJobModel({
+          const model = {
+            modelName: getExtractionModelName(gatewayConfiguration),
+            route: getModelGatewayRouteLabel(gatewayConfiguration),
+          };
+          if (!productStore.recordExtractionJobModel({
             jobId: claimed.job_id,
             attempt,
-            modelName: getExtractionModelName(activeModelGatewayConfiguration),
             configurationRevision: configuration.revision,
-            route: getModelGatewayRouteLabel(activeModelGatewayConfiguration),
-          });
-          if (!recordedModel) {
-            return;
-          }
-          modelRecorded = true;
+            ...model,
+          })) return;
+          recordedModel = model;
           if (!extract) gatewayStarted = true;
           const rawResults = extract
             ? await extract({
                 fields: claimed.fields,
                 signal,
-                sourceBytes: toArrayBuffer(sourceBytes!),
+                sourceBytes: toArrayBuffer(sourceBytes),
                 sourceMimeType: claimed.source_mime_type,
               })
             : await runExtraction(
-                activeModelGatewayConfiguration,
+                gatewayConfiguration,
                 claimed.fields,
                 toArrayBuffer(sourceBytes),
                 claimed.source_mime_type,
@@ -261,15 +245,12 @@ export function createLocalExtractionRunner({
             gatewayStarted = false;
           }
           const results = normalizeModelResults(claimed.fields, rawResults);
-          if (signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
-            return;
-          }
+          if (signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) return;
           const completed = productStore.completeExtractionJob({
             jobId: claimed.job_id,
             attempt,
             completedAt: now(),
-            modelName: getExtractionModelName(activeModelGatewayConfiguration),
-            route: getModelGatewayRouteLabel(activeModelGatewayConfiguration),
+            ...model,
             results,
           });
           if (completed) {
@@ -284,7 +265,7 @@ export function createLocalExtractionRunner({
               attempt,
               sourceMimeType: claimed.source_mime_type,
               sourceByteSize,
-              modelName: getExtractionModelName(activeModelGatewayConfiguration),
+              modelName: model.modelName,
               fieldCount: claimed.fields.length,
             });
             await cleanupCompletedSourceFile({
@@ -298,9 +279,7 @@ export function createLocalExtractionRunner({
           if (gatewayStarted) {
             notifyGatewayOutcome(onGatewayOutcome, gatewayOutcomeForError(error));
           }
-          if (signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) {
-            return;
-          }
+          if (signal.aborted || !workspaceExists(workspaceControl, job.workspace_id)) return;
           if (error instanceof RetryableError && attempt < maxAttempts) {
             const requeuedAt = now();
             const retryDelayForAttemptMs = extractionRetryDelay(attempt, normalizedRetryDelayMs, error.retryAfterMs, normalizedMaxRetryDelayMs, random);
@@ -313,12 +292,8 @@ export function createLocalExtractionRunner({
               requeuedAt,
               errorCode: "model_gateway_retry",
               errorMessage: processingErrorMessage(error),
-              modelName: modelRecorded && activeModelGatewayConfiguration
-                ? getExtractionModelName(activeModelGatewayConfiguration)
-                : null,
-              route: modelRecorded && activeModelGatewayConfiguration
-                ? getModelGatewayRouteLabel(activeModelGatewayConfiguration)
-                : null,
+              modelName: recordedModel?.modelName ?? null,
+              route: recordedModel?.route ?? null,
               nextRetryAt,
             });
             if (requeued) {
@@ -342,12 +317,8 @@ export function createLocalExtractionRunner({
             failedAt: now(),
             errorCode,
             errorMessage: processingErrorMessage(error),
-            modelName: modelRecorded && activeModelGatewayConfiguration
-              ? getExtractionModelName(activeModelGatewayConfiguration)
-              : null,
-            route: modelRecorded && activeModelGatewayConfiguration
-              ? getModelGatewayRouteLabel(activeModelGatewayConfiguration)
-              : null,
+            modelName: recordedModel?.modelName ?? null,
+            route: recordedModel?.route ?? null,
           });
           if (failed) {
             notifyJobLifecycle(onJobLifecycleChange, job.workspace_id, productStore, claimed.job_id);
@@ -410,19 +381,13 @@ async function cleanupCompletedSourceFile({
 }
 
 class MissingSourceFileError extends Error {
-  constructor() {
-    super("Source file is missing from local storage");
-  }
+  constructor() { super("Source file is missing from local storage"); }
 }
 
 function processingErrorCode(error: unknown, attempt: number, maxAttempts: number): string {
   if (error instanceof HttpError) return error.code;
-  if (error instanceof MissingSourceFileError) {
-    return "missing_source_file";
-  }
-  if (error instanceof RetryableError) {
-    return attempt >= maxAttempts ? "retry_exhausted" : "model_gateway_failed";
-  }
+  if (error instanceof MissingSourceFileError) return "missing_source_file";
+  if (error instanceof RetryableError) return attempt >= maxAttempts ? "retry_exhausted" : "model_gateway_failed";
   return "processing_error";
 }
 
@@ -466,13 +431,9 @@ function notifyJobLifecycle(
   productStore: LocalWorkspaceProductStoreHandle,
   jobId: string,
 ): void {
-  if (!onJobLifecycleChange) {
-    return;
-  }
+  if (!onJobLifecycleChange) return;
   const job = productStore.getExtractionJobSummary(jobId);
-  if (!job) {
-    return;
-  }
+  if (!job) return;
   try {
     onJobLifecycleChange(workspaceId, job);
   } catch (error) {
@@ -484,11 +445,8 @@ function recordLocalProductAnalytics(
   productAnalytics: LocalProductAnalytics | undefined,
   event: LocalWorkspaceProductAnalyticsEvent,
 ): void {
-  if (!productAnalytics) {
-    return;
-  }
   try {
-    productAnalytics.record(event);
+    productAnalytics?.record(event);
   } catch (error) {
     console.warn("Local product analytics emission failed", error);
   }
