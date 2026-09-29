@@ -11,6 +11,8 @@ export type LocalWorkspaceProductStoreLease = {
   release(): void;
 };
 
+type StoreFactory<Store> = (input: { stateDirectory: string; workspaceId: string }) => Store;
+
 export type LocalWorkspaceProductStoreRegistry = {
   acquire(input: {
     workspaceId: string;
@@ -54,12 +56,9 @@ export function createLocalWorkspaceProductStoreRegistry({
   stateDirectory: string;
   maxOpenStores?: number;
   now?: () => number;
-  createStore?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
-  openStore?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore | null;
+  createStore?: StoreFactory<LocalWorkspaceProductStore>;
+  openStore?: StoreFactory<LocalWorkspaceProductStore | null>;
 }): LocalWorkspaceProductStoreRegistry {
-  const normalizedMaxOpenStores = Number.isSafeInteger(maxOpenStores) && maxOpenStores > 0
-    ? maxOpenStores
-    : 64;
   const entries = new Map<string, StoreEntry>();
   const invalidatedWorkspaces = new Set<string>();
 
@@ -83,6 +82,25 @@ export function createLocalWorkspaceProductStoreRegistry({
     return true;
   };
 
+  const openEntry = (workspaceId: string, mode: "create" | "existing"): StoreEntry | null => {
+    while (entries.size >= maxOpenStores && evictOneIdleStore()) {
+      // Evict only as many idle owners as are needed for this acquisition.
+    }
+    if (entries.size >= maxOpenStores) {
+      throw new LocalWorkspaceProductStoreRegistryError(
+        "capacity_exhausted",
+        "Workspace product-store capacity is temporarily exhausted",
+      );
+    }
+    const store = mode === "existing"
+      ? openStore({ stateDirectory, workspaceId })
+      : createStore({ stateDirectory, workspaceId });
+    if (!store) return null;
+    const entry: StoreEntry = { activeLeases: 0, closeWaiters: [], invalidated: false, lastReleasedAt: now(), store };
+    entries.set(workspaceId, entry);
+    return entry;
+  };
+
   return {
     acquire: ({ workspaceId, mode = "create" }) => {
       if (invalidatedWorkspaces.has(workspaceId)) {
@@ -92,31 +110,8 @@ export function createLocalWorkspaceProductStoreRegistry({
         );
       }
 
-      let entry = entries.get(workspaceId);
-      if (!entry) {
-        while (entries.size >= normalizedMaxOpenStores && evictOneIdleStore()) {
-          // Evict only as many idle owners as are needed for this acquisition.
-        }
-        if (entries.size >= normalizedMaxOpenStores) {
-          throw new LocalWorkspaceProductStoreRegistryError(
-            "capacity_exhausted",
-            "Workspace product-store capacity is temporarily exhausted",
-          );
-        }
-        const store = mode === "existing"
-          ? openStore({ stateDirectory, workspaceId })
-          : createStore({ stateDirectory, workspaceId });
-        if (!store) return null;
-        entry = {
-          activeLeases: 0,
-          closeWaiters: [],
-          invalidated: false,
-          lastReleasedAt: now(),
-          store,
-        };
-        entries.set(workspaceId, entry);
-      }
-
+      const entry = entries.get(workspaceId) ?? openEntry(workspaceId, mode);
+      if (!entry) return null;
       entry.activeLeases += 1;
       let released = false;
       return {
@@ -124,10 +119,10 @@ export function createLocalWorkspaceProductStoreRegistry({
         release: () => {
           if (released) return;
           released = true;
-          entry!.activeLeases -= 1;
-          entry!.lastReleasedAt = now();
-          if (entry!.invalidated && entry!.activeLeases === 0) {
-            closeEntry(workspaceId, entry!);
+          entry.activeLeases -= 1;
+          entry.lastReleasedAt = now();
+          if (entry.invalidated && entry.activeLeases === 0) {
+            closeEntry(workspaceId, entry);
           }
         },
       };
@@ -145,7 +140,7 @@ export function createLocalWorkspaceProductStoreRegistry({
     diagnostics: () => ({
       activeLeases: [...entries.values()].reduce((total, entry) => total + entry.activeLeases, 0),
       invalidatedWorkspaces: invalidatedWorkspaces.size,
-      maxOpenStores: normalizedMaxOpenStores,
+      maxOpenStores: maxOpenStores,
       openStores: entries.size,
     }),
     invalidate: async ({ workspaceId }) => {
@@ -168,8 +163,8 @@ export function createEphemeralLocalWorkspaceProductStoreRegistry({
   openStore = (input) => createStore(input),
 }: {
   stateDirectory: string;
-  createStore: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
-  openStore?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore | null;
+  createStore: StoreFactory<LocalWorkspaceProductStore>;
+  openStore?: StoreFactory<LocalWorkspaceProductStore | null>;
 }): LocalWorkspaceProductStoreRegistry {
   return {
     acquire: ({ workspaceId, mode = "create" }) => {

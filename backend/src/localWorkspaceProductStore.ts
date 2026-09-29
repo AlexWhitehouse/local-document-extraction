@@ -19,8 +19,10 @@ export type LocalWorkspaceTemplate = {
   updated_at: string;
 };
 
+type PositionedField = FieldDefinition & { position: number };
+
 export type LocalWorkspaceTemplateDetail = LocalWorkspaceTemplate & {
-  fields: Array<FieldDefinition & { position: number }>;
+  fields: PositionedField[];
 };
 
 export type LocalWorkspaceSubmissionTemplate = {
@@ -72,7 +74,7 @@ export type LocalWorkspaceExtractionJob = LocalWorkspaceExtractionJobSummary & {
 
 export type LocalWorkspaceExtractionJobExport = LocalWorkspaceExtractionJob & {
   template_name: string;
-  fields: Array<FieldDefinition & { position: number }>;
+  fields: PositionedField[];
 };
 
 export type LocalClaimedExtractionJob = {
@@ -202,7 +204,6 @@ export type LocalWorkspaceProductStore = {
   getExtractionJob(jobId: string): LocalWorkspaceExtractionJob | null;
   getExtractionJobResults(jobId: string): LocalWorkspaceExtractionResult[];
   getExtractionJobSummary(jobId: string): LocalWorkspaceExtractionJobSummary | null;
-  getExtractionJobExport(jobId: string): LocalWorkspaceExtractionJobExport | null;
   getExtractionJobExports(jobIds: string[]): LocalWorkspaceExtractionJobExport[];
   getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
   listTemplates(): LocalWorkspaceTemplate[];
@@ -224,13 +225,9 @@ export type LocalWorkspaceProductStore = {
   markSourceFileCleaned(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): boolean;
 };
 
-export function createLocalWorkspaceProductStore({
-  stateDirectory,
-  workspaceId,
-}: {
-  stateDirectory: string;
-  workspaceId: string;
-}): LocalWorkspaceProductStore {
+type WorkspaceProductLocation = { stateDirectory: string; workspaceId: string };
+
+export function createLocalWorkspaceProductStore({ stateDirectory, workspaceId }: WorkspaceProductLocation): LocalWorkspaceProductStore {
   workspaceProductDatabasePath({ stateDirectory, workspaceId });
   const directory = join(stateDirectory, "data", "workspaces");
   ensurePrivateStateDirectorySync(stateDirectory, { recursive: true });
@@ -245,13 +242,7 @@ export function createLocalWorkspaceProductStore({
   return openProtectedProductStore(databasePath);
 }
 
-export function openLocalWorkspaceProductStore({
-  stateDirectory,
-  workspaceId,
-}: {
-  stateDirectory: string;
-  workspaceId: string;
-}): LocalWorkspaceProductStore | null {
+export function openLocalWorkspaceProductStore({ stateDirectory, workspaceId }: WorkspaceProductLocation): LocalWorkspaceProductStore | null {
   workspaceProductDatabasePath({ stateDirectory, workspaceId });
   const directory = join(stateDirectory, "data", "workspaces");
   try {
@@ -262,16 +253,23 @@ export function openLocalWorkspaceProductStore({
   }
   const databasePath = join(realpathSync(directory), `${workspaceId}.sqlite`);
   assertRegularStateFileSync(databasePath);
-  if (!existsSync(databasePath)) {
-    return null;
-  }
+  if (!existsSync(databasePath)) return null;
   ensurePrivateStateDirectorySync(directory);
   protectProductFiles(databasePath);
   return openProtectedProductStore(databasePath);
 }
 
-function protectProductFiles(path: string): void {
-  for (const file of [path, `${path}-journal`, `${path}-shm`, `${path}-wal`]) {
+export async function eraseLocalWorkspaceProductData(location: WorkspaceProductLocation): Promise<void> {
+  const databasePath = workspaceProductDatabasePath(location);
+  await Promise.all(productDatabaseFiles(databasePath).map((path) => rm(path, { force: true })));
+}
+
+function productDatabaseFiles(databasePath: string): string[] {
+  return [databasePath, `${databasePath}-journal`, `${databasePath}-shm`, `${databasePath}-wal`];
+}
+
+function protectProductFiles(databasePath: string): void {
+  for (const file of productDatabaseFiles(databasePath)) {
     assertRegularStateFileSync(file);
     try {
       const descriptor = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -289,28 +287,21 @@ function openProtectedProductStore(path: string): LocalWorkspaceProductStore {
   catch (error) { database.close(); throw error; }
 }
 
-export async function eraseLocalWorkspaceProductData({
-  stateDirectory,
-  workspaceId,
-}: {
-  stateDirectory: string;
-  workspaceId: string;
-}): Promise<void> {
-  const databasePath = workspaceProductDatabasePath({ stateDirectory, workspaceId });
-  await Promise.all([
-    rm(databasePath, { force: true }),
-    rm(`${databasePath}-journal`, { force: true }),
-    rm(`${databasePath}-shm`, { force: true }),
-    rm(`${databasePath}-wal`, { force: true }),
-  ]);
-}
-
-function workspaceProductDatabasePath({ stateDirectory, workspaceId }: { stateDirectory: string; workspaceId: string }): string {
+function workspaceProductDatabasePath({ stateDirectory, workspaceId }: WorkspaceProductLocation): string {
   if (!/^[a-zA-Z0-9_-]+$/.test(workspaceId)) {
     throw new Error("Workspace ID contains unsupported characters for local product storage.");
   }
   return join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`);
 }
+
+const JOB_SUMMARY_SELECT = `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
+    s.page_count AS source_file_page_count, j.template_id, j.template_version,
+    j.model_name, j.model_configuration_revision, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
+    j.current_attempt, j.completed_attempt, j.last_failed_attempt
+  FROM jobs j
+  JOIN source_files s ON s.job_id = j.id`;
+
+const MAX_ERROR_MESSAGE_LENGTH = 2000;
 
 function createProductStore(database: Database): LocalWorkspaceProductStore {
   database.exec("PRAGMA foreign_keys = ON");
@@ -327,13 +318,82 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   ensureProductSchemaColumns(database);
   migrateProductSchema(database);
 
+  const readModelConfiguration = (): StoredWorkspaceModelConfiguration | null => {
+    const row = database.query("SELECT gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output, revision, created_at, updated_at FROM workspace_model_configuration WHERE singleton = 1").get() as StoredWorkspaceModelConfiguration | null;
+    return row ? { ...row, sequential_calls: Boolean(row.sequential_calls), supports_pdf_input: Boolean(row.supports_pdf_input), supports_structured_output: Boolean(row.supports_structured_output) } : null;
+  };
+
+  const insertTemplateFields = (templateId: string, version: number, fields: FieldDefinition[]) => {
+    const insertField = database.query(
+      `INSERT INTO template_fields (template_id, version, field_id, name, description, data_type, position)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    fields.forEach((field, position) => {
+      insertField.run(templateId, version, field.id, field.name, field.description, field.data_type, position);
+    });
+  };
+
+  const readTemplateFields = (templateId: string, version: number) => database.query(
+    `SELECT field_id AS id, name, description, data_type, position
+     FROM template_fields
+     WHERE template_id = ? AND version = ?
+     ORDER BY position ASC`,
+  ).all(templateId, version) as PositionedField[];
+
+  const readJobSummary = (jobId: string) =>
+    database.query(`${JOB_SUMMARY_SELECT} WHERE j.id = ?`).get(jobId) as LocalWorkspaceExtractionJobSummary | null;
+
+  const readJobResults = (jobId: string): LocalWorkspaceExtractionResult[] => {
+    const results = database.query(
+      `SELECT r.field_id, f.name, f.data_type, r.status, r.answer_json, r.confidence, r.evidence_text
+       FROM job_results r
+       JOIN jobs j ON j.id = r.job_id
+       JOIN template_fields f ON f.template_id = j.template_id
+         AND f.version = j.template_version
+         AND f.field_id = r.field_id
+       WHERE r.job_id = ?
+       ORDER BY f.position ASC`,
+    ).all(jobId) as Array<Omit<LocalWorkspaceExtractionResult, "answer" | "evidence"> & {
+      answer_json: string | null;
+      evidence_text: string | null;
+    }>;
+    return results.map((result) => ({
+      field_id: result.field_id,
+      name: result.name,
+      data_type: result.data_type,
+      status: result.status,
+      answer: parseStoredAnswer(result.answer_json),
+      confidence: result.confidence,
+      evidence: result.evidence_text,
+    }));
+  };
+
+  const readJob = (jobId: string): LocalWorkspaceExtractionJob | null => {
+    const summary = readJobSummary(jobId);
+    if (!summary) return null;
+    return { ...summary, results: summary.status === "completed" ? readJobResults(jobId) : [] };
+  };
+
+  const createTemplate: LocalWorkspaceProductStore["createTemplate"] = (input) => {
+    database.transaction(() => {
+      database.query(
+        `INSERT INTO templates (id, name, description, status, current_version, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, 'active', 1, ?, ?, NULL)`,
+      ).run(input.templateId, input.name, input.description, input.createdAt, input.createdAt);
+      insertTemplateFields(input.templateId, 1, input.fields);
+    })();
+    return { template_id: input.templateId, version: 1, status: "active" };
+  };
+
   return {
     close: () => database.close(),
-    getModelConfiguration: () => readModelConfiguration(database),
+    getModelConfiguration: readModelConfiguration,
     putModelConfiguration: (input) => database.transaction(() => {
-      const current = readModelConfiguration(database);
+      const current = readModelConfiguration();
       if ((current?.revision ?? null) !== input.expectedRevision) return null;
-      const revision = nextModelRevision(database);
+      // This counter survives a clear, so an old conditional update cannot match a recreated configuration.
+      const { revision } = database.query(`INSERT INTO workspace_model_revision(singleton, revision) VALUES (1, 1)
+        ON CONFLICT(singleton) DO UPDATE SET revision = revision + 1 RETURNING revision`).get() as { revision: number };
       const config = input.configuration;
       database.query(`INSERT OR REPLACE INTO workspace_model_configuration
         (singleton, gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output, revision, created_at, updated_at)
@@ -342,32 +402,297 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
         Number(config.sequential_calls), Number(config.supports_pdf_input), Number(config.supports_structured_output),
         revision, current?.created_at ?? input.updatedAt, input.updatedAt,
       );
-      return readModelConfiguration(database);
+      return readModelConfiguration();
     }).immediate(),
     clearModelConfiguration: (expectedRevision) => database.transaction(() => {
-      if (readModelConfiguration(database)?.revision !== expectedRevision) return false;
+      if (readModelConfiguration()?.revision !== expectedRevision) return false;
       database.query("DELETE FROM workspace_model_configuration WHERE singleton = 1").run();
       return true;
     }).immediate(),
-    diagnostics: () => productStoreDiagnostics(database),
-    createTemplate: (input) => createTemplate(database, input),
-    updateTemplate: (input) => updateTemplate(database, input),
-    deleteTemplate: (input) => deleteTemplate(database, input),
-    ensureStarterInvoiceTemplate: (input) => ensureStarterInvoiceTemplate(database, input),
-    createQueuedExtractionJob: (input) => createQueuedExtractionJob(database, input),
-    failQueuedExtractionJob: (input) => failQueuedExtractionJob(database, input),
-    claimExtractionJobForProcessing: (input) => claimExtractionJobForProcessing(database, input),
-    recordExtractionJobModel: (input) => recordExtractionJobModel(database, input),
-    completeExtractionJob: (input) => completeExtractionJob(database, input),
-    failExtractionJob: (input) => failExtractionJob(database, input),
-    requeueExtractionJob: (input) => requeueExtractionJob(database, input),
-    recoverExtractionJobs: (input) => recoverExtractionJobs(database, input),
-    getTemplate: (templateId, version) => getTemplate(database, templateId, version),
-    deleteExtractionJob: (input) => deleteExtractionJob(database, input),
-    getExtractionJob: (jobId) => getExtractionJob(database, jobId),
-    getExtractionJobResults: (jobId) => readExtractionJobResults(database, jobId),
-    getExtractionJobSummary: (jobId) => readExtractionJobSummary(database, jobId),
-    getExtractionJobExport: (jobId) => getExtractionJobExport(database, jobId),
+    diagnostics: () => {
+      const pragma = <T>(sql: string) => database.query(sql).get() as T;
+      return {
+        busyTimeoutMs: pragma<{ timeout: number }>("PRAGMA busy_timeout").timeout,
+        foreignKeys: pragma<{ foreign_keys: number }>("PRAGMA foreign_keys").foreign_keys === 1,
+        journalMode: pragma<{ journal_mode: string }>("PRAGMA journal_mode").journal_mode,
+        sqliteVersion: version,
+        synchronous: pragma<{ synchronous: number }>("PRAGMA synchronous").synchronous,
+      };
+    },
+    createTemplate,
+    updateTemplate: (input) => {
+      const existing = database.query(
+        `SELECT name, description, current_version
+         FROM templates
+         WHERE id = ? AND deleted_at IS NULL`,
+      ).get(input.templateId) as Pick<LocalWorkspaceTemplate, "name" | "description" | "current_version"> | null;
+      if (!existing) return null;
+
+      const nextVersion = input.fields ? existing.current_version + 1 : existing.current_version;
+      database.transaction(() => {
+        database.query(
+          `UPDATE templates
+           SET name = ?, description = ?, current_version = ?, updated_at = ?
+           WHERE id = ? AND deleted_at IS NULL`,
+        ).run(
+          input.name ?? existing.name,
+          input.description !== undefined ? input.description : existing.description,
+          nextVersion,
+          input.updatedAt,
+          input.templateId,
+        );
+        if (input.fields) insertTemplateFields(input.templateId, nextVersion, input.fields);
+      })();
+      return { template_id: input.templateId, version: nextVersion, status: "active" };
+    },
+    deleteTemplate: (input) => database.query(
+      `UPDATE templates
+       SET status = 'deleted', deleted_at = ?, updated_at = ?
+       WHERE id = ? AND deleted_at IS NULL`,
+    ).run(input.deletedAt, input.deletedAt, input.templateId).changes > 0,
+    ensureStarterInvoiceTemplate: (input) => database.transaction(() => {
+      // Bootstrap only an untouched Workspace. Include deleted Templates so retrying
+      // bootstrap never recreates a starter that the user has edited or removed.
+      if (database.query("SELECT id FROM templates LIMIT 1").get()) return;
+      createTemplate({
+        templateId: newId("tpl"),
+        name: "Example Invoice",
+        description: "Starter template that extracts key invoice fields for quick testing.",
+        fields: STARTER_INVOICE_FIELDS,
+        createdAt: input.createdAt,
+      });
+    }).immediate(),
+    createQueuedExtractionJob: (input) => {
+      database.transaction(() => {
+        database.query(
+          `INSERT INTO source_files (key, job_id, mime_type, name, page_count, created_at, deleted_at)
+           VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+        ).run(input.sourceFileKey, input.jobId, input.sourceMimeType, input.sourceName, input.sourceFilePageCount, input.submittedAt);
+        database.query(
+          `INSERT INTO jobs (
+             id, template_id, template_version, status,
+             source_file_key, source_mime_type, source_name,
+             created_at, updated_at, completed_at, error_code, error_message,
+             current_attempt, completed_attempt, last_failed_attempt
+           ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, 0, 0)`,
+        ).run(
+          input.jobId,
+          input.templateId,
+          input.templateVersion,
+          input.sourceFileKey,
+          input.sourceMimeType,
+          input.sourceName,
+          input.submittedAt,
+          input.submittedAt,
+        );
+      })();
+      return {
+        job_id: input.jobId,
+        status: "queued",
+        source_name: input.sourceName,
+        template_id: input.templateId,
+        template_version: input.templateVersion,
+      };
+    },
+    failQueuedExtractionJob: (input) => database.query(
+      `UPDATE jobs
+       SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = 1
+       WHERE id = ? AND status = 'queued'`,
+    ).run(input.errorCode, input.errorMessage.slice(0, MAX_ERROR_MESSAGE_LENGTH), input.failedAt, input.jobId).changes > 0,
+    claimExtractionJobForProcessing: (input) => database.transaction(() => {
+      const job = database.query(
+        `SELECT id, template_id, template_version, source_file_key, source_mime_type
+         FROM jobs
+         WHERE id = ?`,
+      ).get(input.jobId) as Omit<LocalClaimedExtractionJob, "job_id" | "fields"> & { id: string } | null;
+      if (!job) return null;
+
+      const claimed = database.query(
+        `UPDATE jobs
+         SET status = 'processing', updated_at = ?, error_code = NULL, error_message = NULL, next_retry_at = NULL, current_attempt = ?, model_name = NULL, model_gateway_route = NULL, model_configuration_revision = NULL
+         WHERE id = ? AND status = 'queued' AND current_attempt < ?
+           AND (next_retry_at IS NULL OR next_retry_at <= ?)`,
+      ).run(input.claimedAt, input.attempt, input.jobId, input.attempt, input.claimedAt);
+      if (claimed.changes < 1) return null;
+
+      const fields = database.query(
+        `SELECT field_id AS id, name, description, data_type
+         FROM template_fields
+         WHERE template_id = ? AND version = ?
+         ORDER BY position ASC`,
+      ).all(job.template_id, job.template_version) as FieldDefinition[];
+      return {
+        job_id: job.id,
+        template_id: job.template_id,
+        template_version: job.template_version,
+        source_file_key: job.source_file_key,
+        source_mime_type: job.source_mime_type,
+        fields,
+      };
+    })(),
+    recordExtractionJobModel: (input) => database.query(
+      `UPDATE jobs
+       SET model_name = ?, model_gateway_route = ?, model_configuration_revision = ?
+       WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
+    ).run(input.modelName, input.route, input.configurationRevision ?? null, input.jobId, input.attempt).changes > 0,
+    completeExtractionJob: (input) => database.transaction(() => {
+      const job = database.query(
+        "SELECT status, current_attempt FROM jobs WHERE id = ?",
+      ).get(input.jobId) as { status: string; current_attempt: number } | null;
+      if (!job || job.status !== "processing" || job.current_attempt !== input.attempt) return false;
+
+      const insertResult = database.query(
+        `INSERT INTO job_results (
+           job_id, field_id, status, answer_json, normalized_value, confidence, evidence_text, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(job_id, field_id)
+         DO UPDATE SET
+           status = excluded.status,
+           answer_json = excluded.answer_json,
+           normalized_value = excluded.normalized_value,
+           confidence = excluded.confidence,
+           evidence_text = excluded.evidence_text,
+           updated_at = excluded.updated_at`,
+      );
+      for (const row of input.results) {
+        insertResult.run(
+          input.jobId,
+          row.field_id,
+          row.status,
+          JSON.stringify(row.answer),
+          row.normalized_value,
+          row.confidence,
+          row.evidence,
+          input.completedAt,
+          input.completedAt,
+        );
+      }
+
+      return database.query(
+        `UPDATE jobs
+         SET status = 'completed', completed_at = ?, updated_at = ?, model_name = ?, model_gateway_route = ?, completed_attempt = ?
+         WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
+      ).run(
+        input.completedAt,
+        input.completedAt,
+        input.modelName,
+        input.route,
+        input.attempt,
+        input.jobId,
+        input.attempt,
+      ).changes > 0;
+    })(),
+    failExtractionJob: (input) => database.query(
+      `UPDATE jobs
+       SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ?,
+           model_name = COALESCE(?, model_name), model_gateway_route = COALESCE(?, model_gateway_route)
+       WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
+    ).run(
+      input.errorCode,
+      input.errorMessage.slice(0, MAX_ERROR_MESSAGE_LENGTH),
+      input.failedAt,
+      input.attempt,
+      input.modelName ?? null,
+      input.route ?? null,
+      input.jobId,
+      input.attempt,
+    ).changes > 0,
+    requeueExtractionJob: (input) => database.query(
+      `UPDATE jobs
+       SET status = 'queued', error_code = ?, error_message = ?, updated_at = ?, next_retry_at = ?, last_failed_attempt = ?,
+           model_name = COALESCE(?, model_name), model_gateway_route = COALESCE(?, model_gateway_route)
+       WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
+    ).run(
+      input.errorCode,
+      input.errorMessage.slice(0, MAX_ERROR_MESSAGE_LENGTH),
+      input.requeuedAt,
+      input.nextRetryAt,
+      input.attempt,
+      input.modelName ?? null,
+      input.route ?? null,
+      input.jobId,
+      input.attempt,
+    ).changes > 0,
+    recoverExtractionJobs: (input) => database.transaction(() => {
+      const limit = input.limit ?? 1_000;
+      const scheduled: LocalScheduledExtractionJob[] = [];
+      type RecoverableJob = { id: string; template_id: string; template_version: number; current_attempt: number };
+      const exhaustRetries = (job: RecoverableJob, status: "queued" | "processing") => database.query(
+        `UPDATE jobs
+         SET status = 'failed', error_code = 'retry_exhausted', error_message = 'Extraction retry limit reached', updated_at = ?, last_failed_attempt = ?
+         WHERE id = ? AND status = ?`,
+      ).run(input.recoveredAt, job.current_attempt, job.id, status);
+      const schedule = (job: RecoverableJob, notBefore?: string | null) => scheduled.push({
+        job_id: job.id,
+        template_id: job.template_id,
+        template_version: job.template_version,
+        attempt: job.current_attempt + 1,
+        ...(notBefore ? { not_before: notBefore } : {}),
+      });
+
+      const queued = database.query(
+        `SELECT id, template_id, template_version, current_attempt, next_retry_at
+         FROM jobs INDEXED BY idx_jobs_runnable
+         WHERE status = 'queued'
+         ORDER BY COALESCE(next_retry_at, updated_at) ASC, id ASC
+         LIMIT ?`,
+      ).all(limit) as Array<RecoverableJob & { next_retry_at: string | null }>;
+      for (const job of queued) {
+        if (job.current_attempt >= input.maxAttempts) exhaustRetries(job, "queued");
+        else schedule(job, job.next_retry_at);
+      }
+
+      const stale = database.query(
+        `SELECT id, template_id, template_version, current_attempt
+         FROM jobs
+         WHERE status = 'processing' AND updated_at <= ?
+         ORDER BY updated_at ASC, id ASC
+         LIMIT ?`,
+      ).all(input.staleProcessingBefore, limit) as RecoverableJob[];
+      for (const job of stale) {
+        if (input.isJobActive?.(job.id)) continue;
+        if (job.current_attempt >= input.maxAttempts) {
+          exhaustRetries(job, "processing");
+          continue;
+        }
+        const requeued = database.query(
+          `UPDATE jobs
+           SET status = 'queued', error_code = 'stale_processing', error_message = 'Recovered stale processing job', updated_at = ?, next_retry_at = NULL, last_failed_attempt = ?
+           WHERE id = ? AND status = 'processing'`,
+        ).run(input.recoveredAt, job.current_attempt, job.id);
+        if (requeued.changes > 0) schedule(job);
+      }
+      return scheduled;
+    })(),
+    getTemplate: (templateId, version) => {
+      if (version !== undefined && (!Number.isSafeInteger(version) || version < 1)) return null;
+      const template = database.query(
+        `SELECT id, name, description, status, current_version, created_at, updated_at
+         FROM templates
+         WHERE id = ? AND deleted_at IS NULL`,
+      ).get(templateId) as LocalWorkspaceTemplate | null;
+      if (!template) return null;
+      const fields = readTemplateFields(templateId, version ?? template.current_version);
+      if (version !== undefined && !fields.length) return null;
+      return { ...template, fields };
+    },
+    deleteExtractionJob: (input) => database.transaction(() => {
+      const job = database.query(
+        "SELECT id AS job_id, status, source_file_key FROM jobs WHERE id = ? LIMIT 1",
+      ).get(input.jobId) as DeletedLocalWorkspaceExtractionJob | null;
+      if (!job) return null;
+      // Commit cleanup intent with logical deletion so crashes and unlink errors
+      // cannot lose the only pointer to a retained Source binary.
+      database.query("INSERT OR REPLACE INTO source_file_deletion_intents (job_id, source_file_key) VALUES (?, ?)")
+        .run(job.job_id, job.source_file_key);
+      database.query("DELETE FROM job_results WHERE job_id = ?").run(job.job_id);
+      database.query("DELETE FROM source_files WHERE job_id = ?").run(job.job_id);
+      database.query("DELETE FROM jobs WHERE id = ?").run(job.job_id);
+      return job;
+    })(),
+    getExtractionJob: readJob,
+    getExtractionJobResults: readJobResults,
+    getExtractionJobSummary: readJobSummary,
     getExtractionJobExports: (jobIds) => database.transaction(() => {
       if (!jobIds.length) return [];
       const placeholders = jobIds.map(() => "?").join(",");
@@ -376,934 +701,165 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       if (size.bytes > 32 * 1024 * 1024) throw new RangeError("Selected results exceed the 32 MiB export limit; select fewer Documents");
       const templates = new Map<string, Pick<LocalWorkspaceExtractionJobExport, "fields" | "template_name">>();
       return jobIds.flatMap((id) => {
-        const job = getExtractionJobExport(database, id, templates);
-        return job && (job.status === "completed" || job.status === "failed") ? [job] : [];
+        const job = readJob(id);
+        if (!job || (job.status !== "completed" && job.status !== "failed")) return [];
+        const key = `${job.template_id}\u0000${job.template_version}`;
+        let template = templates.get(key);
+        if (!template) {
+          const row = database.query("SELECT name FROM templates WHERE id = ?").get(job.template_id) as { name: string } | null;
+          template = { template_name: row?.name || job.template_id, fields: readTemplateFields(job.template_id, job.template_version) };
+          templates.set(key, template);
+        }
+        return [{ ...job, ...template }];
       });
     })(),
-    getSubmissionTemplate: (templateId) => getSubmissionTemplate(database, templateId),
-    listTemplates: () => listTemplates(database),
-    countExtractionJobs: () => countExtractionJobs(database),
+    getSubmissionTemplate: (templateId) => {
+      const template = database.query(
+        `SELECT id, current_version
+         FROM templates
+         WHERE id = ? AND status = 'active' AND deleted_at IS NULL`,
+      ).get(templateId) as { id: string; current_version: number } | null;
+      if (!template) return null;
+      const { count } = database.query(
+        `SELECT COUNT(*) AS count
+         FROM template_fields
+         WHERE template_id = ? AND version = ?`,
+      ).get(template.id, template.current_version) as { count: number };
+      if (count < 1) return null;
+      return { template_id: template.id, template_version: template.current_version };
+    },
+    listTemplates: () => database.query(
+      `SELECT id, name, description, status, current_version, created_at, updated_at
+       FROM templates
+       WHERE deleted_at IS NULL
+       ORDER BY created_at DESC`,
+    ).all() as LocalWorkspaceTemplate[],
+    countExtractionJobs: () =>
+      (database.query("SELECT count FROM job_totals WHERE singleton = 1").get() as { count: number }).count,
     getExtractionJobCounts: () => {
       const status_counts = { queued: 0, processing: 0, completed: 0, failed: 0 };
       const rows = database.query("SELECT status, count FROM job_status_totals").all() as Array<{ status: keyof typeof status_counts; count: number }>;
       for (const row of rows) status_counts[row.status] = row.count;
       return { total: Object.values(status_counts).reduce((sum, count) => sum + count, 0), status_counts };
     },
-    listExtractionJobModels: () => listExtractionJobModels(database),
-    listExtractionJobs: (input) => listExtractionJobs(database, input),
-    listRetainedTerminalSourceFiles: (input) => listRetainedTerminalSourceFiles(database, input),
-    markSourceFileCleaned: (input) => markSourceFileCleaned(database, input),
-  };
-}
-
-function readModelConfiguration(database: Database): StoredWorkspaceModelConfiguration | null {
-  const row = database.query("SELECT gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output, revision, created_at, updated_at FROM workspace_model_configuration WHERE singleton = 1").get() as StoredWorkspaceModelConfiguration | null;
-  return row ? { ...row, sequential_calls: Boolean(row.sequential_calls), supports_pdf_input: Boolean(row.supports_pdf_input), supports_structured_output: Boolean(row.supports_structured_output) } : null;
-}
-
-function nextModelRevision(database: Database): number {
-  // This counter survives a clear, so an old conditional update cannot match a recreated configuration.
-  return (database.query(`INSERT INTO workspace_model_revision(singleton, revision) VALUES (1, 1)
-    ON CONFLICT(singleton) DO UPDATE SET revision = revision + 1 RETURNING revision`).get() as { revision: number }).revision;
-}
-
-function ensureProductSchemaColumns(database: Database): void {
-  const jobColumns = database.query("PRAGMA table_info(jobs)").all() as Array<{ name: string }>;
-  const knownColumns = new Set(jobColumns.map((column) => column.name));
-  if (!knownColumns.has("model_name")) {
-    database.exec("ALTER TABLE jobs ADD COLUMN model_name TEXT");
-  }
-  if (!knownColumns.has("model_gateway_route")) {
-    database.exec("ALTER TABLE jobs ADD COLUMN model_gateway_route TEXT");
-  }
-  if (!knownColumns.has("next_retry_at")) {
-    database.exec("ALTER TABLE jobs ADD COLUMN next_retry_at TEXT");
-  }
-  if (!knownColumns.has("model_configuration_revision")) {
-    database.exec("ALTER TABLE jobs ADD COLUMN model_configuration_revision INTEGER");
-  }
-  database.exec(
-    `CREATE INDEX IF NOT EXISTS idx_jobs_model_created_id
-     ON jobs(model_name, created_at DESC, id DESC)`,
-  );
-}
-
-function migrateProductSchema(database: Database): void {
-  database.transaction(() => {
-    const applied = new Set(
-      (database.query("SELECT version FROM product_schema_version").all() as Array<{ version: number }>)
-        .map((row) => row.version),
-    );
-    if (!applied.has(3)) {
-      database.exec(`CREATE TABLE workspace_model_configuration (
-        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-        gateway_url TEXT NOT NULL, model_name TEXT NOT NULL, credential_ciphertext TEXT NOT NULL,
-        sequential_calls INTEGER NOT NULL CHECK (sequential_calls IN (0, 1)),
-        supports_pdf_input INTEGER NOT NULL CHECK (supports_pdf_input IN (0, 1)),
-        supports_structured_output INTEGER NOT NULL CHECK (supports_structured_output IN (0, 1)),
-        revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-      );
-      CREATE TABLE workspace_model_revision (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), revision INTEGER NOT NULL);`);
-      database.query("INSERT INTO product_schema_version(version, applied_at) VALUES (3, ?)").run(new Date().toISOString());
-    }
-    if (!applied.has(1)) {
-      database.exec("DROP INDEX IF EXISTS idx_source_files_job");
-      database.exec("DROP INDEX IF EXISTS idx_job_results_job");
-      database.exec("DROP INDEX IF EXISTS idx_jobs_status_updated");
-      database.exec(
-        `CREATE INDEX IF NOT EXISTS idx_jobs_active_updated_id
-         ON jobs(status, updated_at, id)
-         WHERE status = 'queued' OR status = 'processing'`,
-      );
-      database.query(
-        `INSERT INTO product_schema_version(version, applied_at) VALUES (1, ?)`,
-      ).run(new Date().toISOString());
-    }
-    if (!applied.has(2)) {
-      database.exec(
-        `CREATE INDEX IF NOT EXISTS idx_jobs_terminal_cleanup_updated_id
-         ON jobs(status, updated_at, id)
-         WHERE status = 'completed' OR status = 'failed'`,
-      );
-      database.query(
-        `INSERT INTO product_schema_version(version, applied_at) VALUES (2, ?)`,
-      ).run(new Date().toISOString());
-    }
-    if (!applied.has(4)) {
-      database.exec(`
-        CREATE INDEX idx_sources_uncleaned ON source_files(job_id, key) WHERE deleted_at IS NULL;
-        CREATE INDEX idx_jobs_runnable ON jobs(COALESCE(next_retry_at, updated_at), id) WHERE status = 'queued';
-        CREATE TABLE job_totals (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), count INTEGER NOT NULL);
-        INSERT INTO job_totals SELECT 1, COUNT(*) FROM jobs;
-        CREATE TRIGGER jobs_count_insert AFTER INSERT ON jobs BEGIN
-          UPDATE job_totals SET count = count + 1 WHERE singleton = 1;
-        END;
-        CREATE TRIGGER jobs_count_delete AFTER DELETE ON jobs BEGIN
-          UPDATE job_totals SET count = count - 1 WHERE singleton = 1;
-        END;
-        CREATE VIRTUAL TABLE job_search USING fts5(source_name, id, template_id,
-          content='jobs', content_rowid='rowid', tokenize='trigram');
-        INSERT INTO job_search(job_search) VALUES ('rebuild');
-        CREATE TRIGGER jobs_search_insert AFTER INSERT ON jobs BEGIN
-          INSERT INTO job_search(rowid, source_name, id, template_id)
-            VALUES (new.rowid, new.source_name, new.id, new.template_id);
-        END;
-        CREATE TRIGGER jobs_search_delete AFTER DELETE ON jobs BEGIN
-          INSERT INTO job_search(job_search, rowid, source_name, id, template_id)
-            VALUES ('delete', old.rowid, old.source_name, old.id, old.template_id);
-        END;
-        CREATE TRIGGER jobs_search_update AFTER UPDATE OF source_name, id, template_id ON jobs
-        WHEN old.source_name IS NOT new.source_name OR old.id IS NOT new.id
-          OR old.template_id IS NOT new.template_id BEGIN
-          INSERT INTO job_search(job_search, rowid, source_name, id, template_id)
-            VALUES ('delete', old.rowid, old.source_name, old.id, old.template_id);
-          INSERT INTO job_search(rowid, source_name, id, template_id)
-            VALUES (new.rowid, new.source_name, new.id, new.template_id);
-        END;
-      `);
-      database.query("INSERT INTO product_schema_version(version, applied_at) VALUES (4, ?)").run(new Date().toISOString());
-    }
-    if (!applied.has(5)) {
-      database.exec(`
-        CREATE TABLE job_status_totals (status TEXT PRIMARY KEY, count INTEGER NOT NULL CHECK (count >= 0));
-        INSERT INTO job_status_totals SELECT status, COUNT(*) FROM jobs GROUP BY status;
-        INSERT OR IGNORE INTO job_status_totals VALUES ('queued', 0), ('processing', 0), ('completed', 0), ('failed', 0);
-        CREATE TRIGGER jobs_status_count_insert AFTER INSERT ON jobs BEGIN
-          UPDATE job_status_totals SET count = count + 1 WHERE status = new.status;
-        END;
-        CREATE TRIGGER jobs_status_count_delete AFTER DELETE ON jobs BEGIN
-          UPDATE job_status_totals SET count = count - 1 WHERE status = old.status;
-        END;
-        CREATE TRIGGER jobs_status_count_update AFTER UPDATE OF status ON jobs WHEN old.status IS NOT new.status BEGIN
-          UPDATE job_status_totals SET count = count - 1 WHERE status = old.status;
-          UPDATE job_status_totals SET count = count + 1 WHERE status = new.status;
-        END;
-      `);
-      database.query("INSERT INTO product_schema_version(version, applied_at) VALUES (5, ?)").run(new Date().toISOString());
-    }
-  }).immediate();
-}
-
-function productStoreDiagnostics(database: Database): {
-  busyTimeoutMs: number;
-  foreignKeys: boolean;
-  journalMode: string;
-  sqliteVersion: string;
-  synchronous: number;
-} {
-  const sqliteVersion = database.query("SELECT sqlite_version() AS value").get() as { value: string };
-  const journalMode = database.query("PRAGMA journal_mode").get() as { journal_mode: string };
-  const synchronous = database.query("PRAGMA synchronous").get() as { synchronous: number };
-  const foreignKeys = database.query("PRAGMA foreign_keys").get() as { foreign_keys: number };
-  const busyTimeout = database.query("PRAGMA busy_timeout").get() as { timeout: number };
-  return {
-    busyTimeoutMs: busyTimeout.timeout,
-    foreignKeys: foreignKeys.foreign_keys === 1,
-    journalMode: journalMode.journal_mode,
-    sqliteVersion: sqliteVersion.value,
-    synchronous: synchronous.synchronous,
-  };
-}
-
-function ensureStarterInvoiceTemplate(database: Database, input: { createdAt: string }): void {
-  database.transaction(() => {
-    // Bootstrap only an untouched Workspace. Include deleted Templates so retrying
-    // bootstrap never recreates a starter that the user has edited or removed.
-    if (database.query("SELECT id FROM templates LIMIT 1").get()) {
-      return;
-    }
-
-    createTemplate(database, {
-      templateId: newId("tpl"),
-      name: "Example Invoice",
-      description: "Starter template that extracts key invoice fields for quick testing.",
-      fields: STARTER_INVOICE_FIELDS,
-      createdAt: input.createdAt,
-    });
-  }).immediate();
-}
-
-function createTemplate(
-  database: Database,
-  input: {
-    templateId: string;
-    name: string;
-    description: string | null;
-    fields: FieldDefinition[];
-    createdAt: string;
-  },
-): { template_id: string; version: 1; status: "active" } {
-  const create = database.transaction(() => {
-    database.query(
-      `INSERT INTO templates (id, name, description, status, current_version, created_at, updated_at, deleted_at)
-       VALUES (?, ?, ?, 'active', 1, ?, ?, NULL)`,
-    ).run(input.templateId, input.name, input.description, input.createdAt, input.createdAt);
-
-    const insertField = database.query(
-      `INSERT INTO template_fields (template_id, version, field_id, name, description, data_type, position)
-       VALUES (?, 1, ?, ?, ?, ?, ?)`,
-    );
-    input.fields.forEach((field, position) => {
-      insertField.run(
-        input.templateId,
-        field.id,
-        field.name,
-        field.description,
-        field.data_type,
-        position,
-      );
-    });
-  });
-  create();
-
-  return { template_id: input.templateId, version: 1, status: "active" };
-}
-
-function listTemplates(database: Database): LocalWorkspaceTemplate[] {
-  return database.query(
-    `SELECT id, name, description, status, current_version, created_at, updated_at
-     FROM templates
-     WHERE deleted_at IS NULL
-     ORDER BY created_at DESC`,
-  ).all() as LocalWorkspaceTemplate[];
-}
-
-function getTemplate(database: Database, templateId: string, version?: number): LocalWorkspaceTemplateDetail | null {
-  const template = database.query(
-    `SELECT id, name, description, status, current_version, created_at, updated_at
-     FROM templates
-     WHERE id = ? AND deleted_at IS NULL`,
-  ).get(templateId) as LocalWorkspaceTemplate | null;
-
-  if (!template) {
-    return null;
-  }
-
-  const fields = database.query(
-    `SELECT field_id AS id, name, description, data_type, position
-     FROM template_fields
-     WHERE template_id = ? AND version = ?
-     ORDER BY position ASC`,
-  ).all(templateId, version ?? template.current_version) as Array<FieldDefinition & { position: number }>;
-
-  if (version !== undefined && (!Number.isSafeInteger(version) || version < 1 || !fields.length)) return null;
-  return { ...template, fields };
-}
-
-function updateTemplate(
-  database: Database,
-  input: {
-    templateId: string;
-    name?: string;
-    description?: string | null;
-    fields?: FieldDefinition[];
-    updatedAt: string;
-  },
-): { template_id: string; version: number; status: "active" } | null {
-  const existing = database.query(
-    `SELECT id, name, description, current_version
-     FROM templates
-     WHERE id = ? AND deleted_at IS NULL`,
-  ).get(input.templateId) as Pick<LocalWorkspaceTemplate, "id" | "name" | "description" | "current_version"> | null;
-
-  if (!existing) {
-    return null;
-  }
-
-  const nextVersion = input.fields ? existing.current_version + 1 : existing.current_version;
-  const nextName = input.name ?? existing.name;
-  const nextDescription = input.description !== undefined ? input.description : existing.description;
-  const update = database.transaction(() => {
-    database.query(
-      `UPDATE templates
-       SET name = ?, description = ?, current_version = ?, updated_at = ?
-       WHERE id = ? AND deleted_at IS NULL`,
-    ).run(nextName, nextDescription, nextVersion, input.updatedAt, input.templateId);
-
-    if (input.fields) {
-      const insertField = database.query(
-        `INSERT INTO template_fields (template_id, version, field_id, name, description, data_type, position)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      );
-      input.fields.forEach((field, position) => {
-        insertField.run(
-          input.templateId,
-          nextVersion,
-          field.id,
-          field.name,
-          field.description,
-          field.data_type,
-          position,
-        );
-      });
-    }
-  });
-  update();
-
-  return { template_id: input.templateId, version: nextVersion, status: "active" };
-}
-
-function deleteTemplate(
-  database: Database,
-  input: { templateId: string; deletedAt: string },
-): boolean {
-  const result = database.query(
-    `UPDATE templates
-     SET status = 'deleted', deleted_at = ?, updated_at = ?
-     WHERE id = ? AND deleted_at IS NULL`,
-  ).run(input.deletedAt, input.deletedAt, input.templateId);
-
-  return result.changes > 0;
-}
-
-function getSubmissionTemplate(
-  database: Database,
-  templateId: string,
-): LocalWorkspaceSubmissionTemplate | null {
-  const template = database.query(
-    `SELECT id, current_version
-     FROM templates
-     WHERE id = ? AND status = 'active' AND deleted_at IS NULL`,
-  ).get(templateId) as { id: string; current_version: number } | null;
-  if (!template) {
-    return null;
-  }
-
-  const fieldCount = database.query(
-    `SELECT COUNT(*) AS count
-     FROM template_fields
-     WHERE template_id = ? AND version = ?`,
-  ).get(template.id, template.current_version) as { count: number };
-  if (fieldCount.count < 1) {
-    return null;
-  }
-
-  return { template_id: template.id, template_version: template.current_version };
-}
-
-function createQueuedExtractionJob(
-  database: Database,
-  input: {
-    jobId: string;
-    templateId: string;
-    templateVersion: number;
-    sourceFileKey: string;
-    sourceMimeType: string;
-    sourceName: string | null;
-    sourceFilePageCount: number | null;
-    submittedAt: string;
-  },
-): LocalQueuedExtractionJob {
-  const create = database.transaction(() => {
-    database.query(
-      `INSERT INTO source_files (key, job_id, mime_type, name, page_count, created_at, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-    ).run(
-      input.sourceFileKey,
-      input.jobId,
-      input.sourceMimeType,
-      input.sourceName,
-      input.sourceFilePageCount,
-      input.submittedAt,
-    );
-    database.query(
-      `INSERT INTO jobs (
-         id, template_id, template_version, status,
-         source_file_key, source_mime_type, source_name,
-         created_at, updated_at, completed_at, error_code, error_message,
-         current_attempt, completed_attempt, last_failed_attempt
-       ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, 0, 0)`,
-    ).run(
-      input.jobId,
-      input.templateId,
-      input.templateVersion,
-      input.sourceFileKey,
-      input.sourceMimeType,
-      input.sourceName,
-      input.submittedAt,
-      input.submittedAt,
-    );
-  });
-  create();
-
-  return {
-    job_id: input.jobId,
-    status: "queued",
-    source_name: input.sourceName,
-    template_id: input.templateId,
-    template_version: input.templateVersion,
-  };
-}
-
-function failQueuedExtractionJob(
-  database: Database,
-  input: { jobId: string; failedAt: string; errorCode: string; errorMessage: string },
-): boolean {
-  const result = database.query(
-    `UPDATE jobs
-     SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = 1
-     WHERE id = ? AND status = 'queued'`,
-  ).run(input.errorCode, input.errorMessage.slice(0, 2000), input.failedAt, input.jobId);
-  return result.changes > 0;
-}
-
-function claimExtractionJobForProcessing(
-  database: Database,
-  input: { jobId: string; attempt: number; claimedAt: string },
-): LocalClaimedExtractionJob | null {
-  const claim = database.transaction(() => {
-    const job = database.query(
-      `SELECT id, template_id, template_version, source_file_key, source_mime_type, status, current_attempt, next_retry_at
+    listExtractionJobModels: () => (database.query(
+      `SELECT DISTINCT model_name
        FROM jobs
-       WHERE id = ?`,
-    ).get(input.jobId) as {
-      id: string;
-      template_id: string;
-      template_version: number;
-      source_file_key: string;
-      source_mime_type: string;
-      status: string;
-      current_attempt: number;
-      next_retry_at: string | null;
-    } | null;
-    if (
-      !job ||
-      job.status !== "queued" ||
-      job.current_attempt >= input.attempt ||
-      (job.next_retry_at !== null && job.next_retry_at > input.claimedAt)
-    ) {
-      return null;
-    }
-
-    const result = database.query(
-      `UPDATE jobs
-       SET status = 'processing', updated_at = ?, error_code = NULL, error_message = NULL, next_retry_at = NULL, current_attempt = ?, model_name = NULL, model_gateway_route = NULL, model_configuration_revision = NULL
-       WHERE id = ? AND status = 'queued' AND current_attempt < ?
-         AND (next_retry_at IS NULL OR next_retry_at <= ?)`,
-    ).run(
-      input.claimedAt,
-      input.attempt,
-      input.jobId,
-      input.attempt,
-      input.claimedAt,
-    );
-    if (result.changes < 1) {
-      return null;
-    }
-
-    const fields = database.query(
-      `SELECT field_id AS id, name, description, data_type
-       FROM template_fields
-       WHERE template_id = ? AND version = ?
-       ORDER BY position ASC`,
-    ).all(job.template_id, job.template_version) as FieldDefinition[];
-
-    return {
-      job_id: job.id,
-      template_id: job.template_id,
-      template_version: job.template_version,
-      source_file_key: job.source_file_key,
-      source_mime_type: job.source_mime_type,
-      fields,
-    };
-  });
-  return claim();
-}
-
-function completeExtractionJob(
-  database: Database,
-  input: {
-    jobId: string;
-    attempt: number;
-    completedAt: string;
-    modelName: string;
-    route: string;
-    results: NormalizedModelField[];
-  },
-): boolean {
-  const complete = database.transaction(() => {
-    const job = database.query(
-      "SELECT status, current_attempt FROM jobs WHERE id = ?",
-    ).get(input.jobId) as { status: string; current_attempt: number } | null;
-    if (!job || job.status !== "processing" || job.current_attempt !== input.attempt) {
-      return false;
-    }
-
-    const insertResult = database.query(
-      `INSERT INTO job_results (
-         job_id, field_id, status, answer_json, normalized_value, confidence, evidence_text, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(job_id, field_id)
-       DO UPDATE SET
-         status = excluded.status,
-         answer_json = excluded.answer_json,
-         normalized_value = excluded.normalized_value,
-         confidence = excluded.confidence,
-         evidence_text = excluded.evidence_text,
-         updated_at = excluded.updated_at`,
-    );
-    input.results.forEach((row) => {
-      insertResult.run(
-        input.jobId,
-        row.field_id,
-        row.status,
-        JSON.stringify(row.answer),
-        row.normalized_value,
-        row.confidence,
-        row.evidence,
-        input.completedAt,
-        input.completedAt,
-      );
-    });
-
-    const result = database.query(
-      `UPDATE jobs
-       SET status = 'completed', completed_at = ?, updated_at = ?, model_name = ?, model_gateway_route = ?, completed_attempt = ?
-       WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
-    ).run(
-      input.completedAt,
-      input.completedAt,
-      input.modelName,
-      input.route,
-      input.attempt,
-      input.jobId,
-      input.attempt,
-    );
-    return result.changes > 0;
-  });
-  return complete();
-}
-
-function recordExtractionJobModel(
-  database: Database,
-  input: { jobId: string; attempt: number; modelName: string; route: string; configurationRevision?: number },
-): boolean {
-  const result = database.query(
-    `UPDATE jobs
-     SET model_name = ?, model_gateway_route = ?, model_configuration_revision = ?
-     WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
-  ).run(input.modelName, input.route, input.configurationRevision ?? null, input.jobId, input.attempt);
-  return result.changes > 0;
-}
-
-function failExtractionJob(
-  database: Database,
-  input: {
-    jobId: string;
-    attempt: number;
-    failedAt: string;
-    errorCode: string;
-    errorMessage: string;
-    modelName?: string | null;
-    route?: string | null;
-  },
-): boolean {
-  const result = database.query(
-    `UPDATE jobs
-     SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ?,
-         model_name = COALESCE(?, model_name), model_gateway_route = COALESCE(?, model_gateway_route)
-     WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
-  ).run(
-    input.errorCode,
-    input.errorMessage.slice(0, 2000),
-    input.failedAt,
-    input.attempt,
-    input.modelName ?? null,
-    input.route ?? null,
-    input.jobId,
-    input.attempt,
-  );
-  return result.changes > 0;
-}
-
-function requeueExtractionJob(
-  database: Database,
-  input: {
-    jobId: string;
-    attempt: number;
-    requeuedAt: string;
-    errorCode: string;
-    errorMessage: string;
-    modelName?: string | null;
-    route?: string | null;
-    nextRetryAt: string;
-  },
-): boolean {
-  const result = database.query(
-    `UPDATE jobs
-     SET status = 'queued', error_code = ?, error_message = ?, updated_at = ?, next_retry_at = ?, last_failed_attempt = ?,
-         model_name = COALESCE(?, model_name), model_gateway_route = COALESCE(?, model_gateway_route)
-     WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
-  ).run(
-    input.errorCode,
-    input.errorMessage.slice(0, 2000),
-    input.requeuedAt,
-    input.nextRetryAt,
-    input.attempt,
-    input.modelName ?? null,
-    input.route ?? null,
-    input.jobId,
-    input.attempt,
-  );
-  return result.changes > 0;
-}
-
-function recoverExtractionJobs(
-  database: Database,
-  input: { limit?: number; maxAttempts: number; recoveredAt: string; staleProcessingBefore: string; isJobActive?: (jobId: string) => boolean },
-): LocalScheduledExtractionJob[] {
-  const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? input.limit! : 1_000;
-  const recover = database.transaction(() => {
-    const scheduled: LocalScheduledExtractionJob[] = [];
-    const queued = database.query(
-      `SELECT id, template_id, template_version, current_attempt, next_retry_at
-       FROM jobs INDEXED BY idx_jobs_runnable
-       WHERE status = 'queued'
-       ORDER BY COALESCE(next_retry_at, updated_at) ASC, id ASC
-       LIMIT ?`,
-    ).all(limit) as Array<{
-      id: string;
-      template_id: string;
-      template_version: number;
-      current_attempt: number;
-      next_retry_at: string | null;
-    }>;
-    for (const job of queued) {
-      if (job.current_attempt >= input.maxAttempts) {
-        database.query(
-          `UPDATE jobs
-           SET status = 'failed', error_code = 'retry_exhausted', error_message = 'Extraction retry limit reached', updated_at = ?, last_failed_attempt = ?
-           WHERE id = ? AND status = 'queued'`,
-        ).run(input.recoveredAt, job.current_attempt, job.id);
-        continue;
+       WHERE model_name IS NOT NULL AND TRIM(model_name) != ''
+       ORDER BY model_name COLLATE NOCASE ASC`,
+    ).all() as Array<{ model_name: string }>).map((row) => row.model_name),
+    listExtractionJobs: (input = {}) => {
+      const search = (input.search ?? "").trim().toLowerCase();
+      const clauses: string[] = [];
+      const parameters: Array<string | number> = [];
+      if (search) {
+        // FTS indexes stable metadata only. Status terms use the literal path so
+        // lifecycle transitions do not rewrite the search index. Searches too short
+        // for trigrams, or containing NUL, use only the literal path.
+        if ([...search].length >= 3 && !search.includes("\u0000")
+          && !["queued", "processing", "completed", "failed"].some((status) => status.includes(search))) {
+          const candidates = database.query("SELECT rowid FROM job_search WHERE job_search MATCH ? LIMIT 1001")
+            .all(`"${search.replaceAll('"', '""')}"`) as { rowid: number }[];
+          if (!candidates.length) return [];
+          // Broad terms should read a page in date order rather than
+          // materialize and sort a huge list of matching FTS row IDs.
+          if (candidates.length <= 1000) {
+            clauses.push(`j.rowid IN (${candidates.map(() => "?").join(",")})`);
+            parameters.push(...candidates.map((row) => row.rowid));
+          }
+        }
+        const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+        clauses.push(`(LOWER(COALESCE(j.source_name, '')) LIKE ? ESCAPE '\\'
+            OR LOWER(j.id) LIKE ? ESCAPE '\\'
+            OR LOWER(j.template_id) LIKE ? ESCAPE '\\'
+            OR LOWER(j.status) LIKE ? ESCAPE '\\')`);
+        parameters.push(pattern, pattern, pattern, pattern);
       }
-      scheduled.push({
-        job_id: job.id,
-        template_id: job.template_id,
-        template_version: job.template_version,
-        attempt: job.current_attempt + 1,
-        ...(job.next_retry_at ? { not_before: job.next_retry_at } : {}),
-      });
-    }
-
-    const stale = database.query(
-      `SELECT id, template_id, template_version, current_attempt
-       FROM jobs
-       WHERE status = 'processing' AND updated_at <= ?
-       ORDER BY updated_at ASC, id ASC
-       LIMIT ?`,
-    ).all(input.staleProcessingBefore, limit) as Array<{ id: string; template_id: string; template_version: number; current_attempt: number }>;
-    for (const job of stale) {
-      if (input.isJobActive?.(job.id)) continue;
-      if (job.current_attempt >= input.maxAttempts) {
-        database.query(
-          `UPDATE jobs
-           SET status = 'failed', error_code = 'retry_exhausted', error_message = 'Extraction retry limit reached', updated_at = ?, last_failed_attempt = ?
-           WHERE id = ? AND status = 'processing'`,
-        ).run(input.recoveredAt, job.current_attempt, job.id);
-        continue;
+      if (input.dateFrom) {
+        clauses.push("j.created_at >= ?");
+        parameters.push(`${input.dateFrom}T00:00:00.000Z`);
       }
-      const result = database.query(
-        `UPDATE jobs
-         SET status = 'queued', error_code = 'stale_processing', error_message = 'Recovered stale processing job', updated_at = ?, next_retry_at = NULL, last_failed_attempt = ?
-         WHERE id = ? AND status = 'processing'`,
-      ).run(input.recoveredAt, job.current_attempt, job.id);
-      if (result.changes > 0) {
-        scheduled.push({
-          job_id: job.id,
-          template_id: job.template_id,
-          template_version: job.template_version,
-          attempt: job.current_attempt + 1,
-        });
+      if (input.dateTo) {
+        clauses.push("j.created_at <= ?");
+        parameters.push(`${input.dateTo}T23:59:59.999Z`);
       }
-    }
-    return scheduled;
-  });
-  return recover();
-}
-
-function deleteExtractionJob(
-  database: Database,
-  input: { jobId: string },
-): DeletedLocalWorkspaceExtractionJob | null {
-  const remove = database.transaction(() => {
-    const job = database.query(
-      "SELECT id, status, source_file_key FROM jobs WHERE id = ? LIMIT 1",
-    ).get(input.jobId) as { id: string; status: string; source_file_key: string } | null;
-    if (!job) {
-      return null;
-    }
-    // Commit cleanup intent with logical deletion so crashes and unlink errors
-    // cannot lose the only pointer to a retained Source binary.
-    database.query("INSERT OR REPLACE INTO source_file_deletion_intents (job_id, source_file_key) VALUES (?, ?)")
-      .run(job.id, job.source_file_key);
-    database.query("DELETE FROM job_results WHERE job_id = ?").run(job.id);
-    database.query("DELETE FROM source_files WHERE job_id = ?").run(job.id);
-    database.query("DELETE FROM jobs WHERE id = ?").run(job.id);
-    return {
-      job_id: job.id,
-      source_file_key: job.source_file_key,
-      status: job.status as DeletedLocalWorkspaceExtractionJob["status"],
-    } as DeletedLocalWorkspaceExtractionJob;
-  });
-  return remove();
-}
-
-function getExtractionJob(database: Database, jobId: string): LocalWorkspaceExtractionJob | null {
-  const summary = readExtractionJobSummary(database, jobId);
-  if (!summary) {
-    return null;
-  }
-
-  return {
-    ...summary,
-    results: summary.status === "completed" ? readExtractionJobResults(database, jobId) : [],
+      if (input.model) {
+        clauses.push("j.model_name = ?");
+        parameters.push(input.model);
+      }
+      if (input.cursor) {
+        clauses.push("(j.created_at, j.id) < (?, ?)");
+        parameters.push(input.cursor.createdAt, input.cursor.jobId);
+      }
+      const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+      // The limit is interpolated, so only a positive safe integer may reach the SQL text.
+      const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? ` LIMIT ${input.limit}` : "";
+      return database.query(
+        `${JOB_SUMMARY_SELECT}${where} ORDER BY j.created_at DESC, j.id DESC${limit}`,
+      ).all(...parameters) as LocalWorkspaceExtractionJobSummary[];
+    },
+    listRetainedTerminalSourceFiles: (input) => {
+      const limit = input.limit ?? 1_000;
+      const deleted = database.query("SELECT job_id, source_file_key FROM source_file_deletion_intents ORDER BY job_id LIMIT ?")
+        .all(limit) as LocalRetainedTerminalSourceFile[];
+      if (deleted.length === limit) return deleted;
+      const terminal = database.query(
+        `SELECT j.id AS job_id, s.key AS source_file_key
+         FROM source_files s
+         CROSS JOIN jobs j ON j.id = s.job_id
+         WHERE s.deleted_at IS NULL
+           AND (j.status = 'completed' OR (j.status = 'failed' AND j.updated_at <= ?))
+         ORDER BY j.updated_at ASC, j.id ASC
+         LIMIT ?`,
+      ).all(input.failedBefore, limit - deleted.length) as LocalRetainedTerminalSourceFile[];
+      return [...deleted, ...terminal];
+    },
+    markSourceFileCleaned: (input) => database.transaction(() => {
+      const source = database.query(
+        `UPDATE source_files
+         SET deleted_at = COALESCE(deleted_at, ?)
+         WHERE job_id = ? AND key = ?`,
+      ).run(input.cleanedAt, input.jobId, input.sourceFileKey);
+      const intent = database.query("DELETE FROM source_file_deletion_intents WHERE job_id = ? AND source_file_key = ?")
+        .run(input.jobId, input.sourceFileKey);
+      return source.changes > 0 || intent.changes > 0;
+    })(),
   };
-}
-
-function readExtractionJobResults(database: Database, jobId: string): LocalWorkspaceExtractionResult[] {
-  const results = database.query(
-    `SELECT r.field_id, f.name, f.data_type, r.status, r.answer_json, r.confidence, r.evidence_text
-     FROM job_results r
-     JOIN jobs j ON j.id = r.job_id
-     JOIN template_fields f ON f.template_id = j.template_id
-       AND f.version = j.template_version
-       AND f.field_id = r.field_id
-     WHERE r.job_id = ?
-     ORDER BY f.position ASC`,
-  ).all(jobId) as Array<{
-    field_id: string;
-    name: string;
-    data_type: FieldDefinition["data_type"];
-    status: string;
-    answer_json: string | null;
-    confidence: number | null;
-    evidence_text: string | null;
-  }>;
-
-  return results.map((result) => ({
-    field_id: result.field_id,
-    name: result.name,
-    data_type: result.data_type,
-    status: result.status,
-    answer: parseStoredAnswer(result.answer_json),
-    confidence: result.confidence,
-    evidence: result.evidence_text,
-  }));
-}
-
-function getExtractionJobExport(
-  database: Database,
-  jobId: string,
-  templates = new Map<string, Pick<LocalWorkspaceExtractionJobExport, "fields" | "template_name">>(),
-): LocalWorkspaceExtractionJobExport | null {
-  const job = getExtractionJob(database, jobId);
-  if (!job) {
-    return null;
-  }
-
-  const key = `${job.template_id}\u0000${job.template_version}`;
-  const cached = templates.get(key);
-  if (cached) return { ...job, ...cached };
-
-  const template = database.query(
-    "SELECT name FROM templates WHERE id = ?",
-  ).get(job.template_id) as { name: string } | null;
-  const fields = database.query(
-    `SELECT field_id AS id, name, description, data_type, position
-     FROM template_fields
-     WHERE template_id = ? AND version = ?
-     ORDER BY position ASC`,
-  ).all(job.template_id, job.template_version) as Array<
-    FieldDefinition & { position: number }
-  >;
-
-  templates.set(key, { template_name: template?.name || job.template_id, fields });
-  return {
-    ...job,
-    template_name: template?.name || job.template_id,
-    fields,
-  };
-}
-
-function countExtractionJobs(database: Database): number {
-  return (database.query("SELECT count FROM job_totals WHERE singleton = 1").get() as { count: number }).count;
-}
-
-function listExtractionJobModels(database: Database): string[] {
-  return database.query(
-    `SELECT DISTINCT model_name
-     FROM jobs
-     WHERE model_name IS NOT NULL AND TRIM(model_name) != ''
-     ORDER BY model_name COLLATE NOCASE ASC`,
-  ).all().map((row) => String((row as { model_name: string }).model_name));
-}
-
-function listExtractionJobs(
-  database: Database,
-  input: {
-    cursor?: { createdAt: string; jobId: string } | null;
-    dateFrom?: string;
-    dateTo?: string;
-    limit?: number;
-    model?: string;
-    search?: string;
-  } = {},
-): LocalWorkspaceExtractionJobSummary[] {
-  const select = `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
-                         s.page_count AS source_file_page_count, j.template_id, j.template_version,
-                         j.model_name, j.model_configuration_revision, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
-                         j.current_attempt, j.completed_attempt, j.last_failed_attempt
-                  FROM jobs j
-                  JOIN source_files s ON s.job_id = j.id`;
-  const search = String(input.search || "").trim().toLowerCase();
-  const clauses: string[] = [];
-  const parameters: Array<string | number> = [];
-  if (search) {
-    // FTS indexes stable metadata only. Status terms use the literal path so
-    // lifecycle transitions do not rewrite the search index.
-    // One/two-character and NUL-containing searches retain their original behavior.
-    if ([...search].length >= 3 && !search.includes("\u0000")
-      && !["queued", "processing", "completed", "failed"].some((status) => status.includes(search))) {
-      const candidates = database.query("SELECT rowid FROM job_search WHERE job_search MATCH ? LIMIT 1001")
-        .all(`"${search.replaceAll('"', '""')}"`) as { rowid: number }[];
-      if (!candidates.length) return [];
-      // Broad terms (e.g. "queued") should read a page in date order rather
-      // than materialize and sort a million matching FTS row IDs.
-      if (candidates.length <= 1000) {
-        clauses.push(`j.rowid IN (${candidates.map(() => "?").join(",")})`);
-        parameters.push(...candidates.map((row) => row.rowid));
-      }
-    }
-    const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
-    clauses.push(`(LOWER(COALESCE(j.source_name, '')) LIKE ? ESCAPE '\\'
-        OR LOWER(j.id) LIKE ? ESCAPE '\\'
-        OR LOWER(j.template_id) LIKE ? ESCAPE '\\'
-        OR LOWER(j.status) LIKE ? ESCAPE '\\')`);
-    parameters.push(pattern, pattern, pattern, pattern);
-  }
-  if (input.dateFrom) {
-    clauses.push("j.created_at >= ?");
-    parameters.push(`${input.dateFrom}T00:00:00.000Z`);
-  }
-  if (input.dateTo) {
-    clauses.push("j.created_at <= ?");
-    parameters.push(`${input.dateTo}T23:59:59.999Z`);
-  }
-  if (input.model) {
-    clauses.push("j.model_name = ?");
-    parameters.push(input.model);
-  }
-  if (input.cursor) {
-    clauses.push("(j.created_at, j.id) < (?, ?)");
-    parameters.push(input.cursor.createdAt, input.cursor.jobId);
-  }
-  const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
-  const limit = Number.isSafeInteger(input.limit) && input.limit! > 0
-    ? ` LIMIT ${input.limit}`
-    : "";
-  return database.query(
-    `${select}${where} ORDER BY j.created_at DESC, j.id DESC${limit}`,
-  ).all(...parameters) as LocalWorkspaceExtractionJobSummary[];
-}
-
-function markSourceFileCleaned(
-  database: Database,
-  input: { jobId: string; sourceFileKey: string; cleanedAt: string },
-): boolean {
-  return database.transaction(() => {
-    const result = database.query(
-      `UPDATE source_files
-       SET deleted_at = COALESCE(deleted_at, ?)
-       WHERE job_id = ? AND key = ?`,
-    ).run(input.cleanedAt, input.jobId, input.sourceFileKey);
-    const intent = database.query("DELETE FROM source_file_deletion_intents WHERE job_id = ? AND source_file_key = ?")
-      .run(input.jobId, input.sourceFileKey);
-    return result.changes > 0 || intent.changes > 0;
-  })();
-}
-
-function listRetainedTerminalSourceFiles(
-  database: Database,
-  input: { failedBefore: string; limit?: number },
-): LocalRetainedTerminalSourceFile[] {
-  const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? input.limit! : 1_000;
-  const deleted = database.query("SELECT job_id, source_file_key FROM source_file_deletion_intents ORDER BY job_id LIMIT ?")
-    .all(limit) as LocalRetainedTerminalSourceFile[];
-  if (deleted.length === limit) return deleted;
-  const terminal = database.query(
-    `SELECT j.id AS job_id, s.key AS source_file_key
-     FROM source_files s
-     CROSS JOIN jobs j ON j.id = s.job_id
-     WHERE s.deleted_at IS NULL
-       AND (j.status = 'completed' OR (j.status = 'failed' AND j.updated_at <= ?))
-     ORDER BY j.updated_at ASC, j.id ASC
-     LIMIT ?`,
-  ).all(input.failedBefore, limit - deleted.length) as LocalRetainedTerminalSourceFile[];
-  return [...deleted, ...terminal];
-}
-
-function readExtractionJobSummary(database: Database, jobId: string): LocalWorkspaceExtractionJobSummary | null {
-  return database.query(
-    `SELECT j.id AS job_id, j.status, j.source_name, j.source_mime_type,
-            s.page_count AS source_file_page_count, j.template_id, j.template_version,
-            j.model_name, j.model_configuration_revision, j.error_code, j.error_message, j.created_at, j.updated_at, j.completed_at,
-            j.current_attempt, j.completed_attempt, j.last_failed_attempt
-     FROM jobs j
-     JOIN source_files s ON s.job_id = j.id
-     WHERE j.id = ?`,
-  ).get(jobId) as LocalWorkspaceExtractionJobSummary | null;
 }
 
 function parseStoredAnswer(answerJson: string | null): unknown {
-  if (answerJson === null) {
-    return null;
-  }
+  if (answerJson === null) return null;
   try {
     return JSON.parse(answerJson);
   } catch {
     return null;
   }
+}
+
+function ensureProductSchemaColumns(database: Database): void {
+  const knownColumns = new Set((database.query("PRAGMA table_info(jobs)").all() as Array<{ name: string }>).map((column) => column.name));
+  for (const [name, type] of [
+    ["model_name", "TEXT"],
+    ["model_gateway_route", "TEXT"],
+    ["next_retry_at", "TEXT"],
+    ["model_configuration_revision", "INTEGER"],
+  ]) {
+    if (!knownColumns.has(name)) database.exec(`ALTER TABLE jobs ADD COLUMN ${name} ${type}`);
+  }
+  database.exec("CREATE INDEX IF NOT EXISTS idx_jobs_model_created_id ON jobs(model_name, created_at DESC, id DESC)");
+}
+
+function migrateProductSchema(database: Database): void {
+  database.transaction(() => {
+    const applied = new Set(
+      (database.query("SELECT version FROM product_schema_version").all() as Array<{ version: number }>).map((row) => row.version),
+    );
+    for (const [version, sql] of PRODUCT_MIGRATIONS) {
+      if (applied.has(version)) continue;
+      database.exec(sql);
+      database.query("INSERT INTO product_schema_version(version, applied_at) VALUES (?, ?)").run(version, new Date().toISOString());
+    }
+  }).immediate();
 }
 
 const PRODUCT_SCHEMA = `
@@ -1396,8 +952,80 @@ const PRODUCT_SCHEMA = `
     updated_at TEXT NOT NULL,
     PRIMARY KEY (job_id, field_id)
   );
-
 `;
+
+const PRODUCT_MIGRATIONS: Array<[version: number, sql: string]> = [
+  [1, `
+    DROP INDEX IF EXISTS idx_source_files_job;
+    DROP INDEX IF EXISTS idx_job_results_job;
+    DROP INDEX IF EXISTS idx_jobs_status_updated;
+    CREATE INDEX IF NOT EXISTS idx_jobs_active_updated_id
+      ON jobs(status, updated_at, id)
+      WHERE status = 'queued' OR status = 'processing';
+  `],
+  [2, `
+    CREATE INDEX IF NOT EXISTS idx_jobs_terminal_cleanup_updated_id
+      ON jobs(status, updated_at, id)
+      WHERE status = 'completed' OR status = 'failed';
+  `],
+  [3, `
+    CREATE TABLE workspace_model_configuration (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      gateway_url TEXT NOT NULL, model_name TEXT NOT NULL, credential_ciphertext TEXT NOT NULL,
+      sequential_calls INTEGER NOT NULL CHECK (sequential_calls IN (0, 1)),
+      supports_pdf_input INTEGER NOT NULL CHECK (supports_pdf_input IN (0, 1)),
+      supports_structured_output INTEGER NOT NULL CHECK (supports_structured_output IN (0, 1)),
+      revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE workspace_model_revision (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), revision INTEGER NOT NULL);
+  `],
+  [4, `
+    CREATE INDEX idx_sources_uncleaned ON source_files(job_id, key) WHERE deleted_at IS NULL;
+    CREATE INDEX idx_jobs_runnable ON jobs(COALESCE(next_retry_at, updated_at), id) WHERE status = 'queued';
+    CREATE TABLE job_totals (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), count INTEGER NOT NULL);
+    INSERT INTO job_totals SELECT 1, COUNT(*) FROM jobs;
+    CREATE TRIGGER jobs_count_insert AFTER INSERT ON jobs BEGIN
+      UPDATE job_totals SET count = count + 1 WHERE singleton = 1;
+    END;
+    CREATE TRIGGER jobs_count_delete AFTER DELETE ON jobs BEGIN
+      UPDATE job_totals SET count = count - 1 WHERE singleton = 1;
+    END;
+    CREATE VIRTUAL TABLE job_search USING fts5(source_name, id, template_id,
+      content='jobs', content_rowid='rowid', tokenize='trigram');
+    INSERT INTO job_search(job_search) VALUES ('rebuild');
+    CREATE TRIGGER jobs_search_insert AFTER INSERT ON jobs BEGIN
+      INSERT INTO job_search(rowid, source_name, id, template_id)
+        VALUES (new.rowid, new.source_name, new.id, new.template_id);
+    END;
+    CREATE TRIGGER jobs_search_delete AFTER DELETE ON jobs BEGIN
+      INSERT INTO job_search(job_search, rowid, source_name, id, template_id)
+        VALUES ('delete', old.rowid, old.source_name, old.id, old.template_id);
+    END;
+    CREATE TRIGGER jobs_search_update AFTER UPDATE OF source_name, id, template_id ON jobs
+    WHEN old.source_name IS NOT new.source_name OR old.id IS NOT new.id
+      OR old.template_id IS NOT new.template_id BEGIN
+      INSERT INTO job_search(job_search, rowid, source_name, id, template_id)
+        VALUES ('delete', old.rowid, old.source_name, old.id, old.template_id);
+      INSERT INTO job_search(rowid, source_name, id, template_id)
+        VALUES (new.rowid, new.source_name, new.id, new.template_id);
+    END;
+  `],
+  [5, `
+    CREATE TABLE job_status_totals (status TEXT PRIMARY KEY, count INTEGER NOT NULL CHECK (count >= 0));
+    INSERT INTO job_status_totals SELECT status, COUNT(*) FROM jobs GROUP BY status;
+    INSERT OR IGNORE INTO job_status_totals VALUES ('queued', 0), ('processing', 0), ('completed', 0), ('failed', 0);
+    CREATE TRIGGER jobs_status_count_insert AFTER INSERT ON jobs BEGIN
+      UPDATE job_status_totals SET count = count + 1 WHERE status = new.status;
+    END;
+    CREATE TRIGGER jobs_status_count_delete AFTER DELETE ON jobs BEGIN
+      UPDATE job_status_totals SET count = count - 1 WHERE status = old.status;
+    END;
+    CREATE TRIGGER jobs_status_count_update AFTER UPDATE OF status ON jobs WHEN old.status IS NOT new.status BEGIN
+      UPDATE job_status_totals SET count = count - 1 WHERE status = old.status;
+      UPDATE job_status_totals SET count = count + 1 WHERE status = new.status;
+    END;
+  `],
+];
 
 const STARTER_INVOICE_FIELDS: FieldDefinition[] = [
   { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },

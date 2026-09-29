@@ -22,108 +22,89 @@ export type LocalWorkspaceProductOperations = {
   failDeletion(input: { workspaceId: string }): void;
 };
 
-type JobOperationState = {
+type OperationState = {
   activeOperations: number;
   deleting: boolean;
   idleWaiters: Array<() => void>;
   abortControllers: Set<AbortController>;
 };
 
-type WorkspaceOperationState = {
-  activeOperations: number;
-  deleting: boolean;
-  idleWaiters: Array<() => void>;
-  abortControllers: Set<AbortController>;
-  jobs: Map<string, JobOperationState>;
-};
+type WorkspaceOperationState = OperationState & { jobs: Map<string, OperationState> };
 
 export function createLocalWorkspaceProductOperations(): LocalWorkspaceProductOperations {
   const states = new Map<string, WorkspaceOperationState>();
 
+  const workspaceState = (workspaceId: string): WorkspaceOperationState => {
+    let state = states.get(workspaceId);
+    if (!state) {
+      state = { ...newOperationState(), jobs: new Map() };
+      states.set(workspaceId, state);
+    }
+    if (state.deleting) {
+      throw new LocalWorkspaceOperationError("workspace_deleting", "Workspace deletion is in progress");
+    }
+    return state;
+  };
+
+  const jobState = (state: WorkspaceOperationState, jobId: string): OperationState => {
+    let job = state.jobs.get(jobId);
+    if (!job) {
+      job = newOperationState();
+      state.jobs.set(jobId, job);
+    }
+    if (job.deleting) {
+      throw new LocalWorkspaceOperationError("job_deleting", "Document deletion is in progress");
+    }
+    return job;
+  };
+
+  const settleWorkspace = (workspaceId: string, state: WorkspaceOperationState) => {
+    if (!settle(state)) return;
+    if (!state.deleting && state.jobs.size === 0) states.delete(workspaceId);
+  };
+
+  const finishDocumentDeletion = ({ workspaceId, jobId }: { workspaceId: string; jobId: string }) => {
+    const state = states.get(workspaceId);
+    if (!state) return;
+    state.jobs.delete(jobId);
+    settleWorkspace(workspaceId, state);
+  };
+
   return {
     acquire: ({ workspaceId, jobId }) => {
-      const state = stateFor(states, workspaceId);
-      if (state.deleting) {
-        throw new LocalWorkspaceOperationError("workspace_deleting", "Workspace deletion is in progress");
-      }
-      const jobState = jobId ? jobStateFor(state, jobId) : null;
-      if (jobState?.deleting) {
-        throw new LocalWorkspaceOperationError("job_deleting", "Document deletion is in progress");
-      }
-
+      const state = workspaceState(workspaceId);
+      const job = jobId ? jobState(state, jobId) : null;
       const abortController = new AbortController();
-      state.activeOperations += 1;
-      state.abortControllers.add(abortController);
-      if (jobState) {
-        jobState.activeOperations += 1;
-        jobState.abortControllers.add(abortController);
+      for (const target of job ? [state, job] : [state]) {
+        target.activeOperations += 1;
+        target.abortControllers.add(abortController);
       }
       let released = false;
       return {
         signal: abortController.signal,
         release: () => {
-          if (released) {
-            return;
-          }
+          if (released) return;
           released = true;
           state.activeOperations -= 1;
           state.abortControllers.delete(abortController);
-          if (jobState && jobId) {
-            jobState.activeOperations -= 1;
-            jobState.abortControllers.delete(abortController);
-            settleJobState(state, jobId, jobState);
+          if (job && jobId) {
+            job.activeOperations -= 1;
+            job.abortControllers.delete(abortController);
+            if (settle(job) && !job.deleting) state.jobs.delete(jobId);
           }
-          settleWorkspaceState(states, workspaceId, state);
+          settleWorkspace(workspaceId, state);
         },
       };
     },
     beginDocumentDeletion: async ({ workspaceId, jobId }) => {
-      const state = stateFor(states, workspaceId);
-      if (state.deleting) {
-        throw new LocalWorkspaceOperationError("workspace_deleting", "Workspace deletion is in progress");
-      }
-      const jobState = jobStateFor(state, jobId);
-      if (jobState.deleting) {
-        throw new LocalWorkspaceOperationError("job_deleting", "Document deletion is in progress");
-      }
-      jobState.deleting = true;
-      for (const abortController of jobState.abortControllers) {
-        abortController.abort();
-      }
-      if (jobState.activeOperations === 0) {
-        return;
-      }
-      await new Promise<void>((resolve) => jobState.idleWaiters.push(resolve));
+      const idle = markDeleting(jobState(workspaceState(workspaceId), jobId));
+      if (idle) await idle;
     },
-    completeDocumentDeletion: ({ workspaceId, jobId }) => {
-      const state = states.get(workspaceId);
-      if (!state) {
-        return;
-      }
-      state.jobs.delete(jobId);
-      settleWorkspaceState(states, workspaceId, state);
-    },
-    failDocumentDeletion: ({ workspaceId, jobId }) => {
-      const state = states.get(workspaceId);
-      if (!state) {
-        return;
-      }
-      state.jobs.delete(jobId);
-      settleWorkspaceState(states, workspaceId, state);
-    },
+    completeDocumentDeletion: finishDocumentDeletion,
+    failDocumentDeletion: finishDocumentDeletion,
     beginDeletion: async ({ workspaceId }) => {
-      const state = stateFor(states, workspaceId);
-      if (state.deleting) {
-        throw new LocalWorkspaceOperationError("workspace_deleting", "Workspace deletion is in progress");
-      }
-      state.deleting = true;
-      for (const abortController of state.abortControllers) {
-        abortController.abort();
-      }
-      if (state.activeOperations === 0) {
-        return;
-      }
-      await new Promise<void>((resolve) => state.idleWaiters.push(resolve));
+      const idle = markDeleting(workspaceState(workspaceId));
+      if (idle) await idle;
     },
     completeDeletion: ({ workspaceId }) => {
       states.delete(workspaceId);
@@ -134,65 +115,21 @@ export function createLocalWorkspaceProductOperations(): LocalWorkspaceProductOp
   };
 }
 
-function stateFor(states: Map<string, WorkspaceOperationState>, workspaceId: string): WorkspaceOperationState {
-  const existing = states.get(workspaceId);
-  if (existing) {
-    return existing;
-  }
-  const state: WorkspaceOperationState = {
-    activeOperations: 0,
-    abortControllers: new Set(),
-    deleting: false,
-    idleWaiters: [],
-    jobs: new Map(),
-  };
-  states.set(workspaceId, state);
-  return state;
+function newOperationState(): OperationState {
+  return { activeOperations: 0, abortControllers: new Set(), deleting: false, idleWaiters: [] };
 }
 
-function jobStateFor(state: WorkspaceOperationState, jobId: string): JobOperationState {
-  const existing = state.jobs.get(jobId);
-  if (existing) {
-    return existing;
-  }
-  const jobState: JobOperationState = {
-    activeOperations: 0,
-    abortControllers: new Set(),
-    deleting: false,
-    idleWaiters: [],
-  };
-  state.jobs.set(jobId, jobState);
-  return jobState;
+/** Aborts in-flight work and returns a promise for it to drain, or null when already idle. */
+function markDeleting(state: OperationState): Promise<void> | null {
+  state.deleting = true;
+  for (const abortController of state.abortControllers) abortController.abort();
+  if (state.activeOperations === 0) return null;
+  return new Promise<void>((resolve) => state.idleWaiters.push(resolve));
 }
 
-function settleJobState(
-  state: WorkspaceOperationState,
-  jobId: string,
-  jobState: JobOperationState,
-): void {
-  if (jobState.activeOperations !== 0) {
-    return;
-  }
-  for (const resolve of jobState.idleWaiters.splice(0)) {
-    resolve();
-  }
-  if (!jobState.deleting) {
-    state.jobs.delete(jobId);
-  }
-}
-
-function settleWorkspaceState(
-  states: Map<string, WorkspaceOperationState>,
-  workspaceId: string,
-  state: WorkspaceOperationState,
-): void {
-  if (state.activeOperations !== 0) {
-    return;
-  }
-  for (const resolve of state.idleWaiters.splice(0)) {
-    resolve();
-  }
-  if (!state.deleting && state.jobs.size === 0) {
-    states.delete(workspaceId);
-  }
+/** Wakes deletion waiters once no operations remain; returns whether the state is idle. */
+function settle(state: OperationState): boolean {
+  if (state.activeOperations !== 0) return false;
+  for (const resolve of state.idleWaiters.splice(0)) resolve();
+  return true;
 }
