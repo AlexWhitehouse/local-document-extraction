@@ -25,52 +25,42 @@ export function createLocalWorkspaceDeletion({
   productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
   onWorkspaceAccessRevoked?: (input: { workspaceId: string; reason: "workspace_access"; occurredAt: string }) => void;
 }): LocalWorkspaceDeletion {
+  const announceAccessRevoked = (workspaceId: string) =>
+    onWorkspaceAccessRevoked?.({ workspaceId, reason: "workspace_access", occurredAt: nowIso() });
+  const eraseRevokedWorkspace = async (workspaceId: string) => {
+    await productStoreRegistry?.invalidate({ workspaceId });
+    await Promise.all([
+      eraseLocalWorkspaceProductData({ stateDirectory, workspaceId }),
+      sourceFileStore.eraseWorkspace(workspaceId),
+    ]);
+    workspaceControl.completeWorkspaceDeletionIntent({ workspaceId });
+    workspaceProductOperations?.completeDeletion({ workspaceId });
+  };
+
   return {
     async deleteWorkspace(input) {
+      const { workspaceId } = input;
       workspaceControl.assertWorkspaceDeletion(input);
-      await workspaceProductOperations?.beginDeletion({ workspaceId: input.workspaceId });
-      workspaceControl.recordWorkspaceDeletionIntent({ workspaceId: input.workspaceId });
+      await workspaceProductOperations?.beginDeletion({ workspaceId });
+      // The intent survives a crash after access is revoked so startup can finish the erase.
+      workspaceControl.recordWorkspaceDeletionIntent({ workspaceId });
       let accessRevoked = false;
       try {
+        // Re-checks ownership: membership may have changed while in-flight work drained.
         workspaceControl.deleteWorkspace(input);
         accessRevoked = true;
-        onWorkspaceAccessRevoked?.({
-          workspaceId: input.workspaceId,
-          reason: "workspace_access",
-          occurredAt: nowIso(),
-        });
-        await productStoreRegistry?.invalidate({ workspaceId: input.workspaceId });
-        await Promise.all([
-          eraseLocalWorkspaceProductData({ stateDirectory, workspaceId: input.workspaceId }),
-          sourceFileStore.eraseWorkspace(input.workspaceId),
-        ]);
-        workspaceControl.completeWorkspaceDeletionIntent({ workspaceId: input.workspaceId });
-        workspaceProductOperations?.completeDeletion({ workspaceId: input.workspaceId });
+        announceAccessRevoked(workspaceId);
+        await eraseRevokedWorkspace(workspaceId);
       } catch (error) {
-        if (!accessRevoked) {
-          workspaceControl.completeWorkspaceDeletionIntent({ workspaceId: input.workspaceId });
-        }
-        workspaceProductOperations?.failDeletion({ workspaceId: input.workspaceId });
+        if (!accessRevoked) workspaceControl.completeWorkspaceDeletionIntent({ workspaceId });
+        workspaceProductOperations?.failDeletion({ workspaceId });
         throw error;
       }
     },
     async reconcileInterruptedDeletions() {
       for (const workspaceId of workspaceControl.listWorkspaceDeletionIntents()) {
-        const accessRevoked = workspaceControl.revokeWorkspaceForDeletion({ workspaceId });
-        if (accessRevoked) {
-          onWorkspaceAccessRevoked?.({
-            workspaceId,
-            reason: "workspace_access",
-            occurredAt: nowIso(),
-          });
-        }
-        await productStoreRegistry?.invalidate({ workspaceId });
-        await Promise.all([
-          eraseLocalWorkspaceProductData({ stateDirectory, workspaceId }),
-          sourceFileStore.eraseWorkspace(workspaceId),
-        ]);
-        workspaceControl.completeWorkspaceDeletionIntent({ workspaceId });
-        workspaceProductOperations?.completeDeletion({ workspaceId });
+        if (workspaceControl.revokeWorkspaceForDeletion({ workspaceId })) announceAccessRevoked(workspaceId);
+        await eraseRevokedWorkspace(workspaceId);
       }
     },
   };
