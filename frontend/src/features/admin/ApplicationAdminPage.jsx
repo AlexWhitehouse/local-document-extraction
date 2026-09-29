@@ -10,127 +10,123 @@ export function ApplicationAdminPage({ admin }) {
       </header>
 
       <section className="content-grid admin-page-grid">
-          <article className="workspace-card admin-user-panel">
-            <div className="workspace-head admin-user-panel-head">
-              <div>
-                <h2>Account Management</h2>
-                <p>Find Better Auth accounts without exposing Workspace data.</p>
-              </div>
-              <span className="status-chip">Total users {admin.total}</span>
+        <article className="workspace-card admin-user-panel">
+          <div className="workspace-head admin-user-panel-head">
+            <div>
+              <h2>Account Management</h2>
+              <p>Find Better Auth accounts without exposing Workspace data.</p>
             </div>
+            <span className="status-chip">Total users {admin.total}</span>
+          </div>
 
-            <form className="admin-user-search" onSubmit={admin.onSubmitSearch}>
-              <label>
-                Search field
-                <select
-                  value={admin.searchField}
-                  onChange={(event) => admin.onSearchFieldChange(event.target.value)}
-                >
-                  <option value="email">Email</option>
-                  <option value="name">Name</option>
-                </select>
-              </label>
-              <label>
-                Search users
-                <input
-                  value={admin.searchInput}
-                  placeholder="Search by email"
-                  onChange={(event) => admin.onSearchInputChange(event.target.value)}
-                />
-              </label>
-              <div className="actions compact admin-user-search-actions">
-                <button type="submit" disabled={admin.isLoading}>Search</button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={admin.isLoading || !admin.submittedSearch.value}
-                  onClick={admin.onClearSearch}
-                >
-                  Clear Search
-                </button>
-              </div>
-            </form>
+          <form className="admin-user-search" onSubmit={admin.onSubmitSearch}>
+            <label>
+              Search field
+              <select
+                value={admin.searchField}
+                onChange={(event) => admin.onSearchFieldChange(event.target.value)}
+              >
+                <option value="email">Email</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
+            <label>
+              Search users
+              <input
+                value={admin.searchInput}
+                placeholder="Search by email"
+                onChange={(event) => admin.onSearchInputChange(event.target.value)}
+              />
+            </label>
+            <div className="actions compact admin-user-search-actions">
+              <button type="submit" disabled={admin.isLoading}>Search</button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={admin.isLoading || !admin.submittedSearch.value}
+                onClick={admin.onClearSearch}
+              >
+                Clear Search
+              </button>
+            </div>
+          </form>
 
-            {admin.listError ? (
-              <div className="form-error" role="alert">
-                {admin.listError}
-                <button type="button" className="ghost" onClick={admin.onRetry}>
-                  Retry
-                </button>
-              </div>
-            ) : null}
+          {admin.listError ? (
+            <div className="form-error" role="alert">
+              {admin.listError}
+              <button type="button" className="ghost" onClick={admin.onRetry}>
+                Retry
+              </button>
+            </div>
+          ) : null}
 
-            {admin.isLoading ? <p className="muted">Loading users...</p> : null}
+          {admin.isLoading ? <p className="muted">Loading users...</p> : null}
 
-            <div className="table-scroll admin-users-table" aria-label="Application admin users">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Email</th>
-                    <th>Name</th>
-                    <th>Email Status</th>
-                    <th>Application Role</th>
-                    <th>Banned</th>
-                    <th>Ban Reason</th>
-                    <th>Created</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {admin.users.length ? (
-                    admin.users.map((user) => (
-                      <tr key={String(user.id || user.email)}>
-                        <td>{safeText(user.email)}</td>
-                        <td>{safeText(user.name)}</td>
-                        <td>{isEmailVerified(user) ? "Verified" : "Unverified"}</td>
-                        <td>{formatApplicationRole(user.role)}</td>
-                        <td>{user.banned ? "Banned" : "Active"}</td>
-                        <td>{user.banned ? safeText(user.banReason) : "Not banned"}</td>
-                        <td>{formatExactLocalDateTime(user.createdAt)}</td>
-                        <td>{renderUserActions(admin, user)}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={8}>No users found.</td>
+          <div className="table-scroll admin-users-table" aria-label="Application admin users">
+            <table>
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Name</th>
+                  <th>Email Status</th>
+                  <th>Application Role</th>
+                  <th>Banned</th>
+                  <th>Ban Reason</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {admin.users.length ? (
+                  admin.users.map((user) => (
+                    <tr key={String(user.id || user.email)}>
+                      <td>{safeText(user.email)}</td>
+                      <td>{safeText(user.name)}</td>
+                      <td>{isEmailVerified(user) ? "Verified" : "Unverified"}</td>
+                      <td>{isApplicationAdmin(user) ? "Application Admin" : "Regular User"}</td>
+                      <td>{user.banned ? "Banned" : "Active"}</td>
+                      <td>{user.banned ? safeText(user.banReason) : "Not banned"}</td>
+                      <td>{formatExactLocalDateTime(user.createdAt)}</td>
+                      <td><UserActionsMenu admin={admin} user={user} /></td>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={8}>No users found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-            <div className="admin-user-pagination">
-              <span className="muted">Page {admin.currentPage}</span>
-              <div className="actions compact">
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={admin.isLoading || !admin.hasPreviousPage}
-                  onClick={admin.onPreviousPage}
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={admin.isLoading || !admin.hasNextPage}
-                  onClick={admin.onNextPage}
-                >
-                  Next
-                </button>
-              </div>
+          <div className="admin-user-pagination">
+            <span className="muted">Page {admin.currentPage}</span>
+            <div className="actions compact">
+              <button
+                type="button"
+                className="secondary"
+                disabled={admin.isLoading || !admin.hasPreviousPage}
+                onClick={admin.onPreviousPage}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={admin.isLoading || !admin.hasNextPage}
+                onClick={admin.onNextPage}
+              >
+                Next
+              </button>
             </div>
-          </article>
+          </div>
+        </article>
       </section>
 
       {admin.banDialogUser ? <BanUserDialog admin={admin} user={admin.banDialogUser} /> : null}
       {admin.unbanDialogUser ? <UnbanUserDialog admin={admin} user={admin.unbanDialogUser} /> : null}
     </>
   );
-}
-
-function renderUserActions(admin, user) {
-  return <UserActionsMenu admin={admin} user={user} />;
 }
 
 function UserActionsMenu({ admin, user }) {
@@ -215,91 +211,34 @@ function UserActionsMenu({ admin, user }) {
 }
 
 function getUserActions(admin, user, closeMenu) {
-  return [
-    getRoleAction(admin, user, closeMenu),
-    getBanAction(admin, user, closeMenu),
-    getImpersonationAction(admin, user, closeMenu),
-  ].filter(Boolean);
-}
-
-function getImpersonationAction(admin, user, closeMenu) {
   const userId = String(user.id || "").trim();
   const isCurrentUser = userId && userId === String(admin.sessionUserId || "").trim();
-  const isMutating = admin.mutatingUserId === userId;
-
-  if (isCurrentUser || String(user.role || "user").trim() === "admin" || user.banned) {
-    return null;
-  }
-
-  return {
-    label: "Impersonate user",
-    disabled: admin.isLoading || isMutating,
+  const disabled = admin.isLoading || admin.mutatingUserId === userId;
+  const action = (label, run, className) => ({
+    label,
+    className,
+    disabled,
     onClick: () => {
       closeMenu();
-      admin.onStartImpersonation(user);
+      run(user);
     },
-  };
-}
+  });
 
-function getRoleAction(admin, user, closeMenu) {
-  const userId = String(user.id || "").trim();
-  const isCurrentUser = userId && userId === String(admin.sessionUserId || "").trim();
-  const isMutating = admin.mutatingUserId === userId;
-
-  if (String(user.role || "user").trim() === "admin") {
-    if (isCurrentUser) {
-      return null;
-    }
-
-    return {
-      label: "Remove admin",
-      disabled: admin.isLoading || isMutating,
-      onClick: () => {
-        closeMenu();
-        admin.onRemoveAdmin(user);
-      },
-    };
+  const actions = [];
+  if (isApplicationAdmin(user)) {
+    if (!isCurrentUser) actions.push(action("Remove admin", admin.onRemoveAdmin));
+  } else {
+    actions.push(action("Make admin", admin.onMakeAdmin));
   }
-
-  return {
-    label: "Make admin",
-    disabled: admin.isLoading || isMutating,
-    onClick: () => {
-      closeMenu();
-      admin.onMakeAdmin(user);
-    },
-  };
-}
-
-function getBanAction(admin, user, closeMenu) {
-  const userId = String(user.id || "").trim();
-  const isCurrentUser = userId && userId === String(admin.sessionUserId || "").trim();
-  const isMutating = admin.mutatingUserId === userId;
-
   if (user.banned) {
-    return {
-      label: "Unban user",
-      disabled: admin.isLoading || isMutating,
-      onClick: () => {
-        closeMenu();
-        admin.onOpenUnbanDialog(user);
-      },
-    };
+    actions.push(action("Unban user", admin.onOpenUnbanDialog));
+  } else if (!isCurrentUser) {
+    actions.push(action("Ban user", admin.onOpenBanDialog, "ghost danger"));
   }
-
-  if (isCurrentUser) {
-    return null;
+  if (!isCurrentUser && !isApplicationAdmin(user) && !user.banned) {
+    actions.push(action("Impersonate user", admin.onStartImpersonation));
   }
-
-  return {
-    label: "Ban user",
-    className: "ghost danger",
-    disabled: admin.isLoading || isMutating,
-    onClick: () => {
-      closeMenu();
-      admin.onOpenBanDialog(user);
-    },
-  };
+  return actions;
 }
 
 function UnbanUserDialog({ admin, user }) {
@@ -364,7 +303,7 @@ function BanUserDialog({ admin, user }) {
             <p>This permanently blocks Better Auth account access. Workspace data is unchanged.</p>
           </div>
         </div>
-        {String(user.role || "user").trim() === "admin" ? (
+        {isApplicationAdmin(user) ? (
           <p className="form-error">You are banning another Application admin.</p>
         ) : null}
         <label>
@@ -400,8 +339,8 @@ function isEmailVerified(user) {
   return Boolean(user.emailVerified ?? user.email_verified);
 }
 
-function formatApplicationRole(role) {
-  return String(role || "user").trim() === "admin" ? "Application Admin" : "Regular User";
+function isApplicationAdmin(user) {
+  return String(user.role || "user").trim() === "admin";
 }
 
 function formatExactLocalDateTime(value) {

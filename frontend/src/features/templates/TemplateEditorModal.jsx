@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { useState } from "react";
 import "./TemplateEditorModal.css";
+import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "./templateFields.js";
 
@@ -9,12 +9,6 @@ export function TemplateEditorModal({ initial, title = "Edit Template", action =
   const [draft, setDraft] = useState(() => ({ ...structuredClone(initial), fields: initial.fields.map(hydrateFieldFromTemplate) }));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const dialog = useRef(null);
-  useEffect(() => {
-    const previous = document.activeElement;
-    dialog.current?.querySelector("input")?.focus();
-    return () => previous?.focus();
-  }, []);
   const submit = async () => {
     try {
       const payload = validateTemplateJsonPayload(draft);
@@ -24,31 +18,19 @@ export function TemplateEditorModal({ initial, title = "Edit Template", action =
     } catch (failure) { setError(failure.message); }
     finally { setSaving(false); }
   };
-  const keyboard = event => {
-    // Nested column editors own their keyboard handling.
-    if (!dialog.current.contains(event.target)) return;
-    if (event.key === "Escape" && !saving) { event.stopPropagation(); onClose(); }
-    if (event.key !== "Tab") return;
-    const controls = [...dialog.current.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')];
-    const first = controls[0], last = controls.at(-1);
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-  };
-  return createPortal(<div className="modal-backdrop" onClick={() => !saving && onClose()}>
-    <div ref={dialog} className="modal-card studio-main template-editor-modal" role="dialog" aria-modal="true" aria-label={title} onKeyDown={keyboard} onClick={event => event.stopPropagation()}>
-      <header className="template-editor-modal-header">
-        <div><h2>{title}</h2>{notice && <p>{notice}</p>}</div>
-        <button type="button" className="icon-action-button template-editor-modal-close" aria-label="Close Template editor" disabled={saving} onClick={onClose}>×</button>
-      </header>
-      <div className="studio-template-meta">
-        <label>Template name<input value={draft.name} disabled={saving} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
-        <label>Description<input value={draft.description || ""} disabled={saving} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
-      </div>
-      <TemplateFieldEditor fields={draft.fields} disabled={saving} onChange={next => setDraft(previous => ({ ...previous, fields: typeof next === "function" ? next(previous.fields) : next }))} />
-      <footer className="template-editor-modal-footer">
+  return <ModalDialog className="studio-main template-editor-modal" label={title} initialFocus="input" onClose={() => { if (!saving) onClose(); }}>
+    <header className="template-editor-modal-header">
+      <div><h2>{title}</h2>{notice && <p>{notice}</p>}</div>
+      <button type="button" className="icon-action-button template-editor-modal-close" aria-label="Close Template editor" disabled={saving} onClick={onClose}>×</button>
+    </header>
+    <div className="studio-template-meta">
+      <label>Template name<input value={draft.name} disabled={saving} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
+      <label>Description<input value={draft.description || ""} disabled={saving} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
+    </div>
+    <TemplateFieldEditor fields={draft.fields} disabled={saving} onChange={next => setDraft(previous => ({ ...previous, fields: typeof next === "function" ? next(previous.fields) : next }))} />
+    <footer className="template-editor-modal-footer">
       {error && <p role="alert">{error}</p>}
       <div className="actions"><button type="button" className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button type="button" disabled={saving} onClick={submit}>{saving ? "Saving…" : action}</button></div>
-      </footer>
-    </div>
-  </div>, document.body);
+    </footer>
+  </ModalDialog>;
 }

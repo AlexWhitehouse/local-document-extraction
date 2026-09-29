@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { EvaluationDialog } from "./EvaluationDialog.jsx";
+import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { alignTableRows, tableCellsEqual } from "./evaluationScoring.js";
 import { Mark } from "./EvaluationParts.jsx";
@@ -50,7 +50,7 @@ export function TableComparison({ row, candidates, reference, scores, columnMapp
     return score?.kind === "table" ? `${score.matched}/${score.total} cells${score.missing.length ? ` · ${score.missing.length} missing` : ""}${score.extra.length ? ` · ${score.extra.length} extra` : ""}` : `${count} ${count === 1 ? "row" : "rows"} · ${score?.state === "Needs review" ? "needs review" : "unscored"}`;
   };
   const matching = verified ? (!reference.rows || reference.rows.mode !== "key" ? "Rows matched by position." : `Rows matched by ${columns.find(c => c.key === reference.rows.key)?.heading || "key"}.`) : "";
-  return <EvaluationDialog className="evaluation-compare" label={`${row.field.name} across candidates`} onClose={onClose}>
+  return <ModalDialog className="evaluation-compare" label={`${row.field.name} across candidates`} onClose={onClose}>
     <div className="evaluation-dialog-head"><div><h2>{row.field.name} · all candidates</h2>
       <p>{verified ? `${matching} Highlighted cells differ from the expected rows.` : "No expected rows yet. Highlighted cells differ from the most common candidate value."}</p></div>
       <button type="button" className="icon-action-button" aria-label="Close table comparison" onClick={onClose}>×</button></div>
@@ -103,5 +103,5 @@ export function TableComparison({ row, candidates, reference, scores, columnMapp
           </tr>)}</tbody>
         </table>}
     </ScrollArea>
-  </EvaluationDialog>;
+  </ModalDialog>;
 }

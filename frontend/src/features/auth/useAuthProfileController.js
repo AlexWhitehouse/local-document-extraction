@@ -45,7 +45,6 @@ export function useAuthProfileController({
   const [profileEmail, setProfileEmail] = useState("");
   const [profileDraftName, setProfileDraftName] = useState("");
   const profilePanelRef = useRef(null);
-  const addLogRef = useRef(addLog);
 
   const currentProfileName = (profileName.trim() || sessionUserName).trim();
   const currentProfileEmail = (profileEmail.trim() || sessionUserEmail).trim();
@@ -61,10 +60,6 @@ export function useAuthProfileController({
     authMode === "signup" &&
     authConfirmPassword.length > 0 &&
     authPassword !== authConfirmPassword;
-
-  useEffect(() => {
-    addLogRef.current = addLog;
-  }, [addLog]);
 
   useEffect(() => {
     if (!hasSession) {

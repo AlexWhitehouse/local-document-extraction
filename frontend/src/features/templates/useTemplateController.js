@@ -86,6 +86,7 @@ const DEFAULT_FIELDS = [
 const DEFAULT_TEMPLATE_NAME = "Invoice Template";
 const DEFAULT_TEMPLATE_DESCRIPTION = "Extract invoice details and line items from a Document";
 const DRAFT_TEMPLATE_NAV_ID = "__draft_template__";
+const copyDefaultFields = () => DEFAULT_FIELDS.map((field) => ({ ...field }));
 
 export function useTemplateController({
   initialWorkspace = {},
@@ -212,7 +213,7 @@ export function useTemplateController({
     setUpdateTemplateId("");
     setTemplateName(DEFAULT_TEMPLATE_NAME);
     setTemplateDescription(DEFAULT_TEMPLATE_DESCRIPTION);
-    setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
+    setTemplateFields(copyDefaultFields());
     setLoadedTemplateSnapshot(null);
     setIsSavingTemplate(false);
     setIsDeletingTemplate(false);
@@ -250,11 +251,13 @@ export function useTemplateController({
     }
   }, []);
 
-  async function createTemplate() {
+  async function saveTemplate() {
     if (isSavingTemplate || templateGeneration.modal.isOpen) {
       return;
     }
 
+    const targetTemplateId = updateTemplateId.trim();
+    const failurePrefix = `${targetTemplateId ? "Update" : "Create"} template failed`;
     let payload;
     try {
       payload = validateTemplateJsonPayload({
@@ -263,7 +266,7 @@ export function useTemplateController({
         fields: templateFields,
       });
     } catch (error) {
-      addLog(`Create template failed: ${error.message}`);
+      addLog(`${failurePrefix}: ${error.message}`);
       showActionToast("template.save", "validation", { reason: "draft" });
       return;
     }
@@ -272,74 +275,33 @@ export function useTemplateController({
     const isCurrent = () => generation === generationRef.current;
     setIsSavingTemplate(true);
     try {
-      const data = await request("/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!isCurrent()) return;
-      addLog(`Template created: ${data.template_id}`);
-      setUpdateTemplateId(data.template_id);
-      setSelectedUploadTemplateId(data.template_id);
-      setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
-      setShowDraftTemplateNav(false);
-      showActionToast("template.save", "success", {
-        targetName: data?.name || payload.name,
-      });
-      await listTemplates();
-    } catch (error) {
-      if (!isCurrent()) return;
-      addLog(`Create template failed: ${error.message}`);
-      showActionToast("template.save", "failure", { error });
-    } finally {
-      if (isCurrent()) setIsSavingTemplate(false);
-    }
-  }
-
-  async function updateTemplate() {
-    if (!updateTemplateId.trim()) {
-      addLog("Update template failed: template ID is required");
-      return;
-    }
-    if (isSavingTemplate || templateGeneration.modal.isOpen) {
-      return;
-    }
-
-    let payload;
-    try {
-      payload = validateTemplateJsonPayload({
-        name: templateName,
-        description: templateDescription,
-        fields: templateFields,
-      });
-    } catch (error) {
-      addLog(`Update template failed: ${error.message}`);
-      showActionToast("template.save", "validation", { reason: "draft" });
-      return;
-    }
-
-    const generation = generationRef.current;
-    const isCurrent = () => generation === generationRef.current;
-    setIsSavingTemplate(true);
-    try {
-      await request(
-        `/templates/${encodeURIComponent(updateTemplateId.trim())}`,
+      const data = await request(
+        targetTemplateId
+          ? `/templates/${encodeURIComponent(targetTemplateId)}`
+          : "/templates",
         {
-          method: "PATCH",
+          method: targetTemplateId ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         },
       );
       if (!isCurrent()) return;
-      addLog(`Template updated: ${updateTemplateId.trim()}`);
       setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
+      if (targetTemplateId) {
+        addLog(`Template updated: ${targetTemplateId}`);
+      } else {
+        addLog(`Template created: ${data.template_id}`);
+        setUpdateTemplateId(data.template_id);
+        setSelectedUploadTemplateId(data.template_id);
+        setShowDraftTemplateNav(false);
+      }
       showActionToast("template.save", "success", {
-        targetName: payload.name,
+        targetName: (!targetTemplateId && data?.name) || payload.name,
       });
       await listTemplates();
     } catch (error) {
       if (!isCurrent()) return;
-      addLog(`Update template failed: ${error.message}`);
+      addLog(`${failurePrefix}: ${error.message}`);
       showActionToast("template.save", "failure", { error });
     } finally {
       if (isCurrent()) setIsSavingTemplate(false);
@@ -513,10 +475,8 @@ export function useTemplateController({
         setUpdateTemplateId("");
         setSelectedUploadTemplateId("");
         setTemplateName(DEFAULT_TEMPLATE_NAME);
-        setTemplateDescription(
-          DEFAULT_TEMPLATE_DESCRIPTION,
-        );
-        setTemplateFields(DEFAULT_FIELDS.map((field) => ({ ...field })));
+        setTemplateDescription(DEFAULT_TEMPLATE_DESCRIPTION);
+        setTemplateFields(copyDefaultFields());
         setLoadedTemplateSnapshot(null);
       }
     } catch (error) {
@@ -578,10 +538,8 @@ export function useTemplateController({
     setShowDraftTemplateNav(true);
     setUpdateTemplateId("");
     setTemplateName(empty ? "" : DEFAULT_TEMPLATE_NAME);
-    setTemplateDescription(
-      empty ? "" : DEFAULT_TEMPLATE_DESCRIPTION,
-    );
-    setTemplateFields(empty ? [{ ...EMPTY_FIELD }] : DEFAULT_FIELDS.map((field) => ({ ...field })));
+    setTemplateDescription(empty ? "" : DEFAULT_TEMPLATE_DESCRIPTION);
+    setTemplateFields(empty ? [{ ...EMPTY_FIELD }] : copyDefaultFields());
     setLoadedTemplateSnapshot(null);
     addLog("Switched to new template draft");
   }
@@ -629,7 +587,7 @@ export function useTemplateController({
       onTemplateFieldsChange: (value) => { setHasNewDraftEdits(true); setTemplateFields(value); },
       onAutoGenerate: () => { editorRequestRef.current += 1; templateGeneration.open(); },
       onOpenJsonModal: openTemplateJsonModal,
-      onSaveTemplate: isEditingTemplate ? updateTemplate : createTemplate,
+      onSaveTemplate: saveTemplate,
     },
     generationModal: templateGeneration.modal,
     jsonModal: {
@@ -649,7 +607,6 @@ export function useTemplateController({
       onCopy: copyTemplateJson,
     },
     toolbar: {
-      templateCount: templates.length,
       isDeletingTemplate,
       selectedTemplateId: updateTemplateId,
       onCreateTemplate: startNewTemplateDraft,

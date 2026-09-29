@@ -3,7 +3,7 @@ import { WorkspaceToolbar } from "../layout/MainLayout.jsx";
 import { DocumentUploadPanel } from "../documents/DocumentUploadPanel.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ReferenceModal } from "./ReferenceModal.jsx";
-import { EvaluationDialog } from "./EvaluationDialog.jsx";
+import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { EvaluationSetup } from "./EvaluationSetup.jsx";
 import { TableComparison } from "./TableComparison.jsx";
 import { CandidateMenu, ExpectedInline, Mark, Meter, StatusLine } from "./EvaluationParts.jsx";
@@ -106,14 +106,15 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
     finally { if (current === lifetime.current) setLoading(false); }
   };
   const openEditor = (candidate, save = false) => setEditor({ candidateId: candidate.id, save, initial: { ...candidate.template, name: save ? `${candidate.template.name} copy` : candidate.template.name }, notice: save && candidate.result?.revision !== candidate.revision ? "These current edits have not been tested. Saving creates a new Template." : save ? "Creates a new Template from the current draft." : "Changes apply to the draft. Run again to test them." });
+  const modifiedSource = source => source ? { ...source, modified: true } : undefined;
   const applyTemplate = async payload => {
     if (editor.save) {
       await api("/templates", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
       setNotice("New Template saved. Your Evaluation draft and original Template are unchanged.");
       await onTemplateSaved?.();
     } else if (state.mode === "models") {
-      patch({ candidates: state.candidates.map(c => ({ ...c, template: { ...structuredClone(payload), source: c.template.source ? { ...c.template.source, modified: true } : undefined }, revision: c.revision + 1 })) });
-    } else edit(editor.candidateId, { template: { ...payload, source: state.candidates.find(c => c.id === editor.candidateId).template.source ? { ...state.candidates.find(c => c.id === editor.candidateId).template.source, modified: true } : undefined } });
+      patch({ candidates: state.candidates.map(c => ({ ...c, template: { ...structuredClone(payload), source: modifiedSource(c.template.source) }, revision: c.revision + 1 })) });
+    } else edit(editor.candidateId, { template: { ...payload, source: modifiedSource(state.candidates.find(c => c.id === editor.candidateId).template.source) } });
   };
   const saveReference = (row, value) => patch({ references: { ...state.references, [row.identity]: value }, definitions: { ...state.definitions, [row.identity]: row.field } });
   const reference = (row, candidate) => {
@@ -255,18 +256,18 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
         </aside>}
       </div>
     </>}
-    {uploadOpen && <EvaluationDialog label="Upload evaluation document" onClose={() => { setUploadOpen(false); setLocalError(""); }}><div className="evaluation-heading"><h2>Upload document</h2><button className="secondary" onClick={() => { setUploadOpen(false); setLocalError(""); }}>Close</button></div>
+    {uploadOpen && <ModalDialog label="Upload evaluation document" onClose={() => { setUploadOpen(false); setLocalError(""); }}><div className="evaluation-heading"><h2>Upload document</h2><button className="secondary" onClick={() => { setUploadOpen(false); setLocalError(""); }}>Close</button></div>
       <DocumentUploadPanel label="Document" multiple={false} maxSourceFileBytes={maxSourceFileBytes} isDragActive={isDragActive} onSelectSourceFiles={selectDocument} onDragOver={() => setDragActive(true)} onDragLeave={() => setDragActive(false)} onDrop={event => selectDocument(Array.from(event.dataTransfer.files || []))} />
       {localError && <p role="alert">{localError}</p>}
-    </EvaluationDialog>}
-    {replacement && <EvaluationDialog label="Choose candidate Template" onClose={() => setReplacement(null)}><h2>Choose candidate Template</h2><label>Template<select value={templateId} disabled={loading} onChange={event => { setTemplateId(event.target.value); setVersion(""); }}><option value="" disabled>Choose a Template</option>{templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+    </ModalDialog>}
+    {replacement && <ModalDialog label="Choose candidate Template" onClose={() => setReplacement(null)}><h2>Choose candidate Template</h2><label>Template<select value={templateId} disabled={loading} onChange={event => { setTemplateId(event.target.value); setVersion(""); }}><option value="" disabled>Choose a Template</option>{templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
       <label>Field version<select value={version} disabled={!selectedTemplate || loading} onChange={event => setVersion(event.target.value)}><option value="">{selectedTemplate ? `Current · v${selectedTemplate.current_version}` : "Select a Template first"}</option>{Array.from({ length: Math.max(0, (selectedTemplate?.current_version || 1) - 1) }, (_, index) => <option key={index} value={index + 1}>Fields v{index + 1}</option>)}</select></label>
       <div className="actions"><button className="secondary" onClick={() => setReplacement(null)}>Cancel</button><button disabled={!templateId || loading} onClick={replaceTemplate}>{loading ? "Loading…" : "Replace candidate Template"}</button></div>{localError && <p role="alert">{localError}</p>}
-    </EvaluationDialog>}
+    </ModalDialog>}
     {editor && <TemplateEditorModal key={`${editor.candidateId}:${editor.save}`} {...editor} title={editor.save ? "Save as new Template" : "Edit Template"} action={editor.save ? "Save new Template" : "Apply changes"} onSubmit={applyTemplate} onClose={() => setEditor(null)} />}
     {referenceEditor && <ReferenceModal {...referenceEditor} onClose={() => setReferenceEditor(null)} onSave={value => { saveReference(referenceEditor.row, value); setReferenceEditor(null); }} />}
     {expanded?.table && !referenceEditor && rows.has(expanded.identity) && <TableComparison row={rows.get(expanded.identity)} candidates={state.candidates} reference={state.references[expanded.identity]} scores={scores} columnMappings={state.columns} labelFor={labelFor} onEditExpected={() => reference(rows.get(expanded.identity))} onClose={() => setExpanded(null)} />}
-    {expanded && !expanded.table && rows.has(expanded.identity) && <EvaluationDialog className="evaluation-expanded" label="Expanded comparison" onClose={() => setExpanded(null)}><div className="evaluation-heading"><h2>{rows.get(expanded.identity).field.name}</h2><button onClick={() => setExpanded(null)}>Close</button></div><div className="evaluation-expanded-grid">{state.candidates.map((c, i) => <section key={c.id}><h3>Candidate {i + 1} · {c.result?.model || c.model}</h3>{renderValue(rows.get(expanded.identity), c, true)}</section>)}</div></EvaluationDialog>}
-    {preview && <EvaluationDialog className="evaluation-expanded" label="Document preview" onClose={() => setPreview(false)}><button onClick={() => setPreview(false)}>Close document</button>{state.document?.type === "application/pdf" ? <iframe title="Evaluation document" src={sourceUrl} /> : <img alt="Evaluation document" src={sourceUrl} />}</EvaluationDialog>}
+    {expanded && !expanded.table && rows.has(expanded.identity) && <ModalDialog className="evaluation-expanded" label="Expanded comparison" onClose={() => setExpanded(null)}><div className="evaluation-heading"><h2>{rows.get(expanded.identity).field.name}</h2><button onClick={() => setExpanded(null)}>Close</button></div><div className="evaluation-expanded-grid">{state.candidates.map((c, i) => <section key={c.id}><h3>Candidate {i + 1} · {c.result?.model || c.model}</h3>{renderValue(rows.get(expanded.identity), c, true)}</section>)}</div></ModalDialog>}
+    {preview && <ModalDialog className="evaluation-expanded" label="Document preview" onClose={() => setPreview(false)}><button onClick={() => setPreview(false)}>Close document</button>{state.document?.type === "application/pdf" ? <iframe title="Evaluation document" src={sourceUrl} /> : <img alt="Evaluation document" src={sourceUrl} />}</ModalDialog>}
   </section>;
 }
