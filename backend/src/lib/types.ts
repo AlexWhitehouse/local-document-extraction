@@ -13,8 +13,3 @@ export type FieldDefinition = {
   description: string;
   data_type: DataType;
 };
-
-export type ExtractOptions = {
-  include_confidence?: boolean;
-  include_evidence?: boolean;
-};

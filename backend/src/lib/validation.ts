@@ -1,5 +1,5 @@
 import { HttpError } from "./http";
-import type { DataType, FieldDefinition, ExtractOptions } from "./types";
+import type { DataType, FieldDefinition } from "./types";
 
 const ALLOWED_DATA_TYPES: ReadonlySet<DataType> = new Set([
   "string",
@@ -155,105 +155,44 @@ function normalizeObjectMetadata(
   fieldDataType: "object" | "array<object>"
 ): string {
   const { baseDescription, objectSchema: descriptionObjectSchema } = extractObjectMetadata(description);
-  const inputObjectSchema = normalizeObjectSchemaInput(schemaInput);
-  const objectSchema = inputObjectSchema || descriptionObjectSchema;
-
+  const objectSchema = normalizeObjectSchemaInput(schemaInput) || descriptionObjectSchema;
   if (!objectSchema) {
     return baseDescription;
   }
 
+  const fieldError = (message: string) => new HttpError(400, "invalid_fields", `Field ${fieldIndex + 1}${message}`);
   if (objectSchema.columns.length === 0) {
-    throw new HttpError(
-      400,
-      "invalid_fields",
-      `Field ${fieldIndex + 1}: object fields require at least one table column`
-    );
+    throw fieldError(": object fields require at least one table column");
   }
-
   if (objectSchema.columns.length > MAX_TEMPLATE_OBJECT_COLUMNS) {
-    throw new HttpError(
-      400,
-      "invalid_fields",
-      `Field ${fieldIndex + 1}: object fields may contain at most ${MAX_TEMPLATE_OBJECT_COLUMNS} table columns`,
-    );
+    throw fieldError(`: object fields may contain at most ${MAX_TEMPLATE_OBJECT_COLUMNS} table columns`);
   }
-
   if (objectSchema.data_type && objectSchema.data_type !== fieldDataType) {
-    throw new HttpError(
-      400,
-      "invalid_fields",
-      `Field ${fieldIndex + 1}: object schema data_type must match field data_type`
-    );
+    throw fieldError(": object schema data_type must match field data_type");
   }
 
   const normalizedColumns = objectSchema.columns.map((column, columnIndex) => {
+    const columnError = (message: string) => fieldError(`, column ${columnIndex + 1}: ${message}`);
     const heading = normalizeFieldName(column.heading);
-    const rawHeading = String(column.heading || "").trim();
-    const dataType = String(column.data_type || "").trim();
-    const normalizedKey = toFieldId(heading);
-    const descriptionText = String(column.description || "").trim();
-
-    if (!rawHeading) {
-      throw new HttpError(
-        400,
-        "invalid_fields",
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading is required`
-      );
-    }
-    if (!heading) {
-      throw new HttpError(
-        400,
-        "invalid_fields",
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading must include letters or numbers`
-      );
-    }
-    if (heading !== rawHeading) {
-      throw new HttpError(
-        400,
-        "invalid_fields",
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading contains unsupported characters`
-      );
-    }
-    if (!normalizedKey) {
-      throw new HttpError(
-        400,
-        "invalid_fields",
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: key must include letters or numbers`
-      );
-    }
-    if (!OBJECT_SCHEMA_DATA_TYPES.has(dataType as DataType)) {
-      throw new HttpError(
-        400,
-        "invalid_fields",
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: unsupported column type`
-      );
-    }
-
-    return {
-      key: normalizedKey,
-      heading,
-      data_type: dataType,
-      description: descriptionText
-    };
+    const rawHeading = column.heading.trim();
+    const dataType = column.data_type.trim();
+    const key = toFieldId(heading);
+    if (!rawHeading) throw columnError("heading is required");
+    if (!heading) throw columnError("heading must include letters or numbers");
+    if (heading !== rawHeading) throw columnError("heading contains unsupported characters");
+    if (!key) throw columnError("key must include letters or numbers");
+    if (!OBJECT_SCHEMA_DATA_TYPES.has(dataType as DataType)) throw columnError("unsupported column type");
+    return { key, heading, data_type: dataType, description: column.description.trim() };
   });
 
   const seenKeys = new Set<string>();
   for (const [columnIndex, column] of normalizedColumns.entries()) {
     if (seenKeys.has(column.key)) {
-      throw new HttpError(
-        400,
-        "invalid_fields",
-        `Field ${fieldIndex + 1}: duplicate object column key "${column.key}"`
-      );
+      throw fieldError(`: duplicate object column key "${column.key}"`);
     }
     seenKeys.add(column.key);
-
     if (!column.description) {
-      throw new HttpError(
-        400,
-        "invalid_fields",
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: description is required`
-      );
+      throw fieldError(`, column ${columnIndex + 1}: description is required`);
     }
   }
 
@@ -349,7 +288,7 @@ function extractObjectMetadata(description: string) {
 export async function validateExtractRequest(
   request: Request,
   maxSourceFileBytes: number
-): Promise<{ templateId: string; source: File; options: ExtractOptions }> {
+): Promise<{ templateId: string; source: File }> {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) {
     throw new HttpError(415, "unsupported_media_type", "Use multipart/form-data");
@@ -360,7 +299,7 @@ export async function validateExtractRequest(
   if (!(sourcePart instanceof File)) {
     throw new HttpError(400, "invalid_document", "document is required");
   }
-  const { templateId, options } = validateExtractSubmissionMetadata({
+  const { templateId } = validateExtractSubmissionMetadata({
     hasInlineFields: form.has("fields"),
     maxSourceFileBytes,
     optionsRaw: form.get("options"),
@@ -369,11 +308,7 @@ export async function validateExtractRequest(
     templateIdRaw: form.get("template_id"),
   });
 
-  return {
-    templateId,
-    source: sourcePart,
-    options
-  };
+  return { templateId, source: sourcePart };
 }
 
 export function validateExtractSubmissionMetadata({
@@ -390,7 +325,7 @@ export function validateExtractSubmissionMetadata({
   sourceMimeType: string;
   sourceSize: number;
   templateIdRaw: FormDataEntryValue | null;
-}): { templateId: string; options: ExtractOptions } {
+}): { templateId: string } {
   if (hasInlineFields) {
     throw new HttpError(400, "inline_fields_forbidden", "Inline fields are not allowed");
   }
@@ -398,24 +333,17 @@ export function validateExtractSubmissionMetadata({
     throw new HttpError(400, "invalid_template_id", "template_id is required");
   }
   validateSourceFileMetadata(sourceMimeType, sourceSize, maxSourceFileBytes);
-  return {
-    templateId: templateIdRaw.trim(),
-    options: parseOptions(optionsRaw),
-  };
+  validateOptions(optionsRaw);
+  return { templateId: templateIdRaw.trim() };
 }
 
-function parseOptions(value: FormDataEntryValue | null): ExtractOptions {
-  if (value === null) {
-    return {};
-  }
-
+/** `options` is part of the documented API contract; the pipeline does not read it, but malformed values are rejected. */
+function validateOptions(value: FormDataEntryValue | null): void {
+  if (value === null) return;
   if (typeof value !== "string") {
     throw new HttpError(400, "invalid_options", "options must be a JSON string");
   }
-
-  if (value.trim().length === 0) {
-    return {};
-  }
+  if (value.trim().length === 0) return;
 
   let parsed: unknown;
   try {
@@ -423,29 +351,15 @@ function parseOptions(value: FormDataEntryValue | null): ExtractOptions {
   } catch {
     throw new HttpError(400, "invalid_options", "options must be valid JSON");
   }
-
   if (!parsed || typeof parsed !== "object") {
     throw new HttpError(400, "invalid_options", "options must be an object");
   }
-
-  const obj = parsed as Record<string, unknown>;
-  const options: ExtractOptions = {};
-
-  if (obj.include_confidence !== undefined) {
-    if (typeof obj.include_confidence !== "boolean") {
-      throw new HttpError(400, "invalid_options", "include_confidence must be boolean");
+  for (const name of ["include_confidence", "include_evidence"]) {
+    const option = (parsed as Record<string, unknown>)[name];
+    if (option !== undefined && typeof option !== "boolean") {
+      throw new HttpError(400, "invalid_options", `${name} must be boolean`);
     }
-    options.include_confidence = obj.include_confidence;
   }
-
-  if (obj.include_evidence !== undefined) {
-    if (typeof obj.include_evidence !== "boolean") {
-      throw new HttpError(400, "invalid_options", "include_evidence must be boolean");
-    }
-    options.include_evidence = obj.include_evidence;
-  }
-
-  return options;
 }
 
 export function validateSourceFileMetadata(sourceMimeType: string, sourceSize: number, maxSourceFileBytes: number): void {
