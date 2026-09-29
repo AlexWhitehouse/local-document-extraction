@@ -38,8 +38,6 @@ import "./features/layout/StudioLayouts.css";
 
 const API_BASE = "/v1";
 
-// The template and auth controllers still report to a debug log that nothing displays.
-const discardLog = () => {};
 
 const PAGE_DESCRIPTIONS = {
   workspace: "Your extraction environment, connections and people.",
@@ -140,7 +138,6 @@ function AuthenticatedApp({ configuration }) {
   const templateController = useTemplateController({
     maxSourceFileBytes,
     request: documentRequests.request,
-    addLog: discardLog,
     showActionToast,
     hasApiAccess,
     workspaceId,
@@ -217,7 +214,6 @@ function AuthenticatedApp({ configuration }) {
     authOptions: configuration.auth,
     authClient,
     refetchSession,
-    addLog: discardLog,
     hasSession,
     sessionUserName,
     sessionUserEmail,
@@ -478,7 +474,6 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
     authOptions,
     authClient,
     refetchSession: async () => {},
-    addLog: discardLog,
     initialAuthMode: "reset-request",
     hasSession: false,
     sessionUserName: "",

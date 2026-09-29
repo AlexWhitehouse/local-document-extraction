@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { validateTemplateJsonPayload } from "./templateFields.js";
+import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 
 export function useTemplateGeneration({
   request, workspaceId, sessionId, activePage, templateId, hasApiAccess,
@@ -42,7 +43,7 @@ export function useTemplateGeneration({
   async function generate() {
     if (pending.current || !isOpen || !hasApiAccess) return;
     if (!file) { setError("Select a sample file."); return; }
-    if (!["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    if (!SOURCE_FILE_MIME_TYPES.includes(file.type)) {
       setError("Choose a PDF, PNG, JPEG, or WebP file."); return;
     }
     if (!file.size || file.size > maxSourceFileBytes) {
@@ -64,7 +65,7 @@ export function useTemplateGeneration({
       body.append("document", file);
       body.append("instructions", instructions);
       const response = await request("/templates/generate", {
-        method: "POST", body, signal: controller.signal, publishResponse: false,
+        method: "POST", body, signal: controller.signal,
       });
       if (!isCurrent()) return;
       const payload = validateTemplateJsonPayload(response, { includeObjectSchema: true });

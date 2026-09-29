@@ -7,7 +7,7 @@ import { TemplateGenerationModal } from "./TemplateGenerationModal.jsx";
 const proposal = { name: "Receipt", description: "Receipt details", fields: [{ name: "Total", description: "Amount paid", data_type: "number" }] };
 const file = new File(["sample"], "receipt.png", { type: "image/png" });
 const propsFor = (request) => ({ request, workspaceId: "workspace_a", sessionId: "session_a", hasApiAccess: true,
-  activePage: "templates", addLog: vi.fn(), showActionToast: vi.fn(), onActivePageChange: vi.fn() });
+  activePage: "templates", showActionToast: vi.fn(), onActivePageChange: vi.fn() });
 const deferred = () => { let resolve; let reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { resolve, reject, promise }; };
 async function open(result) {
   act(() => result.current.templatePage.onAutoGenerate());
@@ -28,7 +28,6 @@ describe("Template generation", () => {
     expect(result.current.generationModal.isOpen).toBe(false);
     const generation = request.mock.calls.find(([path]) => path === "/templates/generate")[1];
     expect(generation.body.get("instructions")).toBe("Totals only");
-    expect(generation.publishResponse).toBe(false);
     expect(request.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
     await act(() => result.current.templatePage.onSaveTemplate());
     expect(request).toHaveBeenCalledWith("/templates", expect.objectContaining({ method: "POST" }));

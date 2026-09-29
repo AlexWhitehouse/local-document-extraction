@@ -11,7 +11,6 @@ import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
 import { LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY } from "./localLiveUpdatePolicy";
 import { upgradeLocalLiveUpdate } from "./localLiveUpdateUpgrade";
 import { registerLocalMemoryPressureListener } from "./localMemoryPressure";
-import { localMemoryLimits } from "./localMemoryLimits";
 import { retireGlobalModelConfiguration } from "./retireGlobalModelConfiguration";
 import { createLocalProductAnalytics } from "./localProductAnalytics";
 import { createLocalResourceController } from "./localResourceController";
@@ -30,7 +29,7 @@ const {
   assetsDirectory, stateDirectory, port, maxSourceFileBytes, maxJsonRequestBytes,
   extractionRetryDelayMs, extractionMaxConcurrency, extractionMaxBuffered,
   extractionReconcileIntervalMs, submissionMaxConcurrency, submissionMaxReservedBytes,
-  extractionAdaptiveConcurrency, extractionMaximumConcurrency, localCpuLimitRatio,
+  extractionAdaptiveConcurrency, extractionMaximumConcurrency, localCpuLimitRatio, localMemoryLimitRatio,
   memoryPressureLargeSubmissionBytes, localDiskReserveBytes,
   sourceRetentionSweepIntervalMs, failedSourceRetentionMs, shutdownTimeoutMs,
 } = configuration;
@@ -132,7 +131,7 @@ const localResourceController = createLocalResourceController({
   getQueueSnapshot: localExtractionQueue.snapshot,
   initialPermits: extractionMaxConcurrency,
   maximumPermits: extractionMaximumConcurrency,
-  memoryLimitRatio: localMemoryLimits.memoryLimitRatio,
+  memoryLimitRatio: localMemoryLimitRatio,
   memoryPressureLargeSubmissionBytes,
   setPermits: localExtractionQueue.setMaxConcurrent,
   stateDirectory,

@@ -1,3 +1,6 @@
+// Source file types the backend accepts for extraction.
+export const SOURCE_FILE_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp"];
+
 export const DEFAULT_RUNTIME_CONFIGURATION = Object.freeze({
   auth: Object.freeze({
     emailPasswordEnabled: true,

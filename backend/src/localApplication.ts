@@ -3,7 +3,7 @@ import { ExtractionCancelledError, ModelGatewayRequestError, RetryableError } fr
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { evaluateAccountPasswordPolicy } from "./lib/accountPasswordPolicy";
-import { HttpError } from "./lib/http";
+import { bearerApiKey, HttpError } from "./lib/http";
 import { newId, nowIso } from "./lib/ids";
 import { InvalidPdfSourceFileError, PdfSourceFileCapacityError, PdfSourceFileLimitError, countPdfSourceFilePages } from "./lib/sourceFilePageCount";
 import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "./lib/validation";
@@ -920,12 +920,6 @@ function recordLocalProductAnalytics(productAnalytics: LocalProductAnalytics | u
   } catch (error) {
     console.warn("Local product analytics emission failed", error);
   }
-}
-
-function bearerApiKey(request: Request): string | null {
-  const value = request.headers.get("authorization")?.trim() || "";
-  if (!value.toLowerCase().startsWith("bearer ")) return null;
-  return value.slice(7).trim() || null;
 }
 
 /** Better Auth only enforces a minimum length; the product requires the full complexity policy. */

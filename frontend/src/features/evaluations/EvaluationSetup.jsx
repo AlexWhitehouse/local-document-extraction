@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { MAX_CANDIDATES } from "./useEvaluations.js";
+import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 
-const ACCEPTED = "application/pdf,image/png,image/jpeg,image/webp";
 const MODES = [
   { id: "models", title: "Models", summary: "One Template, different models", detail: "Find the most accurate or fastest model for this kind of document.", shape: ["T", ["M1", "M2", "M3"]] },
   { id: "templates", title: "Template versions", summary: "One model, different Templates", detail: "Check whether edited field instructions improve the results.", shape: ["M", ["v3", "v2", "v1"]] },
@@ -75,7 +75,7 @@ export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes,
             <div><strong>Drop a PDF or image here</strong><small>PDF, PNG, JPG or WEBP · up to {mebibytes(maxSourceFileBytes)} MiB · one document</small></div>
             <button type="button" className="secondary" onClick={() => input.current.click()}>Choose file</button>
           </div>}
-          <input ref={input} type="file" hidden aria-label="Evaluation document" accept={ACCEPTED} onChange={event => { onSelectDocument(Array.from(event.target.files || [])); event.target.value = ""; }} />
+          <input ref={input} type="file" hidden aria-label="Evaluation document" accept={SOURCE_FILE_MIME_TYPES.join(",")} onChange={event => { onSelectDocument(Array.from(event.target.files || [])); event.target.value = ""; }} />
         </div>
       </section>
 

@@ -13,8 +13,8 @@ import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
 import { MAX_CANDIDATES, candidateBusy } from "./useEvaluations.js";
 import { answerSignature, bestCandidateId, candidateAccuracy, fieldIdentity, scalarValue, scoreCandidate, tableAnswerRows, tableColumns, validateReference } from "./evaluationScoring.js";
 import "./evaluations.css";
+import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 
-const DOCUMENT_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp"];
 const COMPARABLE_TYPES = ["array<object>", "object", "array"];
 const FILTERS = [["all", "All fields"], ["differ", "Candidates differ"], ["mismatch", "Has mismatch"], ["unverified", "Unverified"]];
 
@@ -74,7 +74,7 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
     const file = files[0];
     setDragActive(false);
     if (!file) return;
-    if (!DOCUMENT_TYPES.includes(file.type)) { setLocalError("Choose a PDF, PNG, JPG or WEBP document."); return; }
+    if (!SOURCE_FILE_MIME_TYPES.includes(file.type)) { setLocalError("Choose a PDF, PNG, JPG or WEBP document."); return; }
     if (file.size > maxSourceFileBytes) { setLocalError("Document exceeds the Workspace file limit."); return; }
     patch({ document: file }); setLocalError(""); setUploadOpen(false);
   };
