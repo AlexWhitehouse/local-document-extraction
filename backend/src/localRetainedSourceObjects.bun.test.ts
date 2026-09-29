@@ -261,7 +261,7 @@ test("the S3 destination is recorded and cannot change while objects or cleanup 
   manifest.assertDestination("s3|aws|documents|app/|virtual-hosted");
 
   manifest.markDeleting({ objectKey: "app/key.pdf" });
-  expect(() => manifest.assertDestination("s3|aws|other-bucket|app/|virtual-hosted")).toThrow("unfinished cleanup");
+  expect(() => manifest.assertDestination("s3|aws|other-bucket|app/|virtual-hosted")).toThrow("unfinished deletion");
   manifest.remove({ objectKey: "app/key.pdf" });
   manifest.assertDestination("s3|aws|other-bucket|app/|virtual-hosted");
   expect(manifest.namespace()).toBe(namespace);

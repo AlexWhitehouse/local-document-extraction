@@ -70,8 +70,10 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
       const pending = pendingEntries();
       if (recorded && pending > 0) {
         throw new SourceObjectDestinationError(
-          `S3 storage settings changed, but ${pending} retained original(s) or unfinished cleanup still depend on the previous destination. `
-          + "Restore the previous endpoint, bucket, prefix and addressing style (credentials may change), or run document-extraction storage configure.",
+          `S3 storage settings changed, but ${pending} retained original(s) or unfinished deletion(s) still depend on the previous destination. `
+          + "Moving originals is not supported. Restore the previous endpoint, bucket, prefix and addressing style (credentials may change). "
+          + "To stop keeping new originals there, set SOURCE_ORIGINAL_RETENTION_ENABLED=false instead. "
+          + "To leave that destination, first delete the Documents stored there and let background cleanup finish.",
         );
       }
       if (!destination) return;
