@@ -18,18 +18,13 @@ import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from 
 import { handleWorkspaceModelConfiguration } from "./workspaceModelConfigurationHttp";
 import { configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 import type { FetchApplication } from "./localRuntime";
-import type { LocalAuth } from "./localAuth";
-import {
-  LocalWorkspaceControlError,
-  type LocalWorkspaceControl,
-} from "./localWorkspaceControl";
-import type {
-  LocalWorkspaceExtractionJobSummary,
-  LocalWorkspaceProductStore,
-} from "./localWorkspaceProductStore";
+import type { LocalAuth, LocalSession } from "./localAuth";
+import { LocalWorkspaceControlError, type LocalWorkspaceControl } from "./localWorkspaceControl";
+import type { LocalWorkspaceExtractionJobSummary, LocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 import {
   createEphemeralLocalWorkspaceProductStoreRegistry,
   createLocalWorkspaceProductStoreRegistry,
+  type LocalWorkspaceProductStoreHandle,
   type LocalWorkspaceProductStoreRegistry,
 } from "./localWorkspaceProductStoreRegistry";
 import {
@@ -45,16 +40,27 @@ import {
   type LocalWorkspaceProductOperations,
 } from "./localWorkspaceProductOperations";
 
-export const DEFAULT_MAX_SOURCE_FILE_BYTES = 10 * 1024 * 1024;
-export const DEFAULT_JOB_PAGE_SIZE = 50;
+const DEFAULT_JOB_PAGE_SIZE = 50;
 let activeJobExports = 0;
+
+/** Everything a Workspace product route needs; present only when the app has local state and control. */
+type ProductServices = {
+  auth: LocalAuth;
+  access: LocalWorkspaceProductDataAccess;
+  operations: LocalWorkspaceProductOperations;
+  sourceFileStore: LocalSourceFileStore;
+  stateDirectory: string;
+  workspaceControl: LocalWorkspaceControl;
+};
+
+type AuthorizedWorkspace = { id: string; name: string; max_source_file_bytes: number | null };
 
 export function createLocalApplication({
   auth,
   diagnostics,
   evaluations,
   jobPageSize = DEFAULT_JOB_PAGE_SIZE,
-  maxSourceFileBytes = DEFAULT_MAX_SOURCE_FILE_BYTES,
+  maxSourceFileBytes = 10 * 1024 * 1024,
   maxJsonRequestBytes = 1024 * 1024,
   modelGatewayRequestTimeoutMs = "300000",
   liveUpdateHub,
@@ -86,73 +92,61 @@ export function createLocalApplication({
   workspaceDeletion?: LocalWorkspaceDeletion;
   workspaceProductOperations?: LocalWorkspaceProductOperations;
 } = {}): FetchApplication {
-  const localJobPageSize = Number.isSafeInteger(jobPageSize) && jobPageSize > 0
-    ? jobPageSize
-    : DEFAULT_JOB_PAGE_SIZE;
+  const localJobPageSize = Number.isSafeInteger(jobPageSize) && jobPageSize > 0 ? jobPageSize : DEFAULT_JOB_PAGE_SIZE;
   const jobCursorSecret = randomBytes(32);
-  const localSourceFileStore = sourceFileStore ?? (stateDirectory ? createLocalSourceFileStore({ stateDirectory }) : null);
-  const localProductStoreRegistry = productStoreRegistry ?? (stateDirectory
-    ? productStoreFactory
+  let product: ProductServices | null = null;
+  let localWorkspaceDeletion = workspaceDeletion ?? null;
+  if (stateDirectory && workspaceControl) {
+    const registry = productStoreRegistry ?? (productStoreFactory
       ? createEphemeralLocalWorkspaceProductStoreRegistry({ stateDirectory, createStore: productStoreFactory })
-      : createLocalWorkspaceProductStoreRegistry({ stateDirectory })
-    : null);
-  const localWorkspaceProductOperations = workspaceProductOperations ?? (stateDirectory && workspaceControl
-    ? createLocalWorkspaceProductOperations()
-    : null);
-  const localProductDataAccess = localProductStoreRegistry && localWorkspaceProductOperations
-    ? createLocalWorkspaceProductDataAccess({ registry: localProductStoreRegistry, operations: localWorkspaceProductOperations })
-    : null;
-  const localWorkspaceDeletion = workspaceDeletion ?? (stateDirectory && localSourceFileStore && workspaceControl
-    ? createLocalWorkspaceDeletion({
-        sourceFileStore: localSourceFileStore,
+      : createLocalWorkspaceProductStoreRegistry({ stateDirectory }));
+    const operations = workspaceProductOperations ?? createLocalWorkspaceProductOperations();
+    const files = sourceFileStore ?? createLocalSourceFileStore({ stateDirectory });
+    localWorkspaceDeletion ??= createLocalWorkspaceDeletion({
+      sourceFileStore: files,
+      stateDirectory,
+      workspaceControl,
+      workspaceProductOperations: operations,
+      productStoreRegistry: registry,
+      onWorkspaceAccessRevoked: liveUpdateHub?.broadcastWorkspaceContextInvalidation,
+    });
+    if (auth) {
+      product = {
+        auth,
+        access: createLocalWorkspaceProductDataAccess({ registry, operations }),
+        operations,
+        sourceFileStore: files,
         stateDirectory,
         workspaceControl,
-        workspaceProductOperations: localWorkspaceProductOperations ?? undefined,
-        productStoreRegistry: localProductStoreRegistry ?? undefined,
-        onWorkspaceAccessRevoked: liveUpdateHub?.broadcastWorkspaceContextInvalidation,
-      })
-    : null);
+      };
+    }
+  }
+
   return async (request) => {
     const url = new URL(request.url);
-    if (url.pathname.startsWith("/v1/") && request.headers.has("cookie") &&
-      !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+    const { pathname } = url;
+    if (pathname.startsWith("/v1/") && request.headers.has("cookie") && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
       const rejection = localRequestOriginFailure(request, auth);
       if (rejection) return rejection;
     }
-    if (url.pathname.startsWith("/v1/evaluations/") && evaluations) return evaluations.handle(request);
-    if (request.body && !(request.method === "POST" && ["/v1/extract", "/v1/templates/generate"].includes(url.pathname))) {
+    if (pathname.startsWith("/v1/evaluations/") && evaluations) return evaluations.handle(request);
+    // Document uploads are streamed and bounded by their own multipart limits.
+    if (request.body && !(request.method === "POST" && ["/v1/extract", "/v1/templates/generate"].includes(pathname))) {
       try {
         request = await boundLocalApiBody(request, maxJsonRequestBytes);
       } catch (error) {
-        if (error instanceof HttpError) {
-          return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
-        }
-        return Response.json({ error: { code: "invalid_request_body", message: "Could not read the request body" } }, { status: 400 });
+        return error instanceof HttpError
+          ? httpErrorResponse(error)
+          : errorResponse(400, "invalid_request_body", "Could not read the request body");
       }
     }
 
-    if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
-      if (!auth) {
-        return Response.json(
-          {
-            error: {
-              code: "local_auth_unavailable",
-              message: "Local authentication has not finished initializing.",
-            },
-          },
-          { status: 503 },
-        );
-      }
-
-      const passwordFailure = await passwordPolicyFailure(request, url);
-      if (passwordFailure) {
-        return passwordFailure;
-      }
-
-      return auth.handler(request);
+    if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) {
+      if (!auth) return errorResponse(503, "local_auth_unavailable", "Local authentication has not finished initializing.");
+      return (await passwordPolicyFailure(request, url)) ?? auth.handler(request);
     }
 
-    if (request.method === "GET" && url.pathname === "/v1/health") {
+    if (request.method === "GET" && pathname === "/v1/health") {
       return Response.json({
         ok: true,
         service: "document-extraction-api",
@@ -160,361 +154,250 @@ export function createLocalApplication({
       });
     }
 
-    const modelConfigurationMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/model-configuration(\/test)?$/);
+    const modelConfigurationMatch = pathname.match(/^\/v1\/workspaces\/([^/]+)\/model-configuration(\/test)?$/);
     if (modelConfigurationMatch) {
-      if (!auth || !workspaceControl || !stateDirectory || !localProductStoreRegistry || !localWorkspaceProductOperations) {
-        return Response.json({ error: { code: "local_product_store_unavailable", message: "Workspace product storage is unavailable." } }, { status: 503, headers: { "cache-control": "no-store" } });
-      }
+      if (!product) return productStoreUnavailable();
       return handleWorkspaceModelConfiguration({
-        request, workspaceId: decodeURIComponent(modelConfigurationMatch[1]!), test: Boolean(modelConfigurationMatch[2]),
-        auth, workspaceControl, stateDirectory, access: localProductDataAccess!, liveUpdateHub,
-      });
-    }
-
-    if (url.pathname === "/v1/invitations") {
-      if (!auth || !workspaceControl) {
-        return Response.json({ error: { code: "local_control_unavailable", message: "Local Workspace control has not finished initializing." } }, { status: 503 });
-      }
-      const session = await auth.getSession(request);
-      if (!session) {
-        return Response.json({ error: { code: "unauthorized", message: "Authentication required" } }, { status: 401 });
-      }
-      if (request.method === "GET") {
-        return Response.json({ invitations: workspaceControl.listPendingInvitations({ email: session.email }) });
-      }
-    }
-
-    const acceptInvitationMatch = url.pathname.match(/^\/v1\/invitations\/([^/]+)\/accept$/);
-    if (acceptInvitationMatch) {
-      if (!auth || !workspaceControl) {
-        return Response.json({ error: { code: "local_control_unavailable", message: "Local Workspace control has not finished initializing." } }, { status: 503 });
-      }
-      const session = await auth.getSession(request);
-      if (!session) {
-        return Response.json({ error: { code: "unauthorized", message: "Authentication required" } }, { status: 401 });
-      }
-      if (request.method === "POST") {
-        try {
-          return Response.json(workspaceControl.acceptInvitation({
-            invitationId: decodeURIComponent(acceptInvitationMatch[1] || ""),
-            userId: session.id,
-            userEmail: session.email,
-          }));
-        } catch (error) {
-          return workspaceErrorResponse(error);
-        }
-      }
-    }
-    const declineInvitationMatch = url.pathname.match(/^\/v1\/invitations\/([^/]+)\/decline$/);
-    if (declineInvitationMatch && auth && workspaceControl && request.method === "POST") {
-      const session = await auth.getSession(request);
-      if (!session) return Response.json({ error: { code: "unauthorized", message: "Authentication required" } }, { status: 401 });
-      try {
-        return Response.json(workspaceControl.declineInvitation({ invitationId: decodeURIComponent(declineInvitationMatch[1] || ""), userEmail: session.email }));
-      } catch (error) { return workspaceErrorResponse(error); }
-    }
-
-    if (request.method === "POST" && url.pathname === "/v1/templates/generate") {
-      if (!auth || !workspaceControl || !stateDirectory || !localProductDataAccess) {
-        return Response.json({ error: { code: "local_product_store_unavailable", message: "Workspace storage is unavailable" } }, { status: 503 });
-      }
-      const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
-      if ("response" in authorization) return authorization.response;
-      const workspaceId = authorization.workspace.id;
-      return localProductDataAccess.run({ workspaceId, mode: "create" }, async ({ store, signal: workspaceSignal }) => {
-        let temporaryPath: string | undefined;
-        const signal = AbortSignal.any([request.signal, workspaceSignal]);
-        try {
-          const configuration = store.getModelConfiguration();
-          if (!configuration) throw configurationMissing();
-          const credential = createWorkspaceCredentialVault(stateDirectory).decrypt(workspaceId, configuration.credential_ciphertext);
-          const maximumBytes = authorization.workspace.max_source_file_bytes ?? maxSourceFileBytes;
-          assertKnownDocumentRequestBodyLength(request, maximumBytes);
-          const sample = await parseLocalMultipartSubmission({
-            request: new Request(request, { signal }), stateDirectory, maxSourceFileBytes: maximumBytes, purpose: "template-generation",
-          });
-          temporaryPath = sample.source.temporaryPath;
-          if (sample.source.mimeType === "application/pdf") {
-            await countLocalSourceFilePages(sample.source.mimeType, await Bun.file(temporaryPath).arrayBuffer(), signal);
-          }
-          const template = await generateTemplate({
-            AI_MODEL: configuration.model_name,
-            MODEL_GATEWAY_URL: configuration.gateway_url,
-            LITELLM_KEY: credential,
-            MODEL_GATEWAY_SEQUENTIAL_CALLS: String(configuration.sequential_calls),
-            MODEL_SUPPORTS_PDF_INPUT: String(configuration.supports_pdf_input),
-            MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(configuration.supports_structured_output),
-            MODEL_GATEWAY_WORKSPACE_ID: workspaceId,
-            MODEL_GATEWAY_REQUEST_TIMEOUT_MS: modelGatewayRequestTimeoutMs,
-          }, Bun.file(temporaryPath), sample.source.mimeType, sample.instructions || "", signal);
-          return Response.json(template, { headers: { "cache-control": "no-store" } });
-        } catch (error) {
-          if (signal.aborted || error instanceof ExtractionCancelledError) {
-            return Response.json({ error: { code: "template_generation_cancelled", message: "Template generation cancelled" } }, { status: 499 });
-          }
-          if (error instanceof HttpError) return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
-          if (error instanceof ModelGatewayRequestError || error instanceof RetryableError) {
-            return Response.json({ error: { code: "template_generation_failed", message: `${error.message}. Check the workspace model configuration or try again.` } }, { status: 502 });
-          }
-          return Response.json({ error: { code: "template_generation_failed", message: "Template generation failed. Please try again." } }, { status: 500 });
-        } finally {
-          if (temporaryPath) await rm(temporaryPath, { force: true });
-        }
-      }).catch(workspaceProductDataAccessErrorResponse);
-    }
-
-    const templateMatch = url.pathname.match(/^\/v1\/templates(?:\/([^/]+))?$/);
-    if (templateMatch) {
-      if (!auth || !workspaceControl || !stateDirectory) {
-        return Response.json(
-          { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
-          { status: 503 },
-        );
-      }
-      const apiKey = bearerApiKey(request);
-      const session = apiKey ? null : await auth.getSession(request);
-      const workspaceId = request.headers.get("x-workspace-id")?.trim() || "";
-      const workspace = apiKey
-        ? workspaceControl.authorizeApiKey({ apiKey })
-        : session && workspaceId
-          ? workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId: session.id })
-          : null;
-      if (!workspace) {
-        const response = apiKey || session
-          ? { status: 403, code: "forbidden", message: "You do not have access to this workspace" }
-          : { status: 401, code: "unauthorized", message: "Authentication required" };
-        return Response.json({ error: { code: response.code, message: response.message } }, { status: response.status });
-      }
-
-      const productWorkspaceId = workspace.id;
-      return localProductDataAccess!.run({ workspaceId: productWorkspaceId, mode: "create" }, async ({ store: productStore }) => {
-        try {
-          if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: productWorkspaceId })) {
-            productStore.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
-            workspaceControl.completeStarterTemplateBootstrap({ workspaceId: productWorkspaceId });
-          }
-          const templateId = templateMatch[1] ? decodeURIComponent(templateMatch[1]) : "";
-          if (templateId && request.method === "GET") {
-            const template = productStore.getTemplate(templateId);
-            if (!template) {
-              throw new HttpError(404, "not_found", "Template not found");
-            }
-            return Response.json(template);
-          }
-          if (templateId && request.method === "PATCH") {
-            const patch = validateTemplatePayload(parseJsonBody(await request.text()), true);
-            const updated = productStore.updateTemplate({
-              templateId,
-              name: patch.name,
-              description: patch.description,
-              fields: patch.fields,
-              updatedAt: nowIso(),
-            });
-            if (!updated) {
-              throw new HttpError(404, "not_found", "Template not found");
-            }
-            recordLocalProductAnalytics(productAnalytics, {
-              type: "template_updated",
-              workspaceId: productWorkspaceId,
-              templateId: updated.template_id,
-              templateVersion: updated.version,
-              status: updated.status,
-              fieldCount: productStore.getTemplate(templateId)?.fields.length ?? 0,
-            });
-            return Response.json(updated);
-          }
-          if (templateId && request.method === "DELETE") {
-            const deleted = productStore.deleteTemplate({ templateId, deletedAt: nowIso() });
-            if (!deleted) {
-              throw new HttpError(404, "not_found", "Template not found");
-            }
-            return new Response(null, { status: 204 });
-          }
-          if (!templateId && request.method === "GET") {
-            return Response.json({ templates: productStore.listTemplates() });
-          }
-          if (!templateId && request.method === "POST") {
-            const payload = validateTemplatePayload(parseJsonBody(await request.text()));
-            const created = productStore.createTemplate({
-              templateId: newId("tpl"),
-              name: payload.name!,
-              description: payload.description || null,
-              fields: payload.fields || [],
-              createdAt: nowIso(),
-            });
-            recordLocalProductAnalytics(productAnalytics, {
-              type: "template_created",
-              workspaceId: productWorkspaceId,
-              templateId: created.template_id,
-              templateVersion: created.version,
-              status: created.status,
-              fieldCount: payload.fields?.length ?? 0,
-            });
-            return Response.json(created, { status: 201 });
-          }
-          return Response.json({ error: { code: "not_found", message: "Route not found" } }, { status: 404 });
-        } catch (error) {
-          if (error instanceof HttpError) {
-            return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
-          }
-          throw error;
-        }
-      }).catch(workspaceProductDataAccessErrorResponse);
-    }
-
-    if (request.method === "POST" && url.pathname === "/v1/extract") {
-      if (!auth || !workspaceControl || !stateDirectory || !localSourceFileStore) {
-        return Response.json(
-          { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
-          { status: 503 },
-        );
-      }
-      return handleLocalDocumentSubmission({
-        auth,
-        maxSourceFileBytes,
+        request,
+        workspaceId: decodeURIComponent(modelConfigurationMatch[1]!),
+        test: Boolean(modelConfigurationMatch[2]),
+        auth: product.auth,
+        workspaceControl: product.workspaceControl,
+        stateDirectory: product.stateDirectory,
+        access: product.access,
         liveUpdateHub,
-        productAnalytics,
-        productDataAccess: localProductDataAccess!,
-        request,
-        scheduleQueuedJob,
-        sourceFileStore: localSourceFileStore,
-        stateDirectory,
-        workspaceControl,
       });
     }
 
-    if (request.method === "POST" && url.pathname === "/v1/jobs/export") {
-      if (!auth || !workspaceControl || !stateDirectory || !localWorkspaceProductOperations) {
-        return Response.json(
-          { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
-          { status: 503 },
-        );
-      }
-      return handleLocalJobExport({
-        auth,
-        productDataAccess: localProductDataAccess!,
-        request,
-        workspaceControl,
-      });
-    }
-
-    if (request.method === "GET" && url.pathname === "/v1/jobs/filter-options") {
-      if (!auth || !workspaceControl || !stateDirectory || !localWorkspaceProductOperations) {
-        return Response.json(
-          { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
-          { status: 503 },
-        );
-      }
-      return handleLocalJobFilterOptions({
-        auth,
-        productDataAccess: localProductDataAccess!,
-        request,
-        workspaceControl,
-      });
-    }
-
-    const jobMatch = url.pathname.match(/^\/v1\/jobs(?:\/([^/]+))?$/);
-    if ((request.method === "GET" || request.method === "DELETE") && jobMatch) {
-      if (!auth || !workspaceControl || !stateDirectory || !localSourceFileStore) {
-        return Response.json(
-          { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
-          { status: 503 },
-        );
-      }
-      return handleLocalJobRead({
-        auth,
-        jobId: jobMatch[1] ? decodeURIComponent(jobMatch[1]) : "",
-        jobCursorSecret,
-        jobPageSize: localJobPageSize,
-        productDataAccess: localProductDataAccess!,
-        request,
-        sourceFileStore: localSourceFileStore,
-        workspaceControl,
-        workspaceProductOperations: localWorkspaceProductOperations!,
-      });
-    }
-
-    if (url.pathname === "/v1/workspaces" || url.pathname.startsWith("/v1/workspaces/")) {
+    if (["/v1/invitations", "/v1/workspaces"].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
       if (!auth || !workspaceControl) {
-        return Response.json(
-          {
-            error: {
-              code: "local_control_unavailable",
-              message: "Local Workspace control has not finished initializing.",
-            },
-          },
-          { status: 503 },
-        );
+        return errorResponse(503, "local_control_unavailable", "Local Workspace control has not finished initializing.");
       }
-
       const session = await auth.getSession(request);
-      if (!session) {
-        return Response.json(
-          { error: { code: "unauthorized", message: "Authentication required" } },
-          { status: 401 },
-        );
-      }
-
+      if (!session) return unauthorized();
       try {
-        return await handleWorkspaceRequest(request, url, localWorkspaceDeletion, workspaceControl, session);
+        return await handleControlRequest(request, pathname, session, workspaceControl, localWorkspaceDeletion);
       } catch (error) {
         return workspaceErrorResponse(error);
       }
     }
 
-    return Response.json(
-      {
-        error: {
-          code: "not_found",
-          message: "Route not found",
-        },
-      },
-      { status: 404 },
-    );
+    if (request.method === "POST" && pathname === "/v1/templates/generate") {
+      if (!product) return productStoreUnavailable();
+      return handleTemplateGeneration({ product, request, maxSourceFileBytes, modelGatewayRequestTimeoutMs });
+    }
+
+    const templateMatch = pathname.match(/^\/v1\/templates(?:\/([^/]+))?$/);
+    if (templateMatch) {
+      if (!product) return productStoreUnavailable();
+      return handleTemplateRequest({
+        product,
+        productAnalytics,
+        request,
+        templateId: templateMatch[1] ? decodeURIComponent(templateMatch[1]) : "",
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/v1/extract") {
+      if (!product) return productStoreUnavailable();
+      return handleLocalDocumentSubmission({ product, maxSourceFileBytes, liveUpdateHub, productAnalytics, request, scheduleQueuedJob });
+    }
+
+    if (request.method === "POST" && pathname === "/v1/jobs/export") {
+      if (!product) return productStoreUnavailable();
+      return handleLocalJobExport(product, request);
+    }
+
+    if (request.method === "GET" && pathname === "/v1/jobs/filter-options") {
+      if (!product) return productStoreUnavailable();
+      return withAuthorizedProductStore(product, request, ({ store }) =>
+        Response.json({ available_models: store.listExtractionJobModels() }));
+    }
+
+    const jobMatch = pathname.match(/^\/v1\/jobs(?:\/([^/]+))?$/);
+    if ((request.method === "GET" || request.method === "DELETE") && jobMatch) {
+      if (!product) return productStoreUnavailable();
+      return handleLocalJobRead({
+        product,
+        jobId: jobMatch[1] ? decodeURIComponent(jobMatch[1]) : "",
+        jobCursorSecret,
+        jobPageSize: localJobPageSize,
+        request,
+      });
+    }
+
+    return routeNotFound();
   };
 }
 
-async function handleLocalDocumentSubmission({
-  auth,
+/** Authorizes the request, then runs `work` against its Workspace product store. */
+async function withAuthorizedProductStore(
+  product: ProductServices,
+  request: Request,
+  work: (context: { store: LocalWorkspaceProductStoreHandle; signal: AbortSignal; workspace: AuthorizedWorkspace }) => Response | Promise<Response>,
+): Promise<Response> {
+  const authorization = await authorizeLocalProductRequest(product, request);
+  if ("response" in authorization) return authorization.response;
+  const { workspace } = authorization;
+  return product.access
+    .run({ workspaceId: workspace.id, mode: "create" }, (context) => work({ ...context, workspace }))
+    .catch(workspaceProductDataAccessErrorResponse);
+}
+
+function handleTemplateGeneration({
+  product,
+  request,
+  maxSourceFileBytes,
+  modelGatewayRequestTimeoutMs,
+}: {
+  product: ProductServices;
+  request: Request;
+  maxSourceFileBytes: number;
+  modelGatewayRequestTimeoutMs: string;
+}): Promise<Response> {
+  const { stateDirectory } = product;
+  return withAuthorizedProductStore(product, request, async ({ store, signal: workspaceSignal, workspace }) => {
+    let temporaryPath: string | undefined;
+    const signal = AbortSignal.any([request.signal, workspaceSignal]);
+    try {
+      const configuration = store.getModelConfiguration();
+      if (!configuration) throw configurationMissing();
+      const credential = createWorkspaceCredentialVault(stateDirectory).decrypt(workspace.id, configuration.credential_ciphertext);
+      const maximumBytes = workspace.max_source_file_bytes ?? maxSourceFileBytes;
+      assertKnownDocumentRequestBodyLength(request, maximumBytes);
+      const sample = await parseLocalMultipartSubmission({
+        request: new Request(request, { signal }), stateDirectory, maxSourceFileBytes: maximumBytes, purpose: "template-generation",
+      });
+      temporaryPath = sample.source.temporaryPath;
+      if (sample.source.mimeType === "application/pdf") {
+        await countLocalSourceFilePages(sample.source.mimeType, await Bun.file(temporaryPath).arrayBuffer(), signal);
+      }
+      const template = await generateTemplate({
+        AI_MODEL: configuration.model_name,
+        MODEL_GATEWAY_URL: configuration.gateway_url,
+        LITELLM_KEY: credential,
+        MODEL_GATEWAY_SEQUENTIAL_CALLS: String(configuration.sequential_calls),
+        MODEL_SUPPORTS_PDF_INPUT: String(configuration.supports_pdf_input),
+        MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(configuration.supports_structured_output),
+        MODEL_GATEWAY_WORKSPACE_ID: workspace.id,
+        MODEL_GATEWAY_REQUEST_TIMEOUT_MS: modelGatewayRequestTimeoutMs,
+      }, Bun.file(temporaryPath), sample.source.mimeType, sample.instructions || "", signal);
+      return Response.json(template, { headers: { "cache-control": "no-store" } });
+    } catch (error) {
+      if (signal.aborted || error instanceof ExtractionCancelledError) {
+        return errorResponse(499, "template_generation_cancelled", "Template generation cancelled");
+      }
+      if (error instanceof HttpError) return httpErrorResponse(error);
+      if (error instanceof ModelGatewayRequestError || error instanceof RetryableError) {
+        return errorResponse(502, "template_generation_failed", `${error.message}. Check the workspace model configuration or try again.`);
+      }
+      return errorResponse(500, "template_generation_failed", "Template generation failed. Please try again.");
+    } finally {
+      if (temporaryPath) await rm(temporaryPath, { force: true });
+    }
+  });
+}
+
+function handleTemplateRequest({
+  product,
+  productAnalytics,
+  request,
+  templateId,
+}: {
+  product: ProductServices;
+  productAnalytics?: LocalProductAnalytics;
+  request: Request;
+  templateId: string;
+}): Promise<Response> {
+  return withAuthorizedProductStore(product, request, async ({ store, workspace }) => {
+    try {
+      ensureStarterTemplate(product.workspaceControl, store, workspace.id);
+      if (templateId && request.method === "GET") {
+        const template = store.getTemplate(templateId);
+        if (!template) throw templateNotFound();
+        return Response.json(template);
+      }
+      if (templateId && request.method === "PATCH") {
+        const patch = validateTemplatePayload(parseJsonBody(await request.text()), true);
+        const updated = store.updateTemplate({
+          templateId,
+          name: patch.name,
+          description: patch.description,
+          fields: patch.fields,
+          updatedAt: nowIso(),
+        });
+        if (!updated) throw templateNotFound();
+        recordLocalProductAnalytics(productAnalytics, {
+          type: "template_updated",
+          workspaceId: workspace.id,
+          templateId: updated.template_id,
+          templateVersion: updated.version,
+          status: updated.status,
+          fieldCount: store.getTemplate(templateId)?.fields.length ?? 0,
+        });
+        return Response.json(updated);
+      }
+      if (templateId && request.method === "DELETE") {
+        if (!store.deleteTemplate({ templateId, deletedAt: nowIso() })) throw templateNotFound();
+        return new Response(null, { status: 204 });
+      }
+      if (!templateId && request.method === "GET") {
+        return Response.json({ templates: store.listTemplates() });
+      }
+      if (!templateId && request.method === "POST") {
+        const payload = validateTemplatePayload(parseJsonBody(await request.text()));
+        const created = store.createTemplate({
+          templateId: newId("tpl"),
+          name: payload.name!,
+          description: payload.description || null,
+          fields: payload.fields || [],
+          createdAt: nowIso(),
+        });
+        recordLocalProductAnalytics(productAnalytics, {
+          type: "template_created",
+          workspaceId: workspace.id,
+          templateId: created.template_id,
+          templateVersion: created.version,
+          status: created.status,
+          fieldCount: payload.fields?.length ?? 0,
+        });
+        return Response.json(created, { status: 201 });
+      }
+      return routeNotFound();
+    } catch (error) {
+      if (error instanceof HttpError) return httpErrorResponse(error);
+      throw error;
+    }
+  });
+}
+
+function handleLocalDocumentSubmission({
+  product,
   maxSourceFileBytes,
   liveUpdateHub,
   productAnalytics,
-  productDataAccess,
   request,
   scheduleQueuedJob,
-  sourceFileStore,
-  stateDirectory,
-  workspaceControl,
 }: {
-  auth: LocalAuth;
+  product: ProductServices;
   maxSourceFileBytes: number;
   liveUpdateHub?: LocalLiveUpdateHub;
   productAnalytics?: LocalProductAnalytics;
-  productDataAccess: LocalWorkspaceProductDataAccess;
   request: Request;
   scheduleQueuedJob: (job: LocalQueuedExtractionJob) => void | Promise<void>;
-  sourceFileStore: LocalSourceFileStore;
-  stateDirectory: string;
-  workspaceControl: LocalWorkspaceControl;
 }): Promise<Response> {
-  const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
-  if ("response" in authorization) {
-    return authorization.response;
-  }
-
-  const maximumBytes = authorization.workspace.max_source_file_bytes ?? maxSourceFileBytes;
-
-  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore, signal: workspaceSignal }) => {
+  const { sourceFileStore, stateDirectory, workspaceControl } = product;
+  return withAuthorizedProductStore(product, request, async ({ store: productStore, signal: workspaceSignal, workspace }) => {
+    const workspaceId = workspace.id;
+    const maximumBytes = workspace.max_source_file_bytes ?? maxSourceFileBytes;
     const signal = AbortSignal.any([request.signal, workspaceSignal]);
     try {
       const configuration = productStore.getModelConfiguration();
       if (!configuration) throw configurationMissing();
-      createWorkspaceCredentialVault(stateDirectory).decrypt(authorization.workspace.id, configuration.credential_ciphertext);
+      // Refuse the upload early when the stored credential can no longer be used.
+      createWorkspaceCredentialVault(stateDirectory).decrypt(workspaceId, configuration.credential_ciphertext);
       assertKnownDocumentRequestBodyLength(request, maximumBytes);
-      if (workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId: authorization.workspace.id })) {
-        productStore.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
-        workspaceControl.completeStarterTemplateBootstrap({ workspaceId: authorization.workspace.id });
-      }
+      ensureStarterTemplate(workspaceControl, productStore, workspaceId);
 
       let sourceMimeType: string;
       let sourceName: string | null;
@@ -543,9 +426,7 @@ async function handleLocalDocumentSubmission({
       }
       try {
         const template = productStore.getSubmissionTemplate(templateId);
-        if (!template) {
-          throw new HttpError(404, "template_not_found", "Template not found");
-        }
+        if (!template) throw new HttpError(404, "template_not_found", "Template not found");
         if (temporaryPath && sourceMimeType === "application/pdf") sourceBytes = await Bun.file(temporaryPath).arrayBuffer();
         const sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!, signal);
         signal.throwIfAborted();
@@ -553,18 +434,8 @@ async function handleLocalDocumentSubmission({
         const jobId = newId("job");
         const submittedAt = nowIso();
         const sourceFileKey = temporaryPath
-          ? await sourceFileStore.promoteTemporary!({
-              workspaceId: authorization.workspace.id,
-              jobId,
-              mimeType: sourceMimeType,
-              temporaryPath,
-            })
-          : await sourceFileStore.write({
-              workspaceId: authorization.workspace.id,
-              jobId,
-              mimeType: sourceMimeType,
-              bytes: sourceBytes!,
-            });
+          ? await sourceFileStore.promoteTemporary!({ workspaceId, jobId, mimeType: sourceMimeType, temporaryPath })
+          : await sourceFileStore.write({ workspaceId, jobId, mimeType: sourceMimeType, bytes: sourceBytes! });
         temporaryPath = null;
         sourceBytes = new ArrayBuffer(0);
 
@@ -581,12 +452,10 @@ async function handleLocalDocumentSubmission({
             submittedAt,
           });
           const queuedJob = productStore.getExtractionJob(jobId);
-          if (queuedJob) {
-            liveUpdateHub?.broadcastJob(authorization.workspace.id, queuedJob);
-          }
+          if (queuedJob) liveUpdateHub?.broadcastJob(workspaceId, queuedJob);
           recordLocalProductAnalytics(productAnalytics, {
             type: "document_submitted",
-            workspaceId: authorization.workspace.id,
+            workspaceId,
             templateId: template.template_id,
             templateVersion: template.template_version,
             extractionJobId: jobId,
@@ -603,28 +472,27 @@ async function handleLocalDocumentSubmission({
         try {
           await scheduleQueuedJob({
             job_id: jobId,
-            workspace_id: authorization.workspace.id,
+            workspace_id: workspaceId,
             template_id: template.template_id,
             template_version: template.template_version,
             enqueued_at: submittedAt,
           });
         } catch (error) {
+          // A failed job keeps its Source file for retention; an unrecorded one must not leak it.
           let failed = false;
           try {
             failed = productStore.failQueuedExtractionJob({
               jobId,
               failedAt: nowIso(),
               errorCode: "local_runner_schedule_failed",
-              errorMessage: errorMessage(error),
+              errorMessage: error instanceof Error ? error.message : "Unknown error",
             });
             if (failed) {
               const failedJob = productStore.getExtractionJob(jobId);
-              if (failedJob) {
-                liveUpdateHub?.broadcastJob(authorization.workspace.id, failedJob);
-              }
+              if (failedJob) liveUpdateHub?.broadcastJob(workspaceId, failedJob);
               recordLocalProductAnalytics(productAnalytics, {
                 type: "extraction_failed",
-                workspaceId: authorization.workspace.id,
+                workspaceId,
                 templateId: template.template_id,
                 templateVersion: template.template_version,
                 extractionJobId: jobId,
@@ -636,9 +504,7 @@ async function handleLocalDocumentSubmission({
               });
             }
           } finally {
-            if (!failed) {
-              await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
-            }
+            if (!failed) await deleteLocalSourceFileQuietly(sourceFileStore, sourceFileKey);
           }
           throw error;
         }
@@ -655,97 +521,57 @@ async function handleLocalDocumentSubmission({
         if (temporaryPath) await rm(temporaryPath, { force: true });
       }
     } catch (error) {
-      if (signal.aborted) {
-        return Response.json({ error: { code: "document_submission_cancelled", message: "Document submission cancelled" } }, { status: 499 });
-      }
-      if (error instanceof HttpError) {
-        return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
-      }
-      return Response.json(
-        { error: { code: "document_submission_failed", message: "Document submission could not be queued" } },
-        { status: 500 },
-      );
+      if (signal.aborted) return errorResponse(499, "document_submission_cancelled", "Document submission cancelled");
+      if (error instanceof HttpError) return httpErrorResponse(error);
+      return errorResponse(500, "document_submission_failed", "Document submission could not be queued");
     }
-  }).catch(workspaceProductDataAccessErrorResponse);
+  });
 }
 
-async function handleLocalJobRead({
-  auth,
+function handleLocalJobRead({
+  product,
   jobId,
   jobCursorSecret,
   jobPageSize,
-  productDataAccess,
   request,
-  sourceFileStore,
-  workspaceControl,
-  workspaceProductOperations,
 }: {
-  auth: LocalAuth;
+  product: ProductServices;
   jobId: string;
   jobCursorSecret: Uint8Array;
   jobPageSize: number;
-  productDataAccess: LocalWorkspaceProductDataAccess;
   request: Request;
-  sourceFileStore: LocalSourceFileStore;
-  workspaceControl: LocalWorkspaceControl;
-  workspaceProductOperations: LocalWorkspaceProductOperations;
 }): Promise<Response> {
-  const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
-  if ("response" in authorization) {
-    return authorization.response;
-  }
-
-  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore }) => {
+  const { operations, sourceFileStore } = product;
+  return withAuthorizedProductStore(product, request, async ({ store: productStore, workspace }) => {
+    const workspaceId = workspace.id;
     let documentDeletionStarted = false;
     try {
       if (request.method === "DELETE") {
-        await workspaceProductOperations.beginDocumentDeletion({
-          workspaceId: authorization.workspace.id,
-          jobId,
-        });
+        await operations.beginDocumentDeletion({ workspaceId, jobId });
         documentDeletionStarted = true;
         const deleted = productStore.deleteExtractionJob({ jobId });
-        if (!deleted) {
-          workspaceProductOperations.completeDocumentDeletion({
-            workspaceId: authorization.workspace.id,
-            jobId,
-          });
-          documentDeletionStarted = false;
-          return Response.json({ error: { code: "not_found", message: "Job not found" } }, { status: 404 });
-        }
-        if (await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key)) {
+        if (deleted && await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key)) {
           productStore.markSourceFileCleaned({ jobId, sourceFileKey: deleted.source_file_key, cleanedAt: nowIso() });
         }
-        workspaceProductOperations.completeDocumentDeletion({
-          workspaceId: authorization.workspace.id,
-          jobId,
-        });
+        operations.completeDocumentDeletion({ workspaceId, jobId });
         documentDeletionStarted = false;
-        return Response.json({ deleted: true, job_id: deleted.job_id });
+        return deleted
+          ? Response.json({ deleted: true, job_id: deleted.job_id })
+          : errorResponse(404, "not_found", "Job not found");
       }
       if (jobId === "counts") {
         return Response.json(productStore.getExtractionJobCounts(), { headers: { "cache-control": "no-store" } });
       }
       if (!jobId) {
-        const url = new URL(request.url);
-        const search = normalizeJobSearch(url.searchParams.get("search") || "");
+        const { searchParams } = new URL(request.url);
+        const search = (searchParams.get("search") || "").trim().toLowerCase();
         const filters = normalizeJobFilters({
-          dateFrom: url.searchParams.get("date_from"),
-          dateTo: url.searchParams.get("date_to"),
-          model: url.searchParams.get("model"),
+          dateFrom: searchParams.get("date_from"),
+          dateTo: searchParams.get("date_to"),
+          model: searchParams.get("model"),
         });
-        const cursor = decodeJobCursor({
-          cursor: url.searchParams.get("cursor"),
-          filters,
-          search,
-          secret: jobCursorSecret,
-        });
-        const candidates = productStore.listExtractionJobs({
-          search,
-          ...filters,
-          cursor,
-          limit: jobPageSize + 1,
-        });
+        const cursor = decodeJobCursor({ cursor: searchParams.get("cursor"), filters, search, secret: jobCursorSecret });
+        const candidates = productStore.listExtractionJobs({ search, ...filters, cursor, limit: jobPageSize + 1 });
         const hasMore = candidates.length > jobPageSize;
         const jobs = hasMore ? candidates.slice(0, jobPageSize) : candidates;
         const finalJob = jobs.at(-1);
@@ -753,121 +579,54 @@ async function handleLocalJobRead({
           jobs: jobs.map((job) => ({ ...job, results: [] })),
           ...productStore.getExtractionJobCounts(),
           next_cursor: hasMore && finalJob
-            ? encodeJobCursor({
-                createdAt: finalJob.created_at,
-                filters,
-                jobId: finalJob.job_id,
-                search,
-                secret: jobCursorSecret,
-              })
+            ? encodeJobCursor({ createdAt: finalJob.created_at, filters, jobId: finalJob.job_id, search, secret: jobCursorSecret })
             : null,
           has_more: hasMore,
         });
       }
       const jobSummary = productStore.getExtractionJobSummary(jobId);
-      if (!jobSummary) {
-        return Response.json(
-          { error: { code: "not_found", message: "Job not found" } },
-          { status: 404, headers: { "cache-control": "no-store" } },
-        );
-      }
-      const entityTag = extractionJobEntityTag(authorization.workspace.id, jobSummary);
-      const headers = extractionJobPollingHeaders(jobSummary.status, entityTag);
+      if (!jobSummary) return errorResponse(404, "not_found", "Job not found", { "cache-control": "no-store" });
+      const entityTag = extractionJobEntityTag(workspaceId, jobSummary);
+      const headers = new Headers({ "cache-control": "private, no-cache", etag: entityTag });
+      if (jobSummary.status === "queued" || jobSummary.status === "processing") headers.set("retry-after", "5");
       if (ifNoneMatchIncludes(request.headers.get("if-none-match"), entityTag)) {
         return new Response(null, { status: 304, headers });
       }
       return Response.json({
         ...jobSummary,
-        results: jobSummary.status === "completed"
-          ? productStore.getExtractionJobResults(jobId)
-          : [],
+        results: jobSummary.status === "completed" ? productStore.getExtractionJobResults(jobId) : [],
       }, { headers });
     } catch (error) {
-      if (documentDeletionStarted) {
-        workspaceProductOperations.failDocumentDeletion({
-          workspaceId: authorization.workspace.id,
-          jobId,
-        });
-      }
-      if (error instanceof LocalWorkspaceOperationError) {
-        return workspaceProductOperationErrorResponse(error);
-      }
-      if (error instanceof HttpError) {
-        return Response.json(
-          { error: { code: error.code, message: error.message } },
-          { status: error.status },
-        );
-      }
+      if (documentDeletionStarted) operations.failDocumentDeletion({ workspaceId, jobId });
+      if (error instanceof LocalWorkspaceOperationError) return errorResponse(409, error.code, error.message);
+      if (error instanceof HttpError) return httpErrorResponse(error);
       throw error;
     }
-  }).catch(workspaceProductDataAccessErrorResponse);
+  });
 }
 
-async function handleLocalJobFilterOptions({
-  auth,
-  productDataAccess,
-  request,
-  workspaceControl,
-}: {
-  auth: LocalAuth;
-  productDataAccess: LocalWorkspaceProductDataAccess;
-  request: Request;
-  workspaceControl: LocalWorkspaceControl;
-}): Promise<Response> {
-  const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
-  if ("response" in authorization) {
-    return authorization.response;
+async function handleLocalJobExport(product: ProductServices, request: Request): Promise<Response> {
+  const authorization = await authorizeLocalProductRequest(product, request);
+  if ("response" in authorization) return authorization.response;
+  const { workspace } = authorization;
+
+  if (activeJobExports >= 2) {
+    return errorResponse(503, "export_capacity_unavailable", "Two exports are already running; try again shortly", { "retry-after": "2" });
   }
-
-  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore }) => {
-    return Response.json({
-      available_models: productStore.listExtractionJobModels(),
-    });
-  }).catch(workspaceProductDataAccessErrorResponse);
-}
-
-async function handleLocalJobExport({
-  auth,
-  productDataAccess,
-  request,
-  workspaceControl,
-}: {
-  auth: LocalAuth;
-  productDataAccess: LocalWorkspaceProductDataAccess;
-  request: Request;
-  workspaceControl: LocalWorkspaceControl;
-}): Promise<Response> {
-  const authorization = await authorizeLocalProductRequest({ auth, request, workspaceControl });
-  if ("response" in authorization) {
-    return authorization.response;
-  }
-
-  if (activeJobExports >= 2) return Response.json({ error: { code: "export_capacity_unavailable", message: "Two exports are already running; try again shortly" } }, { status: 503, headers: { "retry-after": "2" } });
   activeJobExports += 1;
-  return productDataAccess.run({ workspaceId: authorization.workspace.id, mode: "create" }, async ({ store: productStore, signal }) => {
+  return product.access.run({ workspaceId: workspace.id, mode: "create" }, async ({ store: productStore, signal }) => {
     try {
-      const jobIds = validateJobExportPayload(
-        parseJsonBody<unknown>(await request.text()),
-      );
+      const jobIds = validateJobExportPayload(parseJsonBody<unknown>(await request.text()));
       let jobs;
-      try { jobs = productStore.getExtractionJobExports(jobIds); }
-      catch (error) {
+      try {
+        jobs = productStore.getExtractionJobExports(jobIds);
+      } catch (error) {
         if (error instanceof RangeError) throw new HttpError(413, "export_too_large", error.message);
         throw error;
       }
-      const skippedCount = jobIds.length - jobs.length;
-      if (!jobs.length) {
-        throw new HttpError(
-          409,
-          "no_exportable_jobs",
-          "None of the selected jobs are completed or failed",
-        );
-      }
+      if (!jobs.length) throw new HttpError(409, "no_exportable_jobs", "None of the selected jobs are completed or failed");
 
-      const exportWorkbook = await buildJobExportInWorker({
-        jobs,
-        workspaceName: authorization.workspace.name,
-      }, AbortSignal.any([signal, request.signal]));
+      const exportWorkbook = await buildJobExportInWorker({ jobs, workspaceName: workspace.name }, AbortSignal.any([signal, request.signal]));
       return new Response(exportWorkbook.bytes, {
         status: 200,
         headers: {
@@ -875,28 +634,117 @@ async function handleLocalJobExport({
           "content-disposition": `attachment; filename="${exportWorkbook.filename}"`,
           "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "x-exported-job-count": String(jobs.length),
-          "x-skipped-job-count": String(skippedCount),
+          "x-skipped-job-count": String(jobIds.length - jobs.length),
         },
       });
     } catch (error) {
-      if (error instanceof HttpError) {
-        return Response.json(
-          { error: { code: error.code, message: error.message } },
-          { status: error.status },
-        );
-      }
-      return Response.json(
-        { error: { code: "job_export_failed", message: "Selected jobs could not be exported" } },
-        { status: 500 },
-      );
+      if (error instanceof HttpError) return httpErrorResponse(error);
+      return errorResponse(500, "job_export_failed", "Selected jobs could not be exported");
     }
   }).catch(workspaceProductDataAccessErrorResponse).finally(() => { activeJobExports -= 1; });
 }
 
-function extractionJobEntityTag(
-  workspaceId: string,
-  job: LocalWorkspaceExtractionJobSummary,
-): string {
+async function handleControlRequest(
+  request: Request,
+  pathname: string,
+  session: LocalSession,
+  workspaceControl: LocalWorkspaceControl,
+  workspaceDeletion: LocalWorkspaceDeletion | null,
+): Promise<Response> {
+  const { method } = request;
+  if (pathname === "/v1/invitations") {
+    return method === "GET"
+      ? Response.json({ invitations: workspaceControl.listPendingInvitations({ email: session.email }) })
+      : routeNotFound();
+  }
+
+  const invitationResponse = pathname.match(/^\/v1\/invitations\/([^/]+)\/(accept|decline)$/);
+  if (invitationResponse && method === "POST") {
+    const invitationId = decodeURIComponent(invitationResponse[1]!);
+    return Response.json(invitationResponse[2] === "accept"
+      ? workspaceControl.acceptInvitation({ invitationId, userId: session.id, userEmail: session.email })
+      : workspaceControl.declineInvitation({ invitationId, userEmail: session.email }));
+  }
+
+  if (pathname === "/v1/workspaces") {
+    if (method === "GET") {
+      return Response.json({ workspaces: workspaceControl.listAcceptedWorkspaces({ userId: session.id, userName: session.name }) });
+    }
+    if (method === "POST") {
+      const { name } = await readJsonObject(request);
+      if (name !== undefined && (typeof name !== "string" || !name.trim())) return invalidName();
+      return Response.json(
+        workspaceControl.createWorkspace({ userId: session.id, ...(typeof name === "string" ? { name } : {}) }),
+        { status: 201 },
+      );
+    }
+    return routeNotFound();
+  }
+
+  const match = pathname.match(/^\/v1\/workspaces\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?$/);
+  if (!match) return routeNotFound();
+  const workspaceId = decodeURIComponent(match[1]!);
+  const [resource, resourceId] = [match[2], match[3] === undefined ? undefined : decodeURIComponent(match[3])];
+  const userId = session.id;
+  switch ([method, resource, resourceId === undefined ? undefined : ":id"].filter(Boolean).join(" ")) {
+    case "GET context": {
+      const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId });
+      return workspace ? Response.json({ workspace }) : forbidden();
+    }
+    case "POST api-key":
+      return Response.json(workspaceControl.rotateApiKey({ workspaceId, userId }));
+    case "GET users":
+      return Response.json({ users: workspaceControl.listWorkspaceUsers({ workspaceId, userId }) });
+    case "POST users :id": {
+      const { action } = await readJsonObject(request);
+      return Response.json(workspaceControl.applyWorkspaceMemberAction({
+        workspaceId,
+        actorUserId: userId,
+        targetUserId: resourceId!,
+        action: typeof action === "string" ? action : "",
+      }));
+    }
+    case "POST leave":
+      return Response.json(workspaceControl.leaveWorkspace({ workspaceId, userId, userName: session.name }));
+    case "GET invitations":
+      return Response.json({ invitations: workspaceControl.listWorkspaceInvitations({ workspaceId, userId }) });
+    case "POST invitations": {
+      const { email, role } = await readJsonObject(request);
+      if (typeof email !== "string" || !email.trim()) return errorResponse(400, "invalid_email", "email must be a non-empty string");
+      return Response.json(workspaceControl.createInvitation({
+        workspaceId,
+        inviterUserId: userId,
+        email,
+        ...(typeof role === "string" ? { role } : {}),
+      }), { status: 201 });
+    }
+    case "DELETE invitations :id":
+      return Response.json(workspaceControl.cancelInvitation({ workspaceId, invitationId: resourceId!, userId }));
+    case "PATCH": {
+      const { name } = await readJsonObject(request);
+      if (typeof name !== "string" || !name.trim()) return invalidName();
+      return Response.json(workspaceControl.renameWorkspace({ workspaceId, userId, name: name.trim() }));
+    }
+    case "DELETE":
+      if (!workspaceDeletion) return productStoreUnavailable();
+      await workspaceDeletion.deleteWorkspace({ workspaceId, userId });
+      return Response.json({ ok: true, workspace_id: workspaceId });
+    default:
+      return routeNotFound();
+  }
+}
+
+function readJsonObject(request: Request): Promise<Record<string, unknown>> {
+  return request.json().catch(() => ({})) as Promise<Record<string, unknown>>;
+}
+
+function ensureStarterTemplate(workspaceControl: LocalWorkspaceControl, store: LocalWorkspaceProductStoreHandle, workspaceId: string): void {
+  if (!workspaceControl.hasPendingStarterTemplateBootstrap({ workspaceId })) return;
+  store.ensureStarterInvoiceTemplate({ createdAt: nowIso() });
+  workspaceControl.completeStarterTemplateBootstrap({ workspaceId });
+}
+
+function extractionJobEntityTag(workspaceId: string, job: LocalWorkspaceExtractionJobSummary): string {
   const visibleRepresentation = JSON.stringify([
     "job-v1",
     workspaceId,
@@ -921,27 +769,11 @@ function extractionJobEntityTag(
   return `W/"job-v1-${digest}"`;
 }
 
-function extractionJobPollingHeaders(
-  status: LocalWorkspaceExtractionJobSummary["status"],
-  entityTag: string,
-): Headers {
-  const headers = new Headers({
-    "cache-control": "private, no-cache",
-    etag: entityTag,
-  });
-  if (status === "queued" || status === "processing") {
-    headers.set("retry-after", "5");
-  }
-  return headers;
-}
-
 function ifNoneMatchIncludes(value: string | null, currentEntityTag: string): boolean {
   if (!value) return false;
   const candidates = value.match(/(?:W\/)?"[^"\r\n]*"|\*/g) ?? [];
   const normalizedCurrent = currentEntityTag.replace(/^W\//, "");
-  return candidates.some((candidate) =>
-    candidate === "*" || candidate.replace(/^W\//, "") === normalizedCurrent
-  );
+  return candidates.some((candidate) => candidate === "*" || candidate.replace(/^W\//, "") === normalizedCurrent);
 }
 
 function validateJobExportPayload(input: unknown): string[] {
@@ -949,69 +781,36 @@ function validateJobExportPayload(input: unknown): string[] {
     throw new HttpError(400, "invalid_job_export", "Job export must be an object");
   }
   const jobIds = (input as { job_ids?: unknown }).job_ids;
-  if (Array.isArray(jobIds) && jobIds.length > 500) throw new HttpError(413, "export_too_large", "Select at most 500 Documents per export");
   if (!Array.isArray(jobIds) || jobIds.length === 0) {
-    throw new HttpError(
-      400,
-      "invalid_job_export",
-      "Select at least one job to export",
-    );
+    throw new HttpError(400, "invalid_job_export", "Select at least one job to export");
   }
-  const normalized = jobIds.map((jobId) =>
-    typeof jobId === "string" ? jobId.trim() : ""
-  );
+  if (jobIds.length > 500) throw new HttpError(413, "export_too_large", "Select at most 500 Documents per export");
+  const normalized = jobIds.map((jobId) => typeof jobId === "string" ? jobId.trim() : "");
   if (normalized.some((jobId) => !jobId)) {
-    throw new HttpError(
-      400,
-      "invalid_job_export",
-      "Every exported job ID must be a non-empty string",
-    );
+    throw new HttpError(400, "invalid_job_export", "Every exported job ID must be a non-empty string");
   }
   return [...new Set(normalized)];
 }
 
-function normalizeJobSearch(value: string): string {
-  return value.trim().toLowerCase();
-}
+type JobFilters = { dateFrom: string; dateTo: string; model: string };
 
-type JobFilters = {
-  dateFrom: string;
-  dateTo: string;
-  model: string;
-};
-
-function normalizeJobFilters({
-  dateFrom,
-  dateTo,
-  model,
-}: {
-  dateFrom: string | null;
-  dateTo: string | null;
-  model: string | null;
-}): JobFilters {
+function normalizeJobFilters({ dateFrom, dateTo, model }: { dateFrom: string | null; dateTo: string | null; model: string | null }): JobFilters {
   const normalizedDateFrom = normalizeJobFilterDate(dateFrom, "date_from");
   const normalizedDateTo = normalizeJobFilterDate(dateTo, "date_to");
-  const normalizedModel = String(model || "").trim();
+  const normalizedModel = (model || "").trim();
   if (normalizedModel.length > 255) {
     throw new HttpError(400, "invalid_job_filters", "model must be 255 characters or fewer");
   }
   if (normalizedDateFrom && normalizedDateTo && normalizedDateFrom > normalizedDateTo) {
     throw new HttpError(400, "invalid_job_filters", "date_from must be on or before date_to");
   }
-  return {
-    dateFrom: normalizedDateFrom,
-    dateTo: normalizedDateTo,
-    model: normalizedModel,
-  };
+  return { dateFrom: normalizedDateFrom, dateTo: normalizedDateTo, model: normalizedModel };
 }
 
 function normalizeJobFilterDate(value: string | null, parameterName: string): string {
-  const normalized = String(value || "").trim();
-  if (!normalized) {
-    return "";
-  }
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
-  if (!match) {
+  const normalized = (value || "").trim();
+  if (!normalized) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
     throw new HttpError(400, "invalid_job_filters", `${parameterName} must use YYYY-MM-DD`);
   }
   const date = new Date(`${normalized}T00:00:00.000Z`);
@@ -1021,13 +820,7 @@ function normalizeJobFilterDate(value: string | null, parameterName: string): st
   return normalized;
 }
 
-function encodeJobCursor({
-  createdAt,
-  filters,
-  jobId,
-  search,
-  secret,
-}: {
+function encodeJobCursor({ createdAt, filters, jobId, search, secret }: {
   createdAt: string;
   filters: JobFilters;
   jobId: string;
@@ -1046,65 +839,44 @@ function encodeJobCursor({
   return `${payload}.${signature}`;
 }
 
-function decodeJobCursor({
-  cursor,
-  filters,
-  search,
-  secret,
-}: {
+/** Cursors are signed and bound to the filters they were issued for. */
+function decodeJobCursor({ cursor, filters, search, secret }: {
   cursor: string | null;
   filters: JobFilters;
   search: string;
   secret: Uint8Array;
 }): { createdAt: string; jobId: string } | null {
-  if (!cursor) {
-    return null;
-  }
+  if (!cursor) return null;
+  const invalid = () => new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match these filters");
   const [payload, signature, ...extra] = cursor.split(".");
-  if (!payload || !signature || extra.length) {
-    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match these filters");
-  }
-  const expectedSignature = createHmac("sha256", secret).update(payload).digest("base64url");
+  if (!payload || !signature || extra.length) throw invalid();
   const signatureBytes = Buffer.from(signature, "base64url");
-  const expectedBytes = Buffer.from(expectedSignature, "base64url");
-  if (signatureBytes.length !== expectedBytes.length || !timingSafeEqual(signatureBytes, expectedBytes)) {
-    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match these filters");
-  }
+  const expectedBytes = createHmac("sha256", secret).update(payload).digest();
+  if (signatureBytes.length !== expectedBytes.length || !timingSafeEqual(signatureBytes, expectedBytes)) throw invalid();
+  let parsed: Record<string, unknown> | null;
   try {
-    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
-      created_at?: unknown;
-      date_from?: unknown;
-      date_to?: unknown;
-      job_id?: unknown;
-      model?: unknown;
-      search?: unknown;
-    };
-    if (
-      typeof parsed.created_at !== "string" ||
-      parsed.date_from !== filters.dateFrom ||
-      parsed.date_to !== filters.dateTo ||
-      typeof parsed.job_id !== "string" ||
-      parsed.model !== filters.model ||
-      typeof parsed.search !== "string" ||
-      parsed.search !== search
-    ) {
-      throw new Error("Invalid cursor payload");
-    }
-    return { createdAt: parsed.created_at, jobId: parsed.job_id };
+    parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
   } catch {
-    throw new HttpError(400, "invalid_cursor", "Job cursor is invalid or does not match these filters");
+    throw invalid();
   }
+  if (
+    !parsed ||
+    typeof parsed.created_at !== "string" ||
+    typeof parsed.job_id !== "string" ||
+    parsed.date_from !== filters.dateFrom ||
+    parsed.date_to !== filters.dateTo ||
+    parsed.model !== filters.model ||
+    parsed.search !== search
+  ) {
+    throw invalid();
+  }
+  return { createdAt: parsed.created_at, jobId: parsed.job_id };
 }
 
-async function authorizeLocalProductRequest({
-  auth,
-  request,
-  workspaceControl,
-}: {
-  auth: LocalAuth;
-  request: Request;
-  workspaceControl: LocalWorkspaceControl;
-}): Promise<{ workspace: { id: string; name: string; max_source_file_bytes: number | null } } | { response: Response }> {
+async function authorizeLocalProductRequest(
+  { auth, workspaceControl }: ProductServices,
+  request: Request,
+): Promise<{ workspace: AuthorizedWorkspace } | { response: Response }> {
   const apiKey = bearerApiKey(request);
   const session = apiKey ? null : await auth.getSession(request);
   const workspaceId = request.headers.get("x-workspace-id")?.trim() || "";
@@ -1113,21 +885,12 @@ async function authorizeLocalProductRequest({
     : session && workspaceId
       ? workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId: session.id })
       : null;
-  if (workspace) {
-    return { workspace };
-  }
-
-  const response = apiKey || session
-    ? { status: 403, code: "forbidden", message: "You do not have access to this workspace" }
-    : { status: 401, code: "unauthorized", message: "Authentication required" };
-  return { response: Response.json({ error: { code: response.code, message: response.message } }, { status: response.status }) };
+  if (workspace) return { workspace };
+  return { response: apiKey || session ? forbidden() : unauthorized() };
 }
 
 async function countLocalSourceFilePages(sourceMimeType: string, sourceBytes: ArrayBuffer, signal?: AbortSignal): Promise<number | null> {
-  if (sourceMimeType !== "application/pdf") {
-    return null;
-  }
-
+  if (sourceMimeType !== "application/pdf") return null;
   try {
     return await countPdfSourceFilePages(sourceBytes, signal);
   } catch (error) {
@@ -1151,257 +914,73 @@ async function deleteLocalSourceFileQuietly(sourceFileStore: LocalSourceFileStor
   }
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown error";
-}
-
-function recordLocalProductAnalytics(
-  productAnalytics: LocalProductAnalytics | undefined,
-  event: LocalWorkspaceProductAnalyticsEvent,
-): void {
-  if (!productAnalytics) {
-    return;
-  }
+function recordLocalProductAnalytics(productAnalytics: LocalProductAnalytics | undefined, event: LocalWorkspaceProductAnalyticsEvent): void {
   try {
-    productAnalytics.record(event);
+    productAnalytics?.record(event);
   } catch (error) {
     console.warn("Local product analytics emission failed", error);
   }
 }
 
-async function handleWorkspaceRequest(
-  request: Request,
-  url: URL,
-  workspaceDeletion: LocalWorkspaceDeletion | null,
-  workspaceControl: LocalWorkspaceControl,
-  session: { id: string; name: string },
-): Promise<Response> {
-  if (request.method === "GET" && url.pathname === "/v1/workspaces") {
-    return Response.json({
-      workspaces: workspaceControl.listAcceptedWorkspaces({ userId: session.id, userName: session.name }),
-    });
-  }
-
-  if (request.method === "POST" && url.pathname === "/v1/workspaces") {
-    const payload = await request.json().catch(() => ({})) as { name?: unknown };
-    if (payload.name !== undefined && (typeof payload.name !== "string" || !payload.name.trim())) {
-      return Response.json(
-        { error: { code: "invalid_name", message: "name must be a non-empty string" } },
-        { status: 400 },
-      );
-    }
-
-    return Response.json(
-      workspaceControl.createWorkspace({
-        userId: session.id,
-        ...(typeof payload.name === "string" ? { name: payload.name } : {}),
-      }),
-      { status: 201 },
-    );
-  }
-
-  const contextMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/context$/);
-  if (request.method === "GET" && contextMatch) {
-    const workspace = workspaceControl.getAcceptedWorkspaceContext({
-      workspaceId: decodeURIComponent(contextMatch[1] || ""),
-      userId: session.id,
-    });
-    if (!workspace) {
-      return Response.json(
-        { error: { code: "forbidden", message: "You do not have access to this workspace" } },
-        { status: 403 },
-      );
-    }
-    return Response.json({ workspace });
-  }
-
-  const apiKeyMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/api-key$/);
-  if (request.method === "POST" && apiKeyMatch) {
-    return Response.json(workspaceControl.rotateApiKey({
-      workspaceId: decodeURIComponent(apiKeyMatch[1] || ""),
-      userId: session.id,
-    }));
-  }
-
-  const workspaceUsersMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/users$/);
-  if (request.method === "GET" && workspaceUsersMatch) {
-    return Response.json({
-      users: workspaceControl.listWorkspaceUsers({
-        workspaceId: decodeURIComponent(workspaceUsersMatch[1] || ""),
-        userId: session.id,
-      }),
-    });
-  }
-
-  const workspaceUserMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/users\/([^/]+)$/);
-  if (request.method === "POST" && workspaceUserMatch) {
-    const payload = await request.json().catch(() => ({})) as { action?: unknown };
-    return Response.json(workspaceControl.applyWorkspaceMemberAction({
-      workspaceId: decodeURIComponent(workspaceUserMatch[1] || ""),
-      actorUserId: session.id,
-      targetUserId: decodeURIComponent(workspaceUserMatch[2] || ""),
-      action: typeof payload.action === "string" ? payload.action : "",
-    }));
-  }
-
-  const leaveWorkspaceMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/leave$/);
-  if (request.method === "POST" && leaveWorkspaceMatch) {
-    return Response.json(workspaceControl.leaveWorkspace({
-      workspaceId: decodeURIComponent(leaveWorkspaceMatch[1] || ""),
-      userId: session.id,
-      userName: session.name,
-    }));
-  }
-
-  const invitationCollectionMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/invitations$/);
-  if (request.method === "GET" && invitationCollectionMatch) {
-    return Response.json({
-      invitations: workspaceControl.listWorkspaceInvitations({
-        workspaceId: decodeURIComponent(invitationCollectionMatch[1] || ""),
-        userId: session.id,
-      }),
-    });
-  }
-  if (request.method === "POST" && invitationCollectionMatch) {
-    const payload = await request.json().catch(() => ({})) as { email?: unknown; role?: unknown };
-    if (typeof payload.email !== "string" || !payload.email.trim()) {
-      return Response.json({ error: { code: "invalid_email", message: "email must be a non-empty string" } }, { status: 400 });
-    }
-    return Response.json(workspaceControl.createInvitation({
-      workspaceId: decodeURIComponent(invitationCollectionMatch[1] || ""),
-      inviterUserId: session.id,
-      email: payload.email,
-      ...(typeof payload.role === "string" ? { role: payload.role } : {}),
-    }), { status: 201 });
-  }
-  const invitationMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/invitations\/([^/]+)$/);
-  if (request.method === "DELETE" && invitationMatch) {
-    return Response.json(workspaceControl.cancelInvitation({ workspaceId: decodeURIComponent(invitationMatch[1] || ""), invitationId: decodeURIComponent(invitationMatch[2] || ""), userId: session.id }));
-  }
-
-  const workspaceMatch = url.pathname.match(/^\/v1\/workspaces\/([^/]+)$/);
-  if (workspaceMatch && request.method === "PATCH") {
-    const payload = await request.json().catch(() => ({})) as { name?: unknown };
-    if (typeof payload.name !== "string" || !payload.name.trim()) {
-      return Response.json(
-        { error: { code: "invalid_name", message: "name must be a non-empty string" } },
-        { status: 400 },
-      );
-    }
-    return Response.json(workspaceControl.renameWorkspace({
-      workspaceId: decodeURIComponent(workspaceMatch[1] || ""),
-      userId: session.id,
-      name: payload.name.trim(),
-    }));
-  }
-
-  if (workspaceMatch && request.method === "DELETE") {
-    const workspaceId = decodeURIComponent(workspaceMatch[1] || "");
-    if (!workspaceDeletion) {
-      return Response.json(
-        { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage has not finished initializing." } },
-        { status: 503 },
-      );
-    }
-    await workspaceDeletion.deleteWorkspace({ workspaceId, userId: session.id });
-    return Response.json({ ok: true, workspace_id: workspaceId });
-  }
-
-  return Response.json({ error: { code: "not_found", message: "Route not found" } }, { status: 404 });
-}
-
-function workspaceErrorResponse(error: unknown): Response {
-  if (!(error instanceof LocalWorkspaceControlError)) {
-    return Response.json(
-      { error: { code: "internal_error", message: "Unexpected server error" } },
-      { status: 500 },
-    );
-  }
-
-  const status = error.code === "last_workspace" || error.code === "invite_exists" ? 409 : error.code === "not_found" ? 404 : 403;
-  return Response.json({ error: { code: error.code, message: error.message } }, { status });
-}
-
-function workspaceProductDataAccessErrorResponse(error: unknown): Response {
-  if (!(error instanceof LocalWorkspaceProductDataAccessError)) throw error;
-  if (error.code === "capacity_exhausted") {
-    return Response.json(
-      { error: { code: "local_product_store_capacity_unavailable", message: "Local Workspace product-store capacity is temporarily full" } },
-      { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
-    );
-  }
-  if (error.code === "store_unavailable") {
-    return Response.json(
-      { error: { code: "local_product_store_unavailable", message: "Local Workspace product storage is unavailable." } },
-      { status: 503, headers: { "cache-control": "no-store", "retry-after": "1" } },
-    );
-  }
-  if (error.code === "workspace_invalidated") {
-    return Response.json(
-      { error: { code: "workspace_deleting", message: "Workspace deletion is in progress" } },
-      { status: 409 },
-    );
-  }
-  if (error.code === "workspace_deleting" || error.code === "job_deleting") {
-    return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
-  }
-  return Response.json(
-    { error: { code: "internal_error", message: "Unexpected server error" } },
-    { status: 500 },
-  );
-}
-
-function workspaceProductOperationErrorResponse(error: unknown): Response {
-  if (error instanceof LocalWorkspaceOperationError) {
-    return Response.json(
-      { error: { code: error.code, message: error.message } },
-      { status: 409 },
-    );
-  }
-  return Response.json(
-    { error: { code: "internal_error", message: "Unexpected server error" } },
-    { status: 500 },
-  );
-}
-
 function bearerApiKey(request: Request): string | null {
   const value = request.headers.get("authorization")?.trim() || "";
-  if (!value.toLowerCase().startsWith("bearer ")) {
-    return null;
-  }
+  if (!value.toLowerCase().startsWith("bearer ")) return null;
   return value.slice(7).trim() || null;
 }
 
+/** Better Auth only enforces a minimum length; the product requires the full complexity policy. */
 async function passwordPolicyFailure(request: Request, url: URL): Promise<Response | null> {
-  if (request.method !== "POST") {
-    return null;
-  }
-
+  if (request.method !== "POST") return null;
   const path = decodeURIComponent(url.pathname).replace(/\/+$/, "");
   const passwordField = path === "/api/auth/sign-up/email"
     ? "password"
     : ["/api/auth/reset-password", "/api/auth/change-password"].includes(path)
       ? "newPassword"
       : null;
-  if (!passwordField) {
-    return null;
-  }
+  if (!passwordField) return null;
 
   const body = await request.clone().json().catch(() => null);
-  const password = body && typeof body === "object" && passwordField in body
-    ? (body as Record<string, unknown>)[passwordField]
-    : null;
-  if (typeof password !== "string" || evaluateAccountPasswordPolicy(password).valid) {
-    return null;
-  }
+  const password = body && typeof body === "object" ? (body as Record<string, unknown>)[passwordField] : null;
+  if (typeof password !== "string" || evaluateAccountPasswordPolicy(password).valid) return null;
+  return errorResponse(400, "password_policy_not_met", "Password must meet all complexity requirements.");
+}
 
-  return Response.json(
-    {
-      error: {
-        code: "password_policy_not_met",
-        message: "Password must meet all complexity requirements.",
-      },
-    },
-    { status: 400 },
-  );
+function errorResponse(status: number, code: string, message: string, headers?: HeadersInit): Response {
+  return Response.json({ error: { code, message } }, { status, headers });
+}
+
+function httpErrorResponse(error: HttpError): Response {
+  return errorResponse(error.status, error.code, error.message);
+}
+
+const routeNotFound = () => errorResponse(404, "not_found", "Route not found");
+const templateNotFound = () => new HttpError(404, "not_found", "Template not found");
+const unauthorized = () => errorResponse(401, "unauthorized", "Authentication required");
+const forbidden = () => errorResponse(403, "forbidden", "You do not have access to this workspace");
+const invalidName = () => errorResponse(400, "invalid_name", "name must be a non-empty string");
+const productStoreUnavailable = () =>
+  errorResponse(503, "local_product_store_unavailable", "Local Workspace product storage has not finished initializing.");
+
+function workspaceErrorResponse(error: unknown): Response {
+  if (!(error instanceof LocalWorkspaceControlError)) return errorResponse(500, "internal_error", "Unexpected server error");
+  const status = error.code === "last_workspace" || error.code === "invite_exists" ? 409 : error.code === "not_found" ? 404 : 403;
+  return errorResponse(status, error.code, error.message);
+}
+
+function workspaceProductDataAccessErrorResponse(error: unknown): Response {
+  if (!(error instanceof LocalWorkspaceProductDataAccessError)) throw error;
+  const retryable = { "cache-control": "no-store", "retry-after": "1" };
+  switch (error.code) {
+    case "capacity_exhausted":
+      return errorResponse(503, "local_product_store_capacity_unavailable", "Local Workspace product-store capacity is temporarily full", retryable);
+    case "store_unavailable":
+      return errorResponse(503, "local_product_store_unavailable", "Local Workspace product storage is unavailable.", retryable);
+    case "workspace_invalidated":
+      return errorResponse(409, "workspace_deleting", "Workspace deletion is in progress");
+    case "workspace_deleting":
+    case "job_deleting":
+      return errorResponse(409, error.code, error.message);
+    default:
+      return errorResponse(500, "internal_error", "Unexpected server error");
+  }
 }
