@@ -476,6 +476,8 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - **Source file retention** is captured once per Document when the server begins accepting its upload: installation storage configured, installation retention enabled, and no **Workspace source retention** opt-out. Later setting changes affect later uploads only.
 - **Workspace source retention** is stored with Workspace control data and may be changed only by a signed-in Workspace owner or admin, not by a **Workspace API key**.
 - Existing **Extraction jobs** migrate as not retained, whether or not their processing file still exists.
+- With S3-compatible storage, a retained original must be saved to object storage before its **Extraction job** is accepted; if saving fails, the upload fails with a retryable error and no job is created. Processing uses a local working copy that is removed once processing ends.
+- Deleting a **Document** or **Workspace** removes app access immediately and hands remote originals to durable background cleanup; logical deletion never waits on remote storage, and confirmation does not claim physical erasure.
 - A retained original is streamed only through its **Extraction job** in the same **Workspace**, for sessions and **Workspace API keys**, with `private, no-store` caching. Retrieval failure never changes the job's status or results; not retained, missing from storage, and temporarily unavailable are reported separately.
 - A **Template** must have at least one **Template field** before it can be used for extraction.
 - Changing **Template fields** creates a new **Template version**.

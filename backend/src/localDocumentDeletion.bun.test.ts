@@ -160,7 +160,7 @@ test.each(["failed unlink", "interrupted deletion"])("Source cleanup survives re
     try {
       expect(lease.store.getExtractionJob("job_failed")).toBeNull();
       expect(lease.store.listRetainedTerminalSourceFiles({ failedBefore: "2000-01-01T00:00:00.000Z" }))
-        .toContainEqual({ job_id: "job_failed", source_file_key: keys.failed });
+        .toContainEqual({ job_id: "job_failed", source_file_key: keys.failed, retained_object_key: null });
     } finally { lease.release(); }
     const retention = createLocalSourceFileRetention({ stateDirectory, productStoreRegistry: restarted, sourceFileStore: files });
     await retention.run();

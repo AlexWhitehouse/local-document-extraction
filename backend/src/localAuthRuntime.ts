@@ -6,6 +6,7 @@ import { Database, constants as sqliteConstants } from "bun:sqlite";
 
 import { createLocalAuth, type LocalAuth, type LocalAuthSettings } from "./localAuth";
 import { createLocalMailSink, type LocalMailLogger } from "./localMailSink";
+import { createLocalSourceObjectManifest, type LocalSourceObjectManifest } from "./localSourceObjectManifest";
 import { createLocalWorkspaceControl, type LocalWorkspaceControl } from "./localWorkspaceControl";
 import { createCloudflareMailSink } from "./cloudflareMailSink";
 import type { LocalEmailConfiguration } from "./localConfiguration";
@@ -16,6 +17,7 @@ export type LocalAuthRuntime = {
   auth: LocalAuth;
   close(): void;
   workspaceControl: LocalWorkspaceControl;
+  sourceObjectManifest: LocalSourceObjectManifest;
 };
 
 export async function createLocalAuthRuntime({
@@ -72,6 +74,7 @@ export async function createLocalAuthRuntime({
       auth,
       close: () => database.close(),
       workspaceControl: createLocalWorkspaceControl(database),
+      sourceObjectManifest: createLocalSourceObjectManifest(database),
     };
   } catch (error) {
     database.close();
