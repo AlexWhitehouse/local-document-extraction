@@ -7,7 +7,7 @@ import type { LocalMemoryPressureLevel } from "./localMemoryPressure";
 
 type GatewayOutcome = "failed" | "success" | "throttled" | "timeout";
 
-export type LocalResourceControllerSnapshot = {
+type LocalResourceControllerSnapshot = {
   adaptive: boolean;
   completedJobs: number;
   completedJobsPerSecond: number;
@@ -53,17 +53,6 @@ export type LocalResourceControllerSnapshot = {
   sampledAt: string;
 };
 
-export type LocalResourceController = {
-  canReserveSubmission(input: { requestBytes: number; reservedBytes: number }): Promise<boolean>;
-  handleMemoryPressure(level: LocalMemoryPressureLevel): Promise<void>;
-  recordCompletedJob(): void;
-  recordGatewayOutcome(outcome: GatewayOutcome): void;
-  sampleNow(): Promise<void>;
-  snapshot(): LocalResourceControllerSnapshot;
-  start(): void;
-  stop(): void;
-};
-
 export function createLocalResourceController({
   adaptive = true,
   cpuLimitRatio = 0.85,
@@ -92,7 +81,7 @@ export function createLocalResourceController({
   sampleIntervalMs?: number;
   setPermits: (permits: number) => void;
   stateDirectory: string;
-}): LocalResourceController {
+}) {
   const cores = Math.max(1, cpus().length);
   const normalizedInitialPermits = positiveInteger(initialPermits, 8);
   const normalizedMaximumPermits = Math.max(
@@ -120,8 +109,17 @@ export function createLocalResourceController({
   let completedJobs = 0;
   const completedAt: number[] = [];
   const gateway = { failed: 0, success: 0, throttled: 0, timeout: 0 };
-  const gatewayWindow = { failed: 0, success: 0, throttled: 0, timeout: 0 };
-  const memory = process.memoryUsage();
+  let gatewayWindow = { ...gateway };
+  const readMemory = () => {
+    const usage = process.memoryUsage();
+    return {
+      externalBytes: usage.external,
+      heapUsedBytes: usage.heapUsed,
+      ratio: usage.rss / totalMemoryBytes,
+      rssBytes: usage.rss,
+      totalBytes: totalMemoryBytes,
+    };
+  };
   const state: LocalResourceControllerSnapshot = {
     adaptive,
     completedJobs: 0,
@@ -137,13 +135,7 @@ export function createLocalResourceController({
     eventLoopLagMs: 0,
     gateway,
     limits: { cpuRatio: cpuLimitRatio, memoryRatio: memoryLimitRatio },
-    memory: {
-      externalBytes: memory.external,
-      heapUsedBytes: memory.heapUsed,
-      ratio: memory.rss / totalMemoryBytes,
-      rssBytes: memory.rss,
-      totalBytes: totalMemoryBytes,
-    },
+    memory: readMemory(),
     memoryPressure: {
       activeLevel: null,
       evictedIdleStores: 0,
@@ -184,14 +176,7 @@ export function createLocalResourceController({
     state.eventLoopLagMs = Math.max(0, sampledAt - expectedSampleAt);
     expectedSampleAt = sampledAt + normalizedSampleIntervalMs;
 
-    const usage = process.memoryUsage();
-    state.memory = {
-      externalBytes: usage.external,
-      heapUsedBytes: usage.heapUsed,
-      ratio: usage.rss / totalMemoryBytes,
-      rssBytes: usage.rss,
-      totalBytes: totalMemoryBytes,
-    };
+    state.memory = readMemory();
     while (completedAt[0] !== undefined && completedAt[0] < sampledAt - 60_000) completedAt.shift();
     state.completedJobs = completedJobs;
     state.completedJobsPerSecond = completedAt.length / 60;
@@ -249,10 +234,7 @@ export function createLocalResourceController({
       }
     }
 
-    gatewayWindow.failed = 0;
-    gatewayWindow.success = 0;
-    gatewayWindow.throttled = 0;
-    gatewayWindow.timeout = 0;
+    gatewayWindow = { failed: 0, success: 0, throttled: 0, timeout: 0 };
   };
 
   const sampleNow = () => {
@@ -288,7 +270,7 @@ export function createLocalResourceController({
   };
 
   return {
-    canReserveSubmission: async ({ requestBytes, reservedBytes }) => {
+    canReserveSubmission: async ({ requestBytes, reservedBytes }: { requestBytes: number; reservedBytes: number }) => {
       const pressureLevel = state.memoryPressure.activeLevel;
       if (pressureLevel === "critical") return false;
       if (pressureLevel === "warning" && requestBytes >= normalizedLargeSubmissionBytes) return false;
@@ -304,11 +286,11 @@ export function createLocalResourceController({
       completedJobs += 1;
       completedAt.push(now());
     },
-    recordGatewayOutcome: (outcome) => {
+    recordGatewayOutcome: (outcome: GatewayOutcome) => {
       gateway[outcome] += 1;
       gatewayWindow[outcome] += 1;
     },
-    handleMemoryPressure: async (level) => {
+    handleMemoryPressure: async (level: LocalMemoryPressureLevel) => {
       const signaledAt = now();
       if (!state.memoryPressure.activeLevel) {
         memoryPressureRecoveryPermits = currentPermits;
@@ -340,7 +322,7 @@ export function createLocalResourceController({
       await sampleNow();
     },
     sampleNow,
-    snapshot: () => structuredClone(state),
+    snapshot: (): LocalResourceControllerSnapshot => structuredClone(state),
     start: () => {
       if (timer) return;
       expectedSampleAt = now() + normalizedSampleIntervalMs;

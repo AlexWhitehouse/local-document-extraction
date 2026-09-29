@@ -1,18 +1,3 @@
-export type LocalSubmissionAdmissionSnapshot = {
-  accepting: boolean;
-  active: number;
-  maxConcurrent: number;
-  maxReservedBytes: number;
-  rejected: number;
-  reservedBytes: number;
-};
-
-export type LocalSubmissionAdmission = {
-  close(): Promise<void>;
-  run(request: Request, handle: () => Response | Promise<Response>): Promise<Response>;
-  snapshot(): LocalSubmissionAdmissionSnapshot;
-};
-
 export function createLocalSubmissionAdmission({
   canReserve = () => true,
   maxConcurrent = 8,
@@ -25,7 +10,7 @@ export function createLocalSubmissionAdmission({
   maxReservedBytes?: number;
   unknownRequestBytes?: number;
   retryAfterSeconds?: number;
-} = {}): LocalSubmissionAdmission {
+} = {}) {
   const normalizedMaxConcurrent = positiveInteger(maxConcurrent, 8);
   const normalizedMaxReservedBytes = positiveInteger(maxReservedBytes, 128 * 1024 * 1024);
   const normalizedUnknownRequestBytes = positiveInteger(unknownRequestBytes, 11 * 1024 * 1024);
@@ -47,7 +32,7 @@ export function createLocalSubmissionAdmission({
       if (active === 0) return;
       await new Promise<void>((resolve) => closeWaiters.push(resolve));
     },
-    run: async (request, handle) => {
+    run: async (request: Request, handle: () => Response | Promise<Response>): Promise<Response> => {
       const reservation = requestReservationBytes(request, normalizedUnknownRequestBytes);
       const localCapacityFull =
         !accepting

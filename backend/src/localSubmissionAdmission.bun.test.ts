@@ -133,7 +133,7 @@ test("closing submission admission rejects new Documents and waits for admitted 
     maxConcurrent: 2,
     maxReservedBytes: 20,
   });
-  const activeHandler = deferred();
+  const activeHandler = Promise.withResolvers<void>();
   const first = admission.run(requestWithBody(10), async () => {
     await activeHandler.promise;
     return new Response(null, { status: 202 });
@@ -193,12 +193,4 @@ function trackedBody() {
       },
     }),
   };
-}
-
-function deferred(): { promise: Promise<void>; resolve(): void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
 }

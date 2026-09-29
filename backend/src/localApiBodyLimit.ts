@@ -27,13 +27,7 @@ export async function boundLocalApiBody(request: Request, maximumBytes: number):
   } finally {
     reader.releaseLock();
   }
-  const body = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return copyLocalAuthRequestPeerAddress(request, new Request(request, { body }));
+  return copyLocalAuthRequestPeerAddress(request, new Request(request, { body: Buffer.concat(chunks, length) }));
 }
 
 function tooLarge(maximumBytes: number): HttpError {

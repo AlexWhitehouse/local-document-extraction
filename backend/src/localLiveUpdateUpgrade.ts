@@ -2,7 +2,7 @@ import type { LocalAuth } from "./localAuth";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import { localRequestOriginFailure } from "./localRequestOrigin";
 
-export type LocalLiveUpdateUpgradeServer = {
+type LocalLiveUpdateUpgradeServer = {
   upgrade(request: Request, options: { data: { workspaceId: string; isAuthorized: () => boolean } }): boolean;
 };
 

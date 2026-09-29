@@ -1,7 +1,6 @@
 import { performance } from "node:perf_hooks";
 
 import { runExtraction, type ModelGatewayConfiguration } from "../src/consumer/modelGateway";
-import { encodeModelPayloadBase64 } from "../src/consumer/modelPayloadBase64";
 
 const MEBIBYTE = 1024 * 1024;
 const ITERATIONS = 9;
@@ -22,7 +21,7 @@ for (const sizeMiB of [2, 5, 10]) {
   const bytes = deterministicBytes(sizeMiB * MEBIBYTE);
   for (const [name, encoder] of [
     ["legacy JS + btoa", legacyBase64],
-    ["native Buffer", (input: Uint8Array) => encodeModelPayloadBase64(input.buffer)],
+    ["native Buffer", (input: Uint8Array) => Buffer.from(input.buffer).toString("base64")],
   ] as const) {
     encoder(bytes);
     const samples = Array.from({ length: ITERATIONS }, () => measure(() => encoder(bytes)));
