@@ -7,7 +7,8 @@
 .evaluations-page > .studio-page-heading { border-bottom: 1px solid var(--studio-rule); }
 .evaluation-contextbar, .evaluation-body, .evaluation-setup { margin-inline: calc(var(--evaluation-page-gutter) * -1); }
 @media (min-width: 901px) {
-  .studio-main.studio-main-evaluations { display: flex; flex-direction: column; height: 100dvh; min-height: 0; overflow: hidden; }
+  /* Three classes, so the generic `.studio-main.main-content` block layout can't win on stylesheet order. */
+  .studio-main.studio-main-evaluations.main-content { display: flex; flex-direction: column; height: 100dvh; min-height: 0; overflow: hidden; }
 }
 
 /* Shared pieces */
@@ -340,9 +341,10 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
 .evaluation-setup-docs { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
 .evaluation-setup-docs .evaluation-setup-file > div:nth-child(2) { display: grid; gap: 3px; min-width: 0; }
 .evaluation-setup-file.unrunnable strong { color: var(--text-2); }
-.evaluation-dropzone.compact { padding-block: 12px; }
+.evaluation-dropzone.compact { padding-block: 12px; grid-template-columns: minmax(0, 1fr) auto; }
 .evaluation-dropzone.compact .evaluation-dropzone-icon { display: none; }
 .evaluation-dropzone .evaluation-actions { flex-wrap: nowrap; }
+.evaluation-dropzone .evaluation-actions button, .evaluation-setup-file .evaluation-actions button { white-space: nowrap; }
 .evaluation-library-box .studio-text-button { justify-self: start; padding: 0; min-height: 0; color: var(--accent-strong); }
 .evaluation-library-modal.modal-card { width: min(94vw, 640px); max-height: 88vh; overflow: auto; display: grid; gap: 14px; }
 .evaluation-library-modal.wide.modal-card { width: min(96vw, 1000px); }
