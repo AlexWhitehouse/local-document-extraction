@@ -205,8 +205,8 @@ test("recovery links stale uploads an accepted job references and releases unref
   const database = new Database(":memory:");
   cleanups.push(() => database.close());
   const crashed = createLocalSourceObjectManifest(database);
-  crashed.prepare({ objectKey: key, workspaceId: "workspace_a", jobId });
-  crashed.prepare({ objectKey: `${key}.orphan`, workspaceId: "workspace_a", jobId: "job_never_accepted" });
+  crashed.prepare({ objectKey: key, workspaceId: "workspace_a", ownerKind: "job", ownerId: jobId });
+  crashed.prepare({ objectKey: `${key}.orphan`, workspaceId: "workspace_a", ownerKind: "job", ownerId: "job_never_accepted" });
   const recovery = (at: number) => createLocalSourceObjectCleanup({
     manifest: crashed, objectStore: harness.store, productStoreRegistry: harness.registry,
     workspaceControl: { workspaceExists: () => true }, now: () => at,
@@ -259,7 +259,7 @@ test("the S3 destination is recorded and cannot change while objects or cleanup 
   manifest.assertDestination("s3|aws|documents|app/|virtual-hosted");
   expect(manifest.recordedDestination()).toBe("s3|aws|documents|app/|virtual-hosted");
 
-  manifest.prepare({ objectKey: "app/key.pdf", workspaceId: "workspace_a", jobId: "job_a" });
+  manifest.prepare({ objectKey: "app/key.pdf", workspaceId: "workspace_a", ownerKind: "job", ownerId: "job_a" });
   expect(() => manifest.assertDestination("s3|aws|other-bucket|app/|virtual-hosted")).toThrow("1 retained original(s)");
   expect(() => manifest.assertDestination(null)).toThrow("still depend on the previous destination");
   manifest.assertDestination("s3|aws|documents|app/|virtual-hosted");

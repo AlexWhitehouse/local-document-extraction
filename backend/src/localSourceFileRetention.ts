@@ -119,7 +119,7 @@ export function createLocalSourceFileRetention({
   };
 }
 
-async function listLocalWorkspaceIds(stateDirectory: string): Promise<string[]> {
+export async function listLocalWorkspaceIds(stateDirectory: string): Promise<string[]> {
   const workspaceDirectory = join(stateDirectory, "data", "workspaces");
   const entries = await readdir(workspaceDirectory, { withFileTypes: true }).catch(() => []);
   return entries

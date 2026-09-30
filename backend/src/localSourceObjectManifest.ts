@@ -4,11 +4,14 @@ import type { Database } from "bun:sqlite";
 import { nowIso } from "./lib/ids";
 
 export type SourceObjectPhase = "preparing" | "linked" | "deleting";
+/** Who references the object: an Extraction job's retained original or a Saved Evaluation document's. */
+export type SourceObjectOwnerKind = "job" | "evaluation_document";
 
 export type SourceObjectManifestEntry = {
   object_key: string;
   workspace_id: string;
-  job_id: string;
+  owner_kind: SourceObjectOwnerKind;
+  owner_id: string;
   phase: SourceObjectPhase;
   created_at: string;
   attempts: number;
@@ -30,11 +33,12 @@ export type LocalSourceObjectManifest = {
    */
   assertDestination(destination: string | null): void;
   recordedDestination(): string | null;
-  prepare(input: { objectKey: string; workspaceId: string; jobId: string }): void;
-  /** Records that an accepted job references the object; only a preparing object can be linked. */
+  prepare(input: { objectKey: string; workspaceId: string; ownerKind: SourceObjectOwnerKind; ownerId: string }): void;
+  /** Records that a committed owner references the object; only a preparing object can be linked. */
   link(input: { objectKey: string }): boolean;
   markDeleting(input: { objectKey: string }): void;
   markJobDeleting(input: { workspaceId: string; jobId: string }): void;
+  markOwnerDeleting(input: { workspaceId: string; ownerKind: SourceObjectOwnerKind; ownerId: string }): void;
   markWorkspaceDeleting(input: { workspaceId: string }): void;
   listDueDeletions(input: { now: string; limit: number }): SourceObjectManifestEntry[];
   listStalePreparing(input: { before: string; limit: number }): SourceObjectManifestEntry[];
@@ -45,7 +49,16 @@ export type LocalSourceObjectManifest = {
 };
 
 export function createLocalSourceObjectManifest(database: Database): LocalSourceObjectManifest {
-  database.exec(MANIFEST_SCHEMA);
+  database.transaction(() => {
+    database.exec(MANIFEST_SCHEMA);
+    // Rows written before library ownership are all job-owned; keys, phases and attempts are unchanged.
+    const manifestColumns = new Set((database.query("PRAGMA table_info(source_object_manifest)").all() as Array<{ name: string }>).map((column) => column.name));
+    if (manifestColumns.has("job_id")) database.exec("ALTER TABLE source_object_manifest RENAME COLUMN job_id TO owner_id");
+    if (!manifestColumns.has("owner_kind")) {
+      database.exec("ALTER TABLE source_object_manifest ADD COLUMN owner_kind TEXT NOT NULL DEFAULT 'job' CHECK (owner_kind IN ('job', 'evaluation_document'))");
+    }
+    database.exec(MANIFEST_INDEXES);
+  }).immediate();
   const installationColumns = new Set((database.query("PRAGMA table_info(source_storage_installation)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!installationColumns.has("destination")) database.exec("ALTER TABLE source_storage_installation ADD COLUMN destination TEXT");
   const pendingEntries = () => (database.query("SELECT COUNT(*) AS count FROM source_object_manifest").get() as { count: number }).count;
@@ -82,25 +95,28 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
          ON CONFLICT(singleton) DO UPDATE SET destination = excluded.destination`,
       ).run(randomBytes(12).toString("hex"), nowIso(), destination);
     }).immediate(),
-    prepare: ({ objectKey, workspaceId, jobId }) => {
+    prepare: ({ objectKey, workspaceId, ownerKind, ownerId }) => {
       const at = nowIso();
       database.query(
-        `INSERT INTO source_object_manifest (object_key, workspace_id, job_id, phase, created_at, updated_at, attempts, next_attempt_at)
-         VALUES (?, ?, ?, 'preparing', ?, ?, 0, NULL)`,
-      ).run(objectKey, workspaceId, jobId, at, at);
+        `INSERT INTO source_object_manifest (object_key, workspace_id, owner_kind, owner_id, phase, created_at, updated_at, attempts, next_attempt_at)
+         VALUES (?, ?, ?, ?, 'preparing', ?, ?, 0, NULL)`,
+      ).run(objectKey, workspaceId, ownerKind, ownerId, at, at);
     },
     link: ({ objectKey }) => database.query(
       "UPDATE source_object_manifest SET phase = 'linked', updated_at = ? WHERE object_key = ? AND phase = 'preparing'",
     ).run(nowIso(), objectKey).changes > 0,
     markDeleting: ({ objectKey }) => { setPhase("object_key = ?", objectKey); },
-    markJobDeleting: ({ workspaceId, jobId }) => { setPhase("workspace_id = ? AND job_id = ?", workspaceId, jobId); },
+    markJobDeleting: ({ workspaceId, jobId }) => { setPhase("workspace_id = ? AND owner_kind = 'job' AND owner_id = ?", workspaceId, jobId); },
+    markOwnerDeleting: ({ workspaceId, ownerKind, ownerId }) => {
+      setPhase("workspace_id = ? AND owner_kind = ? AND owner_id = ?", workspaceId, ownerKind, ownerId);
+    },
     markWorkspaceDeleting: ({ workspaceId }) => { setPhase("workspace_id = ?", workspaceId); },
     listDueDeletions: ({ now, limit }) => database.query(
-      `SELECT object_key, workspace_id, job_id, phase, created_at, attempts FROM source_object_manifest
+      `SELECT object_key, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest
        WHERE phase = 'deleting' AND next_attempt_at <= ? ORDER BY next_attempt_at, object_key LIMIT ?`,
     ).all(now, limit) as SourceObjectManifestEntry[],
     listStalePreparing: ({ before, limit }) => database.query(
-      `SELECT object_key, workspace_id, job_id, phase, created_at, attempts FROM source_object_manifest
+      `SELECT object_key, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest
        WHERE phase = 'preparing' AND created_at <= ? ORDER BY created_at, object_key LIMIT ?`,
     ).all(before, limit) as SourceObjectManifestEntry[],
     deferDeletion: ({ objectKey, nextAttemptAt, failed }) => {
@@ -132,18 +148,22 @@ const MANIFEST_SCHEMA = `
   CREATE TABLE IF NOT EXISTS source_object_manifest (
     object_key TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,
-    job_id TEXT NOT NULL,
+    owner_kind TEXT NOT NULL DEFAULT 'job' CHECK (owner_kind IN ('job', 'evaluation_document')),
+    owner_id TEXT NOT NULL,
     phase TEXT NOT NULL CHECK (phase IN ('preparing', 'linked', 'deleting')),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at TEXT
   );
+`;
 
+const MANIFEST_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_source_object_manifest_due
     ON source_object_manifest(next_attempt_at, object_key) WHERE phase = 'deleting';
   CREATE INDEX IF NOT EXISTS idx_source_object_manifest_preparing
     ON source_object_manifest(created_at, object_key) WHERE phase = 'preparing';
-  CREATE INDEX IF NOT EXISTS idx_source_object_manifest_owner
-    ON source_object_manifest(workspace_id, job_id);
+  DROP INDEX IF EXISTS idx_source_object_manifest_owner;
+  CREATE INDEX IF NOT EXISTS idx_source_object_manifest_owner_kind
+    ON source_object_manifest(workspace_id, owner_kind, owner_id);
 `;

@@ -52,3 +52,22 @@ test("local Source file storage hard-erases one Workspace idempotently without a
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });
+
+test("library directory listings resume after a cursor so every saved original is eventually visited", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-library-listing-"));
+  const sourceFiles = createLocalSourceFileStore({ stateDirectory });
+  try {
+    const temporary = join(stateDirectory, "temporary", "evaluation-documents");
+    for (const [workspaceId, documentId] of [["workspace_b", "evd_1"], ["workspace_a", "evd_2"], ["workspace_a", "evd_1"]]) {
+      const temporaryPath = join(temporary, `${workspaceId}-${documentId}.upload`);
+      await Bun.write(temporaryPath, new Uint8Array([137, 80, 78, 71]));
+      await sourceFiles.promoteEvaluationDocument!({ workspaceId: workspaceId!, documentId: documentId!, mimeType: "image/png", temporaryPath });
+    }
+    const names = (list: Array<{ workspaceId: string; documentId: string }>) => list.map(d => `${d.workspaceId}/${d.documentId}`);
+    const first = await sourceFiles.listEvaluationDocumentDirectories!({ limit: 2 });
+    expect(names(first)).toEqual(["workspace_a/evd_1", "workspace_a/evd_2"]);
+    expect(names(await sourceFiles.listEvaluationDocumentDirectories!({ limit: 2, after: "workspace_a/evd_2" }))).toEqual(["workspace_b/evd_1"]);
+  } finally {
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});

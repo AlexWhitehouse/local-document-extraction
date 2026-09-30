@@ -33,6 +33,18 @@ export function retainedObjectKey({ prefix, namespace, workspaceId, jobId, mimeT
   return `${prefix}${namespace}/workspaces/${workspaceId}/jobs/${jobId}/${crypto.randomUUID()}.${extension}`;
 }
 
+/** Saved Evaluation document originals use their own namespace beside job originals. */
+export function evaluationDocumentObjectKey({ prefix, namespace, workspaceId, documentId, mimeType }: {
+  prefix: string; namespace: string; workspaceId: string; documentId: string; mimeType: string;
+}): string {
+  for (const value of [namespace, workspaceId, documentId]) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(value)) throw new Error("Retained object keys accept only opaque identifiers");
+  }
+  const extension = OBJECT_EXTENSIONS[mimeType];
+  if (!extension) throw new Error("Unsupported Source file MIME type");
+  return `${prefix}${namespace}/workspaces/${workspaceId}/evaluation-documents/${documentId}/${crypto.randomUUID()}.${extension}`;
+}
+
 /**
  * Identifies where this installation's objects live. Credentials are not part of it: rotating them
  * keeps the destination, while a new endpoint, bucket, prefix or addressing style is a different one.

@@ -121,8 +121,80 @@ export type LocalRetainedTerminalSourceFile = {
   retained_object_key: string | null;
 };
 
+/** A Saved Evaluation document: Workspace-owned, independent of any Extraction job. */
+export type LocalEvaluationDocument = {
+  id: string;
+  name: string;
+  source_name: string | null;
+  source_mime_type: string;
+  source_byte_size: number;
+  source_page_count: number | null;
+  /** Local original; null when the original is held in remote object storage. */
+  source_file_key: string | null;
+  retained_object_key: string | null;
+  reference_json: string;
+  /** Field names, types and verification only, so listings never parse whole Expected answer sets. */
+  reference_fields_json: string;
+  revision: number;
+  created_at: string;
+  updated_at: string;
+  created_by_user_id: string;
+  created_by_name: string;
+  updated_by_user_id: string;
+  updated_by_name: string;
+};
+
+export type LocalEvaluationDocumentSummary = Omit<LocalEvaluationDocument, "reference_json">;
+
+export type LocalEvaluationDocumentSource = Pick<LocalEvaluationDocument, "id" | "source_file_key" | "retained_object_key" | "source_mime_type" | "source_name" | "source_byte_size">;
+
+/** Minimal idempotency record: no document or reference content, and never expired. */
+export type LocalEvaluationDocumentSaveReceipt = {
+  operation_id: string;
+  digest: string;
+  document_id: string;
+  outcome: "saved" | "deleted";
+};
+
+export type LocalEvaluationDocumentDeletionIntent = {
+  document_id: string;
+  source_file_key: string | null;
+  retained_object_key: string | null;
+};
+
+type EvaluationDocumentAuthor = { userId: string; name: string };
+
 export type LocalWorkspaceProductStore = {
   close(): void;
+  /** Commits a complete save and its receipt together; an existing receipt wins and nothing is inserted. */
+  insertEvaluationDocument(input: {
+    document: Omit<LocalEvaluationDocument, "revision" | "updated_at" | "updated_by_user_id" | "updated_by_name" | "created_by_user_id" | "created_by_name">;
+    author: EvaluationDocumentAuthor;
+    operationId: string;
+    digest: string;
+  }): { inserted: true; document: LocalEvaluationDocument } | { inserted: false; receipt: LocalEvaluationDocumentSaveReceipt };
+  /** Compare-and-swap on revision; a rename leaves the Expected answer set untouched. */
+  updateEvaluationDocument(input: {
+    documentId: string;
+    expectedRevision: number;
+    name?: string;
+    reference?: { json: string; fieldsJson: string };
+    author: EvaluationDocumentAuthor;
+    updatedAt: string;
+  }): { status: "updated" | "conflict"; document: LocalEvaluationDocument } | { status: "not_found" };
+  /** Logical deletion: removes the entry, records source cleanup intent and marks its receipts deleted. */
+  deleteEvaluationDocument(input: { documentId: string; deletedAt: string }): LocalEvaluationDocumentDeletionIntent | null;
+  getEvaluationDocument(documentId: string): LocalEvaluationDocument | null;
+  getEvaluationDocumentSource(documentId: string): LocalEvaluationDocumentSource | null;
+  getEvaluationDocumentSaveReceipt(operationId: string): LocalEvaluationDocumentSaveReceipt | null;
+  listEvaluationDocuments(input: {
+    cursor?: { updatedAt: string; documentId: string } | null;
+    search?: string;
+    limit: number;
+  }): LocalEvaluationDocumentSummary[];
+  listEvaluationDocumentDeletionIntents(input: { limit: number }): LocalEvaluationDocumentDeletionIntent[];
+  completeEvaluationDocumentDeletionIntent(documentId: string): void;
+  hasEvaluationDocumentDeletionIntent(documentId: string): boolean;
   getModelConfiguration(): StoredWorkspaceModelConfiguration | null;
   putModelConfiguration(input: {
     expectedRevision: number | null;
@@ -322,6 +394,11 @@ const JOB_SUMMARY_SELECT = `SELECT j.id AS job_id, j.status, j.source_name, j.so
   FROM jobs j
   JOIN source_files s ON s.job_id = j.id`;
 
+const EVALUATION_DOCUMENT_SUMMARY_SELECT = `SELECT id, name, source_name, source_mime_type, source_byte_size, source_page_count,
+    source_file_key, retained_object_key, reference_fields_json, revision, created_at, updated_at,
+    created_by_user_id, created_by_name, updated_by_user_id, updated_by_name`;
+const EVALUATION_DOCUMENT_SELECT = `${EVALUATION_DOCUMENT_SUMMARY_SELECT}, reference_json FROM evaluation_documents`;
+
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
 
 function createProductStore(database: Database): LocalWorkspaceProductStore {
@@ -408,8 +485,89 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     return { template_id: input.templateId, version: 1, status: "active" };
   };
 
+  const readEvaluationDocument = (documentId: string) =>
+    database.query(`${EVALUATION_DOCUMENT_SELECT} WHERE id = ?`).get(documentId) as LocalEvaluationDocument | null;
+  const readSaveReceipt = (operationId: string) => database.query(
+    "SELECT operation_id, digest, document_id, outcome FROM evaluation_document_save_receipts WHERE operation_id = ?",
+  ).get(operationId) as LocalEvaluationDocumentSaveReceipt | null;
+
   return {
     close: () => database.close(),
+    insertEvaluationDocument: ({ document, author, operationId, digest }) => database.transaction(() => {
+      // Concurrent retries of one operation race here; only the first commit creates an entry.
+      const receipt = readSaveReceipt(operationId);
+      if (receipt) return { inserted: false as const, receipt };
+      database.query(
+        `INSERT INTO evaluation_documents (id, name, source_name, source_mime_type, source_byte_size, source_page_count,
+           source_file_key, retained_object_key, reference_json, reference_fields_json, revision, created_at, updated_at,
+           created_by_user_id, created_by_name, updated_by_user_id, updated_by_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+      ).run(document.id, document.name, document.source_name, document.source_mime_type, document.source_byte_size, document.source_page_count,
+        document.source_file_key, document.retained_object_key, document.reference_json, document.reference_fields_json,
+        document.created_at, document.created_at,
+        author.userId, author.name, author.userId, author.name);
+      database.query(
+        "INSERT INTO evaluation_document_save_receipts (operation_id, digest, document_id, outcome, created_at) VALUES (?, ?, ?, 'saved', ?)",
+      ).run(operationId, digest, document.id, document.created_at);
+      return { inserted: true as const, document: readEvaluationDocument(document.id)! };
+    }).immediate(),
+    updateEvaluationDocument: (input) => database.transaction(() => {
+      const assignments = ["revision = revision + 1", "updated_at = ?", "updated_by_user_id = ?", "updated_by_name = ?"];
+      const parameters: Array<string | number> = [input.updatedAt, input.author.userId, input.author.name];
+      if (input.name !== undefined) { assignments.push("name = ?"); parameters.push(input.name); }
+      if (input.reference) {
+        assignments.push("reference_json = ?", "reference_fields_json = ?");
+        parameters.push(input.reference.json, input.reference.fieldsJson);
+      }
+      const updated = database.query(`UPDATE evaluation_documents SET ${assignments.join(", ")} WHERE id = ? AND revision = ?`)
+        .run(...parameters, input.documentId, input.expectedRevision).changes > 0;
+      const document = readEvaluationDocument(input.documentId);
+      if (!document) return { status: "not_found" as const };
+      return { status: updated ? "updated" as const : "conflict" as const, document };
+    }).immediate(),
+    deleteEvaluationDocument: ({ documentId, deletedAt }) => database.transaction(() => {
+      const source = database.query("SELECT source_file_key, retained_object_key FROM evaluation_documents WHERE id = ?")
+        .get(documentId) as Omit<LocalEvaluationDocumentDeletionIntent, "document_id"> | null;
+      if (!source) return null;
+      database.query(
+        "INSERT OR REPLACE INTO evaluation_document_deletion_intents (document_id, source_file_key, retained_object_key, created_at) VALUES (?, ?, ?, ?)",
+      ).run(documentId, source.source_file_key, source.retained_object_key, deletedAt);
+      // A replayed save of this entry must not recreate it.
+      database.query("UPDATE evaluation_document_save_receipts SET outcome = 'deleted' WHERE document_id = ?").run(documentId);
+      database.query("DELETE FROM evaluation_documents WHERE id = ?").run(documentId);
+      return { document_id: documentId, ...source };
+    }).immediate(),
+    getEvaluationDocument: readEvaluationDocument,
+    getEvaluationDocumentSource: (documentId) => database.query(
+      `SELECT id, source_file_key, retained_object_key, source_mime_type, source_name, source_byte_size
+       FROM evaluation_documents WHERE id = ?`,
+    ).get(documentId) as LocalEvaluationDocumentSource | null,
+    getEvaluationDocumentSaveReceipt: readSaveReceipt,
+    listEvaluationDocuments: ({ cursor, search, limit }) => {
+      const clauses: string[] = [];
+      const parameters: Array<string | number> = [];
+      const term = (search ?? "").trim().toLowerCase();
+      if (term) {
+        const pattern = `%${term.replace(/[\\%_]/g, "\\$&")}%`;
+        clauses.push("(LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(source_name, '')) LIKE ? ESCAPE '\\')");
+        parameters.push(pattern, pattern);
+      }
+      if (cursor) {
+        clauses.push("(updated_at, id) < (?, ?)");
+        parameters.push(cursor.updatedAt, cursor.documentId);
+      }
+      const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+      return database.query(`${EVALUATION_DOCUMENT_SUMMARY_SELECT} FROM evaluation_documents${where} ORDER BY updated_at DESC, id DESC LIMIT ?`)
+        .all(...parameters, limit) as LocalEvaluationDocumentSummary[];
+    },
+    listEvaluationDocumentDeletionIntents: ({ limit }) => database.query(
+      "SELECT document_id, source_file_key, retained_object_key FROM evaluation_document_deletion_intents ORDER BY created_at, document_id LIMIT ?",
+    ).all(limit) as LocalEvaluationDocumentDeletionIntent[],
+    completeEvaluationDocumentDeletionIntent: (documentId) => {
+      database.query("DELETE FROM evaluation_document_deletion_intents WHERE document_id = ?").run(documentId);
+    },
+    hasEvaluationDocumentDeletionIntent: (documentId) =>
+      Boolean(database.query("SELECT 1 FROM evaluation_document_deletion_intents WHERE document_id = ?").get(documentId)),
     getModelConfiguration: readModelConfiguration,
     putModelConfiguration: (input) => database.transaction(() => {
       const current = readModelConfiguration();
@@ -1082,6 +1240,44 @@ const PRODUCT_MIGRATIONS: Array<[version: number, sql: string]> = [
     DROP INDEX IF EXISTS idx_sources_uncleaned;
     CREATE INDEX idx_sources_uncleaned ON source_files(job_id, key)
       WHERE deleted_at IS NULL AND (retained = 0 OR retained_key IS NOT NULL);
+  `],
+  // Saved Evaluation documents own their originals independently of jobs; receipts make saves idempotent.
+  [8, `
+    CREATE TABLE evaluation_documents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      source_name TEXT,
+      source_mime_type TEXT NOT NULL,
+      source_byte_size INTEGER NOT NULL CHECK (source_byte_size > 0),
+      source_page_count INTEGER CHECK (source_page_count IS NULL OR source_page_count > 0),
+      source_file_key TEXT,
+      retained_object_key TEXT,
+      reference_json TEXT NOT NULL,
+      reference_fields_json TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK (revision > 0),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      created_by_user_id TEXT NOT NULL,
+      created_by_name TEXT NOT NULL,
+      updated_by_user_id TEXT NOT NULL,
+      updated_by_name TEXT NOT NULL,
+      CHECK (source_file_key IS NOT NULL OR retained_object_key IS NOT NULL)
+    );
+    CREATE INDEX idx_evaluation_documents_updated_id ON evaluation_documents(updated_at DESC, id DESC);
+    CREATE TABLE evaluation_document_save_receipts (
+      operation_id TEXT PRIMARY KEY,
+      digest TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK (outcome IN ('saved', 'deleted')),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_evaluation_document_save_receipts_document ON evaluation_document_save_receipts(document_id);
+    CREATE TABLE evaluation_document_deletion_intents (
+      document_id TEXT PRIMARY KEY,
+      source_file_key TEXT,
+      retained_object_key TEXT,
+      created_at TEXT NOT NULL
+    );
   `],
 ];
 
