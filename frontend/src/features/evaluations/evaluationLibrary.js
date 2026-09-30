@@ -1,4 +1,4 @@
-import { fieldIdentity, referenceCompatibility, verifiedIdentities } from "./evaluationScoring.js";
+import { documentCompatibility, fieldIdentity, referenceCompatibility, verifiedIdentities } from "./evaluationScoring.js";
 import { display } from "./evaluationFormat.js";
 import { hydrateFieldFromTemplate } from "../templates/templateFields.js";
 
@@ -106,7 +106,7 @@ export const unavailableText = document => document.availability === "deleted" ?
 
 // Saved/new, local changes, freshness, availability and verification progress for one selected document.
 export function documentChips(document, fields) {
-  const compatibility = referenceCompatibility(document.reference, fields), chips = [];
+  const compatibility = documentCompatibility(document, fields), chips = [];
   if (document.kind === "upload") chips.push(document.save === "saving" ? ["busy", "Saving…"] : document.save === "failed" ? ["bad", "Save failed · still in this tab"] : ["warn", "Not saved · this tab only"]);
   else if (document.availability === "deleted") chips.push(["bad", "Deleted from library"]);
   else if (documentDirty(document)) chips.push(["warn", "Local changes"]);
@@ -121,3 +121,12 @@ export const documentTone = document => (document.availability || "ok") !== "ok"
 // A starting draft for a saved answer whose field type changed; it still has to be verified.
 export const reviewDraft = reference => ({ value: typeof reference?.value === "string" || typeof reference?.value === "number" ? String(reference.value) : "", absent: false, exact: false });
 
+// Template fields a saved answer can be linked to: same type, and no verified answer of their own.
+// Links are always chosen by the user, never inferred from names or positions.
+export function linkableFields(document, fields, savedIdentity) {
+  const definition = document.reference.definitions[savedIdentity];
+  const unique = [...new Map(fields.map(field => [fieldIdentity(field), field])).values()];
+  return documentCompatibility(document, unique).rows
+    .filter(row => row.state === "unverified" && !document.links?.[fieldIdentity(row.field)] && row.field.data_type === definition?.data_type)
+    .map(row => row.field);
+}

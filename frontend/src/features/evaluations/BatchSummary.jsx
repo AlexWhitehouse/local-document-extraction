@@ -5,7 +5,7 @@ import { Chips } from "./EvaluationLibrary.jsx";
 import { percent, seconds } from "./evaluationFormat.js";
 import { MAX_CANDIDATES, documentRunnable, pairBusy } from "./useEvaluations.js";
 import { documentChips } from "./evaluationLibrary.js";
-import { referenceCompatibility } from "./evaluationScoring.js";
+import { documentCompatibility } from "./evaluationScoring.js";
 
 const counts = (summary, total) => [`${summary.done}/${total} done`, summary.pending && `${summary.pending} pending`, summary.failed && `${summary.failed} failed`, summary.outdated && `${summary.outdated} need rerun`,
   summary.detailsUnavailable && `${summary.detailsUnavailable} details unavailable`, summary.unscored && `${summary.unscored} unscored`, summary.review && `${summary.review} review`, summary.unavailable && `${summary.unavailable} can’t run`].filter(Boolean).join(" · ");
@@ -35,7 +35,7 @@ export function BatchSummary({ evaluation, summary, fields, menuFor, onOpenDocum
       <th className="evaluation-add-col"><button type="button" className="secondary" disabled={state.candidates.length >= MAX_CANDIDATES} onClick={onAddCandidate}>+ Add candidate</button><small>{state.candidates.length}/{MAX_CANDIDATES}</small></th>
     </tr></thead>
     <tbody>{state.documents.map((document, row) => {
-      const compatibility = referenceCompatibility(document.reference, fields);
+      const compatibility = documentCompatibility(document, fields);
       return <tr key={document.key}>
         <th className="evaluation-field-col"><button type="button" className="studio-text-button evaluation-doc-link" onClick={() => onOpenDocument(document.key)}>{document.name} ↗</button><Chips list={documentChips(document, fields).slice(0, 2)} /></th>
         <td className="evaluation-expected-col"><span className="evaluation-progress"><Meter value={compatibility.total ? compatibility.verified / compatibility.total : 0} best /><small>{compatibility.verified}/{compatibility.total} verified</small></span>

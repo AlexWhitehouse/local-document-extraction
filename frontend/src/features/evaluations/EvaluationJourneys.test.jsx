@@ -151,3 +151,44 @@ it("reviews an update of shared answers and resolves a conflict with Replace wit
   expect(patches).toEqual([1, 2]);
   expect(screen.getByText("Saved", { selector: ".status-chip" })).toBeTruthy();
 });
+it("links a renamed field to its saved answer for this Evaluation only, without changing the saved set", async () => {
+  const amountDue = { id: "amount_due", name: "Amount due", description: "Old name for Total", data_type: "number" };
+  library = { evd_r: { document: summary("evd_r", "Renamed invoice"), reference: { version: 1, definitions: { "amount due:number": amountDue }, references: { "amount due:number": { verified: true, absent: false, exact: false, value: "3420" } } } } };
+  render(<Harness />);
+  await chooseFromLibrary(["Renamed invoice"]);
+  await startModels();
+  fireEvent.click(screen.getByRole("button", { name: "Start and run" }));
+  await waitFor(() => expect(streams).toHaveLength(1));
+  await act(async () => { success(streams[0], 0, 3420); success(streams[0], 1, 1); streams[0].controller.close(); });
+  const matrix = await screen.findByRole("region", { name: "Comparison matrix" });
+  await within(matrix).findByRole("button", { name: "Inspect Total for Candidate 1" });
+  // Nothing is inferred from the rename: Total stays unscored until the user links it.
+  expect(within(matrix).getByText("Saved answer not requested by any candidate · shown in coverage")).toBeTruthy();
+  expect(within(matrix).queryByText("100%")).toBeNull();
+  fireEvent.change(within(matrix).getByRole("combobox", { name: "Link saved Amount due to a field" }), { target: { value: "total:number" } });
+  expect(await within(matrix).findByText(/Linked to saved “Amount due”/)).toBeTruthy();
+  await waitFor(() => expect(within(matrix).getByText("100%")).toBeTruthy());
+  expect(within(matrix).getByText("0%")).toBeTruthy();
+  expect(within(matrix).queryByText("Saved answer not requested by any candidate · shown in coverage")).toBeNull();
+  // A link is a temporary comparison setting, not a change to the saved answers.
+  expect(screen.queryByText("Working copy.")).toBeNull();
+  fireEvent.click(within(matrix).getByRole("button", { name: "Unlink Total from saved Amount due" }));
+  await waitFor(() => expect(within(matrix).queryByText("100%")).toBeNull());
+  expect(within(matrix).getByRole("combobox", { name: "Link saved Amount due to a field" })).toBeTruthy();
+});
+it("offers the same explicit link from the setup Expected answers dialog, only to fields of the same type", async () => {
+  const amountDue = { id: "amount_due", name: "Amount due", description: "Old name for Total", data_type: "number" };
+  library = { evd_r: { document: summary("evd_r", "Renamed invoice"), reference: { version: 1, definitions: { "amount due:number": amountDue }, references: { "amount due:number": { verified: true, absent: false, exact: false, value: "3420" } } } } };
+  render(<Harness />);
+  await chooseFromLibrary(["Renamed invoice"]);
+  await startModels();
+  fireEvent.click(screen.getByRole("button", { name: "Expected answers" }));
+  const dialog = await screen.findByRole("dialog", { name: "Expected answers" });
+  const select = within(dialog).getByRole("combobox", { name: "Link saved Amount due to a field" });
+  // Supplier is text, so only Total can take a saved number.
+  expect(within(select).getAllByRole("option").map(option => option.textContent)).toEqual(["Choose a field…", "Total"]);
+  fireEvent.change(select, { target: { value: "total:number" } });
+  expect(await within(dialog).findByText(/Linked to saved “Amount due”/)).toBeTruthy();
+  expect(within(dialog).getByRole("button", { name: "Edit expected Total" }).textContent).toContain("3420");
+  expect(within(dialog).queryByRole("combobox", { name: "Link saved Amount due to a field" })).toBeNull();
+});

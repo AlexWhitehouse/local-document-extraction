@@ -5,11 +5,11 @@ import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ReferenceModal } from "./ReferenceModal.jsx";
 import { TableComparison } from "./TableComparison.jsx";
 import { CandidateMenu, ExpectedInline, Mark, Meter, StatusLine } from "./EvaluationParts.jsx";
-import { ReviewPrompt } from "./EvaluationLibrary.jsx";
+import { LinkSavedAnswer, LinkedNote, ReviewPrompt } from "./EvaluationLibrary.jsx";
 import { display, percent } from "./evaluationFormat.js";
 import { MAX_CANDIDATES, candidateBusy } from "./useEvaluations.js";
-import { reviewDraft } from "./evaluationLibrary.js";
-import { answerSignature, bestCandidateId, candidateAccuracy, fieldIdentity, scalarValue, scoreCandidate, tableAnswerRows, tableColumns, validateReference } from "./evaluationScoring.js";
+import { linkableFields, reviewDraft } from "./evaluationLibrary.js";
+import { answerSignature, bestCandidateId, candidateAccuracy, fieldIdentity, linkAlignments, scalarValue, scoreCandidate, tableAnswerRows, tableColumns, validateReference } from "./evaluationScoring.js";
 
 const COMPARABLE_TYPES = ["array<object>", "object", "array"];
 const FILTERS = [["all", "All fields"], ["differ", "Candidates differ"], ["mismatch", "Has mismatch"], ["unverified", "Unverified"]];
@@ -41,10 +41,11 @@ export function DocumentMatrix({ evaluation, document, candidates, batch, labelF
   const rows = new Map();
   for (const candidate of candidates) {
     for (const field of candidate.result?.fields || candidate.template.fields) {
-      definitions[fieldIdentity(field)] ||= field;
-      const identity = state.alignments[candidate.id]?.[field.id] || fieldIdentity(field);
+      const own = fieldIdentity(field), link = document.links?.[own];
+      definitions[own] ||= field;
+      const identity = state.alignments[candidate.id]?.[field.id] || link || own;
       definitions[identity] ||= field;
-      if (!rows.has(identity)) rows.set(identity, { identity, field: definitions[identity], candidates: {} });
+      if (!rows.has(identity)) rows.set(identity, { identity, field: definitions[identity], candidates: {}, linked: link === identity ? { field, own } : null });
       rows.get(identity).candidates[candidate.id] = field;
     }
   }
@@ -53,7 +54,10 @@ export function DocumentMatrix({ evaluation, document, candidates, batch, labelF
   const requested = new Set([...rows.values()].filter(row => !row.omitted).map(row => row.identity));
   const reviewFrom = row => !row.omitted && !references[row.identity]?.verified ? Object.keys(references).find(id => references[id]?.verified && !requested.has(id) && baseName(id) === baseName(row.identity)) : undefined;
   const reviewedBy = identity => [...rows.values()].find(row => reviewFrom(row) === identity);
-  const scores = Object.fromEntries(candidates.map(c => [c.id, scoreCandidate(c, references, definitions, state.alignments[c.id], state.columns[c.id])]));
+  // Explicit per-document links for renamed fields; a candidate's own alignment still takes precedence.
+  const alignFor = c => ({ ...linkAlignments(document.links, c.result?.fields || c.template.fields), ...state.alignments[c.id] });
+  const templateFields = candidates.flatMap(c => c.result?.fields || c.template.fields);
+  const scores = Object.fromEntries(candidates.map(c => [c.id, scoreCandidate(c, references, definitions, alignFor(c), state.columns[c.id])]));
   const bestId = bestCandidateId(candidates, scores);
   const rawFor = (row, candidate) => candidate.result?.raw.find(r => r.field_id === row.candidates[candidate.id]?.id);
   const allRows = [...rows.values()];
@@ -136,8 +140,10 @@ export function DocumentMatrix({ evaluation, document, candidates, batch, labelF
             const answered = candidates.filter(c => c.result && row.candidates[c.id]).length;
             const from = reviewFrom(row), reviewing = row.omitted && reviewedBy(row.identity);
             return <tr key={row.identity} className={row.omitted ? "evaluation-omitted-row" : undefined}>
-              <th className="evaluation-field-col"><strong>{row.field.name}</strong><small className="evaluation-type">{getDataTypeLabel(row.field.data_type)}</small>
+              <th className="evaluation-field-col"><strong>{row.linked ? row.linked.field.name : row.field.name}</strong><small className="evaluation-type">{getDataTypeLabel(row.field.data_type)}</small>
+                {row.linked && <LinkedNote savedName={row.field.name} fieldName={row.linked.field.name} onUnlink={() => evaluation.linkField(document.key, row.linked.own, null)} />}
                 {row.omitted && references[row.identity]?.verified && <small className="evaluation-warn-text evaluation-block">{reviewing ? `Saved as ${getDataTypeLabel(row.field.data_type)}; the Template now expects ${getDataTypeLabel(reviewing.field.data_type)}.` : "Saved answer not requested by any candidate · shown in coverage"}</small>}
+                {row.omitted && references[row.identity]?.verified && !reviewing && <LinkSavedAnswer name={row.field.name} options={linkableFields(document, templateFields, row.identity)} onLink={own => evaluation.linkField(document.key, own, row.identity)} />}
                 {COMPARABLE_TYPES.includes(row.field.data_type) && answered > 0 && <button type="button" className="studio-text-button evaluation-compare-link" onClick={() => openComparison(row)}>Compare all {answered} {row.field.data_type === "array<object>" ? (answered === 1 ? "table" : "tables") : "answers"} ↗</button>}</th>
               <td className="evaluation-expected-col">{from ? <ReviewPrompt field={row.field} definition={saved[from]} reference={references[from]} onReview={() => setReferenceEditor({ row, from, initial: reviewDraft(references[from]) })} />
                 : <ExpectedInline key={`${row.identity}:${references[row.identity]?.verified}`} field={row.field} reference={references[row.identity]} onSave={value => saveReference(row, value)} onOpenEditor={() => reference(row)} />}</td>

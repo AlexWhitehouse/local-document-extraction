@@ -379,7 +379,7 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
       if (anyBusy() || mode === current.mode) return;
       if (current.candidates.length && !window.confirm("Change mode and discard candidate drafts, results and unsaved expected answer changes? Documents are kept; saved documents return to their loaded answers.")) return;
       dropPairs(current, () => false);
-      patch({ mode, candidates: [], pairs: {}, alignments: {}, columns: {}, documents: current.documents.map(d => ({ ...d, reference: d.kind === "saved" && d.base ? structuredClone(d.base) : emptyReferenceSet() })) });
+      patch({ mode, candidates: [], pairs: {}, alignments: {}, columns: {}, documents: current.documents.map(d => ({ ...d, links: {}, reference: d.kind === "saved" && d.base ? structuredClone(d.base) : emptyReferenceSet() })) });
     },
     confirmDiscard() {
       const current = stateRef.current;
@@ -422,6 +422,20 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
         const references = { ...d.reference.references }, definitions = { ...d.reference.definitions };
         if (fromIdentity !== identity) { delete references[fromIdentity]; delete definitions[fromIdentity]; }
         return { reference: { references: { ...references, [identity]: value }, definitions: { ...definitions, [identity]: definition } } };
+      });
+      rescore([docKey]);
+    },
+    // Links a renamed Template field to one of this document's saved answers of the same type, or unlinks it.
+    // Links are temporary comparison settings: they are never saved with the answer set.
+    linkField(docKey, fieldIdentityValue, savedIdentity) {
+      const document = stateRef.current.documents.find(d => d.key === docKey);
+      if (!document) return;
+      const definition = savedIdentity && document.reference.definitions[savedIdentity];
+      if (savedIdentity && (!definition || !document.reference.references[savedIdentity]?.verified || fieldIdentityValue.slice(fieldIdentityValue.lastIndexOf(":") + 1) !== definition.data_type)) return;
+      updateDocument(docKey, d => {
+        const links = { ...d.links };
+        if (savedIdentity) links[fieldIdentityValue] = savedIdentity; else delete links[fieldIdentityValue];
+        return { links };
       });
       rescore([docKey]);
     },

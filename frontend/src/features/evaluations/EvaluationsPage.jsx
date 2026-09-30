@@ -10,7 +10,7 @@ import { Meter } from "./EvaluationParts.jsx";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
 import { MAX_CANDIDATES, documentRunnable, pairBusy } from "./useEvaluations.js";
-import { batchSummary, referenceCompatibility } from "./evaluationScoring.js";
+import { batchSummary, documentCompatibility } from "./evaluationScoring.js";
 import { documentDirty, documentTone } from "./evaluationLibrary.js";
 import "./evaluations.css";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
@@ -123,8 +123,8 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
   const open = (kind, extra = {}) => setDialog({ kind, ...extra });
   const dialogDocument = dialog?.key && state.documents.find(d => d.key === dialog.key);
   const dialogFields = dialog?.fields || fields;
-  const compatibility = document && referenceCompatibility(document.reference, fields);
-  const fullyVerified = state.documents.filter(d => { const c = referenceCompatibility(d.reference, fields); return c.total && c.verified === c.total; }).length;
+  const compatibility = document && documentCompatibility(document, fields);
+  const fullyVerified = state.documents.filter(d => { const c = documentCompatibility(d, fields); return c.total && c.verified === c.total; }).length;
   const bestNames = summary?.best.map(id => labelFor(state.candidates.find(c => c.id === id))).join(", ");
 
   return <section className="evaluations-page" aria-label="Evaluations">

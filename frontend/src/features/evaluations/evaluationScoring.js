@@ -210,6 +210,16 @@ export function alignTableRows(definition, reference, sources) {
 const baseName = identity => identity.slice(0, identity.lastIndexOf(":"));
 export const verifiedIdentities = set => Object.entries(set?.references || {}).filter(([, reference]) => reference?.verified).map(([identity]) => identity);
 
+// A document's explicit links from renamed Template fields to its saved answers, as field-id alignments.
+// Links are temporary comparison settings: they never change or travel with the saved answer set.
+export function linkAlignments(links, fields) {
+  const alignments = {};
+  if (!links) return alignments;
+  for (const field of fields || []) { const target = links[fieldIdentity(field)]; if (target) alignments[field.id] = target; }
+  return alignments;
+}
+export const documentCompatibility = (document, fields) => referenceCompatibility(document?.reference, fields, linkAlignments(document?.links, fields));
+
 // How a document's Expected answer set applies to the Template fields in use. Same name and type
 // reuse the answer; a changed type or table structure needs review; unrequested answers are omitted.
 export function referenceCompatibility(set, fields, alignments = {}) {
@@ -236,6 +246,7 @@ export function referenceCompatibility(set, fields, alignments = {}) {
 export function pairMetrics(document, candidate, pair, { alignments = {}, columns = {} } = {}) {
   const result = pair?.result;
   if (!result?.raw || result.revision !== candidate.revision) return null;
+  alignments = { ...linkAlignments(document.links, result.fields), ...alignments };
   const set = document.reference || { references: {}, definitions: {} };
   const score = scoreCandidate({ result }, set.references, set.definitions, alignments, columns);
   const verified = verifiedIdentities(set);

@@ -112,3 +112,17 @@ describe("Saved Expected answer sets", () => {
     expect(hydrated).toMatchObject({ description: "Every line", object_schema: { mode: "table", columns: [{ key: "sku", heading: "SKU", data_type: "string" }] } });
   });
 });
+describe("Links from renamed fields to saved answers", () => {
+  it("scores a linked field against the saved answer and counts it toward coverage and scope", () => {
+    const old = field("Amount due", "number"), total = field("Total", "number");
+    const document = { key: "d", reference: set([[old, verified("3420")]]), links: { [fieldIdentity(total)]: fieldIdentity(old) } };
+    const a = candidate("a", [total]), b = candidate("b", [total]);
+    const linked = pair(document, a, { total: 3420 }), wrong = pair(document, b, { total: 1 });
+    expect(linked.metrics).toMatchObject({ scalar: 1, coverage: 1, scope: [fieldIdentity(old)] });
+    expect(wrong.metrics).toMatchObject({ scalar: 0, coverage: 1 });
+    expect(batchSummary([document], [a, b], { d: { a: linked, b: wrong } }).best).toEqual(["a"]);
+    const unlinked = { ...document, links: {} };
+    expect(pair(unlinked, a, { total: 3420 }).metrics).toMatchObject({ scalar: null, coverage: 0 });
+    expect(referenceCompatibility(unlinked.reference, [total]).omitted).toEqual([fieldIdentity(old)]);
+  });
+});

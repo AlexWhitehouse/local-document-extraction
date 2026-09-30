@@ -4,8 +4,8 @@ import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { getDataTypeLabel } from "../templates/templateFields.js";
 import { ExpectedInline, Meter } from "./EvaluationParts.jsx";
 import { ReferenceModal } from "./ReferenceModal.jsx";
-import { fieldIdentity, referenceCompatibility } from "./evaluationScoring.js";
-import { documentDirty, kilobytes, updatedLabel, newerAvailable, refText, reviewDraft, saveUnavailableMessage, sameReferenceSet, summaryCompatibility, unavailableText } from "./evaluationLibrary.js";
+import { documentCompatibility, fieldIdentity } from "./evaluationScoring.js";
+import { documentDirty, kilobytes, linkableFields, updatedLabel, newerAvailable, refText, reviewDraft, saveUnavailableMessage, sameReferenceSet, summaryCompatibility, unavailableText } from "./evaluationLibrary.js";
 import { documentRunnable } from "./useEvaluations.js";
 
 export function Chips({ list }) {
@@ -116,7 +116,7 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
 
 export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {
   const [name, setName] = useState(document.name.replace(/\.[a-z0-9]+$/i, ""));
-  const compatibility = referenceCompatibility(document.reference, fields);
+  const compatibility = documentCompatibility(document, fields);
   const unavailable = saveUnavailableMessage(evaluation.state.library);
   const save = async fresh => { if (await evaluation.saveDocument(document.key, name.trim(), { fresh })) { onSaved?.(`Saved “${name.trim()}” to the Workspace library.`); onClose(); } };
   return <ModalDialog label="Save to Evaluation library" className="evaluation-library-modal" onClose={onClose}>
@@ -186,25 +186,38 @@ export function ClearDialog({ evaluation, onClose }) {
 // Expected answers for one document, outside the comparison matrix (for example during setup).
 export function AnswersDialog({ evaluation, document, fields, onClose, onSave, onUpdate }) {
   const [editor, setEditor] = useState(null);
-  const compatibility = referenceCompatibility(document.reference, fields);
+  const compatibility = documentCompatibility(document, fields);
   const { references, definitions } = document.reference;
   const saveAvailable = !saveUnavailableMessage(evaluation.state.library);
-  const store = (field, value, from) => from && from !== fieldIdentity(field) ? evaluation.reviewReference(document.key, from, fieldIdentity(field), value, field) : evaluation.setReference(document.key, fieldIdentity(field), value, field);
+  const store = (field, value, from, identity = fieldIdentity(field)) => from && from !== fieldIdentity(field) ? evaluation.reviewReference(document.key, from, fieldIdentity(field), value, field) : evaluation.setReference(document.key, identity, value, definitions[identity] || field);
   return <ModalDialog label="Expected answers" className="evaluation-library-modal wide" onClose={onClose}>
     <div className="evaluation-heading"><div><h2>{document.name} · Expected answers</h2><p>{document.kind === "saved" ? "Working copy for this Evaluation. The library is unchanged until you update it." : "Verify what you can now; only verified answers are scored."}</p></div></div>
     {!fields.length ? <p className="evaluation-setup-hint">Choose a Template to verify answers for its fields.{Object.keys(definitions).length ? ` ${Object.values(references).filter(r => r?.verified).length} saved answers are verified.` : ""}</p>
       : <ScrollArea className="evaluation-library-scroll" role="region" aria-label="Expected answer fields" tabIndex={0}><table className="evaluation-matrix evaluation-answers-matrix"><thead><tr><th className="evaluation-field-col">Field</th><th className="evaluation-expected-col">Expected</th></tr></thead><tbody>
-        {compatibility.rows.map(({ field, identity, state, from, reason }) => <tr key={identity}><th className="evaluation-field-col"><strong>{field.name}</strong><small className="evaluation-type">{getDataTypeLabel(field.data_type)}</small></th>
+        {compatibility.rows.map(({ field, identity, state, from, reason }) => <tr key={identity}><th className="evaluation-field-col"><strong>{field.name}</strong><small className="evaluation-type">{getDataTypeLabel(field.data_type)}</small>
+          {document.links?.[fieldIdentity(field)] === identity && <LinkedNote savedName={definitions[identity]?.name || identity} fieldName={field.name} onUnlink={() => evaluation.linkField(document.key, fieldIdentity(field), null)} />}</th>
           <td className="evaluation-expected-col">{state === "review" && reason === "type" ? <ReviewPrompt field={field} definition={definitions[from]} reference={references[from]} onReview={() => setEditor({ field, from, initial: reviewDraft(references[from]) })} />
             : <>{state === "review" && <small className="evaluation-warn-text evaluation-block">Saved table columns differ from this Template. Align them in the comparison.</small>}
-              <ExpectedInline key={`${identity}:${references[identity]?.verified}`} field={field} reference={references[identity]} onSave={value => store(field, value)} onOpenEditor={() => setEditor({ field, initial: references[identity] || { value: "", absent: false, exact: false } })} /></>}</td></tr>)}
+              <ExpectedInline key={`${identity}:${references[identity]?.verified}`} field={field} reference={references[identity]} onSave={value => store(field, value, undefined, identity)} onOpenEditor={() => setEditor({ field, identity, initial: references[identity] || { value: "", absent: false, exact: false } })} /></>}</td></tr>)}
       </tbody></table></ScrollArea>}
-    {compatibility.omitted.length > 0 && <p className="evaluation-setup-hint">Also saved, not in this Template: {compatibility.omitted.map(id => definitions[id]?.name || id).join(", ")}. Kept and shown in coverage.</p>}
+    {compatibility.omitted.length > 0 && <div className="evaluation-setup-hint"><p>Also saved, not in this Template: {compatibility.omitted.map(id => definitions[id]?.name || id).join(", ")}. Kept and shown in coverage.</p>
+      {compatibility.omitted.map(id => <LinkSavedAnswer key={id} name={definitions[id]?.name || id} options={linkableFields(document, fields, id)} onLink={own => evaluation.linkField(document.key, own, id)} />)}</div>}
     <div className="actions">{document.kind === "upload" && <button type="button" className="secondary" disabled={!saveAvailable} title={saveAvailable ? undefined : saveUnavailableMessage(evaluation.state.library)} onClick={() => { onClose(); onSave(document.key); }}>Save to library…</button>}
       {documentDirty(document) && <><button type="button" className="secondary" onClick={() => evaluation.discardChanges(document.key)}>Discard changes</button><button type="button" className="secondary" onClick={() => { onClose(); onUpdate(document.key); }}>Update saved answers…</button></>}
       <button type="button" onClick={onClose}>Done</button></div>
-    {editor && <ReferenceModal row={{ field: editor.field }} initial={editor.initial} onClose={() => setEditor(null)} onSave={value => { store(editor.field, value, editor.from); setEditor(null); }} />}
+    {editor && <ReferenceModal row={{ field: editor.field }} initial={editor.initial} onClose={() => setEditor(null)} onSave={value => { store(editor.field, value, editor.from, editor.identity); setEditor(null); }} />}
   </ModalDialog>;
+}
+
+export function LinkSavedAnswer({ name, options, onLink }) {
+  if (!options.length) return null;
+  return <label className="evaluation-link-field"><span>Renamed? Link it to</span>
+    <select aria-label={`Link saved ${name} to a field`} value="" onChange={event => { if (event.target.value) onLink(event.target.value); }}>
+      <option value="">Choose a field…</option>{options.map(field => <option key={fieldIdentity(field)} value={fieldIdentity(field)}>{field.name}</option>)}</select></label>;
+}
+export function LinkedNote({ savedName, fieldName, onUnlink }) {
+  return <small className="evaluation-block evaluation-muted">Linked to saved “{savedName}” · this Evaluation only
+    <button type="button" className="studio-text-button" aria-label={`Unlink ${fieldName} from saved ${savedName}`} onClick={onUnlink}>Unlink</button></small>;
 }
 
 export function ReviewPrompt({ field, definition, reference, onReview }) {
