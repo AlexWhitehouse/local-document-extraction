@@ -1,32 +1,32 @@
 # Evaluations
 
-Evaluations help you choose the best setup for a kind of document. You run the same document through several **candidates** side by side and compare the results. Each candidate is a model plus a template.
+Evaluations help you choose the best setup for a kind of document. You run one or more documents through several **candidates** side by side and compare the results. Each candidate is a model plus a template. With more than one document, it's a **Batch Evaluation**: every document runs against the same candidates, and a batch summary compares them across all documents.
 
 There are two kinds of comparison:
 
 - **Models:** one template, different models. Use this to find the most accurate or fastest model.
 - **Template versions:** one model, different templates. Use this to check whether rewording your field instructions improves the results.
 
-You can compare up to eight candidates. Any member of a Workspace can use Evaluations.
+You can compare up to eight candidates, on as many documents as you like. Any member of a Workspace can use Evaluations.
 
-> **Evaluations are temporary.** Nothing is saved. Refreshing or closing the tab, clearing the Evaluation, or switching Workspace discards the document, candidates, answers, and results. Moving between pages in the same Workspace keeps them.
+> **Runs and results are temporary.** Refreshing or closing the tab, clearing the Evaluation, or switching Workspace discards the candidates, results, and any unsaved documents and answers. Moving between pages in the same Workspace keeps them. Only documents you explicitly save to the [Evaluation library](#the-evaluation-library) are kept.
 
 ## Set up an Evaluation
 
 Open **Evaluations**. The setup screen walks you through four steps:
 
-1. **Document:** upload the PDF or image to test with.
+1. **Documents:** choose saved documents with **Choose from library**, upload new PDFs or images with **Upload new** (or drop them), or both. Each document shows its verification progress, and anything that needs attention, such as an unsaved upload or an unavailable original.
 2. **What to compare:** models or template versions.
 3. **Template:** pick a saved template, or an earlier version of one.
 4. **Candidates:**
    - When comparing models, list the models to try. The Workspace's model comes first, and models already used in this Workspace are suggested.
    - When comparing templates, pick the versions to compare. They all use the Workspace's model. If you pick just one version, you get two copies so you can edit one.
 
-Click **Start and run** to send every candidate for extraction straight away.
+Click **Start and run** to run every candidate on every document straight away.
 
 ## Read the results
 
-Results appear in a table with one column per candidate, filled in as each candidate finishes. The top of each column shows:
+With one document, results appear in a table with one column per candidate, filled in as each candidate finishes. With several documents, tabs appear above the results: **Batch summary** first, then one tab per document with that same table. The top of each column shows:
 
 - **Accuracy:** how many of the fields you have checked it got right (see [Check accuracy](#check-accuracy)).
 - **Table cells:** how many table cells matched.
@@ -37,6 +37,16 @@ The best candidate is marked **Best**. Ties are broken by table-cell matches, th
 Click any answer to open the inspector. It shows the full answer, how it was scored, how table columns were matched up, and what the other candidates answered.
 
 Use the filters to show only the fields where candidates disagree, fields with a wrong answer, or fields you haven't checked yet.
+
+### Batch summary
+
+The batch summary has one row per document and one column per candidate. Every document counts equally, however many fields or table cells it has. For each candidate it shows:
+
+- **Field accuracy** and **Table cells**, each averaged across the documents that can be scored for it, with how many documents contributed.
+- **Coverage:** how many of each document's verified answers the candidate's template asked for, averaged across documents.
+- **Average time**, and how many results are done, pending, failed, unscored, need review, or can't run.
+
+A document with no verified answers is unscored, not wrong, and a failed run is never counted as 0%. **Best** only appears when every candidate has finished every document and asked for exactly the same verified fields. Candidates are then ranked by field accuracy, then table cells, then speed, and exact ties stay tied. Otherwise the summary explains why there's no Best, for example because the summary is still partial or the candidates cover different fields. Click a document to open its table.
 
 ## Change candidates
 
@@ -67,7 +77,7 @@ Answers are compared like this:
 
 Saying a value is *absent from the document* is different from leaving it unchecked. An "absent" answer never matches an error or an unreadable result.
 
-Expected answers only live in the browser tab, like the rest of the Evaluation.
+Expected answers live in the browser tab, like the rest of the Evaluation, unless you save the document to the library.
 
 ### Tables
 
@@ -79,19 +89,31 @@ Before checking a table, choose how rows are matched: by a column that uniquely 
 
 Free-form lists and nested objects are shown side by side for you to compare by eye, but aren't scored.
 
+## The Evaluation library
+
+The library keeps documents and their expected answers so anyone in the Workspace can reuse them. It never keeps candidates, results, scores, or run history.
+
+- **Saving is always your choice.** A new upload stays in the tab until you choose **Save to library…** and give it a name. You can save with some or none of the answers checked and finish later; saving never marks an answer as checked. Saving needs the Workspace to keep original documents (see [Configuration](configuration.md)); without that, you can still evaluate uploads in the tab.
+- **Saved documents bring a working copy.** Choosing a saved document copies its answers into this Evaluation. Editing them only affects this Evaluation, marked **Working copy**, until you choose **Update saved answers…**. You always see the changes before they're saved. If someone else changed the saved answers since you loaded them, you see their version, yours, and the one you started from, and choose **Use saved version** or **Replace with mine**. Nothing is merged automatically.
+- **Answers follow fields by name and type.** A saved answer is reused for a field with the same name and type. If a field's type changed, it shows **Needs review** until you check it again. Saved answers that the template doesn't ask for stay visible and count toward coverage.
+- **Manage library** lets any Workspace member rename or delete saved documents. Deleting removes the document and its answers for everyone. Evaluations that already show its results keep them, but it can't run again. A saved document's file can't be replaced; save a corrected file as a new document.
+- If a saved original can't be read right now, that document is skipped when running and the others still run. **Clear Evaluation** lists any unsaved uploads or answer changes before it clears.
+
 ## How runs behave
 
-- **Run all** uploads the document once and sends every candidate to the same extraction queue that normal documents use. Evaluations don't get a separate pool, and they don't appear in your Documents list.
+- **Run all** runs every candidate on every document. Each document is sent once and shared by its candidates. Work goes to the same extraction queue that normal documents use. Evaluations don't get a separate pool, and they don't appear in your Documents list.
+- Each candidate's **▶** runs it on every document; in a document's tab it runs on that document. In the batch summary, **Rerun** reruns one result. A result that's already running can't be started again.
 - If the queue is full, only the affected candidates are rejected.
-- If a rerun fails, the previous successful result is kept.
+- If a rerun fails, the previous successful result is kept and labelled **Previous result**. It isn't counted in the batch summary.
 - If you lose your connection, rerun the affected candidates yourself.
 - A submitted candidate can't be cancelled, and model requests may cost money with your provider.
+- Result details are kept in encrypted browser storage while the Evaluation is open, so large batches don't fill memory. If the browser runs out of space, new documents pause and you can **Retry storage** or clear the Evaluation. Results whose details couldn't be kept are marked unavailable and left out of the summary.
 
 ## For developers
 
 How Evaluations fit into the backend:
 
-- **Access.** `localEvaluations.ts` only accepts browser sessions: API keys are rejected, even alongside a cookie. Model credentials and gateway addresses never leave the server. A submission made against an out-of-date revision of the Workspace's model settings is rejected, while work already running keeps the settings it started with.
+- **Access.** `localEvaluations.ts` and `localEvaluationDocuments.ts` only accept browser sessions: API keys are rejected, even alongside a cookie. Model credentials and gateway addresses never leave the server. A submission made against an out-of-date revision of the Workspace's model settings is rejected, while work already running keeps the settings it started with.
 - **Scheduling.** Candidates go through `localExtractionQueue.ts` as temporary tasks, sharing the same concurrency, Workspace fairness, sequential-call, and retry rules as documents (`extractionRetryPolicy.ts`). Instead of being deferred like documents, a temporary task is either accepted or rejected immediately.
 - **Extraction.** Candidates reuse `runExtraction` and `normalizeModelResults`. Original field values are kept, within limits, so the browser can do strict matching. Token counts are shown only when the gateway reports them.
 - **Delivery.** Each run streams progress and results back to the tab that started it as NDJSON. Nothing is broadcast to other tabs, stored, or replayed. If delivery fails, queued and retrying work stops; model requests already sent finish within their deadline and the results are discarded.
@@ -101,5 +123,8 @@ How Evaluations fit into the backend:
   - The whole submission must finish within four gateway timeouts plus two minutes, with a minimum of one minute. That covers queueing, preparation, three attempts, and retry delays. A model asking the app to retry too far in the future fails the candidate.
 - **Cleanup.** Uploads live in the private `temporary/evaluations` folder and are deleted when the last candidate finishes. Leftover files are retried at startup and every 30 seconds. The browser shows cleanup as pending until deletion is confirmed.
 - **Cancellation.** Clearing the Evaluation, switching Workspace, or losing the session stops queued work and ignores late results.
+- **Library.** `localEvaluationDocuments.ts` serves `/v1/evaluations/documents`: status, paged list, explicit multipart save with an idempotent `operation_id`, read, conditional update (`expected_revision`, `409 revision_conflict` with the current entry), delete and original download. Entries and their versioned Expected answer sets (`lib/evaluationReference.ts`) live in the Workspace product database. Originals are owned by the entry, not by an Extraction job, and are cleaned up in the background after deletion. See [ADR-0014](../backend/docs/adr/0014-saved-evaluation-document-originals.md).
+- **Batches.** The browser runs one request per document with one to eight candidates, keeping at most `staging.document_concurrency` (the queue's concurrency) open at once. There is no document or result cap. A **Run** click first creates a short-lived action (`POST /v1/evaluations/actions`) that captures the model settings once in server memory, so every document in that run uses the same settings. Saved documents are sent by id; the server copies the original to a private working file. Each result is owned by its document and candidate, so a result can't run twice at once. Deleting a library entry stops its queued and retrying work.
+- **Browser cache.** Result details are encrypted in IndexedDB under a key that exists only in the open page, and are discarded when the Evaluation ends. See [ADR-0015](../backend/docs/adr/0015-temporary-evaluation-result-cache.md).
 
-Backend integration tests cover eight candidates, queue and retry rejection, duplicate uploads, configuration snapshots, access isolation, revocation, historical template reads, cleanup, and disconnects. Frontend tests cover scoring and table-alignment edge cases, ranking, setup, expected answers, filters, the table comparison, editing, and saving. `e2e/evaluationJourney.spec.ts` sets up, runs, and scores a model comparison in a real browser using a fake model gateway.
+Backend integration tests cover eight candidates, queue and retry rejection, duplicate uploads, configuration snapshots, access isolation, revocation, historical template reads, cleanup, and disconnects. `localEvaluationBatch.bun.test.ts` covers saved-document runs, per-document ownership, run actions and deletion at each stage. `localEvaluationDocuments.bun.test.ts` and `localEvaluationDocumentRecovery.bun.test.ts` cover library access, retention eligibility, conflicts, idempotent saves, crash windows, orphan and deletion recovery, manifest migration and Workspace erasure. Frontend tests cover scoring and table-alignment edge cases, ranking, setup, expected answers, filters, the table comparison, editing, and saving. `batchSummary.test.js`, `resultCache.test.js` and `EvaluationJourneys.test.jsx` cover summary rules, cache encryption and failure handling, and mixed-document journeys. `e2e/evaluationJourney.spec.ts` sets up, runs, and scores a model comparison in a real browser using a fake model gateway. `e2e/evaluationLibraryJourney.spec.ts` saves a verified document, reuses it with a fresh upload in a Batch Evaluation, updates the saved answers and checks that refresh discards the Evaluation.
