@@ -22,6 +22,8 @@
 .document-split.is-narrow .document-split-source { border-right: 0; }
 .document-split-divider { cursor: col-resize; background: var(--pane-nav); border-right: 1px solid var(--rule); touch-action: none; }
 .document-split-divider:hover, .document-split-divider:focus-visible { background: var(--accent-dim); outline: none; }
+.document-split.is-dragging { cursor: col-resize; user-select: none; }
+.document-split.is-dragging .document-split-source { pointer-events: none; }
 .document-split-results { min-height: 0; overflow: auto; padding: 0 20px 24px; }
 .studio-main .document-split-results .studio-results-scroll { max-height: none; }
 /* In a narrow results pane, values wrap within their column; the table scrolls only below 480px. */

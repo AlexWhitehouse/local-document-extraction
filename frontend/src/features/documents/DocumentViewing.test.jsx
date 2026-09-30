@@ -110,6 +110,24 @@ describe("Document page original viewing", () => {
     expect(await screen.findByText("Original temporarily unavailable")).toBeTruthy();
     expect(screen.queryByTitle("Preview of invoice.pdf")).toBeNull();
   });
+
+  it("keeps dragging the split while the pointer is over the PDF preview", async () => {
+    stubObjectUrls();
+    const loadOriginal = vi.fn(async () => ({ blob: new Blob(["%PDF"], { type: "application/pdf" }) }));
+    const { container } = render(<DocumentPage selectedDocument={retainedDocument} loadOriginal={loadOriginal} viewingLayout="side-by-side" />);
+    const split = container.querySelector(".document-split");
+    split.getBoundingClientRect = () => ({ left: 0, width: 1000, top: 0, height: 600, right: 1000, bottom: 600 });
+    const divider = screen.getByRole("separator", { name: "Resize original and results" });
+
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500 });
+    expect(split.classList.contains("is-dragging")).toBe(true);
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 350 });
+    expect(divider.getAttribute("aria-valuenow")).toBe("35");
+    fireEvent.pointerUp(window, { pointerId: 1 });
+    expect(split.classList.contains("is-dragging")).toBe(false);
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 600 });
+    expect(divider.getAttribute("aria-valuenow")).toBe("35");
+  });
 });
 
 describe("Document request adapter originals", () => {
