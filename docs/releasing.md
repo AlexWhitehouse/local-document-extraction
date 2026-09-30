@@ -8,7 +8,7 @@ A release only counts as qualified once every check below has passed **for its e
 
 For the commit you plan to tag:
 
-- [ ] CI passes on all four targets (Linux x64 and arm64, macOS arm64 and x64). This covers typecheck, lint, tests, coverage, build, dependency hygiene, native PDF rendering, and the installer tests.
+- [ ] CI passes on all three targets (Linux x64 and arm64, macOS arm64). This covers typecheck, lint, tests, coverage, build, dependency hygiene, native PDF rendering, and the installer tests. Intel macOS qualification requires a separate manual run.
 - [ ] The browser journeys pass (`bun run test:e2e`, or the Linux Chromium job in CI).
 - [ ] The full-history secret scan passes.
 - [ ] A clean copy of the tree, without your `.env` or `.local/`, installs with frozen dependencies and passes the root checks.
@@ -58,6 +58,7 @@ Add what you tested, and what you didn't, to the [qualification log](releases/qu
 
 ## Good to know
 
+- Automatic PR CI runs only for branches in this repository. Fork PRs skip the CI jobs. In GitHub Actions settings, require approval for all external contributors so a fork PR cannot bypass this restriction by changing the workflow.
 - Checksums only prove that a download matches the published checksum file. They don't protect against a compromised repository, workflow, or maintainer account.
 - Published release files stay tied to their tagged commit. Later README or documentation fixes go to `main`.
 - `.scratch/` is never committed, including local PRDs, issues, research, and generated CI output. CI reports are shared as workflow artifacts.

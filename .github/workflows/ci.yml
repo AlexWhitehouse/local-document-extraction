@@ -15,8 +15,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Automatic PR checks are limited to branches in this repository.
+  # Keep GitHub's fork approval policy set to all external contributors too:
+  # fork PRs can modify this workflow, including these job conditions.
   secrets:
-    if: github.event_name != 'schedule'
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Scan complete Git history for secrets
     runs-on: ubuntu-24.04
     steps:
@@ -42,7 +47,9 @@ jobs:
         run: '"$RUNNER_TEMP/gitleaks" git --redact --log-opts=--all .'
 
   quality:
-    if: github.event_name != 'schedule'
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     name: Quality, Tests, and Build (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -51,7 +58,6 @@ jobs:
           - ubuntu-24.04
           - ubuntu-24.04-arm
           - macos-15
-          - macos-15-intel
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
@@ -179,7 +185,9 @@ jobs:
 
   browser-journey:
     name: Built SPA Chromium journey
-    if: github.event_name != 'schedule'
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
