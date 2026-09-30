@@ -134,8 +134,16 @@ function SideBySide({ document, loadOriginal, children }) {
     return () => observer.disconnect();
   }, []);
 
+  const [isDragging, setIsDragging] = useState(false);
+  // The PDF preview is an iframe, which swallows pointer events once the cursor crosses it.
+  // Capturing the pointer on the divider and disabling pointer events on the preview while
+  // dragging keeps the split following the cursor in both directions.
   const startDrag = (event) => {
     event.preventDefault();
+    const divider = event.currentTarget;
+    const { pointerId } = event;
+    divider.setPointerCapture?.(pointerId);
+    setIsDragging(true);
     const move = (moveEvent) => {
       const box = host.current?.getBoundingClientRect();
       if (!box?.width) return;
@@ -144,9 +152,13 @@ function SideBySide({ document, loadOriginal, children }) {
     const stop = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      if (divider.hasPointerCapture?.(pointerId)) divider.releasePointerCapture(pointerId);
+      setIsDragging(false);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
   };
   const nudge = (event) => {
     const step = { ArrowLeft: -5, ArrowRight: 5 }[event.key];
@@ -160,7 +172,7 @@ function SideBySide({ document, loadOriginal, children }) {
   return (
     <div
       ref={host}
-      className={`document-split${isNarrow ? " is-narrow" : ""}`}
+      className={`document-split${isNarrow ? " is-narrow" : ""}${isDragging ? " is-dragging" : ""}`}
       style={{ "--document-split": `${split}%` }}
     >
       {isNarrow ? (
