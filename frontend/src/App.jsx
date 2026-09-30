@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import { createRuntimeAuthClient } from "./lib/authClient";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
@@ -82,6 +82,8 @@ function AuthenticatedApp({ configuration }) {
   const [isTourActive, setIsTourActive] = useState(false);
   const [isStoppingImpersonation, setIsStoppingImpersonation] = useState(false);
   const [activePage, setActivePage] = useState("workspace");
+  // Live Workspace events reach the Evaluation controller, which is created after the socket owner.
+  const evaluationRef = useRef(null);
 
   const sessionUserId = String(session?.user?.id || "").trim();
   const hasSession = Boolean(session?.user?.id);
@@ -180,6 +182,7 @@ function AuthenticatedApp({ configuration }) {
     modelReady: workspaceModel.ready,
     onModelConfigurationInvalidation: workspaceModel.invalidate,
     onWorkspaceAccessRevalidation: recoverForbiddenWorkspaceAccess,
+    onEvaluationDocumentChanged: (change) => evaluationRef.current?.documentChanged(change),
   });
   const evaluation = useEvaluations({
     workspaceId,
@@ -188,6 +191,7 @@ function AuthenticatedApp({ configuration }) {
     active: activePage === "evaluations",
     onForbidden: recoverForbiddenWorkspaceAccess,
   });
+  evaluationRef.current = evaluation;
   const documentToolbar = documentController.toolbar;
   const documentStatusCounts = documentController.statusCounts;
 

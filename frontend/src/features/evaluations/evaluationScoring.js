@@ -205,3 +205,118 @@ export function alignTableRows(definition, reference, sources) {
     lines: order.map((key, index) => ({ key, number: index + 1, extra: hasExpected && !expectedKeys.has(key), rows: lines.get(key) })),
   };
 }
+
+// ---------- Saved Expected answer sets and Batch Evaluation summaries ----------
+const baseName = identity => identity.slice(0, identity.lastIndexOf(":"));
+export const verifiedIdentities = set => Object.entries(set?.references || {}).filter(([, reference]) => reference?.verified).map(([identity]) => identity);
+
+// How a document's Expected answer set applies to the Template fields in use. Same name and type
+// reuse the answer; a changed type or table structure needs review; unrequested answers are omitted.
+export function referenceCompatibility(set, fields, alignments = {}) {
+  const references = set?.references || {}, definitions = set?.definitions || {};
+  const verified = verifiedIdentities(set);
+  const identities = fields.map(field => alignments[field.id] || fieldIdentity(field));
+  const rows = fields.map((field, index) => {
+    const identity = identities[index];
+    if (references[identity]?.verified) {
+      const definition = definitions[identity];
+      const changed = field.data_type === "array<object>" && definition && !references[identity].absent && tableColumnPairs(definition, field).some(([, actual]) => !actual);
+      return changed ? { field, identity, state: "review", from: identity, reason: "columns" } : { field, identity, state: "verified" };
+    }
+    const from = verified.find(id => !identities.includes(id) && baseName(id) === baseName(identity));
+    return from ? { field, identity, state: "review", from, reason: "type" } : { field, identity, state: "unverified" };
+  });
+  const used = new Set(rows.flatMap(row => [row.identity, row.from].filter(Boolean)));
+  const omitted = verified.filter(identity => !used.has(identity));
+  return { rows, omitted, verified: rows.filter(row => row.state === "verified").length, review: rows.filter(row => row.state === "review").length, total: fields.length };
+}
+
+// Compact evidence for one current document/candidate result. Returns null unless the result is the
+// candidate's current successful output with its details available.
+export function pairMetrics(document, candidate, pair, { alignments = {}, columns = {} } = {}) {
+  const result = pair?.result;
+  if (!result?.raw || result.revision !== candidate.revision) return null;
+  const set = document.reference || { references: {}, definitions: {} };
+  const score = scoreCandidate({ result }, set.references, set.definitions, alignments, columns);
+  const verified = verifiedIdentities(set);
+  const requested = new Map(result.fields.map(field => [alignments[field.id] || fieldIdentity(field), field]));
+  const covered = verified.filter(identity => requested.has(identity));
+  // Actual verified fields and table columns, so equal counts over different fields are not comparable.
+  const scope = covered.map(identity => {
+    const definition = set.definitions[identity], field = requested.get(identity);
+    if (definition?.data_type !== "array<object>" || set.references[identity].absent) return identity;
+    const aligned = tableColumnPairs(definition, field, columns[field.id]).filter(([, actual]) => actual).map(([expected]) => expected.key).sort();
+    return `${identity}[${aligned.join(",")}]`;
+  }).sort();
+  const tables = Object.values(score.byField).filter(value => value.kind === "table");
+  return {
+    fields: score.fields, cells: score.tables,
+    scalar: score.fields ? score.fields.matched / score.fields.total : null,
+    cellRatio: score.tables ? score.tables.matched / score.tables.total : null,
+    coverage: verified.length ? covered.length / verified.length : null,
+    scope, review: Object.values(score.byField).filter(value => value.state === "Needs review").length,
+    missingRows: tables.reduce((sum, table) => sum + table.missing.length, 0), extraRows: tables.reduce((sum, table) => sum + table.extra.length, 0),
+    ms: result.processingMs ?? null,
+  };
+}
+
+const pairBusy = pair => ["staged", "submitting", "queued", "running", "retrying"].includes(pair?.status);
+// Only a current, retained, freshly scored successful result counts toward a summary.
+export function usablePairMetrics(candidate, pair) {
+  return pair?.result && pair.metrics && !pair.metrics.stale && pair.detail !== "unavailable" && pair.result.revision === candidate.revision && !pairBusy(pair) ? pair.metrics : null;
+}
+const mean = list => list.length ? list.reduce((sum, value) => sum + value, 0) / list.length : null;
+
+// Equal-document batch summary: each document's field accuracy, table-cell accuracy and coverage are
+// averaged separately, over the documents where that metric exists. Best needs complete, comparable work.
+export function batchSummary(documents, candidates, pairs, runnable = () => true) {
+  const per = Object.fromEntries(candidates.map(candidate => {
+    const rows = documents.map(document => {
+      const pair = pairs[document.key]?.[candidate.id];
+      return { document, pair, metrics: usablePairMetrics(candidate, pair) };
+    });
+    const counts = { pending: 0, failed: 0, outdated: 0, unavailable: 0, detailsUnavailable: 0 };
+    for (const { document, pair, metrics } of rows) {
+      if (metrics) continue;
+      if (pair?.result && pair.detail === "unavailable" && !pairBusy(pair)) counts.detailsUnavailable++;
+      else if (pairBusy(pair) || pair?.metrics?.stale) counts.pending++;
+      else if (pair?.result) counts.outdated++;
+      else if (!runnable(document)) counts.unavailable++;
+      else if (["failure", "interrupted"].includes(pair?.status)) counts.failed++;
+      else counts.pending++;
+    }
+    const done = rows.filter(row => row.metrics);
+    const withMetric = key => done.filter(row => row.metrics[key] !== null);
+    return [candidate.id, {
+      rows, done: done.length, ...counts,
+      scalar: mean(withMetric("scalar").map(row => row.metrics.scalar)), scalarDocs: withMetric("scalar").length,
+      cells: mean(withMetric("cellRatio").map(row => row.metrics.cellRatio)), cellsDocs: withMetric("cellRatio").length,
+      coverage: mean(withMetric("coverage").map(row => row.metrics.coverage)), coverageDocs: withMetric("coverage").length,
+      ms: mean(withMetric("ms").map(row => row.metrics.ms)),
+      unscored: done.filter(row => row.metrics.scalar === null && row.metrics.cellRatio === null).length,
+      review: done.filter(row => row.metrics.review).length,
+    }];
+  }));
+  const any = key => candidates.some(candidate => per[candidate.id][key]);
+  const complete = Math.min(...candidates.map(candidate => per[candidate.id].done));
+  let reason = "";
+  if (candidates.length < 2) reason = "Add another candidate to compare.";
+  else if (!documents.length) reason = "Add documents to compare.";
+  else if (any("unavailable")) reason = "Best is withheld: a document can’t run. Remove it or retry its original.";
+  else if (any("detailsUnavailable")) reason = "Best is withheld: some result details are unavailable. Rerun them to complete the comparison.";
+  else if (any("outdated")) reason = "Best is withheld: some results were produced before candidate edits. Rerun them to compare current settings.";
+  else if (complete < documents.length) reason = `Partial summary · ${complete} of ${documents.length} documents complete for every candidate. Best is withheld until comparable work finishes.`;
+  else if (any("review")) reason = "Best is withheld: an answer needs review.";
+  else if (documents.some((document, index) => new Set(candidates.map(candidate => per[candidate.id].rows[index].metrics.scope.join("|"))).size > 1)) reason = "Candidates cover different verified fields, so there’s no overall Best. Compare accuracy and coverage side by side.";
+  else if (candidates.every(candidate => per[candidate.id].scalar === null && per[candidate.id].cells === null)) reason = "No verified answers yet, so nothing is scored. Verify answers to rank candidates.";
+  let best = [];
+  if (!reason) {
+    // Rank by field accuracy, then table cells, then time; skip a metric no candidate has. Exact ties stay tied.
+    const metrics = ["scalar", "cells"].filter(key => candidates.some(candidate => per[candidate.id][key] !== null));
+    const rank = candidate => [...metrics.map(key => per[candidate.id][key] ?? -1), -(per[candidate.id].ms ?? Infinity)];
+    const compare = (a, b) => { const x = rank(a), y = rank(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return y[i] - x[i]; return 0; };
+    const sorted = [...candidates].sort(compare);
+    best = sorted.filter(candidate => compare(candidate, sorted[0]) === 0).map(candidate => candidate.id);
+  }
+  return { per, best, reason, complete };
+}

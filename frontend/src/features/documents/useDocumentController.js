@@ -16,7 +16,7 @@ export function useDocumentController({
   showDocumentUploadToast, hasApiAccess, hasWorkspaceApiAccess, isAppBusy,
   isWorkspaceDeletionInProgress = false, sessionId, workspaceId,
   onActivePageChange, onWorkspaceCapacityRefresh, onWorkspaceAccessRevalidation,
-  onModelConfigurationInvalidation, modelReady = true, maxSourceFileBytes,
+  onModelConfigurationInvalidation, onEvaluationDocumentChanged, modelReady = true, maxSourceFileBytes,
 }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
@@ -33,6 +33,7 @@ export function useDocumentController({
   const onWorkspaceCapacityRefreshRef = useRef(onWorkspaceCapacityRefresh);
   const onWorkspaceAccessRevalidationRef = useRef(onWorkspaceAccessRevalidation);
   const onModelConfigurationInvalidationRef = useRef(onModelConfigurationInvalidation);
+  const onEvaluationDocumentChangedRef = useRef(onEvaluationDocumentChanged);
   const normalizedWorkspaceId = String(workspaceId || "").trim();
   const canOpenLiveUpdates = hasApiAccess && Boolean(normalizedWorkspaceId) && typeof WebSocket === "function";
   const shouldUseLiveUpdates = canOpenLiveUpdates && !liveUpdatesUnavailable;
@@ -41,8 +42,9 @@ export function useDocumentController({
     onWorkspaceCapacityRefreshRef.current = onWorkspaceCapacityRefresh;
     onWorkspaceAccessRevalidationRef.current = onWorkspaceAccessRevalidation;
     onModelConfigurationInvalidationRef.current = onModelConfigurationInvalidation;
+    onEvaluationDocumentChangedRef.current = onEvaluationDocumentChanged;
     workspaceDeletionInProgressRef.current = isWorkspaceDeletionInProgress;
-  }, [onWorkspaceCapacityRefresh, onWorkspaceAccessRevalidation, onModelConfigurationInvalidation, isWorkspaceDeletionInProgress]);
+  }, [onWorkspaceCapacityRefresh, onWorkspaceAccessRevalidation, onModelConfigurationInvalidation, onEvaluationDocumentChanged, isWorkspaceDeletionInProgress]);
 
   const clearLiveUpdateReconnectTimer = useCallback(() => {
     if (!liveUpdateReconnectTimerRef.current) {
@@ -328,7 +330,9 @@ export function useDocumentController({
       if (liveUpdateSocketRef.current !== socket) {
         return;
       }
-      const { jobs, invalidationReasons } = parseWorkspaceLiveUpdateMessage(event?.data);
+      const { jobs, invalidationReasons, evaluationDocuments } = parseWorkspaceLiveUpdateMessage(event?.data);
+      // Library changes are freshness hints for an open Evaluation; they never carry content.
+      for (const change of evaluationDocuments) onEvaluationDocumentChangedRef.current?.(change);
       if (invalidationReasons.includes("model_configuration_changed")) {
         void onModelConfigurationInvalidationRef.current?.();
       }
@@ -521,6 +525,7 @@ function createWorkspaceLiveUpdateUrl(apiBase, workspaceId) {
 function parseWorkspaceLiveUpdateMessage(message) {
   const jobs = [];
   const invalidationReasons = [];
+  const evaluationDocuments = [];
   let envelope = null;
   try {
     envelope = JSON.parse(message);
@@ -528,7 +533,7 @@ function parseWorkspaceLiveUpdateMessage(message) {
     // Malformed messages carry nothing to apply.
   }
   if (Number(envelope?.version) !== 1 || !Array.isArray(envelope.events)) {
-    return { jobs, invalidationReasons };
+    return { jobs, invalidationReasons, evaluationDocuments };
   }
 
   for (const event of envelope.events) {
@@ -540,9 +545,11 @@ function parseWorkspaceLiveUpdateMessage(message) {
       typeof event.occurred_at === "string" && event.occurred_at.trim()
     ) {
       invalidationReasons.push(event.reason.trim());
+    } else if (event?.type === "evaluation_document_changed" && typeof event.document_id === "string" && event.document_id) {
+      evaluationDocuments.push({ document_id: event.document_id, revision: event.revision ?? null, deleted: event.deleted === true });
     }
   }
-  return { jobs, invalidationReasons };
+  return { jobs, invalidationReasons, evaluationDocuments };
 }
 
 function fileDedupKey(file) {

@@ -1,0 +1,182 @@
+import React, { useState } from "react";
+import { getDataTypeLabel } from "../templates/templateFields.js";
+import { ScrollArea } from "../layout/ScrollArea.jsx";
+import { ModalDialog } from "../layout/ModalDialog.jsx";
+import { ReferenceModal } from "./ReferenceModal.jsx";
+import { TableComparison } from "./TableComparison.jsx";
+import { CandidateMenu, ExpectedInline, Mark, Meter, StatusLine } from "./EvaluationParts.jsx";
+import { ReviewPrompt } from "./EvaluationLibrary.jsx";
+import { display, percent } from "./evaluationFormat.js";
+import { MAX_CANDIDATES, candidateBusy } from "./useEvaluations.js";
+import { reviewDraft } from "./evaluationLibrary.js";
+import { answerSignature, bestCandidateId, candidateAccuracy, fieldIdentity, scalarValue, scoreCandidate, tableAnswerRows, tableColumns, validateReference } from "./evaluationScoring.js";
+
+const COMPARABLE_TYPES = ["array<object>", "object", "array"];
+const FILTERS = [["all", "All fields"], ["differ", "Candidates differ"], ["mismatch", "Has mismatch"], ["unverified", "Unverified"]];
+const baseName = identity => identity.slice(0, identity.lastIndexOf(":"));
+
+// The candidate column head shared by the per-document matrix and the Batch summary.
+export function CandidateHead({ candidate, menuCandidate = candidate, index, mode, onModelChange, menu, children, foot, run }) {
+  const label = `Candidate ${index + 1}`;
+  return <th className="evaluation-candidate">
+    <div className="evaluation-candidate-top"><span className="evaluation-index">{String(index + 1).padStart(2, "0")}</span>
+      {mode === "models" ? <input aria-label={`${label} model`} placeholder="Model name" value={candidate.model} onChange={event => onModelChange(event.target.value)} /> : <strong title={candidate.template.name}>{candidate.template.name}</strong>}
+      <CandidateMenu label={label} candidate={menuCandidate} {...menu} /></div>
+    {children}
+    <div className="evaluation-candidate-foot">{foot}
+      <button type="button" className="secondary" aria-label={run.label} title={run.title} disabled={run.disabled} onClick={run.onClick}>▶</button></div>
+  </th>;
+}
+
+// One document's comparison: the existing matrix, inspector and table comparison, scored against
+// that document's working copy of its Expected answers.
+export function DocumentMatrix({ evaluation, document, candidates, batch, labelFor, menuFor, runFor, onAddCandidate }) {
+  const { state } = evaluation;
+  const [referenceEditor, setReferenceEditor] = useState(null);
+  const [expanded, setExpanded] = useState(null);
+  const [inspect, setInspect] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const { references, definitions: saved } = document.reference;
+  const definitions = { ...saved };
+  const rows = new Map();
+  for (const candidate of candidates) {
+    for (const field of candidate.result?.fields || candidate.template.fields) {
+      definitions[fieldIdentity(field)] ||= field;
+      const identity = state.alignments[candidate.id]?.[field.id] || fieldIdentity(field);
+      definitions[identity] ||= field;
+      if (!rows.has(identity)) rows.set(identity, { identity, field: definitions[identity], candidates: {} });
+      rows.get(identity).candidates[candidate.id] = field;
+    }
+  }
+  // Saved answers no candidate requests stay visible, as coverage requires.
+  for (const [identity, field] of Object.entries(saved)) if (!rows.has(identity)) rows.set(identity, { identity, field, candidates: {}, omitted: true });
+  const requested = new Set([...rows.values()].filter(row => !row.omitted).map(row => row.identity));
+  const reviewFrom = row => !row.omitted && !references[row.identity]?.verified ? Object.keys(references).find(id => references[id]?.verified && !requested.has(id) && baseName(id) === baseName(row.identity)) : undefined;
+  const reviewedBy = identity => [...rows.values()].find(row => reviewFrom(row) === identity);
+  const scores = Object.fromEntries(candidates.map(c => [c.id, scoreCandidate(c, references, definitions, state.alignments[c.id], state.columns[c.id])]));
+  const bestId = bestCandidateId(candidates, scores);
+  const rawFor = (row, candidate) => candidate.result?.raw.find(r => r.field_id === row.candidates[candidate.id]?.id);
+  const allRows = [...rows.values()];
+  const visible = allRows.filter(row => filter === "all" ? true
+    : filter === "differ" ? new Set(candidates.filter(c => c.result && row.candidates[c.id]).map(c => answerSignature(row.candidates[c.id], rawFor(row, c)))).size > 1
+      : filter === "mismatch" ? candidates.some(c => row.candidates[c.id] && scores[c.id].byField[row.candidates[c.id].id]?.state === "Mismatch")
+        : !references[row.identity]?.verified);
+  const saveReference = (row, value) => evaluation.setReference(document.key, row.identity, value, row.field);
+  const reference = (row, candidate) => {
+    const raw = candidate && rawFor(row, candidate);
+    const existing = references[row.identity];
+    setReferenceEditor({ row, initial: candidate ? { value: raw?.answer, absent: raw?.status === "not_found", exact: existing?.exact || false, rows: existing?.rows, verified: existing?.verified } : existing || { value: "", absent: false, exact: false } });
+  };
+  // One click uses a scalar answer as verified; anything that needs checking opens the editor.
+  const acceptAnswer = (row, candidate) => {
+    const raw = rawFor(row, candidate);
+    const existing = references[row.identity];
+    const next = raw?.status === "not_found" ? { verified: true, absent: true, exact: false, value: "" } : { verified: true, absent: false, exact: existing?.exact || false, value: raw?.answer };
+    if (row.field.data_type === "array<object>" || validateReference(row.field, next)) { reference(row, candidate); return; }
+    saveReference(row, next);
+  };
+  const compact = (field, raw) => {
+    if (!raw || raw.status === "not_found") return <span className="evaluation-muted">Not found</span>;
+    if (field.data_type === "array<object>") { const records = tableAnswerRows(raw.answer); return records ? `${records.length} ${records.length === 1 ? "row" : "rows"}` : "Unreadable table"; }
+    if (typeof raw.answer === "object" && raw.answer !== null) return <code>{JSON.stringify(raw.answer)}</code>;
+    const normalized = field.data_type === "boolean" ? scalarValue(raw.answer, "boolean") : null;
+    return display(normalized?.valid ? normalized.value : raw.answer);
+  };
+  const setColumn = (candidate, field, expected, value) => evaluation.setColumns(candidate.id, { ...state.columns[candidate.id], [field.id]: { ...state.columns[candidate.id]?.[field.id], [expected]: value } });
+  const renderValue = (row, candidate, full = false) => {
+    const field = row.candidates[candidate.id];
+    if (!field) return <span className="evaluation-muted">Not requested</span>;
+    if (!candidate.result) return <span className="evaluation-muted">{candidate.detailState === "loading" ? "Loading result…" : "Run to compare"}</span>;
+    const raw = rawFor(row, candidate);
+    const score = scores[candidate.id].byField[field.id];
+    const columns = tableColumns(field);
+    const tableRows = tableAnswerRows(raw?.answer);
+    return <div className="evaluation-value">
+      <span className={`evaluation-score ${score?.state === "Match" ? "match" : score?.state === "Mismatch" ? "mismatch" : ""}`}>{score?.state || "Unscored"}</span>
+      {!["ok", "found"].includes(raw?.status) && <small>{raw?.status === "not_found" || !raw ? "Not found in document" : raw.status}</small>}
+      {field.data_type === "array<object>" && tableRows !== null && columns.length ? <>
+        <div className="evaluation-table-scroll"><table><thead><tr>{columns.map(c => <th key={c.key}>{c.heading}</th>)}</tr></thead><tbody>{tableRows.slice(0, full ? undefined : 3).map((r, i) => <tr key={i}>{columns.map(c => <td key={c.key}>{display(r?.[c.key])}</td>)}</tr>)}</tbody></table></div>
+        <small>{tableRows.length} rows{!full && tableRows.length > 3 ? " · showing first 3" : ""}</small>
+      </> : <pre>{display(raw?.answer)}</pre>}
+      {score?.reason && <p>{score.reason}</p>}
+      {score?.kind === "table" && <p>Cells: {score.matched}/{score.total} · Missing rows: {score.missing.join(", ") || "none"} · Extra rows: {score.extra.join(", ") || "none"}</p>}
+      {full && score?.cells?.some(cell => !cell.match) && <details><summary>Cell mismatches</summary>{score.cells.filter(cell => !cell.match).map((cell, index) => <p key={index}>Row {cell.row} · {cell.column}: {display(cell.actual)} → Expected {display(cell.expected)}</p>)}</details>}
+      {full && columns.length > 0 && <details><summary>Align table columns</summary>{tableColumns(row.field).map(expected => <label key={expected.key}>{expected.heading}<select aria-label={`Align ${expected.heading} in ${candidate.model}`} value={state.columns[candidate.id]?.[field.id]?.[expected.key] || ""} onChange={event => setColumn(candidate, field, expected.key, event.target.value)}><option value="">Match by name and type</option>{columns.filter(c => c.data_type === expected.data_type).map(c => <option key={c.key} value={c.key}>{c.heading}</option>)}</select></label>)}</details>}
+    </div>;
+  };
+  const openComparison = row => row.field.data_type === "array<object>" ? setExpanded({ identity: row.identity, table: true }) : setExpanded({ identity: row.identity });
+  const inspected = inspect && rows.has(inspect.identity) && candidates.find(c => c.id === inspect.candidateId)?.result
+    ? { row: rows.get(inspect.identity), candidate: candidates.find(c => c.id === inspect.candidateId) } : null;
+  const waiting = candidate => candidate.detailState === "loading" ? "Loading result…" : candidate.detailState === "unavailable" ? "Details unavailable · rerun" : candidateBusy(candidate) ? "Running…" : "Run to compare";
+
+  return <>
+    <div className="evaluation-toolbar-row">
+      <div className="evaluation-filter" role="group" aria-label="Filter fields">{FILTERS.map(([id, label]) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}</div>
+      <small className="evaluation-muted">Click an answer to inspect it. Click an expected answer to edit it.</small>
+    </div>
+    <div className={`evaluation-body ${inspected ? "inspecting" : ""}`}>
+      <ScrollArea className="evaluation-comparison-scroll" tabIndex={0} role="region" aria-label="Comparison matrix">
+        <table className="evaluation-matrix" style={{ minWidth: 390 + candidates.length * 220 + 160 }}>
+          <thead><tr><th className="evaluation-field-col">Field</th><th className="evaluation-expected-col">Expected</th>
+            {candidates.map((candidate, index) => {
+              const score = scores[candidate.id];
+              const accuracy = candidateAccuracy(score);
+              const best = candidate.id === bestId;
+              const previous = candidate.result && (candidate.previousShown || candidateBusy(candidate) || ["failure", "interrupted"].includes(candidate.status));
+              return <CandidateHead key={candidate.id} candidate={candidate} index={index} mode={state.mode} onModelChange={model => evaluation.edit(candidate.id, { model })} menu={menuFor(candidate, index)} run={runFor(candidate, index)}
+                foot={<><StatusLine candidate={candidate} />
+                  <small>{previous ? "Previous result" : candidate.detailState === "unavailable" ? "Details unavailable" : !candidate.result ? "" : accuracy ? `${accuracy.matched}/${accuracy.total} fields${score.tables ? ` · ${score.tables.matched}/${score.tables.total} cells` : ""}` : score.tablesNeedingReview ? "Table needs review" : "Not scored yet"}</small></>}>
+                <div className="evaluation-candidate-score"><strong>{accuracy ? percent(accuracy.ratio) : "—"}</strong>{best && <span className="status-chip good">Best</span>}<Meter value={accuracy?.ratio} best={best} /></div>
+                {candidate.message && <p role="alert" className="evaluation-candidate-alert" title={candidate.message}>{candidate.message}</p>}
+              </CandidateHead>;
+            })}
+            <th className="evaluation-add-col"><button type="button" className="secondary" disabled={candidates.length >= MAX_CANDIDATES} onClick={onAddCandidate}>+ Add candidate</button><small>{candidates.length}/{MAX_CANDIDATES}</small></th>
+          </tr></thead>
+          <tbody>{visible.map(row => {
+            const answered = candidates.filter(c => c.result && row.candidates[c.id]).length;
+            const from = reviewFrom(row), reviewing = row.omitted && reviewedBy(row.identity);
+            return <tr key={row.identity} className={row.omitted ? "evaluation-omitted-row" : undefined}>
+              <th className="evaluation-field-col"><strong>{row.field.name}</strong><small className="evaluation-type">{getDataTypeLabel(row.field.data_type)}</small>
+                {row.omitted && references[row.identity]?.verified && <small className="evaluation-warn-text evaluation-block">{reviewing ? `Saved as ${getDataTypeLabel(row.field.data_type)}; the Template now expects ${getDataTypeLabel(reviewing.field.data_type)}.` : "Saved answer not requested by any candidate · shown in coverage"}</small>}
+                {COMPARABLE_TYPES.includes(row.field.data_type) && answered > 0 && <button type="button" className="studio-text-button evaluation-compare-link" onClick={() => openComparison(row)}>Compare all {answered} {row.field.data_type === "array<object>" ? (answered === 1 ? "table" : "tables") : "answers"} ↗</button>}</th>
+              <td className="evaluation-expected-col">{from ? <ReviewPrompt field={row.field} definition={saved[from]} reference={references[from]} onReview={() => setReferenceEditor({ row, from, initial: reviewDraft(references[from]) })} />
+                : <ExpectedInline key={`${row.identity}:${references[row.identity]?.verified}`} field={row.field} reference={references[row.identity]} onSave={value => saveReference(row, value)} onOpenEditor={() => reference(row)} />}</td>
+              {candidates.map((candidate, index) => {
+                const field = row.candidates[candidate.id];
+                const score = field && scores[candidate.id].byField[field.id];
+                const active = inspect?.identity === row.identity && inspect?.candidateId === candidate.id;
+                return <td key={candidate.id} className={`evaluation-cell ${score?.state === "Mismatch" ? "mismatch" : ""} ${active ? "active" : ""}`}>
+                  {!field ? <span className="evaluation-muted">Not requested</span>
+                    : !candidate.result ? <span className="evaluation-muted">{waiting(candidate)}</span>
+                      : <button type="button" className="evaluation-cell-button" aria-label={`Inspect ${row.field.name} for Candidate ${index + 1}`} aria-pressed={active} onClick={() => setInspect(active ? null : { identity: row.identity, candidateId: candidate.id })}>
+                        <Mark state={score?.state} /><span className="evaluation-cell-value">{compact(field, rawFor(row, candidate))}{score?.reason && <small>{score.reason}</small>}</span></button>}
+                </td>;
+              })}
+              <td className="evaluation-add-col" />
+            </tr>;
+          })}
+          {!visible.length && <tr><td colSpan={3 + candidates.length} className="evaluation-empty-row">No fields match this filter.</td></tr>}
+          </tbody>
+        </table>
+      </ScrollArea>
+      {inspected && <aside className="evaluation-inspector" aria-label="Answer inspector">
+        <div className="evaluation-inspector-head"><div><small>{labelFor(inspected.candidate)}{batch ? ` · ${document.name}` : ""}</small><h2>{inspected.row.field.name}</h2></div><button type="button" className="icon-action-button" aria-label="Close inspector" onClick={() => setInspect(null)}>×</button></div>
+        <ScrollArea className="evaluation-inspector-body">
+          <section><h3>Answer</h3>{renderValue(inspected.row, inspected.candidate, true)}
+            <div className="evaluation-actions start">{!COMPARABLE_TYPES.includes(inspected.row.field.data_type) && scores[inspected.candidate.id].byField[inspected.row.candidates[inspected.candidate.id].id]?.state !== "Match" && <button type="button" onClick={() => acceptAnswer(inspected.row, inspected.candidate)}>{references[inspected.row.identity]?.verified ? "Replace expected with this answer" : "Use as expected answer"}</button>}
+              <button type="button" className="secondary" onClick={() => reference(inspected.row, inspected.candidate)}>Review as expected answer</button></div></section>
+          <section><h3>Expected</h3><p className="evaluation-inspector-value">{references[inspected.row.identity]?.verified ? references[inspected.row.identity].absent ? "Not in document" : Array.isArray(references[inspected.row.identity].value) ? `${references[inspected.row.identity].value.length} expected rows` : display(references[inspected.row.identity].value) : <span className="evaluation-muted">Not verified yet</span>}</p></section>
+          <section><h3>Other candidates</h3><ul className="evaluation-inspector-others">{candidates.filter(c => c.id !== inspected.candidate.id && c.result && inspected.row.candidates[c.id]).map(c => <li key={c.id}><Mark state={scores[c.id].byField[inspected.row.candidates[c.id].id]?.state} /><span>{labelFor(c)}</span><span>{compact(inspected.row.candidates[c.id], rawFor(inspected.row, c))}</span></li>)}</ul>
+            {COMPARABLE_TYPES.includes(inspected.row.field.data_type) && <button type="button" className="studio-text-button" onClick={() => openComparison(inspected.row)}>Compare all candidates ↗</button>}</section>
+        </ScrollArea>
+      </aside>}
+    </div>
+    {referenceEditor && <ReferenceModal {...referenceEditor} onClose={() => setReferenceEditor(null)} onSave={value => {
+      if (referenceEditor.from) evaluation.reviewReference(document.key, referenceEditor.from, referenceEditor.row.identity, value, referenceEditor.row.field);
+      else saveReference(referenceEditor.row, value);
+      setReferenceEditor(null);
+    }} />}
+    {expanded?.table && !referenceEditor && rows.has(expanded.identity) && <TableComparison row={rows.get(expanded.identity)} candidates={candidates} reference={references[expanded.identity]} scores={scores} columnMappings={state.columns} labelFor={labelFor} onEditExpected={() => reference(rows.get(expanded.identity))} onClose={() => setExpanded(null)} />}
+    {expanded && !expanded.table && rows.has(expanded.identity) && <ModalDialog className="evaluation-expanded" label="Expanded comparison" onClose={() => setExpanded(null)}><div className="evaluation-heading"><h2>{rows.get(expanded.identity).field.name}</h2><button onClick={() => setExpanded(null)}>Close</button></div><div className="evaluation-expanded-grid">{candidates.map((c, i) => <section key={c.id}><h3>Candidate {i + 1} · {c.result?.model || c.model}</h3>{renderValue(rows.get(expanded.identity), c, true)}</section>)}</div></ModalDialog>}
+  </>;
+}
