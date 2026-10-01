@@ -105,7 +105,7 @@ export const unavailableText = document => document.availability === "deleted" ?
   : document.availability === "missing" ? "The saved original is missing, so it can’t run. Its answers are kept."
     : "The saved original can’t be read right now, so it won’t run. Other documents still run.";
 
-// Saved/new, local changes, freshness, availability and verification progress for one selected document.
+// Saved/new, local changes, freshness, availability and review status for one selected document.
 export function documentChips(document, fields) {
   const compatibility = documentCompatibility(document, fields), chips = [];
   if (document.kind === "upload") chips.push(document.save === "saving" ? ["busy", "Saving…"] : document.save === "failed" ? ["bad", "Save failed · still in this tab"] : ["warn", "Not saved · this tab only"]);
@@ -113,7 +113,6 @@ export function documentChips(document, fields) {
   else if (documentDirty(document)) chips.push(["warn", "Local changes"]);
   else chips.push(["good", newerAvailable(document) ? "Saved · newer version available" : "Saved"]);
   if (["missing", "unavailable"].includes(document.availability)) chips.push(["bad", "Original unavailable"]);
-  if (fields.length) chips.push(compatibility.verified ? [compatibility.verified === compatibility.total ? "good" : "", `${compatibility.verified}/${compatibility.total} verified`] : ["", "No verified answers · compare only"]);
   if (compatibility.review) chips.push(["warn", `${compatibility.review} needs review`]);
   return chips;
 }

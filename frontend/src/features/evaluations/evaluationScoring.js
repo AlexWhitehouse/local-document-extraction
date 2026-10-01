@@ -47,6 +47,12 @@ export function scalarValue(value, type, exact = false, dateOrder) {
   }
   return invalid();
 }
+// The app uses DD/MM/YYYY. Keep other unambiguous formats supported, but interpret
+// ambiguous candidate dates using that day-first convention.
+function candidateValue(value, type, exact = false) {
+  const normalized = scalarValue(value, type, exact);
+  return type === "date" && !normalized.valid ? scalarValue(value, type, exact, "dmy") : normalized;
+}
 // The gateway supports both row arrays and structured { columns, rows } answers.
 // Preserve cell values so matching still validates their original types.
 export function tableAnswerRows(answer) {
@@ -56,7 +62,7 @@ export function tableAnswerRows(answer) {
 export function tableColumns(field) {
   return hydrateFieldFromTemplate(field).object_schema?.columns || [];
 }
-// Only user-entered expected dates have an explicit order. Candidate dates keep strict parsing.
+// User-entered expected dates have an explicit order and are stored as ISO dates.
 export function normalizeReferenceDates(field, reference, dateOrder) {
   const normalize = value => {
     const parsed = scalarValue(value, "date", false, dateOrder);
@@ -101,7 +107,7 @@ export function tableCellMatches(column, actual, expected, state, exact = false,
   if (state === "ignored") return true;
   if (!rowPresent) return false;
   if (state === "absent") return blankCell(actual);
-  const a = scalarValue(actual, column.data_type, exact), e = scalarValue(expected, column.data_type, exact);
+  const a = candidateValue(actual, column.data_type, exact), e = scalarValue(expected, column.data_type, exact);
   return a.valid && e.valid && a.value === e.value;
 }
 export function scoreField(field, raw, reference, referenceField = field, options = {}) {
@@ -112,7 +118,7 @@ export function scoreField(field, raw, reference, referenceField = field, option
   if (field.data_type === "array<object>") return scoreTable(field, found ? raw.answer : null, reference, referenceField, options.columns || {});
   const expected = scalarValue(reference.value, field.data_type, reference.exact);
   if (!expected.valid) return { state: "Needs review" };
-  const actual = found ? scalarValue(raw.answer, field.data_type, reference.exact) : invalid();
+  const actual = found ? candidateValue(raw.answer, field.data_type, reference.exact) : invalid();
   const matches = actual.valid && actual.value === expected.value;
   return { state: matches ? "Match" : "Mismatch", matched: matches ? 1 : 0, total: 1, kind: "field" };
 }
@@ -131,7 +137,7 @@ function scoreTable(field, value, reference, referenceField, mappings) {
   const keys = (list, actual) => list.map((row, index) => {
     if (reference.rows.mode === "position") return index;
     const column = keyPair[actual ? 1 : 0];
-    const normalized = scalarValue(row?.[column.key], column.data_type);
+    const normalized = actual ? candidateValue(row?.[column.key], column.data_type) : scalarValue(row?.[column.key], column.data_type);
     return normalized.valid ? normalized.value : null;
   });
   const expectedKeys = keys(expectedRows, false), actualKeys = keys(rows, true);
@@ -197,7 +203,7 @@ export function bestCandidateId(candidates, scores) {
 export function answerSignature(field, raw) {
   if (!raw || raw.status === "not_found" || raw.answer === null || raw.answer === undefined || raw.answer === "") return "absent";
   if (field.data_type === "array<object>") return JSON.stringify(tableAnswerRows(raw.answer) ?? raw.answer);
-  const normalized = scalarValue(raw.answer, field.data_type);
+  const normalized = candidateValue(raw.answer, field.data_type);
   return JSON.stringify(normalized.valid ? normalized.value : raw.answer);
 }
 
@@ -210,7 +216,7 @@ function tableColumnPairs(expectedField, actualField, mappings = {}) {
 export function tableCellsEqual(column, a, b, exact = false) {
   const blank = value => value === undefined || value === null || (typeof value === "string" && !value.trim());
   if (blank(a) || blank(b)) return blank(a) && blank(b);
-  const left = scalarValue(a, column.data_type, exact), right = scalarValue(b, column.data_type, exact);
+  const left = candidateValue(a, column.data_type, exact), right = candidateValue(b, column.data_type, exact);
   return left.valid && right.valid ? left.value === right.value : String(a) === String(b);
 }
 
@@ -228,7 +234,7 @@ export function alignTableRows(definition, reference, sources) {
   projected.forEach((source, sourceIndex) => {
     const used = new Set();
     source.rows.forEach((row, index) => {
-      const value = keyColumn && scalarValue(row[keyColumn.key], keyColumn.data_type);
+      const value = keyColumn && (sources[sourceIndex].expected ? scalarValue(row[keyColumn.key], keyColumn.data_type) : candidateValue(row[keyColumn.key], keyColumn.data_type));
       let key = keyColumn ? (value.valid ? `key:${JSON.stringify(value.value)}` : `row:${index}`) : `position:${index}`;
       if (used.has(key)) key = `${key}:duplicate:${index}`;
       used.add(key);

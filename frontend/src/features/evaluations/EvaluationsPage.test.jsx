@@ -103,6 +103,16 @@ it("verifies day-first dates inline and saves the unambiguous calendar day", () 
   expect(saved(evaluation)["date of birth:date"]).toMatchObject({ verified: true, value: "1871-09-08" });
 });
 
+it("shows a day-first candidate date as matching its ISO expected answer", () => {
+  const date = { id: "dob", name: "Date of birth", data_type: "date" };
+  setup({ references: { "date of birth:date": { verified: true, value: "1871-09-08" } }, definitions: { "date of birth:date": date }, candidates: [{ id: "a", revision: 0, model: "model", status: "success", template: { ...template, fields: [date] }, result: result([date], [{ field_id: "dob", status: "ok", answer: "08/09/1871" }]) }] });
+  expect(screen.getByText("100%", { exact: true })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Inspect Date of birth for Candidate 1" }));
+  const inspector = screen.getByRole("complementary", { name: "Answer inspector" });
+  expect(within(inspector).getByText("Match", { exact: true })).toBeTruthy();
+  expect(within(inspector).queryByText("Mismatch", { exact: true })).toBeNull();
+});
+
 it("keeps ignored table cells out of differences and highlights values in absent cells", () => {
   const candidate = (id, answer) => ({ id, revision: 0, model: id, status: "success", template: { ...template, fields: [itemsField] }, result: result([itemsField], [{ field_id: "items", status: "ok", answer }]) });
   setup({ mode: "models", references: { "items:array<object>": { verified: true, value: [{ sku: "A" }, { sku: "B" }], rows: { mode: "key", key: "sku" }, cellStates: [{ quantity: "absent" }, { quantity: "ignored" }] } }, candidates: [

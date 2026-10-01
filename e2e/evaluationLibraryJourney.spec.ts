@@ -74,8 +74,8 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await clearDialog.getByRole("button", { name: "Clear Evaluation" }).click();
 
     // A new Evaluation mixes the saved entry with a fresh upload; every document runs against the same candidates.
-    await evaluations.getByRole("button", { name: "Choose from library" }).first().click();
-    const picker = page.getByRole("dialog", { name: "Choose from library" });
+    await evaluations.getByRole("button", { name: "Library" }).first().click();
+    const picker = page.getByRole("dialog", { name: "Evaluation library" });
     await picker.getByRole("checkbox", { name: "Select library-invoice" }).check();
     await picker.getByRole("button", { name: "Add 1 document" }).click();
     await expect(evaluations.getByText("library-invoice", { exact: true })).toBeVisible();
