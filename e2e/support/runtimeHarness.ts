@@ -56,6 +56,12 @@ try {
           ],
         }) } }] });
       }
+      if (["browser/expected-answers", "browser/expected-answers-b"].includes(input.model || "")) {
+        return Response.json({ choices: [{ message: { content: JSON.stringify({ results: [
+          { field_id: "date_of_birth", status: "ok", answer: "08/09/1871" },
+          { field_id: "items", status: "ok", answer: [{ sku: "A", quantity: null }, { sku: "B", quantity: 999 }] },
+        ] }) } }] });
+      }
       return Response.json({
         choices: [{
           message: {

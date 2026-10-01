@@ -8,7 +8,7 @@ import { documentDirty, kilobytes, updatedLabel, newerAvailable, refText, saveUn
 import { documentRunnable } from "./useEvaluations.js";
 
 export function Chips({ list }) {
-  return <span className="evaluation-chips">{list.map(([tone, label]) => <span key={label} className={`status-chip ${tone === "good" ? "good" : tone === "warn" ? "warn" : ""} ${tone === "bad" ? "evaluation-chip-bad" : ""} ${tone === "busy" ? "evaluation-chip-busy" : ""}`}>{label}</span>)}</span>;
+  return <span className="evaluation-chips">{list.map(([tone, label]) => <span key={label} title={label} className={`status-chip ${tone === "good" ? "good" : tone === "warn" ? "warn" : ""} ${tone === "bad" ? "evaluation-chip-bad" : ""} ${tone === "busy" ? "evaluation-chip-busy" : ""}`}>{label}</span>)}</span>;
 }
 function useLibraryList(evaluation) {
   const [query, setQuery] = useState("");
@@ -37,7 +37,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
           const compatibility = summaryCompatibility(entry, fields), inBatch = inEvaluation(entry.id);
           const sourceLabel = `${entry.source_name} · ${kilobytes(entry.byte_size)}${entry.page_count ? ` · ${entry.page_count} ${entry.page_count === 1 ? "page" : "pages"}` : ""}${inBatch ? " · in this Evaluation" : ""}`;
           const updated = updatedLabel(entry);
-          return <tr key={entry.id}>
+          return <tr key={entry.id} className={onToggle && (selected.includes(entry.id) || inBatch) ? "evaluation-library-selected" : undefined}>
             {onToggle && <td><input type="checkbox" aria-label={`Select ${entry.name}`} checked={selected.includes(entry.id) || inBatch} disabled={inBatch} onChange={() => onToggle(entry)} /></td>}
             <td className="evaluation-library-document">{actions ? actions.name(entry) : <strong title={entry.name}>{entry.name}</strong>}<small title={sourceLabel}>{sourceLabel}</small></td>
             <td><span className="evaluation-progress"><Meter value={compatibility.total ? compatibility.verified / compatibility.total : 0} best /><small>{compatibility.verified}/{compatibility.total}</small></span>{!compatibility.verified && <small className="evaluation-muted">Compare only · no score</small>}</td>
@@ -55,6 +55,15 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
   </div>;
 }
 
+function LibraryModal({ label, description, onClose, children, footer }) {
+  return <ModalDialog label={label} className="studio-main evaluation-library-modal wide evaluation-library-browser" initialFocus="input[type=search]" onClose={onClose}>
+    <header className="evaluation-library-head"><div><h2>Evaluation library</h2><p>{description}</p></div>
+      <button type="button" className="icon-action-button" aria-label="Close library" onClick={onClose}>×</button></header>
+    <div className="evaluation-library-body">{children}</div>
+    <footer className="evaluation-library-foot">{footer}</footer>
+  </ModalDialog>;
+}
+
 export function LibraryPicker({ evaluation, fields, onClose }) {
   const list = useLibraryList(evaluation);
   const [selected, setSelected] = useState([]);
@@ -67,13 +76,14 @@ export function LibraryPicker({ evaluation, fields, onClose }) {
     setProgress(null);
     if (problems.length) { setFailed(problems); setSelected(problems.map(p => p.entry)); } else onClose();
   };
-  return <ModalDialog label="Choose from library" className="evaluation-library-modal wide" onClose={onClose}>
-    <div className="evaluation-heading"><div><h2>Choose from library</h2><p>Saved documents are shared with this Workspace. Each one brings a private working copy of its Expected answers.</p></div></div>
+  return <LibraryModal label="Evaluation library" description="Select saved documents to compare. Their saved expected answers will be included." onClose={onClose} footer={<>
+      {failed.length > 0 && <p role="alert" className="evaluation-bad-text">Couldn’t add {failed.map(f => f.entry.name).join(", ")}. {failed[0].message}</p>}
+      <div className="evaluation-library-selection"><span>{selected.length ? `${selected.length} ${selected.length === 1 ? "document" : "documents"} selected` : "Select documents to add"}</span>
+        <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button>
+          <button type="button" disabled={!selected.length || !!progress} onClick={add}>{progress ? `Adding ${progress[0]} of ${progress[1]}…` : selected.length ? `Add ${selected.length} ${selected.length === 1 ? "document" : "documents"}` : "Add documents"}</button></div></div>
+    </>}>
     <LibraryTable list={list} fields={fields} selected={selected.map(e => e.id)} inEvaluation={inEvaluation} onToggle={entry => setSelected(s => s.some(e => e.id === entry.id) ? s.filter(e => e.id !== entry.id) : [...s, entry])} />
-    {failed.length > 0 && <p role="alert" className="evaluation-bad-text">Couldn’t add {failed.map(f => f.entry.name).join(", ")}. {failed[0].message}</p>}
-    <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button>
-      <button type="button" disabled={!selected.length || !!progress} onClick={add}>{progress ? `Adding ${progress[0]} of ${progress[1]}…` : `Add ${selected.length || ""} ${selected.length === 1 ? "document" : "documents"}`}</button></div>
-  </ModalDialog>;
+  </LibraryModal>;
 }
 
 // The only library management surface: rename or delete shared entries. Answers change via a working copy.
@@ -108,11 +118,12 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
     buttons: entry => <><button type="button" className="studio-text-button" aria-label={`Rename ${entry.name}`} onClick={() => setRenaming({ id: entry.id, name: entry.name })}>Rename</button>
       <button type="button" className="studio-text-button evaluation-danger-text" aria-label={`Delete ${entry.name}`} onClick={() => remove(entry)}>Delete</button></>,
   };
-  return <ModalDialog label="Manage library" className="evaluation-library-modal wide" onClose={onClose}>
-    <div className="evaluation-heading"><div><h2>Evaluation library</h2><p>Rename or delete documents shared with this Workspace. To change Expected answers, add the document to an Evaluation and use Update saved answers.</p></div><button type="button" className="secondary" onClick={onClose}>Close</button></div>
-    {message && <p role="status" className="evaluation-notice">{message}</p>}
+  return <LibraryModal label="Manage library" description="Rename or delete documents shared with this Workspace. To change Expected answers, add the document to an Evaluation and use Update saved answers." onClose={onClose} footer={<>
+      {message && <p role="status" className="evaluation-notice">{message}</p>}
+      <div className="actions"><button type="button" className="secondary" onClick={onClose}>Close</button></div>
+    </>}>
     <LibraryTable list={list} fields={fields} inEvaluation={id => evaluation.state.documents.some(d => d.entry?.id === id)} actions={actions} />
-  </ModalDialog>;
+  </LibraryModal>;
 }
 
 export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {

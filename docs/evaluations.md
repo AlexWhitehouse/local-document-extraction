@@ -15,7 +15,7 @@ You can compare up to eight candidates, on as many documents as you like. Any me
 
 Open **Evaluations**. The setup screen walks you through four steps:
 
-1. **Documents:** choose saved documents with **Choose from library**, upload new PDFs or images with **Upload new** (or drop them), or both. Each document shows its verification progress, and anything that needs attention, such as an unsaved upload or an unavailable original.
+1. **Documents:** choose saved documents with **Library**, upload new PDFs or images with **Upload new** (or drop them), or both. Each document shows whether it’s saved, and anything that needs attention, such as an unsaved upload or an unavailable original.
 2. **What to compare:** models or template versions.
 3. **Template:** pick a saved template, or an earlier version of one.
 4. **Candidates:**
@@ -63,9 +63,9 @@ Answers are compared like this:
 | Text | Ignores capitals, punctuation, and extra spaces, unless **Exact match** is on. |
 | Number | Must be exactly equal; there is no rounding tolerance. |
 | Yes/No | "yes"/"no" and "true"/"false" are treated the same. |
-| Date | Must be the same calendar day, written unambiguously. |
+| Date | Must represent the same calendar day. |
 
-Expected date entry defaults to **DD/MM/YYYY**. Use **Date format** to switch to **MM/DD/YYYY**; the editor shows the interpreted day before you verify. ISO dates (**YYYY-MM-DD**) and written month names also work. Verified dates are saved as ISO dates so their meaning stays the same when reused. Impossible calendar dates are rejected with an error beside the input.
+Expected date entry defaults to **DD/MM/YYYY**. Use **Date format** to switch to **MM/DD/YYYY**; the editor shows the interpreted day before you verify. ISO dates (**YYYY-MM-DD**) and written month names also work. Verified dates are saved as ISO dates so their meaning stays the same when reused. Candidate dates use day/month/year when a numeric date could be read either way, so **08/09/1871** matches **1871-09-08**. Impossible calendar dates are rejected with an error beside the input.
 
 Saying a value is *absent from the document* is different from leaving it unchecked. An "absent" answer never matches an error or an unreadable result.
 

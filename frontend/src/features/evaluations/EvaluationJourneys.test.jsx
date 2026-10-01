@@ -41,11 +41,11 @@ function Harness() {
 }
 const upload = name => new File(["sample"], name, { type: "application/pdf" });
 async function chooseFromLibrary(names) {
-  fireEvent.click(screen.getByRole("button", { name: "Choose from library" }));
-  const picker = await screen.findByRole("dialog", { name: "Choose from library" });
+  fireEvent.click(screen.getByRole("button", { name: "Library" }));
+  const picker = await screen.findByRole("dialog", { name: "Evaluation library" });
   for (const name of names) fireEvent.click(await within(picker).findByRole("checkbox", { name: `Select ${name}` }));
   fireEvent.click(within(picker).getByRole("button", { name: new RegExp(`^Add ${names.length}`) }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose from library" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Evaluation library" })).toBeNull());
 }
 async function startModels() {
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "invoice" } });

@@ -167,7 +167,7 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
       </div>}
       {document ? <DocumentMatrix key={`${state.id}:${document.key}`} evaluation={evaluation} document={document} candidates={viewCandidates} batch={batch} labelFor={labelFor} menuFor={menuFor} runFor={runFor} onAddCandidate={addCandidate} filter={filter} />
         : <div className="evaluation-dropzone"><span className="evaluation-dropzone-icon" aria-hidden="true">▤</span><div><strong>Add a document to compare</strong><small>Choose saved documents or upload new ones. Candidates run on every document.</small></div>
-          <span className="evaluation-actions"><button type="button" onClick={() => open("picker")}>Choose from library</button><button type="button" className="secondary" onClick={() => setUploadOpen(true)}>Upload new</button></span></div>}
+          <span className="evaluation-actions"><button type="button" onClick={() => open("picker")}>Library</button><button type="button" className="secondary" onClick={() => setUploadOpen(true)}>Upload new</button></span></div>}
     </>}
     {uploadOpen && <ModalDialog label="Upload evaluation document" onClose={() => { setUploadOpen(false); setLocalError(""); }}><div className="evaluation-heading"><h2>Upload documents</h2><button className="secondary" onClick={() => { setUploadOpen(false); setLocalError(""); }}>Close</button></div>
       <DocumentUploadPanel label="Document" multiple maxSourceFileBytes={maxSourceFileBytes} isDragActive={isDragActive} onSelectSourceFiles={selectDocuments} onDragOver={() => setDragActive(true)} onDragLeave={() => setDragActive(false)} onDrop={event => selectDocuments(Array.from(event.dataTransfer.files || []))} />

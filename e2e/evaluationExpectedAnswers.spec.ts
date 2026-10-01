@@ -9,7 +9,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
   try {
     harness = await startRuntimeHarness({ sourceStorage: "local" });
     await submitSignUp(page, harness, { email: "expected-answers@example.test", name: "Expected Answers", password: "Strong1!" });
-    await saveModelGateway(page, harness, "browser/model");
+    await saveModelGateway(page, harness, "browser/expected-answers");
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("button", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
@@ -30,7 +30,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
     const evaluations = page.getByRole("region", { name: "Evaluations" });
     const start = async () => {
       await evaluations.getByRole("combobox", { name: "Template", exact: true }).selectOption({ label: "Expected answer checks" });
-      await evaluations.getByRole("textbox", { name: "Candidate 2 model" }).fill("browser/model-b");
+      await evaluations.getByRole("textbox", { name: "Candidate 2 model" }).fill("browser/expected-answers-b");
       await evaluations.getByRole("button", { name: "Start and run" }).click();
       await expect(evaluations.getByRole("status").filter({ hasText: "Done" })).toHaveCount(2);
     };
@@ -52,6 +52,9 @@ test("date formats, field errors and table cell statuses survive saving and reus
     await page.screenshot({ path: testInfo.outputPath("date-expected-answer.png") });
     await editor.getByRole("button", { name: "Use as expected answer" }).click();
     await expect(evaluations.getByRole("button", { name: "Edit expected Date of birth" })).toContainText("1871-09-08");
+    await expect(evaluations.getByRole("button", { name: "Inspect Date of birth for Candidate 1" })).toContainText("08/09/1871");
+    await expect(evaluations.getByText("100%", { exact: true })).toHaveCount(2);
+    await page.screenshot({ path: testInfo.outputPath("date-matching.png") });
 
     await evaluations.getByRole("button", { name: "Add expected rows" }).click();
     await editor.getByRole("textbox", { name: "Expected row 1 SKU", exact: true }).fill("A");
@@ -73,11 +76,12 @@ test("date formats, field errors and table cell statuses survive saving and reus
     await expect(page.getByRole("dialog", { name: "Save to Evaluation library" })).toHaveCount(0);
     await evaluations.getByRole("button", { name: /^Clear Evaluation/ }).click();
     await page.getByRole("dialog", { name: "Clear Evaluation" }).getByRole("button", { name: "Clear Evaluation", exact: true }).click();
-    await evaluations.getByRole("button", { name: "Choose from library" }).first().click();
-    const picker = page.getByRole("dialog", { name: "Choose from library" });
+    await evaluations.getByRole("button", { name: "Library" }).first().click();
+    const picker = page.getByRole("dialog", { name: "Evaluation library" });
     await picker.getByRole("checkbox", { name: "Select expected-answers" }).check();
     await picker.getByRole("button", { name: "Add 1 document" }).click();
     await start();
+    await expect(evaluations.getByText("100%", { exact: true })).toHaveCount(2);
     await evaluations.getByRole("button", { name: "2 rows verified" }).click();
     await expect(editor.getByRole("combobox", { name: "Expected row 1 Quantity status" })).toHaveValue("absent");
     await editor.getByRole("button", { name: "Select row 2" }).click();

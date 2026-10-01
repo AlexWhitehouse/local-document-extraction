@@ -42,6 +42,31 @@ describe("Evaluation matching", () => {
     for (const answer of ["02/03/2026", "2026-02-30", "yesterday", 20260927]) expect(scalarValue(answer, "date").valid).toBe(false);
     expect(scalarValue("2024-02-29", "date").valid).toBe(true);
   });
+  it("matches day-first candidate dates against ISO expected dates without swapping the day and month", () => {
+    const date = field("Date of birth", "date");
+    expect(scoreField(date, raw("08/09/1871"), ref("1871-09-08"))).toMatchObject({ state: "Match", matched: 1, total: 1 });
+    expect(scoreField(date, raw("08/09/1871"), ref("1871-08-09")).state).toBe("Mismatch");
+    for (const answer of ["09/08/1871", "08/09/1872", "31/02/1871"]) expect(scoreField(date, raw(answer), ref("1871-09-08")).state).toBe("Mismatch");
+    expect(scoreField(date, raw("1871-09-08"), ref("08/09/1871")).state).toBe("Needs review");
+  });
+  it("treats equivalent candidate date formats as the same answer", () => {
+    const date = field("Date of birth", "date"), column = { key: "date", data_type: "date" };
+    expect(answerSignature(date, raw("08/09/1871"))).toBe(answerSignature(date, raw("1871-09-08")));
+    expect(answerSignature(date, raw("09/08/1871"))).not.toBe(answerSignature(date, raw("1871-09-08")));
+    expect(tableCellsEqual(column, "08/09/1871", "1871-09-08")).toBe(true);
+    expect(tableCellsEqual(column, "09/08/1871", "1871-09-08")).toBe(false);
+  });
+  it("matches and aligns day-first dates in table cells and row identifiers", () => {
+    const dated = { ...table, object_schema: { mode: "table", columns: [{ key: "date", heading: "Date", data_type: "date" }, table.object_schema.columns[0]] } };
+    const expected = [{ date: "1871-09-08", sku: "A" }, { date: "1871-09-09", sku: "B" }];
+    const actual = [{ date: "09/09/1871", sku: "B" }, { date: "08/09/1871", sku: "A" }];
+    const reference = { ...ref(expected), rows: { mode: "key", key: "date" } };
+    expect(scoreField(dated, raw(actual), reference)).toMatchObject({ state: "Match", matched: 4, total: 4, missing: [], extra: [] });
+    expect(scoreField(dated, raw([...actual].reverse()), { ...reference, rows: { mode: "position" } })).toMatchObject({ state: "Match", matched: 4, total: 4 });
+    const aligned = alignTableRows(dated, reference, [{ expected: true, field: dated, rows: expected }, { field: dated, rows: actual }]);
+    expect(aligned.lines).toHaveLength(2);
+    expect(aligned.lines.every(line => !line.extra && line.rows.every(Boolean))).toBe(true);
+  });
   it("distinguishes absence, unknown, zero, false and errors", () => {
     const absence = { verified: true, absent: true };
     expect(scoreField(field(), { status: "not_found", answer: null }, absence).state).toBe("Match");
