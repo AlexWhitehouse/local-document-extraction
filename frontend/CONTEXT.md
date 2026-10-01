@@ -76,10 +76,6 @@ _Avoid_: Workspace layout setting, Source file retention setting
 A Workspace-shared collection of saved documents and user-verified **Expected answers** that members can select for future single-document or Batch Evaluations.
 _Avoid_: saved Evaluation history, personal document library, model-generated ground truth
 
-**Batch Evaluation summary**:
-A temporary overview of candidate results across documents, showing equally weighted per-document scalar-field and table-cell accuracy averages, coverage and processing outcomes.
-_Avoid_: saved benchmark report, combined field-and-cell accuracy, pooled field accuracy
-
 **Saved Evaluation document**:
 A reusable library entry containing a fixed original **Source file** and one editable **Expected answer set**, independently of ordinary extraction history.
 _Avoid_: saved Evaluation run, Extraction job, temporary Evaluation upload
@@ -341,5 +337,7 @@ _Avoid_: demo mode, sample data sandbox
 **Evaluation** is a temporary comparison in one browser tab and Workspace. Its documents, candidate drafts, verified Expected answers and results belong to that live tab so navigation preserves them. Refresh discards them. There is no idle expiry or saved Evaluation history. Detailed results are held in a **Temporary Evaluation result cache** that preserves this lifetime. Clear, tab closure, session or access loss, and Workspace change also discard private Evaluation state. Only documents explicitly saved to the **Evaluation document library** outlive it; a selected Saved Evaluation document brings a private working copy of its **Expected answer set**, which changes the shared set only through an explicit, conflict-checked update.
 
 **Comparison candidates** either share Template fields and compare models, or share model/capabilities and compare independently editable Templates. A result carries its tested input snapshot; later edits require an explicit rerun. Only an explicitly verified Expected answer supplies a correctness reference. Coverage and matches are separate; table-cell matches are separate from scalar-field matches.
+
+Expected date inputs default to day/month/year, with an explicit month/day/year choice and an interpreted-date preview. Verification stores dates in ISO form. Expected table cells can contain a value, be explicitly absent, or be ignored for scoring. Absent cells expect empty output cells in existing rows; ignored cells do not affect accuracy or difference highlighting. These statuses travel with saved Expected answer sets. Validation feedback appears beside the failing input, and table errors select the affected row.
 
 The **Template field editor** is shared between the Templates page and the full modal used for Evaluation candidate editing. Apply updates a draft. Save as new Template explicitly persists an independent normal Template from the current draft.

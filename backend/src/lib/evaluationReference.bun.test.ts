@@ -13,6 +13,21 @@ const lines = {
 const set = (definitions: Record<string, unknown>, references: Record<string, unknown> = {}) => ({ version: 1, definitions, references });
 const rejects = (input: unknown, message: RegExp) => expect(() => parseExpectedAnswerSet(input)).toThrow(message);
 
+test("per-cell absence and ignoring round-trip without filling in missing values", () => {
+  const input = set({ "lines:array<object>": lines }, { "lines:array<object>": {
+    verified: true, value: [{ sku: "A" }, { sku: "B", qty: "" }], rows: { mode: "key", key: "sku" }, cellStates: [{ qty: "absent" }, { qty: "ignored" }],
+  } });
+  expect(JSON.parse(JSON.stringify(parseExpectedAnswerSet(input)))).toEqual(input);
+});
+test("cell annotations require valid table rows and columns, and cannot replace row identifiers", () => {
+  const verify = (cellStates: unknown, rows: { mode: string; key?: string } = { mode: "position" }) => parseExpectedAnswerSet(set({ "lines:array<object>": lines }, { "lines:array<object>": {
+    verified: true, value: [{ sku: "A", qty: 1 }], rows, cellStates,
+  } }));
+  for (const states of [{ qty: "absent" }, [{ unknown: "ignored" }], [{ qty: "wrong" }], [null], [{}, {}]]) expect(() => verify(states)).toThrow(/cell/i);
+  for (const state of ["absent", "ignored"]) expect(() => verify([{ sku: state }], { mode: "key", key: "sku" })).toThrow(/identifier.*value/i);
+  rejects(set({ "total:number": scalar("Total", "number") }, { "total:number": { verified: true, value: 1, cellStates: [{}] } }), /cell/i);
+});
+
 test("zero, false and verified absence stay distinct and round-trip losslessly", () => {
   const input = set(
     { "total:number": scalar("Total", "number"), "paid:boolean": scalar("Paid", "boolean"), "po:string": scalar("PO", "string") },

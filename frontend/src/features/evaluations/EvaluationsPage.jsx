@@ -1,17 +1,15 @@
 import { WorkspaceToolbar } from "../layout/MainLayout.jsx";
 import { DocumentUploadPanel } from "../documents/DocumentUploadPanel.jsx";
-import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { EvaluationSetup } from "./EvaluationSetup.jsx";
-import { DocumentMatrix } from "./DocumentMatrix.jsx";
-import { BatchSummary } from "./BatchSummary.jsx";
-import { AnswersDialog, ClearDialog, DocumentBanner, DocumentPreview, LibraryPicker, ManageLibrary, SaveDialog, UpdateReview } from "./EvaluationLibrary.jsx";
+import { DocumentMatrix, FieldFilters } from "./DocumentMatrix.jsx";
+import { ClearDialog, DocumentBanner, DocumentPreview, LibraryPicker, ManageLibrary, SaveDialog, UpdateReview } from "./EvaluationLibrary.jsx";
 import { Meter } from "./EvaluationParts.jsx";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
 import { MAX_CANDIDATES, documentRunnable, pairBusy } from "./useEvaluations.js";
-import { batchSummary, documentCompatibility } from "./evaluationScoring.js";
-import { documentDirty, documentTone } from "./evaluationLibrary.js";
+import { documentCompatibility } from "./evaluationScoring.js";
+import { documentDirty, saveUnavailableMessage } from "./evaluationLibrary.js";
 import "./evaluations.css";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 
@@ -30,8 +28,9 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
   const [notice, setNotice] = useState("");
   const [dialog, setDialog] = useState(null);
   const [view, setView] = useState(null);
+  const [filter, setFilter] = useState("all");
   const lifetime = useRef(0);
-  useEffect(() => { lifetime.current++; setEditor(null); setTemplateId(""); setVersion(""); setReplacement(null); setUploadOpen(false); setPreview(null); setAutoRun(null); setNotice(""); setLocalError(""); setDialog(null); setView(null); }, [state.id]);
+  useEffect(() => { lifetime.current++; setEditor(null); setTemplateId(""); setVersion(""); setReplacement(null); setUploadOpen(false); setPreview(null); setAutoRun(null); setNotice(""); setLocalError(""); setDialog(null); setView(null); setFilter("all"); }, [state.id]);
   // Setup can start and run in one step; run once the new candidates are in state.
   useEffect(() => {
     if (!autoRun || !autoRun.every(id => state.candidates.some(c => c.id === id))) return;
@@ -39,8 +38,10 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
     evaluation.run(autoRun);
   }, [autoRun, state.candidates, evaluation]);
   const batch = state.documents.length > 1;
-  const current = view === "summary" && batch ? "summary" : state.documents.find(d => d.key === view)?.key || (batch ? "summary" : state.documents[0]?.key);
-  const document = state.documents.find(d => d.key === current);
+  // One document at a time, as in a single-document Evaluation; Previous/Next move through the rest.
+  const position = Math.max(0, state.documents.findIndex(d => d.key === view));
+  const document = state.documents[position];
+  const step = delta => { setFilter("all"); setView(state.documents[(position + delta + state.documents.length) % state.documents.length]?.key ?? null); };
   const fields = state.candidates[0]?.template.fields || [];
   const labelFor = candidate => state.mode === "models" ? candidate.model || `Candidate ${state.candidates.indexOf(candidate) + 1}` : candidate.template.name;
   // The selected document's view of each candidate: its pair status plus the displayed result details.
@@ -53,9 +54,8 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
       detailState: !record ? null : unavailable ? "unavailable" : detail ? "ready" : "loading", result: record && detail && !unavailable ? { ...record, raw: detail.raw, values: detail.values } : null };
   }) : [];
   const visibleKey = viewCandidates.filter(c => c.detailState && c.detailState !== "unavailable").map(c => shown(state.pairs[document.key][c.id]).recordId).join("|");
-  // Only the open document's details are decrypted; the summary and other tabs use compact metrics.
+  // Only the open document's details are decrypted.
   useEffect(() => { if (evaluation.hydrate) evaluation.hydrate(visibleKey ? visibleKey.split("|") : []); }, [visibleKey, evaluation]);
-  const summary = batch && current === "summary" ? batchSummary(state.documents, state.candidates, state.pairs, documentRunnable) : null;
   const runnable = state.documents.filter(documentRunnable);
   const busyFor = candidateId => Object.values(state.pairs).some(byCandidate => pairBusy(byCandidate[candidateId]));
   const anyBusy = state.candidates.some(c => busyFor(c.id));
@@ -124,8 +124,7 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
   const dialogDocument = dialog?.key && state.documents.find(d => d.key === dialog.key);
   const dialogFields = dialog?.fields || fields;
   const compatibility = document && documentCompatibility(document, fields);
-  const fullyVerified = state.documents.filter(d => { const c = documentCompatibility(d, fields); return c.total && c.verified === c.total; }).length;
-  const bestNames = summary?.best.map(id => labelFor(state.candidates.find(c => c.id === id))).join(", ");
+  const saveUnavailable = saveUnavailableMessage(state.library);
 
   return <section className="evaluations-page" aria-label="Evaluations">
     <WorkspaceToolbar activePage="evaluations" workspaceLabel={workspaceLabel} pageTitle="Evaluations"
@@ -133,20 +132,20 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
       actions={<><button type="button" className="secondary" onClick={() => open("clear")}>Clear Evaluation{unsaved ? ` · ${unsaved} unsaved` : ""}</button>
         <button type="button" disabled={runDisabled} onClick={() => evaluation.run(state.candidates.map(c => c.id))}>{`Run all${state.candidates.length ? ` ${state.candidates.length}` : ""}${batch && state.candidates.length ? ` × ${runnable.length}` : ""}`}</button></>} />
     {notice && <p role="status" className="evaluation-notice">{notice} <button type="button" className="studio-text-button" onClick={() => setNotice("")}>Dismiss</button></p>}
-    {state.cacheError && <div role="alert" className="evaluation-banner bad evaluation-cache-error"><span><strong>Result details couldn’t be kept in this browser.</strong> {state.cacheError.message} New runs are paused; results already shown are kept, and missing details are left out of summaries.</span>
+    {state.cacheError && <div role="alert" className="evaluation-banner bad evaluation-cache-error"><span><strong>Result details couldn’t be kept in this browser.</strong> {state.cacheError.message} New runs are paused; results already shown are kept, and results whose details are missing can’t be scored.</span>
       <button type="button" className="studio-text-button" onClick={() => evaluation.retryCache()}>Retry storage</button><button type="button" className="studio-text-button" onClick={() => open("clear")}>Clear Evaluation</button></div>}
     {!state.candidates.length ? <EvaluationSetup state={state} templates={templates} enabled={enabled} maxSourceFileBytes={maxSourceFileBytes} suggestedModels={suggestedModels}
       error={!uploadOpen ? state.error || localError : ""} loadTemplate={loadTemplate} onSelectDocuments={selectDocuments} onRemoveDocument={evaluation.removeDocument} onPreviewDocument={setPreview} onStart={startEvaluation}
-      onOpenAnswers={(d, setupFields) => open("answers", { key: d.key, fields: setupFields })} onSave={(key, setupFields) => open("save", { key, fields: setupFields })} onUpdate={key => open("update", { key })}
       onChooseLibrary={setupFields => open("picker", { fields: setupFields })} onManageLibrary={setupFields => open("manage", { fields: setupFields })} /> : <>
       {(state.error || localError) && !uploadOpen && <p role="alert" className="evaluation-page-alert">{state.error || localError}</p>}
       <div className="evaluation-contextbar">
-        <div className="evaluation-context-item"><small>{batch ? "Documents" : "Document"}</small>
-          <span className="evaluation-context-value" title={batch ? undefined : state.documents[0]?.name}>{batch ? `${state.documents.length} documents${state.documents.filter(d => d.kind === "upload").length ? ` · ${state.documents.filter(d => d.kind === "upload").length} not saved` : ""}` : state.documents[0]?.name || "No document"}</span>
+        <div className="evaluation-context-item"><small>Document</small>
+          <span className="evaluation-context-value" title={document?.name}>{document?.name || "No document"}{document?.kind === "upload" ? " · not saved" : document && documentDirty(document) ? " · answer changes not saved" : ""}</span>
           <span className="evaluation-context-actions">{document && <button type="button" className="studio-text-button" onClick={() => setPreview(document)}>View ↗</button>}
+            {document?.kind === "upload" && <button type="button" className="studio-text-button" disabled={!!saveUnavailable || document.save === "saving"} title={saveUnavailable || undefined} onClick={() => open("save", { key: document.key })}>{document.save === "saving" ? "Saving…" : "Save to library…"}</button>}
+            {document && documentDirty(document) && <><button type="button" className="studio-text-button" onClick={() => open("update", { key: document.key })}>Update saved answers…</button><button type="button" className="studio-text-button" onClick={() => evaluation.discardChanges(document.key)}>Discard changes</button></>}
             <button type="button" className="studio-text-button" onClick={() => open("picker")}>Add from library</button>
-            <button type="button" className="studio-text-button" onClick={() => setUploadOpen(true)}>Upload document</button>
-            <button type="button" className="studio-text-button" onClick={() => open("manage")}>Manage library</button></span></div>
+            <button type="button" className="studio-text-button" onClick={() => setUploadOpen(true)}>Upload document</button></span></div>
         <div className="evaluation-context-item"><small>Comparing</small>
           <div className="evaluation-segmented" role="group" aria-label="Comparison mode">{[["models", "Models"], ["templates", "Templates"]].map(([mode, label]) => <button key={mode} type="button" disabled={anyBusy} aria-pressed={state.mode === mode} onClick={() => evaluation.changeMode(mode)}>{label}</button>)}</div></div>
         {state.mode === "models"
@@ -155,22 +154,18 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
           : <div className="evaluation-context-item"><small>Shared model</small><input aria-label="Shared model" value={state.candidates[0].model} onChange={event => patch({ candidates: state.candidates.map(c => ({ ...c, model: event.target.value, revision: c.revision + 1 })) })} /></div>}
         <div className="evaluation-context-item evaluation-context-progress"><small>Expected answers</small>
           {document ? <><span className="evaluation-context-value">{compatibility.verified} of {compatibility.total} verified{compatibility.review ? ` · ${compatibility.review} review` : ""}</span><Meter value={compatibility.total ? compatibility.verified / compatibility.total : 0} best /></>
-            : <><span className="evaluation-context-value">{fullyVerified} of {state.documents.length} documents fully verified</span><Meter value={state.documents.length ? fullyVerified / state.documents.length : 0} best /></>}</div>
+            : <span className="evaluation-context-value">—</span>}</div>
       </div>
-      {batch && <div className="evaluation-toolbar-row evaluation-doc-tabs">
-        <div className="evaluation-filter" role="tablist" aria-label="Documents">
-          <button type="button" role="tab" aria-selected={current === "summary"} onClick={() => setView("summary")}>Batch summary</button>
-          {state.documents.map(d => <button key={d.key} type="button" role="tab" aria-selected={current === d.key} onClick={() => setView(d.key)}><i className={`evaluation-dot ${documentTone(d)}`} aria-hidden="true" />{d.name}</button>)}
-        </div>
-        <small className="evaluation-muted">{current === "summary" ? "Each document counts equally. Open a document to verify answers and inspect fields." : "Scores for this document use its own Expected answers."}</small>
+      {document && <DocumentBanner evaluation={evaluation} document={document} onNotice={setNotice} />}
+      {document && <div className="evaluation-toolbar-row">
+        <FieldFilters value={filter} onChange={setFilter} />
+        {batch && <nav className="evaluation-doc-nav" aria-label="Documents in this Evaluation">
+          <button type="button" className="secondary" onClick={() => step(-1)}>Previous</button>
+          <span className="evaluation-muted">Document {position + 1} of {state.documents.length}</span>
+          <button type="button" className="secondary" onClick={() => step(1)}>Next</button>
+        </nav>}
       </div>}
-      {document && <DocumentBanner evaluation={evaluation} document={document} onSave={key => open("save", { key })} onUpdate={key => open("update", { key })} onNotice={setNotice} />}
-      {summary ? <>
-        <p className={`evaluation-summary-note ${summary.best.length ? "good" : ""}`} role="status">{summary.best.length ? `${summary.best.length > 1 ? "Tied best" : "Best"}: ${bestNames} — same documents and verified fields; ranked by field accuracy, then table cells, then time.` : summary.reason}</p>
-        <div className="evaluation-body"><ScrollArea className="evaluation-comparison-scroll" tabIndex={0} role="region" aria-label="Batch summary">
-          <BatchSummary evaluation={evaluation} summary={summary} fields={fields} menuFor={menuFor} onOpenDocument={setView} onAddCandidate={addCandidate} />
-        </ScrollArea></div>
-      </> : document ? <DocumentMatrix key={`${state.id}:${document.key}`} evaluation={evaluation} document={document} candidates={viewCandidates} batch={batch} labelFor={labelFor} menuFor={menuFor} runFor={runFor} onAddCandidate={addCandidate} />
+      {document ? <DocumentMatrix key={`${state.id}:${document.key}`} evaluation={evaluation} document={document} candidates={viewCandidates} batch={batch} labelFor={labelFor} menuFor={menuFor} runFor={runFor} onAddCandidate={addCandidate} filter={filter} />
         : <div className="evaluation-dropzone"><span className="evaluation-dropzone-icon" aria-hidden="true">▤</span><div><strong>Add a document to compare</strong><small>Choose saved documents or upload new ones. Candidates run on every document.</small></div>
           <span className="evaluation-actions"><button type="button" onClick={() => open("picker")}>Choose from library</button><button type="button" className="secondary" onClick={() => setUploadOpen(true)}>Upload new</button></span></div>}
     </>}
@@ -188,7 +183,6 @@ export function EvaluationsPage({ evaluation, templates, workspaceLabel = "Works
     {dialog?.kind === "clear" && <ClearDialog evaluation={evaluation} onClose={() => setDialog(null)} />}
     {dialog?.kind === "save" && dialogDocument && <SaveDialog evaluation={evaluation} document={dialogDocument} fields={dialogFields} onSaved={setNotice} onClose={() => setDialog(null)} />}
     {dialog?.kind === "update" && dialogDocument?.entry && <UpdateReview evaluation={evaluation} document={dialogDocument} onDone={setNotice} onClose={() => setDialog(null)} />}
-    {dialog?.kind === "answers" && dialogDocument && <AnswersDialog evaluation={evaluation} document={dialogDocument} fields={dialogFields} onClose={() => setDialog(null)} onSave={key => open("save", { key, fields: dialogFields })} onUpdate={key => open("update", { key })} />}
     {preview && <DocumentPreview evaluation={evaluation} document={preview} onClose={() => setPreview(null)} />}
   </section>;
 }

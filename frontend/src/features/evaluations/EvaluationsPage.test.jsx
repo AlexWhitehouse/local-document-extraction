@@ -83,7 +83,7 @@ it("verifies expected answers inline, including explicit absence", () => {
   fireEvent.click(screen.getByRole("button", { name: "Add expected Total" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Total" }), { target: { value: "twelve" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
-  expect(screen.getByRole("alert").textContent).toMatch(/valid, unambiguous value/);
+  expect(screen.getByRole("alert").textContent).toMatch(/valid number/);
   expect(evaluation.setReference).not.toHaveBeenCalled();
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Total" }), { target: { value: "£1,200.50" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
@@ -91,6 +91,32 @@ it("verifies expected answers inline, including explicit absence", () => {
   fireEvent.click(screen.getByRole("button", { name: "Add expected Total" }));
   fireEvent.click(screen.getByRole("button", { name: "Not in document" }));
   expect(saved(evaluation, 1)["total:number"]).toMatchObject({ verified: true, absent: true });
+});
+
+it("verifies day-first dates inline and saves the unambiguous calendar day", () => {
+  const field = { id: "dob", name: "Date of birth", data_type: "date" };
+  const evaluation = setup({ candidates: [{ id: "a", revision: 0, model: "model", status: "success", template: { ...template, fields: [field] }, result: result([field], [{ field_id: "dob", status: "ok", answer: "1871-09-08" }]) }] });
+  fireEvent.click(screen.getByRole("button", { name: "Add expected Date of birth" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Expected Date of birth" }), { target: { value: "08/09/1871" } });
+  expect(screen.getByText("Interpreted as 8 September 1871")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+  expect(saved(evaluation)["date of birth:date"]).toMatchObject({ verified: true, value: "1871-09-08" });
+});
+
+it("keeps ignored table cells out of differences and highlights values in absent cells", () => {
+  const candidate = (id, answer) => ({ id, revision: 0, model: id, status: "success", template: { ...template, fields: [itemsField] }, result: result([itemsField], [{ field_id: "items", status: "ok", answer }]) });
+  setup({ mode: "models", references: { "items:array<object>": { verified: true, value: [{ sku: "A" }, { sku: "B" }], rows: { mode: "key", key: "sku" }, cellStates: [{ quantity: "absent" }, { quantity: "ignored" }] } }, candidates: [
+    candidate("alpha", [{ sku: "B", quantity: 999 }, { sku: "A" }]), candidate("beta", [{ sku: "A", quantity: 0 }, { sku: "B", quantity: 888 }]),
+  ] });
+  fireEvent.click(screen.getByRole("button", { name: /Compare all 2 tables/ }));
+  const dialog = screen.getByRole("dialog", { name: "Items across candidates" });
+  expect(within(dialog).getByText("3/3 cells")).toBeTruthy();
+  expect(within(dialog).getByText("2/3 cells")).toBeTruthy();
+  expect(within(dialog).getByTitle("Expected: Not in document").textContent).toBe("0");
+  expect(within(dialog).getByText("999").classList.contains("evaluation-compare-differs")).toBe(false);
+  fireEvent.click(within(dialog).getByRole("checkbox", { name: "Only rows with differences" }));
+  expect(within(dialog).queryByText("999")).toBeNull();
+  expect(within(dialog).queryByText("888")).toBeNull();
 });
 
 it("starts a model comparison from a saved historical field version with the chosen models", async () => {

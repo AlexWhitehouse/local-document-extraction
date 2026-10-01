@@ -21,6 +21,7 @@ function referenceFor(reference, definition) {
   if (!next.absent) {
     const value = reference.value;
     next.value = definition.data_type === "array<object>" ? (Array.isArray(value) ? value : []) : ["string", "number", "boolean"].includes(typeof value) ? value : "";
+    if (definition.data_type === "array<object>" && Array.isArray(reference.cellStates) && reference.cellStates.some(states => Object.keys(states).length)) next.cellStates = structuredClone(reference.cellStates);
   }
   const rows = reference.rows;
   if (rows?.mode === "position") next.rows = { mode: "position" };
@@ -116,7 +117,6 @@ export function documentChips(document, fields) {
   if (compatibility.review) chips.push(["warn", `${compatibility.review} needs review`]);
   return chips;
 }
-export const documentTone = document => (document.availability || "ok") !== "ok" ? "bad" : document.kind === "upload" || documentDirty(document) ? "warn" : "good";
 
 // A starting draft for a saved answer whose field type changed; it still has to be verified.
 export const reviewDraft = reference => ({ value: typeof reference?.value === "string" || typeof reference?.value === "number" ? String(reference.value) : "", absent: false, exact: false });

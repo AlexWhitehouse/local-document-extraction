@@ -78,23 +78,28 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     const picker = page.getByRole("dialog", { name: "Choose from library" });
     await picker.getByRole("checkbox", { name: "Select library-invoice" }).check();
     await picker.getByRole("button", { name: "Add 1 document" }).click();
-    await evaluations.getByLabel("Evaluation document").setInputFiles(FRESH);
     await expect(evaluations.getByText("library-invoice", { exact: true })).toBeVisible();
+    await evaluations.getByLabel("Evaluation document").setInputFiles(FRESH);
     await expect(evaluations.getByText(FRESH.name, { exact: true })).toBeVisible();
     await setUp();
 
-    const summary = evaluations.getByRole("region", { name: "Batch summary" });
-    await expect(summary.getByRole("status").filter({ hasText: "Done" })).toHaveCount(4);
-    // Equal field accuracy over the same verified scope stays tied rather than picking a winner.
-    await expect(evaluations.getByText(/^Tied best: browser\/model, browser\/model-b/)).toBeVisible();
+    const documents = evaluations.getByRole("navigation", { name: "Documents in this Evaluation" });
+    const savedMatrix = evaluations.getByRole("region", { name: "Comparison matrix" });
+    await expect(documents.getByText("Document 1 of 2", { exact: true })).toBeVisible();
+    await expect(savedMatrix.getByRole("status").filter({ hasText: "Done" })).toHaveCount(2);
+    await expect(savedMatrix.getByText("100%", { exact: true })).toHaveCount(2);
+    await documents.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(documents.getByText("Document 2 of 2", { exact: true })).toBeVisible();
+    await expect(evaluations.getByTitle(FRESH.name)).toBeVisible();
+    await expect(savedMatrix.getByRole("status").filter({ hasText: "Done" })).toHaveCount(2);
+    await documents.getByRole("button", { name: "Previous", exact: true }).click();
 
     // Answer edits stay in this tab until the user explicitly updates the shared copy.
-    await evaluations.getByRole("tab", { name: "library-invoice" }).click();
-    const savedMatrix = evaluations.getByRole("region", { name: "Comparison matrix" });
+    await expect(documents.getByText("Document 1 of 2", { exact: true })).toBeVisible();
     await savedMatrix.getByRole("button", { name: "Edit expected Invoice Number" }).click();
     await savedMatrix.getByRole("textbox", { name: "Expected Invoice Number" }).fill("INV-E2E-999");
     await savedMatrix.getByRole("button", { name: "Verify" }).click();
-    await expect(evaluations.getByText("Working copy.")).toBeVisible();
+    await expect(evaluations.getByTitle("library-invoice")).toContainText("answer changes not saved");
     await expect(savedMatrix.getByText("0%", { exact: true })).toHaveCount(2);
     await evaluations.getByRole("button", { name: "Update saved answers…" }).click();
     const review = page.getByRole("dialog", { name: "Review saved answer update" });
@@ -106,7 +111,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await page.reload();
     await navigation.getByRole("button", { name: /Evaluations/ }).click();
     await expect(evaluations.getByRole("heading", { name: "Compare extraction results on your documents" })).toBeVisible();
-    await expect(evaluations.getByRole("tab", { name: "library-invoice" })).toHaveCount(0);
+    await expect(evaluations.getByRole("navigation", { name: "Documents in this Evaluation" })).toHaveCount(0);
     await evaluations.getByRole("button", { name: "Manage library" }).first().click();
     const library = page.getByRole("dialog", { name: "Manage library" });
     await expect(library.getByText("library-invoice", { exact: true })).toBeVisible();

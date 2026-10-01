@@ -5,6 +5,24 @@ const ref = value => ({ verified: true, value });
 const raw = answer => ({ status: "ok", answer });
 const table = { ...field("Items", "array<object>"), object_schema: { mode: "table", columns: [{ key: "sku", heading: "SKU", data_type: "string", description: "SKU" }, { key: "quantity", heading: "Quantity", data_type: "number", description: "Quantity" }] } };
 const expectedTable = [{ sku: "A", quantity: 1 }, { sku: "B", quantity: 2 }];
+it("scores absent table cells and excludes only explicitly ignored cells", () => {
+  const reference = { ...ref([{ sku: "A", quantity: "" }, { sku: "B", quantity: "" }]), rows: { mode: "position" }, cellStates: [{ quantity: "absent" }, { quantity: "ignored" }] };
+  expect(validateReference(table, reference)).toBe("");
+  for (const quantity of [undefined, null, "", "  "]) {
+    expect(scoreField(table, raw([{ sku: "A", quantity }, { sku: "B", quantity: 999 }]), reference)).toMatchObject({ state: "Match", matched: 3, total: 3 });
+  }
+  for (const quantity of [0, false, "unknown", {}]) {
+    expect(scoreField(table, raw([{ sku: "A", quantity }, { sku: "B" }]), reference)).toMatchObject({ state: "Mismatch", matched: 2, total: 3 });
+  }
+  expect(scoreField(table, raw([{ sku: "A" }]), reference)).toMatchObject({ state: "Mismatch", missing: [2], matched: 2, total: 3 });
+});
+it("requires a real value for row identifiers even if a cell is marked absent or ignored", () => {
+  for (const state of ["absent", "ignored"]) expect(validateReference(table, { ...ref(expectedTable), rows: { mode: "key", key: "sku" }, cellStates: [{ sku: state }, {}] })).toMatch(/identifier.*value/i);
+});
+it("does not count a table with every cell ignored as a perfect match", () => {
+  const reference = { ...ref([{ sku: "", quantity: "" }]), rows: { mode: "position" }, cellStates: [{ sku: "ignored", quantity: "ignored" }] };
+  expect(scoreField(table, raw([{ sku: "anything", quantity: 10 }]), reference)).toMatchObject({ state: "Unscored" });
+});
 describe("Evaluation matching", () => {
   it.each([["ACME, Inc.", "acme inc"], ["INV-123", "INV123"], ["A  B", "a b"]])("ignores case, punctuation and repeated whitespace: %s", (actual, expected) => {
     expect(scoreField(field(), raw(actual), ref(expected)).state).toBe("Match");

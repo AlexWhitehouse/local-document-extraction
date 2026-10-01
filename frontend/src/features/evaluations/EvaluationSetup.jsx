@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { MAX_CANDIDATES, documentRunnable } from "./useEvaluations.js";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 import { Chips } from "./EvaluationLibrary.jsx";
-import { documentChips, documentDirty, kilobytes, saveUnavailableMessage, unavailableText } from "./evaluationLibrary.js";
+import { documentChips, kilobytes, saveUnavailableMessage, unavailableText } from "./evaluationLibrary.js";
 
 const MODES = [
   { id: "models", title: "Models", summary: "One Template, different models", detail: "Find the most accurate or fastest model for this kind of document.", shape: ["T", ["M1", "M2", "M3"]] },
@@ -12,7 +12,7 @@ const mebibytes = bytes => new Intl.NumberFormat(undefined, { maximumFractionDig
 
 // Setup for an empty or cleared Evaluation: everything needed for a first run on one screen.
 // One document compares candidates on it; several run a Batch Evaluation with the same candidates.
-export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes, suggestedModels = [], error, loadTemplate, onSelectDocuments, onRemoveDocument, onPreviewDocument, onOpenAnswers, onSave, onUpdate, onChooseLibrary, onManageLibrary, onStart }) {
+export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes, suggestedModels = [], error, loadTemplate, onSelectDocuments, onRemoveDocument, onPreviewDocument, onChooseLibrary, onManageLibrary, onStart }) {
   const workspaceModel = state.setup?.model || "";
   const [mode, setMode] = useState(state.mode);
   const [templateId, setTemplateId] = useState("");
@@ -75,9 +75,6 @@ export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes,
             <div><strong title={document.name}>{document.name}</strong><small>{document.file?.name || document.entry?.source_name} · {kilobytes(document.file?.size ?? document.entry?.byte_size)} · {document.kind === "upload" ? "new upload" : "from library"}</small><Chips list={documentChips(document, fields)} />
               {!documentRunnable(document) && <p className="evaluation-bad-text">{unavailableText(document)}</p>}</div>
             <div className="evaluation-actions">
-              <button type="button" className="secondary" onClick={() => onOpenAnswers(document, fields)}>Expected answers</button>
-              {document.kind === "upload" && <button type="button" className="secondary" disabled={!!saveUnavailable || document.save === "saving"} title={saveUnavailable || undefined} onClick={() => onSave(document.key, fields)}>{document.save === "saving" ? "Saving…" : "Save to library…"}</button>}
-              {documentDirty(document) && <button type="button" className="secondary" onClick={() => onUpdate(document.key)}>Update saved answers…</button>}
               <button type="button" className="icon-action-button" aria-label={`Remove ${document.name}`} onClick={() => onRemoveDocument(document.key)}>×</button></div>
           </li>)}</ol>}
           <div className={`evaluation-dropzone ${dragging ? "dragging" : ""} ${state.documents.length ? "compact" : ""}`} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); onSelectDocuments(Array.from(event.dataTransfer.files || [])); }}>
@@ -139,10 +136,10 @@ export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes,
       <h3>How it works</h3>
       <ol className="evaluation-how">
         <li><span>1</span><div><strong>Choose documents</strong><p>Pick saved documents, upload new ones, or both. Up to {MAX_CANDIDATES} candidates run on every document.</p></div></li>
-        <li><span>2</span><div><strong>Verify expected answers</strong><p>Confirm the correct value for each field, or use a candidate's answer. Saved documents bring their answers as a working copy. Only verified fields are scored.</p></div></li>
-        <li><span>3</span><div><strong>Compare</strong><p>See accuracy, table cells, time and tokens per document, and a batch summary where every document counts equally.</p></div></li>
+        <li><span>2</span><div><strong>Verify expected answers</strong><p>After a run, confirm the correct value for each field in the results, or use a candidate's answer. Saved documents bring their answers with them. Only verified fields are scored.</p></div></li>
+        <li><span>3</span><div><strong>Compare</strong><p>See accuracy, table cells, time and tokens, one document at a time. Use Previous and Next to move between documents.</p></div></li>
       </ol>
-      <p className="evaluation-setup-note">New uploads stay in this tab until you choose Save to library. Partly verified is fine.</p>
+      <p className="evaluation-setup-note">After verifying answers, choose Save to library on a new upload to reuse it in later Evaluations.</p>
     </aside>
   </div>;
 }

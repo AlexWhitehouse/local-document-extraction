@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { validateTemplateJsonPayload } from "../templates/templateFields.js";
-import { pairMetrics } from "./evaluationScoring.js";
 import { createLibraryClient, documentDirty, emptyReferenceSet, parseReferenceSet } from "./evaluationLibrary.js";
 import { createResultCache } from "./resultCache.js";
 
@@ -28,7 +27,7 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
   stateRef.current = state;
   // Browser-side guards live outside React state so double clicks can't race a render.
   const generation = useRef(0), requests = useRef(new Set()), owners = useRef(new Map());
-  const staging = useRef({ queue: [], open: 0, paused: false }), rescoring = useRef({ queue: new Set(), running: false });
+  const staging = useRef({ queue: [], open: 0, paused: false });
   const cacheFactory = useRef(createCache); cacheFactory.current = createCache;
   const cacheRef = useRef(null);
   if (!cacheRef.current) cacheRef.current = createCache();
@@ -43,7 +42,6 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
     for (const controller of requests.current) controller.abort();
     requests.current.clear(); owners.current.clear();
     staging.current = { queue: [], open: 0, paused: false };
-    rescoring.current = { queue: new Set(), running: false };
     cacheRef.current.invalidate();
     cacheRef.current = cacheFactory.current();
   }, []);
@@ -103,7 +101,7 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
   });
   const release = (docKey, candidateId, owner) => { const key = `${docKey}|${candidateId}`; if (owners.current.get(key) === owner) owners.current.delete(key); };
 
-  // ---------- Incremental rescoring: one cold detail at a time, always against the latest state ----------
+  // ---------- Result details that could not be kept ----------
   const markUnavailable = (docKey, candidateId, recordId, error) => setState(previous => {
     const pair = previous.pairs[docKey]?.[candidateId];
     if (!pair) return previous;
@@ -111,42 +109,6 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
     return { ...previous, cacheError: previous.cacheError || { message: error.message, code: error.code }, pairs: { ...previous.pairs, [docKey]: { ...previous.pairs[docKey], [candidateId]: next } } };
   });
   const pauseStaging = error => { staging.current.paused = true; patch({ cacheError: { message: error.message, code: error.code } }); };
-  const drainRescoring = async () => {
-    const work = rescoring.current;
-    if (work.running) return;
-    work.running = true;
-    try {
-      const current = generation.current;
-      while (work.queue.size && current === generation.current) {
-        const key = work.queue.values().next().value; work.queue.delete(key);
-        const [docKey, candidateId] = key.split("|");
-        const pair = stateRef.current.pairs[docKey]?.[candidateId];
-        const recordId = pair?.result?.recordId;
-        if (!recordId || pair.detail === "unavailable") continue;
-        const cache = cacheRef.current;
-        let detail = cache.peek(recordId);
-        if (!detail) {
-          try { detail = await cache.load(recordId, { keep: false }); }
-          catch (error) { if (current === generation.current && error.code !== "invalidated") { markUnavailable(docKey, candidateId, recordId, error); pauseStaging(error); } continue; }
-        }
-        if (current !== generation.current) return;
-        setState(previous => {
-          const latest = previous.pairs[docKey]?.[candidateId];
-          const document = previous.documents.find(d => d.key === docKey), candidate = previous.candidates.find(c => c.id === candidateId);
-          if (latest?.result?.recordId !== recordId || !document || !candidate) return previous;
-          const metrics = pairMetrics(document, candidate, { result: { ...latest.result, raw: detail.raw } }, { alignments: previous.alignments[candidateId], columns: previous.columns[candidateId] });
-          return { ...previous, pairs: { ...previous.pairs, [docKey]: { ...previous.pairs[docKey], [candidateId]: { ...latest, metrics } } } };
-        });
-      }
-    } finally { work.running = false; }
-  };
-  // Marks affected summaries stale immediately; scores recompute without calling a model.
-  const rescore = (docKeys, candidateIds) => {
-    const affected = (docKey, candidateId) => (!docKeys || docKeys.includes(docKey)) && (!candidateIds || candidateIds.includes(candidateId));
-    for (const [docKey, byCandidate] of Object.entries(stateRef.current.pairs)) for (const [candidateId, pair] of Object.entries(byCandidate)) if (pair.result && affected(docKey, candidateId)) rescoring.current.queue.add(`${docKey}|${candidateId}`);
-    setState(previous => ({ ...previous, pairs: Object.fromEntries(Object.entries(previous.pairs).map(([docKey, byCandidate]) => [docKey, Object.fromEntries(Object.entries(byCandidate).map(([candidateId, pair]) => [candidateId, pair.result && affected(docKey, candidateId) ? { ...pair, metrics: { ...pair.metrics, stale: true } } : pair]))])) }));
-    queueMicrotask(drainRescoring);
-  };
 
   // ---------- Staged execution ----------
   const createAction = async (evaluationId, revision) => {
@@ -179,10 +141,8 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
     setState(previous => {
       const pair = previous.pairs[docKey]?.[snapshot.id];
       if (!pair || pair.owner !== operation.owner) return previous;
-      const document = previous.documents.find(d => d.key === docKey), candidate = previous.candidates.find(c => c.id === snapshot.id);
-      const metrics = document && candidate ? pairMetrics(document, candidate, { result: { ...result, raw: detail.raw } }, { alignments: previous.alignments[snapshot.id], columns: previous.columns[snapshot.id] }) : null;
       // A successful current attempt replaces the previous result: current plus one previous at most.
-      return { ...previous, pairs: { ...previous.pairs, [docKey]: { ...previous.pairs[docKey], [snapshot.id]: { ...pair, status: "success", attempt: event.attempt, message: "", result, previous: null, metrics, detail: "pending", cleanup: "unconfirmed" } } } };
+      return { ...previous, pairs: { ...previous.pairs, [docKey]: { ...previous.pairs[docKey], [snapshot.id]: { ...pair, status: "success", attempt: event.attempt, message: "", result, previous: null, detail: "pending", cleanup: "unconfirmed" } } } };
     });
     if (superseded) cache.remove(superseded);
     cache.put(recordId, detail).then(() => {
@@ -294,7 +254,7 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
         pairs[document.key] = { ...pairs[document.key] };
         for (const c of targets) {
           const pair = pairs[document.key][c.id];
-          pairs[document.key][c.id] = { status: "staged", attempt: 0, message: "", owner, submissionId: null, result: null, previous: staged(pair), metrics: null, detail: null, cleanup: pair?.cleanup };
+          pairs[document.key][c.id] = { status: "staged", attempt: 0, message: "", owner, submissionId: null, result: null, previous: staged(pair), detail: null, cleanup: pair?.cleanup };
         }
       }
       return { ...previous, error: "", pairs };
@@ -331,7 +291,7 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
     stopStaged(keys, "Deleted from the Evaluation library.");
     setState(previous => ({ ...previous, libraryVersion: previous.libraryVersion + 1, documents: previous.documents.map(d => keys.includes(d.key) ? { ...d, availability: "deleted" } : d) }));
   };
-  const applyEntry = (key, { document, reference }) => { updateDocument(key, { entry: document, name: document.name, loadedRevision: document.revision, newerRevision: undefined, reference: parseReferenceSet(reference), base: parseReferenceSet(reference) }); rescore([key]); };
+  const applyEntry = (key, { document, reference }) => { updateDocument(key, { entry: document, name: document.name, loadedRevision: document.revision, newerRevision: undefined, reference: parseReferenceSet(reference), base: parseReferenceSet(reference) }); };
 
   return { state, patch, run, clear, api, library,
     detail: recordId => cacheRef.current.peek(recordId),
@@ -371,7 +331,7 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
       dropPairs(stateRef.current, (_, cid) => cid !== candidateId);
       setState(previous => ({ ...previous, candidates: previous.candidates.filter(c => c.id !== candidateId), pairs: Object.fromEntries(Object.entries(previous.pairs).map(([key, byCandidate]) => [key, Object.fromEntries(Object.entries(byCandidate).filter(([cid]) => cid !== candidateId))])) }));
     },
-    setColumns(candidateId, columns) { setState(previous => ({ ...previous, columns: { ...previous.columns, [candidateId]: columns } })); rescore(null, [candidateId]); },
+    setColumns(candidateId, columns) { setState(previous => ({ ...previous, columns: { ...previous.columns, [candidateId]: columns } })); },
     // Mode changes discard candidates, results and unsaved answer edits; the selected documents stay,
     // with saved documents back at the answers they were loaded with.
     changeMode(mode) {
@@ -414,7 +374,6 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
     },
     setReference(docKey, identity, value, definition) {
       updateDocument(docKey, d => ({ reference: { references: { ...d.reference.references, [identity]: value }, definitions: { ...d.reference.definitions, [identity]: definition } } }));
-      rescore([docKey]);
     },
     // Replaces a saved answer of an older field type with one reviewed for the current type.
     reviewReference(docKey, fromIdentity, identity, value, definition) {
@@ -423,7 +382,6 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
         if (fromIdentity !== identity) { delete references[fromIdentity]; delete definitions[fromIdentity]; }
         return { reference: { references: { ...references, [identity]: value }, definitions: { ...definitions, [identity]: definition } } };
       });
-      rescore([docKey]);
     },
     // Links a renamed Template field to one of this document's saved answers of the same type, or unlinks it.
     // Links are temporary comparison settings: they are never saved with the answer set.
@@ -437,9 +395,8 @@ export function useEvaluations({ workspaceId, sessionId, enabled, active, onForb
         if (savedIdentity) links[fieldIdentityValue] = savedIdentity; else delete links[fieldIdentityValue];
         return { links };
       });
-      rescore([docKey]);
     },
-    discardChanges(docKey) { updateDocument(docKey, d => d.base ? { reference: structuredClone(d.base) } : {}); rescore([docKey]); },
+    discardChanges(docKey) { updateDocument(docKey, d => d.base ? { reference: structuredClone(d.base) } : {}) },
     useSavedVersion: applyEntry,
     async loadLatest(docKey) {
       const document = stateRef.current.documents.find(d => d.key === docKey), current = generation.current;

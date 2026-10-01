@@ -24,6 +24,7 @@ export type ExpectedAnswer = {
   exact?: boolean;
   value?: unknown;
   rows?: { mode: string; key?: string } | null;
+  cellStates?: Array<Record<string, "absent" | "ignored">>;
 };
 
 export type ReferenceFieldSummary = { identity: string; name: string; data_type: ReferenceDefinition["data_type"]; verified: boolean };
@@ -147,7 +148,7 @@ function validateDefinition(identity: string, value: unknown): void {
 function validateAnswer(identity: string, definition: ReferenceDefinition, value: unknown): void {
   const label = `Expected answer ${identity}`;
   if (!isObject(value)) throw invalid(`${label} must be an object`);
-  onlyKeys(value, ["verified", "absent", "exact", "value", "rows"], label);
+  onlyKeys(value, ["verified", "absent", "exact", "value", "rows", "cellStates"], label);
   if (typeof value.verified !== "boolean" || !optionalBoolean(value.absent) || !optionalBoolean(value.exact)) {
     throw invalid(`${label} verified, absent and exact must be booleans`);
   }
@@ -157,6 +158,14 @@ function validateAnswer(identity: string, definition: ReferenceDefinition, value
     || Object.keys(rows).some((key) => key !== "mode" && key !== "key"))) {
     throw invalid(`${label} has an invalid row-matching choice`);
   }
+  const columns = definition.data_type === "array<object>" ? definition.object_schema?.columns ?? [] : [];
+  if (value.cellStates !== undefined) {
+    const states = value.cellStates;
+    if (!columns.length || !Array.isArray(value.value) || !Array.isArray(states) || states.length !== value.value.length
+      || states.some((record) => !isObject(record) || Object.entries(record).some(([key, state]) => !columns.some((column) => column.key === key) || !["absent", "ignored"].includes(state as string)))) {
+      throw invalid(`${label} has invalid table cell statuses`);
+    }
+  }
   // Unverified answers are drafts: kept as entered, never scored and never promoted.
   if (!value.verified || value.absent) return;
   const answer = value as ExpectedAnswer;
@@ -164,9 +173,8 @@ function validateAnswer(identity: string, definition: ReferenceDefinition, value
     if (!scalarValue(answer.value, definition.data_type, answer.exact).valid) throw invalid(`${label} is not a valid ${definition.data_type} value`);
     return;
   }
-  const columns = definition.data_type === "array<object>" ? definition.object_schema?.columns ?? [] : [];
   if (!columns.length) throw invalid(`${label} cannot be verified: this field is not automatically scored`);
-  if (!Array.isArray(answer.value) || answer.value.some((row) => !isObject(row) || columns.some((column) => !scalarValue(row[column.key], column.data_type).valid))) {
+  if (!Array.isArray(answer.value) || answer.value.some((row, index) => !isObject(row) || columns.some((column) => !answer.cellStates?.[index]?.[column.key] && !scalarValue(row[column.key], column.data_type).valid))) {
     throw invalid(`${label} must be the complete table with valid values for every declared column`);
   }
   if (!answer.rows || !["position", "key"].includes(answer.rows.mode)) throw invalid(`${label} needs a row-matching choice before it can be verified`);
@@ -174,6 +182,7 @@ function validateAnswer(identity: string, definition: ReferenceDefinition, value
     const key = answer.rows.key;
     const column = columns.find((candidate) => candidate.key === key);
     if (!column) throw invalid(`${label} must identify rows with one of its columns`);
+    if (answer.cellStates?.some((states) => states[column.key])) throw invalid(`${label} row identifiers must have an expected value`);
     const keys = (answer.value as Array<Record<string, unknown>>).map((row) => {
       const parsed = scalarValue(row[column.key], column.data_type);
       return parsed.valid ? parsed.value : null;

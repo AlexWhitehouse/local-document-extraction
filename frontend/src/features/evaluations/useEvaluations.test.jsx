@@ -244,18 +244,20 @@ it("returns the current saved set on a stale update and replaces it only against
   act(() => result.current.documentChanged({ document_id: "evd_a", revision: null, deleted: true }));
   expect(result.current.state.documents[0].availability).toBe("deleted");
 });
-it("keeps result details encrypted in the cache and rescores cold results after answer edits without running models", async () => {
+it("keeps result details encrypted in the cache and decrypts them again on demand without running models", async () => {
   const { result } = await initialized();
   act(() => { result.current.run(result.current.state.candidates.map(c => c.id)); });
   await waitFor(() => expect(streams).toHaveLength(1));
   await act(async () => { success(streams[0], 0, 10); success(streams[0], 1, 12); streams[0].controller.close(); });
   await waitFor(() => expect([pairOf(result, 0, 0).detail, pairOf(result, 0, 1).detail]).toEqual(["retained", "retained"]));
   expect(JSON.stringify(database.records())).not.toContain("total");
-  expect(pairOf(result, 0, 0).metrics).toMatchObject({ scalar: null, coverage: null });
+  // Leaving the document drops its decrypted details; returning reads them back from the cache.
+  act(() => result.current.hydrate([]));
+  const recordId = pairOf(result, 0, 0).result.recordId;
+  act(() => result.current.hydrate([recordId]));
+  await waitFor(() => expect(result.current.detail(recordId)?.raw).toEqual(expect.arrayContaining([expect.objectContaining({ field_id: "total", answer: 10 })])));
   const doc = result.current.state.documents[0].key;
   act(() => result.current.setReference(doc, "total:number", { verified: true, absent: false, exact: false, value: "10" }, template.fields[0]));
-  await waitFor(() => expect(pairOf(result, 0, 0).metrics).toMatchObject({ scalar: 1, coverage: 1 }));
-  expect(pairOf(result, 0, 1).metrics.scalar).toBe(0);
   expect(calls("POST", "/evaluations/run")).toHaveLength(1);
 });
 it("pauses staging when result details can't be stored and resumes only after an explicit retry", async () => {

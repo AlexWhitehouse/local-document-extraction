@@ -15,7 +15,11 @@ const COMPARABLE_TYPES = ["array<object>", "object", "array"];
 const FILTERS = [["all", "All fields"], ["differ", "Candidates differ"], ["mismatch", "Has mismatch"], ["unverified", "Unverified"]];
 const baseName = identity => identity.slice(0, identity.lastIndexOf(":"));
 
-// The candidate column head shared by the per-document matrix and the Batch summary.
+export function FieldFilters({ value, onChange }) {
+  return <div className="evaluation-filter" role="group" aria-label="Filter fields">{FILTERS.map(([id, label]) => <button key={id} type="button" aria-pressed={value === id} onClick={() => onChange(id)}>{label}</button>)}</div>;
+}
+
+// The candidate column head for one document's comparison.
 export function CandidateHead({ candidate, menuCandidate = candidate, index, mode, onModelChange, menu, children, foot, run }) {
   const label = `Candidate ${index + 1}`;
   return <th className="evaluation-candidate">
@@ -30,12 +34,11 @@ export function CandidateHead({ candidate, menuCandidate = candidate, index, mod
 
 // One document's comparison: the existing matrix, inspector and table comparison, scored against
 // that document's working copy of its Expected answers.
-export function DocumentMatrix({ evaluation, document, candidates, batch, labelFor, menuFor, runFor, onAddCandidate }) {
+export function DocumentMatrix({ evaluation, document, candidates, batch, labelFor, menuFor, runFor, onAddCandidate, filter = "all" }) {
   const { state } = evaluation;
   const [referenceEditor, setReferenceEditor] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const [inspect, setInspect] = useState(null);
-  const [filter, setFilter] = useState("all");
   const { references, definitions: saved } = document.reference;
   const definitions = { ...saved };
   const rows = new Map();
@@ -114,10 +117,6 @@ export function DocumentMatrix({ evaluation, document, candidates, batch, labelF
   const waiting = candidate => candidate.detailState === "loading" ? "Loading result…" : candidate.detailState === "unavailable" ? "Details unavailable · rerun" : candidateBusy(candidate) ? "Running…" : "Run to compare";
 
   return <>
-    <div className="evaluation-toolbar-row">
-      <div className="evaluation-filter" role="group" aria-label="Filter fields">{FILTERS.map(([id, label]) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}</div>
-      <small className="evaluation-muted">Click an answer to inspect it. Click an expected answer to edit it.</small>
-    </div>
     <div className={`evaluation-body ${inspected ? "inspecting" : ""}`}>
       <ScrollArea className="evaluation-comparison-scroll" tabIndex={0} role="region" aria-label="Comparison matrix">
         <table className="evaluation-matrix" style={{ minWidth: 390 + candidates.length * 220 + 160 }}>

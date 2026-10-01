@@ -201,12 +201,8 @@ A temporary, browser-held comparison of extraction outputs for a shared Document
 _Avoid_: experiment, saved evaluation, benchmark history, model connection test
 
 **Batch Evaluation**:
-A temporary comparison of extraction outputs across multiple documents using the same **Comparison candidates**, with per-document results and a batch summary.
+A temporary comparison of extraction outputs across multiple documents using the same **Comparison candidates**, with per-document results.
 _Avoid_: saved batch run, benchmark history, independent candidate sets per document
-
-**Batch Evaluation summary**:
-A temporary overview of **Comparison candidates** across documents, with equally weighted per-document scalar-field and table-cell accuracy averages, coverage and processing outcomes.
-_Avoid_: saved benchmark report, combined field-and-cell accuracy, pooled field accuracy
 
 **Evaluation document library**:
 A Workspace-shared collection of saved documents and user-verified **Expected answers** for reuse in future **Evaluations** and **Batch Evaluations**.
@@ -225,7 +221,7 @@ A user-verified reference value or explicit verified absence for a document fiel
 _Avoid_: model confidence, majority answer, automatically accepted ground truth
 
 **Expected table**:
-A complete user-verified reference table for an **Evaluation**, including its expected rows and cell values. It provides the reference for table-cell matching and missing or extra row checks.
+A user-verified reference table for an **Evaluation**, including its expected rows and cell values or explicit cell absence. Individual cells may be ignored, excluding them from table-cell accuracy. A cell marked absent expects an empty cell in an existing extracted row. Row identifiers require values, even when other cells are absent or ignored. It provides the reference for table-cell matching and missing or extra row checks.
 _Avoid_: unverified candidate table, partial table reference
 
 **Evaluation coverage**:

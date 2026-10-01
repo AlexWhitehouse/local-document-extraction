@@ -3,7 +3,7 @@ import { hydrateFieldFromTemplate } from "../templates/templateFields.js";
 export const fieldIdentity = field => `${field.name.trim().toLocaleLowerCase()}:${field.data_type}`;
 const text = value => value.normalize("NFKC").toLocaleLowerCase().replace(/[\p{P}\p{S}]/gu, "").replace(/\s+/g, " ").trim();
 const invalid = () => ({ valid: false });
-export function scalarValue(value, type, exact = false) {
+export function scalarValue(value, type, exact = false, dateOrder) {
   if (value === null || value === undefined || (typeof value === "string" && !value.trim())) return invalid();
   if (type === "string") return typeof value === "string" ? { valid: true, value: exact ? value : text(value) } : invalid();
   if (type === "number") {
@@ -28,8 +28,10 @@ export function scalarValue(value, type, exact = false) {
       match = source.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
       if (match) {
         const a = Number(match[1]), b = Number(match[2]);
-        if (a <= 12 && b <= 12 && a !== b) return invalid();
-        year = Number(match[3]); month = a > 12 ? b : a; day = a > 12 ? a : b;
+        if (!dateOrder && a <= 12 && b <= 12 && a !== b) return invalid();
+        year = Number(match[3]);
+        month = dateOrder === "dmy" ? b : dateOrder === "mdy" ? a : a > 12 ? b : a;
+        day = dateOrder === "dmy" ? a : dateOrder === "mdy" ? b : a > 12 ? a : b;
       } else {
         const months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
         match = source.toLowerCase().match(/^(?:(\d{1,2})\s+([a-z]+)|([a-z]+)\s+(\d{1,2})),?\s+(\d{4})$/);
@@ -54,20 +56,53 @@ export function tableAnswerRows(answer) {
 export function tableColumns(field) {
   return hydrateFieldFromTemplate(field).object_schema?.columns || [];
 }
-export function validateReference(field, reference) {
-  if (reference.absent) return "";
-  if (["string", "number", "boolean", "date"].includes(field.data_type)) return scalarValue(reference.value, field.data_type, reference.exact).valid ? "" : "Enter a valid, unambiguous value for this field type.";
-  if (field.data_type !== "array<object>" || !tableColumns(field).length) return "This field is not automatically scored.";
+// Only user-entered expected dates have an explicit order. Candidate dates keep strict parsing.
+export function normalizeReferenceDates(field, reference, dateOrder) {
+  const normalize = value => {
+    const parsed = scalarValue(value, "date", false, dateOrder);
+    return parsed.valid ? parsed.value : value;
+  };
+  if (reference.absent) return reference;
+  if (field.data_type === "date") return { ...reference, value: normalize(reference.value) };
+  if (field.data_type !== "array<object>" || !Array.isArray(reference.value)) return reference;
+  const dates = tableColumns(field).filter(c => c.data_type === "date");
+  return { ...reference, value: reference.value.map((record, index) => ({ ...record, ...Object.fromEntries(dates.filter(c => !reference.cellStates?.[index]?.[c.key]).map(c => [c.key, normalize(record[c.key])])) })) };
+}
+
+const valueProblem = type => ({ string: "Enter an expected text value.", number: "Enter a valid number, such as 1234.50.", boolean: "Choose Yes or No.", date: "Enter a valid calendar date using the selected date format, or YYYY-MM-DD." })[type];
+export function referenceProblem(field, reference, dateOrder) {
+  if (reference.absent) return null;
+  if (["string", "number", "boolean", "date"].includes(field.data_type)) return scalarValue(reference.value, field.data_type, reference.exact, dateOrder).valid ? null : { message: valueProblem(field.data_type), control: "value" };
+  if (field.data_type !== "array<object>" || !tableColumns(field).length) return { message: "This field is not automatically scored." };
   const columns = tableColumns(field);
-  if (!Array.isArray(reference.value) || reference.value.some(row => !row || typeof row !== "object" || columns.some(c => !scalarValue(row[c.key], c.data_type).valid))) return "Provide the complete table with valid values for every declared column.";
-  if (!["position", "key"].includes(reference.rows?.mode)) return "Choose how to match rows before verifying: use a unique column or row position.";
+  if (!Array.isArray(reference.value)) return { message: "Provide the expected table rows." };
+  if (reference.cellStates !== undefined && (!Array.isArray(reference.cellStates) || reference.cellStates.length !== reference.value.length || reference.cellStates.some(states => !states || typeof states !== "object" || Array.isArray(states) || Object.entries(states).some(([key, state]) => !columns.some(c => c.key === key) || !["absent", "ignored"].includes(state))))) return { message: "Review the table cell statuses." };
+  for (const [index, record] of reference.value.entries()) {
+    if (!record || typeof record !== "object" || Array.isArray(record)) return { message: `Row ${index + 1}: provide a valid table row.`, row: index };
+    for (const column of columns) {
+      if (reference.cellStates?.[index]?.[column.key]) continue;
+      if (!scalarValue(record[column.key], column.data_type, reference.exact, dateOrder).valid) return { message: `Row ${index + 1} · ${column.heading}: ${valueProblem(column.data_type)} You can also mark this cell as not present or ignore it.`, row: index, column: column.key, control: "value" };
+    }
+  }
+  if (!["position", "key"].includes(reference.rows?.mode)) return { message: "Choose how to match rows before verifying: use a unique column or row position.", control: "rows" };
   if (reference.rows.mode === "key") {
     const column = columns.find(c => c.key === reference.rows.key);
-    if (!column) return "Choose a column from this table to identify rows.";
+    if (!column) return { message: "Choose a column from this table to identify rows.", control: "rows" };
+    const missing = reference.value.findIndex((record, index) => reference.cellStates?.[index]?.[column.key]);
+    if (missing >= 0) return { message: `Row ${missing + 1} · ${column.heading}: row identifiers must have an expected value. Choose another identifier or compare by row position.`, row: missing, column: column.key, control: "status" };
     const keys = reference.value.map(row => scalarValue(row[column.key], column.data_type).value);
-    if (new Set(keys).size !== keys.length) return "Row identifiers must be unique. Choose another column or compare by row position.";
+    if (new Set(keys).size !== keys.length) return { message: "Row identifiers must be unique. Choose another column or compare by row position.", control: "rows" };
   }
-  return "";
+  return null;
+}
+export const validateReference = (field, reference, dateOrder) => referenceProblem(field, reference, dateOrder)?.message || "";
+export const blankCell = value => value === undefined || value === null || (typeof value === "string" && !value.trim());
+export function tableCellMatches(column, actual, expected, state, exact = false, rowPresent = true) {
+  if (state === "ignored") return true;
+  if (!rowPresent) return false;
+  if (state === "absent") return blankCell(actual);
+  const a = scalarValue(actual, column.data_type, exact), e = scalarValue(expected, column.data_type, exact);
+  return a.valid && e.valid && a.value === e.value;
 }
 export function scoreField(field, raw, reference, referenceField = field, options = {}) {
   if (["object", "array"].includes(field.data_type) || (field.data_type === "array<object>" && !tableColumns(field).length)) return { state: "Not automatically scored" };
@@ -82,7 +117,9 @@ export function scoreField(field, raw, reference, referenceField = field, option
   return { state: matches ? "Match" : "Mismatch", matched: matches ? 1 : 0, total: 1, kind: "field" };
 }
 function scoreTable(field, value, reference, referenceField, mappings) {
-  const pairs = tableColumnPairs(referenceField, field, mappings);
+  const problem = referenceProblem(referenceField, reference);
+  if (problem) return { state: "Needs review", reason: problem.message };
+  const pairs = tableColumnPairs(referenceField, field, mappings).filter(([column]) => !reference.value.length || reference.rows?.mode === "key" && reference.rows.key === column.key || reference.value.some((_, i) => reference.cellStates?.[i]?.[column.key] !== "ignored"));
   if (pairs.some(([, actual]) => !actual) || new Set(pairs.map(([, actual]) => actual.key)).size !== pairs.length) return { state: "Needs review", reason: "Align the table columns." };
   if (!reference.rows || !["position", "key"].includes(reference.rows.mode)) return { state: "Needs review", reason: "Choose a row identifier or row-position comparison." };
   const expectedRows = reference.value;
@@ -105,16 +142,17 @@ function scoreTable(field, value, reference, referenceField, mappings) {
     const actualIndex = actualKeys.indexOf(expectedKeys[index]);
     if (actualIndex < 0) missing.push(index + 1);
     for (const [expected, actual] of pairs) {
-      const a = scalarValue(rows[actualIndex]?.[actual.key], actual.data_type, reference.exact);
-      const e = scalarValue(row[expected.key], expected.data_type, reference.exact);
-      const match = a.valid && e.valid && a.value === e.value;
+      const state = reference.cellStates?.[index]?.[expected.key];
+      if (state === "ignored") continue;
+      const match = tableCellMatches(expected, rows[actualIndex]?.[actual.key], row[expected.key], state, reference.exact, actualIndex >= 0);
       if (match) matched++;
-      cells.push({ row: index + 1, column: expected.heading, match, expected: row[expected.key], actual: rows[actualIndex]?.[actual.key] });
+      cells.push({ row: index + 1, column: expected.heading, match, expected: state === "absent" ? "Not in document" : row[expected.key], actual: rows[actualIndex]?.[actual.key] });
     }
   });
   actualKeys.forEach((key, index) => { if (!expectedKeys.includes(key)) extra.push(index + 1); });
-  const total = expectedRows.length * pairs.length;
-  return { state: parsedRows !== null && matched === total && !extra.length ? "Match" : "Mismatch", kind: "table", matched, total, missing, extra, cells };
+  const total = cells.length;
+  if (expectedRows.length && !total) return { state: "Unscored", reason: "All expected cells are ignored." };
+  return { state: parsedRows !== null && matched === total && !missing.length && !extra.length ? "Match" : "Mismatch", kind: "table", matched, total, missing, extra, cells };
 }
 export function scoreCandidate(candidate, references, definitions, alignments = {}, columns = {}) {
   if (!candidate.result) return { fields: null, tables: null, tablesNeedingReview: 0, byField: {} };
@@ -180,7 +218,7 @@ export function tableCellsEqual(column, a, b, exact = false) {
 export function alignTableRows(definition, reference, sources) {
   const columns = tableColumns(definition);
   const keyColumn = reference?.rows?.mode === "key" ? columns.find(c => c.key === reference.rows.key) : null;
-  const order = [], lines = new Map(), expectedKeys = new Set();
+  const order = [], lines = new Map(), expectedKeys = new Set(), expectedIndices = new Map();
   const projected = sources.map(source => {
     const pairs = source.expected ? columns.map(column => [column, column]) : tableColumnPairs(definition, source.field, source.mappings);
     const rows = (tableAnswerRows(source.rows) || []).map(row => Object.fromEntries(pairs.map(([expected, actual]) => [expected.key, actual ? row?.[actual.key] : undefined])));
@@ -193,7 +231,7 @@ export function alignTableRows(definition, reference, sources) {
       let key = keyColumn ? (value.valid ? `key:${JSON.stringify(value.value)}` : `row:${index}`) : `position:${index}`;
       if (used.has(key)) key = `${key}:duplicate:${index}`;
       used.add(key);
-      if (sources[sourceIndex].expected) expectedKeys.add(key);
+      if (sources[sourceIndex].expected) { expectedKeys.add(key); expectedIndices.set(key, index); }
       if (!lines.has(key)) { lines.set(key, sources.map(() => null)); order.push(key); }
       lines.get(key)[sourceIndex] = row;
     });
@@ -202,7 +240,7 @@ export function alignTableRows(definition, reference, sources) {
   return {
     columns,
     unaligned: projected.map(source => source.unaligned),
-    lines: order.map((key, index) => ({ key, number: index + 1, extra: hasExpected && !expectedKeys.has(key), rows: lines.get(key) })),
+    lines: order.map((key, index) => ({ key, number: index + 1, expectedIndex: expectedIndices.get(key), extra: hasExpected && !expectedKeys.has(key), rows: lines.get(key) })),
   };
 }
 
@@ -239,95 +277,4 @@ export function referenceCompatibility(set, fields, alignments = {}) {
   const used = new Set(rows.flatMap(row => [row.identity, row.from].filter(Boolean)));
   const omitted = verified.filter(identity => !used.has(identity));
   return { rows, omitted, verified: rows.filter(row => row.state === "verified").length, review: rows.filter(row => row.state === "review").length, total: fields.length };
-}
-
-// Compact evidence for one current document/candidate result. Returns null unless the result is the
-// candidate's current successful output with its details available.
-export function pairMetrics(document, candidate, pair, { alignments = {}, columns = {} } = {}) {
-  const result = pair?.result;
-  if (!result?.raw || result.revision !== candidate.revision) return null;
-  alignments = { ...linkAlignments(document.links, result.fields), ...alignments };
-  const set = document.reference || { references: {}, definitions: {} };
-  const score = scoreCandidate({ result }, set.references, set.definitions, alignments, columns);
-  const verified = verifiedIdentities(set);
-  const requested = new Map(result.fields.map(field => [alignments[field.id] || fieldIdentity(field), field]));
-  const covered = verified.filter(identity => requested.has(identity));
-  // Actual verified fields and table columns, so equal counts over different fields are not comparable.
-  const scope = covered.map(identity => {
-    const definition = set.definitions[identity], field = requested.get(identity);
-    if (definition?.data_type !== "array<object>" || set.references[identity].absent) return identity;
-    const aligned = tableColumnPairs(definition, field, columns[field.id]).filter(([, actual]) => actual).map(([expected]) => expected.key).sort();
-    return `${identity}[${aligned.join(",")}]`;
-  }).sort();
-  const tables = Object.values(score.byField).filter(value => value.kind === "table");
-  return {
-    fields: score.fields, cells: score.tables,
-    scalar: score.fields ? score.fields.matched / score.fields.total : null,
-    cellRatio: score.tables ? score.tables.matched / score.tables.total : null,
-    coverage: verified.length ? covered.length / verified.length : null,
-    scope, review: Object.values(score.byField).filter(value => value.state === "Needs review").length,
-    missingRows: tables.reduce((sum, table) => sum + table.missing.length, 0), extraRows: tables.reduce((sum, table) => sum + table.extra.length, 0),
-    ms: result.processingMs ?? null,
-  };
-}
-
-const pairBusy = pair => ["staged", "submitting", "queued", "running", "retrying"].includes(pair?.status);
-// Only a current, retained, freshly scored successful result counts toward a summary.
-export function usablePairMetrics(candidate, pair) {
-  return pair?.result && pair.metrics && !pair.metrics.stale && pair.detail !== "unavailable" && pair.result.revision === candidate.revision && !pairBusy(pair) ? pair.metrics : null;
-}
-const mean = list => list.length ? list.reduce((sum, value) => sum + value, 0) / list.length : null;
-
-// Equal-document batch summary: each document's field accuracy, table-cell accuracy and coverage are
-// averaged separately, over the documents where that metric exists. Best needs complete, comparable work.
-export function batchSummary(documents, candidates, pairs, runnable = () => true) {
-  const per = Object.fromEntries(candidates.map(candidate => {
-    const rows = documents.map(document => {
-      const pair = pairs[document.key]?.[candidate.id];
-      return { document, pair, metrics: usablePairMetrics(candidate, pair) };
-    });
-    const counts = { pending: 0, failed: 0, outdated: 0, unavailable: 0, detailsUnavailable: 0 };
-    for (const { document, pair, metrics } of rows) {
-      if (metrics) continue;
-      if (pair?.result && pair.detail === "unavailable" && !pairBusy(pair)) counts.detailsUnavailable++;
-      else if (pairBusy(pair) || pair?.metrics?.stale) counts.pending++;
-      else if (pair?.result) counts.outdated++;
-      else if (!runnable(document)) counts.unavailable++;
-      else if (["failure", "interrupted"].includes(pair?.status)) counts.failed++;
-      else counts.pending++;
-    }
-    const done = rows.filter(row => row.metrics);
-    const withMetric = key => done.filter(row => row.metrics[key] !== null);
-    return [candidate.id, {
-      rows, done: done.length, ...counts,
-      scalar: mean(withMetric("scalar").map(row => row.metrics.scalar)), scalarDocs: withMetric("scalar").length,
-      cells: mean(withMetric("cellRatio").map(row => row.metrics.cellRatio)), cellsDocs: withMetric("cellRatio").length,
-      coverage: mean(withMetric("coverage").map(row => row.metrics.coverage)), coverageDocs: withMetric("coverage").length,
-      ms: mean(withMetric("ms").map(row => row.metrics.ms)),
-      unscored: done.filter(row => row.metrics.scalar === null && row.metrics.cellRatio === null).length,
-      review: done.filter(row => row.metrics.review).length,
-    }];
-  }));
-  const any = key => candidates.some(candidate => per[candidate.id][key]);
-  const complete = Math.min(...candidates.map(candidate => per[candidate.id].done));
-  let reason = "";
-  if (candidates.length < 2) reason = "Add another candidate to compare.";
-  else if (!documents.length) reason = "Add documents to compare.";
-  else if (any("unavailable")) reason = "Best is withheld: a document can’t run. Remove it or retry its original.";
-  else if (any("detailsUnavailable")) reason = "Best is withheld: some result details are unavailable. Rerun them to complete the comparison.";
-  else if (any("outdated")) reason = "Best is withheld: some results were produced before candidate edits. Rerun them to compare current settings.";
-  else if (complete < documents.length) reason = `Partial summary · ${complete} of ${documents.length} documents complete for every candidate. Best is withheld until comparable work finishes.`;
-  else if (any("review")) reason = "Best is withheld: an answer needs review.";
-  else if (documents.some((document, index) => new Set(candidates.map(candidate => per[candidate.id].rows[index].metrics.scope.join("|"))).size > 1)) reason = "Candidates cover different verified fields, so there’s no overall Best. Compare accuracy and coverage side by side.";
-  else if (candidates.every(candidate => per[candidate.id].scalar === null && per[candidate.id].cells === null)) reason = "No verified answers yet, so nothing is scored. Verify answers to rank candidates.";
-  let best = [];
-  if (!reason) {
-    // Rank by field accuracy, then table cells, then time; skip a metric no candidate has. Exact ties stay tied.
-    const metrics = ["scalar", "cells"].filter(key => candidates.some(candidate => per[candidate.id][key] !== null));
-    const rank = candidate => [...metrics.map(key => per[candidate.id][key] ?? -1), -(per[candidate.id].ms ?? Infinity)];
-    const compare = (a, b) => { const x = rank(a), y = rank(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return y[i] - x[i]; return 0; };
-    const sorted = [...candidates].sort(compare);
-    best = sorted.filter(candidate => compare(candidate, sorted[0]) === 0).map(candidate => candidate.id);
-  }
-  return { per, best, reason, complete };
 }

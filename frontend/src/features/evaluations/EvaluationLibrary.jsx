@@ -2,10 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { getDataTypeLabel } from "../templates/templateFields.js";
-import { ExpectedInline, Meter } from "./EvaluationParts.jsx";
-import { ReferenceModal } from "./ReferenceModal.jsx";
+import { Meter } from "./EvaluationParts.jsx";
 import { documentCompatibility, fieldIdentity } from "./evaluationScoring.js";
-import { documentDirty, kilobytes, linkableFields, updatedLabel, newerAvailable, refText, reviewDraft, saveUnavailableMessage, sameReferenceSet, summaryCompatibility, unavailableText } from "./evaluationLibrary.js";
+import { documentDirty, kilobytes, updatedLabel, newerAvailable, refText, saveUnavailableMessage, sameReferenceSet, summaryCompatibility, unavailableText } from "./evaluationLibrary.js";
 import { documentRunnable } from "./useEvaluations.js";
 
 export function Chips({ list }) {
@@ -33,20 +32,22 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
   return <div className="evaluation-library">
     <input type="search" aria-label="Search library" placeholder="Search saved documents" value={list.query} onChange={event => list.setQuery(event.target.value)} />
     <ScrollArea className="evaluation-library-scroll" role="region" aria-label="Saved documents" tabIndex={0}>
-      <table className="evaluation-library-table"><thead><tr>{onToggle && <th><span className="evaluation-visually-hidden">Select</span></th>}<th>Document</th><th>Expected answers</th><th>{fields.length ? "With this Template" : "Fields"}</th><th>Updated</th>{actions && <th><span className="evaluation-visually-hidden">Actions</span></th>}</tr></thead><tbody>
+      <table className="evaluation-library-table"><colgroup>{onToggle && <col className="evaluation-library-select-col" />}<col /><col className="evaluation-library-answers-col" /><col className="evaluation-library-fields-col" /><col className="evaluation-library-updated-col" />{actions && <col className="evaluation-library-actions-col" />}</colgroup><thead><tr>{onToggle && <th><span className="evaluation-visually-hidden">Select</span></th>}<th>Document</th><th>Expected answers</th><th>{fields.length ? "With this Template" : "Fields"}</th><th>Updated</th>{actions && <th><span className="evaluation-visually-hidden">Actions</span></th>}</tr></thead><tbody>
         {list.entries.map(entry => {
           const compatibility = summaryCompatibility(entry, fields), inBatch = inEvaluation(entry.id);
+          const sourceLabel = `${entry.source_name} · ${kilobytes(entry.byte_size)}${entry.page_count ? ` · ${entry.page_count} ${entry.page_count === 1 ? "page" : "pages"}` : ""}${inBatch ? " · in this Evaluation" : ""}`;
+          const updated = updatedLabel(entry);
           return <tr key={entry.id}>
             {onToggle && <td><input type="checkbox" aria-label={`Select ${entry.name}`} checked={selected.includes(entry.id) || inBatch} disabled={inBatch} onChange={() => onToggle(entry)} /></td>}
-            <td>{actions ? actions.name(entry) : <strong>{entry.name}</strong>}<small>{entry.source_name} · {kilobytes(entry.byte_size)}{entry.page_count ? ` · ${entry.page_count} ${entry.page_count === 1 ? "page" : "pages"}` : ""}{inBatch ? " · in this Evaluation" : ""}</small></td>
+            <td className="evaluation-library-document">{actions ? actions.name(entry) : <strong title={entry.name}>{entry.name}</strong>}<small title={sourceLabel}>{sourceLabel}</small></td>
             <td><span className="evaluation-progress"><Meter value={compatibility.total ? compatibility.verified / compatibility.total : 0} best /><small>{compatibility.verified}/{compatibility.total}</small></span>{!compatibility.verified && <small className="evaluation-muted">Compare only · no score</small>}</td>
             <td>{!fields.length ? <span>{entry.fields?.length || 0} saved {entry.fields?.length === 1 ? "field" : "fields"}</span> : compatibility.review ? <span className="evaluation-warn-text">{compatibility.review} {compatibility.review === 1 ? "field needs" : "fields need"} review</span> : <span>Compatible</span>}
               {compatibility.omitted?.length > 0 && <small className="evaluation-muted">{compatibility.omitted.length} saved {compatibility.omitted.length === 1 ? "answer" : "answers"} not in this Template</small>}</td>
-            <td><small>{updatedLabel(entry)}</small></td>
+            <td><small title={updated}>{updated}</small></td>
             {actions && <td className="evaluation-row-actions">{actions.buttons(entry)}</td>}
           </tr>;
         })}
-        {!list.entries.length && !list.loading && <tr><td colSpan={6} className="evaluation-empty-row">{list.error || (list.query ? "No saved documents match." : "No saved documents yet. Save an uploaded document from an Evaluation to reuse it.")}</td></tr>}
+        {!list.entries.length && !list.loading && <tr><td colSpan={4 + Number(!!onToggle) + Number(!!actions)} className="evaluation-empty-row">{list.error || (list.query ? "No saved documents match." : "No saved documents yet. Save an uploaded document from an Evaluation to reuse it.")}</td></tr>}
       </tbody></table>
     </ScrollArea>
     {list.error && list.entries.length > 0 && <p role="alert" className="evaluation-bad-text">{list.error}</p>}
@@ -97,7 +98,7 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
     catch (error) { if (error.code === "document_not_found") { list.drop(entry.id); evaluation.entryDeleted(entry.id); } else setMessage(error.message); }
   };
   const actions = {
-    name: entry => renaming?.id !== entry.id ? <strong>{entry.name}</strong> : <form className="evaluation-rename" onSubmit={event => { event.preventDefault(); rename(entry, renaming.name); }}>
+    name: entry => renaming?.id !== entry.id ? <strong title={entry.name}>{entry.name}</strong> : <form className="evaluation-rename" onSubmit={event => { event.preventDefault(); rename(entry, renaming.name); }}>
       <input aria-label={`New name for ${entry.name}`} value={renaming.name} maxLength={200} autoFocus onChange={event => setRenaming({ ...renaming, name: event.target.value })} />
       {renaming.conflict ? <span className="evaluation-conflict" role="alert">Renamed to “{renaming.conflict.name}” by {renaming.conflict.updated_by_name || "someone else"} since you loaded it.
         <button type="button" className="studio-text-button" onClick={() => { list.replace(renaming.conflict); evaluation.entryChanged(renaming.conflict); setRenaming(null); }}>Use saved name</button>
@@ -107,7 +108,7 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
     buttons: entry => <><button type="button" className="studio-text-button" aria-label={`Rename ${entry.name}`} onClick={() => setRenaming({ id: entry.id, name: entry.name })}>Rename</button>
       <button type="button" className="studio-text-button evaluation-danger-text" aria-label={`Delete ${entry.name}`} onClick={() => remove(entry)}>Delete</button></>,
   };
-  return <ModalDialog label="Manage library" className="evaluation-drawer" onClose={onClose}>
+  return <ModalDialog label="Manage library" className="evaluation-library-modal wide" onClose={onClose}>
     <div className="evaluation-heading"><div><h2>Evaluation library</h2><p>Rename or delete documents shared with this Workspace. To change Expected answers, add the document to an Evaluation and use Update saved answers.</p></div><button type="button" className="secondary" onClick={onClose}>Close</button></div>
     {message && <p role="status" className="evaluation-notice">{message}</p>}
     <LibraryTable list={list} fields={fields} inEvaluation={id => evaluation.state.documents.some(d => d.entry?.id === id)} actions={actions} />
@@ -183,32 +184,6 @@ export function ClearDialog({ evaluation, onClose }) {
   </ModalDialog>;
 }
 
-// Expected answers for one document, outside the comparison matrix (for example during setup).
-export function AnswersDialog({ evaluation, document, fields, onClose, onSave, onUpdate }) {
-  const [editor, setEditor] = useState(null);
-  const compatibility = documentCompatibility(document, fields);
-  const { references, definitions } = document.reference;
-  const saveAvailable = !saveUnavailableMessage(evaluation.state.library);
-  const store = (field, value, from, identity = fieldIdentity(field)) => from && from !== fieldIdentity(field) ? evaluation.reviewReference(document.key, from, fieldIdentity(field), value, field) : evaluation.setReference(document.key, identity, value, definitions[identity] || field);
-  return <ModalDialog label="Expected answers" className="evaluation-library-modal wide" onClose={onClose}>
-    <div className="evaluation-heading"><div><h2>{document.name} · Expected answers</h2><p>{document.kind === "saved" ? "Working copy for this Evaluation. The library is unchanged until you update it." : "Verify what you can now; only verified answers are scored."}</p></div></div>
-    {!fields.length ? <p className="evaluation-setup-hint">Choose a Template to verify answers for its fields.{Object.keys(definitions).length ? ` ${Object.values(references).filter(r => r?.verified).length} saved answers are verified.` : ""}</p>
-      : <ScrollArea className="evaluation-library-scroll" role="region" aria-label="Expected answer fields" tabIndex={0}><table className="evaluation-matrix evaluation-answers-matrix"><thead><tr><th className="evaluation-field-col">Field</th><th className="evaluation-expected-col">Expected</th></tr></thead><tbody>
-        {compatibility.rows.map(({ field, identity, state, from, reason }) => <tr key={identity}><th className="evaluation-field-col"><strong>{field.name}</strong><small className="evaluation-type">{getDataTypeLabel(field.data_type)}</small>
-          {document.links?.[fieldIdentity(field)] === identity && <LinkedNote savedName={definitions[identity]?.name || identity} fieldName={field.name} onUnlink={() => evaluation.linkField(document.key, fieldIdentity(field), null)} />}</th>
-          <td className="evaluation-expected-col">{state === "review" && reason === "type" ? <ReviewPrompt field={field} definition={definitions[from]} reference={references[from]} onReview={() => setEditor({ field, from, initial: reviewDraft(references[from]) })} />
-            : <>{state === "review" && <small className="evaluation-warn-text evaluation-block">Saved table columns differ from this Template. Align them in the comparison.</small>}
-              <ExpectedInline key={`${identity}:${references[identity]?.verified}`} field={field} reference={references[identity]} onSave={value => store(field, value, undefined, identity)} onOpenEditor={() => setEditor({ field, identity, initial: references[identity] || { value: "", absent: false, exact: false } })} /></>}</td></tr>)}
-      </tbody></table></ScrollArea>}
-    {compatibility.omitted.length > 0 && <div className="evaluation-setup-hint"><p>Also saved, not in this Template: {compatibility.omitted.map(id => definitions[id]?.name || id).join(", ")}. Kept and shown in coverage.</p>
-      {compatibility.omitted.map(id => <LinkSavedAnswer key={id} name={definitions[id]?.name || id} options={linkableFields(document, fields, id)} onLink={own => evaluation.linkField(document.key, own, id)} />)}</div>}
-    <div className="actions">{document.kind === "upload" && <button type="button" className="secondary" disabled={!saveAvailable} title={saveAvailable ? undefined : saveUnavailableMessage(evaluation.state.library)} onClick={() => { onClose(); onSave(document.key); }}>Save to library…</button>}
-      {documentDirty(document) && <><button type="button" className="secondary" onClick={() => evaluation.discardChanges(document.key)}>Discard changes</button><button type="button" className="secondary" onClick={() => { onClose(); onUpdate(document.key); }}>Update saved answers…</button></>}
-      <button type="button" onClick={onClose}>Done</button></div>
-    {editor && <ReferenceModal row={{ field: editor.field }} initial={editor.initial} onClose={() => setEditor(null)} onSave={value => { store(editor.field, value, editor.from, editor.identity); setEditor(null); }} />}
-  </ModalDialog>;
-}
-
 export function LinkSavedAnswer({ name, options, onLink }) {
   if (!options.length) return null;
   return <label className="evaluation-link-field"><span>Renamed? Link it to</span>
@@ -226,9 +201,8 @@ export function ReviewPrompt({ field, definition, reference, onReview }) {
     <button type="button" className="studio-text-button" onClick={onReview}>Review as {getDataTypeLabel(field.data_type)}</button></div>;
 }
 
-export function DocumentBanner({ evaluation, document, onSave, onUpdate, onNotice }) {
+export function DocumentBanner({ evaluation, document, onNotice }) {
   const [retrying, setRetrying] = useState(false);
-  const saveUnavailable = saveUnavailableMessage(evaluation.state.library);
   const retry = async () => {
     setRetrying(true);
     try { await evaluation.retrySource(document.key); onNotice?.("The saved original is available again. Run it when you’re ready."); }
@@ -237,10 +211,6 @@ export function DocumentBanner({ evaluation, document, onSave, onUpdate, onNotic
   };
   if (document.availability === "deleted") return <div className="evaluation-banner bad" role="status">Deleted from the Evaluation library. Results already shown stay visible in this tab, but it can’t run again.</div>;
   if (!documentRunnable(document)) return <div className="evaluation-banner bad" role="status"><span>{unavailableText(document)}</span><button type="button" className="studio-text-button" disabled={retrying} onClick={retry}>{retrying ? "Checking…" : "Retry original"}</button></div>;
-  if (document.kind === "upload") return <div className="evaluation-banner warn"><span><strong>New upload.</strong> This document and its answers are only in this tab.</span>{saveUnavailable ? <small className="evaluation-muted">{saveUnavailable}</small>
-    : <button type="button" className="studio-text-button" disabled={document.save === "saving"} onClick={() => onSave(document.key)}>{document.save === "saving" ? "Saving…" : "Save to library…"}</button>}</div>;
-  if (documentDirty(document)) return <div className="evaluation-banner warn"><span><strong>Working copy.</strong> Answer changes apply to this Evaluation only; scores update without rerunning.</span>
-    <button type="button" className="studio-text-button" onClick={() => evaluation.discardChanges(document.key)}>Discard changes</button><button type="button" className="studio-text-button" onClick={() => onUpdate(document.key)}>Update saved answers…</button></div>;
   if (newerAvailable(document)) return <div className="evaluation-banner"><span>The saved answers were updated since you loaded them. This Evaluation keeps the copy you loaded.</span>
     <button type="button" className="studio-text-button" onClick={() => evaluation.loadLatest(document.key).catch(error => onNotice?.(error.message))}>Load latest</button></div>;
   return null;
