@@ -21,7 +21,7 @@ export function TemplateEditorModal({ initial, title = "Edit Template", action =
   return <ModalDialog className="studio-main template-editor-modal" label={title} initialFocus="input" onClose={() => { if (!saving) onClose(); }}>
     <header className="template-editor-modal-header">
       <div><h2>{title}</h2>{notice && <p>{notice}</p>}</div>
-      <button type="button" className="icon-action-button template-editor-modal-close" aria-label="Close Template editor" disabled={saving} onClick={onClose}>×</button>
+      <button type="button" className="modal-close" aria-label="Close Template editor" disabled={saving} onClick={onClose}>×</button>
     </header>
     <div className="studio-template-meta">
       <label>Template name<input value={draft.name} disabled={saving} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
@@ -29,7 +29,7 @@ export function TemplateEditorModal({ initial, title = "Edit Template", action =
     </div>
     <TemplateFieldEditor fields={draft.fields} disabled={saving} onChange={next => setDraft(previous => ({ ...previous, fields: typeof next === "function" ? next(previous.fields) : next }))} />
     <footer className="template-editor-modal-footer">
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert" className="form-error">{error}</p>}
       <div className="actions"><button type="button" className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button type="button" disabled={saving} onClick={submit}>{saving ? "Saving…" : action}</button></div>
     </footer>
   </ModalDialog>;

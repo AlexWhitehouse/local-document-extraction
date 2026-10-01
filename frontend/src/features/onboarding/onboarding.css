@@ -11,6 +11,10 @@
 .tour-invitation button { width: 100%; margin-top: 6px; }
 /* The collapsed rail has no room for the card; the tour stays available from Settings. */
 @media (min-width: 1121px) { .sidebar-collapsed .tour-invitation { display: none; } }
+/* Hold the card back until the expanding rail is wide enough for its text. */
+@media (min-width: 1121px) and (prefers-reduced-motion: no-preference) {
+  .tour-invitation { animation: sidebar-content-in 160ms ease-out 120ms both; }
+}
 .tour-mask { position: fixed; inset: 0; z-index: 10000; pointer-events: none; }
 .tour-mask path { fill: rgb(2 6 12 / 76%); pointer-events: fill; }
 .tour-mask rect { fill: none; stroke: var(--accent); stroke-width: 2; }
@@ -29,7 +33,7 @@
   box-shadow: 0 20px 70px rgb(0 0 0 / 50%);
 }
 .tour-popover:focus { outline: none; }
-.tour-progress { display: flex; justify-content: space-between; gap: 8px; color: var(--accent); font: 9px var(--font-mono); letter-spacing: .07em; }
+.tour-progress { display: flex; justify-content: space-between; gap: 8px; color: var(--accent); font: 9.5px var(--font-mono); letter-spacing: .1em; }
 .tour-popover progress { appearance: none; display: block; width: 100%; height: 2px; margin: 12px 0 14px; border: none; background: var(--line-1); accent-color: var(--accent); }
 .tour-popover progress::-webkit-progress-bar { background: var(--line-1); }
 .tour-popover progress::-webkit-progress-value { background: var(--accent); }
@@ -51,3 +55,10 @@
   min-height: 80px;
 }
 [data-tour="schema-close"][inert], [data-tour="schema-done"][inert] { opacity: .35; }
+/* The tour fades in once; between steps the spotlight glides (TourSpotlight) and the copy cross-fades. */
+@media (prefers-reduced-motion: no-preference) {
+  .tour-mask { animation: modal-backdrop-in 200ms ease-out both; }
+  .tour-popover { animation: modal-card-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .tour-step-copy { animation: tour-copy-in 220ms ease-out both; }
+}
+@keyframes tour-copy-in { from { opacity: 0; transform: translateY(3px); } }

@@ -81,7 +81,7 @@ export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes,
                 {!documentRunnable(document) && <p className="evaluation-bad-text">{unavailableText(document)}</p>}
               </div>
             </li>; })}</ol>}
-          <div className={`evaluation-dropzone ${dragging ? "dragging" : ""} ${state.documents.length ? "compact" : ""}`} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); onSelectDocuments(Array.from(event.dataTransfer.files || [])); }}>
+          <div className={`evaluation-dropzone ${dragging ? "is-active" : ""} ${state.documents.length ? "compact" : ""}`} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); onSelectDocuments(Array.from(event.dataTransfer.files || [])); }}>
             <span className="evaluation-dropzone-icon" aria-hidden="true">▤</span>
             <div><strong>{state.documents.length ? "Add more documents" : "Choose saved documents or drop new ones here"}</strong><small>PDF, PNG, JPG or WEBP · up to {mebibytes(maxSourceFileBytes)} MiB each · several documents run a Batch Evaluation</small></div>
             <span className="evaluation-actions"><button type="button" onClick={() => onChooseLibrary(fields)}>Library</button><button type="button" className="secondary" onClick={() => input.current.click()}>Upload new</button></span>

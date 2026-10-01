@@ -101,7 +101,7 @@ export function DocumentPage({
 
 function DocumentLayoutToggle({ layout, onChange }) {
   return (
-    <span className="document-layout-toggle" role="radiogroup" aria-label="Document view">
+    <span className="segmented document-layout-toggle" role="radiogroup" aria-label="Document view">
       {[["results", "Results"], ["side-by-side", "Side by side"]].map(([value, label]) => (
         <button
           key={value}

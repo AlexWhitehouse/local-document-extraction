@@ -1,6 +1,7 @@
 import React from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
+import { useRowMotion } from "../context/useRowMotion.js";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
 
 export function WorkspaceContextList({
@@ -15,6 +16,7 @@ export function WorkspaceContextList({
   onSelectInvitedWorkspace,
   onRetryResolution,
 }) {
+  const rowMotion = useRowMotion(workspaces, workspaceKey);
   return (
     <>
       <label>
@@ -27,14 +29,16 @@ export function WorkspaceContextList({
       </label>
       <ScrollArea className="context-list" role="region" aria-label="Workspace list" tabIndex={0}>
         {isLoading ? (
-          <p className="muted">Loading workspace context</p>
+          <p className="muted" role="status">Loading Workspaces…</p>
         ) : hasResolutionError ? (
           <>
-            <p className="muted">Workspace resolution error</p>
+            <p className="muted form-error" role="alert">Workspace resolution error</p>
             <button type="button" className="secondary" onClick={onRetryResolution}>
-              Retry Workspaces
+              Retry
             </button>
           </>
+        ) : !workspaces.length ? (
+          <p className="muted">{String(search || "").trim() ? "No Workspaces match this search." : "No Workspaces yet."}</p>
         ) : (
           workspaces.map((workspace) => {
             const itemClassName = getWorkspaceItemClassName({
@@ -44,12 +48,8 @@ export function WorkspaceContextList({
             });
             return (
               <div
-                key={
-                  workspace.type === "invitation"
-                    ? `workspace-invitation-${workspace.invitation_id}`
-                    : `workspace-${workspace.id}`
-                }
-                className={itemClassName}
+                key={workspaceKey(workspace)}
+                className={itemClassName + rowMotion(workspaceKey(workspace))}
               >
                 <button
                   type="button"
@@ -82,6 +82,12 @@ export function WorkspaceContextList({
       </ScrollArea>
     </>
   );
+}
+
+function workspaceKey(workspace) {
+  return workspace.type === "invitation"
+    ? `workspace-invitation-${workspace.invitation_id}`
+    : `workspace-${workspace.id}`;
 }
 
 function getWorkspaceItemClassName({

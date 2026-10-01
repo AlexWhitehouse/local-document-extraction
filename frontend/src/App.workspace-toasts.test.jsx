@@ -104,7 +104,7 @@ describe("Workspace action toast feedback", () => {
 
     expect(screen.getByRole("heading", { name: "Loading workspace context" })).toBeTruthy();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(true);
   });
 
@@ -119,9 +119,9 @@ describe("Workspace action toast feedback", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Retry Workspaces" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(true);
   });
 
@@ -219,7 +219,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Generate API Key" }));
+    await user.click(await screen.findByRole("button", { name: "Generate API key" }));
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace API key generated and copied");
@@ -245,7 +245,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Rotate API Key" }));
+    await user.click(await screen.findByRole("button", { name: "Rotate API key" }));
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace API key rotated and copied");
@@ -264,7 +264,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Generate API Key" }));
+    await user.click(await screen.findByRole("button", { name: "Generate API key" }));
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith(
@@ -288,7 +288,7 @@ describe("Workspace action toast feedback", () => {
 
     expect(await screen.findByLabelText("Workspace API key")).toBeTruthy();
     expect(screen.getByPlaceholderText("Generate an API key to view")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Generate API Key" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
   });
 
   it("confirms explicit Workspace creation", async () => {
@@ -510,7 +510,7 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(screen.queryByText("Grace Hopper")).toBeNull();
       expect(screen.queryByText("No workspace users found.")).toBeNull();
-      expect(screen.queryByText("Loading workspace users...")).toBeNull();
+      expect(screen.queryByText("Loading workspace users…")).toBeNull();
     });
 
     secondWorkspaceUsers.resolve(jsonResponse({
@@ -548,7 +548,7 @@ describe("Workspace action toast feedback", () => {
       render(<App />);
       await user.click(screen.getByRole("button", { name: "+ Invite user" }));
       if (email) await user.type(screen.getByLabelText("Invite email"), email);
-      await user.click(screen.getByRole("button", { name: "Invite User" }));
+      await user.click(screen.getByRole("button", { name: "Invite user" }));
     }
 
     function routeInvitationCreate(response) {
@@ -672,7 +672,7 @@ describe("Workspace action toast feedback", () => {
       render(<App />);
 
       await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
-      await user.click(await screen.findByRole("button", { name: "Accept Invitation" }));
+      await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
 
       await waitFor(() => {
         expect(toastMock.success).toHaveBeenCalledWith("Workspace invitation accepted");
@@ -695,7 +695,7 @@ describe("Workspace action toast feedback", () => {
       render(<App />);
 
       await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
-      await user.click(await screen.findByRole("button", { name: "Decline Invitation" }));
+      await user.click(await screen.findByRole("button", { name: "Decline invitation" }));
 
       await waitFor(() => {
         expect(toastMock.success).toHaveBeenCalledWith("Invitation declined");
@@ -703,8 +703,8 @@ describe("Workspace action toast feedback", () => {
     });
 
     it.each([
-      ["accept", "Accept Invitation", 409, "Workspace invitation could not be accepted. Please try again."],
-      ["decline", "Decline Invitation", 403, "Workspace invitation could not be declined. Please try again."],
+      ["accept", "Accept invitation", 409, "Workspace invitation could not be accepted. Please try again."],
+      ["decline", "Decline invitation", 403, "Workspace invitation could not be declined. Please try again."],
     ])("shows friendly failure copy when a Workspace invitation %s fails", async (action, buttonName, status, message) => {
       const user = userEvent.setup();
       routeFetch((url, method) => {
@@ -745,9 +745,9 @@ describe("Workspace action toast feedback", () => {
     }
 
     it.each([
-      ["Remove User", "Removed Grace Hopper from workspace"],
-      ["Make Admin", "Made Grace Hopper an admin"],
-      ["Make Owner", "Workspace ownership transferred to Grace Hopper"],
+      ["Remove user", "Removed Grace Hopper from workspace"],
+      ["Make admin", "Made Grace Hopper an admin"],
+      ["Make owner", "Workspace ownership transferred to Grace Hopper"],
     ])("confirms the %s member action with membership wording", async (actionName, message) => {
       routeMemberAction(jsonResponse({ updated: true }));
 
@@ -761,7 +761,7 @@ describe("Workspace action toast feedback", () => {
     it("shows friendly failure copy when a Workspace member action fails", async () => {
       routeMemberAction(jsonResponse({ error: "policy detail" }, { status: 403 }));
 
-      await applyMemberAction("Make Admin");
+      await applyMemberAction("Make admin");
 
       await waitFor(() => {
         expect(toastMock.error).toHaveBeenCalledWith("Workspace member action failed. Please try again.");
@@ -1236,7 +1236,7 @@ describe("Workspace action toast feedback", () => {
     await user.click(exportButton);
 
     expect(requestedExportIds).toEqual(["job_completed_1", "job_processing_1", "job_failed_1"]);
-    expect(screen.getByRole("button", { name: "Exporting..." }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Exporting…" }).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "Delete 3" }).disabled).toBe(true);
     expect(checkbox("job_completed_1").disabled).toBe(true);
 

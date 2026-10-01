@@ -735,7 +735,7 @@ export function useWorkspaceController({
       onCopyVisibleWorkspaceApiKey: () => (apiKey ? copyToClipboard(apiKey) : undefined),
       busy: isAppBusy,
       canRotateWorkspaceApiKey,
-      workspaceApiKeyActionLabel: selectedWorkspaceHasApiKey ? "Rotate API Key" : "Generate API Key",
+      workspaceApiKeyActionLabel: selectedWorkspaceHasApiKey ? "Rotate API key" : "Generate API key",
       onRefreshApiKey: refreshApiKey,
       inviteEmail,
       onInviteEmailChange: setInviteEmail,

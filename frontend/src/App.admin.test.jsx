@@ -115,7 +115,7 @@ describe("Application admin page gate", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
     });
-    expect(screen.queryByRole("heading", { name: "Application Admin" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Application admin" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Admin$/ })).toBeNull();
   });
 
@@ -141,12 +141,12 @@ describe("Application admin page gate", () => {
     expect(usersTable.getByText("grace@example.com")).toBeTruthy();
     expect(usersTable.getByText("Grace Hopper")).toBeTruthy();
     expect(usersTable.getByText("Verified")).toBeTruthy();
-    expect(usersTable.getByText("Application Admin")).toBeTruthy();
+    expect(usersTable.getByText("Application admin")).toBeTruthy();
     expect(usersTable.getByText("Active")).toBeTruthy();
     expect(usersTable.getByText("alan@example.com")).toBeTruthy();
     expect(usersTable.getByText("Alan Turing")).toBeTruthy();
     expect(usersTable.getByText("Unverified")).toBeTruthy();
-    expect(usersTable.getByText("Regular User")).toBeTruthy();
+    expect(usersTable.getByText("Regular user")).toBeTruthy();
     expect(usersTable.getAllByText("Banned").length).toBeGreaterThan(0);
     expect(usersTable.getByText("Compromised credentials")).toBeTruthy();
     expect(usersTable.getByText(/2026-01-02 \d{2}:\d{2}:\d{2}/)).toBeTruthy();
@@ -174,7 +174,7 @@ describe("Application admin page gate", () => {
       }));
     });
 
-    await user.click(screen.getByRole("button", { name: "Clear Search" }));
+    await user.click(screen.getByRole("button", { name: "Clear search" }));
 
     await waitFor(() => {
       expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery());
@@ -380,7 +380,7 @@ describe("Application admin page gate", () => {
     });
     expect(window.localStorage.removeItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
     expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Application Admin" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Application admin" })).toBeNull();
     expect(screen.getByRole("status", { name: "Impersonation mode" })).toBeTruthy();
     await waitFor(() => {
       expect(
@@ -408,7 +408,7 @@ describe("Application admin page gate", () => {
         "Impersonation could not be started. Please try again.",
       );
     });
-    expect(screen.getByRole("heading", { name: "Application Admin" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Application admin" })).toBeTruthy();
     expect(screen.getByText("alan@example.com")).toBeTruthy();
     expect(authClientMock.refetchSession).not.toHaveBeenCalled();
     expect(window.localStorage.removeItem).not.toHaveBeenCalledWith("documentextraction.workspace.v1");
@@ -463,7 +463,7 @@ describe("Application admin page gate", () => {
       expect(authClientMock.refetchSession).toHaveBeenCalled();
     });
     expect(window.localStorage.removeItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
-    expect(await screen.findByRole("heading", { name: "Application Admin" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
     expect(toast.success).toHaveBeenCalledWith("Impersonation stopped");
     await waitFor(() => {
       expect(
@@ -503,7 +503,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
 
-    expect(await screen.findByRole("heading", { name: "Application Admin" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
     expect(await screen.findByText("Total users 0")).toBeTruthy();
   });
 
@@ -520,7 +520,7 @@ describe("Application admin page gate", () => {
     expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
     await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
 
-    expect(await screen.findByRole("heading", { name: "Application Admin" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
     expect(await screen.findByText("Total users 0")).toBeTruthy();
   });
 
@@ -530,7 +530,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
 
-    expect(await screen.findByRole("heading", { name: "Application Admin" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
     expect(screen.getByText("Users, roles, bans, and impersonation")).toBeTruthy();
     expect(screen.getByText("Application-wide")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Workspace toolbar" })).toBeNull();

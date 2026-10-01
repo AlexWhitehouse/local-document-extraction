@@ -1,4 +1,5 @@
 import React from "react";
+import { CopyIcon } from "../layout/Icons.jsx";
 
 export function ContextCopyButton({ ariaLabel, value }) {
   async function handleCopy() {
@@ -19,24 +20,5 @@ export function ContextCopyButton({ ariaLabel, value }) {
     >
       <CopyIcon />
     </button>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="9" y="9" width="10" height="10" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
-    </svg>
   );
 }

@@ -1,4 +1,5 @@
 import React from "react";
+import { CopyIcon } from "../layout/Icons.jsx";
 
 export function TemplateJsonModal({
   isOpen,
@@ -32,15 +33,27 @@ export function TemplateJsonModal({
               Review, copy, or edit the template configuration.
             </p>
           </div>
-          <button
-            type="button"
-            className="icon-action-button template-json-copy-button"
-            aria-label="Copy template JSON"
-            title={copied ? "Copied" : "Copy JSON"}
-            onClick={onCopy}
-          >
-            <CopyIcon />
-          </button>
+          <div className="modal-head-actions">
+            <button
+              type="button"
+              className="icon-action-button template-json-copy-button"
+              aria-label="Copy template JSON"
+              title={copied ? "Copied" : "Copy JSON"}
+              onClick={onCopy}
+            >
+              <CopyIcon />
+            </button>
+            <button
+              type="button"
+              className="modal-close"
+              aria-label="Close"
+              title="Close"
+              disabled={isSavingTemplate}
+              onClick={onClose}
+            >
+              ×
+            </button>
+          </div>
         </div>
         <label className="template-json-label">
           <span>Template JSON</span>
@@ -73,30 +86,11 @@ export function TemplateJsonModal({
               disabled={isSavingTemplate || !hasApiAccess}
               onClick={onSave}
             >
-              {isSavingTemplate ? "Saving..." : "Save Template JSON"}
+              {isSavingTemplate ? "Saving…" : "Save Template JSON"}
             </button>
           </div>
         </div>
       </div>
     </div>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="9" y="9" width="10" height="10" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
-    </svg>
   );
 }

@@ -33,7 +33,7 @@ export function AuthScreen({
 
   return (
     <>
-      <Toaster richColors />
+      <Toaster richColors theme="dark" />
       <div className="auth-shell">
         <section className="auth-card">
           <div className="auth-header">
@@ -172,11 +172,11 @@ export function AuthScreen({
                     className="auth-primary-action"
                     disabled={busy}
                   >
-                    Sign In
+                    Sign in
                   </button>
                   {signupEnabled ? <p className="auth-switch-copy">
                     Don&apos;t have an account?{" "}
-                    <SwitchModeLink mode="signup" busy={busy} onSwitchMode={onSwitchMode}>Sign Up</SwitchModeLink>
+                    <SwitchModeLink mode="signup" busy={busy} onSwitchMode={onSwitchMode}>Sign up</SwitchModeLink>
                   </p> : <p className="muted">Account registration is closed. Contact the administrator for access.</p>}
                 </>
               ) : isResetRequest ? (
@@ -190,7 +190,7 @@ export function AuthScreen({
                   </button>
                   <p className="auth-switch-copy">
                     Remember your password?{" "}
-                    <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>Sign In</SwitchModeLink>
+                    <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>Sign in</SwitchModeLink>
                   </p>
                 </>
               ) : (
@@ -204,7 +204,7 @@ export function AuthScreen({
                   </button>
                   <p className="auth-switch-copy">
                     Already have an account?{" "}
-                    <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>Sign In</SwitchModeLink>
+                    <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>Sign in</SwitchModeLink>
                   </p>
                 </>
               )}

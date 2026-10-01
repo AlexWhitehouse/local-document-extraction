@@ -1,12 +1,4 @@
 /* Document viewing: Results / Side by side switch, split view and the original's preview pane. */
-.document-layout-toggle { display: inline-flex; border: 1px solid var(--rule-strong); }
-.studio-main .document-layout-toggle button {
-  height: 24px; padding: 0 9px; border: 0; border-radius: 0; background: transparent;
-  color: #a5b6ca; font: 10.5px var(--font-body); transform: none;
-}
-.studio-main .document-layout-toggle button + button { border-left: 1px solid var(--rule-strong); }
-.studio-main .document-layout-toggle button[aria-checked="true"] { background: var(--accent-dim); color: var(--accent-strong); }
-.studio-main .document-layout-toggle button:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .document-original-note { color: var(--studio-muted); font: 10.5px var(--font-mono); }
 
 .document-split {
@@ -46,12 +38,6 @@
 
 .source-image { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .source-image-tools { display: flex; padding: 6px 12px; border-bottom: 1px solid var(--rule); }
-.studio-main .source-image-tools button {
-  height: 22px; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: 0;
-  background: transparent; color: #a5b6ca; font-size: 10.5px; transform: none;
-}
-.studio-main .source-image-tools button + button { border-left: 0; }
-.studio-main .source-image-tools button[aria-pressed="true"] { background: var(--accent-dim); color: var(--accent-strong); }
 .source-image-canvas { flex: 1; min-height: 0; overflow: auto; padding: 16px; background: #10151d; }
 .source-image-canvas:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .source-image-canvas.zoom-fit { overflow: hidden; }

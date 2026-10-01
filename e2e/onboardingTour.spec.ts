@@ -54,10 +54,10 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await target("schema-open").click();
     await target("schema-done").click({ force: true });
     await expect(tour).toContainText("Build the columns");
-    await page.getByRole("button", { name: "Add Column", exact: true }).click();
+    await page.getByRole("button", { name: "Add column", exact: true }).click();
     await page.screenshot({ path: testInfo.outputPath("tour-schema.png"), animations: "disabled" });
-    await page.getByLabel("Column Name", { exact: true }).click();
-    await page.getByLabel("Column Name", { exact: true }).fill("Item");
+    await page.getByLabel("Column name", { exact: true }).click();
+    await page.getByLabel("Column name", { exact: true }).fill("Item");
     await page.getByLabel("Column Description", { exact: true }).fill("Item name");
     await next();
     await target("schema-done").click();

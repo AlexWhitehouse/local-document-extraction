@@ -1,6 +1,7 @@
 import React from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
+import { useRowMotion } from "../context/useRowMotion.js";
 
 export function TemplateContextList({
   search,
@@ -11,6 +12,7 @@ export function TemplateContextList({
   onSelectDraftTemplate,
   onSelectTemplate,
 }) {
+  const rowMotion = useRowMotion(templates, (template) => template.id);
   return (
     <>
       <label>
@@ -28,7 +30,7 @@ export function TemplateContextList({
           return (
             <div
               key={`context-${template.id}`}
-              className={isActive ? "context-item-card active" : "context-item-card"}
+              className={(isActive ? "context-item-card active" : "context-item-card") + rowMotion(template.id)}
             >
               <button
                 type="button"
@@ -55,6 +57,11 @@ export function TemplateContextList({
             </div>
           );
         })}
+        {!templates.length ? (
+          <p className="muted">{String(search || "").trim() ? "No Templates match this search." : "No Templates yet."}</p>
+        ) : templates.length > 12 ? (
+          <p className="muted">Showing 12 of {templates.length}. Search to find the rest.</p>
+        ) : null}
       </ScrollArea>
     </>
   );

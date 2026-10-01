@@ -32,21 +32,21 @@ test("an Application admin manages account access through the frontend", async (
     await signUpAndVerify(adminPage, harness, ADMIN);
     const navigation = adminPage.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("button", { name: "Admin" }).click();
-    await expect(adminPage.getByRole("heading", { name: "Application Admin" })).toBeVisible();
+    await expect(adminPage.getByRole("heading", { name: "Application admin" })).toBeVisible();
 
     await adminPage.getByLabel("Search users").fill(REGULAR_USER.email);
     await adminPage.getByRole("button", { name: "Search", exact: true }).click();
     await expect(managedUserRow(adminPage)).toBeVisible();
-    await expect(managedUserRow(adminPage)).toContainText("Regular User");
+    await expect(managedUserRow(adminPage)).toContainText("Regular user");
     await expect(managedUserRow(adminPage)).toContainText("Active");
 
     adminPage.once("dialog", (dialog) => dialog.accept());
     await chooseUserAction(adminPage, "Make admin");
-    await expect(managedUserRow(adminPage)).toContainText("Application Admin");
+    await expect(managedUserRow(adminPage)).toContainText("Application admin");
 
     adminPage.once("dialog", (dialog) => dialog.accept());
     await chooseUserAction(adminPage, "Remove admin");
-    await expect(managedUserRow(adminPage)).toContainText("Regular User");
+    await expect(managedUserRow(adminPage)).toContainText("Regular user");
 
     await chooseUserAction(adminPage, "Ban user");
     const banDialog = adminPage.getByRole("dialog", { name: `Ban ${REGULAR_USER.email}` });
@@ -69,7 +69,7 @@ test("an Application admin manages account access through the frontend", async (
     await expect(adminPage.getByRole("heading", { name: "Workspace details" })).toBeVisible();
 
     await impersonation.getByRole("button", { name: "Stop impersonating" }).click();
-    await expect(adminPage.getByRole("heading", { name: "Application Admin" })).toBeVisible();
+    await expect(adminPage.getByRole("heading", { name: "Application admin" })).toBeVisible();
     await expect(adminPage.getByText("Impersonation stopped")).toBeVisible();
   } finally {
     if (!regularContext.pages().every((page) => page.isClosed())) {

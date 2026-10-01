@@ -58,13 +58,13 @@ export function TableComparison({ row, candidates, reference, scores, columnMapp
   return <ModalDialog className="evaluation-compare" label={`${row.field.name} across candidates`} onClose={onClose}>
     <div className="evaluation-dialog-head"><div><h2>{row.field.name} · all candidates</h2>
       <p>{verified ? `${matching} Highlighted cells differ from the expected rows.` : "No expected rows yet. Highlighted cells differ from the most common candidate value."}</p></div>
-      <button type="button" className="icon-action-button" aria-label="Close table comparison" onClick={onClose}>×</button></div>
+      <button type="button" className="modal-close" aria-label="Close table comparison" title="Close table comparison" onClick={onClose}>×</button></div>
     <div className="evaluation-compare-summary">{answered.map((candidate, i) => <div key={candidate.id} className="evaluation-compare-chip"><Mark state={scoreFor(candidate)?.state} />
       <span><strong>{labelFor(candidate)}</strong><small>{summary(candidate, i)}</small>
         {unaligned[i + firstCandidate].length > 0 && <small className="evaluation-warn-text">Unmatched columns: {unaligned[i + firstCandidate].join(", ")}</small>}</span>
     </div>)}</div>
     <div className="evaluation-compare-toolbar">
-      <div className="evaluation-segmented" role="group" aria-label="Table layout">{[["rows", "By row"], ["stacked", "Stacked"], ["side", "Side by side"]].map(([id, label]) => <button key={id} type="button" aria-pressed={layout === id} onClick={() => setLayout(id)}>{label}</button>)}</div>
+      <div className="segmented" role="group" aria-label="Table layout">{[["rows", "By row"], ["stacked", "Stacked"], ["side", "Side by side"]].map(([id, label]) => <button key={id} type="button" aria-pressed={layout === id} onClick={() => setLayout(id)}>{label}</button>)}</div>
       <label className="evaluation-check"><input type="checkbox" checked={onlyDifferences} onChange={event => setOnlyDifferences(event.target.checked)} />Only rows with differences</label>
       <span className="evaluation-legend" aria-hidden="true"><i className="differs" />Differs<i className="missing" />Missing row<i className="extra" />Extra row</span>
       <button type="button" className="secondary" onClick={onEditExpected}>{verified ? "Edit expected rows" : "Add expected rows"}</button>

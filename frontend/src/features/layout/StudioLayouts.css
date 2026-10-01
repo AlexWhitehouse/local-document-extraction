@@ -2,7 +2,7 @@
    Sidebar and shell styles stay in styles.css. */
 .studio-main.main-content {
   --studio-rule: var(--rule);
-  --studio-muted: #8e9cb0;
+  --studio-muted: var(--text-2);
   display: block;
   gap: 0;
   min-width: 0;
@@ -46,9 +46,10 @@
 .studio-section-heading h2, .studio-main .workspace-model h2 { margin: 0; font: 500 10px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text-2); }
 .studio-section-heading p { margin: 4px 0 0; color: var(--studio-muted); font-size: 11px; }
 .studio-section-heading button { height: 24px; font-size: 11px; white-space: nowrap; }
-.studio-main .studio-text-button {
+/* Text buttons work on any surface, including dialogs portaled outside .studio-main. */
+button.studio-text-button {
   background: transparent;
-  color: #a5b6ca;
+  color: var(--text-1);
   border: 0;
   padding: 0;
   height: auto;
@@ -59,9 +60,9 @@
   white-space: nowrap;
 }
 /* Keep hover paint-only so compact field actions do not reflow. */
-.studio-main .studio-text-button:hover:not(:disabled) { background: transparent; color: var(--accent-strong); transform: none; }
-.studio-main .studio-destructive { color: #d991a4; }
-.studio-main .studio-save-action { color: var(--accent-strong); }
+button.studio-text-button:hover:not(:disabled) { background: transparent; color: var(--accent-strong); transform: none; }
+button.studio-text-button.studio-destructive { color: var(--rose-muted); }
+button.studio-text-button.studio-save-action { color: var(--accent-strong); }
 .studio-empty-state { padding-top: 20px; color: var(--studio-muted); font-size: 12px; }
 .studio-main .icon-action-button { width: 22px; height: 22px; padding: 0; background: transparent; border-color: var(--rule-strong); font-size: 11px; }
 
@@ -79,7 +80,6 @@
 .studio-workspace-facts code { font: 10px var(--font-mono); color: #b1c0d3; overflow-wrap: anywhere; }
 .studio-api-access { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--studio-rule); }
 .studio-main .studio-source-retention-toggle { display: flex; flex-direction: row; align-items: center; gap: 8px; color: #d6dde6; font-size: 12px; }
-.studio-main .studio-source-retention-toggle input { width: auto; height: auto; margin: 0; }
 .studio-api-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--studio-muted); }
 .studio-main .workspace-model { border: 0; border-left: 1px solid var(--studio-rule); background: transparent; margin: 0; padding-left: 28px; overflow: visible; }
 .studio-main .workspace-model-header { padding: 0; margin-bottom: 12px; }
@@ -149,10 +149,10 @@
 .studio-document-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; border-bottom: 1px solid var(--studio-rule); padding: 10px 0; font: 10.5px var(--font-mono); color: var(--studio-muted); }
 .studio-document-summary strong { color: #c1d0e3; font-weight: 500; }
 .studio-document-summary time { margin-left: auto; font-size: 10px; }
-.studio-document-status { display: inline-flex; align-items: center; gap: 7px; color: var(--amber); }
+.studio-document-status { display: inline-flex; align-items: center; gap: 7px; color: var(--blue); }
 .studio-document-status i { height: 5px; width: 5px; background: currentColor; }
-.studio-document-status.completed { color: #6cd6be; }
-.studio-document-status.failed { color: var(--rose); }
+.studio-document-status.completed { color: var(--accent-text); }
+.studio-document-status.failed { color: var(--rose-text); }
 /* Leave a portion of the next typical result row visible inside the edge fade. */
 .studio-main .studio-results-scroll { margin-top: 0; max-height: min(64dvh, 560px); }
 .studio-main .studio-results-scroll[data-scroll-bottom="true"] { --scroll-fade-bottom: 48px; }
@@ -175,7 +175,7 @@
 .studio-extracted-value .answer-text { color: inherit; }
 .studio-extracted-value .muted { color: var(--studio-muted); }
 .studio-evidence, .studio-main .studio-table .studio-evidence { color: var(--studio-muted); font-size: 11px; line-height: 1.55; white-space: normal; overflow-wrap: anywhere; }
-.studio-confidence { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; font: 10px var(--font-mono); font-variant-numeric: tabular-nums; color: #6dd1b9; }
+.studio-confidence { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; font: 10px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--accent-text); }
 .studio-confidence.pending { color: #e2b76c; }
 .studio-confidence.bad { color: var(--rose); }
 .studio-confidence-track { width: 32px; height: 3px; display: inline-block; background: #172b2c; }
