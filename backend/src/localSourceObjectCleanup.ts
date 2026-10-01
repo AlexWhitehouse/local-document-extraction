@@ -24,10 +24,11 @@ export type LocalSourceObjectCleanup = {
 };
 
 /**
- * Background cleanup for remote retained originals. It never deletes an object an accepted job may
- * reference: stale uploads are released only when the Workspace is gone or its product data
- * positively shows no job referencing the object. Unreadable product data is uncertainty, not proof.
- * Failed deletions retry with backoff indefinitely; intent is never discarded after a retry limit.
+ * Background cleanup for remote retained originals. It never deletes an object a committed owner (an
+ * accepted job or a Saved Evaluation document) may reference: stale uploads are released only when the
+ * Workspace is gone or its product data positively shows the owner does not reference the object.
+ * Unreadable product data is uncertainty, not proof. Failed deletions retry with backoff
+ * indefinitely; intent is never discarded after a retry limit.
  */
 export function createLocalSourceObjectCleanup({
   manifest,
@@ -60,18 +61,22 @@ export function createLocalSourceObjectCleanup({
       return;
     }
     if (!lease) {
-      // A Workspace with no product database has no jobs, so nothing can reference the object.
+      // A Workspace with no product database has no owners, so nothing can reference the object.
       manifest.markDeleting({ objectKey: entry.object_key });
       return;
     }
     try {
-      const retained = lease.store.getRetainedSourceFile(entry.job_id);
-      if (retained?.retained_object_key === entry.object_key) {
+      const referencedKey = entry.owner_kind === "evaluation_document"
+        ? lease.store.getEvaluationDocumentSource(entry.owner_id)?.retained_object_key
+        : lease.store.getRetainedSourceFile(entry.owner_id)?.retained_object_key;
+      if (referencedKey === entry.object_key) {
         if (manifest.link({ objectKey: entry.object_key })) snapshot.linkedAfterRecovery += 1;
       } else {
-        // The job is absent or references a different attempt's object: nothing accepted uses this one.
+        // The owner is absent or references a different attempt's object: nothing committed uses this one.
         manifest.markDeleting({ objectKey: entry.object_key });
       }
+    } catch (error) {
+      console.warn("Retained object recovery could not read Workspace product data", error);
     } finally {
       lease.release();
     }

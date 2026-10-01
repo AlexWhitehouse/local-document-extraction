@@ -74,6 +74,7 @@ const NO_SOURCE_STORAGE: LocalSourceStorageConfiguration = { provider: "none", o
 export function createLocalApplication({
   auth,
   diagnostics,
+  evaluationDocuments,
   evaluations,
   jobPageSize = DEFAULT_JOB_PAGE_SIZE,
   maxSourceFileBytes = 10 * 1024 * 1024,
@@ -93,6 +94,8 @@ export function createLocalApplication({
   workspaceProductOperations,
 }: {
   evaluations?: { handle(request: Request): Promise<Response> };
+  /** The session-only Evaluation library; it applies its own origin, body and no-store rules. */
+  evaluationDocuments?: { handle(request: Request): Promise<Response> };
   auth?: LocalAuth;
   diagnostics?: () => Record<string, unknown>;
   jobPageSize?: number;
@@ -148,6 +151,9 @@ export function createLocalApplication({
   return async (request) => {
     const url = new URL(request.url);
     const { pathname } = url;
+    if (evaluationDocuments && (pathname === "/v1/evaluations/documents" || pathname.startsWith("/v1/evaluations/documents/"))) {
+      return evaluationDocuments.handle(request);
+    }
     if (pathname.startsWith("/v1/") && request.headers.has("cookie") && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
       const rejection = localRequestOriginFailure(request, auth);
       if (rejection) return rejection;
@@ -873,7 +879,7 @@ function handleRetainedSourceFileRead({ product, jobId, request }: { product: Pr
 }
 
 /** Releases a read permit when the stream ends, errors or the client disconnects. */
-function releaseWhenDone(stream: ReadableStream<Uint8Array>, release: () => void): ReadableStream<Uint8Array> {
+export function releaseWhenDone(stream: ReadableStream<Uint8Array>, release: () => void): ReadableStream<Uint8Array> {
   const reader = stream.getReader();
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -914,7 +920,7 @@ async function publishRetainedOriginal({ product, workspaceId, jobId, sourceFile
     throw new SourceStorageUnavailableError("Object storage is not available for retained originals");
   }
   const objectKey = objects.keyFor({ workspaceId, jobId, mimeType: sourceMimeType });
-  objects.manifest.prepare({ objectKey, workspaceId, jobId });
+  objects.manifest.prepare({ objectKey, workspaceId, ownerKind: "job", ownerId: jobId });
   try {
     await objects.store.put({ key: objectKey, file, mimeType: sourceMimeType });
     signal.throwIfAborted();
@@ -930,7 +936,7 @@ async function publishRetainedOriginal({ product, workspaceId, jobId, sourceFile
 
 const DOWNLOAD_EXTENSIONS: Record<string, string> = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
-function attachmentDisposition(sourceName: string | null, mimeType: string): string {
+export function attachmentDisposition(sourceName: string | null, mimeType: string): string {
   const name = sourceName?.trim() || `document.${DOWNLOAD_EXTENSIONS[mimeType] ?? "bin"}`;
   const fallback = name.replace(/[^A-Za-z0-9._ -]/g, "_").replace(/^\.+/, "_").slice(0, 200) || "document";
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
@@ -1092,7 +1098,7 @@ async function authorizeLocalProductRequest(
   return { response: apiKey || session ? forbidden() : unauthorized() };
 }
 
-async function countLocalSourceFilePages(sourceMimeType: string, sourceBytes: ArrayBuffer, signal?: AbortSignal): Promise<number | null> {
+export async function countLocalSourceFilePages(sourceMimeType: string, sourceBytes: ArrayBuffer, signal?: AbortSignal): Promise<number | null> {
   if (sourceMimeType !== "application/pdf") return null;
   try {
     return await countPdfSourceFilePages(sourceBytes, signal);

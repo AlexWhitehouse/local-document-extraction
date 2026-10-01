@@ -1,7 +1,8 @@
 import { createLocalEvaluations, EVALUATION_METADATA_BYTES } from "./localEvaluations";
+import { createLocalEvaluationDocuments } from "./localEvaluationDocuments";
 import { getModelPreparationSnapshot } from "./consumer/modelGateway";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";
-import { createS3SourceObjectStore, retainedObjectKey, sourceObjectDestination } from "./s3SourceObjectStore";
+import { createS3SourceObjectStore, evaluationDocumentObjectKey, retainedObjectKey, sourceObjectDestination } from "./s3SourceObjectStore";
 import { createLocalApplication } from "./localApplication";
 import { localBrowserOrigin, readLocalConfiguration, publicLocalConfiguration } from "./localConfiguration";
 import { createLocalAuthRuntime } from "./localAuthRuntime";
@@ -36,7 +37,8 @@ const {
   sourceRetentionSweepIntervalMs, failedSourceRetentionMs, shutdownTimeoutMs,
 } = configuration;
 const LONG_RUNNING_SUBMISSION_PATHS = ["/v1/templates/generate", "/v1/evaluations/run"];
-const SUBMISSION_PATHS = ["/v1/extract", ...LONG_RUNNING_SUBMISSION_PATHS];
+// Library saves stream one original, so they share upload admission with other submissions.
+const SUBMISSION_PATHS = ["/v1/extract", "/v1/evaluations/documents", ...LONG_RUNNING_SUBMISSION_PATHS];
 
 await ensureLocalStateDirectories(stateDirectory);
 
@@ -160,6 +162,8 @@ const retainedSourceObjects = s3SourceStorage && sourceObjectStore ? (() => {
     manifest: sourceObjectManifest,
     keyFor: (input: { workspaceId: string; jobId: string; mimeType: string }) =>
       retainedObjectKey({ prefix: s3SourceStorage.prefix, namespace, ...input }),
+    documentKeyFor: (input: { workspaceId: string; documentId: string; mimeType: string }) =>
+      evaluationDocumentObjectKey({ prefix: s3SourceStorage.prefix, namespace, ...input }),
   };
 })() : undefined;
 const sourceObjectCleanup = sourceObjectStore ? createLocalSourceObjectCleanup({
@@ -224,12 +228,26 @@ const runRecurringWork = (description: string, work: () => Promise<void>) => {
     });
   recurringWork.add(tracked);
 };
+const localEvaluationDocuments = createLocalEvaluationDocuments({
+  auth: localAuth.auth,
+  workspaceControl: localAuth.workspaceControl,
+  productStoreRegistry: localProductStoreRegistry,
+  operations: localWorkspaceProductOperations,
+  sourceFileStore: localSourceFiles,
+  sourceStorage: configuration.sourceStorage,
+  sourceObjects: retainedSourceObjects && { ...retainedSourceObjects, keyFor: retainedSourceObjects.documentKeyFor },
+  stateDirectory,
+  liveUpdateHub: localLiveUpdateHub,
+  maxSourceFileBytes,
+});
 runRecurringWork("Local Source retention sweep", localSourceFileRetention.run);
+runRecurringWork("Evaluation library cleanup", localEvaluationDocuments.sweep);
 const extractionReconcileTimer = setInterval(() => {
   runRecurringWork("Local extraction reconciliation", localExtractionRunner.recover);
 }, extractionReconcileIntervalMs);
 const sourceRetentionTimer = setInterval(() => {
   runRecurringWork("Local Source retention sweep", localSourceFileRetention.run);
+  runRecurringWork("Evaluation library cleanup", localEvaluationDocuments.sweep);
 }, sourceRetentionSweepIntervalMs);
 // Remote cleanup runs in the background and never blocks startup, uploads or deletion responses.
 if (sourceObjectCleanup) runRecurringWork("Retained object cleanup", sourceObjectCleanup.run);
@@ -240,8 +258,10 @@ const localEvaluations = createLocalEvaluations({
   auth: localAuth.auth, workspaceControl: localAuth.workspaceControl, productStoreRegistry: localProductStoreRegistry,
   stateDirectory, queue: localExtractionQueue, maxSourceFileBytes, requestTimeoutMs: configuration.modelGatewayRequestTimeoutMs,
   retryDelayMs: extractionRetryDelayMs, onGatewayOutcome: localResourceController.recordGatewayOutcome,
+  libraryDocuments: localEvaluationDocuments.sources,
 });
 const application = createLocalApplication({
+  evaluationDocuments: localEvaluationDocuments,
   evaluations: localEvaluations,
   modelGatewayRequestTimeoutMs: String(configuration.modelGatewayRequestTimeoutMs),
   auth: localAuth.auth,
@@ -261,6 +281,7 @@ const application = createLocalApplication({
       nodeVersion: process.versions.node,
     },
     sourceRetention: localSourceFileRetention.snapshot(),
+    evaluationDocuments: localEvaluationDocuments.snapshot(),
     ...(sourceObjectCleanup ? { retainedObjects: sourceObjectCleanup.snapshot() } : {}),
   }),
   liveUpdateHub: localLiveUpdateHub,

@@ -21,6 +21,8 @@ Use real databases, files, routes, and sign-in wherever you can. Only replace so
 | Edit a template, upload, extract, see live updates, export, delete documents and templates | `extractionJourney.spec.ts` | Job queue, storage, and recovery tests |
 | Generate a template from a sample, review it, save it | `templateGenerationJourney.spec.ts` | Template generation HTTP tests |
 | Set up, run, and score a model Evaluation | `evaluationJourney.spec.ts` | Evaluation HTTP tests and scoring unit tests |
+| Save a verified document to the Evaluation library, reuse it in a Batch Evaluation and update its saved answers | `evaluationLibraryJourney.spec.ts` | Library HTTP, recovery and batch runner tests; saved answer sets, result cache and controller unit tests |
+| Verify date formats and table cell statuses, then save and reuse expected answers | `evaluationExpectedAnswers.spec.ts` | Reference editor, scoring, saved answer set and backend reference validation tests |
 | Follow the optional onboarding tour | `onboardingTour.spec.ts` | Onboarding component tests |
 | Search users, change roles, ban, and impersonate as an Application admin | `applicationAdminJourney.spec.ts` | Admin permission tests |
 

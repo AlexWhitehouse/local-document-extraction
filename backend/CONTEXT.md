@@ -200,12 +200,28 @@ _Avoid_: current template, schema snapshot
 A temporary, browser-held comparison of extraction outputs for a shared Document, with optional user-verified expected answers for scoring. The product area is named **Evaluations**.
 _Avoid_: experiment, saved evaluation, benchmark history, model connection test
 
+**Batch Evaluation**:
+A temporary comparison of extraction outputs across multiple documents using the same **Comparison candidates**, with per-document results.
+_Avoid_: saved batch run, benchmark history, independent candidate sets per document
+
+**Evaluation document library**:
+A Workspace-shared collection of saved documents and user-verified **Expected answers** for reuse in future **Evaluations** and **Batch Evaluations**.
+_Avoid_: saved Evaluation history, personal document library, model-generated ground truth
+
+**Saved Evaluation document**:
+A reusable **Evaluation document library** entry containing a fixed original **Source file** and one editable **Expected answer set**, with ownership independent of an ordinary **Extraction job**.
+_Avoid_: saved Evaluation run, Extraction job, temporary Evaluation upload
+
+**Expected answer set**:
+The reference field definitions and any user-verified **Expected answers** for one saved document in the **Evaluation document library**, including expected-table structure and matching rules. It may be incomplete or have no verified answers yet, and is reusable across compatible **Templates** rather than belonging to one **Template version**.
+_Avoid_: candidate output, Template-owned answer sheet, saved Evaluation results
+
 **Expected answer**:
-A user-verified reference value or explicit verified absence for a field in an **Evaluation**, entered manually or explicitly accepted after reviewing a candidate output. A field without an Expected answer has no correctness reference and remains unscored.
+A user-verified reference value or explicit verified absence for a document field, entered manually or explicitly accepted after reviewing a candidate output, and used to score **Evaluations**. It may be saved in an **Expected answer set**; a field without an Expected answer has no correctness reference and remains unscored.
 _Avoid_: model confidence, majority answer, automatically accepted ground truth
 
 **Expected table**:
-A complete user-verified reference table for an **Evaluation**, including its expected rows and cell values. It provides the reference for table-cell matching and missing or extra row checks.
+A user-verified reference table for an **Evaluation**, including its expected rows and cell values or explicit cell absence. Individual cells may be ignored, excluding them from table-cell accuracy. A cell marked absent expects an empty cell in an existing extracted row. Row identifiers require values, even when other cells are absent or ignored. It provides the reference for table-cell matching and missing or extra row checks.
 _Avoid_: unverified candidate table, partial table reference
 
 **Evaluation coverage**:

@@ -21,6 +21,8 @@ export type LocalAuth = {
 
 export type LocalSession = {
   id: string;
+  /** The Better Auth session, distinct from the user id, for state owned by one signed-in browser session. */
+  sessionId?: string;
   email: string;
   name: string;
   role?: string;
@@ -157,6 +159,7 @@ export async function createLocalAuth({
 
       return {
         id: session.user.id,
+        sessionId: session.session.id,
         email: session.user.email,
         name: session.user.name,
         isActive: () => Boolean(database.query(`SELECT 1 FROM session s JOIN user u ON u.id = s.userId

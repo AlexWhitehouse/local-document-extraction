@@ -3,7 +3,7 @@ import { hydrateFieldFromTemplate } from "../templates/templateFields.js";
 export const fieldIdentity = field => `${field.name.trim().toLocaleLowerCase()}:${field.data_type}`;
 const text = value => value.normalize("NFKC").toLocaleLowerCase().replace(/[\p{P}\p{S}]/gu, "").replace(/\s+/g, " ").trim();
 const invalid = () => ({ valid: false });
-export function scalarValue(value, type, exact = false) {
+export function scalarValue(value, type, exact = false, dateOrder) {
   if (value === null || value === undefined || (typeof value === "string" && !value.trim())) return invalid();
   if (type === "string") return typeof value === "string" ? { valid: true, value: exact ? value : text(value) } : invalid();
   if (type === "number") {
@@ -28,8 +28,10 @@ export function scalarValue(value, type, exact = false) {
       match = source.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
       if (match) {
         const a = Number(match[1]), b = Number(match[2]);
-        if (a <= 12 && b <= 12 && a !== b) return invalid();
-        year = Number(match[3]); month = a > 12 ? b : a; day = a > 12 ? a : b;
+        if (!dateOrder && a <= 12 && b <= 12 && a !== b) return invalid();
+        year = Number(match[3]);
+        month = dateOrder === "dmy" ? b : dateOrder === "mdy" ? a : a > 12 ? b : a;
+        day = dateOrder === "dmy" ? a : dateOrder === "mdy" ? b : a > 12 ? a : b;
       } else {
         const months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
         match = source.toLowerCase().match(/^(?:(\d{1,2})\s+([a-z]+)|([a-z]+)\s+(\d{1,2})),?\s+(\d{4})$/);
@@ -54,20 +56,53 @@ export function tableAnswerRows(answer) {
 export function tableColumns(field) {
   return hydrateFieldFromTemplate(field).object_schema?.columns || [];
 }
-export function validateReference(field, reference) {
-  if (reference.absent) return "";
-  if (["string", "number", "boolean", "date"].includes(field.data_type)) return scalarValue(reference.value, field.data_type, reference.exact).valid ? "" : "Enter a valid, unambiguous value for this field type.";
-  if (field.data_type !== "array<object>" || !tableColumns(field).length) return "This field is not automatically scored.";
+// Only user-entered expected dates have an explicit order. Candidate dates keep strict parsing.
+export function normalizeReferenceDates(field, reference, dateOrder) {
+  const normalize = value => {
+    const parsed = scalarValue(value, "date", false, dateOrder);
+    return parsed.valid ? parsed.value : value;
+  };
+  if (reference.absent) return reference;
+  if (field.data_type === "date") return { ...reference, value: normalize(reference.value) };
+  if (field.data_type !== "array<object>" || !Array.isArray(reference.value)) return reference;
+  const dates = tableColumns(field).filter(c => c.data_type === "date");
+  return { ...reference, value: reference.value.map((record, index) => ({ ...record, ...Object.fromEntries(dates.filter(c => !reference.cellStates?.[index]?.[c.key]).map(c => [c.key, normalize(record[c.key])])) })) };
+}
+
+const valueProblem = type => ({ string: "Enter an expected text value.", number: "Enter a valid number, such as 1234.50.", boolean: "Choose Yes or No.", date: "Enter a valid calendar date using the selected date format, or YYYY-MM-DD." })[type];
+export function referenceProblem(field, reference, dateOrder) {
+  if (reference.absent) return null;
+  if (["string", "number", "boolean", "date"].includes(field.data_type)) return scalarValue(reference.value, field.data_type, reference.exact, dateOrder).valid ? null : { message: valueProblem(field.data_type), control: "value" };
+  if (field.data_type !== "array<object>" || !tableColumns(field).length) return { message: "This field is not automatically scored." };
   const columns = tableColumns(field);
-  if (!Array.isArray(reference.value) || reference.value.some(row => !row || typeof row !== "object" || columns.some(c => !scalarValue(row[c.key], c.data_type).valid))) return "Provide the complete table with valid values for every declared column.";
-  if (!["position", "key"].includes(reference.rows?.mode)) return "Choose how to match rows before verifying: use a unique column or row position.";
+  if (!Array.isArray(reference.value)) return { message: "Provide the expected table rows." };
+  if (reference.cellStates !== undefined && (!Array.isArray(reference.cellStates) || reference.cellStates.length !== reference.value.length || reference.cellStates.some(states => !states || typeof states !== "object" || Array.isArray(states) || Object.entries(states).some(([key, state]) => !columns.some(c => c.key === key) || !["absent", "ignored"].includes(state))))) return { message: "Review the table cell statuses." };
+  for (const [index, record] of reference.value.entries()) {
+    if (!record || typeof record !== "object" || Array.isArray(record)) return { message: `Row ${index + 1}: provide a valid table row.`, row: index };
+    for (const column of columns) {
+      if (reference.cellStates?.[index]?.[column.key]) continue;
+      if (!scalarValue(record[column.key], column.data_type, reference.exact, dateOrder).valid) return { message: `Row ${index + 1} · ${column.heading}: ${valueProblem(column.data_type)} You can also mark this cell as not present or ignore it.`, row: index, column: column.key, control: "value" };
+    }
+  }
+  if (!["position", "key"].includes(reference.rows?.mode)) return { message: "Choose how to match rows before verifying: use a unique column or row position.", control: "rows" };
   if (reference.rows.mode === "key") {
     const column = columns.find(c => c.key === reference.rows.key);
-    if (!column) return "Choose a column from this table to identify rows.";
+    if (!column) return { message: "Choose a column from this table to identify rows.", control: "rows" };
+    const missing = reference.value.findIndex((record, index) => reference.cellStates?.[index]?.[column.key]);
+    if (missing >= 0) return { message: `Row ${missing + 1} · ${column.heading}: row identifiers must have an expected value. Choose another identifier or compare by row position.`, row: missing, column: column.key, control: "status" };
     const keys = reference.value.map(row => scalarValue(row[column.key], column.data_type).value);
-    if (new Set(keys).size !== keys.length) return "Row identifiers must be unique. Choose another column or compare by row position.";
+    if (new Set(keys).size !== keys.length) return { message: "Row identifiers must be unique. Choose another column or compare by row position.", control: "rows" };
   }
-  return "";
+  return null;
+}
+export const validateReference = (field, reference, dateOrder) => referenceProblem(field, reference, dateOrder)?.message || "";
+export const blankCell = value => value === undefined || value === null || (typeof value === "string" && !value.trim());
+export function tableCellMatches(column, actual, expected, state, exact = false, rowPresent = true) {
+  if (state === "ignored") return true;
+  if (!rowPresent) return false;
+  if (state === "absent") return blankCell(actual);
+  const a = scalarValue(actual, column.data_type, exact), e = scalarValue(expected, column.data_type, exact);
+  return a.valid && e.valid && a.value === e.value;
 }
 export function scoreField(field, raw, reference, referenceField = field, options = {}) {
   if (["object", "array"].includes(field.data_type) || (field.data_type === "array<object>" && !tableColumns(field).length)) return { state: "Not automatically scored" };
@@ -82,7 +117,9 @@ export function scoreField(field, raw, reference, referenceField = field, option
   return { state: matches ? "Match" : "Mismatch", matched: matches ? 1 : 0, total: 1, kind: "field" };
 }
 function scoreTable(field, value, reference, referenceField, mappings) {
-  const pairs = tableColumnPairs(referenceField, field, mappings);
+  const problem = referenceProblem(referenceField, reference);
+  if (problem) return { state: "Needs review", reason: problem.message };
+  const pairs = tableColumnPairs(referenceField, field, mappings).filter(([column]) => !reference.value.length || reference.rows?.mode === "key" && reference.rows.key === column.key || reference.value.some((_, i) => reference.cellStates?.[i]?.[column.key] !== "ignored"));
   if (pairs.some(([, actual]) => !actual) || new Set(pairs.map(([, actual]) => actual.key)).size !== pairs.length) return { state: "Needs review", reason: "Align the table columns." };
   if (!reference.rows || !["position", "key"].includes(reference.rows.mode)) return { state: "Needs review", reason: "Choose a row identifier or row-position comparison." };
   const expectedRows = reference.value;
@@ -105,16 +142,17 @@ function scoreTable(field, value, reference, referenceField, mappings) {
     const actualIndex = actualKeys.indexOf(expectedKeys[index]);
     if (actualIndex < 0) missing.push(index + 1);
     for (const [expected, actual] of pairs) {
-      const a = scalarValue(rows[actualIndex]?.[actual.key], actual.data_type, reference.exact);
-      const e = scalarValue(row[expected.key], expected.data_type, reference.exact);
-      const match = a.valid && e.valid && a.value === e.value;
+      const state = reference.cellStates?.[index]?.[expected.key];
+      if (state === "ignored") continue;
+      const match = tableCellMatches(expected, rows[actualIndex]?.[actual.key], row[expected.key], state, reference.exact, actualIndex >= 0);
       if (match) matched++;
-      cells.push({ row: index + 1, column: expected.heading, match, expected: row[expected.key], actual: rows[actualIndex]?.[actual.key] });
+      cells.push({ row: index + 1, column: expected.heading, match, expected: state === "absent" ? "Not in document" : row[expected.key], actual: rows[actualIndex]?.[actual.key] });
     }
   });
   actualKeys.forEach((key, index) => { if (!expectedKeys.includes(key)) extra.push(index + 1); });
-  const total = expectedRows.length * pairs.length;
-  return { state: parsedRows !== null && matched === total && !extra.length ? "Match" : "Mismatch", kind: "table", matched, total, missing, extra, cells };
+  const total = cells.length;
+  if (expectedRows.length && !total) return { state: "Unscored", reason: "All expected cells are ignored." };
+  return { state: parsedRows !== null && matched === total && !missing.length && !extra.length ? "Match" : "Mismatch", kind: "table", matched, total, missing, extra, cells };
 }
 export function scoreCandidate(candidate, references, definitions, alignments = {}, columns = {}) {
   if (!candidate.result) return { fields: null, tables: null, tablesNeedingReview: 0, byField: {} };
@@ -130,7 +168,8 @@ export function scoreCandidate(candidate, references, definitions, alignments = 
   }
   const sum = kind => {
     const scored = Object.values(byField).filter(score => score.kind === kind);
-    return scored.length ? { matched: scored.reduce((s, r) => s + r.matched, 0), total: scored.reduce((s, r) => s + r.total, 0) } : null;
+    const total = scored.reduce((s, r) => s + r.total, 0);
+    return total ? { matched: scored.reduce((s, r) => s + r.matched, 0), total } : null;
   };
   const tablesNeedingReview = candidate.result.fields.filter(field => field.data_type === "array<object>" && byField[field.id]?.state === "Needs review").length;
   return { fields: sum("field"), tables: sum("table"), tablesNeedingReview, byField };
@@ -180,7 +219,7 @@ export function tableCellsEqual(column, a, b, exact = false) {
 export function alignTableRows(definition, reference, sources) {
   const columns = tableColumns(definition);
   const keyColumn = reference?.rows?.mode === "key" ? columns.find(c => c.key === reference.rows.key) : null;
-  const order = [], lines = new Map(), expectedKeys = new Set();
+  const order = [], lines = new Map(), expectedKeys = new Set(), expectedIndices = new Map();
   const projected = sources.map(source => {
     const pairs = source.expected ? columns.map(column => [column, column]) : tableColumnPairs(definition, source.field, source.mappings);
     const rows = (tableAnswerRows(source.rows) || []).map(row => Object.fromEntries(pairs.map(([expected, actual]) => [expected.key, actual ? row?.[actual.key] : undefined])));
@@ -193,7 +232,7 @@ export function alignTableRows(definition, reference, sources) {
       let key = keyColumn ? (value.valid ? `key:${JSON.stringify(value.value)}` : `row:${index}`) : `position:${index}`;
       if (used.has(key)) key = `${key}:duplicate:${index}`;
       used.add(key);
-      if (sources[sourceIndex].expected) expectedKeys.add(key);
+      if (sources[sourceIndex].expected) { expectedKeys.add(key); expectedIndices.set(key, index); }
       if (!lines.has(key)) { lines.set(key, sources.map(() => null)); order.push(key); }
       lines.get(key)[sourceIndex] = row;
     });
@@ -202,6 +241,41 @@ export function alignTableRows(definition, reference, sources) {
   return {
     columns,
     unaligned: projected.map(source => source.unaligned),
-    lines: order.map((key, index) => ({ key, number: index + 1, extra: hasExpected && !expectedKeys.has(key), rows: lines.get(key) })),
+    lines: order.map((key, index) => ({ key, number: index + 1, expectedIndex: expectedIndices.get(key), extra: hasExpected && !expectedKeys.has(key), rows: lines.get(key) })),
   };
+}
+
+// ---------- Saved Expected answer sets and Batch Evaluation summaries ----------
+const baseName = identity => identity.slice(0, identity.lastIndexOf(":"));
+export const verifiedIdentities = set => Object.entries(set?.references || {}).filter(([, reference]) => reference?.verified).map(([identity]) => identity);
+
+// A document's explicit links from renamed Template fields to its saved answers, as field-id alignments.
+// Links are temporary comparison settings: they never change or travel with the saved answer set.
+export function linkAlignments(links, fields) {
+  const alignments = {};
+  if (!links) return alignments;
+  for (const field of fields || []) { const target = links[fieldIdentity(field)]; if (target) alignments[field.id] = target; }
+  return alignments;
+}
+export const documentCompatibility = (document, fields) => referenceCompatibility(document?.reference, fields, linkAlignments(document?.links, fields));
+
+// How a document's Expected answer set applies to the Template fields in use. Same name and type
+// reuse the answer; a changed type or table structure needs review; unrequested answers are omitted.
+export function referenceCompatibility(set, fields, alignments = {}) {
+  const references = set?.references || {}, definitions = set?.definitions || {};
+  const verified = verifiedIdentities(set);
+  const identities = fields.map(field => alignments[field.id] || fieldIdentity(field));
+  const rows = fields.map((field, index) => {
+    const identity = identities[index];
+    if (references[identity]?.verified) {
+      const definition = definitions[identity];
+      const changed = field.data_type === "array<object>" && definition && !references[identity].absent && tableColumnPairs(definition, field).some(([, actual]) => !actual);
+      return changed ? { field, identity, state: "review", from: identity, reason: "columns" } : { field, identity, state: "verified" };
+    }
+    const from = verified.find(id => !identities.includes(id) && baseName(id) === baseName(identity));
+    return from ? { field, identity, state: "review", from, reason: "type" } : { field, identity, state: "unverified" };
+  });
+  const used = new Set(rows.flatMap(row => [row.identity, row.from].filter(Boolean)));
+  const omitted = verified.filter(identity => !used.has(identity));
+  return { rows, omitted, verified: rows.filter(row => row.state === "verified").length, review: rows.filter(row => row.state === "review").length, total: fields.length };
 }

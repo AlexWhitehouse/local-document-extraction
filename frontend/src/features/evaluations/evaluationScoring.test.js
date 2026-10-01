@@ -5,6 +5,24 @@ const ref = value => ({ verified: true, value });
 const raw = answer => ({ status: "ok", answer });
 const table = { ...field("Items", "array<object>"), object_schema: { mode: "table", columns: [{ key: "sku", heading: "SKU", data_type: "string", description: "SKU" }, { key: "quantity", heading: "Quantity", data_type: "number", description: "Quantity" }] } };
 const expectedTable = [{ sku: "A", quantity: 1 }, { sku: "B", quantity: 2 }];
+it("scores absent table cells and excludes only explicitly ignored cells", () => {
+  const reference = { ...ref([{ sku: "A", quantity: "" }, { sku: "B", quantity: "" }]), rows: { mode: "position" }, cellStates: [{ quantity: "absent" }, { quantity: "ignored" }] };
+  expect(validateReference(table, reference)).toBe("");
+  for (const quantity of [undefined, null, "", "  "]) {
+    expect(scoreField(table, raw([{ sku: "A", quantity }, { sku: "B", quantity: 999 }]), reference)).toMatchObject({ state: "Match", matched: 3, total: 3 });
+  }
+  for (const quantity of [0, false, "unknown", {}]) {
+    expect(scoreField(table, raw([{ sku: "A", quantity }, { sku: "B" }]), reference)).toMatchObject({ state: "Mismatch", matched: 2, total: 3 });
+  }
+  expect(scoreField(table, raw([{ sku: "A" }]), reference)).toMatchObject({ state: "Mismatch", missing: [2], matched: 2, total: 3 });
+});
+it("requires a real value for row identifiers even if a cell is marked absent or ignored", () => {
+  for (const state of ["absent", "ignored"]) expect(validateReference(table, { ...ref(expectedTable), rows: { mode: "key", key: "sku" }, cellStates: [{ sku: state }, {}] })).toMatch(/identifier.*value/i);
+});
+it("does not count a table with every cell ignored as a perfect match", () => {
+  const reference = { ...ref([{ sku: "", quantity: "" }]), rows: { mode: "position" }, cellStates: [{ sku: "ignored", quantity: "ignored" }] };
+  expect(scoreField(table, raw([{ sku: "anything", quantity: 10 }]), reference)).toMatchObject({ state: "Unscored" });
+});
 describe("Evaluation matching", () => {
   it.each([["ACME, Inc.", "acme inc"], ["INV-123", "INV123"], ["A  B", "a b"]])("ignores case, punctuation and repeated whitespace: %s", (actual, expected) => {
     expect(scoreField(field(), raw(actual), ref(expected)).state).toBe("Match");
@@ -102,6 +120,25 @@ it("reports tables needing review separately from unscored tables", () => {
   const identity = fieldIdentity(table);
   expect(scoreCandidate(candidate, { [identity]: ref(expectedTable) }, { [identity]: table }).tablesNeedingReview).toBe(1);
   expect(scoreCandidate(candidate, {}, { [identity]: table }).tablesNeedingReview).toBe(0);
+});
+it("leaves zero-cell accuracy unscored and ranks measured table cells ahead of it", () => {
+  const emptyTable = { ...table, id: "empty_items", name: "Empty items" };
+  const identity = fieldIdentity(table);
+  const emptyIdentity = fieldIdentity(emptyTable);
+  const references = { [identity]: { ...ref(expectedTable), rows: { mode: "position" } }, [emptyIdentity]: { ...ref([]), rows: { mode: "position" } } };
+  const definitions = { [identity]: table, [emptyIdentity]: emptyTable };
+  const candidate = (id, definition, answer, processingMs) => ({ id, result: { fields: [definition], raw: [{ field_id: definition.id, ...raw(answer) }], processingMs } });
+  const empty = candidate("empty", emptyTable, [], 10);
+  const populated = candidate("populated", table, expectedTable, 100);
+  const scores = Object.fromEntries([empty, populated].map(value => [value.id, scoreCandidate(value, references, definitions)]));
+  expect(scores.empty.byField[emptyTable.id].state).toBe("Match");
+  expect(candidateAccuracy(scores.empty)).toEqual({ matched: 1, total: 1, ratio: 1 });
+  expect(scores.empty.tables).toBeNull();
+  expect(scores.populated.tables).toEqual({ matched: 4, total: 4 });
+  expect(rankCandidates([empty, populated], scores).map(value => value.id)).toEqual(["populated", "empty"]);
+  expect(bestCandidateId([empty, populated], scores)).toBe("populated");
+  const mixed = { result: { fields: [emptyTable, table], raw: [...empty.result.raw, ...populated.result.raw] } };
+  expect(scoreCandidate(mixed, references, definitions).tables).toEqual({ matched: 4, total: 4 });
 });
 
 const itemsTable = { name: "Items", data_type: "array<object>", object_schema: { columns: [{ key: "sku", heading: "SKU", data_type: "string" }, { key: "qty", heading: "Quantity", data_type: "number" }] } };

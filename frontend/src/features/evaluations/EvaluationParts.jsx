@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { candidateBusy } from "./useEvaluations.js";
-import { scalarValue, validateReference } from "./evaluationScoring.js";
+import { normalizeReferenceDates, scalarValue, validateReference } from "./evaluationScoring.js";
+import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
 import { display, seconds } from "./evaluationFormat.js";
 
 const SCALAR_TYPES = ["string", "number", "date", "boolean"];
@@ -67,6 +68,8 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(initial);
   const [error, setError] = useState("");
+  const [dateOrder, setDateOrder] = useState("dmy");
+  const errorId = useId();
   const input = useRef(null);
   useEffect(() => { if (editing) input.current?.focus(); }, [editing]);
   if (!SCALAR_TYPES.includes(field.data_type)) {
@@ -78,17 +81,18 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
     <span className={verified ? "" : "evaluation-muted"}>{verified ? reference.absent ? "Not in document" : display(field.data_type === "boolean" && scalarValue(reference.value, "boolean").valid ? scalarValue(reference.value, "boolean").value : reference.value) : "Add expected answer"}</span>
   </button>;
   const save = value => {
-    const next = { verified: true, absent: false, exact: reference?.exact || false, rows: reference?.rows, value };
-    const problem = validateReference(field, next);
-    if (problem) { setError(problem); return; }
+    const next = normalizeReferenceDates(field, { verified: true, absent: false, exact: reference?.exact || false, rows: reference?.rows, value }, dateOrder);
+    const problem = validateReference(field, next, dateOrder);
+    if (problem) { setError(problem); input.current?.focus(); return; }
     onSave(next); setEditing(false);
   };
   const commit = () => { if (field.data_type === "boolean" ? draft === "" : !String(draft).trim()) { setEditing(false); return; } save(field.data_type === "boolean" ? draft : String(draft).trim()); };
   return <form className="evaluation-expected-edit" onSubmit={event => { event.preventDefault(); commit(); }} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setEditing(false); } }}>
     {field.data_type === "boolean"
-      ? <select ref={input} aria-label={`Expected ${field.name}`} value={draft === "" ? "" : String(draft)} onChange={event => { setDraft(event.target.value === "" ? "" : event.target.value === "true"); setError(""); }}><option value="">Choose Yes or No</option><option value="true">Yes</option><option value="false">No</option></select>
-      : <input ref={input} aria-label={`Expected ${field.name}`} inputMode={field.data_type === "number" ? "decimal" : undefined} placeholder={field.data_type === "date" ? "YYYY-MM-DD" : "Expected value"} value={draft ?? ""} onChange={event => { setDraft(event.target.value); setError(""); }} />}
-    {error && <p role="alert" className="evaluation-bad-text">{error}</p>}
+      ? <select ref={input} aria-label={`Expected ${field.name}`} aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined} value={draft === "" ? "" : String(draft)} onChange={event => { setDraft(event.target.value === "" ? "" : event.target.value === "true"); setError(""); }}><option value="">Choose Yes or No</option><option value="true">Yes</option><option value="false">No</option></select>
+      : <input ref={input} aria-label={`Expected ${field.name}`} aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined} inputMode={field.data_type === "number" ? "decimal" : undefined} placeholder={field.data_type === "date" ? dateOrder === "dmy" ? "DD/MM/YYYY" : "MM/DD/YYYY" : "Expected value"} value={draft ?? ""} onChange={event => { setDraft(event.target.value); setError(""); }} />}
+    {field.data_type === "date" && <><DateFormatSelect value={dateOrder} onChange={order => { setDateOrder(order); setError(""); }} /><DatePreview value={draft} dateOrder={dateOrder} /></>}
+    {error && <p id={errorId} role="alert" className="evaluation-validation-error">{error}</p>}
     <div className="evaluation-expected-actions">
       <button type="submit" className="studio-text-button">Verify</button>
       <button type="button" className="studio-text-button" onClick={() => { onSave({ verified: true, absent: true, exact: false, value: "" }); setEditing(false); }}>Not in document</button>

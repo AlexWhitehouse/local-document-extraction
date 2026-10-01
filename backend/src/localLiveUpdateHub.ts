@@ -104,6 +104,16 @@ export function createLocalLiveUpdateHub() {
         },
       });
     },
+    /** A freshness hint only: it names the changed entry and never carries its content. */
+    broadcastEvaluationDocument: (workspaceId: string, change: { documentId: string; revision: number | null; deleted: boolean; occurredAt: string }) => {
+      deliver(workspaceId, {
+        type: "evaluation_document_changed",
+        document_id: change.documentId,
+        revision: change.revision,
+        deleted: change.deleted,
+        occurred_at: change.occurredAt,
+      });
+    },
     closeAll: () => {
       if (closed) return;
       closed = true;

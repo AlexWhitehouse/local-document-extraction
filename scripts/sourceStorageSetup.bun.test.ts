@@ -149,7 +149,7 @@ describe("storage configure", () => {
     const manifest = createLocalSourceObjectManifest(database);
     manifest.assertDestination("s3|http://rustfs:9000|documents|document-extraction/|path");
     expect(dependentSourceDestination(state)).toBeNull();
-    manifest.prepare({ objectKey: "document-extraction/key.pdf", workspaceId: "workspace_a", jobId: "job_a" });
+    manifest.prepare({ objectKey: "document-extraction/key.pdf", workspaceId: "workspace_a", ownerKind: "job", ownerId: "job_a" });
     database.close();
     expect(dependentSourceDestination(state)).toBe("s3|http://rustfs:9000|documents|document-extraction/|path");
   });

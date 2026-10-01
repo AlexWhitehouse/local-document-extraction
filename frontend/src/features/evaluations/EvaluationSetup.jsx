@@ -1,16 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
-import { MAX_CANDIDATES } from "./useEvaluations.js";
+import { MAX_CANDIDATES, documentRunnable } from "./useEvaluations.js";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import { Chips } from "./EvaluationLibrary.jsx";
+import { documentChips, kilobytes, saveUnavailableMessage, unavailableText } from "./evaluationLibrary.js";
 
 const MODES = [
   { id: "models", title: "Models", summary: "One Template, different models", detail: "Find the most accurate or fastest model for this kind of document.", shape: ["T", ["M1", "M2", "M3"]] },
   { id: "templates", title: "Template versions", summary: "One model, different Templates", detail: "Check whether edited field instructions improve the results.", shape: ["M", ["v3", "v2", "v1"]] },
 ];
 const mebibytes = bytes => new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(bytes / (1024 * 1024));
-const kilobytes = bytes => `${Math.max(1, Math.round(bytes / 1024)).toLocaleString()} KB`;
 
 // Setup for an empty or cleared Evaluation: everything needed for a first run on one screen.
-export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes, documentUrl, suggestedModels = [], error, loadTemplate, onSelectDocument, onRemoveDocument, onPreviewDocument, onStart }) {
+// One document compares candidates on it; several run a Batch Evaluation with the same candidates.
+export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes, suggestedModels = [], error, loadTemplate, onSelectDocuments, onRemoveDocument, onPreviewDocument, onChooseLibrary, onManageLibrary, onStart }) {
   const workspaceModel = state.setup?.model || "";
   const [mode, setMode] = useState(state.mode);
   const [templateId, setTemplateId] = useState("");
@@ -46,7 +48,9 @@ export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes,
     !template && "Choose a Template",
     mode === "models" ? names.length < 2 && "Add at least two models" : !versions.length && "Choose a version",
   ].filter(Boolean);
-  const willRun = runNow && !!state.document;
+  const runnable = state.documents.filter(documentRunnable).length;
+  const willRun = runNow && runnable > 0;
+  const saveUnavailable = saveUnavailableMessage(state.library);
   const suggestions = [...new Set([workspaceModel, ...suggestedModels].map(model => String(model || "").trim()).filter(Boolean))].filter(model => !names.includes(model)).slice(0, 6);
   const fields = preview?.fields || [];
   const tables = fields.filter(field => field.data_type === "array<object>").length;
@@ -61,21 +65,25 @@ export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes,
   };
   return <div className="evaluation-setup">
     <div className="evaluation-setup-main">
-      <header className="evaluation-setup-head"><p className="studio-eyebrow">New Evaluation</p><h2>Compare extraction results on one document</h2><p>Nothing is saved. Drafts, results and expected answers clear when you close this tab.</p></header>
+      <header className="evaluation-setup-head"><p className="studio-eyebrow">New Evaluation</p><h2>Compare extraction results on your documents</h2><p>Runs and results aren’t saved and clear when you close this tab. Documents you save to the Evaluation library can be reused.</p></header>
       {error && <p role="alert" className="evaluation-setup-error">{error}</p>}
 
-      <section className="evaluation-setup-step" aria-labelledby="evaluation-step-document"><div className="evaluation-setup-label"><span>01</span><h3 id="evaluation-step-document">Document</h3></div>
+      <section className="evaluation-setup-step" aria-labelledby="evaluation-step-document"><div className="evaluation-setup-label"><span>01</span><h3 id="evaluation-step-document">Documents</h3></div>
         <div className="evaluation-setup-body">
-          {state.document ? <div className="evaluation-setup-file">
-            <button type="button" className="evaluation-setup-thumb" aria-label={`View ${state.document.name}`} onClick={onPreviewDocument}>{state.document.type.startsWith("image/") && documentUrl ? <img alt="" src={documentUrl} /> : <span>PDF</span>}</button>
-            <div><strong title={state.document.name}>{state.document.name}</strong><small>{kilobytes(state.document.size)}</small><p>Every candidate reads this document.</p></div>
-            <div className="evaluation-actions"><button type="button" className="secondary" onClick={() => input.current.click()}>Replace</button><button type="button" className="icon-action-button" aria-label="Remove document" onClick={onRemoveDocument}>×</button></div>
-          </div> : <div className={`evaluation-dropzone ${dragging ? "dragging" : ""}`} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); onSelectDocument(Array.from(event.dataTransfer.files || [])); }}>
+          {state.documents.length > 0 && <ol className="evaluation-setup-docs">{state.documents.map(document => <li key={document.key} className={`evaluation-setup-file ${documentRunnable(document) ? "" : "unrunnable"}`}>
+            <button type="button" className="evaluation-setup-thumb" aria-label={`View ${document.name}`} onClick={() => onPreviewDocument(document)}><span>{(document.file?.type || document.entry?.mime_type || "").startsWith("image/") ? "IMG" : "PDF"}</span></button>
+            <div><strong title={document.name}>{document.name}</strong><small>{document.file?.name || document.entry?.source_name} · {kilobytes(document.file?.size ?? document.entry?.byte_size)} · {document.kind === "upload" ? "new upload" : "from library"}</small><Chips list={documentChips(document, fields)} />
+              {!documentRunnable(document) && <p className="evaluation-bad-text">{unavailableText(document)}</p>}</div>
+            <div className="evaluation-actions">
+              <button type="button" className="icon-action-button" aria-label={`Remove ${document.name}`} onClick={() => onRemoveDocument(document.key)}>×</button></div>
+          </li>)}</ol>}
+          <div className={`evaluation-dropzone ${dragging ? "dragging" : ""} ${state.documents.length ? "compact" : ""}`} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); onSelectDocuments(Array.from(event.dataTransfer.files || [])); }}>
             <span className="evaluation-dropzone-icon" aria-hidden="true">▤</span>
-            <div><strong>Drop a PDF or image here</strong><small>PDF, PNG, JPG or WEBP · up to {mebibytes(maxSourceFileBytes)} MiB · one document</small></div>
-            <button type="button" className="secondary" onClick={() => input.current.click()}>Choose file</button>
-          </div>}
-          <input ref={input} type="file" hidden aria-label="Evaluation document" accept={SOURCE_FILE_MIME_TYPES.join(",")} onChange={event => { onSelectDocument(Array.from(event.target.files || [])); event.target.value = ""; }} />
+            <div><strong>{state.documents.length ? "Add more documents" : "Choose saved documents or drop new ones here"}</strong><small>PDF, PNG, JPG or WEBP · up to {mebibytes(maxSourceFileBytes)} MiB each · several documents run a Batch Evaluation</small></div>
+            <span className="evaluation-actions"><button type="button" onClick={() => onChooseLibrary(fields)}>Choose from library</button><button type="button" className="secondary" onClick={() => input.current.click()}>Upload new</button></span>
+          </div>
+          <input ref={input} type="file" hidden multiple aria-label="Evaluation document" accept={SOURCE_FILE_MIME_TYPES.join(",")} onChange={event => { onSelectDocuments(Array.from(event.target.files || [])); event.target.value = ""; }} />
+          {saveUnavailable && <p className="evaluation-setup-hint evaluation-warn-text">{saveUnavailable} New uploads can still be evaluated in this tab.</p>}
         </div>
       </section>
 
@@ -116,21 +124,22 @@ export function EvaluationSetup({ state, templates, enabled, maxSourceFileBytes,
       </section>
 
       <footer className="evaluation-setup-foot">
-        <label className="evaluation-check"><input type="checkbox" checked={willRun} disabled={!state.document} onChange={event => setRunNow(event.target.checked)} />{state.document ? `Run ${count || ""} candidate${count === 1 ? "" : "s"} straight away` : "Add a document to run straight away"}</label>
+        <label className="evaluation-check"><input type="checkbox" checked={willRun} disabled={!runnable} onChange={event => setRunNow(event.target.checked)} />{!runnable ? "Add a document to run straight away" : runnable === 1 ? `Run ${count || ""} candidate${count === 1 ? "" : "s"} straight away` : `Run ${count || ""} candidate${count === 1 ? "" : "s"} × ${runnable} documents straight away`}</label>
         <div className="evaluation-setup-submit">{problems.length > 0 && <small className="evaluation-muted">{problems.join(" · ")}</small>}
           <button type="button" disabled={!enabled || problems.length > 0 || starting} onClick={start}>{starting ? "Loading…" : willRun ? "Start and run" : "Start Evaluation"}</button></div>
       </footer>
     </div>
 
     <aside className="evaluation-setup-aside" aria-label="How Evaluations work">
+      <div className="evaluation-setup-model evaluation-library-box"><small>Evaluation library</small><p>Documents with Expected answers, shared with everyone in this Workspace.</p><button type="button" className="studio-text-button" onClick={() => onManageLibrary(fields)}>Manage library</button></div>
       {mode === "templates" && <div className="evaluation-setup-model"><small>Workspace model</small>{state.setup?.configured ? <><span><i aria-hidden="true" />{workspaceModel}</span><p>Every Template version runs on this model. Change it for all candidates after starting.</p></> : <p>No model is configured. Configure one in Workspace settings.</p>}</div>}
       <h3>How it works</h3>
       <ol className="evaluation-how">
-        <li><span>1</span><div><strong>Run the candidates</strong><p>Each candidate extracts the same document. Up to {MAX_CANDIDATES} can run side by side.</p></div></li>
-        <li><span>2</span><div><strong>Verify expected answers</strong><p>Confirm the correct value for each field, or use a candidate's answer. Only verified fields are scored.</p></div></li>
-        <li><span>3</span><div><strong>Compare</strong><p>See accuracy, table cells, time and tokens, and where candidates disagree. Save the best draft as a new Template.</p></div></li>
+        <li><span>1</span><div><strong>Choose documents</strong><p>Pick saved documents, upload new ones, or both. Up to {MAX_CANDIDATES} candidates run on every document.</p></div></li>
+        <li><span>2</span><div><strong>Verify expected answers</strong><p>After a run, confirm the correct value for each field in the results, or use a candidate's answer. Saved documents bring their answers with them. Only verified fields are scored.</p></div></li>
+        <li><span>3</span><div><strong>Compare</strong><p>See accuracy, table cells, time and tokens, one document at a time. Use Previous and Next to move between documents.</p></div></li>
       </ol>
-      <p className="evaluation-setup-note">Tip: start with a document that has a table. Tables are where models differ most.</p>
+      <p className="evaluation-setup-note">After verifying answers, choose Save to library on a new upload to reuse it in later Evaluations.</p>
     </aside>
   </div>;
 }

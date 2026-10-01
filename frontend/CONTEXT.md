@@ -72,6 +72,22 @@ _Avoid_: image file, browser file, upload blob
 A user's per-Account, browser-local choice between viewing **Extraction results** alone and viewing the **Source file** alongside the results.
 _Avoid_: Workspace layout setting, Source file retention setting
 
+**Evaluation document library**:
+A Workspace-shared collection of saved documents and user-verified **Expected answers** that members can select for future single-document or Batch Evaluations.
+_Avoid_: saved Evaluation history, personal document library, model-generated ground truth
+
+**Saved Evaluation document**:
+A reusable library entry containing a fixed original **Source file** and one editable **Expected answer set**, independently of ordinary extraction history.
+_Avoid_: saved Evaluation run, Extraction job, temporary Evaluation upload
+
+**Expected answer set**:
+The reference field definitions and any verified **Expected answers** saved with one library document, including expected-table structure and matching rules, for reuse across compatible **Templates**. It may be incomplete or have no verified answers yet.
+_Avoid_: candidate output, Template-owned answer sheet, saved Evaluation results
+
+**Temporary Evaluation result cache**:
+Private, encrypted detailed-result storage usable only by its current live **Evaluation** in one tab and **Workspace**. It preserves the temporary Evaluation's lifetime and never supplies refresh restoration or saved run history.
+_Avoid_: saved Evaluation history, Completed document cache, reusable Evaluation results
+
 **Product safety limit**:
 A non-commercial guardrail that prevents unsupported or excessive Documents from being submitted.
 _Avoid_: commercial quota, account tier
@@ -318,8 +334,10 @@ _Avoid_: demo mode, sample data sandbox
 
 ## Evaluations
 
-**Evaluation** is a temporary comparison in one browser tab and Workspace. Its document, candidate drafts, verified Expected answers and results are held above page rendering so navigation preserves them. Refresh discards them. There is no browser storage, idle expiry or saved Evaluation history.
+**Evaluation** is a temporary comparison in one browser tab and Workspace. Its documents, candidate drafts, verified Expected answers and results belong to that live tab so navigation preserves them. Refresh discards them. There is no idle expiry or saved Evaluation history. Detailed results are held in a **Temporary Evaluation result cache** that preserves this lifetime. Clear, tab closure, session or access loss, and Workspace change also discard private Evaluation state. Only documents explicitly saved to the **Evaluation document library** outlive it; a selected Saved Evaluation document brings a private working copy of its **Expected answer set**, which changes the shared set only through an explicit, conflict-checked update.
 
 **Comparison candidates** either share Template fields and compare models, or share model/capabilities and compare independently editable Templates. A result carries its tested input snapshot; later edits require an explicit rerun. Only an explicitly verified Expected answer supplies a correctness reference. Coverage and matches are separate; table-cell matches are separate from scalar-field matches.
+
+Expected date inputs default to day/month/year, with an explicit month/day/year choice and an interpreted-date preview. Verification stores dates in ISO form. Expected table cells can contain a value, be explicitly absent, or be ignored for scoring. Absent cells expect empty output cells in existing rows; ignored cells do not affect accuracy or difference highlighting. These statuses travel with saved Expected answer sets. Validation feedback appears beside the failing input, and table errors select the affected row.
 
 The **Template field editor** is shared between the Templates page and the full modal used for Evaluation candidate editing. Apply updates a draft. Save as new Template explicitly persists an independent normal Template from the current draft.

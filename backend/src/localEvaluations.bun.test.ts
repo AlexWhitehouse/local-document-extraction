@@ -63,7 +63,7 @@ test("eight candidates share one Source and scheduler with Documents without per
 test("session-only setup hides secrets and rejects keys, foreign origins and Workspaces", async () => {
   const f = fixture();
   const setup = await f.service.handle(new Request("http://localhost/v1/evaluations/setup", { headers: { "x-workspace-id": "workspace" } }));
-  expect(await setup.json()).toEqual({ configured: true, model: "model", revision: 1, pdf: false, structured: false, sequential: false });
+  expect(await setup.json()).toEqual({ configured: true, model: "model", revision: 1, pdf: false, structured: false, sequential: false, staging: { document_concurrency: 2 } });
   for (const headers of [{ authorization: "Bearer key", cookie: "session=present" }, { origin: "http://evil.test" }, { "x-workspace-id": "foreign" }]) expect((await f.submit({}, headers)).status).toBe(403);
 });
 

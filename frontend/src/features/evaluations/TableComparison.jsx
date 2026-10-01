@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
-import { alignTableRows, tableCellsEqual } from "./evaluationScoring.js";
+import { alignTableRows, tableCellMatches, tableCellsEqual } from "./evaluationScoring.js";
 import { Mark } from "./EvaluationParts.jsx";
 import { display } from "./evaluationFormat.js";
 
@@ -27,7 +27,10 @@ export function TableComparison({ row, candidates, reference, scores, columnMapp
     const count = value => values.filter(other => tableCellsEqual(column, other, value)).length;
     return values.reduce((best, value) => count(value) > count(best) ? value : best, values[0]);
   };
-  const differs = (line, index, column) => index >= firstCandidate && !!line.rows[index] && !tableCellsEqual(column, line.rows[index][column.key], baseline(line, column), reference?.exact);
+  const cellState = (line, column) => verified && reference.cellStates?.[line.expectedIndex]?.[column.key];
+  const differs = (line, index, column) => index >= firstCandidate && !!line.rows[index] && !(verified && line.rows[0]
+    ? tableCellMatches(column, line.rows[index][column.key], baseline(line, column), cellState(line, column), reference.exact)
+    : tableCellsEqual(column, line.rows[index][column.key], baseline(line, column), reference?.exact));
   const rowState = (line, index) => {
     if (sources[index].expected) return line.rows[index] ? "expected" : "none";
     if (!line.rows[index]) return verified && line.rows[0] ? "missing" : "none";
@@ -39,8 +42,10 @@ export function TableComparison({ row, candidates, reference, scores, columnMapp
   const cell = (line, index, column, extraClass = "") => {
     const wrong = differs(line, index, column);
     const value = line.rows[index][column.key];
+    const state = cellState(line, column);
+    const expectedLabel = state === "absent" ? "Not in document" : display(baseline(line, column));
     return <td key={`${sources[index].id}-${column.key}`} className={[extraClass, wrong && "evaluation-compare-differs"].filter(Boolean).join(" ") || undefined}
-      title={wrong ? `${verified ? "Expected" : "Most common"}: ${display(baseline(line, column))}` : undefined}>{blank(value) ? "—" : display(value)}</td>;
+      title={state === "ignored" ? "Excluded from accuracy scores" : wrong ? `${verified ? "Expected" : "Most common"}: ${expectedLabel}` : undefined}>{sources[index].expected && state ? <span className="evaluation-input-hint">{state === "ignored" ? "Ignored" : "Not in document"}</span> : blank(value) ? "—" : display(value)}</td>;
   };
   const scoreFor = candidate => scores[candidate.id].byField[row.candidates[candidate.id].id];
   const summary = (candidate, i) => {
