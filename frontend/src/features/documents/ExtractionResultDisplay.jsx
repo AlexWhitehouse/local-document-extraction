@@ -87,7 +87,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
                   <th scope="row">{result.name || result.field_id}</th>
                   <td className="studio-extracted-value">
                     {result.status === "not_found" ? (
-                      <span className="studio-not-found">Not Found</span>
+                      <span className="studio-not-found">Not found</span>
                     ) : null}
                     {renderAnswer(result.answer)}
                   </td>
@@ -113,7 +113,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
             <ResultConfidence value={result.confidence} />
           </div>
           {result.status === "not_found" ? (
-            <span className="studio-not-found">Not Found</span>
+            <span className="studio-not-found">Not found</span>
           ) : null}
           {renderAnswer(result.answer)}
           {result.evidence ? (
@@ -255,7 +255,7 @@ function StructuredTable({ columns, rows }) {
 
 function formatAnswerValue(value) {
   if (value === null || value === undefined) {
-    return "-";
+    return "—";
   }
   if (typeof value === "object") {
     return JSON.stringify(value);

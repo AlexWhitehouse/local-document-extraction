@@ -8,7 +8,7 @@ import { documentDirty, kilobytes, updatedLabel, newerAvailable, refText, saveUn
 import { documentRunnable } from "./useEvaluations.js";
 
 export function Chips({ list }) {
-  return <span className="evaluation-chips">{list.map(([tone, label]) => <span key={label} title={label} className={`status-chip ${tone === "good" ? "good" : tone === "warn" ? "warn" : ""} ${tone === "bad" ? "evaluation-chip-bad" : ""} ${tone === "busy" ? "evaluation-chip-busy" : ""}`}>{label}</span>)}</span>;
+  return <span className="evaluation-chips">{list.map(([tone, label]) => <span key={label} title={label} className={["good", "warn", "bad", "busy"].includes(tone) ? `status-chip ${tone}` : "status-chip"}>{label}</span>)}</span>;
 }
 function useLibraryList(evaluation) {
   const [query, setQuery] = useState("");
@@ -58,7 +58,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
 function LibraryModal({ label, description, onClose, children, footer }) {
   return <ModalDialog label={label} className="studio-main evaluation-library-modal wide evaluation-library-browser" initialFocus="input[type=search]" onClose={onClose}>
     <header className="evaluation-library-head"><div><h2>Evaluation library</h2><p>{description}</p></div>
-      <button type="button" className="icon-action-button" aria-label="Close library" onClick={onClose}>×</button></header>
+      <button type="button" className="modal-close" aria-label="Close library" title="Close library" onClick={onClose}>×</button></header>
     <div className="evaluation-library-body">{children}</div>
     <footer className="evaluation-library-foot">{footer}</footer>
   </ModalDialog>;
@@ -132,7 +132,7 @@ export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {
   const unavailable = saveUnavailableMessage(evaluation.state.library);
   const save = async fresh => { if (await evaluation.saveDocument(document.key, name.trim(), { fresh })) { onSaved?.(`Saved “${name.trim()}” to the Workspace library.`); onClose(); } };
   return <ModalDialog label="Save to Evaluation library" className="evaluation-library-modal" onClose={onClose}>
-    <div className="evaluation-heading"><div><h2>Save to Evaluation library</h2><p>Saves the original file and its Expected answers for everyone in this Workspace. Candidate settings and results are not saved.</p></div></div>
+    <div className="evaluation-heading"><div><h2>Save to Evaluation library</h2><p>Saves the original file and its Expected answers for everyone in this Workspace. Candidate settings and results are not saved.</p></div><button type="button" className="modal-close" aria-label="Close" title="Close" onClick={onClose}>×</button></div>
     <label>Name<input value={name} maxLength={200} onChange={event => setName(event.target.value)} /></label>
     <p className="evaluation-setup-hint">{document.file?.name} · {compatibility.verified ? `${compatibility.verified} of ${compatibility.total} answers verified` : "No verified answers yet"}.{compatibility.verified < compatibility.total ? " You can finish verifying later." : ""} Saving never verifies an answer.</p>
     {unavailable && <p className="evaluation-warn-text">{unavailable}</p>}
@@ -170,7 +170,7 @@ export function UpdateReview({ evaluation, document, onClose, onDone }) {
   };
   return <ModalDialog label="Review saved answer update" className="evaluation-library-modal wide" onClose={onClose}>
     <div className="evaluation-heading"><div><h2>{conflict ? "The saved answers changed since you loaded them" : "Update saved answers?"}</h2>
-      <p>{conflict ? `${conflict.document.updated_by_name || "Someone"} updated “${conflict.document.name}”. Your changes were not saved. Review both before choosing.` : `Replaces the Workspace copy of “${document.entry.name}” for everyone. Candidate settings and results are not saved.`}</p></div></div>
+      <p>{conflict ? `${conflict.document.updated_by_name || "Someone"} updated “${conflict.document.name}”. Your changes were not saved. Review both before choosing.` : `Replaces the Workspace copy of “${document.entry.name}” for everyone. Candidate settings and results are not saved.`}</p></div><button type="button" className="modal-close" aria-label="Close" title="Close" onClick={onClose}>×</button></div>
     <ScrollArea className="evaluation-library-scroll" role="region" aria-label="Answer changes" tabIndex={0}>
       <table className="evaluation-diff"><thead><tr><th>Field</th>{columns.map(([label]) => <th key={label}>{label}</th>)}</tr></thead>
         <tbody>{ids.map(id => <tr key={id}><th>{definition(id)?.name || id}<small className="evaluation-type">{getDataTypeLabel(definition(id)?.data_type)}</small></th>
@@ -188,7 +188,7 @@ export function ClearDialog({ evaluation, onClose }) {
   const documents = evaluation.state.documents;
   const uploads = documents.filter(d => d.kind === "upload"), dirty = documents.filter(documentDirty);
   return <ModalDialog label="Clear Evaluation" className="evaluation-library-modal" onClose={onClose}>
-    <div className="evaluation-heading"><div><h2>Clear this Evaluation?</h2><p>Candidate drafts and results always clear. These inputs are also only in this tab:</p></div></div>
+    <div className="evaluation-heading"><div><h2>Clear this Evaluation?</h2><p>Candidate drafts and results always clear. These inputs are also only in this tab:</p></div><button type="button" className="modal-close" aria-label="Close" title="Close" onClick={onClose}>×</button></div>
     <ul className="evaluation-leave">{uploads.map(d => <li key={d.key}><strong>{d.name}</strong> · new upload, not saved to the library</li>)}{dirty.map(d => <li key={d.key}><strong>{d.name}</strong> · answer changes not saved to the library</li>)}
       {!uploads.length && !dirty.length && <li>Nothing unsaved. Saved library documents stay in the library.</li>}</ul>
     <div className="actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="button" className="danger" onClick={() => { evaluation.clear(); onClose(); }}>Clear Evaluation</button></div>
@@ -238,6 +238,6 @@ export function DocumentPreview({ evaluation, document, onClose }) {
     return () => { current = false; };
   }, [source, document, evaluation.library]);
   useEffect(() => () => { if (source) URL.revokeObjectURL(source.url); }, [source]);
-  return <ModalDialog className="evaluation-expanded" label="Document preview" onClose={onClose}><button onClick={onClose}>Close document</button>
-    {error ? <p role="alert">{error}</p> : !source ? <p className="evaluation-muted">Loading document…</p> : source.type === "application/pdf" ? <iframe title="Evaluation document" src={source.url} /> : <img alt="Evaluation document" src={source.url} />}</ModalDialog>;
+  return <ModalDialog className="evaluation-expanded" label="Document preview" onClose={onClose}><div className="evaluation-heading"><h2>{document.name || "Document"}</h2><button type="button" className="modal-close" aria-label="Close document" title="Close document" onClick={onClose}>×</button></div>
+    {error ? <p role="alert" className="form-error">{error}</p> : !source ? <p className="evaluation-muted">Loading document…</p> : source.type === "application/pdf" ? <iframe title="Evaluation document" src={source.url} /> : <img alt="Evaluation document" src={source.url} />}</ModalDialog>;
 }

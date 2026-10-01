@@ -39,21 +39,21 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
     await expect(ownerPage.getByText("Workspace renamed: Shared Research")).toBeVisible();
 
     const apiKey = ownerPage.getByRole("textbox", { name: "Workspace API key", exact: true });
-    await ownerPage.getByRole("button", { name: "Generate API Key" }).click();
+    await ownerPage.getByRole("button", { name: "Generate API key" }).click();
     await expect(apiKey).not.toHaveValue("");
     const generatedApiKey = await apiKey.inputValue();
 
     ownerPage.once("dialog", (dialog) => dialog.accept());
-    await ownerPage.getByRole("button", { name: "Rotate API Key" }).click();
+    await ownerPage.getByRole("button", { name: "Rotate API key" }).click();
     await expect(apiKey).not.toHaveValue(generatedApiKey);
 
     await invite(ownerPage, MEMBER.email);
 
     await memberPage.reload();
     await selectInvitation(memberPage, "Shared Research");
-    await expect(memberPage.getByRole("heading", { name: "Pending Invitation" })).toBeVisible();
+    await expect(memberPage.getByRole("heading", { name: "Pending invitation" })).toBeVisible();
     await expect(memberPage.getByText("No workspace access yet")).toBeVisible();
-    await memberPage.getByRole("button", { name: "Accept Invitation" }).click();
+    await memberPage.getByRole("button", { name: "Accept invitation" }).click();
     await expect(memberPage.getByText("Workspace invitation accepted")).toBeVisible();
     await expect(memberPage.getByLabel("Workspace name")).toHaveValue("Shared Research");
 
@@ -62,7 +62,7 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
     await expect(memberRow).toBeVisible();
     await memberRow.getByRole("button", { name: "Edit user" }).click();
     const manageMember = ownerPage.getByRole("dialog", { name: "Manage workspace user" });
-    await manageMember.getByRole("button", { name: "Make Admin" }).click();
+    await manageMember.getByRole("button", { name: "Make admin" }).click();
     await expect(ownerPage.getByText(`Made ${MEMBER.name} an admin`)).toBeVisible();
     await expect(ownerPage.getByRole("listitem").filter({ hasText: MEMBER.email })).toContainText("Admin");
 
@@ -78,9 +78,9 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
     await invite(ownerPage, MEMBER.email);
     await memberPage.reload();
     await selectInvitation(memberPage, "Shared Research");
-    await memberPage.getByRole("button", { name: "Decline Invitation" }).click();
+    await memberPage.getByRole("button", { name: "Decline invitation" }).click();
     await expect(memberPage.getByText("Invitation declined")).toBeVisible();
-    await expect(memberPage.getByRole("heading", { name: "Pending Invitation" })).toHaveCount(0);
+    await expect(memberPage.getByRole("heading", { name: "Pending invitation" })).toHaveCount(0);
 
     const cancelledEmail = "cancelled-invitation@example.test";
     await invite(ownerPage, cancelledEmail);
@@ -108,7 +108,7 @@ async function invite(page: Page, email: string) {
   const openInvite = page.getByRole("button", { name: "+ Invite user", exact: true });
   if (await openInvite.count()) await openInvite.click();
   await page.getByLabel("Invite email").fill(email);
-  await page.getByRole("button", { name: "Invite User" }).click();
+  await page.getByRole("button", { name: "Invite user" }).click();
   await expect(page.getByText(`Successfully invited ${email}`)).toBeVisible();
 }
 

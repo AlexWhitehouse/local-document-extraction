@@ -68,7 +68,7 @@ export function ReferenceModal({ row, initial, onSave, onClose }) {
   return <ModalDialog className={`evaluation-reference ${table ? "object-schema-modal evaluation-table-reference" : ""}`} label="Verify expected answer" onClose={onClose}>
     <div className={table ? "object-schema-modal-head" : "evaluation-heading"}>
       <div><h2>{row.field.name} · Expected answer</h2><p>Review against the document before verifying. Only verified answers affect scores.</p></div>
-      <button type="button" className="icon-action-button object-schema-modal-close" aria-label="Close expected answer editor" onClick={onClose}>×</button>
+      <button type="button" className="modal-close" aria-label="Close expected answer editor" onClick={onClose}>×</button>
     </div>
     <div className="evaluation-reference-body">
       <div className="evaluation-reference-options"><label><input type="checkbox" checked={absent} onChange={event => { clearError(); setAbsent(event.target.checked); }} />Not present in document</label>

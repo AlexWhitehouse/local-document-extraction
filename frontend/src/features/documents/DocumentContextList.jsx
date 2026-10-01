@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
+import { useRowMotion } from "../context/useRowMotion.js";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
 
@@ -38,6 +39,7 @@ export function DocumentContextList({
     ? "Deselect all available documents"
     : "Select all available documents";
   const isSelectionLocked = isDeletingDocuments || isExportingDocuments;
+  const rowMotion = useRowMotion(documents, (job) => job.job_id, (job) => documentStatusTone(job.status));
   const listRef = useRef(null);
   const lastScrolledSelection = useRef(null);
   const focusSelection = useRef(false);
@@ -132,7 +134,7 @@ export function DocumentContextList({
               style={virtual ? { position: "absolute", top: (start + offset) * rowStride, height: 54 } : undefined}
               className={`context-item-card context-item-document${statusTone ? ` status-${statusTone}` : ""}${isActive ? " active" : ""}${
                 isChecked ? " checked" : ""
-              }`}
+              }${rowMotion(job.job_id)}`}
             >
               <label
                 className="context-select-control"
@@ -189,7 +191,7 @@ export function DocumentContextList({
             onClick={onLoadMoreDocuments}
           >
             <strong>
-              {isLoadingMoreDocuments ? "Loading..." : "Load More Documents"}
+              {isLoadingMoreDocuments ? "Loading…" : "Load more Documents"}
             </strong>
             <span>
               {debouncedSearch || hasActiveFilters

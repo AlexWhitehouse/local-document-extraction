@@ -52,7 +52,7 @@ export function WorkspaceModelConfiguration({ controller }) {
           </p>
           {error ? (
             <>
-              <p role="alert">{error}</p>
+              <p className="form-error" role="alert">{error}</p>
               <button
                 type="button"
                 className="secondary"
@@ -69,7 +69,7 @@ export function WorkspaceModelConfiguration({ controller }) {
             <p role="status">Loading Workspace model configuration…</p>
           ) : !record ? (
             <div role="alert">
-              <p>{error || "Configuration is not available."}</p>
+              <p className="form-error">{error || "Configuration is not available."}</p>
               <button
                 type="button"
                 className="secondary"

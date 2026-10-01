@@ -67,7 +67,7 @@ describe("Extraction result display", () => {
     expect(screen.getByRole("cell", { name: "Patient: Ada Lovelace" })).toBeTruthy();
   });
 
-  it("shows a Not Found status cue only when extraction data was missing", () => {
+  it("shows a Not found status cue only when extraction data was missing", () => {
     render(
       <ExtractionResultDisplay
         job={{
@@ -84,7 +84,7 @@ describe("Extraction result display", () => {
       />,
     );
 
-    expect(screen.getByText("Not Found")).toBeTruthy();
+    expect(screen.getByText("Not found")).toBeTruthy();
     expect(screen.getByText("No value extracted.")).toBeTruthy();
   });
 
@@ -193,7 +193,7 @@ describe("Extraction result display", () => {
     expect(screen.getByText("Atorvastatin")).toBeTruthy();
     expect(screen.getByText("20 mg")).toBeTruthy();
     expect(screen.getByText("Metformin")).toBeTruthy();
-    expect(screen.getByText("-")).toBeTruthy();
+    expect(screen.getAllByRole("cell").some((cell) => cell.textContent === "—")).toBe(true);
     expect(screen.getByRole("columnheader", { name: "Line" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Quantity" })).toBeTruthy();
     expect(screen.getByText("A")).toBeTruthy();

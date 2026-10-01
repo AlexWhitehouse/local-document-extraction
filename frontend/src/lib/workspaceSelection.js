@@ -136,7 +136,7 @@ export function getWorkspaceUserActions(permissions, targetRole) {
 export function formatRoleLabel(value) {
   const normalized = String(value || "").trim();
   if (!normalized) {
-    return "-";
+    return "—";
   }
   return normalized
     .split(/[_\s-]+/)

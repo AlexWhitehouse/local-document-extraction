@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
+import { ModalHeader } from "../layout/ModalDialog.jsx";
+import { CopyIcon, EditIcon } from "../layout/Icons.jsx";
 
 export function WorkspaceInvitationPage({
   invitation,
@@ -20,7 +22,7 @@ export function WorkspaceInvitationPage({
       <section className="content-grid invitation-detail-grid">
         <article className="workspace-card invitation-detail-card">
           <div className="workspace-head">
-            <h2>Pending Invitation</h2>
+            <h2>Pending invitation</h2>
             <p>
               Review who invited you and what role you will receive before
               accepting or declining.
@@ -34,12 +36,12 @@ export function WorkspaceInvitationPage({
             </div>
             <div>
               <dt>Invited email</dt>
-              <dd>{invitation.email || "-"}</dd>
+              <dd>{invitation.email || "—"}</dd>
             </div>
             <div>
               <dt>Offered role</dt>
               <dd>
-                <span className="role-badge">
+                <span className="status-chip busy">
                   {formatRoleLabel(invitation.role)}
                 </span>
               </dd>
@@ -50,7 +52,7 @@ export function WorkspaceInvitationPage({
             </div>
             <div>
               <dt>Inviter</dt>
-              <dd>{invitation.inviter || "-"}</dd>
+              <dd>{invitation.inviter || "—"}</dd>
             </div>
             <div>
               <dt>Invited</dt>
@@ -77,8 +79,8 @@ export function WorkspaceInvitationPage({
               onClick={onAcceptInvitation}
             >
               {isAcceptingWorkspaceInvitation
-                ? "Accepting..."
-                : "Accept Invitation"}
+                ? "Accepting…"
+                : "Accept invitation"}
             </button>
             <button
               type="button"
@@ -87,8 +89,8 @@ export function WorkspaceInvitationPage({
               onClick={onDeclineInvitation}
             >
               {isDecliningWorkspaceInvitation
-                ? "Declining..."
-                : "Decline Invitation"}
+                ? "Declining…"
+                : "Decline invitation"}
             </button>
           </div>
         </article>
@@ -130,7 +132,7 @@ function WorkspaceSourceRetention({ controller }) {
       {explanation ? <p className="studio-users-note">{explanation}</p> : null}
       {configured && !canManage ? <p className="studio-users-note">An owner or admin manages this setting.</p> : null}
       {error ? (
-        <p role="alert" className="studio-users-note">
+        <p role="alert" className="form-error">
           {error}{" "}
           <button type="button" className="studio-text-button" onClick={controller.reload}>Try again</button>
         </p>
@@ -209,7 +211,7 @@ export function AcceptedWorkspacePage({
                   !isWorkspaceNameDirty
                 }
               >
-                {isSavingWorkspace ? "Saving..." : "Save name"}
+                {isSavingWorkspace ? "Saving…" : "Save name"}
               </button>
             </div>
           </form>
@@ -248,7 +250,7 @@ export function AcceptedWorkspacePage({
                     aria-label="Copy API key"
                     onClick={onCopyVisibleWorkspaceApiKey}
                   >
-                    ⧉
+                    <CopyIcon size={14} />
                   </button>
                 ) : null}
               </div>
@@ -328,15 +330,12 @@ export function AcceptedWorkspacePage({
               className="secondary"
               disabled={busy || !hasApiAccess || !canManageWorkspaceInvitations}
             >
-              Invite User
+              Invite user
             </button>
           </form>
         ) : null}
-        {isLoadingWorkspaceUsers ? (
-          <p className="muted" role="status">
-            Loading workspace users…
-          </p>
-        ) : workspaceUsers.length ? (
+        {/* Render nothing while users load so switching Workspaces doesn't flash a placeholder. */}
+        {isLoadingWorkspaceUsers ? null : workspaceUsers.length ? (
           <div
             className="studio-user-list"
             role="region"
@@ -374,7 +373,7 @@ export function AcceptedWorkspacePage({
                       aria-label="Edit user"
                       onClick={() => onSelectWorkspaceUserActionTarget(user)}
                     >
-                      ✎
+                      <EditIcon size={13} />
                     </button>
                   ) : (
                     <span />
@@ -395,7 +394,7 @@ export function AcceptedWorkspacePage({
         <section className="studio-pending-invitations">
           <div className="studio-section-heading">
             <div>
-              <h2>Pending Invitations</h2>
+              <h2>Pending invitations</h2>
               <p>Workspace invitations that have not been accepted.</p>
             </div>
           </div>
@@ -457,7 +456,7 @@ export function AcceptedWorkspacePage({
 
 function formatJoinedAt(value) {
   if (!value) {
-    return "-";
+    return "—";
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -468,7 +467,7 @@ function formatJoinedAt(value) {
 
 function formatTimestamp(value) {
   if (!value) {
-    return "-";
+    return "—";
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -491,12 +490,11 @@ export function WorkspaceUserActionModal({ target, options, busy, onClose, onApp
         aria-label="Manage workspace user"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="workspace-head">
-          <h2>Manage User</h2>
-          <p>
-            {String(target.name || "Unknown User")} - {formatRoleLabel(target.role)}
-          </p>
-        </div>
+        <ModalHeader
+          title="Manage user"
+          description={`${String(target.name || "Unknown user")} · ${formatRoleLabel(target.role)}`}
+          onClose={onClose}
+        />
         {options.length ? (
           <div className="workspace-user-action-list">
             {options.map((action) => (
@@ -514,18 +512,13 @@ export function WorkspaceUserActionModal({ target, options, busy, onClose, onApp
         ) : (
           <p className="muted">No actions available for this user.</p>
         )}
-        <div className="actions">
-          <button type="button" className="secondary" onClick={onClose}>
-            Close
-          </button>
-        </div>
       </div>
     </div>
   );
 }
 
 const WORKSPACE_USER_ACTION_LABELS = {
-  remove_user: "Remove User",
-  make_admin: "Make Admin",
-  make_owner: "Make Owner",
+  remove_user: "Remove user",
+  make_admin: "Make admin",
+  make_owner: "Make owner",
 };

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { MagicIcon } from "../templates/MagicIcon.jsx";
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "studio.sidebarCollapsed";
@@ -15,6 +15,7 @@ const ADMIN_SIDEBAR_ITEM = { id: "admin", label: "Admin", icon: "AD" };
 export function MainLayout({
   activePage,
   contentClassName = "",
+  contentSelection = "",
   counts,
   uploadAriaDisabled,
   isUploadDisabled,
@@ -29,6 +30,8 @@ export function MainLayout({
 }) {
   const [isSidebarCollapsed, toggleSidebar] = useSidebarCollapsed();
   const collapseLabel = isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
+  const mainRef = useRef(null);
+  useContentFade(mainRef, activePage, contentSelection);
 
   return (
     <div className={isSidebarCollapsed ? "app-frame sidebar-collapsed" : "app-frame"}>
@@ -77,7 +80,7 @@ export function MainLayout({
 
       {contextSidebar}
 
-      <main className={`main-content ${contentClassName}`}>
+      <main ref={mainRef} className={`main-content ${contentClassName}`}>
         {impersonationSlot}
         {children}
       </main>
@@ -85,6 +88,21 @@ export function MainLayout({
       {modalSlot}
     </div>
   );
+}
+
+// Softens the content swap when moving between pages or picking a different
+// item in the context list. Selecting from nothing (or saving a draft into a new
+// id) is not a swap, so it does not fade.
+function useContentFade(ref, page, selection) {
+  const previous = useRef({ page, selection });
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = { page, selection };
+    const isSwap = page !== before.page || (selection && before.selection && selection !== before.selection);
+    if (!isSwap || typeof ref.current?.animate !== "function") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    ref.current.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
+  }, [ref, page, selection]);
 }
 
 // A per-browser preference: collapsing is a layout choice, not account state.
@@ -241,7 +259,7 @@ export function WorkspaceToolbar({
                 disabled={!hasApiAccess || isDownloadingOriginal}
                 onClick={onDownloadOriginal}
               >
-                {isDownloadingOriginal ? "Downloading..." : "Download"}
+                {isDownloadingOriginal ? "Downloading…" : "Download"}
               </button>
             ) : null}
             <button
@@ -256,7 +274,7 @@ export function WorkspaceToolbar({
               onClick={onDeleteDocument}
             >
               {isDeletingDocument
-                ? "Deleting..."
+                ? "Deleting…"
                 : selectedDocumentCount
                   ? `Delete ${selectedDocumentCount}`
                   : "Delete"}
@@ -281,7 +299,7 @@ export function WorkspaceToolbar({
               title={exportHint}
             >
               {isExportingDocuments
-                ? "Exporting..."
+                ? "Exporting…"
                 : selectedDocumentCount
                   ? `Export ${selectedDocumentCount}`
                   : "Export"}
@@ -321,8 +339,8 @@ export function WorkspaceToolbar({
               >
                 {isDeletingWorkspace
                   ? workspacePrimaryAction.type === "leave"
-                    ? "Leaving..."
-                    : "Deleting..."
+                    ? "Leaving…"
+                    : "Deleting…"
                   : workspacePrimaryAction.label || "Delete Workspace"}
               </button>
             ) : activePage === "templates" ? (
@@ -336,7 +354,7 @@ export function WorkspaceToolbar({
                 }
                 onClick={onDeleteTemplate}
               >
-                {isDeletingTemplate ? "Deleting..." : "Delete Template"}
+                {isDeletingTemplate ? "Deleting…" : "Delete Template"}
               </button>
             ) : null}
           </>

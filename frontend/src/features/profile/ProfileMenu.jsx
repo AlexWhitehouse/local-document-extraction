@@ -66,7 +66,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                     </div>
                     <button
                       type="button"
-                      className="settings-modal-close"
+                      className="modal-close"
                       aria-label="Close settings"
                       onClick={onToggle}
                     >
@@ -99,7 +99,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                           disabled={isSavingProfile || !isDirty}
                           onClick={onSaveProfile}
                         >
-                          {isSavingProfile ? "Saving..." : "Save Profile"}
+                          {isSavingProfile ? "Saving…" : "Save profile"}
                         </button>
                       </div>
                     </div>
@@ -114,7 +114,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         disabled={busy || isSavingProfile}
                         onClick={onSignOut}
                       >
-                        Sign Out
+                        Sign out
                       </button>
                     </div>
                   </div>

@@ -25,7 +25,7 @@ export function ApplicationBootstrap() {
       <section className="auth-card" aria-label="Application connection">
         <h1>Document Extraction</h1>
         {error ? <>
-          <p role="alert">{error}</p>
+          <p className="form-error" role="alert">{error}</p>
           <button onClick={() => { setError(""); setAttempt((value) => value + 1); }}>Try again</button>
         </> : <p role="status">Connecting to the application…</p>}
       </section>

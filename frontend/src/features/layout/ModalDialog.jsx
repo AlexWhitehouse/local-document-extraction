@@ -22,3 +22,15 @@ export function ModalDialog({ label, className = "", initialFocus = "button, inp
   };
   return createPortal(<div className="modal-backdrop" onClick={onClose}><div ref={dialog} className={`modal-card ${className}`} role="dialog" aria-modal="true" aria-label={label} onClick={event => event.stopPropagation()} onKeyDown={keyboard}>{children}</div></div>, document.body);
 }
+
+// The standard modal title strip: title and optional description, with an optional
+// trailing slot and the one shared close control.
+export function ModalHeader({ title, titleId, description, onClose, closeLabel = "Close", closeDisabled = false, children }) {
+  return <div className="workspace-head modal-head">
+    <div><h2 id={titleId}>{title}</h2>{description ? <p>{description}</p> : null}</div>
+    {children || onClose ? <div className="modal-head-actions">
+      {children}
+      {onClose ? <button type="button" className="modal-close" aria-label={closeLabel} title={closeLabel} disabled={closeDisabled} onClick={onClose}>×</button> : null}
+    </div> : null}
+  </div>;
+}

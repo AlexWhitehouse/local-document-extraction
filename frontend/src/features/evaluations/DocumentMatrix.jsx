@@ -16,7 +16,7 @@ const FILTERS = [["all", "All fields"], ["differ", "Candidates differ"], ["misma
 const baseName = identity => identity.slice(0, identity.lastIndexOf(":"));
 
 export function FieldFilters({ value, onChange }) {
-  return <div className="evaluation-filter" role="group" aria-label="Filter fields">{FILTERS.map(([id, label]) => <button key={id} type="button" aria-pressed={value === id} onClick={() => onChange(id)}>{label}</button>)}</div>;
+  return <div className="segmented evaluation-filter" role="group" aria-label="Filter fields">{FILTERS.map(([id, label]) => <button key={id} type="button" aria-pressed={value === id} onClick={() => onChange(id)}>{label}</button>)}</div>;
 }
 
 // The candidate column head for one document's comparison.
@@ -182,6 +182,6 @@ export function DocumentMatrix({ evaluation, document, candidates, batch, labelF
       setReferenceEditor(null);
     }} />}
     {expanded?.table && !referenceEditor && rows.has(expanded.identity) && <TableComparison row={rows.get(expanded.identity)} candidates={candidates} reference={references[expanded.identity]} scores={scores} columnMappings={state.columns} labelFor={labelFor} onEditExpected={() => reference(rows.get(expanded.identity))} onClose={() => setExpanded(null)} />}
-    {expanded && !expanded.table && rows.has(expanded.identity) && <ModalDialog className="evaluation-expanded" label="Expanded comparison" onClose={() => setExpanded(null)}><div className="evaluation-heading"><h2>{rows.get(expanded.identity).field.name}</h2><button onClick={() => setExpanded(null)}>Close</button></div><div className="evaluation-expanded-grid">{candidates.map((c, i) => <section key={c.id}><h3>Candidate {i + 1} · {c.result?.model || c.model}</h3>{renderValue(rows.get(expanded.identity), c, true)}</section>)}</div></ModalDialog>}
+    {expanded && !expanded.table && rows.has(expanded.identity) && <ModalDialog className="evaluation-expanded" label="Expanded comparison" onClose={() => setExpanded(null)}><div className="evaluation-heading"><h2>{rows.get(expanded.identity).field.name}</h2><button type="button" className="modal-close" aria-label="Close" title="Close" onClick={() => setExpanded(null)}>×</button></div><div className="evaluation-expanded-grid">{candidates.map((c, i) => <section key={c.id}><h3>Candidate {i + 1} · {c.result?.model || c.model}</h3>{renderValue(rows.get(expanded.identity), c, true)}</section>)}</div></ModalDialog>}
   </>;
 }

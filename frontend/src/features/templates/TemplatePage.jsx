@@ -31,7 +31,7 @@ export function TemplatePage({
       onClick={onSaveTemplate}
     >
       {isSavingTemplate
-        ? "Saving..."
+        ? "Saving…"
         : isEditingTemplate
           ? "Save changes"
           : "Save new template"}

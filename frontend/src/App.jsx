@@ -280,10 +280,19 @@ function AuthenticatedApp({ configuration }) {
 
   return (
     <>
-      <Toaster richColors />
+      <Toaster richColors theme="dark" />
       <MainLayout
-        contentClassName={visiblePage === "admin" ? "" : `studio-main studio-main-${visiblePage}`}
+        contentClassName={`studio-main studio-main-${visiblePage}`}
         activePage={visiblePage}
+        contentSelection={
+          visiblePage === "documents"
+            ? documentToolbar.selectedDocumentId
+            : visiblePage === "templates"
+              ? templateController.toolbar.selectedTemplateId
+              : visiblePage === "workspace"
+                ? workspaceToolbar.workspaceId
+                : ""
+        }
         counts={{
           workspace: workspaceContext.availableWorkspaces.length,
           templates: templates.length,
@@ -302,7 +311,7 @@ function AuthenticatedApp({ configuration }) {
                 disabled={isStoppingImpersonation}
                 onClick={handleStopImpersonating}
               >
-                {isStoppingImpersonation ? "Stopping..." : "Stop impersonating"}
+                {isStoppingImpersonation ? "Stopping…" : "Stop impersonating"}
               </button>
             </div>
           ) : null
@@ -473,11 +482,11 @@ function WorkspaceSidebarFooter({ context }) {
     isWorkspaceInvitationSelected,
   } = context;
   const status = isWorkspaceContextLoading
-    ? "Loading"
+    ? "Loading…"
     : hasWorkspaceResolutionError
-      ? "Resolution Error"
+      ? "Resolution error"
       : isWorkspaceInvitationSelected
-        ? "Invitation Pending"
+        ? "Invitation pending"
         : `API ${hasWorkspaceApiAccess ? "Ready" : "Missing"}`;
 
   return (
@@ -486,7 +495,7 @@ function WorkspaceSidebarFooter({ context }) {
         Workspaces{" "}
         {isWorkspaceContextLoading || hasWorkspaceResolutionError ? 0 : availableWorkspaces.length}
       </span>
-      <span className={`status-chip ${hasWorkspaceApiAccess ? "good" : "warn"}`}>{status}</span>
+      <span className={`status-chip ${hasWorkspaceApiAccess ? "good" : hasWorkspaceResolutionError ? "bad" : "warn"}`}>{status}</span>
     </>
   );
 }
@@ -567,7 +576,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
 
     return (
       <>
-        <Toaster richColors />
+        <Toaster richColors theme="dark" />
         <div className="auth-shell">
           <section className="auth-card">
             <div className="auth-header">
@@ -631,7 +640,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
 
   return (
     <>
-      <Toaster richColors />
+      <Toaster richColors theme="dark" />
       <div className="auth-shell">
         <section className="auth-card">
           <div className="auth-header">
@@ -682,7 +691,7 @@ function AdminContextList() {
   return (
     <div className="context-list admin-context-list">
       <button type="button" className="context-item active">
-        <strong>Account Management</strong>
+        <strong>Account management</strong>
         <span>Users, roles, bans, and impersonation</span>
         <span>Application-wide</span>
       </button>

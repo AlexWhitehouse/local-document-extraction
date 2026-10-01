@@ -50,10 +50,12 @@ function ImagePreview({ url, name }) {
   const [zoom, setZoom] = useState("fit");
   return (
     <div className="source-image">
-      <div className="source-image-tools" role="group" aria-label="Image zoom">
-        {[["fit", "Fit"], ["100", "100%"], ["200", "200%"]].map(([value, label]) => (
-          <button key={value} type="button" aria-pressed={zoom === value} onClick={() => setZoom(value)}>{label}</button>
-        ))}
+      <div className="source-image-tools">
+        <div className="segmented" role="group" aria-label="Image zoom">
+          {[["fit", "Fit"], ["100", "100%"], ["200", "200%"]].map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={zoom === value} onClick={() => setZoom(value)}>{label}</button>
+          ))}
+        </div>
       </div>
       <div className={`source-image-canvas zoom-${zoom}`} tabIndex={0} aria-label="Original image">
         <img src={url} alt={`Original ${name || "document"}`} />

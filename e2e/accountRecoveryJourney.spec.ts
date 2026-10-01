@@ -57,7 +57,7 @@ async function updateLocalSettings(page: Page) {
 
   const settings = page.getByRole("dialog", { name: "Settings" });
   await settings.getByLabel("Name").fill(updatedAccount.name);
-  await settings.getByRole("button", { name: "Save Profile" }).click();
+  await settings.getByRole("button", { name: "Save profile" }).click();
   await expect(settings).toHaveCount(0);
   await expect(page.getByRole("button", { name: new RegExp(updatedAccount.name) })).toBeVisible();
 

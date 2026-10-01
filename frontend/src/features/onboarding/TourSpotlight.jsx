@@ -2,10 +2,13 @@ import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]';
+const GLIDE_MS = 240;
 
 export function TourSpotlight({ step, index, total, canContinue, onNext, onExit, onTargetClick }) {
   const cardRef = useRef(null);
   const [layout, setLayout] = useState(null);
+  // The last drawn spotlight survives step changes so the next one can glide from it.
+  const lastShown = useRef(null);
   const callbacks = useRef({ onExit, onTargetClick });
   callbacks.current = { onExit, onTargetClick };
 
@@ -17,6 +20,8 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
     let previousLayout = "";
     let restoreInert = () => {};
     let previousDescription;
+    let glide = null;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     function allowed(node) {
       return node instanceof Node && (card.contains(node) || (target?.contains(node) && !(step.exclude && node.closest?.(step.exclude))));
     }
@@ -93,6 +98,7 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
           target.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "instant" });
         }
         makeBackgroundInert();
+        glide = reduceMotion || !lastShown.current ? null : { from: lastShown.current, start: performance.now() };
       }
       const width = window.innerWidth;
       const height = window.innerHeight;
@@ -111,7 +117,21 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
         else if (height - hole.bottom >= cardHeight + 24) { left = hole.left; top = hole.bottom + 16; }
         else { left = hole.left; top = hole.top - cardHeight - 16; }
       }
-      const value = { hole, width, height, left: Math.max(12, Math.min(left, width - cardWidth - 12)), top: Math.max(12, Math.min(top, height - cardHeight - 12)) };
+      let value = { hole, width, height, left: Math.max(12, Math.min(left, width - cardWidth - 12)), top: Math.max(12, Math.min(top, height - cardHeight - 12)) };
+      if (glide && hole) {
+        const progress = Math.min(1, (performance.now() - glide.start) / GLIDE_MS);
+        const eased = 1 - (1 - progress) ** 3;
+        const mix = (from, to) => from + (to - from) * eased;
+        const { from } = glide;
+        value = {
+          ...value,
+          left: mix(from.left, value.left),
+          top: mix(from.top, value.top),
+          hole: { left: mix(from.hole.left, hole.left), top: mix(from.hole.top, hole.top), right: mix(from.hole.right, hole.right), bottom: mix(from.hole.bottom, hole.bottom) },
+        };
+        if (progress === 1) glide = null;
+      }
+      if (value.hole) lastShown.current = value;
       const serialized = JSON.stringify(value);
       if (serialized !== previousLayout) { previousLayout = serialized; setLayout(value); }
       frame = requestAnimationFrame(measure);
@@ -147,9 +167,11 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
         style={{ left: layout?.left ?? 12, top: layout?.top ?? 12 }}>
         <div className="tour-progress"><span>STUDIO / GETTING STARTED</span><span>{index + 1} / {total}</span></div>
         <progress max={total} value={index + 1} aria-label="Tour progress" />
-        <h2 id="tour-title">{step.title}</h2>
-        <p id="tour-description">{step.text}</p>
-        {step.id !== "complete" && !hole ? <p className="tour-hint">Waiting for this control to appear. You can exit the tour at any time.</p> : null}
+        <div key={step.id} className="tour-step-copy">
+          <h2 id="tour-title">{step.title}</h2>
+          <p id="tour-description">{step.text}</p>
+          {step.id !== "complete" && !hole ? <p className="tour-hint">Waiting for this control to appear. You can exit the tour at any time.</p> : null}
+        </div>
         <div className="tour-actions">
           <button type="button" className="ghost" onClick={onExit}>{step.id === "complete" ? "Finish tour" : "Exit tour"}</button>
           {step.check ? <button type="button" disabled={!canContinue} onClick={onNext}>Continue</button> : null}

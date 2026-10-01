@@ -1,126 +1,143 @@
 import React, { useEffect, useRef, useState } from "react";
+import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 
 export function ApplicationAdminPage({ admin }) {
   return (
     <>
-      <header className="page-header">
-        <p className="eyebrow">Admin</p>
-        <h2>Application Admin</h2>
-        <p>Manage application-wide accounts separately from Workspace access.</p>
+      <header className="studio-page-heading">
+        <p className="studio-eyebrow">Admin / Accounts</p>
+        <h1>Application admin</h1>
+        <div className="studio-heading-actions">
+          <span className="status-chip">Total users {admin.total}</span>
+        </div>
+        <p className="studio-page-description">
+          Manage application-wide accounts separately from Workspace access.
+        </p>
       </header>
 
-      <section className="content-grid admin-page-grid">
-        <article className="workspace-card admin-user-panel">
-          <div className="workspace-head admin-user-panel-head">
-            <div>
-              <h2>Account Management</h2>
-              <p>Find Better Auth accounts without exposing Workspace data.</p>
-            </div>
-            <span className="status-chip">Total users {admin.total}</span>
+      <section className="studio-admin-users">
+        <div className="studio-section-heading">
+          <div>
+            <h2>Account management</h2>
+            <p>Find Better Auth accounts without exposing Workspace data.</p>
           </div>
+        </div>
 
-          <form className="admin-user-search" onSubmit={admin.onSubmitSearch}>
-            <label>
-              Search field
-              <select
-                value={admin.searchField}
-                onChange={(event) => admin.onSearchFieldChange(event.target.value)}
-              >
-                <option value="email">Email</option>
-                <option value="name">Name</option>
-              </select>
-            </label>
-            <label>
-              Search users
-              <input
-                value={admin.searchInput}
-                placeholder="Search by email"
-                onChange={(event) => admin.onSearchInputChange(event.target.value)}
-              />
-            </label>
-            <div className="actions compact admin-user-search-actions">
-              <button type="submit" disabled={admin.isLoading}>Search</button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={admin.isLoading || !admin.submittedSearch.value}
-                onClick={admin.onClearSearch}
-              >
-                Clear Search
-              </button>
-            </div>
-          </form>
+        <form className="admin-user-search" onSubmit={admin.onSubmitSearch}>
+          <label>
+            Search field
+            <select
+              value={admin.searchField}
+              onChange={(event) => admin.onSearchFieldChange(event.target.value)}
+            >
+              <option value="email">Email</option>
+              <option value="name">Name</option>
+            </select>
+          </label>
+          <label>
+            Search users
+            <input
+              value={admin.searchInput}
+              placeholder="Search by email"
+              onChange={(event) => admin.onSearchInputChange(event.target.value)}
+            />
+          </label>
+          <div className="actions compact admin-user-search-actions">
+            <button
+              type="button"
+              className="secondary"
+              disabled={admin.isLoading || !admin.submittedSearch.value}
+              onClick={admin.onClearSearch}
+            >
+              Clear search
+            </button>
+            <button type="submit" disabled={admin.isLoading}>Search</button>
+          </div>
+        </form>
 
-          {admin.listError ? (
-            <div className="form-error" role="alert">
-              {admin.listError}
-              <button type="button" className="ghost" onClick={admin.onRetry}>
-                Retry
-              </button>
-            </div>
-          ) : null}
+        {admin.listError ? (
+          <div className="form-error admin-list-error" role="alert">
+            {admin.listError}
+            <button type="button" className="studio-text-button" onClick={admin.onRetry}>
+              Retry
+            </button>
+          </div>
+        ) : null}
 
-          {admin.isLoading ? <p className="muted">Loading users...</p> : null}
-
-          <div className="table-scroll admin-users-table" aria-label="Application admin users">
-            <table>
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Name</th>
-                  <th>Email Status</th>
-                  <th>Application Role</th>
-                  <th>Banned</th>
-                  <th>Ban Reason</th>
-                  <th>Created</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {admin.users.length ? (
-                  admin.users.map((user) => (
-                    <tr key={String(user.id || user.email)}>
-                      <td>{safeText(user.email)}</td>
-                      <td>{safeText(user.name)}</td>
-                      <td>{isEmailVerified(user) ? "Verified" : "Unverified"}</td>
-                      <td>{isApplicationAdmin(user) ? "Application Admin" : "Regular User"}</td>
-                      <td>{user.banned ? "Banned" : "Active"}</td>
-                      <td>{user.banned ? safeText(user.banReason) : "Not banned"}</td>
-                      <td>{formatExactLocalDateTime(user.createdAt)}</td>
-                      <td><UserActionsMenu admin={admin} user={user} /></td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={8}>No users found.</td>
+        <div className="table-scroll admin-users-table" aria-label="Application admin users">
+          <table className="studio-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Name</th>
+                <th>Email status</th>
+                <th>Application role</th>
+                <th>Access</th>
+                <th>Ban reason</th>
+                <th>Created</th>
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {admin.users.length ? (
+                admin.users.map((user) => (
+                  <tr key={String(user.id || user.email)}>
+                    <td>{safeText(user.email)}</td>
+                    <td>{safeText(user.name)}</td>
+                    <td>
+                      <span className={isEmailVerified(user) ? "status-chip good" : "status-chip warn"}>
+                        {isEmailVerified(user) ? "Verified" : "Unverified"}
+                      </span>
+                    </td>
+                    <td>
+                      {isApplicationAdmin(user) ? (
+                        <span className="status-chip busy">Application admin</span>
+                      ) : (
+                        "Regular user"
+                      )}
+                    </td>
+                    <td>
+                      <span className={user.banned ? "status-chip bad" : "status-chip"}>
+                        {user.banned ? "Banned" : "Active"}
+                      </span>
+                    </td>
+                    <td>{user.banned ? safeText(user.banReason) : "Not banned"}</td>
+                    <td className="admin-user-created">{formatExactLocalDateTime(user.createdAt)}</td>
+                    <td className="admin-user-actions-cell"><UserActionsMenu admin={admin} user={user} /></td>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={8} className="studio-table-empty">
+                    {admin.isLoading ? <span role="status">Loading users…</span> : "No users found."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
 
-          <div className="admin-user-pagination">
-            <span className="muted">Page {admin.currentPage}</span>
-            <div className="actions compact">
-              <button
-                type="button"
-                className="secondary"
-                disabled={admin.isLoading || !admin.hasPreviousPage}
-                onClick={admin.onPreviousPage}
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={admin.isLoading || !admin.hasNextPage}
-                onClick={admin.onNextPage}
-              >
-                Next
-              </button>
-            </div>
+        <div className="admin-user-pagination">
+          <span className="studio-eyebrow">Page {admin.currentPage}</span>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="secondary"
+              disabled={admin.isLoading || !admin.hasPreviousPage}
+              onClick={admin.onPreviousPage}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={admin.isLoading || !admin.hasNextPage}
+              onClick={admin.onNextPage}
+            >
+              Next
+            </button>
           </div>
-        </article>
+        </div>
       </section>
 
       {admin.banDialogUser ? <BanUserDialog admin={admin} user={admin.banDialogUser} /> : null}
@@ -176,13 +193,13 @@ function UserActionsMenu({ admin, user }) {
       <button
         ref={triggerRef}
         type="button"
-        className="secondary admin-user-actions-trigger"
+        className="icon-action-button admin-user-actions-trigger"
         aria-haspopup="menu"
         aria-expanded={isOpen}
         aria-label={`User actions for ${email}`}
         onClick={toggleMenu}
       >
-        <span aria-hidden="true">...</span>
+        <span aria-hidden="true">⋯</span>
       </button>
       {isOpen ? (
         <div className="admin-user-actions-dropdown" role="menu" style={menuPosition}>
@@ -245,43 +262,35 @@ function UnbanUserDialog({ admin, user }) {
   const email = safeText(user.email);
 
   return (
-    <div className="modal-backdrop">
-      <div
-        className="modal-card admin-user-action-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Unban ${email}`}
-      >
-        <div className="workspace-head">
-          <div>
-            <h2>Unban {email}</h2>
-            <p>Restoring access allows this Better Auth account to sign in again.</p>
-          </div>
+    <ModalDialog className="admin-user-action-modal" label={`Unban ${email}`} initialFocus=".actions button" onClose={admin.onCloseUnbanDialog}>
+      <ModalHeader
+        title={`Unban ${email}`}
+        description="Restoring access allows this Better Auth account to sign in again."
+        onClose={admin.onCloseUnbanDialog}
+      />
+      <dl className="admin-user-action-details">
+        <div>
+          <dt>Email</dt>
+          <dd>{email}</dd>
         </div>
-        <dl className="admin-user-action-details">
-          <div>
-            <dt>Email</dt>
-            <dd>{email}</dd>
-          </div>
-          <div>
-            <dt>Existing ban reason</dt>
-            <dd>{safeText(user.banReason)}</dd>
-          </div>
-        </dl>
-        <div className="actions compact">
-          <button
-            type="button"
-            disabled={admin.mutatingUserId === String(user.id || "").trim()}
-            onClick={admin.onConfirmUnban}
-          >
-            Confirm unban
-          </button>
-          <button type="button" className="secondary" onClick={admin.onCloseUnbanDialog}>
-            Cancel
-          </button>
+        <div>
+          <dt>Existing ban reason</dt>
+          <dd>{safeText(user.banReason)}</dd>
         </div>
+      </dl>
+      <div className="actions">
+        <button type="button" className="secondary" onClick={admin.onCloseUnbanDialog}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={admin.mutatingUserId === String(user.id || "").trim()}
+          onClick={admin.onConfirmUnban}
+        >
+          Confirm unban
+        </button>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
 
@@ -289,22 +298,15 @@ function BanUserDialog({ admin, user }) {
   const email = safeText(user.email);
 
   return (
-    <div className="modal-backdrop">
-      <form
-        className="modal-card admin-user-action-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Ban ${email}`}
-        onSubmit={admin.onConfirmBan}
-      >
-        <div className="workspace-head">
-          <div>
-            <h2>Ban {email}</h2>
-            <p>This permanently blocks Better Auth account access. Workspace data is unchanged.</p>
-          </div>
-        </div>
+    <ModalDialog className="admin-user-action-modal" label={`Ban ${email}`} initialFocus="textarea" onClose={admin.onCloseBanDialog}>
+      <ModalHeader
+        title={`Ban ${email}`}
+        description="This permanently blocks Better Auth account access. Workspace data is unchanged."
+        onClose={admin.onCloseBanDialog}
+      />
+      <form className="admin-user-action-form" onSubmit={admin.onConfirmBan}>
         {isApplicationAdmin(user) ? (
-          <p className="form-error">You are banning another Application admin.</p>
+          <p className="form-warning">You are banning another Application admin.</p>
         ) : null}
         <label>
           Ban reason
@@ -317,22 +319,22 @@ function BanUserDialog({ admin, user }) {
         {admin.banReasonError ? (
           <p className="form-error" role="alert">{admin.banReasonError}</p>
         ) : null}
-        <div className="actions compact">
-          <button type="submit" disabled={admin.mutatingUserId === String(user.id || "").trim()}>
-            Confirm ban
-          </button>
+        <div className="actions">
           <button type="button" className="secondary" onClick={admin.onCloseBanDialog}>
             Cancel
           </button>
+          <button type="submit" className="danger" disabled={admin.mutatingUserId === String(user.id || "").trim()}>
+            Confirm ban
+          </button>
         </div>
       </form>
-    </div>
+    </ModalDialog>
   );
 }
 
 function safeText(value) {
   const text = String(value || "").trim();
-  return text || "-";
+  return text || "—";
 }
 
 function isEmailVerified(user) {
@@ -346,7 +348,7 @@ function isApplicationAdmin(user) {
 function formatExactLocalDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "-";
+    return "—";
   }
 
   const parts = [

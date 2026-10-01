@@ -369,7 +369,7 @@ export function TemplateFieldEditor({
             {isObjectLikeType(activeField.data_type) ? (
               <div className="object-schema-launch">
                 <div>
-                  <strong>Object Schema</strong>
+                  <strong>Object schema</strong>
                   <p className="hint">
                     {objectColumns.length
                       ? `${objectColumns.length} column${
@@ -384,7 +384,7 @@ export function TemplateFieldEditor({
                   data-tour="schema-open"
                   onClick={() => setSchemaEditorFieldIndex(activeFieldIndex)}
                 >
-                  Edit Schema
+                  Edit schema
                 </button>
               </div>
             ) : null}
@@ -478,7 +478,7 @@ function ObjectSchemaModal({
         <div className="object-schema-modal-head">
           <div>
             <p className="eyebrow">{fieldName || "Object Field"}</p>
-            <h2 id="object-schema-modal-title">Object Schema Builder</h2>
+            <h2 id="object-schema-modal-title">Object schema builder</h2>
             <p>
               Define output columns and their order for table-style object
               extraction.
@@ -491,11 +491,11 @@ function ObjectSchemaModal({
               disabled={columns.length >= MAX_TEMPLATE_OBJECT_COLUMNS}
               title={`Maximum ${MAX_TEMPLATE_OBJECT_COLUMNS} columns`}
             >
-              Add Column
+              Add column
             </button>
             <button
               type="button"
-              className="icon-action-button object-schema-modal-close"
+              className="modal-close"
               aria-label="Close object schema editor"
               data-tour="schema-close"
               title="Close"
@@ -519,7 +519,7 @@ function ObjectSchemaModal({
             <thead>
               <tr>
                 <th scope="col">Order</th>
-                <th scope="col">Column Name</th>
+                <th scope="col">Column name</th>
                 <th scope="col">Type</th>
                 <th scope="col">Description</th>
                 <th scope="col">Actions</th>
@@ -542,7 +542,7 @@ function ObjectSchemaModal({
                     </td>
                     <td>
                       <input
-                        aria-label="Column Name"
+                        aria-label="Column name"
                         value={column.heading}
                         onChange={(event) =>
                           onUpdateColumn(

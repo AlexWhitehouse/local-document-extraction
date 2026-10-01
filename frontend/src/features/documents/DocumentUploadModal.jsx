@@ -1,5 +1,6 @@
 import React from "react";
 import { DocumentUploadPanel } from "./DocumentUploadPanel.jsx";
+import { ModalHeader } from "../layout/ModalDialog.jsx";
 
 export function DocumentUploadModal({
   isOpen,
@@ -32,12 +33,11 @@ export function DocumentUploadModal({
         aria-label="Upload document"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="workspace-head">
-          <h2>Upload Document</h2>
-          <p>
-            Select a template and source files, then queue Document extraction.
-          </p>
-        </div>
+        <ModalHeader
+          title="Upload Document"
+          description="Select a template and source files, then queue Document extraction."
+          onClose={onClose}
+        />
         <div className="row">
           <label>
             Template
@@ -77,7 +77,7 @@ export function DocumentUploadModal({
             disabled={isUploadingDocuments || !hasApiAccess}
             onClick={onSubmit}
           >
-            {isUploadingDocuments ? "Uploading..." : "Upload Documents"}
+            {isUploadingDocuments ? "Uploading…" : "Upload Documents"}
           </button>
         </div>
       </div>

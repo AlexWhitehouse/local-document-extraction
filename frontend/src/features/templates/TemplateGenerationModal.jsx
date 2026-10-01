@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { DocumentUploadPanel } from "../documents/DocumentUploadPanel.jsx";
+import { ModalHeader } from "../layout/ModalDialog.jsx";
 
 export function TemplateGenerationModal({
   isOpen, file, instructions, confirmed, isGenerating, error,
@@ -45,10 +46,12 @@ export function TemplateGenerationModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div ref={dialog} className="modal-card template-generation-modal" role="dialog" aria-modal="true"
         aria-labelledby="template-generation-title" onKeyDown={onKeyDown} onClick={(event) => event.stopPropagation()}>
-        <div className="workspace-head">
-          <h2 id="template-generation-title">Auto generate template</h2>
-          <p>Upload a sample for this workspace’s model to propose a template. Review and edit it before saving.</p>
-        </div>
+        <ModalHeader
+          title="Auto generate template"
+          titleId="template-generation-title"
+          description="Upload a sample for this workspace’s model to propose a template. Review and edit it before saving."
+          onClose={onClose}
+        />
         {!isGenerating && <>
           <DocumentUploadPanel
             label="Sample file"

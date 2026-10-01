@@ -40,12 +40,12 @@ describe("Template field editor", () => {
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
     expect(
-      screen.queryByRole("dialog", { name: "Object Schema Builder" }),
+      screen.queryByRole("dialog", { name: "Object schema builder" }),
     ).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Edit Schema" }));
+    await user.click(screen.getByRole("button", { name: "Edit schema" }));
     expect(screen.getByRole("table", { name: "Object schema columns" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Add Column" }));
+    await user.click(screen.getByRole("button", { name: "Add column" }));
     expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
   });
 
@@ -77,11 +77,11 @@ describe("Template field editor", () => {
     render(<TemplateFieldHarness />);
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
-    await user.click(screen.getByRole("button", { name: "Edit Schema" }));
-    await user.click(screen.getByRole("button", { name: "Add Column" }));
+    await user.click(screen.getByRole("button", { name: "Edit schema" }));
+    await user.click(screen.getByRole("button", { name: "Add column" }));
 
     const columnCard = screen.getByText("Column 1").closest(".object-column-card");
-    await user.type(within(columnCard).getByLabelText("Column Name"), "Dose #1");
+    await user.type(within(columnCard).getByLabelText("Column name"), "Dose #1");
     await user.selectOptions(within(columnCard).getByLabelText("Type"), "number");
     await user.type(
       within(columnCard).getByLabelText("Column Description"),
@@ -134,8 +134,8 @@ describe("Template field editor", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Edit Schema" }));
-    expect(screen.getByRole("button", { name: "Add Column" }).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Edit schema" }));
+    expect(screen.getByRole("button", { name: "Add column" }).disabled).toBe(true);
   });
 
   it("closes the schema table with Done while retaining draft edits", async () => {
@@ -169,21 +169,21 @@ describe("Template field editor", () => {
 
     render(<TemplateFieldHarness />);
 
-    await user.click(screen.getByRole("button", { name: "Edit Schema" }));
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add Column" }));
+    await user.click(screen.getByRole("button", { name: "Edit schema" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" }));
     await user.tab({ shift: true });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Done" }));
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add Column" }));
-    await user.click(screen.getByRole("button", { name: "Add Column" }));
-    await user.type(screen.getByLabelText("Column Name"), "Quantity");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" }));
+    await user.click(screen.getByRole("button", { name: "Add column" }));
+    await user.type(screen.getByLabelText("Column name"), "Quantity");
     await user.click(screen.getByRole("button", { name: "Done" }));
 
     expect(
-      screen.queryByRole("dialog", { name: "Object Schema Builder" }),
+      screen.queryByRole("dialog", { name: "Object schema builder" }),
     ).toBeNull();
     expect(screen.getByText("1 column defined")).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit Schema" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit schema" }));
     expect(latestFields[0].object_schema.columns[0]).toMatchObject({
       heading: "Quantity",
       key: "quantity",

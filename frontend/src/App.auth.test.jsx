@@ -69,7 +69,7 @@ beforeEach(() => {
 });
 
 async function fillSignUp(user, { name = "Ada Lovelace", password = "Password1!", confirmPassword = password } = {}) {
-  await user.click(screen.getByRole("link", { name: "Sign Up" }));
+  await user.click(screen.getByRole("link", { name: "Sign up" }));
   await user.type(screen.getByLabelText("Name"), name);
   await user.type(screen.getByLabelText("Email"), "ada@example.com");
   await user.type(screen.getByLabelText("Password"), password);
@@ -82,7 +82,7 @@ describe("auth sign-in feedback", () => {
 
     render(<App configuration={configuration} />);
 
-    await user.click(screen.getByRole("button", { name: "Sign In" }));
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(toastMock.error).toHaveBeenCalledOnce();
     expect(toastMock.error).toHaveBeenCalledWith(
@@ -100,7 +100,7 @@ describe("auth sign-in feedback", () => {
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "wrong-password");
-    await user.click(screen.getByRole("button", { name: "Sign In" }));
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(toastMock.error).toHaveBeenCalledOnce();
     expect(toastMock.error).toHaveBeenCalledWith(
@@ -121,7 +121,7 @@ describe("auth sign-in feedback", () => {
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.click(screen.getByRole("button", { name: "Sign In" }));
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(toastMock.error).toHaveBeenCalledOnce();
     expect(toastMock.error).toHaveBeenCalledWith(
@@ -187,7 +187,7 @@ describe("auth sign-in feedback", () => {
 
     expect(screen.getByLabelText("Email").value).toBe("");
 
-    await userEvent.click(screen.getByRole("link", { name: "Sign Up" }));
+    await userEvent.click(screen.getByRole("link", { name: "Sign up" }));
 
     expect(screen.getByLabelText("Name").value).toBe("");
     expect(screen.getByLabelText("Email").value).toBe("");
@@ -380,7 +380,7 @@ describe("auth sign-up password policy feedback", () => {
 
     render(<App configuration={configuration} />);
 
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
+    await user.click(screen.getByRole("link", { name: "Sign up" }));
 
     expect(screen.getByLabelText("Confirm Password")).toBeTruthy();
 
@@ -409,7 +409,7 @@ describe("auth sign-up password policy feedback", () => {
 
     render(<App configuration={configuration} />);
 
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
+    await user.click(screen.getByRole("link", { name: "Sign up" }));
 
     const passwordInput = screen.getByLabelText("Password");
     const confirmPasswordInput = screen.getByLabelText("Confirm Password");
@@ -453,13 +453,13 @@ describe("auth sign-up password policy feedback", () => {
 
     expect(screen.getByText("Passwords do not match.")).toBeTruthy();
 
-    await user.click(screen.getByRole("link", { name: "Sign In" }));
+    await user.click(screen.getByRole("link", { name: "Sign in" }));
 
     expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
     expect(screen.getByLabelText("Password").value).toBe("");
     expect(screen.queryByText("Passwords do not match.")).toBeNull();
 
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
+    await user.click(screen.getByRole("link", { name: "Sign up" }));
 
     expect(screen.getByLabelText("Name").value).toBe("Ada Lovelace");
     expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
@@ -486,7 +486,7 @@ describe("auth sign-up password policy feedback", () => {
 
     render(<App configuration={configuration} />);
 
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
+    await user.click(screen.getByRole("link", { name: "Sign up" }));
 
     expect(screen.queryByText("At least 8 characters")).toBeNull();
 
@@ -526,7 +526,7 @@ describe("auth sign-up password policy feedback", () => {
 
     render(<App configuration={configuration} />);
 
-    await user.click(screen.getByRole("link", { name: "Sign Up" }));
+    await user.click(screen.getByRole("link", { name: "Sign up" }));
     await user.click(screen.getByRole("button", { name: "Create Account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
@@ -568,7 +568,7 @@ describe("deployment auth configuration", () => {
   it("hides unconfigured providers and closed registration", () => {
     render(<App configuration={{ ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, signupEnabled: false } }} />);
     expect(screen.queryByRole("button", { name: "Sign in with Google" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Sign Up" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Sign up" })).toBeNull();
     expect(screen.getByText(/Account registration is closed/)).toBeTruthy();
   });
 
