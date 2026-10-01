@@ -168,7 +168,8 @@ export function scoreCandidate(candidate, references, definitions, alignments = 
   }
   const sum = kind => {
     const scored = Object.values(byField).filter(score => score.kind === kind);
-    return scored.length ? { matched: scored.reduce((s, r) => s + r.matched, 0), total: scored.reduce((s, r) => s + r.total, 0) } : null;
+    const total = scored.reduce((s, r) => s + r.total, 0);
+    return total ? { matched: scored.reduce((s, r) => s + r.matched, 0), total } : null;
   };
   const tablesNeedingReview = candidate.result.fields.filter(field => field.data_type === "array<object>" && byField[field.id]?.state === "Needs review").length;
   return { fields: sum("field"), tables: sum("table"), tablesNeedingReview, byField };

@@ -121,6 +121,25 @@ it("reports tables needing review separately from unscored tables", () => {
   expect(scoreCandidate(candidate, { [identity]: ref(expectedTable) }, { [identity]: table }).tablesNeedingReview).toBe(1);
   expect(scoreCandidate(candidate, {}, { [identity]: table }).tablesNeedingReview).toBe(0);
 });
+it("leaves zero-cell accuracy unscored and ranks measured table cells ahead of it", () => {
+  const emptyTable = { ...table, id: "empty_items", name: "Empty items" };
+  const identity = fieldIdentity(table);
+  const emptyIdentity = fieldIdentity(emptyTable);
+  const references = { [identity]: { ...ref(expectedTable), rows: { mode: "position" } }, [emptyIdentity]: { ...ref([]), rows: { mode: "position" } } };
+  const definitions = { [identity]: table, [emptyIdentity]: emptyTable };
+  const candidate = (id, definition, answer, processingMs) => ({ id, result: { fields: [definition], raw: [{ field_id: definition.id, ...raw(answer) }], processingMs } });
+  const empty = candidate("empty", emptyTable, [], 10);
+  const populated = candidate("populated", table, expectedTable, 100);
+  const scores = Object.fromEntries([empty, populated].map(value => [value.id, scoreCandidate(value, references, definitions)]));
+  expect(scores.empty.byField[emptyTable.id].state).toBe("Match");
+  expect(candidateAccuracy(scores.empty)).toEqual({ matched: 1, total: 1, ratio: 1 });
+  expect(scores.empty.tables).toBeNull();
+  expect(scores.populated.tables).toEqual({ matched: 4, total: 4 });
+  expect(rankCandidates([empty, populated], scores).map(value => value.id)).toEqual(["populated", "empty"]);
+  expect(bestCandidateId([empty, populated], scores)).toBe("populated");
+  const mixed = { result: { fields: [emptyTable, table], raw: [...empty.result.raw, ...populated.result.raw] } };
+  expect(scoreCandidate(mixed, references, definitions).tables).toEqual({ matched: 4, total: 4 });
+});
 
 const itemsTable = { name: "Items", data_type: "array<object>", object_schema: { columns: [{ key: "sku", heading: "SKU", data_type: "string" }, { key: "qty", heading: "Quantity", data_type: "number" }] } };
 it("aligns expected and candidate rows by key, projecting renamed candidate columns", () => {
