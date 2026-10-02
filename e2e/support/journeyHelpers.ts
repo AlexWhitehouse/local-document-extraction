@@ -42,7 +42,7 @@ export async function signUpAndVerify(
 
 export async function saveModelGateway(page: Page, harness: RuntimeHarness, modelName: string): Promise<void> {
   await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
-  await page.getByLabel("Model name", { exact: true }).fill(modelName);
+  await page.getByLabel("Extraction model", { exact: true }).fill(modelName);
   await page.getByLabel("Gateway API key", { exact: true }).fill("browser-journey-key");
   await page.getByRole("button", { name: "Save configuration", exact: true }).click();
   await expect(page.getByText("Model gateway saved.", { exact: true })).toBeVisible();

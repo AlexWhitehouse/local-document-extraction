@@ -46,6 +46,7 @@ export function createAppRuntimeCore({ apiBase, toast }) {
       const error = new Error(message);
       error.status = response.status;
       error.code = data?.error?.code || null;
+      error.details = data?.error || null;
       throw error;
     }
 

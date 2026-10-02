@@ -245,7 +245,12 @@ Notes:
 
 ## Model settings are per Workspace
 
-The AI model isn't configured here. Each Workspace's owner or admin sets its gateway URL, model name, credential, and model capabilities in the app, under **Workspaces → Model gateway**. Until that's done, uploads to the Workspace are refused.
+The AI model isn't configured here. Each Workspace's owner or admin sets its gateway URL, credential, and models in the app, under **Workspaces → Model gateway**. Until that's done, uploads to the Workspace are refused.
+
+Once saved, the panel shows a summary; select **Edit** to change it. The **Models** table lists which model each use calls, with its declared capabilities (direct PDF input and structured output):
+
+- **Extraction** runs Extraction jobs and Evaluations.
+- **Template assistant** runs the Template assistant, its suggested requests, and Auto generate. It uses the extraction model unless you choose **Different model**, which calls another model on the same gateway, with the same credential and call behavior, and its own capabilities. **Test connection** checks each distinct model.
 
 Model credentials are encrypted with `secrets/model-gateway.key` in the data folder, so keep that file with your backups. Workspace admins can point the model at any address, including private network ones, so only give that role to people you trust.
 

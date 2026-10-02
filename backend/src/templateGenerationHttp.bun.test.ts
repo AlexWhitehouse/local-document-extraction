@@ -12,10 +12,11 @@ import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 const proposal = { name: "Invoice", description: "Invoice details", fields: [{ name: "Total", description: "Total due", data_type: "number" }] };
-function fixture(configured = true) {
+function fixture(configured = true, assistantModel?: string) {
   const stateDirectory = mkdtempSync(join(tmpdir(), "template-generation-"));
   cleanups.push(() => rmSync(stateDirectory, { force: true, recursive: true }));
-  if (configured) configureTestWorkspace({ stateDirectory, workspaceId: "workspace_a", modelName: "workspace-model" });
+  if (configured) configureTestWorkspace({ stateDirectory, workspaceId: "workspace_a", modelName: "workspace-model",
+    ...(assistantModel ? { assistantModel: { model_name: assistantModel, supports_pdf_input: true, supports_structured_output: true } } : {}) });
   const registry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
   cleanups.push(registry.closeAll);
   const operations = createLocalWorkspaceProductOperations();
@@ -55,6 +56,13 @@ test("generates under workspace credentials with no saved template/job and delet
   expect(new Headers(fetch.mock.calls[0][1]!.headers).get("authorization")).toBe("Bearer dummy-test-key");
   const lease = f.registry.acquire({ workspaceId: "workspace_a", mode: "existing" })!;
   try { expect(lease.store.listTemplates()).toEqual([]); expect(lease.store.listExtractionJobs({ limit: 10 })).toEqual([]); } finally { lease.release(); }
+});
+
+test("Auto generate uses the Template assistant model when one is configured", async () => {
+  const f = fixture(true, "assistant-model");
+  const fetch = f.mockGateway();
+  expect((await f.submit()).status).toBe(200);
+  expect(JSON.parse(fetch.mock.calls[0][1]!.body as string).model).toBe("assistant-model");
 });
 
 test("checks workspace access and configuration before uploading a sample", async () => {

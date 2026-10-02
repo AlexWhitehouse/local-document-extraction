@@ -9,7 +9,7 @@ import { parseLocalMultipartSubmission } from "./localMultipartSubmission";
 import type { LocalWorkspaceProductStoreHandle } from "./localWorkspaceProductStoreRegistry";
 import { LocalWorkspaceOperationError, type LocalWorkspaceProductOperation } from "./localWorkspaceProductOperations";
 import { SourceObjectMissingError } from "./s3SourceObjectStore";
-import { configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
+import { assistantModelEnvironment, configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 
 const noStore = { "cache-control": "no-store" };
 const invalid = (message: string) => new HttpError(400, "invalid_template_assistance", message);
@@ -139,10 +139,7 @@ export async function handleTemplateSuggestions({ product, request, modelGateway
       }
       const job = input.jobId ? evidenceSnapshot(store, input.jobId) : null;
       const credential = createWorkspaceCredentialVault(product.stateDirectory).decrypt(workspace.id, configuration.credential_ciphertext);
-      const suggestions = await suggestTemplateRequests({ AI_MODEL: configuration.model_name, MODEL_GATEWAY_URL: configuration.gateway_url, LITELLM_KEY: credential,
-        MODEL_GATEWAY_SEQUENTIAL_CALLS: String(configuration.sequential_calls), MODEL_SUPPORTS_PDF_INPUT: String(configuration.supports_pdf_input),
-        MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(configuration.supports_structured_output), MODEL_GATEWAY_WORKSPACE_ID: workspace.id, MODEL_GATEWAY_REQUEST_TIMEOUT_MS: modelGatewayRequestTimeoutMs,
-      }, { draft: input.draft, action: input.action, evidence: { job, attachedSampleName: input.sampleName ?? null, note: "Only the sample's name is supplied, not its contents." } }, signal);
+      const suggestions = await suggestTemplateRequests(assistantModelEnvironment(configuration, { credential, workspaceId: workspace.id, requestTimeoutMs: modelGatewayRequestTimeoutMs }), { draft: input.draft, action: input.action, evidence: { job, attachedSampleName: input.sampleName ?? null, note: "Only the sample's name is supplied, not its contents." } }, signal);
       if (signal.aborted) throw new ExtractionCancelledError("Template suggestions cancelled");
       return Response.json({ source: "model", suggestions: suggestions.map((suggestion, index) => ({ id: `model-${index}`, ...suggestion })) }, { headers: noStore });
     } catch (error) {
@@ -216,10 +213,7 @@ export async function handleTemplateAssistance({ product, request, maxSourceFile
       if (source?.mimeType === "application/pdf") await countLocalSourceFilePages(source.mimeType, await source.blob.arrayBuffer(), signal);
       const provenance = source ? (input.useRetainedSource ? "retained_source_of_selected_job" : "separate_uploaded_sample") : "no_binary_source_supplied";
       const suppliedEvidence = { job: evidence, source: provenance, sample_name: multipart.source?.name ?? (input.useRetainedSource ? evidence?.original_filename : null), limitation: source ? null : "No binary Source was supplied. Results are model output, not ground truth." };
-      const output = await assistTemplate({ AI_MODEL: configuration.model_name, MODEL_GATEWAY_URL: configuration.gateway_url, LITELLM_KEY: credential,
-        MODEL_GATEWAY_SEQUENTIAL_CALLS: String(configuration.sequential_calls), MODEL_SUPPORTS_PDF_INPUT: String(configuration.supports_pdf_input),
-        MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(configuration.supports_structured_output), MODEL_GATEWAY_WORKSPACE_ID: workspace.id, MODEL_GATEWAY_REQUEST_TIMEOUT_MS: modelGatewayRequestTimeoutMs,
-      }, { draft: input.draft, action: input.action, instructions: input.instructions, evidence: suppliedEvidence, source,
+      const output = await assistTemplate(assistantModelEnvironment(configuration, { credential, workspaceId: workspace.id, requestTimeoutMs: modelGatewayRequestTimeoutMs }), { draft: input.draft, action: input.action, instructions: input.instructions, evidence: suppliedEvidence, source,
         evidenceContext: { sampleSupplied: Boolean(source), resultFields: evidence?.fields, result: evidence ? Object.fromEntries(evidence.results.map((row) => [row.field_id, row.answer])) : undefined } }, signal);
       if (signal.aborted) throw new ExtractionCancelledError("Template assistance cancelled");
       if (input.jobId && !store.getExtractionJobSummary(input.jobId)) throw new HttpError(404, "template_assistance_evidence_unavailable", "The selected evidence disappeared. Retry or explicitly remove it.");

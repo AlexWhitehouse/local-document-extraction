@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, s
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createLocalWorkspaceProductStore, openLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
-import { createWorkspaceCredentialVault, publicModelConfiguration, validateWorkspaceModelDraft } from "./workspaceModelConfiguration";
+import { assistantModelEnvironment, createWorkspaceCredentialVault, publicModelConfiguration, validateWorkspaceModelDraft } from "./workspaceModelConfiguration";
 
 const directories: string[] = [];
 const temporaryState = () => { const directory = mkdtempSync(join(tmpdir(), "workspace-model-test-")); directories.push(directory); return directory; };
@@ -73,6 +73,42 @@ test("complete structural validation trims fields and rejects unsafe URLs, parti
   for (const invalid of [{}, { ...draft, credential: " " }, { ...draft, supports_pdf_input: undefined }, { ...draft, use_managed_files: true }]) {
     expect(() => validateWorkspaceModelDraft(invalid)).toThrow();
   }
+});
+
+test("an optional Template assistant model is validated strictly and defaults to the extraction model", () => {
+  const assistant_model = { model_name: " assistant/model ", supports_pdf_input: true, supports_structured_output: false };
+  expect(validateWorkspaceModelDraft(draft).assistant_model).toBeNull();
+  expect(validateWorkspaceModelDraft({ ...draft, assistant_model: null }).assistant_model).toBeNull();
+  expect(validateWorkspaceModelDraft({ ...draft, assistant_model }).assistant_model).toEqual({ ...assistant_model, model_name: "assistant/model" });
+  for (const invalid of [
+    [], "assistant/model", { ...assistant_model, model_name: " " }, { ...assistant_model, model_name: "a".repeat(257) },
+    { ...assistant_model, supports_pdf_input: undefined }, { ...assistant_model, gateway_url: "http://elsewhere/v1" },
+  ]) {
+    expect(() => validateWorkspaceModelDraft({ ...draft, assistant_model: invalid })).toThrow();
+  }
+});
+
+test("the assistant model persists with the configuration and replaces only the model and its capabilities", () => {
+  const stateDirectory = temporaryState();
+  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_a" });
+  const vault = createWorkspaceCredentialVault(stateDirectory);
+  const configuration = { ...draft, sequential_calls: true, credential_ciphertext: vault.encrypt("workspace_a", "dummy-secret") };
+  const inherited = store.putModelConfiguration({ configuration, expectedRevision: null, updatedAt: "2026-09-02T10:00:00Z" })!;
+  expect(inherited.assistant_model).toBeNull();
+  const assistant_model = { model_name: "assistant/model", supports_pdf_input: true, supports_structured_output: true };
+  const overridden = store.putModelConfiguration({ configuration: { ...configuration, assistant_model }, expectedRevision: inherited.revision, updatedAt: "2026-09-02T10:01:00Z" })!;
+  expect(overridden.assistant_model).toEqual(assistant_model);
+  expect(publicModelConfiguration(overridden, "workspace_a", true, vault)).toMatchObject({ assistant_model });
+  expect(publicModelConfiguration(overridden, "workspace_a", false, vault)).toEqual({ configured: true });
+  const environment = { credential: "dummy-secret", workspaceId: "workspace_a", requestTimeoutMs: "1000" };
+  expect(assistantModelEnvironment(overridden, environment)).toMatchObject({
+    AI_MODEL: "assistant/model", MODEL_GATEWAY_URL: draft.gateway_url, LITELLM_KEY: "dummy-secret",
+    MODEL_GATEWAY_SEQUENTIAL_CALLS: "true", MODEL_SUPPORTS_PDF_INPUT: "true", MODEL_SUPPORTS_STRUCTURED_OUTPUT: "true",
+  });
+  expect(assistantModelEnvironment(inherited, environment)).toMatchObject({ AI_MODEL: draft.model_name, MODEL_SUPPORTS_PDF_INPUT: "false", MODEL_SUPPORTS_STRUCTURED_OUTPUT: "false" });
+  const cleared = store.putModelConfiguration({ configuration: { ...configuration, assistant_model: null }, expectedRevision: overridden.revision, updatedAt: "2026-09-02T10:02:00Z" })!;
+  expect(cleared.assistant_model).toBeNull();
+  store.close();
 });
 
 test("credential vault refuses linked key files and secret directories without reading, repairing or chmodding outside targets", () => {

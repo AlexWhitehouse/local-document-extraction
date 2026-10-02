@@ -63,19 +63,24 @@ async function updateLocalSettings(page: Page) {
 
   const gateway = page.getByRole("article", { name: "Workspace Model gateway" });
   await gateway.getByLabel("Gateway URL", { exact: true }).fill("http://127.0.0.1:11434/v1");
-  await gateway.getByLabel("Model name", { exact: true }).fill("browser/vision-model");
+  await gateway.getByLabel("Extraction model", { exact: true }).fill("browser/vision-model");
   const apiKey = gateway.getByLabel("Gateway API key", { exact: true });
   await apiKey.fill("local-browser-token");
-  await gateway.getByText("Capabilities & call behavior", { exact: true }).click();
   await gateway.getByRole("checkbox", { name: /Sequential calls/ }).check();
-  await expect(gateway.getByRole("checkbox", { name: /Direct PDF input/ })).not.toBeChecked();
-  await expect(gateway.getByRole("checkbox", { name: /Structured output/ })).not.toBeChecked();
+  await expect(gateway.getByRole("checkbox", { name: "Extraction: Direct PDF input" })).not.toBeChecked();
+  await expect(gateway.getByRole("checkbox", { name: "Extraction: Structured output" })).not.toBeChecked();
+  await gateway.getByLabel("Template assistant model source").selectOption("custom");
+  await gateway.getByLabel("Template assistant model", { exact: true }).fill("browser/assistant-model");
   await gateway.getByRole("button", { name: "Save configuration" }).click();
   await expect(gateway.getByText("Model gateway saved.", { exact: true })).toBeVisible();
+  await expect(gateway.getByText("browser/assistant-model", { exact: true })).toBeVisible();
+  await gateway.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(apiKey).toHaveValue("");
   await expect(apiKey).toHaveAttribute("placeholder", /Saved/);
   await apiKey.fill("replacement-browser-token");
   await gateway.getByRole("button", { name: "Save configuration" }).click();
+  await expect(gateway.getByText("Model gateway saved.", { exact: true })).toBeVisible();
+  await gateway.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(apiKey).toHaveValue("");
   await gateway.getByRole("button", { name: "Clear configuration" }).click();
   await gateway.getByRole("button", { name: "Confirm clear" }).click();

@@ -79,11 +79,12 @@ describe("Workspace Model gateway", () => {
     const coreRequest = apiFixture();
     const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
     await waitFor(() => expect(result.current.record).toEqual({ configured: false }));
-    expect(result.current.draft).toEqual({ ...draft, gateway_url: "", model_name: "", credential: "" });
+    expect(result.current.draft).toEqual({ ...draft, gateway_url: "", model_name: "", credential: "", assistant_mode: "same", assistant_model_name: "", assistant_supports_pdf_input: false, assistant_supports_structured_output: false });
     expect(result.current.ready).toBe(false);
     fill(result);
     await act(() => result.current.save());
     expect(coreRequest.mock.calls.at(-1)[1].headers["if-none-match"]).toBe("*");
+    expect(JSON.parse(coreRequest.mock.calls.at(-1)[1].body).assistant_model).toBeNull();
     expect(coreRequest.mock.calls.some(([path]) => path.endsWith("/test"))).toBe(false);
     expect(result.current.draft.credential).toBe("");
     expect(result.current.ready).toBe(true);
@@ -214,7 +215,7 @@ describe("Workspace Model gateway", () => {
     expect(result.current.conflict).toBe(false);
   });
 
-  it("shows the editor, write-only input, capability declarations, and clear confirmation", async () => {
+  it("shows the editor, then a summary with an Edit action, write-only input, capability declarations, and clear confirmation", async () => {
     const coreRequest = apiFixture();
     function Editor() {
       const controller = useWorkspaceModelConfiguration({ ...props, coreRequest });
@@ -223,21 +224,89 @@ describe("Workspace Model gateway", () => {
     const { container } = render(<Editor />);
     await screen.findByText("Not configured");
     expect(container.querySelectorAll("article")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Gateway URL"), { target: { value: draft.gateway_url } });
-    fireEvent.change(screen.getByLabelText("Model name"), { target: { value: draft.model_name } });
+    fireEvent.change(screen.getByLabelText("Extraction model"), { target: { value: draft.model_name } });
     fireEvent.change(screen.getByLabelText("Gateway API key"), { target: { value: draft.credential } });
     expect(screen.getByLabelText("Gateway API key").type).toBe("password");
-    fireEvent.click(screen.getByText("Capabilities & call behavior"));
-    fireEvent.click(screen.getByRole("checkbox", { name: /Direct PDF input/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Extraction: Direct PDF input" }));
+    // An inherited assistant row mirrors the extraction capabilities and cannot be edited.
+    expect(screen.getByRole("checkbox", { name: "Template assistant: Direct PDF input" }).checked).toBe(true);
+    expect(screen.getByRole("checkbox", { name: "Template assistant: Direct PDF input" }).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
     await screen.findByText("Model gateway saved.");
+    expect(screen.queryByLabelText("Gateway API key")).toBeNull();
+    expect(screen.getByText(draft.model_name)).toBeTruthy();
+    expect(screen.getByText("Same as extraction")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByLabelText("Gateway API key").value).toBe("");
+    fireEvent.change(screen.getByLabelText("Extraction model"), { target: { value: "discarded/model" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByText(draft.model_name)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByLabelText("Extraction model").value).toBe(draft.model_name);
     fireEvent.click(screen.getByRole("button", { name: "Clear configuration" }));
     expect(screen.getByRole("alertdialog")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" }).at(-1));
     fireEvent.click(screen.getByRole("button", { name: "Clear configuration" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm clear" }));
     await screen.findByText("Model gateway cleared.");
+    expect(screen.getByLabelText("Gateway URL").value).toBe("");
+  });
+
+  it("saves a different Template assistant model with its own capabilities and shows it in the summary", async () => {
+    const coreRequest = apiFixture({ ...configured, supports_pdf_input: true });
+    function Editor() {
+      const controller = useWorkspaceModelConfiguration({ ...props, coreRequest });
+      return <WorkspaceModelConfiguration controller={controller} />;
+    }
+    render(<Editor />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Template assistant model source"), { target: { value: "custom" } });
+    // A different model starts from the extraction model's capabilities.
+    const assistantPdf = screen.getByRole("checkbox", { name: "Template assistant: Direct PDF input" });
+    expect(assistantPdf.disabled).toBe(false);
+    expect(assistantPdf.checked).toBe(true);
+    // The browser's required check blocks submission until the assistant model is named.
+    expect(screen.getByLabelText("Template assistant model").validity.valueMissing).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    expect(coreRequest.mock.calls.some(([, options]) => options.method === "PUT")).toBe(false);
+    fireEvent.change(screen.getByLabelText("Template assistant model"), { target: { value: " assistant/model " } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Template assistant: Structured output" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    await screen.findByText("Model gateway saved.");
+    expect(JSON.parse(coreRequest.mock.calls.at(-1)[1].body).assistant_model).toEqual({ model_name: "assistant/model", supports_pdf_input: true, supports_structured_output: true });
+    expect(screen.getByText("assistant/model")).toBeTruthy();
+    expect(screen.queryByText("Same as extraction")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByLabelText("Template assistant model").value).toBe("assistant/model");
+    fireEvent.change(screen.getByLabelText("Template assistant model source"), { target: { value: "same" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    await screen.findByText("Model gateway saved.");
+    expect(JSON.parse(coreRequest.mock.calls.at(-1)[1].body).assistant_model).toBeNull();
+  });
+
+  it("refuses a different assistant model without a name", async () => {
+    const coreRequest = apiFixture(configured);
+    const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    fill(result, { assistant_mode: "custom", assistant_model_name: "  " });
+    expect(await act(() => result.current.save())).toBe(false);
+    expect(result.current.error).toContain("model names");
+    expect(coreRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports which model failed a connection test and when both models passed", async () => {
+    const coreRequest = apiFixture({ ...configured, assistant_model: { model_name: "assistant/model", supports_pdf_input: false, supports_structured_output: false } });
+    const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.draft).toMatchObject({ assistant_mode: "custom", assistant_model_name: "assistant/model" });
+    coreRequest.mockResolvedValueOnce(response({ status: "passed", tested_models: [{ model_role: "extraction" }, { model_role: "assistant" }] }));
+    await act(() => result.current.testConnection());
+    expect(result.current.testResult).toMatchObject({ passed: true, message: expect.stringContaining("both models") });
+    coreRequest.mockRejectedValueOnce(Object.assign(new Error("rejected"), { status: 422, details: { model_role: "assistant" } }));
+    await act(() => result.current.testConnection());
+    expect(result.current.testResult).toMatchObject({ passed: false, message: expect.stringContaining("Template assistant model") });
   });
 
   it("shows ordinary members presence only and does not treat it as credential health", async () => {

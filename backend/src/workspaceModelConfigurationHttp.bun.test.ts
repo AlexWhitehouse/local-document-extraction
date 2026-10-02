@@ -158,6 +158,29 @@ test("connection testing sends one minimal POST, never persists, and can conditi
   expect((await request("POST", draft, { cookie: "member" }, "/test")).status).toBe(403);
 });
 
+test("connection test checks a distinct assistant model and names the failing role", async () => {
+  const models: string[] = [];
+  let failModel = "";
+  const spy = spyOn(globalThis, "fetch").mockImplementation((async (_url: string, init: RequestInit) => {
+    const { model } = JSON.parse(init.body as string);
+    models.push(model);
+    return model === failModel ? new Response("upstream-secret", { status: 404 }) : Response.json({ choices: [{ message: { content: "OK" } }] });
+  }) as unknown as typeof fetch);
+  cleanups.push(() => spy.mockRestore());
+  const withAssistant = { ...draft, assistant_model: { model_name: "assistant/model", supports_pdf_input: false, supports_structured_output: true } };
+  const passed = await testWorkspaceModelConnection(withAssistant, draft.credential);
+  expect(passed.status).toBe(200);
+  expect(await passed.json()).toEqual({ status: "passed", tested_models: [{ model_role: "extraction", model_name: draft.model_name }, { model_role: "assistant", model_name: "assistant/model" }] });
+  expect(models).toEqual([draft.model_name, "assistant/model"]);
+  failModel = "assistant/model";
+  const failed = await testWorkspaceModelConnection(withAssistant, draft.credential);
+  expect(failed.status).toBe(422);
+  expect((await failed.json()).error).toMatchObject({ code: "model_gateway_test_rejected", model_role: "assistant", gateway_status: 404 });
+  models.length = 0;
+  await testWorkspaceModelConnection({ ...withAssistant, assistant_model: { ...withAssistant.assistant_model, model_name: draft.model_name } }, draft.credential);
+  expect(models).toEqual([draft.model_name]);
+});
+
 test("connection test classifies gateway failures without exposing upstream messages or retrying", async () => {
   let response = new Response("upstream-secret", { status: 400 });
   const spy = spyOn(globalThis, "fetch").mockImplementation((async () => response) as unknown as typeof fetch);

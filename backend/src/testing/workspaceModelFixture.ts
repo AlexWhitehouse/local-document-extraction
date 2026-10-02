@@ -1,8 +1,8 @@
 import { createLocalWorkspaceProductStore } from "../localWorkspaceProductStore";
-import { createWorkspaceCredentialVault } from "../workspaceModelConfiguration";
+import { createWorkspaceCredentialVault, type WorkspaceAssistantModel } from "../workspaceModelConfiguration";
 
 /** Explicit dummy configuration for existing extraction tests. Never used by production bootstrap. */
-export function configureTestWorkspace(input: { stateDirectory: string; workspaceId: string; modelName?: string; gatewayUrl?: string }) {
+export function configureTestWorkspace(input: { stateDirectory: string; workspaceId: string; modelName?: string; gatewayUrl?: string; assistantModel?: WorkspaceAssistantModel }) {
   const store = createLocalWorkspaceProductStore(input);
   try {
     const current = store.getModelConfiguration();
@@ -15,6 +15,7 @@ export function configureTestWorkspace(input: { stateDirectory: string; workspac
         sequential_calls: false,
         supports_pdf_input: true,
         supports_structured_output: true,
+        assistant_model: input.assistantModel ?? null,
       },
       updatedAt: new Date().toISOString(),
     })!;

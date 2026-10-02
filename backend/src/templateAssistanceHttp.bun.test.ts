@@ -16,10 +16,11 @@ afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 const draft = { name: "Invoice", description: "", fields: [{ name: "Total", description: "Total due", data_type: "number" }] };
 const base = { editorId: "editor_1", revision: 1, requestId: 1, scopeGeneration: 1, templateId: "draft" };
 const output = { explanation: "The Total field requests the total due.", observations: [], groups: [] };
-function fixture(options: { configured?: boolean; sequential?: boolean; timeout?: string } = {}) {
+function fixture(options: { configured?: boolean; sequential?: boolean; timeout?: string; assistantModel?: string } = {}) {
   const stateDirectory = mkdtempSync(join(tmpdir(), "template-assistance-"));
   cleanups.push(() => rmSync(stateDirectory, { force: true, recursive: true }));
-  if (options.configured !== false) configureTestWorkspace({ stateDirectory, workspaceId: "workspace_a", modelName: "workspace-model" });
+  if (options.configured !== false) configureTestWorkspace({ stateDirectory, workspaceId: "workspace_a", modelName: "workspace-model",
+    ...(options.assistantModel ? { assistantModel: { model_name: options.assistantModel, supports_pdf_input: false, supports_structured_output: false } } : {}) });
   const registry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
   cleanups.push(registry.closeAll);
   const operations = createLocalWorkspaceProductOperations();
@@ -300,4 +301,16 @@ test("suggestions reject malformed requests and unsupported output, and report a
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect((await response.json()).error.code).toBe("workspace_model_not_configured");
   expect((await unconfigured.suggest({}, { cookie: "outsider" })).status).toBe(403);
+});
+
+test("assistance and suggestions call the Workspace's Template assistant model with its capabilities", async () => {
+  const f = fixture({ assistantModel: "assistant-model" });
+  const gateway = f.mockGateway(responder(output));
+  expect((await f.submit()).status).toBe(200);
+  const assisted = JSON.parse(gateway.mock.calls[0][1]!.body as string);
+  expect(assisted.model).toBe("assistant-model");
+  expect(assisted).not.toHaveProperty("response_format");
+  gateway.mockImplementation(responder(suggestionOutput));
+  expect((await f.suggest()).status).toBe(200);
+  expect(JSON.parse(gateway.mock.calls[1][1]!.body as string).model).toBe("assistant-model");
 });

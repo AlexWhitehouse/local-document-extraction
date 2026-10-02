@@ -79,7 +79,7 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await page.screenshot({ path: testInfo.outputPath("tour-gateway.png") });
     await page.getByLabel("Gateway URL", { exact: true }).click();
     await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
-    await page.getByLabel("Model name", { exact: true }).fill("browser/model");
+    await page.getByLabel("Extraction model", { exact: true }).fill("browser/model");
     await page.getByLabel("Gateway API key", { exact: true }).fill("tour-test-key");
     await page.getByRole("button", { name: "Save configuration", exact: true }).click();
     await next();
