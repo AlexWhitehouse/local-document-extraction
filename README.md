@@ -54,7 +54,7 @@ Scripts and applications can send documents and collect the results without usin
 1. In the app, set up your Workspace's model and create a template.
 2. Generate a **Workspace API key** on the Workspace page.
 3. Submit a document with `POST /v1/extract`, using a Template ID or tags for automatic selection. With Smart splitting disabled, you get a job ID; enabled PDF splitting returns a packet ID.
-4. Poll the returned location. Read completed child jobs for a packet, or the ordinary job results. Resolve a review hold only when automatic processing cannot finish.
+4. Poll the returned location. Read completed child jobs for a packet, or the ordinary job results. If automatic processing reaches a review hold, a signed-in Workspace member resolves it in the frontend before your integration continues.
 
 The [API specification](mkdocs/docs/api/overview.md) has a copy-and-paste quickstart and the full endpoint reference, including a [packet and child request-chain example](mkdocs/docs/api/overview.md#follow-the-packet-and-child-request-chain).
 

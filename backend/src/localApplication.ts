@@ -311,7 +311,12 @@ export async function withAuthorizedProductStore(
   product: ProductServices,
   request: Request,
   work: (context: { store: LocalWorkspaceProductStoreHandle; signal: AbortSignal; workspace: AuthorizedWorkspace }) => Response | Promise<Response>,
+  { sessionOnly = false }: { sessionOnly?: boolean } = {},
 ): Promise<Response> {
+  // Frontend tools require session membership, even when a request also carries a valid API key.
+  if (sessionOnly && request.headers.has("authorization")) {
+    return errorResponse(403, "session_required", "This action requires a browser session.", { "cache-control": "no-store" });
+  }
   const authorization = await authorizeLocalProductRequest(product, request);
   if ("response" in authorization) return authorization.response;
   const { workspace } = authorization;

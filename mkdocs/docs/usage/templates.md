@@ -36,7 +36,7 @@ Review the rationale and every before/after value, including field IDs and colum
 
 Selected jobs supply their historical Template version and results. Choose the retained original explicitly to send it, or upload a separate sample; only one binary source is allowed. Result-only requests are supported when an original is unavailable. A separate sample is not assumed to match the result. Results are model output, not verified answers, and suggestions do not establish improved accuracy.
 
-Assistance does not run extraction, modify historical results, create Expected answers, or save a chat history. Closing the Assistant clears its temporary evidence and cancels pending work.
+Assistance does not run extraction, modify historical results, create Expected answers, or save a chat history. Closing the Assistant clears its temporary evidence and cancels pending work. The Assistant, including suggestions and evidence selection, is available to signed-in Workspace members in the frontend; Workspace API keys cannot use it.
 
 ## Generate a template from a sample
 

@@ -22,6 +22,7 @@ export async function handleDocumentProcessingRequest({ product, request, schedu
     const path = new URL(request.url).pathname;
     const packetMatch = path.match(/^\/v1\/packets(?:\/([^/]+)(?:\/(source|plan|pages\/([0-9]+)\/preview))?)?$/);
     const templateMatch = path.match(/^\/v1\/jobs\/([^/]+)\/template$/);
+    const sessionOnly = request.method === "POST" && Boolean(templateMatch || packetMatch?.[2] === "plan");
     const packetId = packetMatch?.[1] ? decodeURIComponent(packetMatch[1]) : null;
     const noStore = { "cache-control": "private, no-store" };
     if (packetId && packetMatch?.[2] === "source" && ["GET", "HEAD"].includes(request.method)) {
@@ -178,7 +179,7 @@ export async function handleDocumentProcessingRequest({ product, request, schedu
                 return errorResponse(499, "document_processing_cancelled", "Request cancelled", noStore);
             return errorResponse(500, "document_processing_failed", "The document operation could not be completed", noStore);
         }
-    });
+    }, { sessionOnly });
 }
 async function boundedSourceResponse(response: Response, signal: AbortSignal): Promise<Uint8Array> {
     const limit = 32 * 1024 * 1024, reader = response.body!.getReader(), chunks: Uint8Array[] = [];

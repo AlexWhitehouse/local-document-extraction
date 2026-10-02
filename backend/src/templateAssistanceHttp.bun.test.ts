@@ -29,7 +29,7 @@ function fixture(options: { configured?: boolean; sequential?: boolean; timeout?
     getAcceptedWorkspaceContext: ({ workspaceId, userId }: { workspaceId: string; userId: string }) => [workspace.id, "workspace_b"].includes(workspaceId) && userId === "member" ? { ...workspace, id: workspaceId, role: "member" } : null,
     authorizeApiKey: ({ apiKey }: { apiKey: string }) => apiKey === "inbound" ? workspace : null,
   } as unknown as LocalWorkspaceControl;
-  const auth = { handler: async () => new Response(null), getSession: async (request: Request) => request.headers.has("cookie") ? { id: request.headers.get("cookie"), email: "test@example.com" } : null } as LocalAuth;
+  const auth = { handler: async () => new Response(null), getSession: async (request: Request) => request.headers.get("cookie") ? { id: request.headers.get("cookie"), email: "test@example.com" } : null } as LocalAuth;
   const application = createLocalApplication({ stateDirectory, auth, workspaceControl, productStoreRegistry: registry, workspaceProductOperations: operations, modelGatewayRequestTimeoutMs: options.timeout });
   const store = registry.acquire({ workspaceId: workspace.id, mode: "create" })!;
   cleanups.push(store.release);
@@ -61,7 +61,7 @@ function fixture(options: { configured?: boolean; sequential?: boolean; timeout?
   };
   const suggest = (payload: Record<string, unknown> = {}, customHeaders: Record<string, string> = {}) => application(new Request("http://localhost/v1/templates/assist/suggestions", {
     method: "POST", body: JSON.stringify({ draft, action: "edit", ...payload }), headers: { ...headers, "content-type": "application/json", ...customHeaders } }));
-  return { submit, suggest, get, registry, store: store.store, seedJob, files, mockGateway, stateDirectory, operations };
+  return { application, submit, suggest, get, registry, store: store.store, seedJob, files, mockGateway, stateDirectory, operations };
 }
 const responder = (value: unknown): typeof fetch => Object.assign(async () => Response.json({ choices: [{ message: { content: JSON.stringify(value) } }] }), { preconnect: globalThis.fetch.preconnect });
 
@@ -95,10 +95,45 @@ test("authorization and configuration are checked before reading samples and err
   expect(f.files()).toEqual([]);
 });
 
-test("Workspace API keys authorize assistance and unsupported evidence/request properties are rejected", async () => {
+test.each([
+  ["POST", "/v1/templates/assist"],
+  ["POST", "/v1/templates/assist/suggestions"],
+  ["GET", "/v1/templates/assist/evidence"],
+  ["GET", "/v1/templates/assist/evidence/job_a"],
+])("%s %s requires a Workspace member's browser session", async (method, path) => {
+  const f = fixture();
+  f.seedJob();
+  const gateway = f.mockGateway();
+  for (const authorization of ["Bearer inbound", "Bearer invalid", "Basic ignored", ""]) {
+    for (const cookie of [undefined, "member"]) {
+      const response = await f.application(new Request(`http://localhost${path}`, {
+        method, headers: { authorization, "x-workspace-id": "workspace_a", ...(cookie ? { cookie } : {}) },
+        // The session boundary must reject API-key calls before parsing or dispatching model work.
+        ...(method === "POST" ? { body: "unparsed" } : {}),
+      }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ error: { code: "session_required" } });
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+  }
+  for (const [headers, status] of [
+    [{ "x-workspace-id": "workspace_a" }, 401],
+    [{ cookie: "outsider", "x-workspace-id": "workspace_a" }, 403],
+    [{ cookie: "member", "x-workspace-id": "foreign" }, 403],
+    [{ cookie: "member" }, 403],
+  ] as const) {
+    const response = await f.application(new Request(`http://localhost${path}`, { method, headers }));
+    expect(response.status).toBe(status);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  }
+  expect(gateway).not.toHaveBeenCalled();
+  expect(f.files()).toEqual([]);
+  expect(f.store.getExtractionJobSummary("job_a")?.status).toBe("completed");
+});
+
+test("unsupported evidence and assistance request properties are rejected for frontend sessions", async () => {
   const f = fixture();
   f.mockGateway();
-  expect((await f.submit({}, { headers: { cookie: "", "x-workspace-id": "", authorization: "Bearer inbound" } })).status).toBe(200);
   for (const payload of [{ result: {} }, { instructions: "x".repeat(4097) }, { useRetainedSource: true }, { draft: { name: "x".repeat(65537) } }, { draft: { ...draft, fields: Array(101).fill(null) } }, { base: { ...base, revision: -1 } }]) expect((await f.submit(payload)).status).toBe(400);
 });
 

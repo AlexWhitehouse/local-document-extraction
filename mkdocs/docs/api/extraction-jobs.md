@@ -17,7 +17,7 @@ The Workspace also controls blank-page exclusion, which only operates within Sma
 
 Poll the returned `Location`. Jobs use `GET /v1/jobs/{job_id}`; packets use `GET /v1/packets/{packet_id}` and expose child job summaries. Completed jobs contain a `results` array; packet child summaries do not. Discover each child `job_id` from the packet, then read `/v1/jobs/{job_id}` for its results. A failed packet may still contain successful or running children, so track them independently. A verified all-blank packet completes with `outcome: "no_documents"` and zero children.
 
-Automatic processing investigates ambiguity within a durable initial-plus-two assessment budget. If it cannot resolve a choice, use `POST /v1/jobs/{job_id}/template` for `awaiting_template` or `POST /v1/packets/{packet_id}/plan` for `awaiting_review`, without uploading the available source again. Packet plan changes require the current revision.
+Automatic processing investigates ambiguity within a durable initial-plus-two assessment budget. If it cannot resolve a choice, a signed-in Workspace member must open the held document in the frontend to select a template for `awaiting_template` or review the page groups for `awaiting_review`. Workspace API keys cannot resolve these holds. Retain the IDs and resume polling after review; the existing source is reused without another upload.
 
 `GET /v1/jobs` lists extraction jobs, including packet children; `GET /v1/packets` lists parents. Children can be viewed, exported, and deleted independently. Deleting a child leaves the retained parent original intact; `DELETE /v1/packets/{packet_id}` removes the full group.
 

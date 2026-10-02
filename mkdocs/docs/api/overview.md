@@ -2,7 +2,7 @@
 
 Use the Workspace API to define extraction templates, submit PDFs and images, and retrieve structured data from scripts, applications, and automated workflows. Processing runs asynchronously: a submission returns a job ID or, for PDFs with Smart splitting enabled, a packet ID. Poll the returned location, then read each completed job for its results.
 
-This page specifies the API available to Workspace API-key clients, including template, extraction-job, and document-packet endpoints. Account, membership, model-configuration, and live-update endpoints use browser sessions and are outside this integration API.
+This page specifies the API available to Workspace API-key clients, including template, extraction-job, and document-packet endpoints. Account, membership, model-configuration, live-update, Template assistant, and manual document-review operations use browser sessions and are outside this integration API.
 
 ## Base URL and conventions
 
@@ -34,7 +34,7 @@ Authorization: Bearer <workspace_api_key>
 
 The key selects its Workspace, so API-key requests do not need `x-workspace-id`. Keep the key on your server or in your script's secret configuration. Rotating the key invalidates the previous key. The Workspace API key authenticates incoming requests; the model gateway credential is a separate secret used to call your model.
 
-API keys can read and modify templates and shared template tags, submit documents, generate template drafts, read results and processing settings, resolve held template/split decisions, delete jobs or packets, and export results in their Workspace. They cannot manage accounts, Workspaces, members, invitations, model configuration, or live updates. Browser clients use a session cookie and `x-workspace-id` for product routes instead.
+API keys can read and modify templates and shared template tags, submit documents, generate template drafts, read results and processing settings, delete jobs or packets, and export results in their Workspace. They cannot manage accounts, Workspaces, members, invitations, model configuration, or live updates, use the Template assistant, or resolve held template/split decisions. Those actions require the frontend. Browser clients use a session cookie and `x-workspace-id` for product routes instead.
 
 Missing authentication returns `401 unauthorized`. A supplied but invalid API key returns `403 forbidden`. Resources in another Workspace are not accessible with your key.
 
@@ -42,7 +42,7 @@ Template CRUD and existing result reads do not require a model gateway. Extracti
 
 ## Endpoint index
 
-All template, job, and packet endpoints require Workspace authentication. The two service endpoints are public.
+All template, job, and packet endpoints require Workspace authentication. The health endpoint is public.
 
 | Method | Path | Purpose | Success |
 | --- | --- | --- | --- |
@@ -55,16 +55,10 @@ All template, job, and packet endpoints require Workspace authentication. The tw
 | `PATCH` | `/v1/template-tags/{tag_id}` | Rename a shared tag | `200` |
 | `DELETE` | `/v1/template-tags/{tag_id}` | Delete a shared tag and its associations | `204` |
 | `POST` | `/v1/templates/generate` | Generate an unsaved template from a sample | `200` |
-| `POST` | `/v1/templates/assist` | Explain a draft or propose focused change groups | `200` |
-| `POST` | `/v1/templates/assist/suggestions` | Suggest requests for the open draft | `200` |
-| `GET` | `/v1/templates/assist/evidence` | Page through completed jobs for assistance | `200` |
-| `GET` | `/v1/templates/assist/evidence/{job_id}` | Read authorized historical evidence | `200` |
 | `POST` | `/v1/extract` | Submit one document or PDF packet | `202` |
 | `GET` | `/v1/document-processing-settings` | Read effective Workspace processing switches | `200` |
-| `POST` | `/v1/jobs/{job_id}/template` | Resolve a held automatic template selection | `200` |
 | `GET` | `/v1/packets` | List document packets with paging | `200` |
 | `GET` | `/v1/packets/{packet_id}` | Read split progress, plan and child jobs | `200` |
-| `POST` | `/v1/packets/{packet_id}/plan` | Confirm a corrected held split plan | `200` |
 | `GET` | `/v1/packets/{packet_id}/pages/{page}/preview` | Preview a selected physical page | `200` |
 | `GET`, `HEAD` | `/v1/packets/{packet_id}/source` | Read the packet original when available | `200` |
 | `DELETE` | `/v1/packets/{packet_id}` | Delete the packet and all children | `200` |
@@ -76,7 +70,6 @@ All template, job, and packet endpoints require Workspace authentication. The tw
 | `DELETE` | `/v1/jobs/{job_id}` | Delete a job and its results | `200` |
 | `POST` | `/v1/jobs/export` | Download selected jobs as an Excel workbook | `200` |
 | `GET` | `/v1/health` | Check runtime health | `200` |
-| `GET` | `/v1/config` | Read public capabilities and default upload limit | `200` |
 
 ## Quickstart: document to structured data
 
@@ -325,66 +318,6 @@ Returns `200` with a draft `{name, description, fields}` payload and `Cache-Cont
 
 Invalid model proposals receive up to three corrective retries after the initial call. Exhaustion returns `422 template_generation_invalid`. Gateway errors return `502 template_generation_failed` without automatic gateway retries. Other generation failures can return `500 template_generation_failed`. Cancelling the request aborts generation (`499 template_generation_cancelled` if a response can still be delivered). The temporary sample is removed after success, failure, or cancellation.
 
-### Explain a draft or propose focused changes
-
-`POST /v1/templates/assist`
-
-This proposal-only API requires the same Workspace authentication and model readiness as Template generation. It never creates or updates a Template, Extraction job, Expected answer, or Evaluation. Responses, including errors, use `Cache-Control: no-store`.
-
-Send multipart form data with exactly one `payload` text part and at most one `document` file. `payload` is JSON:
-
-```json
-{
-  "draft": {"name":"Invoice","description":"Invoice totals","fields":[{"name":"Total","description":"Final amount due","data_type":"number"}]},
-  "action": "edit",
-  "instructions": "Explain how to capture the currency in a separate field and propose it.",
-  "base": {"editorId":"editor_123","revision":7,"requestId":2,"scopeGeneration":1,"templateId":"tpl_example"},
-  "jobId": "job_example",
-  "useRetainedSource": false
-}
-```
-
-`action` is `explain` or `edit`; edit requests require nonempty instructions. The bounded raw draft may be incomplete or invalid. `base` is an opaque client application guard: `editorId` identifies an editor, `templateId` identifies the target (empty for a new draft), and the other properties are nonnegative safe integer counters. The server echoes it; clients must reject responses and Apply actions unless the editor, session, Workspace, target, request and exact draft revision still match. Increment counters for intervening edits and scope changes even if text later becomes identical. This is not a precondition for ordinary Template saves.
-
-`jobId` and `useRetainedSource` are optional. The server resolves a completed job in the authenticated Workspace and supplies its actual historical fields, Template version and stored results. A deleted Template does not prevent reading the job's version. `useRetainedSource: true` requires `jobId` and explicitly includes its retained original. It cannot be combined with an uploaded `document`. A separate upload is labeled as a separate sample, not assumed to be the selected result's source. Missing or inaccessible chosen evidence fails the request; it is never silently omitted.
-
-The response contains:
-
-| Property | Meaning |
-| --- | --- |
-| `base` | Exact client guard echoed from the request. |
-| `diagnostics` | Deterministic errors with stable `code`, `severity`, `location`, `title`, `explanation`, and `remedy`; field and column positions work without unique names. |
-| `evidence` | `job` historical snapshot or null; `source` is `retained_source_of_selected_job`, `separate_uploaded_sample`, or `no_binary_source_supplied`; `sample_name` and `limitation` describe what was supplied. |
-| `explanation` | Plain-language explanation; not a verified diagnosis of extraction accuracy. |
-| `observations` | Labeled `observation`, `hypothesis`, or `suggestion` entries, with validated structured references. |
-| `groups` | Focused changes, each with `id`, `title`, `rationale`, `dependsOn`, and `operations`. Explain-only responses contain no groups. |
-
-Operations are `set_template`, `add_field`, `update_field`, `remove_field`, `add_column`, `update_column`, and `remove_column`. Existing targets use zero-based positions in the captured base plus exact `expectName` and, for existing columns, `expectHeading`. Additions use `after` as a base position (`-1` inserts first; null appends). Updates carry only explicitly changed properties in `set`. A group applies atomically; selected groups must satisfy dependencies, avoid conflicting writes, and produce a draft valid under the same rules as manual saving. Preserve unrelated raw values and ordering. Show all changed values and output-identity/type impacts, consume a proposal after Apply, and require an explicit save afterward.
-
-Limits are 64 KiB for the serialized draft, 4 KiB for instructions, 80 KiB for the multipart payload, 128 KiB for historical evidence, 64 KiB for model content, and 512 KiB for the gateway response envelope. Oversized evidence returns `413 template_assistance_evidence_too_large`; it is not truncated. Samples follow the configured Source file size, MIME, PDF page and inspection limits. Text-only requests share resource admission and the Workspace's sequential-call policy with source-backed model work. The whole request has a deadline bounded by the configured model timeout and five minutes. Temporary sample files are released after success, failure, or cancellation; retained originals are never changed.
-
-Invalid drafts may contain at most 100 fields, 100 columns in one field, and 200 columns in total, with diagnostics bounded to 128 KiB; these request safety limits do not expand the valid Template schema of 50 fields and 20 columns. A response allows at most 20 groups, 25 operations per group, 100 operations total, and 20 observations with at most 20 references each. Unsupported keys, ambiguous targets, overlapping writes, cyclic or missing dependencies, fabricated references, and over-limit output are rejected whole.
-
-Invalid model output receives at most two corrective retries (three total attempts), then returns `422 template_assistance_invalid`. Gateway failures return `502 template_assistance_failed`. Invalid requests return `400 invalid_template_assistance`. Unavailable selected jobs return `404 template_assistance_evidence_unavailable`; retained Source failures use `source_not_retained`, `source_missing`, or `source_unavailable`. Cancelled or expired requests return `499 template_assistance_cancelled` when a response can still be delivered. Remove failed evidence explicitly before requesting reduced-evidence analysis.
-
-### Suggest assistance requests
-
-`POST /v1/templates/assist/suggestions`
-
-Accepts JSON `{draft, action, jobId?, sampleName?}`, where `action` is `explain` or `edit`. The draft follows the same limits as `POST /v1/templates/assist` and may be incomplete. Returns `{source: "model", suggestions: [{id, label, request, reason}]}` with one to six suggested requests based on the draft, its deterministic diagnostics and any selected job's historical fields and results. Only the sample's name is sent, never its contents, and no Source file is read. Suggestions only prefill the request box; nothing is saved or changed.
-
-The request makes one text-only model call (with at most one corrective retry), shares the Workspace's sequential-call policy, and has a one-minute deadline. It requires a configured model: a missing configuration returns `409 workspace_model_not_configured`. Unsupported model output returns `422 template_suggestions_invalid`, gateway failures return `502 template_suggestions_failed`, and invalid requests return `400 invalid_template_assistance`. Responses use `Cache-Control: no-store`. The Studio falls back to suggestions from its own checks when this endpoint fails.
-
-### Browse assistance evidence
-
-`GET /v1/templates/assist/evidence?limit=20&cursor=...`
-
-Returns `{jobs, next_cursor}` for completed jobs in the authenticated Workspace. `limit` accepts 1–50; `next_cursor` is opaque and null at the end. Items include `job_id`, `original_filename`, `template_id`, `template_version`, `completed_at`, and `source_available`. This list is independent of the browser's Document cache.
-
-`GET /v1/templates/assist/evidence/{job_id}`
-
-Returns the selected job's historical fields and results, Template identity/version/name, and probed `source_available` and `source_limitation`. Unavailable originals do not prevent reading result-only evidence. Both endpoints use `Cache-Control: no-store`, accept session or Workspace API-key authorization, and require no model configuration.
-
 ## Document submission
 
 `POST /v1/extract`
@@ -468,7 +401,7 @@ With Workspace Smart splitting enabled, an accepted PDF returns `202`, `Location
 | `selected_pages` | Physical, one-based original page numbers, in source order. |
 | `processing_policy` | Captured `enable_smart_splitting` and `exclude_blank_pages` booleans. |
 | `template_id`, `template_version`, `template_tags` | Explicit pinned Template or automatic tag scope. |
-| `plan_revision`, `plan_accepted` | Review concurrency token and whether groups are immutable. |
+| `plan_revision`, `plan_accepted` | Revision of the split plan and whether its groups are immutable after automatic acceptance or frontend review. |
 | `plan.groups` | Objects containing `pages` arrays of original page numbers. |
 | `plan.exclusions` | `{page, reason, verified_blank}` records. |
 | `children` | Extraction job summaries with independent status and source-page lineage. Fetch `/v1/jobs/{job_id}` for full results; packet summaries do not contain extracted fields. |
@@ -572,44 +505,22 @@ Implement the chain as follows:
 1. Save the submission ID and `Location`. Use a polling interval of 2–5 seconds, honoring `Retry-After` when present, with a client deadline and backoff for transient read errors.
 2. Poll the packet and record every child `job_id` as it appears. The server creates, classifies, and extracts children automatically; do not submit their pages again. `source_pages` always refers to one-based page numbers in the uploaded original.
 3. For each `completed` child, fetch its job endpoint and consume `results`. Track consumed IDs in your integration so a poll or restart does not import the same result twice. For each `failed` child, read its `error_code` and `error_message`.
-4. Pause for resolution if the packet reaches `awaiting_review` or a child reaches `awaiting_template`. Polling alone cannot clear these holds. Resume after the relevant resolution endpoint succeeds.
+4. Pause for resolution if the packet reaches `awaiting_review` or a child reaches `awaiting_template`. Polling alone cannot clear these holds. A signed-in Workspace member must resolve the hold in the frontend before your integration resumes polling.
 5. A `failed` packet can still contain completed or running children, for example after partial materialization. Continue following discovered child IDs; do not discard successful results because the parent failed. A completed packet with `outcome: "no_documents"` has no children to fetch.
 
 Packet reads use `Cache-Control: private, no-store` and do not provide conditional ETags or polling `Retry-After` headers. Child job reads support conditional polling as described under [Polling, retries, and delivery](#polling-retries-and-delivery). A client timeout does not cancel accepted work; resume with saved IDs instead of uploading again.
 
-### Correct a held split plan
+### Holds requiring frontend review
 
-Read the latest packet, then submit the current `plan_revision` and the complete proposed grouping:
+A packet in `awaiting_review` needs a signed-in Workspace member to open it in **Documents**, review the page groups and exclusions, and confirm the plan. A job in `awaiting_template` needs a member to open that document and select a suitable template. The existing source is reused; another upload is not required. Manual selection may choose a usable template outside the original tag scope.
 
-```http
-POST /v1/packets/{packet_id}/plan
-Content-Type: application/json
-Authorization: Bearer <workspace_api_key>
+These review actions are available only in the frontend, not through Workspace API keys. Keep the packet and job IDs in your integration, surface the hold to a user, and resume polling after review. Once accepted, page groups, child identities, and template bindings remain fixed.
 
-{"revision":1,"groups":[{"pages":[1,2]},{"pages":[4,5]}],"exclusions":[{"page":3,"reason":"Explicitly excluded cover"}]}
-```
-
-Every selected page must be present exactly once in a nonempty group or an explicit exclusion. Noncontiguous groups are allowed and remain in original order. Manual exclusions may remove nonblank pages; client `verified_blank` flags are not trusted. Empty plans are permitted only for the independently verified all-blank outcome with the captured blank-removal setting enabled. Duplicate/out-of-scope/missing pages return `400 invalid_packet_plan` or `400 invalid_page_selection`; stale revisions and already accepted plans return `409 packet_plan_conflict`.
-
-A successful response is the accepted packet. Committed groups and child IDs are fixed. Repeating the confirmation does not create additional children. Deleting a child leaves its tombstone, siblings, and packet intact; recovery cannot recreate it.
+### Read and manage packets
 
 Use `GET /v1/packets/{packet_id}/pages/{original_page}/preview` for a PNG preview of a selected page, or `GET|HEAD /v1/packets/{packet_id}/source` for the original. Active/held work exposes its available working source for resolution even when completed-original retention is disabled. When processing no longer needs it, normal retention/cleanup applies. Child source reads use `GET|HEAD /v1/jobs/{job_id}/source` and contain only the child's pages.
 
 `GET /v1/packets` returns `{packets, has_more, next_cursor}`, up to 50 packets per page; pass `cursor` to continue. Packets do not inflate job counts or exports. `DELETE /v1/packets/{packet_id}` deletes the packet and all children, returning `{deleted:true,packet_id}`. Deleting one child does not redact its pages from a retained packet original. Storage deletion uses durable cleanup intents and remote retry handling.
-
-### Resolve a held template selection
-
-For a job in `awaiting_template`, select any currently usable authorized Template:
-
-```http
-POST /v1/jobs/{job_id}/template
-Content-Type: application/json
-Authorization: Bearer <workspace_api_key>
-
-{"template_id":"tpl_invoice"}
-```
-
-This pins its current version and queues extraction of the existing source. A resolved/deleted job or unavailable Template returns a conflict or not-found response; competing resolutions cannot overwrite an accepted binding. Manual resolution may deliberately choose a Template outside the original tag scope.
 
 ### Processing limits
 
@@ -689,7 +600,7 @@ Authorization: Bearer <workspace_api_key>
 If-None-Match: W/"job-v1-<digest-from-previous-response>"
 ```
 
-An unchanged job returns `304 Not Modified` with no body. Keep the previous representation and wait before polling again. A changed job returns `200` and a new ETag. Stop polling on `completed` or `failed`; terminal responses do not include `Retry-After`. A job in `awaiting_template` also has no polling hint: resolve it before waiting for further processing.
+An unchanged job returns `304 Not Modified` with no body. Keep the previous representation and wait before polling again. A changed job returns `200` and a new ETag. Stop polling on `completed` or `failed`; terminal responses do not include `Retry-After`. A job in `awaiting_template` also has no polling hint: a user must resolve it in the frontend before waiting for further processing.
 
 For automation clients:
 
@@ -817,27 +728,6 @@ The runtime permits two simultaneous exports. Additional exports return `503 exp
 
 Returns `200` with `ok: true`, `service: "document-extraction-api"`, and an optional `diagnostics` object containing runtime metrics. Diagnostics can change with runtime versions. A successful health response does not verify a Workspace's model gateway or guarantee extraction success.
 
-### Public configuration
-
-`GET /v1/config` — no authentication required.
-
-Returns `200` with `Cache-Control: no-store`. A default local installation returns:
-
-```json
-{
-  "auth": {
-    "emailPasswordEnabled": true,
-    "googleEnabled": false,
-    "signupEnabled": true,
-    "requireEmailVerification": false,
-    "mailDelivery": "local"
-  },
-  "limits": {"maxSourceFileBytes":10485760}
-}
-```
-
-Authentication properties reflect deployment settings; `mailDelivery` is `local` or `cloudflare`. `limits.maxSourceFileBytes` is the deployment default, not any Workspace-specific override. No gateway credentials or Workspace API keys are exposed.
-
 ## Errors and limits
 
 Application errors use this JSON envelope:
@@ -859,7 +749,7 @@ Branch on both HTTP status and `error.code`; treat `message` as human-readable c
 | `400` | `invalid_name`, `invalid_description`, `invalid_tags`, `invalid_fields`, `empty_patch` | Correct template properties, tag names, or field definitions. |
 | `400` | `invalid_document`, `invalid_pdf_source_file`, `invalid_template_id` | Supply a supported document and an explicit template ID or nonempty tags. |
 | `400` | `invalid_multipart`, `invalid_options`, `invalid_template_tags`, `inline_fields_forbidden` | Correct multipart fields, boundaries, or options. |
-| `400` | `invalid_page_selection`, `invalid_packet_plan` | Supply a valid original-page selection or complete split plan. |
+| `400` | `invalid_page_selection` | Supply a valid original-page selection. |
 | `400` | `pdf_source_file_limit_exceeded` | Reduce PDF size or complexity. |
 | `400` | `source_file_too_large` | Reduce the file/request size or ask the operator about limits. |
 | `400` | `submission_aborted` | The upload was interrupted. |
@@ -869,7 +759,6 @@ Branch on both HTTP status and `error.code`; treat `message` as human-readable c
 | `403` | `forbidden` | Check the API key or Workspace access. |
 | `404` | `not_found`, `template_not_found`, `tag_not_found` | Check the resource ID and route; submission requires an active template. |
 | `404` | `source_not_retained`, `source_missing` | The source is unavailable; stored results remain readable. |
-| `409` | `packet_plan_conflict`, `template_resolution_conflict` | Reload the held item before resolving it; accepted decisions cannot be overwritten. |
 | `409` | `workspace_model_not_configured` | Ask a Workspace owner/admin to configure the model gateway. |
 | `409` | `workspace_deleting`, `job_deleting` | The resource is being deleted. |
 | `409` | `tag_name_conflict` | Rename the shared tag to an unused name; renaming does not merge tags. |

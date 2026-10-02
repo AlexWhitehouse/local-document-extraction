@@ -295,7 +295,7 @@
             "{{poll_path}}"
           ]
         },
-        "description": "Poll the Location saved by the upload, normally every 2\u20135 seconds. Job states: queued, processing, awaiting_template, completed, failed. Packet states: queued, processing, awaiting_review, materializing, processing_children, completed, failed. Resolve review/template holds before waiting for more work. Packet reads contain child summaries, not results. The script saves child_job_ids; copy each desired ID to job_id and read Return Job Results, tracking consumed IDs in your integration. A failed packet can still have successful or running children."
+        "description": "Poll the Location saved by the upload, normally every 2\u20135 seconds. Job states: queued, processing, awaiting_template, completed, failed. Packet states: queued, processing, awaiting_review, materializing, processing_children, completed, failed. A signed-in Workspace member must resolve review/template holds in the frontend before processing can continue; API keys cannot resolve them. Packet reads contain child summaries, not results. The script saves child_job_ids; copy each desired ID to job_id and read Return Job Results, tracking consumed IDs in your integration. A failed packet can still have successful or running children."
       },
       "event": [
         {
@@ -338,7 +338,7 @@
             "{{job_id}}"
           ]
         },
-        "description": "Read the ordinary job or one packet child. For a packet, set job_id to each ID in child_job_ids in turn. Completed jobs contain results; other states return results: []. A failed job still returns HTTP 200 with error_code/error_message. An awaiting_template job needs POST /v1/jobs/{job_id}/template with {\"template_id\":\"...\"}. This example expects the chosen job to be completed."
+        "description": "Read the ordinary job or one packet child. For a packet, set job_id to each ID in child_job_ids in turn. Completed jobs contain results; other states return results: []. A failed job still returns HTTP 200 with error_code/error_message. An awaiting_template job requires a signed-in Workspace member to choose a template in the frontend. API keys cannot resolve the hold. This example expects the chosen job to be completed."
       },
       "event": [
         {

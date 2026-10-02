@@ -393,9 +393,9 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - The SPA uses the signed-in user session plus accepted **Workspace context** for workspace-scoped requests; **Workspace API keys** are for external API clients.
 - **Workspace API keys** may be generated and shown to workspace owners/admins for external clients, but they are not SPA authentication credentials.
 - **Workspace API keys** authenticate external clients for workspace-scoped product routes such as templates, extraction jobs, and document submission.
-- **Workspace API keys** currently have the same access as accepted Workspace context on workspace-scoped product routes.
+- **Workspace API keys** authorize only integration product routes. **Template assistance**, assistance suggestions/evidence, held Template selection, and split-plan confirmation require an authenticated user session and accepted **Workspace membership**; API keys cannot authorize them.
 - **Workspace API keys** require only accepted Workspace authorization in the local-only runtime.
-- **Workspace API keys** do not authenticate user/session-only routes such as profile, workspace membership, invitations, workspace deletion, or API key generation.
+- **Workspace API keys** do not authenticate user/session-only routes such as profile, workspace membership, invitations, workspace deletion, API key generation, **Template assistance**, or manual document review. Sample-based **Template generation** remains available to API-key clients.
 - **Workspace API keys** do not create browser sessions or authenticate access to the SPA shell.
 - **Workspace API key** material is visible only immediately after creation or rotation because the backend stores only a hash.
 - **Workspace API key format** is opaque to users and clients beyond being passed as a bearer token.
@@ -489,7 +489,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
 - Background processor retry steps, not **Extraction job** status values, own retryability for transient processing failures.
 - Do not model retryability with a durable `retryable_failed` **Extraction job** status.
-- The durable **Extraction job lifecycle** states are `queued`, `awaiting_template`, `processing`, `completed`, and `failed`. `awaiting_template` is a deliberate manual-resolution hold, not an automatic retry.
+- The durable **Extraction job lifecycle** states are `queued`, `awaiting_template`, `processing`, `completed`, and `failed`. `awaiting_template` is a deliberate manual-resolution hold, not an automatic retry. Held Template choices and packet split plans are resolved by signed-in Workspace members through the frontend; integrations observe their states and resume after review.
 - Authoritative **Extraction job lifecycle** state belongs to **Workspace product data**.
 - The **Extraction processor** performs long-running extraction work but does not own authoritative **Extraction job lifecycle** state.
 - Background processor instance details are implementation metadata, not durable **Extraction job lifecycle** states.
