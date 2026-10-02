@@ -140,18 +140,20 @@ function AuthenticatedApp({ configuration }) {
   }, [coreRequest, hasSession, recoverForbiddenWorkspaceAccess, workspaceId]);
   const workspaceModel = useWorkspaceModelConfiguration({
     coreRequest,
+    showActionToast,
     workspaceId,
     sessionUserId,
     role: workspaceContext.selectedWorkspaceRole,
     enabled: hasApiAccess && !isWorkspaceInvitationSelected,
   });
   const workspaceDocumentProcessing = useWorkspaceDocumentProcessingSettings({
-    coreRequest, workspaceId, sessionUserId,
+    coreRequest, showActionToast, workspaceId, sessionUserId,
     role: workspaceContext.selectedWorkspaceRole,
     enabled: hasApiAccess && !isWorkspaceInvitationSelected,
   });
   const workspaceSourceRetention = useWorkspaceSourceRetention({
     coreRequest,
+    showActionToast,
     workspaceId,
     sessionUserId,
     role: workspaceContext.selectedWorkspaceRole,
@@ -174,7 +176,6 @@ function AuthenticatedApp({ configuration }) {
     templates,
     workspaceTags: templateController.templatePage.tagPicker.tags,
     onTagsRefresh: templateController.templatePage.tagPicker.onReload,
-    processingPolicy: workspaceDocumentProcessing.settings,
     onProcessingPolicyRefresh: workspaceDocumentProcessing.reload,
     selectedUploadTemplateId: templateController.selectedUploadTemplateId,
     onSelectedUploadTemplateChange: templateController.setSelectedUploadTemplateId,
@@ -285,7 +286,8 @@ function AuthenticatedApp({ configuration }) {
         : documentController.documentPage.selectedPacketId ? documentController.documentPage.packetPage.packet?.source_name || "Document packet" : selectedDocument?.source_name || "Documents";
   const pageDescription =
     PAGE_DESCRIPTIONS[visiblePage] ||
-    (documentController.documentPage.selectedPacketId ? "Smart splitting" : documentController.documentPage.selectedDocumentTemplateName) ||
+    documentController.documentPage.selectedDocumentTemplateName ||
+    (documentController.documentPage.selectedPacketId ? documentController.documentPage.isSingleDocument ? "Processing document" : "Smart splitting" : "") ||
     "Select a document to see its extraction results.";
 
   return (
@@ -296,7 +298,7 @@ function AuthenticatedApp({ configuration }) {
         activePage={visiblePage}
         contentSelection={
           visiblePage === "documents"
-            ? documentController.documentPage.selectedPacketId || documentToolbar.selectedDocumentId
+            ? packetContentSelection(documentController.documentPage) || documentToolbar.selectedDocumentId
             : visiblePage === "templates"
               ? templateController.toolbar.selectedTemplateId
               : visiblePage === "workspace"
@@ -709,4 +711,12 @@ function AdminContextList() {
       </button>
     </div>
   );
+}
+
+// Each packet tab counts as its own selection so switching tabs fades like opening a document.
+// An opening packet keys on the tab it is opening, so the fade runs once rather than again on load.
+function packetContentSelection({ selectedPacketId, packetPage }) {
+  if (!selectedPacketId) return "";
+  const tab = packetPage.isOpeningDocument ? packetPage.pendingDocumentId : packetPage.activeDocumentId;
+  return `${selectedPacketId}:${tab || "overview"}`;
 }

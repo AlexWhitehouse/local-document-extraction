@@ -47,6 +47,33 @@ describe("Workspace document processing settings", () => {
     expect(coreRequest).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the optimistic policy while keeping dependent changes unavailable until it is saved", async () => {
+    let completeSave;
+    const coreRequest = vi.fn(async (_path, request) => request.method === "PUT"
+      ? await new Promise((resolve) => { completeSave = resolve; })
+      : disabled);
+    function Harness() { return <WorkspaceDocumentProcessingSettings controller={useWorkspaceDocumentProcessingSettings({ ...props, coreRequest })} />; }
+    render(<Harness />);
+    const splitting = screen.getByLabelText("Enable smart splitting");
+    const blank = screen.getByLabelText("Exclude blank pages");
+    await waitFor(() => expect(splitting.disabled).toBe(false));
+
+    fireEvent.click(splitting);
+    expect(splitting.checked).toBe(true);
+    expect(splitting.disabled).toBe(true);
+    expect(blank.disabled).toBe(true);
+
+    await act(async () => { completeSave({ enable_smart_splitting: true, exclude_blank_pages: false }); });
+    expect(splitting.disabled).toBe(false);
+    expect(blank.disabled).toBe(false);
+    fireEvent.click(blank);
+    expect(blank.checked).toBe(true);
+    expect(blank.disabled).toBe(true);
+    expect(coreRequest.mock.calls.filter(([, request]) => request.method === "PUT")).toHaveLength(2);
+    await act(async () => { completeSave({ enable_smart_splitting: true, exclude_blank_pages: true }); });
+    expect(blank.disabled).toBe(false);
+  });
+
   it("ignores a save response after switching Workspace and suppresses simultaneous writes", async () => {
     let completeSave;
     const coreRequest = vi.fn(async (_path, request) => request.method === "PUT" ? await new Promise((resolve) => { completeSave = resolve; }) : disabled);
@@ -64,13 +91,21 @@ describe("Workspace document processing settings", () => {
 
   it("keeps the prior policy after a failed save and permits a retry", async () => {
     const coreRequest = fixture();
-    const { result } = renderHook(() => useWorkspaceDocumentProcessingSettings({ ...props, coreRequest }));
+    const showActionToast = vi.fn();
+    const { result } = renderHook(() => useWorkspaceDocumentProcessingSettings({ ...props, coreRequest, showActionToast }));
     await waitFor(() => expect(result.current.settings).not.toBeNull());
-    coreRequest.mockRejectedValueOnce(new Error("offline"));
-    await act(() => result.current.update("enable_smart_splitting", true));
-    expect(result.current.error).toContain("could not be saved");
+    let rejectSave;
+    coreRequest.mockImplementationOnce(() => new Promise((_, reject) => { rejectSave = reject; }));
+    let pending;
+    act(() => { pending = result.current.update("enable_smart_splitting", true); });
+    // The new value shows while the save is in flight.
+    expect(result.current.settings.enable_smart_splitting).toBe(true);
+    await act(async () => { rejectSave(new Error("offline")); await pending; });
+    expect(showActionToast).toHaveBeenCalledWith("workspace.documentProcessing", "failure");
+    expect(result.current.error).toBe("");
     expect(result.current.settings).toEqual(disabled);
     await act(() => result.current.update("enable_smart_splitting", true));
     expect(result.current.settings.enable_smart_splitting).toBe(true);
+    expect(showActionToast).toHaveBeenLastCalledWith("workspace.documentProcessing", "success", { setting: "Smart splitting", enabled: true });
   });
 });

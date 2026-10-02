@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const initial = (scope) => ({ scope, settings: null, loading: false, saving: false, error: "" });
 
 /** Workspace policy is authoritative for every upload; each accepted request captures its own copy. */
-export function useWorkspaceDocumentProcessingSettings({ coreRequest, workspaceId, sessionUserId, role, enabled }) {
+export function useWorkspaceDocumentProcessingSettings({ coreRequest, workspaceId, sessionUserId, role, enabled, showActionToast }) {
   const scope = enabled && workspaceId && sessionUserId ? `${sessionUserId}:${workspaceId}:${role}` : "";
   const canManage = role === "owner" || role === "admin";
   const [state, setState] = useState(() => initial(scope));
@@ -11,6 +11,8 @@ export function useWorkspaceDocumentProcessingSettings({ coreRequest, workspaceI
   const current = useRef(state);
   const operation = useRef(0);
   const pendingMutation = useRef(false);
+  const notify = useRef(showActionToast);
+  notify.current = showActionToast;
   activeScope.current = scope;
   current.current = state;
   const path = `/workspaces/${encodeURIComponent(workspaceId)}/document-processing-settings`;
@@ -37,17 +39,26 @@ export function useWorkspaceDocumentProcessingSettings({ coreRequest, workspaceI
   const update = async (field, value) => {
     if (!scope || !canManage || pendingMutation.current || current.current.scope !== scope || !current.current.settings) return;
     if (!["enable_smart_splitting", "exclude_blank_pages"].includes(field) || typeof value !== "boolean") return;
-    const settings = { ...current.current.settings, [field]: value };
+    const previousSettings = current.current.settings;
+    const settings = { ...previousSettings, [field]: value };
+    const setting = field === "enable_smart_splitting" ? "Smart splitting" : "Blank page exclusion";
     const token = ++operation.current;
     pendingMutation.current = true;
-    setState((previous) => ({ ...previous, saving: true, loading: false, error: "" }));
+    // The checkbox shows the new value at once; a failed save puts it back and says so in a toast.
+    setState((previous) => ({ ...previous, settings, saving: true, loading: false, error: "" }));
     try {
       const saved = await coreRequest(path, {
         method: "PUT", cache: "no-store", headers: { "content-type": "application/json" }, body: JSON.stringify(settings),
       });
-      if (activeScope.current === scope && token === operation.current) setState({ ...initial(scope), settings: saved });
+      if (activeScope.current === scope && token === operation.current) {
+        setState({ ...initial(scope), settings: saved });
+        notify.current?.("workspace.documentProcessing", "success", { setting, enabled: saved?.[field] === true });
+      }
     } catch {
-      if (activeScope.current === scope && token === operation.current) setState((previous) => ({ ...previous, saving: false, error: "Document processing settings could not be saved. Try again." }));
+      if (activeScope.current === scope && token === operation.current) {
+        setState((previous) => ({ ...previous, settings: previousSettings, saving: false }));
+        notify.current?.("workspace.documentProcessing", "failure");
+      }
     } finally {
       if (activeScope.current === scope && token === operation.current) pendingMutation.current = false;
     }

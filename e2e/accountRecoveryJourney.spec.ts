@@ -72,14 +72,14 @@ async function updateLocalSettings(page: Page) {
   await gateway.getByLabel("Template assistant model source").selectOption("custom");
   await gateway.getByLabel("Template assistant model", { exact: true }).fill("browser/assistant-model");
   await gateway.getByRole("button", { name: "Save configuration" }).click();
-  await expect(gateway.getByText("Model gateway saved.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Model gateway saved", { exact: true }).last()).toBeVisible();
   await expect(gateway.getByText("browser/assistant-model", { exact: true })).toBeVisible();
   await gateway.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(apiKey).toHaveValue("");
   await expect(apiKey).toHaveAttribute("placeholder", /Saved/);
   await apiKey.fill("replacement-browser-token");
   await gateway.getByRole("button", { name: "Save configuration" }).click();
-  await expect(gateway.getByText("Model gateway saved.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Model gateway saved", { exact: true }).last()).toBeVisible();
   await gateway.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(apiKey).toHaveValue("");
   await gateway.getByRole("button", { name: "Clear configuration" }).click();

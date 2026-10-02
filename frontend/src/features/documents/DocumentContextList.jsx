@@ -2,12 +2,14 @@ import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
+import { isPacketListed, isSingleDocumentPacket, singlePacketDocument, PACKET_STATUS_LABELS } from "./packetListing.js";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
 
 export function DocumentContextList({
   search,
   packets = [], selectedPacketId = "", packetError = "", onSelectPacket, onLoadMorePackets, hasMorePackets = false, loadingPackets = false,
+  selectedPacketIds = [], onTogglePacketSelection = () => {},
   documents,
   selectedDocumentId,
   selectedDocumentIds = [],
@@ -26,29 +28,32 @@ export function DocumentContextList({
   onToggleDocumentSelection = () => {},
   onLoadMoreDocuments,
 }) {
-  const availableDocumentIds = useMemo(() => documents.map((job) => String(job.job_id)), [documents]);
-  const selectedIds = useMemo(() => new Set(selectedDocumentIds), [selectedDocumentIds]);
-  const selectedAvailableCount = availableDocumentIds.filter((documentId) =>
-    selectedIds.has(documentId),
-  ).length;
+  // Keep packet ownership for actions even when its sole document is displayed as a normal row.
+  const items = useMemo(() => buildListItems(packets, documents, debouncedSearch, filters, hasActiveFilters), [packets, documents, debouncedSearch, filters, hasActiveFilters]);
+  const availableDocumentIds = useMemo(() => items.filter((item) => item.kind === "document").map((item) => String(item.id)), [items]);
+  const availablePacketIds = useMemo(() => items.filter((item) => item.kind === "packet").map((item) => String(item.id)), [items]);
+  const selectedIds = useMemo(() => new Set([...selectedDocumentIds, ...selectedPacketIds.map((id) => `packet:${id}`)]), [selectedDocumentIds, selectedPacketIds]);
+  const isItemChecked = (item) => selectedIds.has(item.kind === "packet" ? item.key : item.id);
+  const selectedAvailableCount = items.filter(isItemChecked).length;
   const areAllAvailableDocumentsSelected =
-    availableDocumentIds.length > 0 &&
-    selectedAvailableCount === availableDocumentIds.length;
+    items.length > 0 &&
+    selectedAvailableCount === items.length;
   const areSomeAvailableDocumentsSelected =
     selectedAvailableCount > 0 && !areAllAvailableDocumentsSelected;
   const selectAllLabel = areAllAvailableDocumentsSelected
     ? "Deselect all available documents"
     : "Select all available documents";
   const isSelectionLocked = isDeletingDocuments || isExportingDocuments;
-  const rowMotion = useRowMotion(documents, (job) => job.job_id, (job) => documentStatusTone(job.status));
+  const rowMotion = useRowMotion(items, (item) => item.key, (item) => item.tone);
+  const selectedKey = selectedPacketId ? `packet:${selectedPacketId}` : selectedDocumentId ? `document:${selectedDocumentId}` : "";
   const listRef = useRef(null);
   const lastScrolledSelection = useRef(null);
   const focusSelection = useRef(false);
   const [viewport, setViewport] = useState({ top: 0, height: 600 });
-  const virtual = documents.length > 100;
+  const virtual = items.length > 100;
   const rowStride = 60;
-  const start = virtual ? Math.max(0, Math.min(documents.length - 1, Math.floor(viewport.top / rowStride) - 5)) : 0;
-  const end = virtual ? Math.min(documents.length, start + Math.ceil(viewport.height / rowStride) + 10) : documents.length;
+  const start = virtual ? Math.max(0, Math.min(items.length - 1, Math.floor(viewport.top / rowStride) - 5)) : 0;
+  const end = virtual ? Math.min(items.length, start + Math.ceil(viewport.height / rowStride) + 10) : items.length;
   useEffect(() => {
     const list = listRef.current;
     const resize = () => setViewport({ top: list.scrollTop, height: list.clientHeight || 600 });
@@ -58,10 +63,10 @@ export function DocumentContextList({
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!virtual || lastScrolledSelection.current === selectedDocumentId) return;
-    lastScrolledSelection.current = selectedDocumentId;
+    if (!virtual || lastScrolledSelection.current === selectedKey) return;
+    lastScrolledSelection.current = selectedKey;
     const list = listRef.current;
-    const index = documents.findIndex((job) => job.job_id === selectedDocumentId);
+    const index = items.findIndex((item) => item.key === selectedKey);
     if (index < 0) return;
     const top = index * rowStride;
     const height = list.clientHeight || 600;
@@ -69,12 +74,12 @@ export function DocumentContextList({
       list.scrollTop = top;
       setViewport({ top: list.scrollTop, height });
     }
-  }, [selectedDocumentId, documents, virtual]);
+  }, [selectedKey, items, virtual]);
   useEffect(() => {
     if (!focusSelection.current) return;
     const selected = listRef.current.querySelector('[data-selected-document="true"]');
     if (selected) { focusSelection.current = false; selected.focus({ preventScroll: true }); }
-  }, [selectedDocumentId, start, end]);
+  }, [selectedKey, start, end]);
 
   return (
     <>
@@ -91,13 +96,11 @@ export function DocumentContextList({
               type="checkbox"
               aria-label={selectAllLabel}
               checked={areAllAvailableDocumentsSelected}
-              disabled={!availableDocumentIds.length || isSelectionLocked}
-              onChange={(event) =>
-                onToggleAllDocumentSelections(
-                  availableDocumentIds,
-                  event.target.checked,
-                )
-              }
+              disabled={!items.length || isSelectionLocked}
+              onChange={(event) => {
+                onToggleAllDocumentSelections(availableDocumentIds, event.target.checked);
+                for (const id of availablePacketIds) onTogglePacketSelection(id, event.target.checked);
+              }}
             />
           </label>
           <div className="context-search-shell">
@@ -115,48 +118,43 @@ export function DocumentContextList({
           </div>
         </div>
       </div>
-      <div className="document-context-groups">
-      {packets.length || packetError ? <section className="packet-context-list" aria-label="Document packets">
-        <h3>Packets</h3>
-        {packetError ? <p role="status" className="processing-error">{packetError}</p> : null}
-        {packets.map((packet) => <button type="button" key={packet.packet_id} className={`context-item${selectedPacketId === packet.packet_id ? " active" : ""}`} onClick={() => onSelectPacket?.(packet.packet_id)}>
-          <strong>{packet.source_name || packet.packet_id}</strong><span>{packet.outcome === "no_documents" ? "No documents to extract" : String(packet.status || "queued").replaceAll("_", " ")}</span>
-        </button>)}
-        {hasMorePackets ? <button type="button" className="context-item" disabled={loadingPackets} onClick={onLoadMorePackets}>Load more packets</button> : null}
-      </section> : null}
+      {packetError ? <p role="status" className="processing-error context-list-error">{packetError}</p> : null}
       <ScrollArea className="context-list" ref={listRef}
         role="region" aria-label="Document list" tabIndex={0}
         style={virtual ? { display: "block" } : undefined}
         onScroll={virtual ? (event) => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight || 600 }) : undefined}>
         <div role="list" aria-label="Documents"
-          style={virtual ? { position: "relative", height: documents.length * rowStride } : { display: "contents" }}>
-        {documents.slice(start, end).map((job, offset) => {
-          const isActive = selectedDocumentId === job.job_id;
-          const isChecked = selectedIds.has(job.job_id);
-          const statusTone = documentStatusTone(job.status);
+          style={virtual ? { position: "relative", height: items.length * rowStride } : { display: "contents" }}>
+        {items.slice(start, end).map((item, offset) => {
+          const isActive = selectedKey === item.key;
+          const isChecked = isItemChecked(item);
+          const select = (target) => target.kind === "packet" ? onSelectPacket?.(target.id) : onSelectDocument(target.id);
 
           return (
             <div
-              key={`context-${job.job_id}`}
+              key={`context-${item.key}`}
               role="listitem"
               aria-posinset={start + offset + 1}
-              aria-setsize={documents.length}
+              aria-setsize={items.length}
               style={virtual ? { position: "absolute", top: (start + offset) * rowStride, height: 54 } : undefined}
-              className={`context-item-card context-item-document${statusTone ? ` status-${statusTone}` : ""}${isActive ? " active" : ""}${
+              className={`context-item-card context-item-document${item.displayKind === "packet" ? " context-item-packet" : ""}${item.tone ? ` status-${item.tone}` : ""}${isActive ? " active" : ""}${
                 isChecked ? " checked" : ""
-              }${rowMotion(job.job_id)}`}
+              }${rowMotion(item.key)}`}
             >
               <label
-                className="context-select-control"
-                title={`Select document ${job.job_id}`}
+                className={`context-select-control${item.displayKind === "packet" ? " context-packet-select" : ""}`}
+                title={`Select ${item.displayKind} ${item.displayId}`}
               >
+                {item.displayKind === "packet" ? <span className="context-packet-mark" aria-hidden="true"><PacketIcon /></span> : null}
                 <input
                   type="checkbox"
-                  aria-label={`Select document ${job.job_id}`}
+                  aria-label={`Select ${item.displayKind} ${item.displayId}`}
                   checked={isChecked}
                   disabled={isSelectionLocked}
                   onChange={(event) =>
-                    onToggleDocumentSelection(job.job_id, event.target.checked)
+                    item.kind === "packet"
+                      ? onTogglePacketSelection(item.id, event.target.checked)
+                      : onToggleDocumentSelection(item.id, event.target.checked)
                   }
                 />
               </label>
@@ -164,44 +162,45 @@ export function DocumentContextList({
                 type="button"
                 data-selected-document={isActive ? "true" : undefined}
                 className={isActive ? "context-item-main active" : "context-item-main"}
-                onClick={() => onSelectDocument(job.job_id)}
+                onClick={() => select(item)}
                 onKeyDown={(event) => {
-                  const positions = { ArrowDown: start + offset + 1, ArrowUp: start + offset - 1, Home: 0, End: documents.length - 1 };
+                  const positions = { ArrowDown: start + offset + 1, ArrowUp: start + offset - 1, Home: 0, End: items.length - 1 };
                   if (!(event.key in positions)) return;
                   event.preventDefault();
                   focusSelection.current = true;
-                  onSelectDocument(documents[Math.max(0, Math.min(documents.length - 1, positions[event.key]))].job_id);
+                  select(items[Math.max(0, Math.min(items.length - 1, positions[event.key]))]);
                 }}
               >
-                <strong>
-                  {job.source_name || defaultUploadedName(job.source_mime_type)}
-                </strong>
-                <span>{job.job_id}</span>
+                <strong>{item.title}</strong>
+                <span>{item.detail}</span>
               </button>
               <ContextCopyButton
-                ariaLabel={`Copy document ID ${job.job_id}`}
-                value={job.job_id}
+                ariaLabel={`Copy ${item.displayKind} ID ${item.displayId}`}
+                value={item.displayId}
               />
             </div>
           );
         })}
         </div>
-        {!documents.length ? (
+        {!items.length ? (
           <p className="muted">
             {debouncedSearch || hasActiveFilters
               ? "No documents match these filters."
               : "No documents uploaded yet."}
           </p>
         ) : null}
-        {hasMoreDocuments ? (
+        {hasMoreDocuments || hasMorePackets ? (
           <button
             type="button"
             className="context-item"
-            disabled={isLoadingMoreDocuments}
-            onClick={onLoadMoreDocuments}
+            disabled={isLoadingMoreDocuments || loadingPackets}
+            onClick={() => {
+              if (hasMoreDocuments) onLoadMoreDocuments();
+              if (hasMorePackets) onLoadMorePackets?.();
+            }}
           >
             <strong>
-              {isLoadingMoreDocuments ? "Loading…" : "Load more Documents"}
+              {isLoadingMoreDocuments || loadingPackets ? "Loading…" : "Load more Documents"}
             </strong>
             <span>
               {debouncedSearch || hasActiveFilters
@@ -211,9 +210,51 @@ export function DocumentContextList({
           </button>
         ) : null}
       </ScrollArea>
-      </div>
     </>
   );
+}
+
+
+function buildListItems(packets, documents, search, filters, hasActiveFilters) {
+  const packetIds = new Set(packets.map((packet) => packet.packet_id));
+  // Live updates can deliver a child before its packet link, so the packet's own child list also counts.
+  const childIds = new Set(packets.flatMap((packet) => (Array.isArray(packet.children) ? packet.children : []).map((child) => child.job_id)));
+  const items = [];
+  for (const packet of packets) {
+    if (!isPacketListed(packet, documents, search, filters, hasActiveFilters)) continue;
+    const childCount = Array.isArray(packet.children) ? packet.children.length : 0;
+    const single = isSingleDocumentPacket(packet);
+    const child = singlePacketDocument(packet);
+    const document = child && (documents.find((job) => job.job_id === child.job_id) || child);
+    const status = packet.outcome === "no_documents" ? "No documents to extract" : PACKET_STATUS_LABELS[packet.status] || String(packet.status || "queued").replaceAll("_", " ");
+    items.push({
+      kind: "packet", id: packet.packet_id, key: `packet:${packet.packet_id}`, createdAt: packet.created_at,
+      displayKind: single ? "document" : "packet", displayId: child?.job_id || packet.packet_id,
+      title: packet.source_name || packet.packet_id,
+      detail: single ? child?.job_id || (packet.status === "queued" ? "Queued" : "Processing")
+        : childCount ? `${childCount} ${childCount === 1 ? "document" : "documents"} · ${status}` : status,
+      tone: document ? documentStatusTone(document.status) : packetStatusTone(packet.status),
+    });
+  }
+  for (const job of documents) {
+    if (packetIds.has(job.parent_packet_id) || childIds.has(job.job_id)) continue;
+    items.push({
+      kind: "document", id: job.job_id, key: `document:${job.job_id}`, createdAt: job.created_at || job.queued_at,
+      displayKind: "document", displayId: job.job_id,
+      title: job.source_name || defaultUploadedName(job.source_mime_type), detail: job.job_id,
+      tone: documentStatusTone(job.status),
+    });
+  }
+  return items.sort((a, b) => (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0));
+}
+
+function packetStatusTone(status) {
+  switch (status) {
+    case "completed": return "completed";
+    case "awaiting_review":
+    case "failed": return "failed";
+    default: return "progress";
+  }
 }
 
 function documentStatusTone(status) {
@@ -413,6 +454,15 @@ function toDraftFilters(filters) {
     dateTo: String(filters.dateTo || ""),
     model: String(filters.model || ""),
   };
+}
+
+function PacketIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 3h9a2 2 0 0 1 2 2v12" />
+      <rect x="5" y="7" width="11" height="14" rx="2" />
+    </svg>
+  );
 }
 
 function FilterIcon() {

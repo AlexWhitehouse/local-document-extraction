@@ -8,10 +8,12 @@ The app runs on your own computer at `http://127.0.0.1:8787`. Your accounts, tem
 
 - Create Workspaces and invite other people to them.
 - Define templates with typed fields, including one table per template.
+- Organize templates with tags and select a suitable template automatically for each document.
+- Split PDF packets into logical documents, with optional verified blank-page exclusion.
 - Upload PNG, JPEG, WebP, and PDF documents and track their extraction.
 - Review results and export them to Excel.
-- Compare models and template versions on the same document.
-- Automate everything with a Workspace API key.
+- Compare models and template versions across documents, with a reusable Evaluation library.
+- Automate template management, document processing, and result retrieval with a Workspace API key.
 
 ## Where to start
 

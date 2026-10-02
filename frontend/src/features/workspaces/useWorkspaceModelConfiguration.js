@@ -38,7 +38,7 @@ function configurationETag(response) {
   return response?.headers?.get("etag") ?? null;
 }
 
-export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessionUserId, role, enabled }) {
+export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessionUserId, role, enabled, showActionToast }) {
   const scope = enabled && workspaceId && sessionUserId ? `${sessionUserId}:${workspaceId}:${role}` : "";
   const canManage = role === "owner" || role === "admin";
   const [state, setState] = useState(() => initialState(scope));
@@ -46,6 +46,8 @@ export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessi
   const current = useRef(state);
   const operation = useRef(0);
   const draftVersion = useRef(0);
+  const notify = useRef(showActionToast);
+  notify.current = showActionToast;
   const mutationPending = useRef(false);
   const pendingInvalidation = useRef(false);
   activeScope.current = scope;
@@ -125,10 +127,18 @@ export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessi
         headers: { "content-type": "application/json", ...(snapshot.record?.configured ? { "if-match": snapshot.etag } : { "if-none-match": "*" }) },
         ...(clear ? {} : { body: JSON.stringify(requestDraft(snapshot.draft)) }),
       });
-      if (activeScope.current === scope && token === operation.current) { apply(response); return true; }
+      if (activeScope.current === scope && token === operation.current) {
+        apply(response);
+        notify.current?.(clear ? "workspace.modelGateway.clear" : "workspace.modelGateway.save", "success");
+        return true;
+      }
       return false;
     } catch (error) {
-      if (activeScope.current === scope && token === operation.current) setState((previous) => ({ ...previous, saving: false, conflict: error.status === 412, error: error.status === 412 ? "Configuration changed in another session. Reload before saving; this discards your draft." : "Configuration could not be saved. Replace an unavailable credential or try again." }));
+      if (activeScope.current === scope && token === operation.current) {
+        // A conflict stays inline beside its Reload action; other failures are a toast.
+        setState((previous) => ({ ...previous, saving: false, conflict: error.status === 412, error: error.status === 412 ? "Configuration changed in another session. Reload before saving; this discards your draft." : "" }));
+        if (error.status !== 412) notify.current?.(clear ? "workspace.modelGateway.clear" : "workspace.modelGateway.save", "failure");
+      }
       return false;
     } finally {
       if (activeScope.current === scope && token === operation.current) {
@@ -154,10 +164,17 @@ export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessi
       });
       const tested = response?.data?.tested_models?.length ?? 1;
       const passedMessage = tested > 1 ? `Connection test passed for ${tested === 2 ? "both" : "all"} models in this draft. Capabilities are not tested.` : "Connection test passed for this draft. Capabilities are not tested.";
-      if (activeScope.current === scope && draftVersion.current === version) setState((previous) => ({ ...previous, testing: false, testResult: { passed: true, message: passedMessage } }));
+      if (activeScope.current === scope && draftVersion.current === version) {
+        setState((previous) => ({ ...previous, testing: false, testResult: { passed: true, message: passedMessage } }));
+        notify.current?.("workspace.modelGateway.test", "success", { message: passedMessage });
+      }
     } catch (error) {
       const failedModel = error.details?.model_role === "assistant" ? "the Template assistant model" : error.details?.model_role === "classification" ? "the Document classification & splitting model" : "the gateway, model,";
-      if (activeScope.current === scope && draftVersion.current === version) setState((previous) => ({ ...previous, testing: false, conflict: error.status === 412, testResult: { passed: false, message: error.status === 412 ? "Configuration changed. Reload before testing the saved credential." : `Connection test failed. Check ${failedModel} and credential. You can still save this draft.` } }));
+      const message = error.status === 412 ? "Configuration changed. Reload before testing the saved credential." : `Connection test failed. Check ${failedModel} and credential. You can still save this draft.`;
+      if (activeScope.current === scope && draftVersion.current === version) {
+        setState((previous) => ({ ...previous, testing: false, conflict: error.status === 412, testResult: { passed: false, message } }));
+        notify.current?.("workspace.modelGateway.test", "failure", { message });
+      }
     }
   }
   const visible = state.scope === scope ? state : initialState(scope);

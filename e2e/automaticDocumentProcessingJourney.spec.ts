@@ -7,10 +7,11 @@ const template = {
   fields: [{ id: "invoice_number", name: "Invoice Number", description: "Invoice reference", data_type: "string" }],
 };
 
-function pdfFixture(blank = false) {
-  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>"];
-  for (let index = 1; index <= 3; index += 1) {
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 240] /Resources << /Font << /F1 9 0 R >> >> /Contents ${index * 2 + 2} 0 R >>`);
+function pdfFixture(blank = false, pageCount = 3) {
+  const pageRefs = Array.from({ length: pageCount }, (_, index) => `${index * 2 + 3} 0 R`).join(" ");
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [${pageRefs}] /Count ${pageCount} >>`];
+  for (let index = 1; index <= pageCount; index += 1) {
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 240] /Resources << /Font << /F1 ${pageCount * 2 + 3} 0 R >> >> /Contents ${index * 2 + 2} 0 R >>`);
     const content = blank ? "" : `BT /F1 14 Tf 15 200 Td (Invoice ${index}) Tj ET`;
     objects.push(`<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`);
   }
@@ -64,10 +65,11 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await upload.locator('input[type="file"]').setInputFiles({ name: "invoice.png", mimeType: "image/png", buffer: ONE_PIXEL_PNG });
     await expect(upload.getByRole("button", { name: "Upload Documents", exact: true })).toBeDisabled();
     await upload.getByRole("checkbox", { name: "finance", exact: true }).check();
+    await upload.screenshot({ path: testInfo.outputPath("upload-tag-picker.png") });
     await upload.getByRole("button", { name: "Upload Documents", exact: true }).click();
     await expect(upload.getByText("Success", { exact: true })).toBeVisible();
     await upload.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(page.getByText(/Automatically selected: Tagged invoice · version 1/)).toBeVisible();
+    await expect(page.getByText("Tagged invoice · version 1 · selected automatically", { exact: true })).toBeVisible();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("automatic-template-selection.png"), fullPage: true });
 
@@ -95,9 +97,6 @@ test("tag routing, split review, page preview and all-blank completion work thro
     upload = await openUpload();
     await upload.getByRole("combobox", { name: "Template", exact: true }).selectOption(templateId);
     await upload.locator('input[type="file"]').setInputFiles({ name: "packet.pdf", mimeType: "application/pdf", buffer: await pdfFixture() });
-    await upload.getByLabel("Pages from packet.pdf").fill("1,3");
-    await upload.getByRole("button", { name: "Preview and select pages", exact: true }).click();
-    await expect(upload.getByTitle("Page preview of packet.pdf")).toBeVisible();
     const queuedPromise = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/extract" && response.request().method() === "POST");
     await upload.getByRole("button", { name: "Upload Documents", exact: true }).click();
     const queued = await queuedPromise;
@@ -109,12 +108,14 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await expect(page.getByAltText("Original page 1")).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("split-review-original-pages.png"), fullPage: true });
     await page.getByRole("button", { name: "Confirm plan and extract", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Documents in this packet" })).toBeVisible({ timeout: 30_000 });
-    await page.getByRole("button", { name: /Document 1 · Pages 1/ }).click();
+    await expect(page.getByRole("region", { name: "Documents in this packet" })).toBeVisible({ timeout: 30_000 });
+    await page.screenshot({ path: testInfo.outputPath("packet-overview.png"), fullPage: true });
+    await page.getByRole("tab", { name: /Document 1/ }).click();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "View parent packet", exact: true }).click();
+    await page.screenshot({ path: testInfo.outputPath("packet-document-tab.png"), fullPage: true });
+    await page.getByRole("tab", { name: "Overview", exact: true }).click();
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Delete packet and all children", exact: true }).click();
+    await page.locator("header[aria-label=\"Workspace toolbar\"]").getByRole("button", { name: "Delete", exact: true }).click();
     await expect.poll(async () => (await page.request.get(`${harness.origin}/v1/packets/${packetId}`, { headers })).status()).toBe(404);
 
     await navigation.getByRole("button", { name: /Workspaces/ }).click();
@@ -131,8 +132,91 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await expect(upload.getByText("Success", { exact: true })).toBeVisible();
     await upload.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page.getByRole("heading", { name: "No documents to extract", exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText("Page 3: Verified blank page", { exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Excluded pages" }).getByRole("row", { name: "3 Verified blank page" })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("all-blank-completion.png"), fullPage: true });
+  } finally {
+    await page.close();
+    await harness.stop();
+  }
+});
+
+test("smart splitting displays one logical document as a normal document for single-page and multipage uploads", async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  page.setDefaultTimeout(15_000);
+  const harness = await startRuntimeHarness({ sourceStorage: "local" });
+  try {
+    await submitSignUp(page, harness, { name: "Single Document Editor", email: "single-document@example.test", password: "Strong1!" });
+    await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
+    await saveModelGateway(page, harness, "browser/model");
+    const model = page.getByRole("article", { name: "Workspace Model gateway" });
+    await model.getByRole("button", { name: "Edit", exact: true }).click();
+    await model.getByLabel("Document classification & splitting model source").selectOption("custom");
+    await model.getByLabel("Document classification & splitting model", { exact: true }).fill("browser/split-single");
+    await model.getByRole("checkbox", { name: "Document classification & splitting: Direct PDF input" }).check();
+    await model.getByRole("button", { name: "Save configuration", exact: true }).click();
+    await expect(model.getByText("browser/split-single", { exact: true })).toBeVisible();
+    const settings = page.getByRole("region", { name: "Document processing", exact: true });
+    await settings.getByRole("checkbox", { name: "Enable smart splitting" }).click();
+    await expect(settings.getByRole("checkbox", { name: "Enable smart splitting" })).toBeChecked();
+
+    const navigation = page.getByRole("navigation", { name: "Main navigation" });
+    await navigation.getByRole("button", { name: /Templates/ }).click();
+    await page.getByRole("button", { name: "Create Template", exact: true }).click();
+    await page.getByRole("button", { name: "View JSON", exact: true }).click();
+    const json = page.getByRole("dialog", { name: "Export or import template JSON" });
+    await json.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(template));
+    const createdPromise = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST");
+    await json.getByRole("button", { name: "Save Template JSON", exact: true }).click();
+    const created = await createdPromise;
+    expect(created.status()).toBe(201);
+    const headers = { "x-workspace-id": created.request().headers()["x-workspace-id"]! };
+    const templateId = (await created.json()).template_id;
+
+    for (const pageCount of [1, 3]) {
+      const sourceName = `single-document-${pageCount}-pages.pdf`;
+      await page.getByRole("button", { name: "Upload Document", exact: true }).first().click();
+      const upload = page.getByRole("dialog", { name: "Upload document", exact: true });
+      await upload.getByRole("combobox", { name: "Template", exact: true }).selectOption(templateId);
+      await upload.locator('input[type="file"]').setInputFiles({ name: sourceName, mimeType: "application/pdf", buffer: pdfFixture(false, pageCount) });
+      const queuedPromise = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/extract" && response.request().method() === "POST");
+      await upload.getByRole("button", { name: "Upload Documents", exact: true }).click();
+      const queued = await queuedPromise;
+      expect(queued.status()).toBe(202);
+      const packetId = (await queued.json()).packet_id;
+      expect(packetId).toBeTruthy();
+      await expect(upload.getByText("Success", { exact: true })).toBeVisible();
+      await upload.getByRole("button", { name: "Cancel", exact: true }).click();
+
+      await expect(page.getByRole("region", { name: "Document results", exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
+      await expect(page.getByText("Tagged invoice · version 1", { exact: true })).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Overview", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("region", { name: "Documents in this packet" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "View parent packet", exact: true })).toHaveCount(0);
+      const packet = await (await page.request.get(`${harness.origin}/v1/packets/${packetId}`, { headers })).json();
+      expect(packet.children).toHaveLength(1);
+      const childId = packet.children[0].job_id;
+      const documentList = page.getByRole("region", { name: "Document list", exact: true });
+      const row = documentList.locator("button.context-item-main").filter({ hasText: sourceName });
+      await expect(row).toHaveCount(1);
+      await expect(row).toContainText(childId);
+      await expect(documentList.locator(".context-item-packet")).toHaveCount(0);
+      await page.screenshot({ path: testInfo.outputPath(`single-document-${pageCount}-pages.png`), fullPage: true });
+
+      // Restored packet metadata must also present its sole child normally.
+      await page.reload();
+      await navigation.getByRole("button", { name: /Documents/ }).click();
+      await expect(row).toBeVisible();
+      await row.click();
+      await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Overview", exact: true })).toHaveCount(0);
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.locator('header[aria-label="Workspace toolbar"]').getByRole("button", { name: "Delete", exact: true }).click();
+      await expect.poll(async () => (await page.request.get(`${harness.origin}/v1/packets/${packetId}`, { headers })).status()).toBe(404);
+      await expect.poll(async () => (await page.request.get(`${harness.origin}/v1/jobs/${childId}`, { headers })).status()).toBe(404);
+      await expect(row).toHaveCount(0);
+      await expect(documentList.locator(".context-item-packet")).toHaveCount(0);
+    }
   } finally {
     await page.close();
     await harness.stop();

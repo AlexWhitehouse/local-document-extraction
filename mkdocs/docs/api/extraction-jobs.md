@@ -15,10 +15,12 @@ The Workspace also controls blank-page exclusion, which only operates within Sma
 
 ## Get results or resolve a hold
 
-Poll the returned `Location`. Jobs use `GET /v1/jobs/{job_id}`; packets use `GET /v1/packets/{packet_id}` and expose child job summaries. Completed jobs contain a `results` array. A verified all-blank packet completes with `outcome: "no_documents"` and zero children.
+Poll the returned `Location`. Jobs use `GET /v1/jobs/{job_id}`; packets use `GET /v1/packets/{packet_id}` and expose child job summaries. Completed jobs contain a `results` array; packet child summaries do not. Discover each child `job_id` from the packet, then read `/v1/jobs/{job_id}` for its results. A failed packet may still contain successful or running children, so track them independently. A verified all-blank packet completes with `outcome: "no_documents"` and zero children.
 
 Automatic processing investigates ambiguity within a durable initial-plus-two assessment budget. If it cannot resolve a choice, use `POST /v1/jobs/{job_id}/template` for `awaiting_template` or `POST /v1/packets/{packet_id}/plan` for `awaiting_review`, without uploading the available source again. Packet plan changes require the current revision.
 
-`GET /v1/jobs` lists ordinary jobs; `GET /v1/packets` lists parents. Children can be viewed, exported, and deleted independently. Deleting a child leaves the retained parent original intact; `DELETE /v1/packets/{packet_id}` removes the full group.
+`GET /v1/jobs` lists extraction jobs, including packet children; `GET /v1/packets` lists parents. Children can be viewed, exported, and deleted independently. Deleting a child leaves the retained parent original intact; `DELETE /v1/packets/{packet_id}` removes the full group.
 
-The [quickstart](overview.md#quickstart-document-to-structured-data) demonstrates ordinary explicit extraction. The [full reference](overview.md#jobs-and-results) covers polling, exports, retention, and deletion.
+One-page PDFs and accepted one-document plans still use this packet API, even when the UI displays them as ordinary documents. Source reads use `GET|HEAD /v1/jobs/{job_id}/source` for the child document and `GET|HEAD /v1/packets/{packet_id}/source` for the full original, subject to retention and review-source availability.
+
+The [packet request-chain example](overview.md#follow-the-packet-and-child-request-chain) shows the upload response, child discovery, and results retrieval. The [quickstart](overview.md#quickstart-document-to-structured-data) demonstrates ordinary explicit extraction. The [full reference](overview.md#jobs-and-results) covers polling, exports, retention, and deletion.

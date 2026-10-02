@@ -16,6 +16,96 @@ function setup(overrides = {}) {
 }
 
 describe("Packet request lifetimes", () => {
+  it.each([{ status: "processing", interval: 6000 }, { status: "completed", interval: 30000 }])("keeps loaded older packet pages during $status polling", async ({ status, interval }) => {
+    vi.useFakeTimers();
+    const newer = { ...packet, packet_id: "newer", status, created_at: "2026-10-02T12:00:00Z" };
+    const older = { ...packet, packet_id: "older", status, created_at: "2026-10-01T12:00:00Z" };
+    const oldest = { ...packet, packet_id: "oldest", status, created_at: "2026-09-30T12:00:00Z" };
+    const listPackets = vi.fn(async ({ cursor } = {}) => cursor === "older-cursor"
+      ? { packets: [older], has_more: true, next_cursor: "oldest-cursor" }
+      : cursor === "oldest-cursor" ? { packets: [oldest], has_more: false, next_cursor: null }
+      : { packets: [newer], has_more: true, next_cursor: "older-cursor" });
+    const hook = setup({ listPackets });
+    await act(async () => {});
+    await act(async () => { await hook.result.current.refresh({ append: true }); });
+    expect(hook.result.current.packets.map((row) => row.packet_id)).toEqual(["newer", "older"]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(interval); });
+    expect(hook.result.current.packets.map((row) => row.packet_id)).toEqual(["newer", "older"]);
+    expect(hook.result.current.cursor).toBe("oldest-cursor");
+    await act(async () => { await hook.result.current.refresh({ append: true }); });
+    expect(hook.result.current.packets.map((row) => row.packet_id)).toEqual(["newer", "older", "oldest"]);
+    hook.unmount();
+    vi.useRealTimers();
+  });
+
+  it("refreshes the loaded range across new uploads and deletions, including a deleted oldest row", async () => {
+    const makePacket = (id) => ({ ...packet, packet_id: id, created_at: "2026-10-02T12:00:00Z" });
+    let rows = [makePacket("p3"), makePacket("p2"), makePacket("p1")];
+    const { result } = setup({
+      listPackets: vi.fn(async ({ cursor } = {}) => {
+        const remaining = cursor ? rows.filter((row) => row.packet_id < cursor) : rows;
+        const page = remaining.slice(0, 2);
+        return { packets: page, has_more: remaining.length > 2, next_cursor: remaining.length > 2 ? page.at(-1).packet_id : null };
+      }),
+      deletePacket: vi.fn(async (id) => { rows = rows.filter((row) => row.packet_id !== id); return { deleted: true }; }),
+    });
+    await waitFor(() => expect(result.current.packets).toHaveLength(2));
+    await act(async () => { await result.current.refresh({ append: true }); });
+    rows = [makePacket("p4"), makePacket("p3"), { ...makePacket("p1"), status: "completed" }];
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.packets.map((row) => row.packet_id)).toEqual(["p4", "p3", "p1"]);
+    expect(result.current.packets.at(-1).status).toBe("completed");
+    rows = [makePacket("p4"), makePacket("p3"), makePacket("p0")];
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.packets.map((row) => row.packet_id)).toEqual(["p4", "p3", "p0"]);
+    await act(async () => { await result.current.remove("p3"); });
+    expect(result.current.packets.map((row) => row.packet_id)).toEqual(["p4", "p0"]);
+  });
+
+  it("does not let polling supersede an in-flight Load more request", async () => {
+    vi.useFakeTimers();
+    const nextPage = deferred();
+    const listPackets = vi.fn(async ({ cursor } = {}) => cursor ? nextPage.promise
+      : { packets: [packet], has_more: true, next_cursor: "older" });
+    const hook = setup({ listPackets });
+    await act(async () => {});
+    let loadingMore;
+    act(() => { loadingMore = hook.result.current.refresh({ append: true }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    expect(listPackets).toHaveBeenCalledTimes(2);
+    await act(async () => { nextPage.resolve({ packets: [{ ...packet, packet_id: "p0" }] }); await loadingMore; });
+    expect(hook.result.current.packets.map((row) => row.packet_id)).toEqual(["p1", "p0"]);
+    hook.unmount();
+    vi.useRealTimers();
+  });
+
+  it("ignores a retired workspace's later page while refreshing loaded history", async () => {
+    const older = { ...packet, packet_id: "p0" };
+    const laterPage = deferred();
+    let pending = false;
+    let retired = false;
+    const listPackets = vi.fn(async ({ cursor } = {}) => retired ? { packets: [] }
+      : cursor ? pending ? laterPage.promise : { packets: [older] }
+      : { packets: [packet], has_more: true, next_cursor: "older" });
+    const { result, rerender } = setup({ listPackets });
+    await waitFor(() => expect(result.current.packets).toHaveLength(1));
+    await act(async () => { await result.current.refresh({ append: true }); });
+    pending = true;
+    let refreshing;
+    await act(async () => { refreshing = result.current.refresh(); });
+    expect(listPackets).toHaveBeenCalledTimes(4);
+    retired = true;
+    rerender({ workspaceId: "workspace-b" });
+    await waitFor(() => expect(listPackets).toHaveBeenCalledTimes(5));
+    await act(async () => {
+      laterPage.resolve({ packets: [older], has_more: true, next_cursor: "even-older" });
+      await refreshing;
+    });
+    expect(result.current.packets).toEqual([]);
+    expect(result.current.cursor).toBeNull();
+    expect(listPackets).toHaveBeenCalledTimes(5);
+  });
+
   it("ignores a retired workspace's pending packet list and detail", async () => {
     const list = deferred();
     const detail = deferred();

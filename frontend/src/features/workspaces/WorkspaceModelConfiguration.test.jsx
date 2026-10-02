@@ -217,8 +217,9 @@ describe("Workspace Model gateway", () => {
 
   it("shows the editor, then a summary with an Edit action, write-only input, capability declarations, and clear confirmation", async () => {
     const coreRequest = apiFixture();
+    const showActionToast = vi.fn();
     function Editor() {
-      const controller = useWorkspaceModelConfiguration({ ...props, coreRequest });
+      const controller = useWorkspaceModelConfiguration({ ...props, coreRequest, showActionToast });
       return <WorkspaceModelConfiguration controller={controller} />;
     }
     const { container } = render(<Editor />);
@@ -234,7 +235,8 @@ describe("Workspace Model gateway", () => {
     expect(screen.getByRole("checkbox", { name: "Template assistant: Direct PDF input" }).checked).toBe(true);
     expect(screen.getByRole("checkbox", { name: "Template assistant: Direct PDF input" }).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
-    await screen.findByText("Model gateway saved.");
+    await waitFor(() => expect(showActionToast).toHaveBeenCalledWith("workspace.modelGateway.save", "success"));
+    expect(screen.queryByText(/Model gateway saved/)).toBeNull();
     expect(screen.queryByLabelText("Gateway API key")).toBeNull();
     expect(screen.getByText(draft.model_name)).toBeTruthy();
     expect(screen.getAllByText("Same as extraction")).toHaveLength(2);
@@ -250,14 +252,15 @@ describe("Workspace Model gateway", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Cancel" }).at(-1));
     fireEvent.click(screen.getByRole("button", { name: "Clear configuration" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm clear" }));
-    await screen.findByText("Model gateway cleared.");
+    await waitFor(() => expect(showActionToast).toHaveBeenCalledWith("workspace.modelGateway.clear", "success"));
     expect(screen.getByLabelText("Gateway URL").value).toBe("");
   });
 
   it("saves a different Template assistant model with its own capabilities and shows it in the summary", async () => {
     const coreRequest = apiFixture({ ...configured, supports_pdf_input: true });
+    const showActionToast = vi.fn();
     function Editor() {
-      const controller = useWorkspaceModelConfiguration({ ...props, coreRequest });
+      const controller = useWorkspaceModelConfiguration({ ...props, coreRequest, showActionToast });
       return <WorkspaceModelConfiguration controller={controller} />;
     }
     render(<Editor />);
@@ -274,7 +277,7 @@ describe("Workspace Model gateway", () => {
     fireEvent.change(screen.getByLabelText("Template assistant model"), { target: { value: " assistant/model " } });
     fireEvent.click(screen.getByRole("checkbox", { name: "Template assistant: Structured output" }));
     fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
-    await screen.findByText("Model gateway saved.");
+    await waitFor(() => expect(showActionToast).toHaveBeenCalledTimes(1));
     expect(JSON.parse(coreRequest.mock.calls.at(-1)[1].body).assistant_model).toEqual({ model_name: "assistant/model", supports_pdf_input: true, supports_structured_output: true });
     expect(screen.getByText("assistant/model")).toBeTruthy();
     expect(screen.getAllByText("Same as extraction")).toHaveLength(1);
@@ -282,7 +285,8 @@ describe("Workspace Model gateway", () => {
     expect(screen.getByLabelText("Template assistant model").value).toBe("assistant/model");
     fireEvent.change(screen.getByLabelText("Template assistant model source"), { target: { value: "same" } });
     fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
-    await screen.findByText("Model gateway saved.");
+    await waitFor(() => expect(showActionToast).toHaveBeenCalledTimes(2));
+    expect(showActionToast).toHaveBeenLastCalledWith("workspace.modelGateway.save", "success");
     expect(JSON.parse(coreRequest.mock.calls.at(-1)[1].body).assistant_model).toBeNull();
   });
 

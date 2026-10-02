@@ -24,7 +24,19 @@ Invitations appear inside the app when the invited person signs in. They aren't 
 
 ## Model settings
 
-Each Workspace has its own model gateway: an address, a model name, an encrypted credential, and the model's capabilities. An owner or admin sets it up before anyone can upload documents. Members can see whether a model is set up, but not its details.
+Each Workspace has its own model gateway URL, encrypted credential, and model roles. An owner or admin sets it up before anyone can upload documents. Members can see whether a model is set up, but not its details.
+
+- **Extraction** reads document fields and runs Evaluations.
+- **Document classification & splitting** chooses templates and identifies PDF document boundaries.
+- **Template assistant** helps author templates and generates drafts from samples.
+
+The latter two roles inherit Extraction unless you choose **Different model**. They share the gateway and credential but have their own Direct PDF input and Structured output settings. Test connection checks that each distinct model replies to text; it does not establish document support or provider image limits.
+
+## Document processing
+
+The **Document processing** section sits below **Model gateway**. Owners and admins can toggle **Enable smart splitting** and **Exclude blank pages**; changes save immediately and the app confirms them with a notification. Both start off, and blank exclusion is available only with splitting enabled. These settings apply to subsequent browser and API submissions; work already accepted keeps its captured settings.
+
+Automatic template selection has no Workspace switch. It is requested by choosing tags instead of a template for an upload. See [Document extraction](document-extraction.md) for splitting, automatic selection, and last-resort review.
 
 ## API keys
 

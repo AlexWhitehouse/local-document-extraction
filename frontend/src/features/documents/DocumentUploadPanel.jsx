@@ -1,11 +1,10 @@
 import React, { useId, useRef } from "react";
-import { UploadPageSelection } from "./UploadPageSelection.jsx";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 
 export function DocumentUploadPanel({
   label = "Source files", multiple = true, sourceFiles = [],
   isDragActive = false, disabled = false, maxSourceFileBytes = 10 * 1024 * 1024,
-  onSelectSourceFiles, onDragOver, onDragLeave, onDrop, onRemoveSourceFile, onPageSelectionChange, tourTarget,
+  onSelectSourceFiles, onDragOver, onDragLeave, onDrop, onRemoveSourceFile, tourTarget,
 }) {
   const uploadInputRef = useRef(null);
   const inputId = useId();
@@ -71,9 +70,6 @@ export function DocumentUploadPanel({
                   </button>
                 ) : null}
               </div>
-              {onPageSelectionChange && entry.file.type === "application/pdf" ? (
-                <UploadPageSelection entry={entry} disabled={disabled || entry.queueStatus === "success"} onChange={onPageSelectionChange} />
-              ) : null}
               {entry.queueError ? (
                 <p className="hint upload-file-error">{entry.queueError}</p>
               ) : null}

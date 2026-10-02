@@ -9,9 +9,7 @@ export function DocumentUploadModal({
   selectedTemplateId,
   selectedTags = [],
   availableTags = [],
-  processingPolicy,
   onSelectTags,
-  onPageSelectionChange,
   sourceFiles,
   isDragActive,
   isUploadingDocuments,
@@ -62,17 +60,8 @@ export function DocumentUploadModal({
             </select>
           </label>
           {selectedTemplateId === "automatic" ? (
-            <fieldset className="upload-tag-selector">
-              <legend>Template tags</legend>
-              <p className="hint">Choose at least one tag. Each document is matched to a suitable template carrying any selected tag.</p>
-              {availableTags.length ? availableTags.map((tag) => (
-                <label key={tag}>
-                  <input type="checkbox" checked={selectedTags.includes(tag)} disabled={isUploadingDocuments}
-                    onChange={(event) => onSelectTags(event.target.checked ? [...selectedTags, tag] : selectedTags.filter((value) => value !== tag))} />
-                  {tag}
-                </label>
-              )) : <p>No tags are available. Create and associate tags on the Templates page.</p>}
-            </fieldset>
+            <UploadTagPicker tags={availableTags} templates={templates} selectedTags={selectedTags}
+              disabled={isUploadingDocuments} onChange={onSelectTags} />
           ) : null}
           <DocumentUploadPanel
             sourceFiles={sourceFiles}
@@ -84,14 +73,9 @@ export function DocumentUploadModal({
             onDragLeave={onDragLeave}
             onDrop={onDrop}
             onRemoveSourceFile={onRemoveSourceFile}
-            onPageSelectionChange={onPageSelectionChange}
             tourTarget="upload-files"
           />
         </div>
-        {processingPolicy ? <p className="hint upload-processing-policy">
-          Workspace policy: {processingPolicy.enable_smart_splitting ? "Smart splitting enabled" : "Smart splitting disabled"}.
-          {processingPolicy.enable_smart_splitting ? processingPolicy.exclude_blank_pages ? " Verified blank pages are excluded." : " Blank pages are retained." : " Each file is processed as one document."}
-        </p> : null}
         <div className="actions">
           <button type="button" className="secondary" onClick={onClose}>
             Cancel
@@ -107,5 +91,50 @@ export function DocumentUploadModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Toggle chips for the tags that steer automatic template selection. */
+function UploadTagPicker({ tags, templates, selectedTags, disabled, onChange }) {
+  const templatesWithTag = (tag) => templates.filter((template) => template.tags?.includes(tag));
+  const candidates = templates.filter((template) => template.tags?.some((tag) => selectedTags.includes(tag)));
+  return (
+    <fieldset className="upload-tag-picker" disabled={disabled}>
+      <legend className="upload-tag-picker-head">
+        <span>Template tags</span>
+        {selectedTags.length ? (
+          <span className="upload-tag-picker-count">
+            {selectedTags.length} selected
+            <button type="button" className="studio-text-button" onClick={() => onChange([])}>Clear</button>
+          </span>
+        ) : null}
+      </legend>
+      {tags.length ? (
+        <div className="upload-tag-options">
+          {tags.map((tag) => {
+            const isSelected = selectedTags.includes(tag);
+            const count = templatesWithTag(tag).length;
+            return (
+              <label key={tag} className={`upload-tag-option${isSelected ? " selected" : ""}`}
+                title={`${count} ${count === 1 ? "template" : "templates"} tagged ${tag}`}>
+                <input type="checkbox" aria-label={tag} checked={isSelected}
+                  onChange={(event) => onChange(event.target.checked ? [...selectedTags, tag] : selectedTags.filter((value) => value !== tag))} />
+                <span className="upload-tag-option-name">{tag}</span>
+                <span className="upload-tag-option-count">{count}</span>
+              </label>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="upload-tag-picker-note">No tags yet. Add tags to templates on the Templates page.</p>
+      )}
+      <p className="upload-tag-picker-note">
+        {selectedTags.length
+          ? candidates.length
+            ? <>Each document is matched to one of <strong>{candidates.length} {candidates.length === 1 ? "template" : "templates"}</strong>: {candidates.map((template) => template.name).join(", ")}</>
+            : "No templates carry the selected tags."
+          : "Choose at least one tag. Each document is matched to a template carrying any selected tag."}
+      </p>
+    </fieldset>
   );
 }

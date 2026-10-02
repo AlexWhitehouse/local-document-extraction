@@ -45,7 +45,7 @@ export async function saveModelGateway(page: Page, harness: RuntimeHarness, mode
   await page.getByLabel("Extraction model", { exact: true }).fill(modelName);
   await page.getByLabel("Gateway API key", { exact: true }).fill("browser-journey-key");
   await page.getByRole("button", { name: "Save configuration", exact: true }).click();
-  await expect(page.getByText("Model gateway saved.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Model gateway saved", { exact: true }).last()).toBeVisible();
 }
 
 export async function signIn(page: Page, account: BrowserAccount): Promise<void> {

@@ -39,6 +39,12 @@ const successMessages = {
       : exported;
   },
   "clipboard.copyTemplateJson": () => "Template JSON copied",
+  "workspace.documentProcessing": ({ setting, enabled }) => `${setting} turned ${enabled ? "on" : "off"}`,
+  "workspace.sourceRetention": ({ enabled }) =>
+    enabled ? "New uploads will keep their original documents" : "New uploads will keep only their extraction results",
+  "workspace.modelGateway.save": () => "Model gateway saved",
+  "workspace.modelGateway.clear": () => "Model gateway cleared",
+  "workspace.modelGateway.test": ({ message }) => message || "Connection test passed",
 };
 
 const failureMessages = {
@@ -68,6 +74,11 @@ const failureMessages = {
   "document.downloadOriginal": "The original document couldn't be downloaded because storage can't be reached. Please try again.",
   "document.downloadOriginalMissing": "The original document couldn't be downloaded because it's missing from storage.",
   "clipboard.copyTemplateJson": "Template JSON could not be copied. Please try again.",
+  "workspace.documentProcessing": "Document processing settings could not be saved. Please try again.",
+  "workspace.sourceRetention": "Document retention could not be updated. Please try again.",
+  "workspace.modelGateway.save": "Model gateway could not be saved. Replace an unavailable credential or try again.",
+  "workspace.modelGateway.clear": "Model gateway could not be cleared. Please try again.",
+  "workspace.modelGateway.test": ({ message }) => message || "Connection test failed. Check the gateway, models and credential.",
 };
 
 const validationMessages = {
@@ -108,8 +119,12 @@ export function getActionToast(action, outcome, options = {}) {
 
   return {
     severity: "error",
-    message: (outcome === "failure" && failureMessages[action]) || "Action failed. Please try again.",
+    message: (outcome === "failure" && resolveMessage(failureMessages[action], { ...options, target })) || "Action failed. Please try again.",
   };
+}
+
+function resolveMessage(message, options) {
+  return typeof message === "function" ? message(options) : message;
 }
 
 export function getDocumentUploadToast({ queued = 0, failed = 0 }) {

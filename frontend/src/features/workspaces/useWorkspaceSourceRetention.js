@@ -3,12 +3,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const idle = (scope) => ({ scope, settings: null, loading: false, saving: false, error: "" });
 
 /** Workspace source retention: owners/admins opt the Workspace out of retaining new originals. */
-export function useWorkspaceSourceRetention({ coreRequest, workspaceId, sessionUserId, role, enabled }) {
+export function useWorkspaceSourceRetention({ coreRequest, workspaceId, sessionUserId, role, enabled, showActionToast }) {
   const scope = enabled && workspaceId && sessionUserId ? `${sessionUserId}:${workspaceId}` : "";
   const canManage = role === "owner" || role === "admin";
   const [state, setState] = useState(() => idle(scope));
   const activeScope = useRef(scope);
   activeScope.current = scope;
+  const current = useRef(state);
+  current.current = state;
+  const pending = useRef(false);
+  const notify = useRef(showActionToast);
+  notify.current = showActionToast;
   const path = `/workspaces/${encodeURIComponent(workspaceId)}/source-retention`;
 
   const load = useCallback(async () => {
@@ -28,8 +33,11 @@ export function useWorkspaceSourceRetention({ coreRequest, workspaceId, sessionU
   }, [load, scope]);
 
   const setRetainOriginals = useCallback(async (retain) => {
-    if (!scope || !canManage) return;
-    setState((previous) => ({ ...previous, saving: true, error: "" }));
+    if (!scope || !canManage || pending.current) return;
+    const previousSettings = current.current.settings;
+    pending.current = true;
+    // The checkbox shows the new value at once; a failed save puts it back and says so in a toast.
+    setState((previous) => ({ ...previous, settings: previous.settings && { ...previous.settings, source_retention_disabled: !retain }, saving: true, error: "" }));
     try {
       const settings = await coreRequest(path, {
         method: "PUT",
@@ -37,9 +45,17 @@ export function useWorkspaceSourceRetention({ coreRequest, workspaceId, sessionU
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ disabled: !retain }),
       });
-      if (activeScope.current === scope) setState({ ...idle(scope), settings });
+      if (activeScope.current === scope) {
+        setState({ ...idle(scope), settings });
+        notify.current?.("workspace.sourceRetention", "success", { enabled: settings?.source_retention_disabled === false });
+      }
     } catch {
-      if (activeScope.current === scope) setState((previous) => ({ ...previous, saving: false, error: "Document retention could not be updated. Try again." }));
+      if (activeScope.current === scope) {
+        setState((previous) => ({ ...previous, settings: previousSettings, saving: false }));
+        notify.current?.("workspace.sourceRetention", "failure");
+      }
+    } finally {
+      pending.current = false;
     }
   }, [canManage, coreRequest, path, scope]);
 

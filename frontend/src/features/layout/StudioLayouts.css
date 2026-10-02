@@ -79,9 +79,17 @@ button.studio-text-button.studio-save-action { color: var(--accent-strong); }
 .studio-workspace-facts dd { margin: 0; text-align: right; min-width: 0; }
 .studio-workspace-facts code { font: 10px var(--font-mono); color: #b1c0d3; overflow-wrap: anywhere; }
 .studio-api-access { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--studio-rule); }
-.studio-main .studio-source-retention-toggle { display: flex; flex-direction: row; align-items: center; gap: 8px; color: #d6dde6; font-size: 12px; }
+/* Settings checkboxes: the box in its own column, title and help text aligned beside it. */
+.studio-setting-toggles { display: grid; gap: 14px; }
+.studio-setting-toggle { display: grid; grid-template-columns: 13px minmax(0, 1fr); column-gap: 10px; row-gap: 3px; align-items: start; }
+.studio-setting-toggle input { grid-row: 1; align-self: center; margin: 0; }
+.studio-main label.studio-setting-toggle-label { display: block; grid-row: 1; grid-column: 2; align-self: center; margin: 0; padding: 0; color: #d6dde6; font-size: 12px; line-height: 17px; cursor: pointer; }
+.studio-setting-toggle-description { grid-column: 2; margin: 0; color: var(--studio-muted); font-size: 11px; line-height: 1.5; max-width: 62ch; }
+.studio-main .studio-setting-toggle.is-disabled label.studio-setting-toggle-label { color: var(--text-2); cursor: default; }
+.studio-setting-toggles + .studio-users-note { margin-top: 12px; }
 .studio-api-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--studio-muted); }
-.studio-main .workspace-model { border: 0; border-left: 1px solid var(--studio-rule); background: transparent; margin: 0; padding-left: 28px; overflow: visible; }
+.studio-workspace-model-settings { border-left: 1px solid var(--studio-rule); padding-left: 28px; }
+.studio-main .workspace-model { border: 0; background: transparent; margin: 0; padding: 0; overflow: visible; }
 .studio-main .workspace-model-header { padding: 0; margin-bottom: 12px; }
 .studio-main .workspace-model-title { gap: 12px; }
 .studio-main .workspace-model-status { border: 0; padding: 0; font: 10px var(--font-mono); }
@@ -168,7 +176,8 @@ button.studio-text-button.studio-save-action { color: var(--accent-strong); }
 .studio-results-table thead th:nth-child(2) { width: 24%; }
 .studio-results-table thead th:nth-child(3) { width: 18%; }
 .studio-main .studio-results-table tbody th { padding: 8px 10px; border: 0; border-bottom: 1px solid var(--studio-rule); background: transparent; text-align: left; text-transform: none; letter-spacing: 0; font: 500 12px var(--font-body); color: #e3ecf8; }
-.studio-main .studio-results-table tbody :is(th, td) { padding-block: 8px; overflow-wrap: anywhere; }
+.studio-main .studio-results-table tbody :is(th, td) { padding-block: 8px; white-space: normal; overflow-wrap: anywhere; }
+.studio-main .studio-results-table tbody :is(th, td) p { white-space: normal; }
 .studio-main .studio-results-table .studio-extracted-value { color: #ebf2fb; font: 12px var(--font-mono); }
 .studio-extracted-value p { margin: 0; font-size: inherit; }
 .studio-extracted-value .answer-text { color: inherit; }
@@ -199,7 +208,7 @@ button.studio-text-button.studio-save-action { color: var(--accent-strong); }
 @container (max-width: 780px) {
   .studio-page-heading h1 { font-size: 17px; }
   .studio-workspace-settings { gap: 22px; }
-  .studio-main .workspace-model { padding-left: 22px; }
+  .studio-workspace-model-settings { padding-left: 22px; }
   .studio-main .workspace-model-fields { grid-template-columns: 1fr; }
   .studio-main .field-studio { grid-template-columns: 195px minmax(0, 1fr); }
   .studio-main .field-detail { padding-left: 20px; }
@@ -208,7 +217,7 @@ button.studio-text-button.studio-save-action { color: var(--accent-strong); }
 }
 @container (max-width: 610px) {
   .studio-workspace-settings { grid-template-columns: 1fr; }
-  .studio-main .workspace-model { border-left: 0; border-top: 1px solid var(--studio-rule); padding: 20px 0 0; }
+  .studio-workspace-model-settings { border-left: 0; border-top: 1px solid var(--studio-rule); padding: 20px 0 0; }
   .studio-template-meta { grid-template-columns: 1fr; gap: 14px; }
   .studio-main .field-studio { grid-template-columns: 150px minmax(0, 1fr); }
   .studio-main .field-detail { padding-left: 16px; }

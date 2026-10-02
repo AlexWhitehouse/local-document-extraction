@@ -3,6 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const TERMINAL = new Set(["completed", "failed"]);
 const emptyState = () => ({ packets: [], selectedId: "", selectedPacket: null, cursor: null, hasMore: false, loading: false, busy: false, error: "" });
 
+// Match the API's descending (created_at, packet_id) order. A removed boundary
+// is still covered once the refreshed page reaches a packet older than it.
+function reachesLoadedBoundary(packet, boundary) {
+  if (packet.packet_id === boundary.packet_id) return true;
+  if (!packet.created_at || !boundary.created_at) return false;
+  return packet.created_at < boundary.created_at ||
+    (packet.created_at === boundary.created_at && packet.packet_id < boundary.packet_id);
+}
+
 /** Packet parents have their own lifecycle; they never become extraction rows or cached results. */
 export function usePacketController({ requests, sessionId, workspaceId, enabled, onAccessDenied, onJobsChanged }) {
   const [state, setState] = useState(emptyState);
@@ -28,14 +37,28 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
     const ctx = context.current;
     if (!ctx?.active || !ctx.requests.listPackets) return;
     const revision = ++ctx.listRevision;
+    const boundary = append ? null : stateRef.current.packets.at(-1);
     apply(ctx, { loading: true });
     try {
-      const result = await ctx.requests.listPackets({ cursor: append ? stateRef.current.cursor : undefined });
-      if (revision !== ctx.listRevision || context.current !== ctx) return;
-      const incoming = Array.isArray(result?.packets) ? result.packets : [];
+      let cursor = append ? stateRef.current.cursor : undefined;
+      let hasMore = false;
+      const incoming = [];
+      const visited = new Set();
+      // Refresh the range the user has already loaded, not just its first page.
+      // Following fresh cursors also covers new uploads and remote deletions.
+      do {
+        visited.add(cursor);
+        const result = await ctx.requests.listPackets({ cursor });
+        if (revision !== ctx.listRevision || context.current !== ctx || !ctx.active) return;
+        const page = Array.isArray(result?.packets) ? result.packets : [];
+        incoming.push(...page);
+        cursor = result.next_cursor || null;
+        hasMore = Boolean(result.has_more && cursor);
+        if (append || !boundary || page.some((packet) => reachesLoadedBoundary(packet, boundary)) || !page.length) break;
+      } while (hasMore && !visited.has(cursor));
       const packets = append ? [...new Map([...stateRef.current.packets, ...incoming].map((packet) => [packet.packet_id, packet])).values()] : incoming;
-      apply(ctx, { packets, cursor: result.next_cursor || null, hasMore: Boolean(result.has_more), error: "" });
-    } catch (error) { fail(ctx, error); }
+      apply(ctx, { packets, cursor, hasMore, error: "" });
+    } catch (error) { if (revision === ctx.listRevision) fail(ctx, error); }
     finally { if (revision === ctx.listRevision) apply(ctx, { loading: false }); }
   }, [apply, fail]);
 
@@ -65,7 +88,9 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
     let timer;
     const schedule = () => {
       timer = setTimeout(async () => {
+        if (stateRef.current.loading) { schedule(); return; }
         await refresh();
+        if (cancelled) return;
         const ctx = context.current;
         if (ctx?.selectedId) await loadPacket(ctx.selectedId);
         if (!cancelled) schedule();
@@ -109,27 +134,45 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
     finally { apply(ctx, { busy: false }); }
   }, [apply, fail, loadPacket, refresh]);
 
-  const remove = useCallback(async (id) => {
+  /** Deletes each packet with its children; resolves to the ids that were removed. */
+  const removeMany = useCallback(async (ids) => {
     const ctx = context.current;
-    if (!ctx?.active || stateRef.current.busy) return;
+    if (!ctx?.active || stateRef.current.busy || !ids.length) return [];
     apply(ctx, { busy: true, error: "" });
+    const removed = [];
     try {
-      await ctx.requests.deletePacket(id);
-      if (context.current !== ctx || !ctx.active) return;
+      for (const id of ids) {
+        try { await ctx.requests.deletePacket(id); removed.push(id); }
+        catch (error) { if (error.status === 404) removed.push(id); else fail(ctx, error); }
+        if (context.current !== ctx || !ctx.active) return removed;
+      }
       ++ctx.listRevision;
       ++ctx.detailRevision;
-      ctx.selectedId = "";
-      apply(ctx, { selectedId: "", selectedPacket: null, packets: stateRef.current.packets.filter((packet) => packet.packet_id !== id) });
-      callbacks.current.onJobsChanged?.();
+      const gone = new Set(removed);
+      if (gone.has(ctx.selectedId)) { ctx.selectedId = ""; apply(ctx, { selectedId: "", selectedPacket: null }); }
+      apply(ctx, { packets: stateRef.current.packets.filter((packet) => !gone.has(packet.packet_id)) });
+      if (removed.length) callbacks.current.onJobsChanged?.();
       await refresh();
-    } catch (error) { fail(ctx, error); }
-    finally { apply(ctx, { busy: false }); }
+      return removed;
+    } finally { apply(ctx, { busy: false }); }
   }, [apply, fail, refresh]);
+  const remove = useCallback((id) => removeMany([id]), [removeMany]);
+  // Adapter replacements during polling must not restart a pending source preview.
+  // A context change still replaces these callbacks and cancels the old preview.
+  const loadOriginal = useCallback((id, options) => {
+    const ctx = context.current;
+    if (!ctx?.active || ctx.key !== key) return Promise.reject(new DOMException("Workspace changed", "AbortError"));
+    return ctx.requests.getPacketOriginal(id, options);
+  }, [key]);
+  const loadPagePreview = useCallback((id, page, options) => {
+    const ctx = context.current;
+    if (!ctx?.active || ctx.key !== key) return Promise.reject(new DOMException("Workspace changed", "AbortError"));
+    return ctx.requests.getPacketPagePreview(id, page, options);
+  }, [key]);
 
   return {
-    ...(context.current?.key === key ? state : emptyState()), refresh, select, admitted, confirmPlan, remove,
-    loadOriginal: useCallback((id, options) => requests.getPacketOriginal(id, options), [requests]),
-    loadPagePreview: useCallback((id, page, options) => requests.getPacketPagePreview(id, page, options), [requests]),
+    ...(context.current?.key === key ? state : emptyState()), refresh, select, admitted, confirmPlan, remove, removeMany,
+    loadOriginal, loadPagePreview,
     clear: () => { if (context.current) context.current.active = false; setState(emptyState()); },
   };
 }

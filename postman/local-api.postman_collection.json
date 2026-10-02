@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Document Extraction Local API",
-    "description": "Local Postman collection for the Document Extraction API.\n\nPrerequisites:\n1) From the repository root, run bun run build && bun run start\n2) Set collection variables: api_key, template_id, and optionally workspace_id\n3) Use a valid PNG/JPEG/WEBP/PDF Document for upload\n\nAuth for all /v1 extraction endpoints uses Bearer API key.",
+    "description": "Local Postman collection for the Document Extraction Workspace API.\n\nPrerequisites:\n1) From the repository root, run bun run build && bun run start.\n2) Configure the Workspace model gateway in the browser and generate a Workspace API key.\n3) Set api_key and template_id, or use template_tags for automatic selection. Choose one upload example and attach a PDF, PNG, JPEG, or WebP.\n\nSmart splitting is a Workspace setting. Enabled PDF uploads return a packet_id; other uploads return a job_id. Upload scripts save poll_path from Location. Poll the submission, then follow each child_job_ids entry with Return Job Results. A packet always remains a packet in the API even when the UI shows a single document.\n\nAll product endpoints use Bearer API-key authentication; x-workspace-id is unnecessary. Full contract: mkdocs/docs/api/overview.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,16 +14,28 @@
       "value": ""
     },
     {
-      "key": "workspace_id",
-      "value": ""
-    },
-    {
       "key": "template_id",
       "value": ""
     },
     {
       "key": "job_id",
       "value": ""
+    },
+    {
+      "key": "template_tags",
+      "value": "[\"prescription\"]"
+    },
+    {
+      "key": "packet_id",
+      "value": ""
+    },
+    {
+      "key": "poll_path",
+      "value": ""
+    },
+    {
+      "key": "child_job_ids",
+      "value": "[]"
     }
   ],
   "item": [
@@ -38,11 +50,6 @@
             "type": "text"
           },
           {
-            "key": "x-workspace-id",
-            "value": "{{workspace_id}}",
-            "type": "text"
-          },
-          {
             "key": "Content-Type",
             "value": "application/json",
             "type": "text"
@@ -50,7 +57,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Prescription Template\",\n  \"description\": \"Extract medication and prescription fields from a Document\",\n  \"fields\": [\n    {\n      \"name\": \"Patient Name\",\n      \"description\": \"Full name of the patient on the prescription\",\n      \"data_type\": \"string\",\n      \"required\": true\n    },\n    {\n      \"name\": \"Prescription Lines\",\n      \"description\": \"List each prescribed medication line when the document contains multiple medications\",\n      \"data_type\": \"array<object>\",\n      \"required\": false,\n      \"object_schema\": {\n        \"mode\": \"table\",\n        \"columns\": [\n          {\n            \"heading\": \"Medication Name\",\n            \"data_type\": \"string\",\n            \"description\": \"Medication listed on this line\"\n          },\n          {\n            \"heading\": \"Strength\",\n            \"data_type\": \"string\",\n            \"description\": \"Strength for this medication line\"\n          },\n          {\n            \"heading\": \"Dose Instructions\",\n            \"data_type\": \"string\",\n            \"description\": \"Dose and frequency instructions for this line\"\n          }\n        ]\n      }\n    }\n  ]\n}"
+          "raw": "{\n  \"name\": \"Prescription Template\",\n  \"description\": \"Extract medication and prescription fields from a Document\",\n  \"fields\": [\n    {\n      \"name\": \"Patient Name\",\n      \"description\": \"Full name of the patient on the prescription\",\n      \"data_type\": \"string\"\n    },\n    {\n      \"name\": \"Prescription Lines\",\n      \"description\": \"List each prescribed medication line when the document contains multiple medications\",\n      \"data_type\": \"array<object>\",\n      \"object_schema\": {\n        \"columns\": [\n          {\n            \"heading\": \"Medication Name\",\n            \"data_type\": \"string\",\n            \"description\": \"Medication listed on this line\"\n          },\n          {\n            \"heading\": \"Strength\",\n            \"data_type\": \"string\",\n            \"description\": \"Strength for this medication line\"\n          },\n          {\n            \"heading\": \"Dose Instructions\",\n            \"data_type\": \"string\",\n            \"description\": \"Dose and frequency instructions for this line\"\n          }\n        ],\n        \"data_type\": \"array<object>\"\n      }\n    }\n  ],\n  \"tags\": [\n    \"prescription\"\n  ]\n}"
         },
         "url": {
           "raw": "{{base_url}}/v1/templates",
@@ -97,11 +104,6 @@
             "type": "text"
           },
           {
-            "key": "x-workspace-id",
-            "value": "{{workspace_id}}",
-            "type": "text"
-          },
-          {
             "key": "Content-Type",
             "value": "application/json",
             "type": "text"
@@ -109,7 +111,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Updated Prescription Template\",\n  \"description\": \"Updated extraction schema for prescription documents\",\n  \"fields\": [\n    {\n      \"name\": \"Patient Name\",\n      \"description\": \"Full name of the patient on the prescription\",\n      \"data_type\": \"string\",\n      \"required\": true\n    },\n    {\n      \"name\": \"Prescription Lines\",\n      \"description\": \"List each prescribed medication line when the document contains multiple medications\",\n      \"data_type\": \"array<object>\",\n      \"required\": false,\n      \"object_schema\": {\n        \"mode\": \"table\",\n        \"columns\": [\n          {\n            \"heading\": \"Medication Name\",\n            \"data_type\": \"string\",\n            \"description\": \"Medication listed on this line\"\n          },\n          {\n            \"heading\": \"Strength\",\n            \"data_type\": \"string\",\n            \"description\": \"Strength for this medication line\"\n          },\n          {\n            \"heading\": \"Dose Instructions\",\n            \"data_type\": \"string\",\n            \"description\": \"Dose and frequency instructions for this line\"\n          }\n        ]\n      }\n    }\n  ]\n}"
+          "raw": "{\n  \"name\": \"Updated Prescription Template\",\n  \"description\": \"Updated extraction schema for prescription documents\",\n  \"fields\": [\n    {\n      \"name\": \"Patient Name\",\n      \"description\": \"Full name of the patient on the prescription\",\n      \"data_type\": \"string\"\n    },\n    {\n      \"name\": \"Prescription Lines\",\n      \"description\": \"List each prescribed medication line when the document contains multiple medications\",\n      \"data_type\": \"array<object>\",\n      \"object_schema\": {\n        \"columns\": [\n          {\n            \"heading\": \"Medication Name\",\n            \"data_type\": \"string\",\n            \"description\": \"Medication listed on this line\"\n          },\n          {\n            \"heading\": \"Strength\",\n            \"data_type\": \"string\",\n            \"description\": \"Strength for this medication line\"\n          },\n          {\n            \"heading\": \"Dose Instructions\",\n            \"data_type\": \"string\",\n            \"description\": \"Dose and frequency instructions for this line\"\n          }\n        ],\n        \"data_type\": \"array<object>\"\n      }\n    }\n  ],\n  \"tags\": [\n    \"prescription\"\n  ]\n}"
         },
         "url": {
           "raw": "{{base_url}}/v1/templates/{{template_id}}",
@@ -144,18 +146,13 @@
       ]
     },
     {
-      "name": "1) Initiate Document Upload",
+      "name": "1a) Upload with Explicit Template",
       "request": {
         "method": "POST",
         "header": [
           {
             "key": "Authorization",
             "value": "Bearer {{api_key}}",
-            "type": "text"
-          },
-          {
-            "key": "x-workspace-id",
-            "value": "{{workspace_id}}",
             "type": "text"
           }
         ],
@@ -189,7 +186,7 @@
             "extract"
           ]
         },
-        "description": "Uploads a document and queues an extraction job.\n\nExpected: HTTP 202 with { job_id, status: \"queued\" }."
+        "description": "Choose this example OR 1b and attach document. Expected: HTTP 202, Location, and either job_id or packet_id. Smart splitting still runs for PDFs with a specific template; all children inherit that template version. The script clears stale IDs and saves poll_path for Check Submission Status. Repeating an upload creates new work."
       },
       "event": [
         {
@@ -197,24 +194,89 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Status is 202', function () {",
-              "  pm.response.to.have.status(202);",
-              "});",
-              "",
+              "pm.test('Status is 202', function () { pm.response.to.have.status(202); });",
               "var json = pm.response.json();",
-              "if (json && json.job_id) {",
-              "  pm.collectionVariables.set('job_id', json.job_id);",
-              "}",
-              "pm.test('job_id is returned', function () {",
-              "  pm.expect(json.job_id).to.be.a('string').and.not.empty;",
-              "});"
+              "var location = pm.response.headers.get('Location');",
+              "pm.test('Job or packet ID and poll location are returned', function () {",
+              "  pm.expect(Boolean(json.job_id) !== Boolean(json.packet_id)).to.equal(true);",
+              "  pm.expect(location).to.be.a('string').and.not.empty;",
+              "});",
+              "pm.collectionVariables.set('job_id', json.job_id || '');",
+              "pm.collectionVariables.set('packet_id', json.packet_id || '');",
+              "pm.collectionVariables.set('child_job_ids', '[]');",
+              "pm.collectionVariables.set('poll_path', location || '');"
             ]
           }
         }
       ]
     },
     {
-      "name": "2) Check Job Status",
+      "name": "1b) Upload with Automatic Template Selection",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "template_tags",
+              "value": "{{template_tags}}",
+              "type": "text"
+            },
+            {
+              "key": "document",
+              "type": "file",
+              "src": ""
+            },
+            {
+              "key": "options",
+              "value": "{\"include_confidence\": true, \"include_evidence\": true}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/v1/extract",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "extract"
+          ]
+        },
+        "description": "Alternative to 1a: omit template_id and send a nonempty JSON array of tag names. Templates matching ANY tag are candidates; every split child selects independently. Unknown tags match nothing and may require manual selection. Smart splitting uses the Workspace setting. The upload script saves either job_id or packet_id and poll_path. Repeating an upload creates new work."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 202', function () { pm.response.to.have.status(202); });",
+              "var json = pm.response.json();",
+              "var location = pm.response.headers.get('Location');",
+              "pm.test('Job or packet ID and poll location are returned', function () {",
+              "  pm.expect(Boolean(json.job_id) !== Boolean(json.packet_id)).to.equal(true);",
+              "  pm.expect(location).to.be.a('string').and.not.empty;",
+              "});",
+              "pm.collectionVariables.set('job_id', json.job_id || '');",
+              "pm.collectionVariables.set('packet_id', json.packet_id || '');",
+              "pm.collectionVariables.set('child_job_ids', '[]');",
+              "pm.collectionVariables.set('poll_path', location || '');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2) Check Submission Status",
       "request": {
         "method": "GET",
         "header": [
@@ -222,25 +284,18 @@
             "key": "Authorization",
             "value": "Bearer {{api_key}}",
             "type": "text"
-          },
-          {
-            "key": "x-workspace-id",
-            "value": "{{workspace_id}}",
-            "type": "text"
           }
         ],
         "url": {
-          "raw": "{{base_url}}/v1/jobs/{{job_id}}",
+          "raw": "{{base_url}}{{poll_path}}",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "v1",
-            "jobs",
-            "{{job_id}}"
+            "{{poll_path}}"
           ]
         },
-        "description": "Checks current status for a job id.\n\nPoll until status becomes completed, failed, or retryable_failed."
+        "description": "Poll the Location saved by the upload, normally every 2\u20135 seconds. Job states: queued, processing, awaiting_template, completed, failed. Packet states: queued, processing, awaiting_review, materializing, processing_children, completed, failed. Resolve review/template holds before waiting for more work. Packet reads contain child summaries, not results. The script saves child_job_ids; copy each desired ID to job_id and read Return Job Results, tracking consumed IDs in your integration. A failed packet can still have successful or running children."
       },
       "event": [
         {
@@ -248,13 +303,13 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Status is 200', function () {",
-              "  pm.response.to.have.status(200);",
-              "});",
-              "",
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
               "var json = pm.response.json();",
-              "if (json && json.status) {",
-              "  pm.collectionVariables.set('job_status', json.status);",
+              "pm.collectionVariables.set('submission_status', json.status);",
+              "if (json.packet_id) {",
+              "  pm.collectionVariables.set('child_job_ids', JSON.stringify((json.children || []).map(function (child) { return child.job_id; })));",
+              "} else if (json.job_id) {",
+              "  pm.collectionVariables.set('job_id', json.job_id);",
               "}"
             ]
           }
@@ -270,11 +325,6 @@
             "key": "Authorization",
             "value": "Bearer {{api_key}}",
             "type": "text"
-          },
-          {
-            "key": "x-workspace-id",
-            "value": "{{workspace_id}}",
-            "type": "text"
           }
         ],
         "url": {
@@ -288,7 +338,7 @@
             "{{job_id}}"
           ]
         },
-        "description": "Returns extracted field results when the job is completed.\n\nIf status is not completed yet, this endpoint returns job metadata without results."
+        "description": "Read the ordinary job or one packet child. For a packet, set job_id to each ID in child_job_ids in turn. Completed jobs contain results; other states return results: []. A failed job still returns HTTP 200 with error_code/error_message. An awaiting_template job needs POST /v1/jobs/{job_id}/template with {\"template_id\":\"...\"}. This example expects the chosen job to be completed."
       },
       "event": [
         {
@@ -311,6 +361,107 @@
           }
         }
       ]
+    },
+    {
+      "name": "Read Packet",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_key}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/packets/{{packet_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "packets",
+            "{{packet_id}}"
+          ]
+        },
+        "description": "Read the parent and its current children using packet_id saved at upload. Children contain job_id, status, parent_packet_id, and source_pages in the original PDF. Fetch each child job separately for extracted fields. A completed all-blank packet has outcome no_documents and no children."
+      }
+    },
+    {
+      "name": "Read Document Processing Settings",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_key}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/document-processing-settings",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "document-processing-settings"
+          ]
+        },
+        "description": "Read effective enable_smart_splitting and exclude_blank_pages switches. API keys cannot change them; Workspace owners/admins use the browser. The upload captures these settings."
+      }
+    },
+    {
+      "name": "Download Job Source",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_key}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/jobs/{{job_id}}/source",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "jobs",
+            "{{job_id}}",
+            "source"
+          ]
+        },
+        "description": "Download an available retained or held source. For a packet child this contains only its pages. Source errors do not change extraction results."
+      }
+    },
+    {
+      "name": "Download Packet Original",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_key}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/v1/packets/{{packet_id}}/source",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "packets",
+            "{{packet_id}}",
+            "source"
+          ]
+        },
+        "description": "Download the full original when retained or still available for review. It includes excluded pages and deleted-child pages."
+      }
     }
   ]
 }

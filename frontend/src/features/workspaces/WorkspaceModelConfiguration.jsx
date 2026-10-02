@@ -23,8 +23,6 @@ export function WorkspaceModelConfiguration({ controller }) {
     testing,
     error,
     conflict,
-    feedback,
-    testResult,
   } = controller;
   const configured = Boolean(record?.configured);
   const unavailable = canManage && record?.credential_status === "unavailable";
@@ -130,7 +128,6 @@ export function WorkspaceModelConfiguration({ controller }) {
                 </div>
               </dl>
               <ModelRoles record={record} />
-              <ConfigurationFeedback testResult={testResult} feedback={feedback} />
               <div className="workspace-model-actions">
                 <div>
                   <button
@@ -249,7 +246,6 @@ export function WorkspaceModelConfiguration({ controller }) {
                   Reload configuration
                 </button>
               ) : null}
-              <ConfigurationFeedback testResult={testResult} feedback={feedback} />
               <div className="workspace-model-actions">
                 <div>
                   <button
@@ -334,30 +330,6 @@ export function WorkspaceModelConfiguration({ controller }) {
         </div>
       )}
     </article>
-  );
-}
-
-function ConfigurationFeedback({ testResult, feedback }) {
-  return (
-    <>
-      {testResult ? (
-        <p
-          role="status"
-          className={
-            testResult.passed
-              ? "workspace-model-test passed"
-              : "workspace-model-test"
-          }
-        >
-          {testResult.message}
-        </p>
-      ) : null}
-      {feedback ? (
-        <p role="status" className="workspace-model-test passed">
-          {feedback}
-        </p>
-      ) : null}
-    </>
   );
 }
 
