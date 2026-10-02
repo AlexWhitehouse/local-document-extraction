@@ -3,6 +3,8 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Database, constants as sqliteConstants } from "bun:sqlite";
 
+import { createDocumentProcessingStore, initializeDocumentProcessingSchema, type DocumentProcessingStore, type DocumentRouting } from "./localDocumentProcessingStore";
+import { createWorkspaceDocumentProcessingSettingsStore, DOCUMENT_PROCESSING_SETTINGS_SCHEMA } from "./workspaceDocumentProcessing";
 import type { FieldDefinition } from "./lib/types";
 import { normalizeTemplateTagName, normalizeTemplateTags } from "../../shared/templateTags";
 import { newId } from "./lib/ids";
@@ -39,20 +41,20 @@ export type LocalQueuedExtractionJob = {
   job_id: string;
   status: "queued";
   source_name: string | null;
-  template_id: string;
-  template_version: number;
+  template_id: string | null;
+  template_version: number | null;
 };
 
-export type LocalWorkspaceExtractionJobSummary = {
+export type LocalWorkspaceExtractionJobSummary = Partial<Pick<DocumentRouting, "template_tags" | "selection_mode" | "routing_status" | "selection_reason" | "routing_rounds" | "parent_packet_id" | "source_pages">> & {
   job_id: string;
-  status: "queued" | "processing" | "completed" | "failed";
+  status: "queued" | "processing" | "completed" | "failed" | "awaiting_template";
   source_name: string | null;
   source_mime_type: string;
   source_file_page_count: number | null;
   /** The original is kept for viewing and download (Source file retention), rather than only for processing. */
   source_retained: boolean;
-  template_id: string;
-  template_version: number;
+  template_id: string | null;
+  template_version: number | null;
   model_name: string | null;
   model_configuration_revision: number | null;
   error_code: string | null;
@@ -80,6 +82,8 @@ export type LocalWorkspaceExtractionJob = LocalWorkspaceExtractionJobSummary & {
 };
 
 export type LocalWorkspaceExtractionJobExport = LocalWorkspaceExtractionJob & {
+  template_id: string;
+  template_version: number;
   template_name: string;
   fields: PositionedField[];
 };
@@ -98,8 +102,8 @@ export type LocalClaimedExtractionJob = {
 
 export type LocalScheduledExtractionJob = {
   job_id: string;
-  template_id: string;
-  template_version: number;
+  template_id: string | null;
+  template_version: number | null;
   attempt: number;
   not_before?: string;
 };
@@ -169,7 +173,7 @@ export type LocalEvaluationDocumentDeletionIntent = {
 
 type EvaluationDocumentAuthor = { userId: string; name: string };
 
-export type LocalWorkspaceProductStore = {
+export type LocalWorkspaceProductStore = DocumentProcessingStore & ReturnType<typeof createWorkspaceDocumentProcessingSettingsStore> & {
   close(): void;
   /** Commits a complete save and its receipt together; an existing receipt wins and nothing is inserted. */
   insertEvaluationDocument(input: {
@@ -237,8 +241,11 @@ export type LocalWorkspaceProductStore = {
   ensureStarterInvoiceTemplate(input: { createdAt: string }): void;
   createQueuedExtractionJob(input: {
     jobId: string;
-    templateId: string;
-    templateVersion: number;
+    templateId: string | null;
+    templateVersion: number | null;
+    templateTags?: string[];
+    sourcePages?: number[] | null;
+    parentPacketId?: string | null;
     sourceFileKey: string;
     sourceMimeType: string;
     sourceName: string | null;
@@ -427,20 +434,25 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   database.exec(PRODUCT_SCHEMA);
   ensureProductSchemaColumns(database);
   migrateProductSchema(database);
+  initializeDocumentProcessingSchema(database);
+  database.exec(DOCUMENT_PROCESSING_SETTINGS_SCHEMA.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS "));
+  const processing = createDocumentProcessingStore(database, () => store);
 
   const readModelConfiguration = (): StoredWorkspaceModelConfiguration | null => {
     const row = database.query(`SELECT gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output,
-      assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, revision, created_at, updated_at
-      FROM workspace_model_configuration WHERE singleton = 1`).get() as (Omit<StoredWorkspaceModelConfiguration, "assistant_model"> & {
+      assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, classification_model_name, classification_supports_pdf_input, classification_supports_structured_output, revision, created_at, updated_at
+      FROM workspace_model_configuration WHERE singleton = 1`).get() as (Omit<StoredWorkspaceModelConfiguration, "assistant_model" | "classification_model"> & {
+      classification_model_name: string | null; classification_supports_pdf_input: number | null; classification_supports_structured_output: number | null;
       assistant_model_name: string | null; assistant_supports_pdf_input: number | null; assistant_supports_structured_output: number | null;
     }) | null;
     if (!row) return null;
-    const { assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, ...fields } = row;
+    const { classification_model_name, classification_supports_pdf_input, classification_supports_structured_output, assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, ...fields } = row;
     return {
       ...fields,
       sequential_calls: Boolean(row.sequential_calls),
       supports_pdf_input: Boolean(row.supports_pdf_input),
       supports_structured_output: Boolean(row.supports_structured_output),
+      classification_model: classification_model_name === null ? null : { model_name: classification_model_name, supports_pdf_input: Boolean(classification_supports_pdf_input), supports_structured_output: Boolean(classification_supports_structured_output) },
       assistant_model: assistant_model_name === null ? null : {
         model_name: assistant_model_name,
         supports_pdf_input: Boolean(assistant_supports_pdf_input),
@@ -466,9 +478,16 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
      ORDER BY position ASC`,
   ).all(templateId, version) as PositionedField[];
 
+  const withRouting = (row: JobSummaryRow): LocalWorkspaceExtractionJobSummary => {
+    const routing = processing.getDocumentRouting(row.job_id);
+    if (!routing) return withRetainedFlag(row);
+    const { template_tags, selection_mode, routing_status, selection_reason, routing_rounds, parent_packet_id, source_pages } = routing;
+    return { ...withRetainedFlag(row), template_tags, selection_mode, routing_status, selection_reason, routing_rounds, parent_packet_id, source_pages };
+  };
+
   const readJobSummary = (jobId: string) => {
     const row = database.query(`${JOB_SUMMARY_SELECT} WHERE j.id = ?`).get(jobId) as JobSummaryRow | null;
-    return row && withRetainedFlag(row);
+    return row && withRouting(row);
   };
 
   const readJobResults = (jobId: string): LocalWorkspaceExtractionResult[] => {
@@ -540,7 +559,9 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     "SELECT operation_id, digest, document_id, outcome FROM evaluation_document_save_receipts WHERE operation_id = ?",
   ).get(operationId) as LocalEvaluationDocumentSaveReceipt | null;
 
-  return {
+  const store: LocalWorkspaceProductStore = {
+    ...processing,
+    ...createWorkspaceDocumentProcessingSettingsStore(database),
     close: () => database.close(),
     insertEvaluationDocument: ({ document, author, operationId, digest }) => database.transaction(() => {
       // Concurrent retries of one operation race here; only the first commit creates an entry.
@@ -627,13 +648,16 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       const config = input.configuration;
       database.query(`INSERT OR REPLACE INTO workspace_model_configuration
         (singleton, gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output,
-         assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, revision, created_at, updated_at)
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+         assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, classification_model_name, classification_supports_pdf_input, classification_supports_structured_output, revision, created_at, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         config.gateway_url, config.model_name, config.credential_ciphertext,
         Number(config.sequential_calls), Number(config.supports_pdf_input), Number(config.supports_structured_output),
         config.assistant_model?.model_name ?? null,
         config.assistant_model ? Number(config.assistant_model.supports_pdf_input) : null,
         config.assistant_model ? Number(config.assistant_model.supports_structured_output) : null,
+        config.classification_model?.model_name ?? null,
+        config.classification_model ? Number(config.classification_model.supports_pdf_input) : null,
+        config.classification_model ? Number(config.classification_model.supports_structured_output) : null,
         revision, current?.created_at ?? input.updatedAt, input.updatedAt,
       );
       return readModelConfiguration();
@@ -748,6 +772,10 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
           input.submittedAt,
           input.submittedAt,
         );
+        if (!input.templateId || input.templateTags !== undefined || input.parentPacketId || input.sourcePages) {
+          database.query(`INSERT INTO document_routing(job_id,template_tags,selection_mode,routing_status,parent_packet_id,source_pages)
+            VALUES (?,?,?,?,?,?)`).run(input.jobId,JSON.stringify(input.templateTags ?? []),input.templateId ? "explicit" : "automatic",input.templateId ? "resolved" : "pending",input.parentPacketId ?? null,input.sourcePages ? JSON.stringify(input.sourcePages) : null);
+        }
       })();
       return {
         job_id: input.jobId,
@@ -775,7 +803,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       const claimed = database.query(
         `UPDATE jobs
          SET status = 'processing', updated_at = ?, error_code = NULL, error_message = NULL, next_retry_at = NULL, current_attempt = ?, model_name = NULL, model_gateway_route = NULL, model_configuration_revision = NULL
-         WHERE id = ? AND status = 'queued' AND current_attempt < ?
+         WHERE id = ? AND status = 'queued' AND template_id IS NOT NULL AND template_version IS NOT NULL AND current_attempt < ?
            AND (next_retry_at IS NULL OR next_retry_at <= ?)`,
       ).run(input.claimedAt, input.attempt, input.jobId, input.attempt, input.claimedAt);
       if (claimed.changes < 1) return null;
@@ -955,6 +983,8 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
         .run(job.job_id, job.source_file_key, job.retained_object_key ?? null);
       database.query("DELETE FROM job_results WHERE job_id = ?").run(job.job_id);
       database.query("DELETE FROM source_files WHERE job_id = ?").run(job.job_id);
+      database.query("UPDATE document_packet_children SET state='deleted' WHERE job_id=?").run(job.job_id);
+      database.query("DELETE FROM document_routing WHERE job_id=?").run(job.job_id);
       database.query("DELETE FROM jobs WHERE id = ?").run(job.job_id);
       return job;
     })(),
@@ -969,12 +999,12 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     ).get(jobId) as LocalRetainedSourceFile | null,
     getTemplateAssistantEvidence: (jobId, maximumBytes) => database.transaction(() => {
       const summary = readJobSummary(jobId);
-      if (!summary || summary.status !== "completed") return null;
+      if (!summary || summary.status !== "completed" || !summary.template_id || !summary.template_version) return null;
       const sizes = database.query(`SELECT COALESCE(SUM(length(CAST(COALESCE(answer_json, '') AS BLOB)) + length(CAST(COALESCE(evidence_text, '') AS BLOB))), 0) AS bytes FROM job_results WHERE job_id = ?`).get(jobId) as { bytes: number };
       const fieldSize = database.query(`SELECT COALESCE(SUM(length(CAST(name AS BLOB)) + length(CAST(description AS BLOB))), 0) AS bytes FROM template_fields WHERE template_id = ? AND version = ?`).get(summary.template_id, summary.template_version) as { bytes: number };
       if (sizes.bytes + fieldSize.bytes > maximumBytes) throw new RangeError("The selected results exceed the 128 KiB assistance evidence limit; choose a smaller result or omit it explicitly");
       const row = database.query("SELECT name FROM templates WHERE id = ?").get(summary.template_id) as { name: string } | null;
-      return { ...readJob(jobId)!, template_name: row?.name || summary.template_id, fields: readTemplateFields(summary.template_id, summary.template_version) };
+      return { ...readJob(jobId)!, template_id:summary.template_id, template_version:summary.template_version, template_name: row?.name || summary.template_id, fields: readTemplateFields(summary.template_id, summary.template_version) };
     })(),
     getExtractionJobExports: (jobIds) => database.transaction(() => {
       if (!jobIds.length) return [];
@@ -985,7 +1015,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       const templates = new Map<string, Pick<LocalWorkspaceExtractionJobExport, "fields" | "template_name">>();
       return jobIds.flatMap((id) => {
         const job = readJob(id);
-        if (!job || (job.status !== "completed" && job.status !== "failed")) return [];
+        if (!job || !job.template_id || !job.template_version || (job.status !== "completed" && job.status !== "failed")) return [];
         const key = `${job.template_id}\u0000${job.template_version}`;
         let template = templates.get(key);
         if (!template) {
@@ -993,7 +1023,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
           template = { template_name: row?.name || job.template_id, fields: readTemplateFields(job.template_id, job.template_version) };
           templates.set(key, template);
         }
-        return [{ ...job, ...template }];
+        return [{ ...job, template_id:job.template_id, template_version:job.template_version, ...template }];
       });
     })(),
     getSubmissionTemplate: (templateId) => {
@@ -1030,7 +1060,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     countExtractionJobs: () =>
       (database.query("SELECT count FROM job_totals WHERE singleton = 1").get() as { count: number }).count,
     getExtractionJobCounts: () => {
-      const status_counts = { queued: 0, processing: 0, completed: 0, failed: 0 };
+      const status_counts = { queued: 0, processing: 0, completed: 0, failed: 0, awaiting_template: 0 };
       const rows = database.query("SELECT status, count FROM job_status_totals").all() as Array<{ status: keyof typeof status_counts; count: number }>;
       for (const row of rows) status_counts[row.status] = row.count;
       return { total: Object.values(status_counts).reduce((sum, count) => sum + count, 0), status_counts };
@@ -1050,7 +1080,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
         // lifecycle transitions do not rewrite the search index. Searches too short
         // for trigrams, or containing NUL, use only the literal path.
         if ([...search].length >= 3 && !search.includes("\u0000")
-          && !["queued", "processing", "completed", "failed"].some((status) => status.includes(search))) {
+          && !["queued", "processing", "completed", "failed", "awaiting_template"].some((status) => status.includes(search))) {
           const candidates = database.query("SELECT rowid FROM job_search WHERE job_search MATCH ? LIMIT 1001")
             .all(`"${search.replaceAll('"', '""')}"`) as { rowid: number }[];
           if (!candidates.length) return [];
@@ -1090,7 +1120,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? ` LIMIT ${input.limit}` : "";
       return (database.query(
         `${JOB_SUMMARY_SELECT}${where} ORDER BY j.created_at DESC, j.id DESC${limit}`,
-      ).all(...parameters) as JobSummaryRow[]).map(withRetainedFlag);
+      ).all(...parameters) as JobSummaryRow[]).map(withRouting);
     },
     listRetainedTerminalSourceFiles: (input) => {
       const limit = input.limit ?? 1_000;
@@ -1108,7 +1138,12 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
          ORDER BY j.updated_at ASC, j.id ASC
          LIMIT ?`,
       ).all(input.failedBefore, limit - deleted.length) as LocalRetainedTerminalSourceFile[];
-      return [...deleted, ...terminal];
+      const packets = database.query(`SELECT p.id AS job_id, s.key AS source_file_key, NULL AS retained_object_key
+        FROM source_files s JOIN document_packets p ON p.id=s.job_id
+        WHERE s.deleted_at IS NULL AND p.status IN ('processing_children','completed','failed')
+          AND ((s.retained=0 AND (p.status!='failed' OR p.updated_at<=?)) OR s.retained_key IS NOT NULL)
+        ORDER BY p.updated_at LIMIT ?`).all(input.failedBefore,Math.max(0,limit-deleted.length-terminal.length)) as LocalRetainedTerminalSourceFile[];
+      return [...deleted, ...terminal, ...packets];
     },
     markSourceFileCleaned: (input) => database.transaction(() => {
       const source = database.query(
@@ -1121,6 +1156,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       return source.changes > 0 || intent.changes > 0;
     })(),
   };
+  return store;
 }
 
 /** SQLite returns `source_retained` as 0/1. */

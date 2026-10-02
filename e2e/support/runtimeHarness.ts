@@ -41,6 +41,23 @@ try {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
       const input = await request.json() as { model?: string; messages?: Array<{ role: string; content?: unknown }> };
+      if (["browser/document-classifier", "browser/split-review", "browser/split-blank"].includes(input.model || "")) {
+        const message = input.messages?.find((entry) => entry.role === "user");
+        const content = Array.isArray(message?.content) ? message.content : [];
+        const textPart = content.find((part: { type?: string }) => part.type === "text");
+        const context = JSON.parse(textPart?.text || "{}") as { candidates?: { id: string; name: string; description: string }[]; pages?: { original_page: number }[] };
+        const value = context.candidates ? {
+          status: "selected", template_id: context.candidates[0]?.id,
+          reason: "Invoice identifier matches the invoice template description.", evidence: ["Document includes an invoice identifier."],
+        } : {
+          status: input.model === "browser/split-review" ? "uncertain" : "resolved",
+          groups: input.model === "browser/split-blank" ? [] : (context.pages || []).map(({ original_page }) => [original_page]),
+          exclusions: input.model === "browser/split-blank" ? (context.pages || []).map(({ original_page }) => ({ page: original_page, reason: "Verified blank page", verified_blank: true })) : [],
+          reason: input.model === "browser/split-review" ? "Document boundaries remain ambiguous after assessment." : "Every selected page is blank.",
+          evidence: [input.model === "browser/split-review" ? "Adjacent page boundaries are ambiguous." : "No marks on selected pages."],
+        };
+        return Response.json({ choices: [{ message: { content: JSON.stringify(value) } }] });
+      }
       if (input.model === "browser/template-assistant" && String(input.messages?.[0]?.content ?? "").startsWith("You suggest requests")) {
         return Response.json({ choices: [{ message: { content: JSON.stringify({ suggestions: [
           { label: "Add VAT rate to each line item", request: "Add VAT rate to each line item.", reason: "“Line Items” has prices but no VAT column" },

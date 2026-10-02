@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { HttpError } from "./lib/http";
 import { assertRealStateDirectorySync, assertRegularStateFileSync, ensurePrivateStateDirectorySync } from "./localStatePaths";
 
-/** A model used for Template authoring instead of the extraction model. Shares the gateway URL, credential and call behavior. */
+/** A task-specific model sharing the extraction gateway URL, credential and call behavior. */
 export type WorkspaceAssistantModel = {
   model_name: string;
   supports_pdf_input: boolean;
@@ -21,6 +21,8 @@ export type WorkspaceModelDraft = {
   supports_structured_output: boolean;
   /** Absent or null: Template authoring uses the extraction model. */
   assistant_model?: WorkspaceAssistantModel | null;
+  /** Absent or null: document classification and splitting use the extraction model. */
+  classification_model?: WorkspaceAssistantModel | null;
 };
 
 export type StoredWorkspaceModelConfiguration = Omit<WorkspaceModelDraft, "credential"> & {
@@ -34,7 +36,7 @@ export function validateWorkspaceModelDraft(value: unknown): WorkspaceModelDraft
   const invalid = () => new HttpError(400, "invalid_workspace_model_configuration", "Provide a complete, valid Workspace model configuration.");
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const input = value as Record<string, unknown>;
-  const allowed = ["gateway_url", "model_name", "credential", "sequential_calls", "supports_pdf_input", "supports_structured_output", "assistant_model"];
+  const allowed = ["gateway_url", "model_name", "credential", "sequential_calls", "supports_pdf_input", "supports_structured_output", "assistant_model", "classification_model"];
   if (Object.keys(input).some((key) => !allowed.includes(key))) throw invalid();
   const bounded = (key: string, limit: number, source: Record<string, unknown> = input) => {
     const raw = source[key];
@@ -46,16 +48,15 @@ export function validateWorkspaceModelDraft(value: unknown): WorkspaceModelDraft
   try { url = new URL(gateway_url); } catch { throw invalid(); }
   if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash || gateway_url.includes("?") || gateway_url.includes("#")) throw invalid();
   for (const key of ["sequential_calls", "supports_pdf_input", "supports_structured_output"]) if (typeof input[key] !== "boolean") throw invalid();
-  let assistant_model: WorkspaceAssistantModel | null = null;
-  const rawAssistant = input.assistant_model;
-  if (rawAssistant !== undefined && rawAssistant !== null) {
-    if (typeof rawAssistant !== "object" || Array.isArray(rawAssistant)) throw invalid();
-    const assistant = rawAssistant as Record<string, unknown>;
-    const assistantKeys = ["model_name", "supports_pdf_input", "supports_structured_output"];
-    if (Object.keys(assistant).some((key) => !assistantKeys.includes(key))) throw invalid();
-    if (typeof assistant.supports_pdf_input !== "boolean" || typeof assistant.supports_structured_output !== "boolean") throw invalid();
-    assistant_model = { model_name: bounded("model_name", 256, assistant), supports_pdf_input: assistant.supports_pdf_input, supports_structured_output: assistant.supports_structured_output };
-  }
+  const taskModel = (raw: unknown): WorkspaceAssistantModel | null => {
+    if (raw === undefined || raw === null) return null;
+    if (typeof raw !== "object" || Array.isArray(raw)) throw invalid();
+    const model = raw as Record<string, unknown>;
+    const keys = ["model_name", "supports_pdf_input", "supports_structured_output"];
+    if (Object.keys(model).some((key) => !keys.includes(key))) throw invalid();
+    if (typeof model.supports_pdf_input !== "boolean" || typeof model.supports_structured_output !== "boolean") throw invalid();
+    return { model_name: bounded("model_name", 256, model), supports_pdf_input: model.supports_pdf_input, supports_structured_output: model.supports_structured_output };
+  };
   return {
     gateway_url,
     model_name: bounded("model_name", 256),
@@ -63,19 +64,36 @@ export function validateWorkspaceModelDraft(value: unknown): WorkspaceModelDraft
     sequential_calls: input.sequential_calls as boolean,
     supports_pdf_input: input.supports_pdf_input as boolean,
     supports_structured_output: input.supports_structured_output as boolean,
-    assistant_model,
+    assistant_model: taskModel(input.assistant_model),
+    classification_model: taskModel(input.classification_model),
   };
 }
 
 /** The model Template authoring (assistant, suggestions, Auto generate) should call. */
-export function assistantModelOf(configuration: Omit<WorkspaceModelDraft, "credential">): Omit<WorkspaceModelDraft, "credential" | "assistant_model"> {
-  const { assistant_model, ...extraction } = configuration;
+export function assistantModelOf(configuration: Omit<WorkspaceModelDraft, "credential">): Omit<WorkspaceModelDraft, "credential" | "assistant_model" | "classification_model"> {
+  const { assistant_model, classification_model: _classification, ...extraction } = configuration;
   return assistant_model ? { ...extraction, ...assistant_model } : extraction;
 }
 
+/** The shared model for document classification, splitting and targeted reassessment. */
+export function classificationModelOf(configuration: Omit<WorkspaceModelDraft, "credential">): Omit<WorkspaceModelDraft, "credential" | "assistant_model" | "classification_model"> {
+  const { classification_model, assistant_model: _assistant, ...extraction } = configuration;
+  return classification_model ? { ...extraction, ...classification_model } : extraction;
+}
+
+type ModelEnvironmentInput = { credential: string; workspaceId: string; requestTimeoutMs: string };
+
 /** Gateway environment for a Template authoring call; extraction keeps its own job-scoped setup. */
-export function assistantModelEnvironment(configuration: Omit<WorkspaceModelDraft, "credential">, input: { credential: string; workspaceId: string; requestTimeoutMs: string }) {
-  const model = assistantModelOf(configuration);
+export function assistantModelEnvironment(configuration: Omit<WorkspaceModelDraft, "credential">, input: ModelEnvironmentInput) {
+  return taskModelEnvironment(assistantModelOf(configuration), input);
+}
+
+/** Uses the effective classification role without changing final field extraction. */
+export function classificationModelEnvironment(configuration: Omit<WorkspaceModelDraft, "credential">, input: ModelEnvironmentInput) {
+  return taskModelEnvironment(classificationModelOf(configuration), input);
+}
+
+function taskModelEnvironment(model: Omit<WorkspaceModelDraft, "credential">, input: ModelEnvironmentInput) {
   return {
     AI_MODEL: model.model_name,
     MODEL_GATEWAY_URL: model.gateway_url,
@@ -186,6 +204,7 @@ export function publicModelConfiguration(record: StoredWorkspaceModelConfigurati
     supports_pdf_input: record.supports_pdf_input,
     supports_structured_output: record.supports_structured_output,
     assistant_model: record.assistant_model ?? null,
+    classification_model: record.classification_model ?? null,
     revision: record.revision,
     created_at: record.created_at,
     updated_at: record.updated_at,

@@ -164,7 +164,7 @@ test("existing product databases migrate idempotently, and failed saves roll bac
 });
 
 for (const streamed of [true, false]) {
-  test(`extraction ${streamed ? "streamed" : "FormData"} accepts and discards valid request tags, validates malformed/duplicate parts`, async () => {
+  test(`extraction ${streamed ? "streamed" : "FormData"} accepts valid request tags without overriding explicit binding, validates malformed/duplicate parts`, async () => {
     const f = await fixture(streamed);
     const templateId = await f.create(["existing"]);
     const submit = (values: Array<string | File>, includeTemplate = true) => {
@@ -181,7 +181,7 @@ for (const streamed of [true, false]) {
       const queued = await response.json() as { job_id: string };
       const job = await (await f.request(`/jobs/${queued.job_id}`)).json() as Record<string, unknown>;
       expect(job).toMatchObject({ template_id: templateId, template_version: 1 });
-      expect(job).not.toHaveProperty("template_tags");
+      if (job.template_tags) expect(job).toMatchObject({ selection_mode: "explicit", routing_status: "resolved" });
     }
     expect((await f.tags()).map(({ name }) => name)).toEqual(["existing"]);
     for (const value of ["", "not JSON", "null", '"tag"', '[" "]', "[1]", '["a\\nb"]', JSON.stringify(Array(51).fill("a"))]) {
@@ -191,7 +191,7 @@ for (const streamed of [true, false]) {
     }
     expect((await submit(["[]", "[]"])).status).toBe(400);
     expect((await submit([new File(["[]"], "tags.json", { type: "application/json" })])).status).toBe(400);
-    expect((await submit(['["existing"]'], false)).status).toBe(400);
+    expect((await submit(['["existing"]'], false)).status).toBe(202);
     if (streamed) expect(readdirSync(join(f.stateDirectory, "temporary", "submissions"))).toEqual([]);
     expect(JSON.stringify(f.analytics)).not.toContain("unknown future tag");
   });

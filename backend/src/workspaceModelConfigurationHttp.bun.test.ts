@@ -200,3 +200,27 @@ test("connection test classifies gateway failures without exposing upstream mess
   expect((await testWorkspaceModelConnection(draft, draft.credential)).status).toBe(503);
   expect(spy).toHaveBeenCalledTimes(10);
 });
+
+test("connection test checks classification role and deduplicates models shared between task roles", async () => {
+  const models: string[] = [];
+  let failClassification = false;
+  const spy = spyOn(globalThis, "fetch").mockImplementation((async (_url: string, init: RequestInit) => {
+    const { model } = JSON.parse(init.body as string);
+    models.push(model);
+    return failClassification && model === "classification/model" ? new Response("private-upstream", { status: 404 }) : Response.json({ choices: [{ message: { content: "OK" } }] });
+  }) as unknown as typeof fetch);
+  cleanups.push(() => spy.mockRestore());
+  const configuration = { ...draft,
+    assistant_model: { model_name: "assistant/model", supports_pdf_input: false, supports_structured_output: true },
+    classification_model: { model_name: "classification/model", supports_pdf_input: true, supports_structured_output: false },
+  };
+  expect((await testWorkspaceModelConnection(configuration, draft.credential)).status).toBe(200);
+  expect(models).toEqual([draft.model_name, "assistant/model", "classification/model"]);
+  failClassification = true;
+  const failed = await testWorkspaceModelConnection(configuration, draft.credential);
+  expect(failed.status).toBe(422);
+  expect((await failed.json()).error).toMatchObject({ model_role: "classification", gateway_status: 404 });
+  models.length = 0;
+  await testWorkspaceModelConnection({ ...configuration, classification_model: configuration.assistant_model }, draft.credential);
+  expect(models).toEqual([draft.model_name, "assistant/model"]);
+});

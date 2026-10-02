@@ -79,7 +79,7 @@ describe("Workspace Model gateway", () => {
     const coreRequest = apiFixture();
     const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
     await waitFor(() => expect(result.current.record).toEqual({ configured: false }));
-    expect(result.current.draft).toEqual({ ...draft, gateway_url: "", model_name: "", credential: "", assistant_mode: "same", assistant_model_name: "", assistant_supports_pdf_input: false, assistant_supports_structured_output: false });
+    expect(result.current.draft).toEqual({ ...draft, gateway_url: "", model_name: "", credential: "", assistant_mode: "same", assistant_model_name: "", assistant_supports_pdf_input: false, assistant_supports_structured_output: false, classification_mode: "same", classification_model_name: "", classification_supports_pdf_input: false, classification_supports_structured_output: false });
     expect(result.current.ready).toBe(false);
     fill(result);
     await act(() => result.current.save());
@@ -237,7 +237,7 @@ describe("Workspace Model gateway", () => {
     await screen.findByText("Model gateway saved.");
     expect(screen.queryByLabelText("Gateway API key")).toBeNull();
     expect(screen.getByText(draft.model_name)).toBeTruthy();
-    expect(screen.getByText("Same as extraction")).toBeTruthy();
+    expect(screen.getAllByText("Same as extraction")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByLabelText("Gateway API key").value).toBe("");
     fireEvent.change(screen.getByLabelText("Extraction model"), { target: { value: "discarded/model" } });
@@ -277,7 +277,7 @@ describe("Workspace Model gateway", () => {
     await screen.findByText("Model gateway saved.");
     expect(JSON.parse(coreRequest.mock.calls.at(-1)[1].body).assistant_model).toEqual({ model_name: "assistant/model", supports_pdf_input: true, supports_structured_output: true });
     expect(screen.getByText("assistant/model")).toBeTruthy();
-    expect(screen.queryByText("Same as extraction")).toBeNull();
+    expect(screen.getAllByText("Same as extraction")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByLabelText("Template assistant model").value).toBe("assistant/model");
     fireEvent.change(screen.getByLabelText("Template assistant model source"), { target: { value: "same" } });
@@ -319,5 +319,49 @@ describe("Workspace Model gateway", () => {
     expect(screen.queryByText(/Credential unavailable/)).toBeNull();
     await act(() => result.current.save());
     expect(coreRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Document classification & splitting model role", () => {
+  it("can save a distinct model with its own capabilities and restore inheritance", async () => {
+    const coreRequest = apiFixture(configured);
+    function Harness() {
+      const controller = useWorkspaceModelConfiguration({ ...props, coreRequest });
+      return <WorkspaceModelConfiguration controller={controller} />;
+    }
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const source = screen.getByLabelText("Document classification & splitting model source");
+    const pdf = screen.getByLabelText("Document classification & splitting: Direct PDF input");
+    expect(source.value).toBe("same");
+    expect(pdf.disabled).toBe(true);
+    fireEvent.change(source, { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("Document classification & splitting model"), { target: { value: "classify/model" } });
+    fireEvent.click(pdf);
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(screen.getByText("classify/model")).toBeTruthy());
+    expect(JSON.parse(coreRequest.mock.calls.at(-1)[1].body)).toMatchObject({
+      model_name: "test/model", assistant_model: null,
+      classification_model: { model_name: "classify/model", supports_pdf_input: true, supports_structured_output: false },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Document classification & splitting model source"), { target: { value: "same" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(JSON.parse(coreRequest.mock.calls.at(-1)[1].body).classification_model).toBeNull());
+  });
+
+  it("rejects missing custom names and names classification connection failures", async () => {
+    const coreRequest = apiFixture(configured);
+    const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    fill(result, { classification_mode: "custom", classification_model_name: " " });
+    await act(() => result.current.save());
+    expect(result.current.error).toContain("model names");
+    expect(coreRequest).toHaveBeenCalledTimes(1);
+    fill(result, { classification_model_name: "classify/model" });
+    coreRequest.mockRejectedValueOnce(Object.assign(new Error("test failed"), { status: 422, details: { model_role: "classification" } }));
+    await act(() => result.current.testConnection());
+    expect(result.current.testResult.message).toContain("Document classification & splitting model");
   });
 });

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { documentScopeKey } from "./documentReconciliation";
+import { usePacketController } from "./usePacketController.js";
+import { parsePageSelection } from "./documentProcessing.js";
 import { useDocumentReconciliation } from "./useDocumentReconciliation";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
@@ -11,7 +13,7 @@ const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_DELAY_MS = 150;
 const WORKSPACE_CONTEXT_INVALIDATION_REFRESH_MIN_INTERVAL_MS = 3000;
 
 export function useDocumentController({
-  apiBase = "/v1", initialWorkspace, templates, selectedUploadTemplateId,
+  apiBase = "/v1", initialWorkspace, templates, workspaceTags = [], processingPolicy, onProcessingPolicyRefresh, onTagsRefresh, selectedUploadTemplateId,
   onSelectedUploadTemplateChange, documentRequests, showActionToast,
   showDocumentUploadToast, hasApiAccess, hasWorkspaceApiAccess, isAppBusy,
   isWorkspaceDeletionInProgress = false, sessionId, workspaceId,
@@ -21,6 +23,12 @@ export function useDocumentController({
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
   const [uploadFiles, setUploadFiles] = useState([]);
+  const [uploadTags, setUploadTags] = useState([]);
+  const [isResolvingTemplate, setIsResolvingTemplate] = useState(false);
+  const [templateResolutionError, setTemplateResolutionError] = useState("");
+  const actionScopeRef = useRef(null);
+  const actionScope = useMemo(() => ({ sessionId, workspaceId, hasApiAccess }), [sessionId, workspaceId, hasApiAccess]);
+  actionScopeRef.current = actionScope;
   const [isUploadDragActive, setIsUploadDragActive] = useState(false);
   const [liveUpdatesUnavailable, setLiveUpdatesUnavailable] = useState(false);
   const [isDownloadingOriginal, setIsDownloadingOriginal] = useState(false);
@@ -118,8 +126,16 @@ export function useDocumentController({
     loadingDocumentId: loadingDocumentDetailsId,
     uploading: isUploadingDocuments, deleting: isDeletingDocument, exporting: isExportingDocuments,
   } = snapshot;
+  const packetController = usePacketController({
+    requests: documentRequests, sessionId, workspaceId: normalizedWorkspaceId, enabled: hasApiAccess,
+    onAccessDenied: revalidateWorkspaceAccessNow, onJobsChanged: () => reconciliation.refresh(),
+  });
+  const packetControllerRef = useRef(packetController);
+  packetControllerRef.current = packetController;
   const clearWorkspaceScopedDocuments = useCallback((options) => {
     reconciliation.clear(options);
+    packetControllerRef.current.clear();
+    actionScopeRef.current = null;
     clearWorkspaceCapacityRefreshTimer();
     lastWorkspaceCapacityRefreshAtRef.current = 0;
   }, [reconciliation, clearWorkspaceCapacityRefreshTimer]);
@@ -131,6 +147,9 @@ export function useDocumentController({
   useEffect(() => {
     setShowUploadModal(false);
     setUploadFiles([]);
+    setUploadTags([]);
+    setIsResolvingTemplate(false);
+    setTemplateResolutionError("");
     setIsUploadDragActive(false);
     if (hasApiAccess) {
       void reconciliation.refresh();
@@ -141,10 +160,11 @@ export function useDocumentController({
     if (hasApiAccess && selectedDocumentId) void reconciliation.ensureSelectedDetails();
   }, [reconciliation, hasApiAccess, selectedDocumentId, selectedDocument?.status, selectedDocument?.updated_at, selectedDocument?.current_attempt, loadingDocumentDetailsId]);
   useEffect(() => () => clearWorkspaceCapacityRefreshTimer(), [clearWorkspaceCapacityRefreshTimer]);
+  useEffect(() => setTemplateResolutionError(""), [selectedDocumentId]);
 
   const selectedDocumentTemplateName = useMemo(() => {
     if (!selectedDocument?.template_id) {
-      return "Unknown template";
+      return selectedDocument?.selection_mode === "automatic" ? "Automatic template selection" : "Unknown template";
     }
 
     const templateId = String(selectedDocument.template_id || "").trim();
@@ -159,6 +179,9 @@ export function useDocumentController({
     if (!modelReady || isAppBusy) {
       return;
     }
+    void onProcessingPolicyRefresh?.();
+    void onTagsRefresh?.();
+    setUploadTags([]);
     setUploadTemplateId(selectedUploadTemplateId || templates[0]?.id || "");
     setUploadFiles([]);
     setIsUploadDragActive(false);
@@ -211,7 +234,7 @@ export function useDocumentController({
 
   async function uploadFromModal() {
     if (!modelReady || isUploadingDocuments) return;
-    if (!uploadTemplateId.trim()) {
+    if (!uploadTemplateId.trim() || (uploadTemplateId === "automatic" && !uploadTags.length)) {
       showActionToast("document.upload", "validation", { reason: "template" });
       return;
     }
@@ -219,15 +242,56 @@ export function useDocumentController({
       showActionToast("document.upload", "validation", { reason: "files" });
       return;
     }
+    const entries = uploadFiles.map((entry) => {
+      try { return { ...entry, pages: entry.file.type === "application/pdf" ? parsePageSelection(entry.pageSelection) : null }; }
+      catch (error) { return { ...entry, queueError: error.message, invalidPages: true }; }
+    });
+    if (entries.some((entry) => entry.invalidPages)) { setUploadFiles(entries); return; }
     onSelectedUploadTemplateChange(uploadTemplateId.trim());
     await reconciliation.submitBatch({
-      templateId: uploadTemplateId.trim(), entries: uploadFiles,
+      templateId: uploadTemplateId === "automatic" ? "" : uploadTemplateId.trim(),
+      templateTags: uploadTemplateId === "automatic" ? uploadTags : undefined, entries,
+      onPacket: packetController.admitted,
       onProgress: (id, queueStatus, queueError) => setUploadFiles((rows) => rows.map((row) => row.id === id ? { ...row, queueStatus, queueError } : row)),
       onComplete: (outcome) => {
         showDocumentUploadToast(outcome);
         onActivePageChange("documents");
       },
     });
+  }
+
+  async function resolveTemplate(documentId, templateId) {
+    if (isResolvingTemplate) return;
+    const scope = actionScopeRef.current;
+    setIsResolvingTemplate(true);
+    setTemplateResolutionError("");
+    try {
+      const result = await documentRequests.resolveTemplate(documentId, templateId);
+      if (scope !== actionScopeRef.current) return;
+      reconciliation.receiveLiveUpdates([result], documentScopeKey(sessionId, normalizedWorkspaceId, hasApiAccess));
+      await reconciliation.loadDetails(documentId);
+      void reconciliation.refresh();
+    } catch (error) {
+      if (scope !== actionScopeRef.current) return;
+      setTemplateResolutionError(error.message || "Template selection could not be saved.");
+      if (error.status === 403) revalidateWorkspaceAccessNow();
+      if (error.status === 409) await reconciliation.loadDetails(documentId);
+    } finally { if (scope === actionScopeRef.current) setIsResolvingTemplate(false); }
+  }
+
+  async function selectPacketChild(id) {
+    const scope = actionScopeRef.current;
+    const job = await reconciliation.loadDetails(id);
+    if (!job || scope !== actionScopeRef.current) return;
+    packetController.select("");
+    reconciliation.selectDocument(id, { clearFilters: true });
+  }
+
+  function deleteSelectedPacket() {
+    const id = packetController.selectedId;
+    if (!id || packetController.busy) return;
+    if (!window.confirm(`Delete packet ${id} and all its child documents? This permanently removes their results and available originals.`)) return;
+    void packetController.remove(id);
   }
 
   async function deleteSelectedDocument() {
@@ -435,7 +499,14 @@ export function useDocumentController({
     contextList: {
       search: snapshot.search,
       documents,
-      selectedDocumentId: selectedDocument?.job_id || "",
+      selectedDocumentId: packetController.selectedId ? "" : selectedDocument?.job_id || "",
+      packets: packetController.packets,
+      selectedPacketId: packetController.selectedId,
+      packetError: packetController.error,
+      onSelectPacket: packetController.select,
+      hasMorePackets: packetController.hasMore,
+      loadingPackets: packetController.loading,
+      onLoadMorePackets: () => packetController.refresh({ append: true }),
       selectedDocumentIds,
       debouncedSearch: snapshot.debouncedSearch,
       filters: snapshot.filters,
@@ -447,7 +518,7 @@ export function useDocumentController({
       isExportingDocuments,
       onSearchChange: reconciliation.setSearch,
       onFiltersChange: reconciliation.setFilters,
-      onSelectDocument: reconciliation.selectDocument,
+      onSelectDocument: (id) => { packetController.select(""); reconciliation.selectDocument(id); },
       onToggleAllDocumentSelections: reconciliation.toggleSelection,
       onToggleDocumentSelection: (id, selected) => reconciliation.toggleSelection([id], selected),
       onLoadMoreDocuments: () => reconciliation.refresh({ append: true }),
@@ -457,6 +528,11 @@ export function useDocumentController({
       isOpen: showUploadModal,
       templates,
       selectedTemplateId: uploadTemplateId,
+      selectedTags: uploadTags,
+      availableTags: [...new Set([...workspaceTags.map((tag) => typeof tag === "string" ? tag : tag.name), ...templates.flatMap((template) => template.tags || [])])].sort(),
+      processingPolicy,
+      onSelectTags: setUploadTags,
+      onPageSelectionChange: (id, pageSelection) => setUploadFiles((rows) => rows.map((row) => row.id === id ? { ...row, pageSelection } : row)),
       sourceFiles: uploadFiles,
       isDragActive: isUploadDragActive,
       isUploadingDocuments,
@@ -474,18 +550,26 @@ export function useDocumentController({
       documentCount: totalDocuments,
       isDeletingDocument,
       isExportingDocuments,
-      selectedDocumentId: selectedDocument?.job_id || "",
-      selectedDocumentCount: selectedDocumentIds.length,
-      exportableDocumentCount: exportableSelectedDocumentIds.length,
+      selectedDocumentId: packetController.selectedId ? "" : selectedDocument?.job_id || "",
+      selectedDocumentCount: packetController.selectedId ? 0 : selectedDocumentIds.length,
+      exportableDocumentCount: packetController.selectedId ? 0 : exportableSelectedDocumentIds.length,
       onExportDocuments: exportSelectedDocuments,
       onUploadDocument: openUploadModal,
       onDeleteDocument: deleteSelectedDocument,
-      canDownloadOriginal: selectedDocument?.source_retained === true,
+      canDownloadOriginal: !packetController.selectedId && selectedDocument?.source_retained === true,
       isDownloadingOriginal,
       onDownloadOriginal: downloadSelectedOriginal,
     },
     documentPage: {
       selectedDocument,
+      selectedPacketId: packetController.selectedId,
+      templates, onResolveTemplate: resolveTemplate, isResolvingTemplate, templateResolutionError,
+      onSelectPacket: packetController.select,
+      packetPage: {
+        packet: packetController.selectedPacket, busy: packetController.busy, error: packetController.error,
+        onConfirmPlan: packetController.confirmPlan, onDelete: deleteSelectedPacket, onSelectDocument: selectPacketChild,
+        loadPagePreview: packetController.loadPagePreview, loadOriginal: packetController.loadOriginal,
+      },
       selectedDocumentTemplateName,
       loadingDocumentDetailsId,
       loadOriginal,

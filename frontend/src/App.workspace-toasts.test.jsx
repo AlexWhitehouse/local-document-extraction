@@ -959,7 +959,7 @@ describe("Workspace action toast feedback", () => {
 
     await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
 
-    expect(screen.getByText("Select a template and source files, then queue Document extraction.")).toBeTruthy();
+    expect(screen.getByText("Choose a template or tags for automatic selection, then add your source files.")).toBeTruthy();
     expect(screen.getByText("Source files")).toBeTruthy();
     expect(screen.getByText("Drag and drop source files here")).toBeTruthy();
     expect(screen.getByText("No Source files selected")).toBeTruthy();

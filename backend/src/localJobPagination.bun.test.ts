@@ -39,7 +39,7 @@ test("the Document adapter traverses stable, opaque, search-bound job pages with
     const adapter = createDocumentRequestAdapter({ request: createApiKeyRequest(application, apiKey) });
 
     const firstPage = await adapter.listDocuments();
-    const statusCounts = { queued: 2, processing: 1, completed: 1, failed: 1 };
+    const statusCounts = { awaiting_template: 0, queued: 2, processing: 1, completed: 1, failed: 1 };
     expect(firstPage.status_counts).toEqual(statusCounts);
     expect(firstPage).toMatchObject({
       jobs: [expect.objectContaining({ job_id: "job_5" }), expect.objectContaining({ job_id: "job_4" })],
@@ -169,10 +169,10 @@ test("status count migration backfills existing jobs and remains correct after r
     for (let pass = 0; pass < 2; pass++) {
       const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
       try {
-        expect(store.getExtractionJobCounts()).toEqual({ total: 5, status_counts: { queued: 2, processing: 1, completed: 1, failed: 1 } });
+        expect(store.getExtractionJobCounts()).toEqual({ total: 5, status_counts: { awaiting_template: 0, queued: 2, processing: 1, completed: 1, failed: 1 } });
         if (pass === 1) {
           expect(store.requeueExtractionJob({ jobId: "job_3", attempt: 1, requeuedAt: "2026-07-10T12:03:00.000Z", nextRetryAt: "2026-07-10T12:04:00.000Z", errorCode: "timeout", errorMessage: "test" })).toBe(true);
-          expect(store.getExtractionJobCounts()).toEqual({ total: 5, status_counts: { queued: 3, processing: 0, completed: 1, failed: 1 } });
+          expect(store.getExtractionJobCounts()).toEqual({ total: 5, status_counts: { awaiting_template: 0, queued: 3, processing: 0, completed: 1, failed: 1 } });
         }
       } finally { store.close(); }
     }

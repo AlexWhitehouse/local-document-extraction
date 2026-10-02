@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
+import { WorkspaceDocumentProcessingSettings } from "./WorkspaceDocumentProcessingSettings.jsx";
 import { ModalHeader } from "../layout/ModalDialog.jsx";
 import { CopyIcon, EditIcon } from "../layout/Icons.jsx";
 
@@ -142,6 +143,7 @@ function WorkspaceSourceRetention({ controller }) {
 }
 
 export function AcceptedWorkspacePage({
+  processingSettings,
   sourceRetention,
   modelConfiguration,
   modelConfigurationKey,
@@ -267,6 +269,7 @@ export function AcceptedWorkspacePage({
               </button>
             </div>
           </section>
+          {processingSettings ? <WorkspaceDocumentProcessingSettings controller={processingSettings} /> : null}
           {sourceRetention ? <WorkspaceSourceRetention controller={sourceRetention} /> : null}
         </section>
         {modelConfiguration ? (

@@ -22,15 +22,15 @@ export type SourceObjectStore = {
 const OBJECT_EXTENSIONS: Record<string, string> = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
 /** Each upload attempt gets its own key, so a late-completing attempt never overwrites another. */
-export function retainedObjectKey({ prefix, namespace, workspaceId, jobId, mimeType }: {
-  prefix: string; namespace: string; workspaceId: string; jobId: string; mimeType: string;
+export function retainedObjectKey({ prefix, namespace, workspaceId, jobId, mimeType, ownerKind = "job" }: {
+  prefix: string; namespace: string; workspaceId: string; jobId: string; mimeType: string; ownerKind?: "job" | "packet";
 }): string {
   for (const value of [namespace, workspaceId, jobId]) {
     if (!/^[a-zA-Z0-9_-]+$/.test(value)) throw new Error("Retained object keys accept only opaque identifiers");
   }
   const extension = OBJECT_EXTENSIONS[mimeType];
   if (!extension) throw new Error("Unsupported Source file MIME type");
-  return `${prefix}${namespace}/workspaces/${workspaceId}/jobs/${jobId}/${crypto.randomUUID()}.${extension}`;
+  return `${prefix}${namespace}/workspaces/${workspaceId}/${ownerKind === "packet" ? "packets" : "jobs"}/${jobId}/${crypto.randomUUID()}.${extension}`;
 }
 
 /** Saved Evaluation document originals use their own namespace beside job originals. */

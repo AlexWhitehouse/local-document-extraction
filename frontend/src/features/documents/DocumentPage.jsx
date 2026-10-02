@@ -5,17 +5,27 @@ import {
 } from "./ExtractionResultDisplay.jsx";
 import { SourceFilePreview } from "./SourceFilePreview.jsx";
 import "./DocumentViewing.css";
+import { PacketPage } from "./PacketPage.jsx";
+import { formatPages } from "./documentProcessing.js";
 
 const NARROW_SPLIT_WIDTH = 600;
 
 export function DocumentPage({
   selectedDocument,
+  selectedPacketId,
+  packetPage,
+  templates = [],
+  onResolveTemplate,
+  onSelectPacket,
+  isResolvingTemplate,
+  templateResolutionError,
   loadingDocumentDetailsId,
   viewingLayout = "results",
   onViewingLayoutChange,
   loadOriginal,
   sourceStorageConfigured = false,
 }) {
+  if (selectedPacketId) return <PacketPage {...packetPage} />;
   if (!selectedDocument)
     return (
       <p className="studio-empty-state">
@@ -43,7 +53,7 @@ export function DocumentPage({
         minute: "2-digit",
       });
   // A Document without a retained original shows results only; the Account preference is kept.
-  const canViewOriginal = selectedDocument.source_retained === true && Boolean(loadOriginal);
+  const canViewOriginal = (selectedDocument.source_retained === true || status === "awaiting_template") && Boolean(loadOriginal);
   const layout = canViewOriginal ? viewingLayout : "results";
   const resultDisplay = (
     <>
@@ -88,6 +98,11 @@ export function DocumentPage({
           <span className="document-original-note">Original not retained</span>
         ) : null}
       </div>
+      <RoutingSummary job={selectedDocument} templates={templates} onResolve={onResolveTemplate} busy={isResolvingTemplate} error={templateResolutionError} />
+      {selectedDocument.parent_packet_id ? <p className="document-lineage">
+        <button type="button" className="ghost" onClick={() => onSelectPacket?.(selectedDocument.parent_packet_id)}>View parent packet</button>
+        {" · Original pages: "}{formatPages(selectedDocument.source_pages)}
+      </p> : selectedDocument.source_pages ? <p className="document-lineage">Original pages: {formatPages(selectedDocument.source_pages)}</p> : null}
       {layout === "side-by-side" ? (
         <SideBySide key={selectedDocument.job_id} document={selectedDocument} loadOriginal={loadOriginal}>
           {resultDisplay}
@@ -212,4 +227,29 @@ function SideBySide({ document, loadOriginal, children }) {
       {showResults ? <div className="document-split-results">{children}</div> : null}
     </div>
   );
+}
+
+function RoutingSummary({ job, templates, onResolve, busy, error }) {
+  const [templateId, setTemplateId] = useState("");
+  useEffect(() => setTemplateId(""), [job.job_id]);
+  const held = job.status === "awaiting_template" || job.routing_status === "awaiting_template";
+  if (!held && !job.selection_mode && !job.selection_reason) return null;
+  const selected = templates.find((template) => template.id === job.template_id);
+  return <section className="routing-summary" aria-label="Template selection">
+    {held ? <>
+      <h3>Choose a template to continue</h3>
+      <p>{job.selection_reason || "Automatic selection could not identify a suitable template. Select a template to continue with the uploaded document."}</p>
+      {job.template_tags?.length ? <p>Requested tags: {job.template_tags.join(", ")}</p> : null}
+      <form onSubmit={(event) => { event.preventDefault(); if (templateId) void onResolve?.(job.job_id, templateId); }}>
+        <label>Template for this document<select value={templateId} disabled={busy} onChange={(event) => setTemplateId(event.target.value)}>
+          <option value="">Select template</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+        </select></label>
+        <button type="submit" disabled={busy || !templateId}>{busy ? "Continuing…" : "Use template and continue"}</button>
+      </form>
+      {error ? <p role="alert" className="processing-error">{error}</p> : null}
+    </> : <>
+      <strong>{job.selection_mode === "automatic" ? "Automatically selected" : job.selection_mode === "manual" ? "Manually selected" : "Selected template"}: {selected?.name || job.template_id || "Assessing document"}{job.template_version ? ` · version ${job.template_version}` : ""}</strong>
+      {job.selection_reason ? <p>{job.selection_reason}</p> : null}
+    </>}
+  </section>;
 }

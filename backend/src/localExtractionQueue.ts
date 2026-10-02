@@ -1,8 +1,9 @@
 export type LocalQueuedExtractionJob = {
   job_id: string;
   workspace_id: string;
-  template_id: string;
-  template_version: number;
+  template_id: string | null;
+  template_version: number | null;
+  kind?: "packet";
   enqueued_at: string;
   attempt?: number;
   not_before?: string;

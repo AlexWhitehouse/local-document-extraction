@@ -82,10 +82,11 @@ export async function handleWorkspaceModelConfiguration(input: {
   }
 }
 
-/** Tests the extraction model and, when it differs, the Template assistant model. Reports the first failing model's role. */
+/** Tests each distinct configured model. Reports the first failing model’s role. */
 export async function testWorkspaceModelConnection(draft: WorkspaceModelDraft, credential: string, signal?: AbortSignal): Promise<Response> {
-  const models: Array<[role: "extraction" | "assistant", model: string]> = [["extraction", draft.model_name]];
+  const models: Array<[role: "extraction" | "assistant" | "classification", model: string]> = [["extraction", draft.model_name]];
   if (draft.assistant_model && draft.assistant_model.model_name !== draft.model_name) models.push(["assistant", draft.assistant_model.model_name]);
+  if (draft.classification_model && !models.some(([, model]) => model === draft.classification_model!.model_name)) models.push(["classification", draft.classification_model.model_name]);
   for (const [role, model] of models) {
     const failure = await testModel(draft.gateway_url, model, role, credential, signal);
     if (failure) return failure;

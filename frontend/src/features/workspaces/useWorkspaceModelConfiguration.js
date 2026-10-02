@@ -2,20 +2,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const emptyDraft = () => ({
   gateway_url: "", model_name: "", credential: "", sequential_calls: false, supports_pdf_input: false, supports_structured_output: false,
-  // The Template assistant inherits the extraction model unless the draft names its own.
+  // Task roles inherit the extraction model unless the draft names their own.
   assistant_mode: "same", assistant_model_name: "", assistant_supports_pdf_input: false, assistant_supports_structured_output: false,
+  classification_mode: "same", classification_model_name: "", classification_supports_pdf_input: false, classification_supports_structured_output: false,
 });
 const invalidDraftMessage = "Enter a valid HTTP(S) gateway URL, model names, and a new credential when required.";
 const draftFrom = (record) => {
   if (!record?.configured) return emptyDraft();
-  const assistant = record.assistant_model;
+  const roleDraft = (role) => {
+    const model = record[`${role}_model`];
+    return {
+      [`${role}_mode`]: model ? "custom" : "same",
+      [`${role}_model_name`]: model?.model_name || "",
+      [`${role}_supports_pdf_input`]: Boolean((model ?? record).supports_pdf_input),
+      [`${role}_supports_structured_output`]: Boolean((model ?? record).supports_structured_output),
+    };
+  };
   return {
     ...emptyDraft(),
     gateway_url: record.gateway_url || "", model_name: record.model_name || "", sequential_calls: Boolean(record.sequential_calls),
     supports_pdf_input: Boolean(record.supports_pdf_input), supports_structured_output: Boolean(record.supports_structured_output),
-    ...(assistant
-      ? { assistant_mode: "custom", assistant_model_name: assistant.model_name || "", assistant_supports_pdf_input: Boolean(assistant.supports_pdf_input), assistant_supports_structured_output: Boolean(assistant.supports_structured_output) }
-      : { assistant_supports_pdf_input: Boolean(record.supports_pdf_input), assistant_supports_structured_output: Boolean(record.supports_structured_output) }),
+    ...roleDraft("assistant"),
+    ...roleDraft("classification"),
   };
 };
 const initialState = (scope) => ({ scope, record: null, etag: null, draft: emptyDraft(), loading: false, saving: false, testing: false, dirty: false, conflict: false, error: "", feedback: "", testResult: null });
@@ -81,10 +89,12 @@ export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessi
     draftVersion.current += 1;
     setState((previous) => {
       const draft = { ...previous.draft, [field]: value };
-      // Switching to a different assistant model starts from the extraction model's capabilities.
-      if (field === "assistant_mode" && value === "custom" && previous.draft.assistant_mode !== "custom") {
-        draft.assistant_supports_pdf_input = previous.draft.supports_pdf_input;
-        draft.assistant_supports_structured_output = previous.draft.supports_structured_output;
+      // A newly selected task role starts with the extraction capabilities.
+      for (const role of ["assistant", "classification"]) {
+        if (field === `${role}_mode` && value === "custom" && previous.draft[field] !== "custom") {
+          draft[`${role}_supports_pdf_input`] = previous.draft.supports_pdf_input;
+          draft[`${role}_supports_structured_output`] = previous.draft.supports_structured_output;
+        }
       }
       return { ...previous, draft, dirty: true, testResult: null, testing: false, feedback: "", error: previous.conflict ? previous.error : "" };
     });
@@ -143,10 +153,10 @@ export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessi
         body: JSON.stringify(requestDraft(snapshot.draft)),
       });
       const tested = response?.data?.tested_models?.length ?? 1;
-      const passedMessage = tested > 1 ? "Connection test passed for both models in this draft. Capabilities are not tested." : "Connection test passed for this draft. Capabilities are not tested.";
+      const passedMessage = tested > 1 ? `Connection test passed for ${tested === 2 ? "both" : "all"} models in this draft. Capabilities are not tested.` : "Connection test passed for this draft. Capabilities are not tested.";
       if (activeScope.current === scope && draftVersion.current === version) setState((previous) => ({ ...previous, testing: false, testResult: { passed: true, message: passedMessage } }));
     } catch (error) {
-      const failedModel = error.details?.model_role === "assistant" ? "the Template assistant model" : "the gateway, model,";
+      const failedModel = error.details?.model_role === "assistant" ? "the Template assistant model" : error.details?.model_role === "classification" ? "the Document classification & splitting model" : "the gateway, model,";
       if (activeScope.current === scope && draftVersion.current === version) setState((previous) => ({ ...previous, testing: false, conflict: error.status === 412, testResult: { passed: false, message: error.status === 412 ? "Configuration changed. Reload before testing the saved credential." : `Connection test failed. Check ${failedModel} and credential. You can still save this draft.` } }));
     }
   }
@@ -160,18 +170,23 @@ export function useWorkspaceModelConfiguration({ coreRequest, workspaceId, sessi
 }
 
 function requestDraft(draft) {
-  const { credential, assistant_mode, assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, ...fields } = draft;
+  const taskModel = (role) => draft[`${role}_mode`] === "custom"
+    ? { model_name: draft[`${role}_model_name`].trim(), supports_pdf_input: draft[`${role}_supports_pdf_input`], supports_structured_output: draft[`${role}_supports_structured_output`] }
+    : null;
   return {
-    ...fields, gateway_url: fields.gateway_url.trim(), model_name: fields.model_name.trim(), ...(credential.trim() ? { credential: credential.trim() } : {}),
-    assistant_model: assistant_mode === "custom"
-      ? { model_name: assistant_model_name.trim(), supports_pdf_input: assistant_supports_pdf_input, supports_structured_output: assistant_supports_structured_output }
-      : null,
+    gateway_url: draft.gateway_url.trim(), model_name: draft.model_name.trim(),
+    sequential_calls: draft.sequential_calls, supports_pdf_input: draft.supports_pdf_input, supports_structured_output: draft.supports_structured_output,
+    ...(draft.credential.trim() ? { credential: draft.credential.trim() } : {}),
+    assistant_model: taskModel("assistant"), classification_model: taskModel("classification"),
   };
 }
 
 function validDraft(state) {
-  const { gateway_url, model_name, credential, assistant_mode, assistant_model_name } = state.draft;
-  if (assistant_mode === "custom" && (!assistant_model_name.trim() || assistant_model_name.trim().length > 256)) return false;
+  const { gateway_url, model_name, credential } = state.draft;
+  for (const role of ["assistant", "classification"]) {
+    const modelName = state.draft[`${role}_model_name`].trim();
+    if (state.draft[`${role}_mode`] === "custom" && (!modelName || modelName.length > 256)) return false;
+  }
   try {
     const url = new URL(gateway_url.trim());
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || gateway_url.includes("?") || gateway_url.includes("#") || gateway_url.trim().length > 2048) return false;

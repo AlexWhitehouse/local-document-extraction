@@ -7,6 +7,7 @@ const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
 
 export function DocumentContextList({
   search,
+  packets = [], selectedPacketId = "", packetError = "", onSelectPacket, onLoadMorePackets, hasMorePackets = false, loadingPackets = false,
   documents,
   selectedDocumentId,
   selectedDocumentIds = [],
@@ -114,6 +115,15 @@ export function DocumentContextList({
           </div>
         </div>
       </div>
+      <div className="document-context-groups">
+      {packets.length || packetError ? <section className="packet-context-list" aria-label="Document packets">
+        <h3>Packets</h3>
+        {packetError ? <p role="status" className="processing-error">{packetError}</p> : null}
+        {packets.map((packet) => <button type="button" key={packet.packet_id} className={`context-item${selectedPacketId === packet.packet_id ? " active" : ""}`} onClick={() => onSelectPacket?.(packet.packet_id)}>
+          <strong>{packet.source_name || packet.packet_id}</strong><span>{packet.outcome === "no_documents" ? "No documents to extract" : String(packet.status || "queued").replaceAll("_", " ")}</span>
+        </button>)}
+        {hasMorePackets ? <button type="button" className="context-item" disabled={loadingPackets} onClick={onLoadMorePackets}>Load more packets</button> : null}
+      </section> : null}
       <ScrollArea className="context-list" ref={listRef}
         role="region" aria-label="Document list" tabIndex={0}
         style={virtual ? { display: "block" } : undefined}
@@ -201,6 +211,7 @@ export function DocumentContextList({
           </button>
         ) : null}
       </ScrollArea>
+      </div>
     </>
   );
 }
@@ -212,6 +223,8 @@ function documentStatusTone(status) {
     case "queued":
     case "processing":
       return "progress";
+    case "awaiting_template":
+      return "failed";
     case "error":
     case "failed":
       return "failed";
