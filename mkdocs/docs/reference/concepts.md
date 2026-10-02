@@ -4,6 +4,8 @@
 
 **Template:** A reusable description of the fields to extract from a kind of document, each with a name, a description, and a data type.
 
+**Template tag:** A user-defined, lowercase label shared across a Workspace and reusable on multiple templates. Tags organize templates without changing their extraction fields or versions.
+
 **Document:** A PDF or image you upload for extraction.
 
 **Extraction job:** The record of one document being processed, including its status and, once completed, its results.

@@ -34,7 +34,7 @@ Authorization: Bearer <workspace_api_key>
 
 The key selects its Workspace, so API-key requests do not need `x-workspace-id`. Keep the key on your server or in your script's secret configuration. Rotating the key invalidates the previous key. The Workspace API key authenticates incoming requests; the model gateway credential is a separate secret used to call your model.
 
-API keys can read and modify templates, submit documents, generate template drafts, read results, delete jobs, and export results in their Workspace. They cannot manage accounts, Workspaces, members, invitations, model configuration, or live updates. Browser clients use a session cookie and `x-workspace-id` for product routes instead.
+API keys can read and modify templates and shared template tags, submit documents, generate template drafts, read results, delete jobs, and export results in their Workspace. They cannot manage accounts, Workspaces, members, invitations, model configuration, or live updates. Browser clients use a session cookie and `x-workspace-id` for product routes instead.
 
 Missing authentication returns `401 unauthorized`. A supplied but invalid API key returns `403 forbidden`. Resources in another Workspace are not accessible with your key.
 
@@ -51,6 +51,9 @@ All template and job endpoints require Workspace authentication. The two service
 | `GET` | `/v1/templates/{template_id}` | Read a template and its current fields | `200` |
 | `PATCH` | `/v1/templates/{template_id}` | Update metadata or replace fields | `200` |
 | `DELETE` | `/v1/templates/{template_id}` | Delete a template | `204` |
+| `GET` | `/v1/template-tags` | List shared tags and template counts | `200` |
+| `PATCH` | `/v1/template-tags/{tag_id}` | Rename a shared tag | `200` |
+| `DELETE` | `/v1/template-tags/{tag_id}` | Delete a shared tag and its associations | `204` |
 | `POST` | `/v1/templates/generate` | Generate an unsaved template from a sample | `200` |
 | `POST` | `/v1/templates/assist` | Explain a draft or propose focused change groups | `200` |
 | `POST` | `/v1/templates/assist/suggestions` | Suggest requests for the open draft | `200` |
@@ -145,7 +148,12 @@ A template defines the fields to extract. Submissions use its current version at
 | --- | --- | --- | --- |
 | `name` | string | Required | Non-empty after trimming. |
 | `description` | string or null | Optional | Trimmed description; `null` clears it on update. |
+| `tags` | array of strings | Optional | Tag names associated with the template; defaults to `[]` on create. Omit on update to preserve associations, or send `[]` to clear them. |
 | `fields` | array of field definitions | Required | Between 1 and 50 fields in extraction order. |
+
+Tag names are lowercased, trimmed, and have repeated whitespace collapsed. Names must remain nonempty after normalization, cannot contain control characters, and may use spaces and punctuation. Each name is limited to 64 characters after normalization, and each supplied array may contain at most 50 names. Duplicate normalized names are deduplicated. For example, `[" INVOICE ", "invoice", "Accounts  Payable"]` becomes `["accounts payable", "invoice"]` on reads. Invalid names or arrays return `400 invalid_tags`.
+
+Saving a template creates any unknown tag names in its Workspace and associates the supplied names with that template. Tags are shared Workspace metadata, separate from field versions. They do not change extraction behavior. See [Manage template tags](#manage-template-tags) for the shared vocabulary.
 
 Each field has:
 
@@ -203,13 +211,14 @@ Send the template request schema as JSON. Success returns `201`:
 
 `GET /v1/templates`
 
-Returns `200` with `{"templates": [...]}`. Each item is a template summary with `id`, `name`, `description`, `status`, `current_version`, `created_at`, and `updated_at`. Items are ordered by creation time descending. Deleted templates are excluded. There is no pagination and fields are not included; use the detail endpoint to read them.
+Returns `200` with `{"templates": [...]}`. Each item is a template summary with `id`, `name`, `description`, `tags`, `status`, `current_version`, `created_at`, and `updated_at`. Items are ordered by creation time descending. Deleted templates are excluded. There is no pagination and fields are not included; use the detail endpoint to read them.
 
 | Summary property | Type | Meaning |
 | --- | --- | --- |
 | `id` | string | Template identifier. |
 | `name` | string | Display name. |
 | `description` | string or null | Template description. |
+| `tags` | array of strings | Associated normalized tag names, sorted by name; `[]` when none. |
 | `status` | string | Stored lifecycle status: `active`, `archived`, or `deleted`; deleted templates are excluded from reads. This API creates active templates and has no archive operation. |
 | `current_version` | integer | Current field-definition version, starting at `1`. |
 | `created_at`, `updated_at` | string | UTC ISO 8601 timestamps. |
@@ -225,6 +234,7 @@ Returns `200` with the summary properties plus ordered `fields` for its current 
   "id": "tpl_example",
   "name": "Invoice",
   "description": "Invoice identifiers and totals",
+  "tags": ["finance", "invoice"],
   "status": "active",
   "current_version": 1,
   "created_at": "2026-09-27T12:00:00.000Z",
@@ -242,10 +252,10 @@ Returns `200` with the summary properties plus ordered `fields` for its current 
 
 `PATCH /v1/templates/{template_id}`
 
-Send at least one of `name`, `description`, or `fields`. Omitted properties keep their current values. A supplied `fields` array replaces the entire field set and increments the version, even if its contents are unchanged. Updating only name or description keeps the current version.
+Send at least one of `name`, `description`, `tags`, or `fields`. Omitted properties keep their current values. A supplied `tags` array replaces all associations; `[]` clears them without deleting shared tags. A supplied `fields` array replaces the entire field set and increments the version, even if its contents are unchanged. Updating only name, description, or tags keeps the current version.
 
 ```json
-{"description":"Invoices received from suppliers"}
+{"description":"Invoices received from suppliers","tags":["invoice","finance"]}
 ```
 
 Returns `200` with `{"template_id":"tpl_example","version":1,"status":"active"}`. An empty patch returns `400 empty_patch`; a missing or deleted template returns `404 not_found`. There is no version precondition for template updates.
@@ -254,7 +264,34 @@ Returns `200` with `{"template_id":"tpl_example","version":1,"status":"active"}`
 
 `DELETE /v1/templates/{template_id}`
 
-Returns `204` with no body. The template is removed from reads and lists and cannot be used for new submissions. Existing jobs and their versioned field definitions remain available. Missing or already deleted templates return `404 not_found`.
+Returns `204` with no body. The template is removed from reads and lists and cannot be used for new submissions. Its tag associations are removed, while shared tags remain available even if unused. Existing jobs and their versioned field definitions remain available. Missing or already deleted templates return `404 not_found`.
+
+### Manage template tags
+
+These endpoints use the same Workspace authentication and access as templates. Tag IDs identify shared vocabulary entries; template create/update and extraction requests use tag **names** instead.
+
+`GET /v1/template-tags` returns `200` with all shared tags in the Workspace, sorted by name, including unused tags:
+
+```json
+{
+  "tags": [
+    {"id":"tag_finance","name":"finance","template_count":2},
+    {"id":"tag_invoice","name":"invoice","template_count":0}
+  ]
+}
+```
+
+`template_count` is the number of non-deleted templates associated with the tag. Create shared tags by saving a template with their names in `tags`; there is no separate create endpoint. Removing an association or deleting a template leaves the shared tag available.
+
+`PATCH /v1/template-tags/{tag_id}` renames a tag throughout the Workspace. Send JSON containing `name`:
+
+```json
+{"name":"accounts payable"}
+```
+
+The same name normalization and 64-character limit apply. Success returns `200` with the updated tag object (`id`, `name`, and `template_count`). A name belonging to another tag returns `409 tag_name_conflict`; the tags are not merged. Renaming changes what template reads return without creating field versions.
+
+`DELETE /v1/template-tags/{tag_id}` removes the shared tag and all its template associations. Success returns `204` with no body. Templates, their fields, and their versions remain available. Missing tags, including tags from another Workspace, return `404 tag_not_found` for rename and delete.
 
 ### Generate a template from a sample
 
@@ -348,8 +385,24 @@ Send multipart form data:
 | Part | Type | Required | Description |
 | --- | --- | --- | --- |
 | `template_id` | string | Yes | ID of an active template in the Workspace. |
+| `template_tags` | JSON string | No | An array of tag names, such as `["invoice","finance"]`. Validated, then ignored; see below. |
 | `document` | file | Yes | Exactly one PDF, PNG, JPEG, or WebP document. |
 | `options` | JSON string | No | Accepts boolean `include_confidence` and `include_evidence` properties. See limitation below. |
+
+`template_tags` accepts the same name normalization and limits as template `tags`: an array of at most 50 strings, each nonempty and at most 64 characters after normalization, without control characters. `[]` is valid. Malformed JSON, a non-array value, or invalid names return `400 invalid_template_tags`. Unknown names are allowed and do not create shared tags. This field is not persisted on the job and has no effect on extraction: `template_id` is still required and authoritative, even when its template has none of the supplied tags.
+
+For example, add an optional multipart text field with `--form-string`:
+
+```bash
+curl --fail-with-body --silent --show-error \
+  "$API_BASE_URL/v1/extract" \
+  -H "Authorization: Bearer $WORKSPACE_API_KEY" \
+  --form-string "template_id=$TEMPLATE_ID" \
+  --form-string 'template_tags=["invoice","finance"]' \
+  -F 'document=@./invoice.pdf;type=application/pdf'
+```
+
+Future automatic template selection and document splitting in [#26](https://github.com/AlexWhitehouse/local-document-extraction/issues/26) and [#27](https://github.com/AlexWhitehouse/local-document-extraction/issues/27) are planned to use **match any** semantics: either supplied tag would include a template in the candidate group. Neither automatic selection nor splitting is implemented by this field today.
 
 **Current options limitation:** the server validates `options`, but does not persist or pass these flags to the extraction runner. They do not control whether confidence or evidence is returned. Both response properties are always present and may be `null`.
 
@@ -608,18 +661,19 @@ Branch on both HTTP status and `error.code`; treat `message` as human-readable c
 | HTTP status | Codes | Meaning / client action |
 | --- | --- | --- |
 | `400` | `invalid_json`, `invalid_request_body` | Correct the request body. |
-| `400` | `invalid_name`, `invalid_description`, `invalid_fields`, `empty_patch` | Correct template properties or field definitions. |
+| `400` | `invalid_name`, `invalid_description`, `invalid_tags`, `invalid_fields`, `empty_patch` | Correct template properties, tag names, or field definitions. |
 | `400` | `invalid_document`, `invalid_pdf_source_file`, `invalid_template_id` | Supply a supported document and a non-empty template ID. |
-| `400` | `invalid_multipart`, `invalid_options`, `inline_fields_forbidden` | Correct multipart fields, boundaries, or options. |
+| `400` | `invalid_multipart`, `invalid_options`, `invalid_template_tags`, `inline_fields_forbidden` | Correct multipart fields, boundaries, or options. |
 | `400` | `source_file_too_large` | Reduce the file/request size or ask the operator about limits. |
 | `400` | `submission_aborted` | The upload was interrupted. |
 | `400` | `invalid_job_filters`, `invalid_cursor` | Correct filters or restart pagination. |
 | `400` | `invalid_job_export` | Supply a non-empty array of job IDs. |
 | `401` | `unauthorized` | Supply authentication. |
 | `403` | `forbidden` | Check the API key or Workspace access. |
-| `404` | `not_found`, `template_not_found` | Check the resource ID and route; submission requires an active template. |
+| `404` | `not_found`, `template_not_found`, `tag_not_found` | Check the resource ID and route; submission requires an active template. |
 | `409` | `workspace_model_not_configured` | Ask a Workspace owner/admin to configure the model gateway. |
 | `409` | `workspace_deleting`, `job_deleting` | The resource is being deleted. |
+| `409` | `tag_name_conflict` | Rename the shared tag to an unused name; renaming does not merge tags. |
 | `409` | `no_exportable_jobs` | Select completed or failed jobs. |
 | `413` | `request_body_too_large`, `export_too_large` | Reduce the JSON body or export selection. |
 | `415` | `unsupported_media_type` | Use multipart form data for extraction or template generation. |

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Database, constants as sqliteConstants } from "bun:sqlite";
 
 import type { FieldDefinition } from "./lib/types";
+import { normalizeTemplateTagName, normalizeTemplateTags } from "../../shared/templateTags";
 import { newId } from "./lib/ids";
 import type { NormalizedModelField } from "./consumer/modelResultNormalizer";
 import type { StoredWorkspaceModelConfiguration } from "./workspaceModelConfiguration";
@@ -17,7 +18,11 @@ export type LocalWorkspaceTemplate = {
   current_version: number;
   created_at: string;
   updated_at: string;
+  tags: string[];
 };
+
+export type LocalWorkspaceTemplateTag = { id: string; name: string; template_count: number };
+export class TemplateTagNameConflictError extends Error {}
 
 type PositionedField = FieldDefinition & { position: number };
 
@@ -214,6 +219,7 @@ export type LocalWorkspaceProductStore = {
     name: string;
     description: string | null;
     fields: FieldDefinition[];
+    tags?: string[];
     createdAt: string;
   }): { template_id: string; version: 1; status: "active" };
   updateTemplate(input: {
@@ -221,9 +227,13 @@ export type LocalWorkspaceProductStore = {
     name?: string;
     description?: string | null;
     fields?: FieldDefinition[];
+    tags?: string[];
     updatedAt: string;
   }): { template_id: string; version: number; status: "active" } | null;
   deleteTemplate(input: { templateId: string; deletedAt: string }): boolean;
+  listTemplateTags(): LocalWorkspaceTemplateTag[];
+  renameTemplateTag(input: { tagId: string; name: string; updatedAt: string }): LocalWorkspaceTemplateTag | null;
+  deleteTemplateTag(input: { tagId: string; updatedAt: string }): boolean;
   ensureStarterInvoiceTemplate(input: { createdAt: string }): void;
   createQueuedExtractionJob(input: {
     jobId: string;
@@ -499,8 +509,29 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
          VALUES (?, ?, ?, 'active', 1, ?, ?, NULL)`,
       ).run(input.templateId, input.name, input.description, input.createdAt, input.createdAt);
       insertTemplateFields(input.templateId, 1, input.fields);
+      replaceTemplateTags(input.templateId, input.tags ?? []);
     })();
     return { template_id: input.templateId, version: 1, status: "active" };
+  };
+
+  const readTemplateTags = (templateId: string): string[] => (database.query(
+    `SELECT t.name FROM template_tags t JOIN template_tag_assignments a ON a.tag_id = t.id
+     WHERE a.template_id = ? ORDER BY t.name`,
+  ).all(templateId) as Array<{ name: string }>).map((tag) => tag.name);
+  const readTemplateTag = (tagId: string): LocalWorkspaceTemplateTag | null => database.query(
+    `SELECT t.id, t.name, COUNT(p.id) AS template_count FROM template_tags t
+     LEFT JOIN template_tag_assignments a ON a.tag_id = t.id
+     LEFT JOIN templates p ON p.id = a.template_id AND p.deleted_at IS NULL
+     WHERE t.id = ? GROUP BY t.id`,
+  ).get(tagId) as LocalWorkspaceTemplateTag | null;
+  const replaceTemplateTags = (templateId: string, tags: string[]) => {
+    const names = normalizeTemplateTags(tags);
+    database.query("DELETE FROM template_tag_assignments WHERE template_id = ?").run(templateId);
+    for (const name of names) {
+      database.query("INSERT OR IGNORE INTO template_tags(id, name) VALUES (?, ?)").run(newId("tag"), name);
+      database.query(`INSERT INTO template_tag_assignments(template_id, tag_id)
+        SELECT ?, id FROM template_tags WHERE name = ?`).run(templateId, name);
+    }
   };
 
   const readEvaluationDocument = (documentId: string) =>
@@ -645,14 +676,42 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
           input.templateId,
         );
         if (input.fields) insertTemplateFields(input.templateId, nextVersion, input.fields);
+        if (input.tags !== undefined) replaceTemplateTags(input.templateId, input.tags);
       })();
       return { template_id: input.templateId, version: nextVersion, status: "active" };
     },
-    deleteTemplate: (input) => database.query(
-      `UPDATE templates
-       SET status = 'deleted', deleted_at = ?, updated_at = ?
-       WHERE id = ? AND deleted_at IS NULL`,
-    ).run(input.deletedAt, input.deletedAt, input.templateId).changes > 0,
+    listTemplateTags: () => database.query(
+      `SELECT t.id, t.name, COUNT(p.id) AS template_count FROM template_tags t
+       LEFT JOIN template_tag_assignments a ON a.tag_id = t.id
+       LEFT JOIN templates p ON p.id = a.template_id AND p.deleted_at IS NULL
+       GROUP BY t.id ORDER BY t.name`,
+    ).all() as LocalWorkspaceTemplateTag[],
+    renameTemplateTag: (input) => database.transaction(() => {
+      if (!readTemplateTag(input.tagId)) return null;
+      const name = normalizeTemplateTagName(input.name);
+      if (database.query("SELECT id FROM template_tags WHERE name = ? AND id <> ?").get(name, input.tagId)) {
+        throw new TemplateTagNameConflictError("A tag with this name already exists");
+      }
+      database.query("UPDATE template_tags SET name = ? WHERE id = ?").run(name, input.tagId);
+      database.query(`UPDATE templates SET updated_at = ? WHERE deleted_at IS NULL
+        AND id IN (SELECT template_id FROM template_tag_assignments WHERE tag_id = ?)`)
+        .run(input.updatedAt, input.tagId);
+      return readTemplateTag(input.tagId);
+    })(),
+    deleteTemplateTag: (input) => database.transaction(() => {
+      database.query(`UPDATE templates SET updated_at = ? WHERE deleted_at IS NULL
+        AND id IN (SELECT template_id FROM template_tag_assignments WHERE tag_id = ?)`)
+        .run(input.updatedAt, input.tagId);
+      return database.query("DELETE FROM template_tags WHERE id = ?").run(input.tagId).changes > 0;
+    })(),
+    deleteTemplate: (input) => database.transaction(() => {
+      const deleted = database.query(
+        `UPDATE templates SET status = 'deleted', deleted_at = ?, updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL`,
+      ).run(input.deletedAt, input.deletedAt, input.templateId).changes > 0;
+      if (deleted) database.query("DELETE FROM template_tag_assignments WHERE template_id = ?").run(input.templateId);
+      return deleted;
+    })(),
     ensureStarterInvoiceTemplate: (input) => database.transaction(() => {
       // Bootstrap only an untouched Workspace. Include deleted Templates so retrying
       // bootstrap never recreates a starter that the user has edited or removed.
@@ -882,7 +941,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       if (!template) return null;
       const fields = readTemplateFields(templateId, version ?? template.current_version);
       if (version !== undefined && !fields.length) return null;
-      return { ...template, fields };
+      return { ...template, tags: readTemplateTags(templateId), fields };
     },
     deleteExtractionJob: (input) => database.transaction(() => {
       const job = database.query(
@@ -952,12 +1011,22 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       if (count < 1) return null;
       return { template_id: template.id, template_version: template.current_version };
     },
-    listTemplates: () => database.query(
-      `SELECT id, name, description, status, current_version, created_at, updated_at
-       FROM templates
-       WHERE deleted_at IS NULL
-       ORDER BY created_at DESC`,
-    ).all() as LocalWorkspaceTemplate[],
+    listTemplates: () => {
+      const assignments = database.query(`SELECT a.template_id, t.name FROM template_tag_assignments a
+        JOIN template_tags t ON t.id = a.tag_id JOIN templates p ON p.id = a.template_id
+        WHERE p.deleted_at IS NULL ORDER BY t.name`).all() as Array<{ template_id: string; name: string }>;
+      const tagsByTemplate = new Map<string, string[]>();
+      for (const tag of assignments) {
+        const tags = tagsByTemplate.get(tag.template_id) ?? [];
+        tags.push(tag.name);
+        tagsByTemplate.set(tag.template_id, tags);
+      }
+      return (database.query(
+        `SELECT id, name, description, status, current_version, created_at, updated_at
+         FROM templates WHERE deleted_at IS NULL ORDER BY created_at DESC`,
+      ).all() as Array<Omit<LocalWorkspaceTemplate, "tags">>)
+        .map((template) => ({ ...template, tags: tagsByTemplate.get(template.id) ?? [] }));
+    },
     countExtractionJobs: () =>
       (database.query("SELECT count FROM job_totals WHERE singleton = 1").get() as { count: number }).count,
     getExtractionJobCounts: () => {
@@ -1315,6 +1384,15 @@ const PRODUCT_MIGRATIONS: Array<[version: number, sql: string]> = [
     ALTER TABLE workspace_model_configuration ADD COLUMN assistant_model_name TEXT;
     ALTER TABLE workspace_model_configuration ADD COLUMN assistant_supports_pdf_input INTEGER CHECK (assistant_supports_pdf_input IN (0, 1));
     ALTER TABLE workspace_model_configuration ADD COLUMN assistant_supports_structured_output INTEGER CHECK (assistant_supports_structured_output IN (0, 1));
+  `],
+  [10, `
+    CREATE TABLE template_tags (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+    CREATE TABLE template_tag_assignments (
+      template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+      tag_id TEXT NOT NULL REFERENCES template_tags(id) ON DELETE CASCADE,
+      PRIMARY KEY (template_id, tag_id)
+    );
+    CREATE INDEX idx_template_tag_assignments_tag ON template_tag_assignments(tag_id, template_id);
   `],
 ];
 

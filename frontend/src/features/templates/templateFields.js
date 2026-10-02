@@ -1,4 +1,5 @@
 import { diagnoseTemplateDraft } from "../../../../shared/templateDiagnostics.ts";
+import { normalizeTemplateTags } from "../../../../shared/templateTags.ts";
 
 export const DATA_TYPES = [
   "string",
@@ -350,6 +351,7 @@ export function validateTemplateJsonPayload(input, options = {}) {
     name: input.name.trim(),
     description:
       input.description === null ? null : String(input.description || "").trim(),
+    tags: normalizeTemplateTags(input.tags === undefined ? [] : input.tags),
     fields: normalizeFields(input.fields, options),
   };
 }

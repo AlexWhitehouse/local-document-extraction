@@ -8,6 +8,7 @@ import { bearerApiKey, HttpError } from "./lib/http";
 import { newId, nowIso } from "./lib/ids";
 import { InvalidPdfSourceFileError, PdfSourceFileCapacityError, PdfSourceFileLimitError, countPdfSourceFilePages } from "./lib/sourceFilePageCount";
 import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "./lib/validation";
+import { normalizeTemplateTagName } from "../../shared/templateTags";
 import { buildJobExportInWorker } from "./localJobExportWorker";
 import { assertKnownDocumentRequestBodyLength } from "./localDocumentBodyLimit";
 import { boundLocalApiBody } from "./localApiBodyLimit";
@@ -24,7 +25,7 @@ import type { LocalSourceObjectManifest } from "./localSourceObjectManifest";
 import { SourceObjectMissingError, type SourceObjectStore } from "./s3SourceObjectStore";
 import type { LocalAuth, LocalSession } from "./localAuth";
 import { LocalWorkspaceControlError, type LocalWorkspaceControl } from "./localWorkspaceControl";
-import type { LocalWorkspaceExtractionJobSummary, LocalWorkspaceProductStore } from "./localWorkspaceProductStore";
+import { TemplateTagNameConflictError, type LocalWorkspaceExtractionJobSummary, type LocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 import {
   createEphemeralLocalWorkspaceProductStoreRegistry,
   createLocalWorkspaceProductStoreRegistry,
@@ -232,6 +233,12 @@ export function createLocalApplication({
         evidenceJobId: assistanceEvidenceMatch?.[1] ? decodeURIComponent(assistanceEvidenceMatch[1]) : undefined });
     }
 
+    const templateTagMatch = pathname.match(/^\/v1\/template-tags(?:\/([^/]+))?$/);
+    if (templateTagMatch) {
+      if (!product) return productStoreUnavailable();
+      return handleTemplateTagRequest({ product, request, tagId: templateTagMatch[1] ? decodeURIComponent(templateTagMatch[1]) : "" });
+    }
+
     const templateMatch = pathname.match(/^\/v1\/templates(?:\/([^/]+))?$/);
     if (templateMatch) {
       if (!product) return productStoreUnavailable();
@@ -370,6 +377,7 @@ function handleTemplateRequest({
           name: patch.name,
           description: patch.description,
           fields: patch.fields,
+          tags: patch.tags,
           updatedAt: nowIso(),
         });
         if (!updated) throw templateNotFound();
@@ -397,6 +405,7 @@ function handleTemplateRequest({
           name: payload.name!,
           description: payload.description || null,
           fields: payload.fields || [],
+          tags: payload.tags,
           createdAt: nowIso(),
         });
         recordLocalProductAnalytics(productAnalytics, {
@@ -411,6 +420,34 @@ function handleTemplateRequest({
       }
       return routeNotFound();
     } catch (error) {
+      if (error instanceof HttpError) return httpErrorResponse(error);
+      throw error;
+    }
+  });
+}
+
+function handleTemplateTagRequest({ product, request, tagId }: {
+  product: ProductServices; request: Request; tagId: string;
+}): Promise<Response> {
+  return withAuthorizedProductStore(product, request, async ({ store }) => {
+    try {
+      if (!tagId && request.method === "GET") return Response.json({ tags: store.listTemplateTags() });
+      if (tagId && request.method === "PATCH") {
+        const body = parseJsonBody<unknown>(await request.text());
+        let name: string;
+        try { name = normalizeTemplateTagName(body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>).name : undefined); }
+        catch (error) { throw new HttpError(400, "invalid_tags", (error as Error).message); }
+        const tag = store.renameTemplateTag({ tagId, name, updatedAt: nowIso() });
+        if (!tag) throw new HttpError(404, "tag_not_found", "Template tag not found");
+        return Response.json(tag);
+      }
+      if (tagId && request.method === "DELETE") {
+        if (!store.deleteTemplateTag({ tagId, updatedAt: nowIso() })) throw new HttpError(404, "tag_not_found", "Template tag not found");
+        return new Response(null, { status: 204 });
+      }
+      return routeNotFound();
+    } catch (error) {
+      if (error instanceof TemplateTagNameConflictError) return errorResponse(409, "tag_name_conflict", error.message);
       if (error instanceof HttpError) return httpErrorResponse(error);
       throw error;
     }

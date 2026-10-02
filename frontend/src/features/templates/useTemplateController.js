@@ -1,3 +1,4 @@
+import { normalizeTemplateTagName, normalizeTemplateTags } from "../../../../shared/templateTags.ts";
 import { useTemplateAssistant } from "./useTemplateAssistant.js";
 import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { useTemplateGeneration } from "./useTemplateGeneration.js";
@@ -89,6 +90,7 @@ const DEFAULT_TEMPLATE_NAME = "Invoice Template";
 const DEFAULT_TEMPLATE_DESCRIPTION = "Extract invoice details and line items from a Document";
 const DRAFT_TEMPLATE_NAV_ID = "__draft_template__";
 const copyDefaultFields = () => DEFAULT_FIELDS.map((field) => ({ ...field }));
+const replaceTagName = (tags, before, after) => normalizeTemplateTags((tags ?? []).flatMap(value => value === before ? after === null ? [] : [after] : [value]));
 
 export function useTemplateController({
   initialWorkspace = {},
@@ -108,6 +110,14 @@ export function useTemplateController({
   const [templateDescription, setTemplateDescription] = useState(
     DEFAULT_TEMPLATE_DESCRIPTION,
   );
+  const [templateTags, setTemplateTags] = useState([]);
+  const [workspaceTags, setWorkspaceTags] = useState([]);
+  const [tagListError, setTagListError] = useState("");
+  const [isLoadingTags, setIsLoadingTags] = useState(false);
+  const [isManagingTags, setIsManagingTags] = useState(false);
+  const tagListRequestRef = useRef(null);
+  const tagMutationRef = useRef(null);
+  const completedTagChangesRef = useRef([]);
   const [templateFields, setTemplateFields] = useState(DEFAULT_FIELDS);
   const [hasNewDraftEdits, setHasNewDraftEdits] = useState(false);
   const [loadedTemplateSnapshot, setLoadedTemplateSnapshot] = useState(null);
@@ -131,9 +141,9 @@ export function useTemplateController({
   const [draftRevision, setDraftRevision] = useState(0);
   const [validationFocus, setValidationFocus] = useState(null);
   const assistantRef = useRef(null);
-  const touchDraft = useCallback(() => {
+  const touchDraft = useCallback(({ preservePendingLoad = false } = {}) => {
     draftRevisionRef.current += 1; setDraftRevision(draftRevisionRef.current);
-    editorRequestRef.current += 1;
+    if (!preservePendingLoad) editorRequestRef.current += 1;
     assistantRef.current?.invalidate();
   }, []);
   const requestRef = useRef(request);
@@ -153,11 +163,12 @@ export function useTemplateController({
       {
         name: templateName,
         description: templateDescription,
+        tags: templateTags,
         fields: templateFields,
       },
       { includeObjectSchema: true },
     );
-  }, [templateDescription, templateFields, templateName]);
+  }, [templateDescription, templateFields, templateName, templateTags]);
   const templateDraftSnapshot = useMemo(() => {
     try {
       return serializeTemplatePayload(buildTemplateJsonPayloadFromEditor());
@@ -180,6 +191,7 @@ export function useTemplateController({
       setTemplateDescription(payload.description || "");
       setTemplateFields(payload.fields.map(hydrateFieldFromTemplate));
       setHasNewDraftEdits(true);
+      if (createNew || !isEditingTemplate) setTemplateTags([]);
       if (createNew) {
         setUpdateTemplateId("");
         setLoadedTemplateSnapshot(null);
@@ -230,6 +242,16 @@ export function useTemplateController({
 
   const clearWorkspaceScopedTemplates = useCallback(() => {
     generationRef.current += 1;
+    tagListRequestRef.current?.abort();
+    tagMutationRef.current?.abort();
+    tagListRequestRef.current = null;
+    tagMutationRef.current = null;
+    completedTagChangesRef.current = [];
+    setTemplateTags([]);
+    setWorkspaceTags([]);
+    setTagListError("");
+    setIsLoadingTags(false);
+    setIsManagingTags(false);
     touchDraft();
     cancelAssistant();
     setValidationFocus(null);
@@ -274,8 +296,79 @@ export function useTemplateController({
     }
   }, []);
 
+  const listTemplateTags = useCallback(async () => {
+    tagListRequestRef.current?.abort();
+    const controller = new AbortController();
+    tagListRequestRef.current = controller;
+    const generation = generationRef.current;
+    const isCurrent = () => generation === generationRef.current && tagListRequestRef.current === controller && !controller.signal.aborted;
+    setIsLoadingTags(true);
+    setTagListError("");
+    try {
+      const data = await requestRef.current("/template-tags", { method: "GET", signal: controller.signal });
+      if (isCurrent()) setWorkspaceTags(Array.isArray(data?.tags) ? data.tags : []);
+    } catch (error) {
+      if (isCurrent()) setTagListError(error.message || "Unable to load template tags.");
+    } finally {
+      if (isCurrent()) setIsLoadingTags(false);
+    }
+  }, []);
+
+  function buildSavePayload(payload) {
+    if (!updateTemplateId || !loadedTemplateSnapshot) return payload;
+    const saved = JSON.parse(loadedTemplateSnapshot);
+    // Omit unchanged fields to preserve versions, and unchanged tags so a stale
+    // editor cannot undo another member's shared tag rename or deletion.
+    return Object.fromEntries(Object.entries(payload).filter(([key, value]) => JSON.stringify(saved[key]) !== JSON.stringify(value)));
+  }
+
+  async function mutateTemplateTag(tag, name) {
+    if (!hasApiAccess || isSavingTemplate || templateGeneration.modal.isOpen || tagMutationRef.current) return false;
+    const normalizedName = name === undefined ? undefined : normalizeTemplateTagName(name);
+    if (normalizedName === tag.name) return true;
+    const controller = new AbortController();
+    tagMutationRef.current = controller;
+    const generation = generationRef.current;
+    const isCurrent = () => generation === generationRef.current && tagMutationRef.current === controller && !controller.signal.aborted;
+    setIsManagingTags(true);
+    touchDraft({ preservePendingLoad: true });
+    try {
+      const data = await requestRef.current(`/template-tags/${encodeURIComponent(tag.id)}`, {
+        method: normalizedName === undefined ? "DELETE" : "PATCH",
+        signal: controller.signal,
+        ...(normalizedName === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: normalizedName }) }),
+      });
+      if (!isCurrent()) return false;
+      const nextName = normalizedName === undefined ? null : data.name;
+      const replaceTag = tags => replaceTagName(tags, tag.name, nextName);
+      completedTagChangesRef.current.push({ before: tag.name, after: nextName });
+      // Shared edits also update the saved baseline, preserving unrelated unsaved changes.
+      touchDraft({ preservePendingLoad: true });
+      setTemplateTags(replaceTag);
+      setLoadedTemplateSnapshot(snapshot => snapshot ? JSON.stringify({ ...JSON.parse(snapshot), tags: replaceTag(JSON.parse(snapshot).tags) }) : snapshot);
+      setTemplates(current => current.map(template => ({ ...template, tags: replaceTag(template.tags) })));
+      setWorkspaceTags(current => current.flatMap(item => item.id === tag.id ? nextName === null ? [] : [{ ...item, ...data }] : [item]).sort((a, b) => a.name.localeCompare(b.name)));
+      // A list started before the mutation must not restore the old shared name.
+      tagListRequestRef.current?.abort();
+      listRequestRef.current += 1;
+      await listTemplateTags();
+      return isCurrent();
+    } catch (error) {
+      if (!isCurrent()) return false;
+      throw error;
+    } finally {
+      if (isCurrent()) {
+        tagMutationRef.current = null;
+        setIsManagingTags(false);
+      }
+    }
+  }
+
+  function renameTemplateTag(tag, name) { return mutateTemplateTag(tag, name); }
+  function deleteTemplateTag(tag) { return mutateTemplateTag(tag); }
+
   async function saveTemplate() {
-    if (isSavingTemplate || templateGeneration.modal.isOpen) {
+    if (isSavingTemplate || isManagingTags || templateGeneration.modal.isOpen) {
       return;
     }
 
@@ -286,6 +379,7 @@ export function useTemplateController({
       payload = validateTemplateJsonPayload({
         name: templateName,
         description: templateDescription,
+        tags: templateTags,
         fields: templateFields,
       });
     } catch (error) {
@@ -297,6 +391,8 @@ export function useTemplateController({
 
     const generation = generationRef.current;
     const isCurrent = () => generation === generationRef.current;
+    const savePayload = buildSavePayload(payload);
+    if (!Object.keys(savePayload).length) return;
     setIsSavingTemplate(true);
     try {
       const data = await request(
@@ -306,12 +402,12 @@ export function useTemplateController({
         {
           method: targetTemplateId ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(savePayload),
         },
       );
       if (!isCurrent()) return;
       setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
-      setTemplateVersion(data.version ?? data.template_version ?? (targetTemplateId && templateVersion ? templateVersion + 1 : 1));
+      setTemplateVersion(data.version ?? data.template_version ?? (targetTemplateId && templateVersion ? templateVersion + (savePayload.fields ? 1 : 0) : 1));
       if (!targetTemplateId) {
         setUpdateTemplateId(data.template_id);
         setSelectedUploadTemplateId(data.template_id);
@@ -320,7 +416,7 @@ export function useTemplateController({
       showActionToast("template.save", "success", {
         targetName: (!targetTemplateId && data?.name) || payload.name,
       });
-      await listTemplates();
+      await Promise.all([listTemplates(), listTemplateTags()]);
     } catch (error) {
       if (!isCurrent()) return;
       showActionToast("template.save", "failure", { error });
@@ -343,6 +439,7 @@ export function useTemplateController({
           {
             name: templateName,
             description: templateDescription,
+            tags: templateTags,
             fields: templateFields,
           },
           null,
@@ -355,7 +452,7 @@ export function useTemplateController({
   }
 
   function closeTemplateJsonModal() {
-    if (isSavingTemplate || templateGeneration.modal.isOpen) {
+    if (isSavingTemplate || isManagingTags || templateGeneration.modal.isOpen) {
       return;
     }
     setShowTemplateJsonModal(false);
@@ -377,7 +474,7 @@ export function useTemplateController({
 
   async function saveTemplateJsonDraft() {
     touchDraft();
-    if (isSavingTemplate || templateGeneration.modal.isOpen) {
+    if (isSavingTemplate || isManagingTags || templateGeneration.modal.isOpen) {
       return;
     }
 
@@ -392,7 +489,7 @@ export function useTemplateController({
 
     let payload;
     try {
-      payload = validateTemplateJsonPayload(parsed);
+      payload = validateTemplateJsonPayload({ ...parsed, tags: parsed?.tags === undefined ? templateTags : parsed.tags });
     } catch (error) {
       setTemplateJsonError(error.message); setTemplateJsonDiagnostics(error.diagnostics || []);
       showActionToast("template.save", "validation", { reason: "json" });
@@ -402,6 +499,17 @@ export function useTemplateController({
     const targetTemplateId = updateTemplateId.trim();
     const generation = generationRef.current;
     const isCurrent = () => generation === generationRef.current;
+    const savePayload = buildSavePayload(payload);
+    if (!Object.keys(savePayload).length) {
+      setTemplateName(payload.name);
+      setTemplateDescription(payload.description || "");
+      setTemplateTags(payload.tags);
+      setTemplateFields(payload.fields.map(hydrateFieldFromTemplate));
+      setTemplateJsonDraft(JSON.stringify(payload, null, 2));
+      setShowTemplateJsonModal(false);
+      setTemplateJsonError(""); setTemplateJsonDiagnostics([]);
+      return;
+    }
     setIsSavingTemplate(true);
     try {
       const data = await request(
@@ -411,16 +519,17 @@ export function useTemplateController({
         {
           method: targetTemplateId ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(savePayload),
         },
       );
 
       if (!isCurrent()) return;
       setTemplateName(payload.name);
       setTemplateDescription(payload.description || "");
+      setTemplateTags(payload.tags);
       setTemplateFields(payload.fields.map(hydrateFieldFromTemplate));
       setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
-      setTemplateVersion(data.version ?? data.template_version ?? (targetTemplateId && templateVersion ? templateVersion + 1 : 1));
+      setTemplateVersion(data.version ?? data.template_version ?? (targetTemplateId && templateVersion ? templateVersion + (savePayload.fields ? 1 : 0) : 1));
       setShowDraftTemplateNav(false);
 
       if (data?.template_id) {
@@ -434,7 +543,7 @@ export function useTemplateController({
       showActionToast("template.save", "success", {
         targetName: payload.name,
       });
-      await listTemplates();
+      await Promise.all([listTemplates(), listTemplateTags()]);
     } catch (error) {
       if (!isCurrent()) return;
       setTemplateJsonError(error.message); setTemplateJsonDiagnostics(error.diagnostics || []);
@@ -477,7 +586,7 @@ export function useTemplateController({
       showActionToast("template.delete", "success", {
         targetName: deletedTemplateName,
       });
-      const remainingTemplates = await listTemplates();
+      const [remainingTemplates] = await Promise.all([listTemplates(), listTemplateTags()]);
       if (!isCurrent()) return;
       const nextTemplate = remainingTemplates.find(
         (template) => String(template.id || "").trim() !== deletedTemplateId,
@@ -491,6 +600,7 @@ export function useTemplateController({
         setSelectedUploadTemplateId("");
         setTemplateName(DEFAULT_TEMPLATE_NAME);
         setTemplateDescription(DEFAULT_TEMPLATE_DESCRIPTION);
+        setTemplateTags([]);
         setTemplateFields(copyDefaultFields());
         setLoadedTemplateSnapshot(null);
       }
@@ -514,18 +624,23 @@ export function useTemplateController({
 
     const generation = generationRef.current;
     const requestId = ++editorRequestRef.current;
+    const tagRevision = completedTagChangesRef.current.length;
     const isCurrent = () => generation === generationRef.current && requestId === editorRequestRef.current;
     try {
-      const template = await request(
+      const loaded = await request(
         `/templates/${encodeURIComponent(targetTemplateId)}`,
         { method: "GET" },
       );
       if (!isCurrent()) return;
+      // Navigation may overlap shared mutations. Reconcile a detail response
+      // captured before those mutations so it cannot restore old tag names.
+      const template = { ...loaded, tags: completedTagChangesRef.current.slice(tagRevision).reduce((tags, change) => replaceTagName(tags, change.before, change.after), normalizeTemplateTags(loaded.tags ?? [])) };
       setShowDraftTemplateNav(false);
       setUpdateTemplateId(targetTemplateId);
       setTemplateVersion(template.current_version ?? template.version ?? template.template_version ?? null);
       setTemplateName(template.name || "");
       setTemplateDescription(template.description || "");
+      setTemplateTags(normalizeTemplateTags(template.tags ?? []));
       setTemplateFields(
         Array.isArray(template.fields) && template.fields.length
           ? template.fields.map(hydrateFieldFromTemplate)
@@ -553,6 +668,7 @@ export function useTemplateController({
     setUpdateTemplateId(""); setTemplateVersion(null);
     setTemplateName(empty ? "" : DEFAULT_TEMPLATE_NAME);
     setTemplateDescription(empty ? "" : DEFAULT_TEMPLATE_DESCRIPTION);
+    setTemplateTags([]);
     setTemplateFields(empty ? [{ ...EMPTY_FIELD }] : copyDefaultFields());
     setLoadedTemplateSnapshot(null);
   }
@@ -566,9 +682,9 @@ export function useTemplateController({
 
   useEffect(() => {
     clearWorkspaceScopedTemplates();
-    if (hasApiAccess) void listTemplates();
-    return () => { generationRef.current += 1; };
-  }, [hasApiAccess, listTemplates, workspaceId, sessionId, clearWorkspaceScopedTemplates]);
+    if (hasApiAccess) { void listTemplates(); void listTemplateTags(); }
+    return () => { generationRef.current += 1; tagListRequestRef.current?.abort(); tagMutationRef.current?.abort(); };
+  }, [hasApiAccess, listTemplates, listTemplateTags, workspaceId, sessionId, clearWorkspaceScopedTemplates]);
 
   return {
     templates,
@@ -589,6 +705,11 @@ export function useTemplateController({
     templatePage: {
       templateName,
       templateDescription,
+      templateTags,
+      tagPickerKey: `${scope}:${updateTemplateId}`,
+      tagPicker: { tags: workspaceTags, isLoading: isLoadingTags, error: tagListError, isManaging: isManagingTags, onReload: listTemplateTags, onRename: renameTemplateTag, onDelete: deleteTemplateTag },
+      onTemplateTagsChange: (tags) => { touchDraft(); setHasNewDraftEdits(true); setTemplateTags(normalizeTemplateTags(tags)); },
+      isManagingTags,
       templateFields,
       assistant: assistant.panel,
       onOpenAssistant: assistant.open,
