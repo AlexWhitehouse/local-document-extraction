@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
+import { TemplateTags } from "./TemplateTags.jsx";
 import { TemplateAssistant } from "./TemplateAssistant.jsx";
 import { focusDiagnostic } from "./focusDiagnostic.js";
 import { DiagnosticMessages, TemplateProblems } from "./TemplateDiagnostics.jsx";
@@ -8,6 +9,7 @@ import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 export function TemplatePage({
   templateName,
   templateDescription,
+  templateTags = [], tagPicker = {}, onTemplateTagsChange, isManagingTags = false, tagPickerKey,
   templateFields,
   isEditingTemplate,
   isSavingTemplate,
@@ -34,7 +36,7 @@ export function TemplatePage({
       className="studio-text-button studio-save-action"
       data-tour="save-template"
       disabled={
-        isSavingTemplate || isGeneratingTemplate ||
+        isSavingTemplate || isManagingTags || isGeneratingTemplate ||
         !hasApiAccess ||
         (isEditingTemplate && !isEditedTemplateDirty)
       }
@@ -51,7 +53,7 @@ export function TemplatePage({
   return (
     <div className={`template-editor-workspace${assistant?.isOpen ? " template-assistant-layout" : ""}`}>
     <section ref={rootRef} className="studio-template-page" aria-label="Template editor">
-      <div className="studio-template-meta">
+      <div className="studio-template-meta template-meta-with-tags">
         <div><label>
           Template name
           <input
@@ -60,7 +62,7 @@ export function TemplatePage({
             aria-invalid={issues.some(issue => issue.location.scope === "template" && issue.location.property === "name")}
             aria-describedby="template-name-problems"
             value={templateName}
-            disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess}
+            disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
             onChange={(event) => onTemplateNameChange(event.target.value)}
           />
         </label>
@@ -71,13 +73,14 @@ export function TemplatePage({
             data-diagnostic-location="template:description"
             aria-describedby="template-description-problems"
             value={templateDescription}
-            disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess}
+            disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
             onChange={(event) =>
               onTemplateDescriptionChange(event.target.value)
             }
           />
         </label>
         <DiagnosticMessages id="template-description-problems" issues={issues.filter(issue => issue.location.scope === "template" && issue.location.property === "description")} /></div>
+        <TemplateTags key={tagPickerKey} value={templateTags} onChange={onTemplateTagsChange} {...tagPicker} disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess} />
       </div>
       <TemplateProblems issues={issues} draft={draft} activeIndex={problemIndex} onIndexChange={setProblemIndex} onFocus={focus} blocked={validationFocus?.nonce ?? null} />
       <TemplateFieldEditor
@@ -90,13 +93,13 @@ export function TemplatePage({
           <button
             type="button"
             className="studio-text-button"
-            disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess}
+            disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
             onClick={onOpenJsonModal}
           >
             View JSON
           </button>
         }
-        disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess}
+        disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
       />
       <footer className="studio-editor-footer">
         <span>
@@ -115,7 +118,7 @@ export function TemplatePage({
         <span className="template-footer-actions">
           {/* One entry point: it opens on Explain issues while the draft has problems, otherwise on Propose edits. */}
           <button type="button" className="secondary template-assistant-button" aria-expanded={Boolean(assistant?.isOpen)}
-            disabled={isSavingTemplate || isGeneratingTemplate || !hasApiAccess} onClick={() => { if (!assistant?.isOpen) onOpenAssistant(); }}>
+            disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess} onClick={() => { if (!assistant?.isOpen) onOpenAssistant(); }}>
             <AssistantIcon />
             Assistant
             {issues.length ? <span className="template-assistant-count">{issues.length}</span> : null}

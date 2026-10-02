@@ -104,6 +104,10 @@ _Avoid_: answer row, model response, result item
 A reusable extraction schema selected when submitting **Documents**.
 _Avoid_: form, prompt, extraction config
 
+**Template tag**:
+A user-defined, lowercase label shared within a **Workspace**, associated with zero or more **Templates**. Selected tags are part of the editable Template draft; the shared vocabulary also includes unused tags.
+_Avoid_: field tag, personal label, automatic selection rule
+
 **Generated template draft**:
 An unsaved, model-proposed **Template** definition inferred from a user-provided file for review and editing before explicit saving. It may become a new Template or a revision of an existing Template.
 _Avoid_: automatically saved template, extraction result

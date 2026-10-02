@@ -1,4 +1,5 @@
 import { diagnoseTemplateDraft } from "../../../shared/templateDiagnostics";
+import { normalizeTemplateTags } from "../../../shared/templateTags";
 import { HttpError } from "./http";
 import type { DataType, FieldDefinition } from "./types";
 
@@ -24,6 +25,7 @@ type TemplateInput = {
   name?: unknown;
   description?: unknown;
   fields?: unknown;
+  tags?: unknown;
 };
 
 type ObjectColumnInput = {
@@ -57,7 +59,13 @@ export function validateTemplatePayload(input: TemplateInput, allowPartial = fal
     name?: string;
     description?: string | null;
     fields?: FieldDefinition[];
+    tags?: string[];
   } = {};
+
+  if (input.tags !== undefined) {
+    try { output.tags = normalizeTemplateTags(input.tags); }
+    catch (error) { throw new HttpError(400, "invalid_tags", (error as Error).message); }
+  }
 
   if (input.name !== undefined) {
     if (typeof input.name !== "string" || input.name.trim().length === 0) {
@@ -139,7 +147,7 @@ export function validateTemplatePayload(input: TemplateInput, allowPartial = fal
     throw new HttpError(400, "invalid_fields", "fields are required");
   }
 
-  if (allowPartial && output.name === undefined && output.description === undefined && output.fields === undefined) {
+  if (allowPartial && output.name === undefined && output.description === undefined && output.fields === undefined && output.tags === undefined) {
     throw new HttpError(400, "empty_patch", "PATCH body must include at least one field");
   }
 
@@ -303,6 +311,9 @@ export async function validateExtractRequest(
   }
 
   const form = await request.formData();
+  if (form.getAll("template_tags").length > 1) {
+    throw new HttpError(400, "invalid_multipart", "Duplicate multipart field: template_tags");
+  }
   const sourcePart = form.get("document");
   if (!(sourcePart instanceof File)) {
     throw new HttpError(400, "invalid_document", "document is required");
@@ -314,6 +325,7 @@ export async function validateExtractRequest(
     sourceMimeType: sourcePart.type,
     sourceSize: sourcePart.size,
     templateIdRaw: form.get("template_id"),
+    templateTagsRaw: form.get("template_tags"),
   });
 
   return { templateId, source: sourcePart };
@@ -326,6 +338,7 @@ export function validateExtractSubmissionMetadata({
   sourceMimeType,
   sourceSize,
   templateIdRaw,
+  templateTagsRaw = null,
 }: {
   hasInlineFields: boolean;
   maxSourceFileBytes: number;
@@ -333,6 +346,7 @@ export function validateExtractSubmissionMetadata({
   sourceMimeType: string;
   sourceSize: number;
   templateIdRaw: FormDataEntryValue | null;
+  templateTagsRaw?: FormDataEntryValue | null;
 }): { templateId: string } {
   if (hasInlineFields) {
     throw new HttpError(400, "inline_fields_forbidden", "Inline fields are not allowed");
@@ -342,7 +356,19 @@ export function validateExtractSubmissionMetadata({
   }
   validateSourceFileMetadata(sourceMimeType, sourceSize, maxSourceFileBytes);
   validateOptions(optionsRaw);
+  validateExtractTemplateTags(templateTagsRaw);
   return { templateId: templateIdRaw.trim() };
+}
+
+/** Reserved for future template selection; validated but not stored or used for routing. */
+function validateExtractTemplateTags(value: FormDataEntryValue | null): void {
+  if (value === null) return;
+  if (typeof value !== "string") throw new HttpError(400, "invalid_template_tags", "template_tags must be a JSON string array");
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); }
+  catch { throw new HttpError(400, "invalid_template_tags", "template_tags must be valid JSON"); }
+  try { normalizeTemplateTags(parsed); }
+  catch (error) { throw new HttpError(400, "invalid_template_tags", (error as Error).message); }
 }
 
 /** `options` is part of the documented API contract; the pipeline does not read it, but malformed values are rejected. */

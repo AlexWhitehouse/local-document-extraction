@@ -1,6 +1,16 @@
 # Templates
 
-A template describes the data you want from a document: a name, an optional description, and between 1 and 50 fields. Each field has a name, a description telling the model what to look for, and a data type.
+A template describes the data you want from a document: a name, an optional description, optional tags, and between 1 and 50 fields. Each field has a name, a description telling the model what to look for, and a data type.
+
+## Organize templates with tags
+
+Use **Tags** beside the description in the Template header to select one or more tags. Search the dropdown to find an existing Workspace tag, or type a new name and choose **Create**. Select a checked tag again to remove it from the draft. Save the template to persist new tags and changes to its associations; leaving an unsaved draft creates no tags.
+
+Tags are shared by everyone who can edit templates in the Workspace. Names are displayed in lowercase, with surrounding whitespace removed and repeated spaces collapsed: ` INVOICE ` becomes `invoice`. Case variations refer to the same tag. A name can contain spaces and punctuation, must contain at least one non-whitespace character, and is limited to 64 characters after normalization. Control characters are not allowed. A template can have up to 50 tags.
+
+Open **Manage tags** to rename or delete shared tags. Renaming changes the name everywhere the tag is used; a name already used by another tag cannot be reused. Deleting removes the tag from every template. These management actions save separately from the current Template draft. Deselecting a tag only removes its association when you save the template. Unused tags stay in the dropdown until deleted, including after deleting their last template.
+
+Tag changes do not create a new field version or change extraction results. API submissions may include optional `template_tags`, but those names are currently validated and ignored: callers must still select a template with `template_id`. Future automatic selection and document splitting work in [#26](https://github.com/AlexWhitehouse/local-document-extraction/issues/26) and [#27](https://github.com/AlexWhitehouse/local-document-extraction/issues/27) is planned to use **match any** tags to group candidate templates; that behavior is not implemented here.
 
 ## Field types
 

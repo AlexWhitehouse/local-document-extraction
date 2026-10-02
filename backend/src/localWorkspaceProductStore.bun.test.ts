@@ -126,6 +126,7 @@ test("local Workspace product data reads a Template's current version and fields
       current_version: 1,
       created_at: "2026-07-09T12:00:00.000Z",
       updated_at: "2026-07-09T12:00:00.000Z",
+      tags: [],
       fields: [{ ...INVOICE_TEMPLATE.fields[0], position: 0 }],
     });
   });

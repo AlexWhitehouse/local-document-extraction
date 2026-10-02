@@ -180,6 +180,10 @@ _Avoid_: answer row, model response, result item
 A reusable extraction schema selected when submitting **Documents**.
 _Avoid_: form, prompt, extraction config
 
+**Template tag**:
+A user-defined, lowercase label shared within a **Workspace**, associated with zero or more **Templates**. It is current Template metadata, independent of **Template versions**.
+_Avoid_: field tag, extraction instruction, automatic selection rule
+
 **Template generation**:
 The model-assisted proposal of a complete, validated **Template** definition from a **Template sample** and optional user guidance, for review before explicit saving.
 _Avoid_: extraction job, automatic template save

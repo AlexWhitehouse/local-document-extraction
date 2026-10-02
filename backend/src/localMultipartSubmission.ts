@@ -22,7 +22,7 @@ const TEMPORARY_DIRECTORIES: Record<Purpose, string> = {
   extraction: "submissions", "template-generation": "submissions", "template-assistance": "submissions", evaluation: "evaluations", "evaluation-document": "evaluation-documents",
 };
 const ALLOWED_FIELDS: Record<Purpose, string[]> = {
-  extraction: ["fields", "options", "template_id"], "template-generation": ["instructions"], "template-assistance": ["payload"], evaluation: ["evaluation"], "evaluation-document": ["metadata"],
+  extraction: ["fields", "options", "template_id", "template_tags"], "template-generation": ["instructions"], "template-assistance": ["payload"], evaluation: ["evaluation"], "evaluation-document": ["metadata"],
 };
 
 type LocalStreamedExtractRequest = {
@@ -90,7 +90,9 @@ export async function parseLocalMultipartSubmission({
         fileSize: Math.min(Number.MAX_SAFE_INTEGER, maxSourceFileBytes + 1),
         files: 1,
         headerPairs: 32,
-        parts: 4,
+        // Busboy emits partsLimit when the boundary is reached, including the
+        // final allowed part: leave room above three fields and one document.
+        parts: LOCAL_MULTIPART_MAX_FIELDS + 2,
       },
     });
   } catch (error) {
@@ -206,6 +208,7 @@ export async function parseLocalMultipartSubmission({
       sourceMimeType: parsedDocument.mimeType,
       sourceSize: parsedDocument.size,
       templateIdRaw: fields.get("template_id") ?? null,
+      templateTagsRaw: fields.get("template_tags") ?? null,
     });
     return { templateId, source: { ...parsedDocument, temporaryPath } };
   } catch (error) {

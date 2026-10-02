@@ -206,7 +206,7 @@ describe("addressable diagnostics", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save new template" }));
     expect(document.activeElement).toBe(screen.getByLabelText("Template name"));
     expect(screen.getByLabelText("Template problems").textContent).toContain("Fix these to save");
-    expect(request.mock.calls.every(([path]) => path === "/templates")).toBe(true);
+    expect(request.mock.calls.every(([path, options]) => options.method === "GET" && ["/templates", "/template-tags"].includes(path))).toBe(true);
   });
 
   it("shares column diagnostics and Save focus with Evaluation editing", async () => {
