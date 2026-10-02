@@ -28,4 +28,4 @@ Deterministic validation errors, observations about supplied output, and model h
 
 Assistance is temporary and available only on Templates. It does not maintain a conversation history, save autonomously, change the supported schema, migrate historical output identities, relink Expected answers, or provide general concurrent-save protection. The sample-based Auto generate flow (the magic icon on **Create Template**) remains available for proposing a complete Template. Temporary Evaluation results and library answers cannot be imported into Assistant requests.
 
-See the [Templates API](../mkdocs/docs/api/templates.md) for the proposal-only endpoint and request limits.
+The Template assistant, including suggestions and historical-evidence reads, requires a signed-in Workspace member using the frontend. Workspace API keys cannot use it. Scripts can still [generate a complete template from a sample](../mkdocs/docs/api/overview.md#generate-a-template-from-a-sample). Contributor request details are in the [frontend HTTP contract](../backend/docs/template-assistant-http.md).

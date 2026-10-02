@@ -28,10 +28,20 @@ async function fixture() {
     const workspace = { id: workspaceId, name: "Workspace", role: "owner", max_source_file_bytes: null, source_retention_disabled: true };
     const workspaceControl = { authorizeApiKey: ({ apiKey }: {
             apiKey: string;
-        }) => apiKey === "secret" ? workspace : apiKey === "other" ? { ...workspace, id: "workspace_b" } : null, hasPendingStarterTemplateBootstrap: () => false, workspaceExists: () => true } as unknown as LocalWorkspaceControl;
-    const auth = { getSession: async () => null, handler: async () => new Response(null) } as LocalAuth;
+        }) => apiKey === "secret" ? workspace : apiKey === "other" ? { ...workspace, id: "workspace_b" } : null,
+        getAcceptedWorkspaceContext: ({ workspaceId: selectedWorkspaceId, userId }: { workspaceId: string; userId: string }) => selectedWorkspaceId === workspaceId && ["owner", "admin", "member"].includes(userId) ? { ...workspace, role: userId } : null,
+        hasPendingStarterTemplateBootstrap: () => false, workspaceExists: () => true } as unknown as LocalWorkspaceControl;
+    const auth: LocalAuth = {
+        getSession: async (request) => {
+            const id = request.headers.get("cookie");
+            return id ? { id, email: `${id}@example.com`, name: id } : null;
+        },
+        handler: async () => new Response(null),
+    };
     const app = createLocalApplication({ auth, stateDirectory, workspaceControl, productStoreRegistry: registry, sourceFileStore, scheduleQueuedJob: job => { scheduled.push(job); } });
-    const request = (path: string, method = "GET", body?: unknown, key = "secret") => app(new Request(`http://localhost/v1${path}`, { method, headers: { authorization: `Bearer ${key}`, ...(body !== undefined && !(body instanceof FormData) ? { "content-type": "application/json" } : {}) }, ...(body === undefined ? {} : { body: body instanceof FormData ? body : JSON.stringify(body) }) }));
+    const send = (path: string, method = "GET", body?: unknown, headers: Record<string, string> = {}) => app(new Request(`http://localhost/v1${path}`, { method, headers: { ...headers, ...(body !== undefined && !(body instanceof FormData) ? { "content-type": "application/json" } : {}) }, ...(body === undefined ? {} : { body: body instanceof FormData ? body : JSON.stringify(body) }) }));
+    const request = (path: string, method = "GET", body?: unknown, key = "secret") => send(path, method, body, { authorization: `Bearer ${key}` });
+    const sessionRequest = (path: string, method = "GET", body?: unknown) => send(path, method, body, { cookie: "owner", "x-workspace-id": workspaceId });
     const submit = async (fields: Record<string, string> = { template_tags: '[" INVOICE ","invoice"]' }, pdf = false) => {
         const form = new FormData();
         if (pdf) {
@@ -47,7 +57,7 @@ async function fixture() {
         return request("/extract", "POST", form);
     };
     const runner = createLocalExtractionRunner({ stateDirectory, productStoreRegistry: registry, sourceFileStore, workspaceControl, scheduleJob: job => { scheduled.push(job); }, classify: async () => ({ status: "no_match", template_id: null, reason: "No invoice present", evidence: [] }), splitDocument: async () => ({ status: "uncertain", groups: [], exclusions: [], reason: "Boundaries unclear", evidence: [] }), extract: async () => [] });
-    return { store, request, submit, scheduled, sourceFileStore, runner };
+    return { store, request, sessionRequest, send, submit, scheduled, sourceFileStore, runner };
 }
 test("admission requires ID or tags, normalizes scope, rejects overrides and never falls back from an explicit invalid ID", async () => {
     const f = await fixture();
@@ -76,10 +86,10 @@ test("manual routing holds preserve preview source and resolve the same job with
     expect(await before.json()).toMatchObject({ status: "awaiting_template", template_id: null });
     expect((await f.request(`/jobs/${admission.job_id}/source`)).status).toBe(200);
     expect(await (await f.request("/jobs/counts")).json()).toMatchObject({ total: 1, status_counts: { awaiting_template: 1 } });
-    const resolved = await f.request(`/jobs/${admission.job_id}/template`, "POST", { template_id: "tpl_invoice" });
+    const resolved = await f.sessionRequest(`/jobs/${admission.job_id}/template`, "POST", { template_id: "tpl_invoice" });
     expect(resolved.status).toBe(200);
     expect(await resolved.json()).toMatchObject({ job_id: admission.job_id, status: "queued", template_id: "tpl_invoice", template_version: 1, selection_mode: "manual" });
-    expect((await f.request(`/jobs/${admission.job_id}/template`, "POST", { template_id: "tpl_invoice" })).status).toBe(409);
+    expect((await f.sessionRequest(`/jobs/${admission.job_id}/template`, "POST", { template_id: "tpl_invoice" })).status).toBe(409);
     expect((await f.request(`/jobs/${admission.job_id}`)).headers.get("etag")).not.toBe(oldTag);
 });
 test("page selection validates before acceptance and creates the real subset with splitting disabled", async () => {
@@ -114,10 +124,10 @@ test("smart splitting captures workspace policy, holds without children, preview
     expect(f.store.getDocumentPacket(packet.packet_id)?.status).toBe("awaiting_review");
     expect((await f.request(`/packets/${packet.packet_id}/pages/1/preview`)).headers.get("content-type")).toBe("image/png");
     expect((await f.request(`/packets/${packet.packet_id}/pages/2/preview`)).status).toBe(400);
-    expect((await f.request(`/packets/${packet.packet_id}/plan`, "POST", { revision: 1, groups: [{ pages: [1] }], exclusions: [] })).status).toBe(400);
-    const reviewed = await f.request(`/packets/${packet.packet_id}/plan`, "POST", { revision: 1, groups: [{ pages: [1] }, { pages: [3] }], exclusions: [] });
+    expect((await f.sessionRequest(`/packets/${packet.packet_id}/plan`, "POST", { revision: 1, groups: [{ pages: [1] }], exclusions: [] })).status).toBe(400);
+    const reviewed = await f.sessionRequest(`/packets/${packet.packet_id}/plan`, "POST", { revision: 1, groups: [{ pages: [1] }, { pages: [3] }], exclusions: [] });
     expect(reviewed.status).toBe(200);
-    expect((await f.request(`/packets/${packet.packet_id}/plan`, "POST", { revision: 1, groups: [{ pages: [1, 3] }], exclusions: [] })).status).toBe(409);
+    expect((await f.sessionRequest(`/packets/${packet.packet_id}/plan`, "POST", { revision: 1, groups: [{ pages: [1, 3] }], exclusions: [] })).status).toBe(409);
     await f.runner.run(f.scheduled.at(-1)!);
     expect(f.store.getDocumentPacket(packet.packet_id)?.children).toHaveLength(2);
     const slots = f.store.getDocumentPacket(packet.packet_id)!.child_slots;
@@ -133,9 +143,64 @@ test("manual zero-child completion independently verifies every page and exclude
     f.store.putDocumentProcessingSettings({ enable_smart_splitting: true, exclude_blank_pages: true });
     const packet = await (await f.submit({ template_id: "tpl_invoice" }, true)).json() as DocumentPacket;
     await f.runner.run(f.scheduled[0]!);
-    const response = await f.request(`/packets/${packet.packet_id}/plan`, "POST", { revision: 1, groups: [], exclusions: [1, 2, 3].map(page => ({ page, reason: "Blank", verified_blank: false })) });
+    const response = await f.sessionRequest(`/packets/${packet.packet_id}/plan`, "POST", { revision: 1, groups: [], exclusions: [1, 2, 3].map(page => ({ page, reason: "Blank", verified_blank: false })) });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ status: "completed", outcome: "no_documents", children: [] });
     expect(f.store.countExtractionJobs()).toBe(0);
     expect((await f.request("/packets")).status).toBe(200);
+});
+
+test.each(["job", "packet"] as const)("manual %s resolution requires a workspace session and never mutates holds for API keys", async (kind) => {
+    const f = await fixture();
+    f.store.putDocumentProcessingSettings({ enable_smart_splitting: kind === "packet", exclude_blank_pages: false });
+    // Uploads and polling remain available to API clients, including when processing is held.
+    const admitted = await f.submit({ template_tags: '["invoice"]' }, kind === "packet");
+    expect(admitted.status).toBe(202);
+    const admission = await admitted.json() as { job_id?: string; packet_id?: string };
+    const id = kind === "packet" ? admission.packet_id! : admission.job_id!;
+    await f.runner.run(f.scheduled[0]!);
+    const resource = kind === "packet" ? `/packets/${id}` : `/jobs/${id}`;
+    const path = `${resource}/${kind === "packet" ? "plan" : "template"}`;
+    const body = kind === "packet"
+        ? { revision: 1, groups: [{ pages: [1, 2, 3] }], exclusions: [] }
+        : { template_id: "tpl_invoice" };
+    const heldState = () => kind === "packet" ? f.store.getDocumentPacket(id) : f.store.getExtractionJob(id);
+    const before = heldState();
+    const scheduledBefore = f.scheduled.length;
+    const assertUnchanged = () => {
+        expect(heldState()).toEqual(before);
+        expect(f.scheduled).toHaveLength(scheduledBefore);
+    };
+    expect((await f.request(resource)).status).toBe(200);
+    expect((await f.request(kind === "packet" ? "/packets" : "/jobs")).status).toBe(200);
+    expect((await f.request(`${resource}/source`)).status).toBe(200);
+
+    for (const authorization of ["Bearer secret", "Bearer other", "Bearer invalid", "Basic invalid", ""]) {
+        for (const withSession of [false, true]) {
+            const response = await f.send(path, "POST", body, {
+                authorization,
+                ...(withSession ? { cookie: "owner", "x-workspace-id": "workspace_a" } : {}),
+            });
+            expect(response.status).toBe(403);
+            expect(await response.json()).toMatchObject({ error: { code: "session_required" } });
+            assertUnchanged();
+        }
+    }
+    for (const [headers, status] of [
+        [{}, 401],
+        [{ cookie: "outsider", "x-workspace-id": "workspace_a" }, 403],
+        [{ cookie: "owner", "x-workspace-id": "workspace_b" }, 403],
+        [{ cookie: "owner" }, 403],
+    ] as Array<[Record<string, string>, number]>) {
+        expect((await f.send(path, "POST", body, headers)).status).toBe(status);
+        assertUnchanged();
+    }
+
+    const resolved = await f.send(path, "POST", body, { cookie: "member", "x-workspace-id": "workspace_a" });
+    expect(resolved.status).toBe(200);
+    expect(await resolved.json()).toMatchObject(kind === "packet"
+        ? { packet_id: id, status: "materializing", plan_accepted: true }
+        : { job_id: id, status: "queued", selection_mode: "manual", template_id: "tpl_invoice" });
+    expect(f.scheduled).toHaveLength(scheduledBefore + 1);
+    expect((await f.request(resource)).status).toBe(200);
 });

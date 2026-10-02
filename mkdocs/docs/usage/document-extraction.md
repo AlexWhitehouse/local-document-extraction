@@ -40,4 +40,4 @@ Use **Export** for completed documents, including children of a packet. A packet
 
 Original retention depends on the installation and Workspace settings. Without retention, successful working files are cleaned up; failed files normally remain for seven days. Sources needed for split or template review stay available until resolution. Results remain until deleted, even if a source is unavailable.
 
-Scripts follow the submission's `Location`, poll packets to discover children, and retrieve results from each child's job endpoint. See the [packet request-chain example](../api/overview.md#follow-the-packet-and-child-request-chain).
+Scripts follow the submission's `Location`, poll packets to discover children, and retrieve results from each child's job endpoint. API keys cannot confirm split plans or choose templates for held documents; a signed-in Workspace member performs those review actions in the frontend before the integration continues. See the [packet request-chain example](../api/overview.md#follow-the-packet-and-child-request-chain).

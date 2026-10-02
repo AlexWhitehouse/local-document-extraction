@@ -23,10 +23,11 @@ Every setting is read and validated in one place, [`src/localConfiguration.ts`](
 | --- | --- | --- |
 | `/api/auth/*` | Better Auth (`src/localAuth.ts`) | — |
 | `/v1/workspaces/:id/live` | WebSocket live updates (`src/localLiveUpdateUpgrade.ts`) | Browser session only |
-| Other `/v1/*` routes | `src/localApplication.ts` | Browser session + `x-workspace-id` header, or `Authorization: Bearer <workspace API key>` |
+| Template assistant and document review mutations | `src/localApplication.ts`, `src/localDocumentProcessingHttp.ts` | Browser session + `x-workspace-id`; Workspace API keys are not accepted |
+| Integration product routes under `/v1/*` | `src/localApplication.ts` | Browser session + `x-workspace-id` header, or `Authorization: Bearer <workspace API key>` |
 | Anything else (`GET`/`HEAD`) | Built frontend files, with fallback to `index.html` | — |
 
-Workspace API keys reach templates, document submission, extraction jobs, and document packet processing/review. They can't open live updates, or manage accounts, Workspaces, invitations, model settings, or admin features.
+Workspace API keys reach templates, sample-based template generation, document submission, extraction jobs, and document packet reads/deletion. They can't use the Template assistant, resolve held template/split decisions, open live updates, or manage accounts, Workspaces, invitations, model settings, or admin features. The Studio uses session-only [Template assistant](docs/template-assistant-http.md) and [document review](docs/document-review-http.md) operations; their contracts are contributor references rather than part of the public Workspace API.
 
 When a document is submitted, it's checked, stored, and queued as a job (`src/localMultipartSubmission.ts`, `src/localExtractionQueue.ts`). A runner (`src/localExtractionRunner.ts`) picks jobs up, prepares the document for the model, calls the Workspace's model gateway (`src/consumer/modelGateway.ts`), and saves the normalised results. `src/localDocumentProcessingRunner.ts` uses the same durable queue for tag-scoped classification and PDF packet splitting before field extraction. Splitting commits fixed child IDs and original-page maps before creating independent derived sources; automatic jobs bind a checked Template version before extraction. Both stages stop after one initial assessment and at most two targeted reassessments, holding unresolved work for manual resolution. Browsers are told about changes over the live-update WebSocket; API clients poll the returned job or packet location, discover packet children, and fetch each job for full results. Even an accepted one-document PDF split retains its packet API identity; collapsing it to one ordinary Document is a frontend presentation rule.
 

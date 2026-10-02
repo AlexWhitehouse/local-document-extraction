@@ -149,7 +149,7 @@ export async function handleTemplateSuggestions({ product, request, modelGateway
       if (error instanceof ModelGatewayRequestError || error instanceof RetryableError) return fail(502, "template_suggestions_failed", "The configured model could not suggest requests.");
       return fail(500, "template_suggestions_failed", "Suggestions failed.");
     } finally { jobOperation?.release(); }
-  });
+  }, { sessionOnly: true });
   response.headers.set("cache-control", "no-store");
   return response;
 }
@@ -225,7 +225,7 @@ export async function handleTemplateAssistance({ product, request, maxSourceFile
       if (error instanceof ModelGatewayRequestError || error instanceof RetryableError) return fail(502, "template_assistance_failed", "The configured model could not complete assistance. Check Workspace model configuration or try again; your draft is unchanged.");
       return fail(500, "template_assistance_failed", "Template assistance failed. Retry; your draft is unchanged.");
     } finally { if (temporaryPath) await rm(temporaryPath, { force: true }); jobOperation?.release(); }
-  });
+  }, { sessionOnly: true });
   response.headers.set("cache-control", "no-store");
   return response;
 }
