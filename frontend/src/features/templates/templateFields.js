@@ -1,3 +1,5 @@
+import { diagnoseTemplateDraft } from "../../../../shared/templateDiagnostics.ts";
+
 export const DATA_TYPES = [
   "string",
   "number",
@@ -324,6 +326,10 @@ export function hydrateFieldFromTemplate(field) {
 }
 
 export function validateTemplateJsonPayload(input, options = {}) {
+  const diagnostics = diagnoseTemplateDraft(input);
+  if (diagnostics.length) {
+    throw Object.assign(new Error(diagnostics[0].title), { diagnostics });
+  }
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("Template JSON must be an object");
   }

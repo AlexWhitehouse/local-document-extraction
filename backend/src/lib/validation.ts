@@ -1,3 +1,4 @@
+import { diagnoseTemplateDraft } from "../../../shared/templateDiagnostics";
 import { HttpError } from "./http";
 import type { DataType, FieldDefinition } from "./types";
 
@@ -45,6 +46,13 @@ export function parseJsonBody<T>(body: string): T {
 }
 
 export function validateTemplatePayload(input: TemplateInput, allowPartial = false) {
+  const diagnostics = diagnoseTemplateDraft(input, { allowPartial });
+  if (diagnostics.length) {
+    const first = diagnostics[0]!;
+    const code = first.code === "template.name_required" ? "invalid_name"
+      : first.code === "template.description_invalid" ? "invalid_description" : "invalid_fields";
+    throw Object.assign(new HttpError(400, code, first.title), { diagnostics });
+  }
   const output: {
     name?: string;
     description?: string | null;

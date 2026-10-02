@@ -870,7 +870,7 @@ describe("Workspace action toast feedback", () => {
     fireEvent.change(screen.getByLabelText("Template JSON"), { target: { value: "{" } });
     await user.click(screen.getByRole("button", { name: "Save Template JSON" }));
 
-    expect(await screen.findByText("Request body must be valid JSON")).not.toBeNull();
+    expect(await screen.findByText(/^Request body must be valid JSON: .+/)).not.toBeNull();
     expect(toastMock.error).toHaveBeenCalledWith("Template JSON is invalid. Fix it before saving.");
   });
 

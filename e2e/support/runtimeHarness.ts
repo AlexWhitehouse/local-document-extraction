@@ -40,7 +40,27 @@ try {
       if (request.headers.get("authorization") !== "Bearer browser-journey-key") {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
-      const input = await request.json() as { model?: string; messages?: Array<{ role: string }> };
+      const input = await request.json() as { model?: string; messages?: Array<{ role: string; content?: unknown }> };
+      if (input.model === "browser/template-assistant" && String(input.messages?.[0]?.content ?? "").startsWith("You suggest requests")) {
+        return Response.json({ choices: [{ message: { content: JSON.stringify({ suggestions: [
+          { label: "Add VAT rate to each line item", request: "Add VAT rate to each line item.", reason: "“Line Items” has prices but no VAT column" },
+          { label: "Say which order Invoice Date uses", request: "Make Invoice Date say dates are day-first.", reason: "“Invoice Date” doesn’t say which order dates use" },
+        ] }) } }] });
+      }
+      if (input.model === "browser/template-assistant") {
+        return Response.json({ choices: [{ message: { content: JSON.stringify({
+          explanation: "Add a VAT rate column to the existing line items. Review the proposed output key before applying.",
+          observations: [],
+          groups: [{
+            id: "vat-rate", title: "Add VAT rate", rationale: "Capture the tax percentage shown for each line item.",
+            dependsOn: [],
+            operations: [{
+              op: "add_column", fieldIndex: 5, expectName: "Line Items", after: 4,
+              column: { heading: "VAT Rate", data_type: "number", description: "VAT percentage shown for this line, or null when absent." },
+            }],
+          }],
+        }) } }] });
+      }
       if (input.model === "browser/template-generator") {
         const corrected = (input.messages?.length ?? 0) > 2;
         return Response.json({ choices: [{ message: { content: JSON.stringify({

@@ -71,12 +71,13 @@ export async function withPreparedModelSource<T>(
   sourceMimeType: string,
   signal: AbortSignal | undefined,
   work: (parts: Record<string, unknown>[], onPrepared: (characters: number) => void) => Promise<T>,
+  additionalContextCharacters = 0,
 ): Promise<T> {
   const sourceSize = source instanceof Blob ? source.size : source.byteLength;
   const rendered = sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
   const reservation = Math.max(1024 * 1024, rendered
     ? MAX_RENDERED_PDF_BYTES * 3 + sourceSize + 16 * 1024 * 1024
-    : sourceSize * 4);
+    : sourceSize * 4) + additionalContextCharacters * 6;
   if (reservation > localMemoryLimits.preparationMaxBytes) throw new ModelGatewayRequestError("Source exceeds the local model preparation budget");
   return scheduleModelCall(env, () => preparationBudget.run(reservation, async (lease) => {
     if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
@@ -88,6 +89,18 @@ export async function withPreparedModelSource<T>(
     });
   }, signal), signal).catch((error) => {
     if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
+    throw error;
+  });
+}
+
+/** Source-free assistance shares the extraction scheduler and preparation memory budget. */
+export async function withModelTextAdmission<T>(env: ModelGatewayConfiguration, characters: number, signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+  const reservation = Math.max(1024 * 1024, characters * 6);
+  return scheduleModelCall(env, () => preparationBudget.run(reservation, async () => {
+    if (signal.aborted) throw new ExtractionCancelledError("Model request cancelled");
+    return work();
+  }, signal), signal).catch((error) => {
+    if (signal.aborted) throw new ExtractionCancelledError("Model request cancelled");
     throw error;
   });
 }
@@ -482,6 +495,7 @@ export async function runViaModelGateway(
   env: ModelGatewayConfiguration,
   requestBody: string,
   signal?: AbortSignal,
+  maximumResponseBytes?: number,
 ): Promise<unknown> {
   if (!env.LITELLM_KEY) {
     throw new ModelGatewayRequestError("Model gateway key is not configured");
@@ -523,7 +537,7 @@ export async function runViaModelGateway(
       throw new ModelGatewayRequestError(message, response.status);
     }
 
-    const bodyText = await response.text();
+    const bodyText = maximumResponseBytes ? await readBoundedGatewayResponse(response, maximumResponseBytes, controller.signal) : await response.text();
     if (!bodyText.trim()) {
       throw new RetryableError("Model gateway returned empty response");
     }
@@ -563,4 +577,34 @@ export function buildChatCompletionsUrl(env: ModelGatewayConfiguration): string 
 function getModelGatewayBaseUrl(env: ModelGatewayConfiguration): string {
   if (!env.MODEL_GATEWAY_URL) throw new ModelGatewayRequestError("Workspace gateway is not configured");
   return env.MODEL_GATEWAY_URL;
+}
+
+/** Bound the transport envelope before JSON parsing, including providers returning huge error-like payloads. */
+async function readBoundedGatewayResponse(response: Response, maximumBytes: number, signal: AbortSignal): Promise<string> {
+  if (Number(response.headers.get("content-length")) > maximumBytes) {
+    await response.body?.cancel().catch(() => {});
+    throw new ModelGatewayRequestError("Model response exceeds the assistance response limit");
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const abort = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    for (;;) {
+      signal.throwIfAborted();
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maximumBytes) throw new ModelGatewayRequestError("Model response exceeds the assistance response limit");
+      chunks.push(value);
+    }
+    signal.throwIfAborted();
+    return Buffer.concat(chunks).toString("utf8");
+  } finally {
+    signal.removeEventListener("abort", abort);
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }

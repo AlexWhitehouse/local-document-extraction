@@ -17,12 +17,12 @@ import { validateExtractSubmissionMetadata, validateSourceFileMetadata } from ".
 /** Name, operation id and an Expected answer set of at most 1 MiB, within the Evaluation request overhead. */
 export const LOCAL_EVALUATION_DOCUMENT_METADATA_BYTES = 1024 * 1024 + 4096;
 
-type Purpose = "extraction" | "template-generation" | "evaluation" | "evaluation-document";
+type Purpose = "extraction" | "template-generation" | "template-assistance" | "evaluation" | "evaluation-document";
 const TEMPORARY_DIRECTORIES: Record<Purpose, string> = {
-  extraction: "submissions", "template-generation": "submissions", evaluation: "evaluations", "evaluation-document": "evaluation-documents",
+  extraction: "submissions", "template-generation": "submissions", "template-assistance": "submissions", evaluation: "evaluations", "evaluation-document": "evaluation-documents",
 };
 const ALLOWED_FIELDS: Record<Purpose, string[]> = {
-  extraction: ["fields", "options", "template_id"], "template-generation": ["instructions"], evaluation: ["evaluation"], "evaluation-document": ["metadata"],
+  extraction: ["fields", "options", "template_id"], "template-generation": ["instructions"], "template-assistance": ["payload"], evaluation: ["evaluation"], "evaluation-document": ["metadata"],
 };
 
 type LocalStreamedExtractRequest = {
@@ -30,6 +30,7 @@ type LocalStreamedExtractRequest = {
   instructions?: string;
   evaluation?: string;
   metadata?: string;
+  payload?: string;
   source: {
     mimeType: string;
     name: string;
@@ -38,6 +39,9 @@ type LocalStreamedExtractRequest = {
   };
 };
 
+type SubmissionOptions = { maxSourceFileBytes: number; request: Request; stateDirectory: string };
+export function parseLocalMultipartSubmission(options: SubmissionOptions & { purpose: "template-assistance" }): Promise<Omit<LocalStreamedExtractRequest, "source"> & { source?: LocalStreamedExtractRequest["source"] }>;
+export function parseLocalMultipartSubmission(options: SubmissionOptions & { purpose?: Exclude<Purpose, "template-assistance"> }): Promise<LocalStreamedExtractRequest>;
 export async function parseLocalMultipartSubmission({
   maxSourceFileBytes,
   request,
@@ -48,7 +52,7 @@ export async function parseLocalMultipartSubmission({
   request: Request;
   stateDirectory: string;
   purpose?: Purpose;
-}): Promise<LocalStreamedExtractRequest> {
+}): Promise<Omit<LocalStreamedExtractRequest, "source"> & { source?: LocalStreamedExtractRequest["source"] }> {
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("multipart/form-data")) {
     throw new HttpError(415, "unsupported_media_type", "Use multipart/form-data");
@@ -57,7 +61,7 @@ export async function parseLocalMultipartSubmission({
 
   // A library save keeps its own upload apart from temporary Evaluation working files.
   const temporaryDirectory = resolve(stateDirectory, "temporary", TEMPORARY_DIRECTORIES[purpose]);
-  const metadataBytes = purpose === "evaluation" ? 1024 * 1024 : purpose === "evaluation-document" ? LOCAL_EVALUATION_DOCUMENT_METADATA_BYTES : 0;
+  const metadataBytes = purpose === "template-assistance" ? 80 * 1024 : purpose === "evaluation" ? 1024 * 1024 : purpose === "evaluation-document" ? LOCAL_EVALUATION_DOCUMENT_METADATA_BYTES : 0;
   await mkdir(temporaryDirectory, { recursive: true });
   const temporaryPath = join(temporaryDirectory, `${randomUUID()}.upload`);
   const fields = new Map<string, string>();
@@ -136,7 +140,7 @@ export async function parseLocalMultipartSubmission({
   parser.once("fieldsLimit", () => fail(new HttpError(400, "invalid_multipart", "Too many multipart fields")));
   parser.once("partsLimit", () => fail(new HttpError(400, "invalid_multipart", "Too many multipart parts")));
 
-  const totalLimitBytes = metadataBytes ? maxSourceFileBytes + 1024 * 1024 + 8192 : localDocumentRequestBodyLimit(maxSourceFileBytes);
+  const totalLimitBytes = metadataBytes ? maxSourceFileBytes + metadataBytes + 8192 : localDocumentRequestBodyLimit(maxSourceFileBytes);
   let totalBytes = 0;
   const requestLimit = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
@@ -169,6 +173,14 @@ export async function parseLocalMultipartSubmission({
     await documentWrite;
     if (failure) throw failure;
     const parsedDocument = document as { mimeType: string; name: string; size: number } | null;
+    if (purpose === "template-assistance") {
+      if (!fields.get("payload")) throw new HttpError(400, "invalid_template_assistance", "The payload JSON field is required");
+      if (parsedDocument) {
+        validateSourceFileMetadata(parsedDocument.mimeType, parsedDocument.size, maxSourceFileBytes);
+        if (!parsedDocument.size) throw new HttpError(400, "invalid_document", "The sample file is empty");
+      }
+      return { templateId: "", payload: fields.get("payload"), ...(parsedDocument ? { source: { ...parsedDocument, temporaryPath } } : {}) };
+    }
     if (!parsedDocument || !documentWrite) {
       throw new HttpError(400, "invalid_document", "document is required");
     }

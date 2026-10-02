@@ -1,5 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { diagnoseTemplateDraft, groupIssuesByLocation } from "../../../../shared/templateAssistant.ts";
+import { focusDiagnostic } from "./focusDiagnostic.js";
+import { DiagnosticMessages } from "./TemplateDiagnostics.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 
 import {
@@ -11,10 +14,11 @@ import {
   getDataTypeLabel,
   isObjectLikeType,
   normalizeDataType,
-  normalizeObjectSchema,
   sanitizeFieldName,
   toFieldId,
 } from "./templateFields.js";
+
+const editableSchema = schema => ({ ...(schema || {}), mode: schema?.mode || "table", columns: Array.isArray(schema?.columns) ? schema.columns : [] });
 
 export function TemplateFieldEditor({
   fields,
@@ -22,9 +26,30 @@ export function TemplateFieldEditor({
   saveAction,
   jsonAction,
   disabled = false,
+  diagnostics, focusRequest,
 }) {
+  const rootRef = useRef(null);
+  const diagnosticPrefix = useId();
+  const issues = useMemo(() => diagnostics || diagnoseTemplateDraft({ name: "Template", fields }).filter(issue => issue.location.scope !== "template"), [diagnostics, fields]);
+  const grouped = useMemo(() => groupIssuesByLocation(issues), [issues]);
+  const at = (property, fieldIndex = activeFieldIndex) => `field:${fieldIndex}:${property}`;
+  const diagnosticProps = key => ({ "data-diagnostic-location": key, "aria-invalid": (grouped.byKey.get(key)?.length || 0) > 0, "aria-describedby": `${diagnosticPrefix}-${key}` });
+  const messages = key => <DiagnosticMessages id={`${diagnosticPrefix}-${key}`} issues={grouped.byKey.get(key)} />;
   const [activeFieldIndex, setActiveFieldIndex] = useState(0);
   const [schemaEditorFieldIndex, setSchemaEditorFieldIndex] = useState(null);
+
+  useEffect(() => {
+    const location = focusRequest?.issue?.location;
+    if (!location) return;
+    if (location.scope !== "template") setActiveFieldIndex(location.fieldIndex);
+    if (location.scope === "column") setSchemaEditorFieldIndex(location.fieldIndex);
+    else if (location.scope !== "template") setSchemaEditorFieldIndex(null);
+    const timer = setTimeout(() => {
+      if (location.scope === "template" && location.property === "fields") rootRef.current?.querySelector('[data-tour="add-field"]')?.focus();
+      else if (location.scope !== "column") focusDiagnostic(rootRef.current, location);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [focusRequest]);
 
   useEffect(() => {
     if (!fields.length) {
@@ -98,7 +123,7 @@ export function TemplateFieldEditor({
           const normalizedDataType = normalizeDataType(value) || "string";
           const next = { ...field, [key]: normalizedDataType };
           if (isObjectLikeType(normalizedDataType)) {
-            next.object_schema = normalizeObjectSchema(field.object_schema);
+            next.object_schema = editableSchema(field.object_schema);
           } else {
             delete next.object_schema;
           }
@@ -116,7 +141,7 @@ export function TemplateFieldEditor({
         if (i !== index) {
           return field;
         }
-        const nextSchema = updater(normalizeObjectSchema(field.object_schema));
+        const nextSchema = updater(editableSchema(field.object_schema));
         return { ...field, object_schema: nextSchema };
       }),
     );
@@ -194,7 +219,7 @@ export function TemplateFieldEditor({
       id: toFieldId(copyName),
       name: copyName,
       object_schema: source.object_schema
-        ? normalizeObjectSchema(source.object_schema)
+        ? structuredClone(source.object_schema)
         : undefined,
     };
 
@@ -208,16 +233,16 @@ export function TemplateFieldEditor({
 
   const activeField = fields[activeFieldIndex] || null;
   const objectColumns = activeField
-    ? normalizeObjectSchema(activeField.object_schema).columns
+    ? editableSchema(activeField.object_schema).columns
     : [];
   const schemaEditorField =
     schemaEditorFieldIndex === null ? null : fields[schemaEditorFieldIndex];
   const schemaEditorColumns = schemaEditorField
-    ? normalizeObjectSchema(schemaEditorField.object_schema).columns
+    ? editableSchema(schemaEditorField.object_schema).columns
     : [];
 
   return (
-    <fieldset className="field-editor" disabled={disabled}>
+    <fieldset ref={rootRef} className="field-editor" disabled={disabled}>
       <div className="field-studio">
         <ScrollArea
           as="nav"
@@ -230,9 +255,10 @@ export function TemplateFieldEditor({
               key={`${field.id || "field"}-${index}`}
               type="button"
               className={
-                index === activeFieldIndex
+                (index === activeFieldIndex
                   ? "field-nav-item active"
-                  : "field-nav-item"
+                  : "field-nav-item") +
+                (grouped.byField.get(index)?.length ? " template-field-has-problems" : "")
               }
               aria-current={index === activeFieldIndex ? "true" : undefined}
               onClick={() => setActiveFieldIndex(index)}
@@ -243,7 +269,9 @@ export function TemplateFieldEditor({
               <div className="field-nav-top">
                 <div className="field-nav-label">
                   <strong>{field.name || `Field ${index + 1}`}</strong>
-                  <span>{getDataTypeLabel(field.data_type)}</span>
+                  {grouped.byField.get(index)?.length > 0
+                    ? <span className="template-problem-badge">{grouped.byField.get(index).length} problem{grouped.byField.get(index).length === 1 ? "" : "s"}</span>
+                    : <span>{getDataTypeLabel(field.data_type)}</span>}
                 </div>
               </div>
             </button>
@@ -269,10 +297,11 @@ export function TemplateFieldEditor({
             </div>
 
             <div className="row two-up">
-              <label>
+              <div><label>
                 Name
                 <input
                   data-tour="field-name"
+                  {...diagnosticProps(at("name"))}
                   value={activeField.name}
                   onChange={(event) =>
                     updateField(activeFieldIndex, "name", event.target.value)
@@ -280,10 +309,12 @@ export function TemplateFieldEditor({
                   placeholder="Medication Name"
                 />
               </label>
-              <label>
+              {messages(at("name"))}</div>
+              <div><label>
                 Type
                 <select
                   data-tour="field-type"
+                  {...diagnosticProps(at("data_type"))}
                   value={activeField.data_type}
                   onChange={(event) =>
                     updateField(
@@ -293,6 +324,7 @@ export function TemplateFieldEditor({
                     )
                   }
                 >
+                  {!DATA_TYPES.includes(activeField.data_type) && <option value={activeField.data_type}>{activeField.data_type || "Choose a type"}</option>}
                   {activeField.data_type === "array" ? (
                     <option value="array" disabled>
                       {getDataTypeLabel("array")}
@@ -305,12 +337,13 @@ export function TemplateFieldEditor({
                   ))}
                 </select>
               </label>
+              {messages(at("data_type"))}</div>
             </div>
-
             <label>
               Extraction instructions
               <textarea
                 data-tour="field-description"
+                {...diagnosticProps(at("description"))}
                 value={activeField.description}
                 onChange={(event) =>
                   updateField(
@@ -323,6 +356,7 @@ export function TemplateFieldEditor({
               />
             </label>
 
+            {messages(at("description"))}
             <p className="studio-field-id">
               Field ID{" "}
               <code>{activeField.id || "Generated from the field name"}</code>
@@ -382,10 +416,12 @@ export function TemplateFieldEditor({
                   type="button"
                   className="secondary"
                   data-tour="schema-open"
+                  {...diagnosticProps(at("object_schema"))}
                   onClick={() => setSchemaEditorFieldIndex(activeFieldIndex)}
                 >
                   Edit schema
                 </button>
+                {messages(at("object_schema"))}
               </div>
             ) : null}
           </ScrollArea>
@@ -401,6 +437,10 @@ export function TemplateFieldEditor({
         ? createPortal(
             <ObjectSchemaModal
               fieldName={schemaEditorField.name}
+              fieldIndex={schemaEditorFieldIndex}
+              grouped={grouped}
+              focusRequest={focusRequest}
+              disabled={disabled}
               columns={schemaEditorColumns}
               onAddColumn={() => addObjectColumn(schemaEditorFieldIndex)}
               onUpdateColumn={(columnIndex, key, value) =>
@@ -427,7 +467,7 @@ export function TemplateFieldEditor({
 }
 
 function ObjectSchemaModal({
-  fieldName,
+  fieldName, fieldIndex, grouped, focusRequest, disabled,
   columns,
   onAddColumn,
   onUpdateColumn,
@@ -436,6 +476,15 @@ function ObjectSchemaModal({
   onClose,
 }) {
   const dialogRef = useRef(null);
+  const prefix = useId();
+  const at = (columnIndex, property) => `column:${fieldIndex}:${columnIndex}:${property}`;
+  const diagnosticProps = key => ({ "data-diagnostic-location": key, "aria-invalid": (grouped.byKey.get(key)?.length || 0) > 0, "aria-describedby": `${prefix}-${key}` });
+  const messages = key => <DiagnosticMessages compact id={`${prefix}-${key}`} issues={grouped.byKey.get(key)} />;
+  useEffect(() => {
+    if (focusRequest?.issue?.location?.scope !== "column") return;
+    const timer = setTimeout(() => focusDiagnostic(dialogRef.current, focusRequest.issue.location), 0);
+    return () => clearTimeout(timer);
+  }, [focusRequest]);
   useEffect(() => {
     const previousFocus = document.activeElement;
     dialogRef.current?.querySelector("button:not(:disabled)")?.focus();
@@ -488,7 +537,7 @@ function ObjectSchemaModal({
             <button
               type="button"
               onClick={onAddColumn}
-              disabled={columns.length >= MAX_TEMPLATE_OBJECT_COLUMNS}
+              disabled={disabled || columns.length >= MAX_TEMPLATE_OBJECT_COLUMNS}
               title={`Maximum ${MAX_TEMPLATE_OBJECT_COLUMNS} columns`}
             >
               Add column
@@ -543,6 +592,8 @@ function ObjectSchemaModal({
                     <td>
                       <input
                         aria-label="Column name"
+                        disabled={disabled}
+                        {...diagnosticProps(at(columnIndex, "heading"))}
                         value={column.heading}
                         onChange={(event) =>
                           onUpdateColumn(
@@ -553,10 +604,13 @@ function ObjectSchemaModal({
                         }
                         placeholder="Line Total"
                       />
+                      {messages(at(columnIndex, "heading"))}
                     </td>
                     <td>
                       <select
                         aria-label="Type"
+                        disabled={disabled}
+                        {...diagnosticProps(at(columnIndex, "data_type"))}
                         value={column.data_type}
                         onChange={(event) =>
                           onUpdateColumn(
@@ -566,16 +620,20 @@ function ObjectSchemaModal({
                           )
                         }
                       >
+                        {!OBJECT_SCHEMA_DATA_TYPES.includes(column.data_type) && <option value={column.data_type}>{column.data_type || "Choose a type"}</option>}
                         {OBJECT_SCHEMA_DATA_TYPES.map((dataType) => (
                           <option key={dataType} value={dataType}>
                             {getDataTypeLabel(dataType)}
                           </option>
                         ))}
                       </select>
+                      {messages(at(columnIndex, "data_type"))}
                     </td>
                     <td>
                       <input
                         aria-label="Column Description"
+                        disabled={disabled}
+                        {...diagnosticProps(at(columnIndex, "description"))}
                         value={column.description}
                         onChange={(event) =>
                           onUpdateColumn(
@@ -586,6 +644,7 @@ function ObjectSchemaModal({
                         }
                         placeholder="What this column contains"
                       />
+                      {messages(at(columnIndex, "description"))}
                     </td>
                     <td>
                       <div className="object-schema-row-actions">
@@ -594,7 +653,7 @@ function ObjectSchemaModal({
                           className="secondary"
                           aria-label={`Move Column ${columnIndex + 1} Up`}
                           onClick={() => onMoveColumn(columnIndex, -1)}
-                          disabled={columnIndex === 0}
+                          disabled={disabled || columnIndex === 0}
                         >
                           Up
                         </button>
@@ -603,7 +662,7 @@ function ObjectSchemaModal({
                           className="secondary"
                           aria-label={`Move Column ${columnIndex + 1} Down`}
                           onClick={() => onMoveColumn(columnIndex, 1)}
-                          disabled={columnIndex === columns.length - 1}
+                          disabled={disabled || columnIndex === columns.length - 1}
                         >
                           Down
                         </button>
@@ -611,6 +670,7 @@ function ObjectSchemaModal({
                           className="danger"
                           type="button"
                           aria-label={`Remove Column ${columnIndex + 1}`}
+                          disabled={disabled}
                           onClick={() => onRemoveColumn(columnIndex)}
                         >
                           Remove

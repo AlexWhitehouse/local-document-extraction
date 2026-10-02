@@ -13,7 +13,7 @@ test("generate a template from a sample, review the draft, then explicitly save"
     await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Unsaved work");
-    await page.getByRole("button", { name: "Auto generate", exact: true }).click();
+    await page.getByRole("button", { name: "Auto generate new template", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Auto generate template" });
     const sample = { name: "Purchase order with a very long document name that should truncate without moving the Pending pill or Remove button.png", mimeType: "image/png", buffer: ONE_PIXEL_PNG };
     await dialog.getByLabel("Sample file").setInputFiles(sample);
