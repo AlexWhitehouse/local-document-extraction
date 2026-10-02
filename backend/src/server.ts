@@ -36,7 +36,7 @@ const {
   memoryPressureLargeSubmissionBytes, localDiskReserveBytes,
   sourceRetentionSweepIntervalMs, failedSourceRetentionMs, shutdownTimeoutMs,
 } = configuration;
-const LONG_RUNNING_SUBMISSION_PATHS = ["/v1/templates/generate", "/v1/evaluations/run"];
+const LONG_RUNNING_SUBMISSION_PATHS = ["/v1/templates/generate", "/v1/templates/assist", "/v1/evaluations/run"];
 // Library saves stream one original, so they share upload admission with other submissions.
 const SUBMISSION_PATHS = ["/v1/extract", "/v1/evaluations/documents", ...LONG_RUNNING_SUBMISSION_PATHS];
 

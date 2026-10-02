@@ -17,7 +17,7 @@ if (version !== "development" && dirty) throw new Error("Commit or remove all pe
 const listing = spawnSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8" });
 if (listing.status !== 0) throw new Error("Release packaging requires a Git checkout.");
 const roots = new Set(["package.json", "bun.lock", "bunfig.toml", ".env.example", ".gitignore", ".gitleaksignore", "README.md", "LICENSE", "SECURITY.md", "CONTRIBUTING.md", "AGENTS.md", "CONTEXT-MAP.md", "eslint.config.mjs", "playwright.config.ts"]);
-const files = [...new Set(listing.stdout.split("\0").filter((file) => roots.has(file) || /^(backend|frontend|scripts|docs|mkdocs|e2e|postman|\.github)\//.test(file)))]
+const files = [...new Set(listing.stdout.split("\0").filter((file) => roots.has(file) || /^(backend|frontend|shared|scripts|docs|mkdocs|e2e|postman|\.github)\//.test(file)))]
   .filter((file) => !/(^|\/)(node_modules|dist|coverage|\.local|\.git|\.scratch)(\/|$)/.test(file))
   .filter((file) => !/(^|\/)(\.env(\.(?!example$)[^/]*)?|\.vars|\.dev\.vars|.*\.(sqlite|sqlite-wal|sqlite-shm|db|log))$/.test(file));
 for (const required of ["package.json", "bun.lock", ".env.example", "scripts/install.sh", "scripts/installApplication.ts", "backend/src/checkConfiguration.ts"]) {

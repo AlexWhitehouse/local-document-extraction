@@ -188,6 +188,14 @@ _Avoid_: extraction job, automatic template save
 A temporary user-provided file used to infer a reusable **Template**, without becoming a **Document** submitted for extraction.
 _Avoid_: extraction job source, retained document
 
+**Template assistance**:
+A proposal-only model request that explains a captured **Template** draft or proposes focused edits. Optional evidence consists of one **Template sample** or explicitly chosen retained **Source file**, and one completed **Extraction job** with its historical **Template version** and results. Assistance never persists a Template or creates an Extraction job.
+_Avoid_: automatic template repair, verified answer, persistent assistant conversation
+
+**Template change group**:
+An indivisible set of focused draft operations with a rationale and explicit dependencies. Applying selected groups requires a valid combined draft and the exact captured editor context; saving is a separate action.
+_Avoid_: saved Template version, whole-template replacement
+
 **Template field**:
 An individual answer definition inside a **Template**.
 _Avoid_: field row, extraction key, output column

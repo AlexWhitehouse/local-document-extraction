@@ -5,6 +5,7 @@ export function TemplateJsonModal({
   isOpen,
   draft,
   error,
+  diagnostics = [],
   copied,
   isSavingTemplate,
   hasApiAccess,
@@ -59,14 +60,19 @@ export function TemplateJsonModal({
           <span>Template JSON</span>
           <textarea
             className="template-json-textarea"
+            aria-invalid={Boolean(error)}
+            aria-describedby="template-json-validation"
             spellCheck="false"
             value={draft}
             onChange={(event) => onDraftChange(event.target.value)}
           />
         </label>
+        {diagnostics.length > 0 && <ul className="template-json-diagnostics">{diagnostics.map(issue => <li key={issue.id}>
+          <strong>{issue.location.scope === "template" ? "Template" : `Field ${issue.location.fieldIndex + 1}${issue.location.scope === "column" ? `, column ${issue.location.columnIndex + 1}` : ""}`} · {issue.location.property}: {issue.title}.</strong> {issue.explanation} {issue.remedy}
+        </li>)}</ul>}
         <div className="template-json-modal-footer">
           {error ? (
-            <p className="form-error" role="alert">{error}</p>
+            <p id="template-json-validation" className="form-error" role="alert">{error}</p>
           ) : copied ? (
             <p className="hint" role="status">Copied JSON to clipboard.</p>
           ) : (

@@ -76,6 +76,7 @@ These paths assume the default install location. If you chose a different one, u
 | Turn on Google sign-in or email, change ports or upload limits | [Configuration](docs/configuration.md) |
 | Keep original documents locally or in S3, and view them beside results | [Keep original documents](docs/configuration.md#keep-original-documents) |
 | Compare models or templates | [Evaluations](docs/evaluations.md) |
+| Explain Template problems and review focused edits | [Template assistant](docs/template-assistant.md) |
 | Call the API from a script or application | [API specification](mkdocs/docs/api/overview.md) |
 | Work on the code | [Contributing](CONTRIBUTING.md) |
 

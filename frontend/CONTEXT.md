@@ -108,6 +108,14 @@ _Avoid_: form, prompt, extraction config
 An unsaved, model-proposed **Template** definition inferred from a user-provided file for review and editing before explicit saving. It may become a new Template or a revision of an existing Template.
 _Avoid_: automatically saved template, extraction result
 
+**Template assistant**:
+The Templates-only panel for explicitly requesting an explanation or focused edits to the current draft. Evidence, explanations, and proposals are temporary; opening the panel does not call the model. Shared deterministic diagnostics remain available in the Evaluation Template editor without model configuration.
+_Avoid_: persistent chat, automatic repair, Evaluation assistant
+
+**Template change group**:
+An indivisible proposed edit with before/after values, a rationale, dependencies, and any future output-identity impact. Users select valid groups and Apply updates only the current draft once; Save remains explicit. Draft, request, target, page, Workspace, and session changes invalidate the captured proposal even if text later becomes identical.
+_Avoid_: saved Template version, verified improvement
+
 **Selected upload Template**:
 The in-memory Template selection used for the next Document upload.
 _Avoid_: persisted extraction template, default template

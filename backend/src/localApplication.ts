@@ -1,3 +1,4 @@
+import { handleTemplateAssistance, handleTemplateSuggestions } from "./localTemplateAssistance";
 import { generateTemplate } from "./consumer/templateGeneration";
 import { ExtractionCancelledError, ModelGatewayRequestError, RetryableError } from "./consumer/modelGateway";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -47,7 +48,7 @@ const DEFAULT_JOB_PAGE_SIZE = 50;
 let activeJobExports = 0;
 
 /** Everything a Workspace product route needs; present only when the app has local state and control. */
-type ProductServices = {
+export type ProductServices = {
   auth: LocalAuth;
   access: LocalWorkspaceProductDataAccess;
   operations: LocalWorkspaceProductOperations;
@@ -156,11 +157,14 @@ export function createLocalApplication({
     }
     if (pathname.startsWith("/v1/") && request.headers.has("cookie") && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
       const rejection = localRequestOriginFailure(request, auth);
-      if (rejection) return rejection;
+      if (rejection) {
+        if (pathname.startsWith("/v1/templates/assist")) rejection.headers.set("cache-control", "no-store");
+        return rejection;
+      }
     }
     if (pathname.startsWith("/v1/evaluations/") && evaluations) return evaluations.handle(request);
     // Document uploads are streamed and bounded by their own multipart limits.
-    if (request.body && !(request.method === "POST" && ["/v1/extract", "/v1/templates/generate"].includes(pathname))) {
+    if (request.body && !(request.method === "POST" && ["/v1/extract", "/v1/templates/generate", "/v1/templates/assist"].includes(pathname))) {
       try {
         request = await boundLocalApiBody(request, maxJsonRequestBytes);
       } catch (error) {
@@ -216,6 +220,18 @@ export function createLocalApplication({
       return handleTemplateGeneration({ product, request, maxSourceFileBytes, modelGatewayRequestTimeoutMs });
     }
 
+    if (request.method === "POST" && pathname === "/v1/templates/assist/suggestions") {
+      if (!product) { const unavailable = productStoreUnavailable(); unavailable.headers.set("cache-control", "no-store"); return unavailable; }
+      return handleTemplateSuggestions({ product, request, modelGatewayRequestTimeoutMs });
+    }
+
+    const assistanceEvidenceMatch = pathname.match(/^\/v1\/templates\/assist\/evidence(?:\/([^/]+))?$/);
+    if ((request.method === "POST" && pathname === "/v1/templates/assist") || (request.method === "GET" && assistanceEvidenceMatch)) {
+      if (!product) { const unavailable = productStoreUnavailable(); unavailable.headers.set("cache-control", "no-store"); return unavailable; }
+      return handleTemplateAssistance({ product, request, maxSourceFileBytes, modelGatewayRequestTimeoutMs,
+        evidenceJobId: assistanceEvidenceMatch?.[1] ? decodeURIComponent(assistanceEvidenceMatch[1]) : undefined });
+    }
+
     const templateMatch = pathname.match(/^\/v1\/templates(?:\/([^/]+))?$/);
     if (templateMatch) {
       if (!product) return productStoreUnavailable();
@@ -266,7 +282,7 @@ export function createLocalApplication({
 }
 
 /** Authorizes the request, then runs `work` against its Workspace product store. */
-async function withAuthorizedProductStore(
+export async function withAuthorizedProductStore(
   product: ProductServices,
   request: Request,
   work: (context: { store: LocalWorkspaceProductStoreHandle; signal: AbortSignal; workspace: AuthorizedWorkspace }) => Response | Promise<Response>,

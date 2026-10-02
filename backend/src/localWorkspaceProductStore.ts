@@ -297,6 +297,7 @@ export type LocalWorkspaceProductStore = {
   /** The retained original for a job, or null when the job is absent or its original was not retained. */
   getRetainedSourceFile(jobId: string): LocalRetainedSourceFile | null;
   getExtractionJobExports(jobIds: string[]): LocalWorkspaceExtractionJobExport[];
+  getTemplateAssistantEvidence(jobId: string, maximumBytes: number): LocalWorkspaceExtractionJobExport | null;
   getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
   listTemplates(): LocalWorkspaceTemplate[];
   countExtractionJobs(): number;
@@ -309,6 +310,7 @@ export type LocalWorkspaceProductStore = {
     limit?: number;
     model?: string;
     search?: string;
+    status?: "completed";
   }): LocalWorkspaceExtractionJobSummary[];
   listRetainedTerminalSourceFiles(input: {
     failedBefore: string;
@@ -886,6 +888,15 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
        WHERE job_id = ? AND retained = 1 AND (retained_key IS NOT NULL OR deleted_at IS NULL)
        LIMIT 1`,
     ).get(jobId) as LocalRetainedSourceFile | null,
+    getTemplateAssistantEvidence: (jobId, maximumBytes) => database.transaction(() => {
+      const summary = readJobSummary(jobId);
+      if (!summary || summary.status !== "completed") return null;
+      const sizes = database.query(`SELECT COALESCE(SUM(length(CAST(COALESCE(answer_json, '') AS BLOB)) + length(CAST(COALESCE(evidence_text, '') AS BLOB))), 0) AS bytes FROM job_results WHERE job_id = ?`).get(jobId) as { bytes: number };
+      const fieldSize = database.query(`SELECT COALESCE(SUM(length(CAST(name AS BLOB)) + length(CAST(description AS BLOB))), 0) AS bytes FROM template_fields WHERE template_id = ? AND version = ?`).get(summary.template_id, summary.template_version) as { bytes: number };
+      if (sizes.bytes + fieldSize.bytes > maximumBytes) throw new RangeError("The selected results exceed the 128 KiB assistance evidence limit; choose a smaller result or omit it explicitly");
+      const row = database.query("SELECT name FROM templates WHERE id = ?").get(summary.template_id) as { name: string } | null;
+      return { ...readJob(jobId)!, template_name: row?.name || summary.template_id, fields: readTemplateFields(summary.template_id, summary.template_version) };
+    })(),
     getExtractionJobExports: (jobIds) => database.transaction(() => {
       if (!jobIds.length) return [];
       const placeholders = jobIds.map(() => "?").join(",");
@@ -968,6 +979,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
             OR LOWER(j.status) LIKE ? ESCAPE '\\')`);
         parameters.push(pattern, pattern, pattern, pattern);
       }
+      if (input.status) { clauses.push("j.status = ?"); parameters.push(input.status); }
       if (input.dateFrom) {
         clauses.push("j.created_at >= ?");
         parameters.push(`${input.dateFrom}T00:00:00.000Z`);

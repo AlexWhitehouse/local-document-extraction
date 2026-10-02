@@ -19,13 +19,16 @@ export default tseslint.config(
       "**/build/**",
       "**/coverage/**",
       "**/*.tsbuildinfo",
+      ".claude/worktrees/**",
+      ".scratch/**",
     ],
   },
   {
-    files: ["backend/**/*.ts", "scripts/**/*.ts"],
+    files: ["backend/**/*.ts", "shared/**/*.ts", "scripts/**/*.ts"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       ecmaVersion: "latest",
+      parserOptions: { tsconfigRootDir: import.meta.dirname },
       globals: {
         ...globals.node,
         ...globals.browser,
@@ -42,6 +45,7 @@ export default tseslint.config(
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       ecmaVersion: "latest",
+      parserOptions: { tsconfigRootDir: import.meta.dirname },
       globals: {
         ...globals.node,
         Bun: "readonly",
