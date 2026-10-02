@@ -419,8 +419,24 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   migrateProductSchema(database);
 
   const readModelConfiguration = (): StoredWorkspaceModelConfiguration | null => {
-    const row = database.query("SELECT gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output, revision, created_at, updated_at FROM workspace_model_configuration WHERE singleton = 1").get() as StoredWorkspaceModelConfiguration | null;
-    return row ? { ...row, sequential_calls: Boolean(row.sequential_calls), supports_pdf_input: Boolean(row.supports_pdf_input), supports_structured_output: Boolean(row.supports_structured_output) } : null;
+    const row = database.query(`SELECT gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output,
+      assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, revision, created_at, updated_at
+      FROM workspace_model_configuration WHERE singleton = 1`).get() as (Omit<StoredWorkspaceModelConfiguration, "assistant_model"> & {
+      assistant_model_name: string | null; assistant_supports_pdf_input: number | null; assistant_supports_structured_output: number | null;
+    }) | null;
+    if (!row) return null;
+    const { assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, ...fields } = row;
+    return {
+      ...fields,
+      sequential_calls: Boolean(row.sequential_calls),
+      supports_pdf_input: Boolean(row.supports_pdf_input),
+      supports_structured_output: Boolean(row.supports_structured_output),
+      assistant_model: assistant_model_name === null ? null : {
+        model_name: assistant_model_name,
+        supports_pdf_input: Boolean(assistant_supports_pdf_input),
+        supports_structured_output: Boolean(assistant_supports_structured_output),
+      },
+    };
   };
 
   const insertTemplateFields = (templateId: string, version: number, fields: FieldDefinition[]) => {
@@ -579,10 +595,14 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
         ON CONFLICT(singleton) DO UPDATE SET revision = revision + 1 RETURNING revision`).get() as { revision: number };
       const config = input.configuration;
       database.query(`INSERT OR REPLACE INTO workspace_model_configuration
-        (singleton, gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output, revision, created_at, updated_at)
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        (singleton, gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output,
+         assistant_model_name, assistant_supports_pdf_input, assistant_supports_structured_output, revision, created_at, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         config.gateway_url, config.model_name, config.credential_ciphertext,
         Number(config.sequential_calls), Number(config.supports_pdf_input), Number(config.supports_structured_output),
+        config.assistant_model?.model_name ?? null,
+        config.assistant_model ? Number(config.assistant_model.supports_pdf_input) : null,
+        config.assistant_model ? Number(config.assistant_model.supports_structured_output) : null,
         revision, current?.created_at ?? input.updatedAt, input.updatedAt,
       );
       return readModelConfiguration();
@@ -1290,6 +1310,11 @@ const PRODUCT_MIGRATIONS: Array<[version: number, sql: string]> = [
       retained_object_key TEXT,
       created_at TEXT NOT NULL
     );
+  `],
+  [9, `
+    ALTER TABLE workspace_model_configuration ADD COLUMN assistant_model_name TEXT;
+    ALTER TABLE workspace_model_configuration ADD COLUMN assistant_supports_pdf_input INTEGER CHECK (assistant_supports_pdf_input IN (0, 1));
+    ALTER TABLE workspace_model_configuration ADD COLUMN assistant_supports_structured_output INTEGER CHECK (assistant_supports_structured_output IN (0, 1));
   `],
 ];
 

@@ -38,7 +38,7 @@ API keys can read and modify templates, submit documents, generate template draf
 
 Missing authentication returns `401 unauthorized`. A supplied but invalid API key returns `403 forbidden`. Resources in another Workspace are not accessible with your key.
 
-Template CRUD and existing result reads do not require a model gateway. Extraction and template generation require a usable Workspace model configuration: missing configuration returns `409 workspace_model_not_configured`; an unreadable saved credential returns `503 workspace_model_configuration_unavailable`.
+Template CRUD and existing result reads do not require a model gateway. Extraction and template generation require a usable Workspace model configuration: missing configuration returns `409 workspace_model_not_configured`; an unreadable saved credential returns `503 workspace_model_configuration_unavailable`. Template generation calls the Workspace's Template assistant model, which is the extraction model unless an owner or admin chose a different one.
 
 ## Endpoint index
 

@@ -17,7 +17,7 @@ import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { handleWorkspaceModelConfiguration } from "./workspaceModelConfigurationHttp";
-import { configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
+import { assistantModelEnvironment, configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 import type { FetchApplication } from "./localRuntime";
 import type { LocalSourceStorageConfiguration } from "./localConfiguration";
 import type { LocalSourceObjectManifest } from "./localSourceObjectManifest";
@@ -323,16 +323,11 @@ function handleTemplateGeneration({
       if (sample.source.mimeType === "application/pdf") {
         await countLocalSourceFilePages(sample.source.mimeType, await Bun.file(temporaryPath).arrayBuffer(), signal);
       }
-      const template = await generateTemplate({
-        AI_MODEL: configuration.model_name,
-        MODEL_GATEWAY_URL: configuration.gateway_url,
-        LITELLM_KEY: credential,
-        MODEL_GATEWAY_SEQUENTIAL_CALLS: String(configuration.sequential_calls),
-        MODEL_SUPPORTS_PDF_INPUT: String(configuration.supports_pdf_input),
-        MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(configuration.supports_structured_output),
-        MODEL_GATEWAY_WORKSPACE_ID: workspace.id,
-        MODEL_GATEWAY_REQUEST_TIMEOUT_MS: modelGatewayRequestTimeoutMs,
-      }, Bun.file(temporaryPath), sample.source.mimeType, sample.instructions || "", signal);
+      const template = await generateTemplate(assistantModelEnvironment(configuration, {
+        credential,
+        workspaceId: workspace.id,
+        requestTimeoutMs: modelGatewayRequestTimeoutMs,
+      }), Bun.file(temporaryPath), sample.source.mimeType, sample.instructions || "", signal);
       return Response.json(template, { headers: { "cache-control": "no-store" } });
     } catch (error) {
       if (signal.aborted || error instanceof ExtractionCancelledError) {

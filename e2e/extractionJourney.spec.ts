@@ -36,7 +36,8 @@ test("a new user completes a Document Extraction job without email verification 
     expect(await readdir(join(harness.stateDirectory, "mail"))).toEqual([]);
 
     await saveModelGateway(page, harness, "browser/model");
-    await expect(page.getByLabel("Gateway API key", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Gateway API key", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("article", { name: "Workspace Model gateway" }).getByText("browser/model", { exact: true })).toBeVisible();
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("button", { name: /Templates/ }).click();

@@ -5,6 +5,13 @@ import { join } from "node:path";
 import { HttpError } from "./lib/http";
 import { assertRealStateDirectorySync, assertRegularStateFileSync, ensurePrivateStateDirectorySync } from "./localStatePaths";
 
+/** A model used for Template authoring instead of the extraction model. Shares the gateway URL, credential and call behavior. */
+export type WorkspaceAssistantModel = {
+  model_name: string;
+  supports_pdf_input: boolean;
+  supports_structured_output: boolean;
+};
+
 export type WorkspaceModelDraft = {
   gateway_url: string;
   model_name: string;
@@ -12,6 +19,8 @@ export type WorkspaceModelDraft = {
   sequential_calls: boolean;
   supports_pdf_input: boolean;
   supports_structured_output: boolean;
+  /** Absent or null: Template authoring uses the extraction model. */
+  assistant_model?: WorkspaceAssistantModel | null;
 };
 
 export type StoredWorkspaceModelConfiguration = Omit<WorkspaceModelDraft, "credential"> & {
@@ -25,10 +34,10 @@ export function validateWorkspaceModelDraft(value: unknown): WorkspaceModelDraft
   const invalid = () => new HttpError(400, "invalid_workspace_model_configuration", "Provide a complete, valid Workspace model configuration.");
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const input = value as Record<string, unknown>;
-  const allowed = ["gateway_url", "model_name", "credential", "sequential_calls", "supports_pdf_input", "supports_structured_output"];
+  const allowed = ["gateway_url", "model_name", "credential", "sequential_calls", "supports_pdf_input", "supports_structured_output", "assistant_model"];
   if (Object.keys(input).some((key) => !allowed.includes(key))) throw invalid();
-  const bounded = (key: string, limit: number) => {
-    const raw = input[key];
+  const bounded = (key: string, limit: number, source: Record<string, unknown> = input) => {
+    const raw = source[key];
     if (typeof raw !== "string" || !raw.trim() || raw.trim().length > limit || /[\r\n\0]/.test(raw)) throw invalid();
     return raw.trim();
   };
@@ -36,7 +45,17 @@ export function validateWorkspaceModelDraft(value: unknown): WorkspaceModelDraft
   let url: URL;
   try { url = new URL(gateway_url); } catch { throw invalid(); }
   if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash || gateway_url.includes("?") || gateway_url.includes("#")) throw invalid();
-  for (const key of allowed.slice(3)) if (typeof input[key] !== "boolean") throw invalid();
+  for (const key of ["sequential_calls", "supports_pdf_input", "supports_structured_output"]) if (typeof input[key] !== "boolean") throw invalid();
+  let assistant_model: WorkspaceAssistantModel | null = null;
+  const rawAssistant = input.assistant_model;
+  if (rawAssistant !== undefined && rawAssistant !== null) {
+    if (typeof rawAssistant !== "object" || Array.isArray(rawAssistant)) throw invalid();
+    const assistant = rawAssistant as Record<string, unknown>;
+    const assistantKeys = ["model_name", "supports_pdf_input", "supports_structured_output"];
+    if (Object.keys(assistant).some((key) => !assistantKeys.includes(key))) throw invalid();
+    if (typeof assistant.supports_pdf_input !== "boolean" || typeof assistant.supports_structured_output !== "boolean") throw invalid();
+    assistant_model = { model_name: bounded("model_name", 256, assistant), supports_pdf_input: assistant.supports_pdf_input, supports_structured_output: assistant.supports_structured_output };
+  }
   return {
     gateway_url,
     model_name: bounded("model_name", 256),
@@ -44,6 +63,28 @@ export function validateWorkspaceModelDraft(value: unknown): WorkspaceModelDraft
     sequential_calls: input.sequential_calls as boolean,
     supports_pdf_input: input.supports_pdf_input as boolean,
     supports_structured_output: input.supports_structured_output as boolean,
+    assistant_model,
+  };
+}
+
+/** The model Template authoring (assistant, suggestions, Auto generate) should call. */
+export function assistantModelOf(configuration: Omit<WorkspaceModelDraft, "credential">): Omit<WorkspaceModelDraft, "credential" | "assistant_model"> {
+  const { assistant_model, ...extraction } = configuration;
+  return assistant_model ? { ...extraction, ...assistant_model } : extraction;
+}
+
+/** Gateway environment for a Template authoring call; extraction keeps its own job-scoped setup. */
+export function assistantModelEnvironment(configuration: Omit<WorkspaceModelDraft, "credential">, input: { credential: string; workspaceId: string; requestTimeoutMs: string }) {
+  const model = assistantModelOf(configuration);
+  return {
+    AI_MODEL: model.model_name,
+    MODEL_GATEWAY_URL: model.gateway_url,
+    LITELLM_KEY: input.credential,
+    MODEL_GATEWAY_SEQUENTIAL_CALLS: String(model.sequential_calls),
+    MODEL_SUPPORTS_PDF_INPUT: String(model.supports_pdf_input),
+    MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(model.supports_structured_output),
+    MODEL_GATEWAY_WORKSPACE_ID: input.workspaceId,
+    MODEL_GATEWAY_REQUEST_TIMEOUT_MS: input.requestTimeoutMs,
   };
 }
 
@@ -144,6 +185,7 @@ export function publicModelConfiguration(record: StoredWorkspaceModelConfigurati
     sequential_calls: record.sequential_calls,
     supports_pdf_input: record.supports_pdf_input,
     supports_structured_output: record.supports_structured_output,
+    assistant_model: record.assistant_model ?? null,
     revision: record.revision,
     created_at: record.created_at,
     updated_at: record.updated_at,

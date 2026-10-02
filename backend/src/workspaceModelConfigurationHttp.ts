@@ -82,14 +82,25 @@ export async function handleWorkspaceModelConfiguration(input: {
   }
 }
 
+/** Tests the extraction model and, when it differs, the Template assistant model. Reports the first failing model's role. */
 export async function testWorkspaceModelConnection(draft: WorkspaceModelDraft, credential: string, signal?: AbortSignal): Promise<Response> {
+  const models: Array<[role: "extraction" | "assistant", model: string]> = [["extraction", draft.model_name]];
+  if (draft.assistant_model && draft.assistant_model.model_name !== draft.model_name) models.push(["assistant", draft.assistant_model.model_name]);
+  for (const [role, model] of models) {
+    const failure = await testModel(draft.gateway_url, model, role, credential, signal);
+    if (failure) return failure;
+  }
+  return Response.json({ status: "passed", tested_models: models.map(([model_role, model_name]) => ({ model_role, model_name })) }, { headers: noStore });
+}
+
+async function testModel(gatewayUrl: string, model: string, model_role: string, credential: string, signal?: AbortSignal): Promise<Response | null> {
   const timeout = AbortSignal.timeout(30_000);
-  const error = (status: number, code: string, message: string, gateway_status?: number) => Response.json({ error: { code, message, ...(gateway_status === undefined ? {} : { gateway_status }) } }, { status, headers: noStore });
+  const error = (status: number, code: string, message: string, gateway_status?: number) => Response.json({ error: { code, message, model_role, ...(gateway_status === undefined ? {} : { gateway_status }) } }, { status, headers: noStore });
   try {
-    const response = await fetch(buildChatCompletionsUrl({ MODEL_GATEWAY_URL: draft.gateway_url }), {
+    const response = await fetch(buildChatCompletionsUrl({ MODEL_GATEWAY_URL: gatewayUrl }), {
       method: "POST", redirect: "manual",
       headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
-      body: JSON.stringify({ model: draft.model_name, messages: [{ role: "user", content: "Reply with OK." }] }),
+      body: JSON.stringify({ model, messages: [{ role: "user", content: "Reply with OK." }] }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
     if (!response.ok) {
@@ -104,7 +115,7 @@ export async function testWorkspaceModelConnection(draft: WorkspaceModelDraft, c
       if (timeout.aborted) return error(504, "model_gateway_test_timeout", "The Model gateway test timed out.");
       return error(502, "model_gateway_test_invalid_response", "The Model gateway returned no readable assistant response.");
     }
-    return Response.json({ status: "passed" }, { headers: noStore });
+    return null;
   } catch {
     return timeout.aborted
       ? error(504, "model_gateway_test_timeout", "The Model gateway test timed out.")
