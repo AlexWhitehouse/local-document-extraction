@@ -1,3 +1,7 @@
+import { effectiveDocumentProcessingPolicy } from "./workspaceDocumentProcessing";
+import { handleWorkspaceDocumentProcessingSettings } from "./workspaceDocumentProcessingHttp";
+import { handleDocumentProcessingRequest, publicDocumentPacket } from "./localDocumentProcessingHttp";
+import { materializePdfPages, validatePdfPageSelection, PdfPageSelectionError } from "./lib/pdfPageOperations";
 import { handleTemplateAssistance, handleTemplateSuggestions } from "./localTemplateAssistance";
 import { generateTemplate } from "./consumer/templateGeneration";
 import { ExtractionCancelledError, ModelGatewayRequestError, RetryableError } from "./consumer/modelGateway";
@@ -64,7 +68,7 @@ export type ProductServices = {
 export type LocalRetainedSourceObjects = {
   store: SourceObjectStore;
   manifest: Pick<LocalSourceObjectManifest, "prepare" | "link" | "markDeleting" | "markJobDeleting" | "markWorkspaceDeleting">;
-  keyFor(input: { workspaceId: string; jobId: string; mimeType: string }): string;
+  keyFor(input: { workspaceId: string; jobId: string; mimeType: string; ownerKind?: "job" | "packet" }): string;
   /** Concurrent remote preview/download streams, so reads cannot starve uploads and cleanup. */
   maxConcurrentReads?: number;
 };
@@ -186,6 +190,20 @@ export function createLocalApplication({
         service: "document-extraction-api",
         ...(diagnostics ? { diagnostics: diagnostics() } : {}),
       });
+    }
+
+    const processingSettingsMatch = pathname.match(/^\/v1\/workspaces\/([^/]+)\/document-processing-settings$/);
+    if (processingSettingsMatch) {
+      if (!product) return productStoreUnavailable();
+      return handleWorkspaceDocumentProcessingSettings({ request, workspaceId: decodeURIComponent(processingSettingsMatch[1]!), auth: product.auth, workspaceControl: product.workspaceControl, access: product.access });
+    }
+    if (pathname === "/v1/document-processing-settings" && request.method === "GET") {
+      if (!product) return productStoreUnavailable();
+      return withAuthorizedProductStore(product,request,({store})=>Response.json(store.getDocumentProcessingSettings(),{headers:{"cache-control":"no-store"}}));
+    }
+    if (pathname === "/v1/packets" || pathname.startsWith("/v1/packets/") || /^\/v1\/jobs\/[^/]+\/template$/.test(pathname)) {
+      if (!product) return productStoreUnavailable();
+      return handleDocumentProcessingRequest({product,request,scheduleQueuedJob,liveUpdateHub});
     }
 
     const modelConfigurationMatch = pathname.match(/^\/v1\/workspaces\/([^/]+)\/model-configuration(\/test)?$/);
@@ -489,7 +507,10 @@ function handleLocalDocumentSubmission({
       let sourceByteSize: number;
       let sourceBytes: ArrayBuffer;
       let temporaryPath: string | null = null;
-      let templateId: string;
+      let templateId: string | null;
+      let templateTags: string[] = [];
+      let pages: number[] | null = null;
+      const processingPolicy = effectiveDocumentProcessingPolicy(productStore.getDocumentProcessingSettings());
       if (sourceFileStore.promoteTemporary) {
         const streamed = await parseLocalMultipartSubmission({
           maxSourceFileBytes: maximumBytes,
@@ -497,6 +518,8 @@ function handleLocalDocumentSubmission({
           stateDirectory,
         });
         templateId = streamed.templateId;
+        templateTags = streamed.templateTags ?? [];
+        pages = streamed.pages ?? null;
         sourceMimeType = streamed.source.mimeType;
         sourceName = streamed.source.name.trim() || null;
         sourceByteSize = streamed.source.size;
@@ -504,19 +527,30 @@ function handleLocalDocumentSubmission({
       } else {
         const validated = await validateExtractRequest(request, maximumBytes);
         templateId = validated.templateId;
+        templateTags = validated.templateTags;
+        pages = validated.pages;
         sourceMimeType = validated.source.type;
         sourceName = validated.source.name.trim() || null;
         sourceByteSize = validated.source.size;
         sourceBytes = await validated.source.arrayBuffer();
       }
       try {
-        const template = productStore.getSubmissionTemplate(templateId);
-        if (!template) throw new HttpError(404, "template_not_found", "Template not found");
+        const template = templateId ? productStore.getSubmissionTemplate(templateId) : null;
+        if (templateId && !template) throw new HttpError(404, "template_not_found", "Template not found");
         if (temporaryPath && sourceMimeType === "application/pdf") sourceBytes = await Bun.file(temporaryPath).arrayBuffer();
-        const sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!, signal);
+        let sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!, signal);
+        if (pages) validatePdfPageSelection(pages, sourceFilePageCount!);
+        const isPacket = sourceMimeType === "application/pdf" && processingPolicy.enable_smart_splitting;
+        const selectedPages = sourceFilePageCount ? pages ?? Array.from({length:sourceFilePageCount},(_,index)=>index+1) : [];
+        if (pages && !isPacket) {
+          const selected = await materializePdfPages(sourceBytes!, pages, signal);
+          sourceBytes = Uint8Array.from(selected).buffer;
+          sourceFilePageCount = pages.length;
+          if (temporaryPath) { await rm(temporaryPath,{force:true}); temporaryPath=null; }
+        }
         signal.throwIfAborted();
-        const templateFieldCount = productStore.getTemplate(template.template_id)?.fields.length ?? 0;
-        const jobId = newId("job");
+        const templateFieldCount = template ? productStore.getTemplate(template.template_id)?.fields.length ?? 0 : 0;
+        const jobId = newId(isPacket ? "pkt" : "job");
         const submittedAt = nowIso();
         const sourceFileKey = temporaryPath
           ? await sourceFileStore.promoteTemporary!({ workspaceId, jobId, mimeType: sourceMimeType, temporaryPath })
@@ -524,15 +558,30 @@ function handleLocalDocumentSubmission({
         temporaryPath = null;
         sourceBytes = new ArrayBuffer(0);
         const retainedObjectKey = sourceRetained && sourceStorage.provider === "s3"
-          ? await publishRetainedOriginal({ product, workspaceId, jobId, sourceFileKey, sourceMimeType, signal })
+          ? await publishRetainedOriginal({ product, workspaceId, jobId, sourceFileKey, sourceMimeType, signal, ownerKind: isPacket ? "packet" : "job" })
           : null;
 
+        if (isPacket) {
+          let packet;
+          try {
+            packet=productStore.createDocumentPacket({packetId:jobId,templateId:template?.template_id??null,templateVersion:template?.template_version??null,templateTags,selectedPages,processingPolicy,sourceFileKey,sourceMimeType,sourceName,sourceFilePageCount:sourceFilePageCount!,sourceRetained,retainedObjectKey,submittedAt});
+          } catch (error) {
+            if (!productStore.getDocumentPacket(jobId)) { if(retainedObjectKey) product.sourceObjects!.manifest.markDeleting({objectKey:retainedObjectKey}); await deleteLocalSourceFileQuietly(sourceFileStore,sourceFileKey); }
+            throw error;
+          }
+          if(retainedObjectKey) { try { product.sourceObjects!.manifest.link({objectKey:retainedObjectKey}); } catch { /* Durable reconciliation links accepted originals. */ } }
+          try { await scheduleQueuedJob({kind:"packet",job_id:jobId,workspace_id:workspaceId,template_id:packet.template_id,template_version:packet.template_version,enqueued_at:submittedAt}); }
+          catch { /* The durable packet will be picked up by recovery. */ }
+          return Response.json(publicDocumentPacket(packet),{status:202,headers:{"cache-control":"no-store",location:`/v1/packets/${jobId}`,"retry-after":"2"}});
+        }
         let queued;
         try {
           queued = productStore.createQueuedExtractionJob({
             jobId,
-            templateId: template.template_id,
-            templateVersion: template.template_version,
+            templateId: template?.template_id ?? null,
+            templateVersion: template?.template_version ?? null,
+            ...(templateTags.length || !template ? {templateTags} : {}),
+            ...(pages ? {sourcePages:pages} : {}),
             sourceFileKey,
             sourceMimeType,
             sourceName,
@@ -564,7 +613,7 @@ function handleLocalDocumentSubmission({
         } catch (error) {
           console.warn("Queued Document live update failed", error);
         }
-        recordLocalProductAnalytics(productAnalytics, {
+        if (template) recordLocalProductAnalytics(productAnalytics, {
           type: "document_submitted",
           workspaceId,
           templateId: template.template_id,
@@ -580,8 +629,8 @@ function handleLocalDocumentSubmission({
           await scheduleQueuedJob({
             job_id: jobId,
             workspace_id: workspaceId,
-            template_id: template.template_id,
-            template_version: template.template_version,
+            template_id: template?.template_id ?? null,
+            template_version: template?.template_version ?? null,
             enqueued_at: submittedAt,
           });
         } catch (error) {
@@ -597,7 +646,7 @@ function handleLocalDocumentSubmission({
             if (failed) {
               const failedJob = productStore.getExtractionJob(jobId);
               if (failedJob) liveUpdateHub?.broadcastJob(workspaceId, failedJob);
-              recordLocalProductAnalytics(productAnalytics, {
+              if (template) recordLocalProductAnalytics(productAnalytics, {
                 type: "extraction_failed",
                 workspaceId,
                 templateId: template.template_id,
@@ -632,6 +681,8 @@ function handleLocalDocumentSubmission({
         return errorResponse(503, "source_storage_unavailable", "The original document couldn't be saved. Please try again.", { "cache-control": "no-store", "retry-after": "5" });
       }
       if (signal.aborted) return errorResponse(499, "document_submission_cancelled", "Document submission cancelled");
+      if (error instanceof PdfPageSelectionError || error instanceof InvalidPdfSourceFileError || error instanceof PdfSourceFileLimitError) return errorResponse(400,error.code,error.message);
+      if (error instanceof PdfSourceFileCapacityError) return errorResponse(503,error.code,error.message);
       if (error instanceof HttpError) return httpErrorResponse(error);
       return errorResponse(500, "document_submission_failed", "Document submission could not be queued");
     }
@@ -881,11 +932,13 @@ function sourceRetentionSettings(sourceStorage: LocalSourceStorageConfiguration,
  * Streams a retained original. Workspace access is checked on every request; only the product
  * store's retained flag grants retrieval, so processing-only files are never served.
  */
-function handleRetainedSourceFileRead({ product, jobId, request }: { product: ProductServices; jobId: string; request: Request }): Promise<Response> {
+export function handleRetainedSourceFileRead({ product, jobId, request, packet = false }: { product: ProductServices; jobId: string; request: Request; packet?: boolean }): Promise<Response> {
   const noStore = { "cache-control": "private, no-store" };
   return withAuthorizedProductStore(product, request, async ({ store }) => {
-    if (!store.getExtractionJobSummary(jobId)) return errorResponse(404, "not_found", "Job not found", noStore);
-    const retained = store.getRetainedSourceFile(jobId);
+    const owner = packet ? store.getDocumentPacket(jobId) : store.getExtractionJobSummary(jobId);
+    if (!owner) return errorResponse(404, "not_found", "Document not found", noStore);
+    const held = packet ? ["queued","processing","awaiting_review","materializing"].includes(owner.status) : owner.status === "awaiting_template";
+    const retained = held ? store.getProcessingSource(jobId) : store.getRetainedSourceFile(jobId);
     if (!retained) return errorResponse(404, "source_not_retained", "The original document was not retained", noStore);
     const unavailable = () => errorResponse(503, "source_unavailable", "The original document is temporarily unavailable", { ...noStore, "retry-after": "5" });
     const headers = new Headers({
@@ -953,10 +1006,11 @@ class SourceStorageUnavailableError extends Error {}
  * Saves a retained original to object storage before its job is accepted. The manifest entry is
  * recorded first so a crash or late write can always be found and cleaned up.
  */
-async function publishRetainedOriginal({ product, workspaceId, jobId, sourceFileKey, sourceMimeType, signal }: {
+async function publishRetainedOriginal({ product, workspaceId, jobId, sourceFileKey, sourceMimeType, signal, ownerKind = "job" }: {
   product: ProductServices;
   workspaceId: string;
   jobId: string;
+  ownerKind?: "job" | "packet";
   sourceFileKey: string;
   sourceMimeType: string;
   signal: AbortSignal;
@@ -967,8 +1021,8 @@ async function publishRetainedOriginal({ product, workspaceId, jobId, sourceFile
     await deleteLocalSourceFileQuietly(product.sourceFileStore, sourceFileKey);
     throw new SourceStorageUnavailableError("Object storage is not available for retained originals");
   }
-  const objectKey = objects.keyFor({ workspaceId, jobId, mimeType: sourceMimeType });
-  objects.manifest.prepare({ objectKey, workspaceId, ownerKind: "job", ownerId: jobId });
+  const objectKey = objects.keyFor({ workspaceId, jobId, mimeType: sourceMimeType, ownerKind });
+  objects.manifest.prepare({ objectKey, workspaceId, ownerKind, ownerId: jobId });
   try {
     await objects.store.put({ key: objectKey, file, mimeType: sourceMimeType });
     signal.throwIfAborted();
@@ -1021,6 +1075,7 @@ function extractionJobEntityTag(workspaceId: string, job: LocalWorkspaceExtracti
     job.current_attempt,
     job.completed_attempt,
     job.last_failed_attempt,
+    job.template_tags,job.routing_status,job.selection_reason,job.routing_rounds,job.selection_mode,job.parent_packet_id,job.source_pages,
   ]);
   const digest = createHash("sha256").update(visibleRepresentation).digest("hex");
   return `W/"job-v1-${digest}"`;
@@ -1196,11 +1251,11 @@ async function passwordPolicyFailure(request: Request, url: URL): Promise<Respon
   return errorResponse(400, "password_policy_not_met", "Password must meet all complexity requirements.");
 }
 
-function errorResponse(status: number, code: string, message: string, headers?: HeadersInit): Response {
+export function errorResponse(status: number, code: string, message: string, headers?: HeadersInit): Response {
   return Response.json({ error: { code, message } }, { status, headers });
 }
 
-function httpErrorResponse(error: HttpError): Response {
+export function httpErrorResponse(error: HttpError): Response {
   return errorResponse(error.status, error.code, error.message);
 }
 

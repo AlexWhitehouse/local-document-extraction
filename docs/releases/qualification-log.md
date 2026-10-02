@@ -50,3 +50,11 @@ On 2026-09-23, all three assets downloaded without GitHub authentication. The ex
 ## Bun 1.4.2 qualification (2026-09-23)
 
 Bun 1.4.2 qualification on 2026-09-23 passed on macOS arm64 with the root runtime declaration and root/backend `bun-types` pins aligned at 1.4.2. The frozen install and complete `bun run ci` passed (typechecks, lint, 317 backend tests plus the runtime smoke test, 289 frontend tests, coverage, build, three browser-evidence tests, and all five browser journeys). All ten installer integration tests passed with 73 assertions, including verification that the installed application-owned Bun matches the 1.4.2 pin. This is local macOS evidence; Linux qualification remains the CI lane's responsibility.
+
+## v1.0.0 candidate verification (2026-10-02)
+
+The final automatic-processing candidate passed `bun run ci` on macOS arm64 with pinned Bun 1.4.2: typechecks, lint, 533 backend tests plus the runtime smoke test, 480 frontend tests, coverage, build, three browser-evidence checks, and all 13 Chromium journeys. Regression coverage includes tag routing, split review, blank completion, single-document presentation, preview lifetime, packet pagination, child-load retries, and pending settings saves.
+
+All 18 installer/configuration tests passed, including clean installation, native PDF rendering, upgrade preservation, backup restoration, and controlled failures. Production package hygiene reported zero advisories and zero compatible duplicates. The strict MkDocs build, documentation links and JSON examples, and Postman request/response scripts also passed validation.
+
+These are local candidate checks, not a claim that a tag has already passed multi-platform CI. The release workflow rechecks the exact tag on Ubuntu 24.04 x64/arm64 and macOS 15 arm64 before publication. Published-asset checks and the isolated upgrade from the published v0.2.0 release are recorded with the [v1.0.0 release](https://github.com/AlexWhitehouse/local-document-extraction/releases/tag/v1.0.0). Intel macOS, live Google sign-in, and live Cloudflare email delivery were not qualified in this local run.

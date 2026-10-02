@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { getActionToast, getDocumentUploadToast } from "./toastNotifications.js";
 
 describe("app action toast notifications", () => {
+  it("reports Workspace setting changes and model gateway results", () => {
+    expect(getActionToast("workspace.documentProcessing", "success", { setting: "Smart splitting", enabled: true }).message).toBe("Smart splitting turned on");
+    expect(getActionToast("workspace.sourceRetention", "success", { enabled: false }).message).toBe("New uploads will keep only their extraction results");
+    expect(getActionToast("workspace.modelGateway.save", "success")).toEqual({ severity: "success", message: "Model gateway saved" });
+    expect(getActionToast("workspace.modelGateway.test", "failure", { message: "Connection test failed. Check the credential." }))
+      .toEqual({ severity: "error", message: "Connection test failed. Check the credential." });
+  });
+
   it("confirms Workspace creation with a human-readable target name", () => {
     expect(
       getActionToast("workspace.create", "success", {

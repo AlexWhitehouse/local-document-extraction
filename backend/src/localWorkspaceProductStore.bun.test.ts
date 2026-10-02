@@ -413,8 +413,8 @@ test("authenticated local Document submission queues the selected Template and n
   const scheduledJobs: Array<{
     job_id: string;
     workspace_id: string;
-    template_id: string;
-    template_version: number;
+    template_id: string | null;
+    template_version: number | null;
     enqueued_at: string;
   }> = [];
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];

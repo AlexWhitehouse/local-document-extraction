@@ -1,6 +1,11 @@
 import React, { useState } from "react";
 import "./WorkspaceModelConfiguration.css";
 
+const TASK_ROLES = [
+  ["assistant", "Template assistant", "Assistant, suggestions and Auto generate"],
+  ["classification", "Document classification & splitting", "Template selection and document boundaries"],
+];
+
 const CAPABILITIES = [
   ["supports_pdf_input", "Direct PDF input", "PDF"],
   ["supports_structured_output", "Structured output", "Structured"],
@@ -18,8 +23,6 @@ export function WorkspaceModelConfiguration({ controller }) {
     testing,
     error,
     conflict,
-    feedback,
-    testResult,
   } = controller;
   const configured = Boolean(record?.configured);
   const unavailable = canManage && record?.credential_status === "unavailable";
@@ -125,7 +128,6 @@ export function WorkspaceModelConfiguration({ controller }) {
                 </div>
               </dl>
               <ModelRoles record={record} />
-              <ConfigurationFeedback testResult={testResult} feedback={feedback} />
               <div className="workspace-model-actions">
                 <div>
                   <button
@@ -244,7 +246,6 @@ export function WorkspaceModelConfiguration({ controller }) {
                   Reload configuration
                 </button>
               ) : null}
-              <ConfigurationFeedback testResult={testResult} feedback={feedback} />
               <div className="workspace-model-actions">
                 <div>
                   <button
@@ -332,30 +333,6 @@ export function WorkspaceModelConfiguration({ controller }) {
   );
 }
 
-function ConfigurationFeedback({ testResult, feedback }) {
-  return (
-    <>
-      {testResult ? (
-        <p
-          role="status"
-          className={
-            testResult.passed
-              ? "workspace-model-test passed"
-              : "workspace-model-test"
-          }
-        >
-          {testResult.message}
-        </p>
-      ) : null}
-      {feedback ? (
-        <p role="status" className="workspace-model-test passed">
-          {feedback}
-        </p>
-      ) : null}
-    </>
-  );
-}
-
 function RoleHeading({ title, note }) {
   return (
     <th scope="row">
@@ -384,7 +361,6 @@ function RolesTable({ label, children }) {
 
 /** Read-only view of which model each use calls. */
 function ModelRoles({ record }) {
-  const assistant = record.assistant_model;
   const capability = (values, field, title) => (
     <td key={field}>
       <span className={values[field] ? "workspace-model-flag on" : "workspace-model-flag"}>
@@ -399,19 +375,23 @@ function ModelRoles({ record }) {
         <td><code>{record.model_name}</code></td>
         {CAPABILITIES.map(([field, title]) => capability(record, field, title))}
       </tr>
-      <tr className={assistant ? "" : "inherited"}>
-        <RoleHeading title="Template assistant" note="Assistant, suggestions and Auto generate" />
-        <td>
-          {assistant ? <code>{assistant.model_name}</code> : <span className="workspace-model-inherited">Same as extraction</span>}
-        </td>
-        {CAPABILITIES.map(([field, title]) => capability(assistant ?? record, field, title))}
-      </tr>
+      {TASK_ROLES.map(([role, title, note]) => {
+        const model = record[`${role}_model`];
+        return (
+          <tr key={role} className={model ? "" : "inherited"}>
+            <RoleHeading title={title} note={note} />
+            <td>
+              {model ? <code>{model.model_name}</code> : <span className="workspace-model-inherited">Same as extraction</span>}
+            </td>
+            {CAPABILITIES.map(([field, capabilityTitle]) => capability(model ?? record, field, capabilityTitle))}
+          </tr>
+        );
+      })}
     </RolesTable>
   );
 }
 
 function ModelRolesEditor({ draft, update }) {
-  const custom = draft.assistant_mode === "custom";
   return (
     <RolesTable label="Models">
       <tr>
@@ -438,43 +418,48 @@ function ModelRolesEditor({ draft, update }) {
           </td>
         ))}
       </tr>
-      <tr className={custom ? "" : "inherited"}>
-        <RoleHeading title="Template assistant" note="Assistant, suggestions and Auto generate" />
-        <td>
-          <div className="workspace-model-role-model">
-            <select
-              aria-label="Template assistant model source"
-              value={draft.assistant_mode}
-              onChange={(event) => update("assistant_mode", event.target.value)}
-            >
-              <option value="same">Same as extraction</option>
-              <option value="custom">Different model</option>
-            </select>
-            {custom ? (
-              <input
-                aria-label="Template assistant model"
-                required
-                maxLength={256}
-                value={draft.assistant_model_name}
-                onChange={(event) => update("assistant_model_name", event.target.value)}
-                placeholder="provider/model"
-                spellCheck="false"
-              />
-            ) : null}
-          </div>
-        </td>
-        {CAPABILITIES.map(([field, title]) => (
-          <td key={field}>
-            <input
-              type="checkbox"
-              aria-label={`Template assistant: ${title}`}
-              checked={custom ? draft[`assistant_${field}`] : draft[field]}
-              disabled={!custom}
-              onChange={(event) => update(`assistant_${field}`, event.target.checked)}
-            />
-          </td>
-        ))}
-      </tr>
+      {TASK_ROLES.map(([role, title, note]) => {
+        const custom = draft[`${role}_mode`] === "custom";
+        return (
+          <tr key={role} className={custom ? "" : "inherited"}>
+            <RoleHeading title={title} note={note} />
+            <td>
+              <div className="workspace-model-role-model">
+                <select
+                  aria-label={`${title} model source`}
+                  value={draft[`${role}_mode`]}
+                  onChange={(event) => update(`${role}_mode`, event.target.value)}
+                >
+                  <option value="same">Same as extraction</option>
+                  <option value="custom">Different model</option>
+                </select>
+                {custom ? (
+                  <input
+                    aria-label={`${title} model`}
+                    required
+                    maxLength={256}
+                    value={draft[`${role}_model_name`]}
+                    onChange={(event) => update(`${role}_model_name`, event.target.value)}
+                    placeholder="provider/model"
+                    spellCheck="false"
+                  />
+                ) : null}
+              </div>
+            </td>
+            {CAPABILITIES.map(([field, capabilityTitle]) => (
+              <td key={field}>
+                <input
+                  type="checkbox"
+                  aria-label={`${title}: ${capabilityTitle}`}
+                  checked={custom ? draft[`${role}_${field}`] : draft[field]}
+                  disabled={!custom}
+                  onChange={(event) => update(`${role}_${field}`, event.target.checked)}
+                />
+              </td>
+            ))}
+          </tr>
+        );
+      })}
     </RolesTable>
   );
 }

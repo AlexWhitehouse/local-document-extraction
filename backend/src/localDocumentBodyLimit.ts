@@ -1,6 +1,6 @@
 import { HttpError } from "./lib/http";
 
-export const LOCAL_MULTIPART_MAX_FIELDS = 3;
+export const LOCAL_MULTIPART_MAX_FIELDS = 4;
 export const LOCAL_MULTIPART_FIELD_BYTES = 8 * 1024;
 const LOCAL_MULTIPART_FRAMING_ALLOWANCE_BYTES = 8 * 1024;
 export const LOCAL_MULTIPART_ENVELOPE_ALLOWANCE_BYTES =

@@ -5,23 +5,91 @@ import {
 } from "./ExtractionResultDisplay.jsx";
 import { SourceFilePreview } from "./SourceFilePreview.jsx";
 import "./DocumentViewing.css";
+import { PacketPage } from "./PacketPage.jsx";
+import { formatPages } from "./documentProcessing.js";
+import { isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
 
 const NARROW_SPLIT_WIDTH = 600;
 
 export function DocumentPage({
   selectedDocument,
-  loadingDocumentDetailsId,
-  viewingLayout = "results",
-  onViewingLayoutChange,
-  loadOriginal,
-  sourceStorageConfigured = false,
+  selectedPacketId,
+  packetPage,
+  ...detail
 }) {
+  if (selectedPacketId) {
+    if (isSingleDocumentPacket(packetPage?.packet)) {
+      return <SinglePacketDocument {...detail} packetPage={packetPage} />;
+    }
+    return <PacketPage {...packetPage} renderDocument={(document) => <DocumentDetail {...detail} selectedDocument={document} isInPacket />} />;
+  }
   if (!selectedDocument)
     return (
       <p className="studio-empty-state">
         Select an uploaded document, or upload one to get started.
       </p>
     );
+  return <DocumentDetail {...detail} selectedDocument={selectedDocument} />;
+}
+
+function SinglePacketDocument({ packetPage, ...detail }) {
+  const { packet, activeDocument, error, documentError, onSelectDocument } = packetPage;
+  const child = singlePacketDocument(packet);
+  const hasDetails = child && activeDocument?.job_id === child.job_id;
+  const exclusions = packet.plan?.exclusions || [];
+  return (
+    <>
+      {error ? <p role="alert" className="packet-message is-error">{error}</p> : null}
+      {child ? (
+        <DocumentDetail
+          {...detail}
+          selectedDocument={hasDetails ? activeDocument : child}
+          loadingDocumentDetailsId={hasDetails ? detail.loadingDocumentDetailsId : child.job_id}
+          documentError={hasDetails ? "" : documentError}
+          onRetryDocument={() => onSelectDocument?.(child.job_id)}
+          isInPacket
+        />
+      ) : (
+        <section className="studio-document-page document-layout-results" aria-label="Document results">
+          <div className="studio-document-summary">
+            <span className={`studio-document-status ${packet.status === "queued" ? "queued" : "processing"}`}>
+              <i aria-hidden="true" />{packet.status === "queued" ? "Queued" : "Processing"}
+            </span>
+          </div>
+          <div className="job-status-stack">
+            <div className="job-status-skeleton is-processing" role="status">
+              <span className="job-status-spinner" aria-hidden="true" />
+              <p>Preparing document…</p>
+            </div>
+          </div>
+        </section>
+      )}
+      {exclusions.length ? (
+        <section className="packet-message" aria-label="Excluded pages">
+          <strong>Excluded pages</strong>
+          {exclusions.map(({ page, reason }) => <p key={page}>Page {page}: {reason}</p>)}
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+function DocumentDetail({
+  selectedDocument,
+  isInPacket = false,
+  templates = [],
+  onResolveTemplate,
+  onSelectPacket,
+  isResolvingTemplate,
+  templateResolutionError,
+  loadingDocumentDetailsId,
+  documentError,
+  onRetryDocument,
+  viewingLayout = "results",
+  onViewingLayoutChange,
+  loadOriginal,
+  sourceStorageConfigured = false,
+}) {
   const results = Array.isArray(selectedDocument.results)
     ? selectedDocument.results
     : [];
@@ -43,19 +111,27 @@ export function DocumentPage({
         minute: "2-digit",
       });
   // A Document without a retained original shows results only; the Account preference is kept.
-  const canViewOriginal = selectedDocument.source_retained === true && Boolean(loadOriginal);
+  const canViewOriginal = (selectedDocument.source_retained === true || status === "awaiting_template") && Boolean(loadOriginal);
   const layout = canViewOriginal ? viewingLayout : "results";
+  const isHeld = status === "awaiting_template" || selectedDocument.routing_status === "awaiting_template";
   const resultDisplay = (
     <>
       {status !== "completed" ? (
         <ExtractionJobStatusDisplay job={selectedDocument} />
       ) : null}
-      <ExtractionResultDisplay
-        job={selectedDocument}
-        isLoading={
-          loadingDocumentDetailsId === String(selectedDocument.job_id || "")
-        }
-      />
+      {documentError ? (
+        <div className="packet-message is-error">
+          <p role="alert">{documentError}</p>
+          <button type="button" className="secondary" onClick={onRetryDocument}>Retry document</button>
+        </div>
+      ) : (
+        <ExtractionResultDisplay
+          job={selectedDocument}
+          isLoading={
+            loadingDocumentDetailsId === String(selectedDocument.job_id || "")
+          }
+        />
+      )}
     </>
   );
   return (
@@ -79,6 +155,9 @@ export function DocumentPage({
             <strong>{(average * 100).toFixed(1)}%</strong> average confidence
           </span>
         ) : null}
+        {selectedDocument.source_pages ? (
+          <span>Pages {formatPages(selectedDocument.source_pages)}</span>
+        ) : null}
         {dateLabel ? (
           <time dateTime={date.toISOString()}>{dateLabel}</time>
         ) : null}
@@ -88,6 +167,10 @@ export function DocumentPage({
           <span className="document-original-note">Original not retained</span>
         ) : null}
       </div>
+      {isHeld ? <TemplateHold job={selectedDocument} templates={templates} onResolve={onResolveTemplate} busy={isResolvingTemplate} error={templateResolutionError} /> : null}
+      {selectedDocument.parent_packet_id && !isInPacket ? <p className="document-lineage">
+        <button type="button" className="ghost" onClick={() => onSelectPacket?.(selectedDocument.parent_packet_id)}>View parent packet</button>
+      </p> : null}
       {layout === "side-by-side" ? (
         <SideBySide key={selectedDocument.job_id} document={selectedDocument} loadOriginal={loadOriginal}>
           {resultDisplay}
@@ -212,4 +295,21 @@ function SideBySide({ document, loadOriginal, children }) {
       {showResults ? <div className="document-split-results">{children}</div> : null}
     </div>
   );
+}
+
+function TemplateHold({ job, templates, onResolve, busy, error }) {
+  const [templateId, setTemplateId] = useState("");
+  useEffect(() => setTemplateId(""), [job.job_id]);
+  return <section className="routing-summary" aria-label="Template selection">
+    <h3>Choose a template to continue</h3>
+    <p>{job.selection_reason || "Automatic selection could not identify a suitable template. Select a template to continue with the uploaded document."}</p>
+    {job.template_tags?.length ? <p>Requested tags: {job.template_tags.join(", ")}</p> : null}
+    <form onSubmit={(event) => { event.preventDefault(); if (templateId) void onResolve?.(job.job_id, templateId); }}>
+      <label>Template for this document<select value={templateId} disabled={busy} onChange={(event) => setTemplateId(event.target.value)}>
+        <option value="">Select template</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+      </select></label>
+      <button type="submit" disabled={busy || !templateId}>{busy ? "Continuing…" : "Use template and continue"}</button>
+    </form>
+    {error ? <p role="alert" className="processing-error">{error}</p> : null}
+  </section>;
 }

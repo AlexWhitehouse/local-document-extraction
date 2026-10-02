@@ -7,8 +7,8 @@ export type LocalLiveUpdateSocket = {
 type LocalLiveUpdateJob = {
   job_id: string;
   status: string;
-  template_id: string;
-  template_version: number;
+  template_id: string | null;
+  template_version: number | null;
   error_code: string | null;
   error_message: string | null;
   created_at: string;

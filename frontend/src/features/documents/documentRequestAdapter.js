@@ -18,6 +18,7 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
       const result = await documentRequest("/jobs/counts", { method: "GET" });
       const counts = result?.status_counts;
       const values = ["queued", "processing", "completed", "failed"].map((status) => counts?.[status]);
+      if (counts?.awaiting_template !== undefined) values.push(counts.awaiting_template);
       if (values.some((value) => !Number.isSafeInteger(value) || value < 0)
         || !Number.isSafeInteger(result?.total) || result.total !== values.reduce((sum, value) => sum + value, 0)) {
         throw new Error("Document counts returned an invalid response");
@@ -130,6 +131,43 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
         exportedCount: responseCount(result.headers, "x-exported-job-count"),
         skippedCount: responseCount(result.headers, "x-skipped-job-count"),
       };
+    },
+    async resolveTemplate(documentId, templateId) {
+      const id = normalizedDocumentId(documentId);
+      const result = await documentRequest(`/jobs/${encodeURIComponent(id)}/template`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ template_id: templateId }),
+      });
+      documentValidators.delete(id);
+      return result;
+    },
+    listPackets({ cursor } = {}) {
+      return documentRequest(`/packets${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, { method: "GET" });
+    },
+    getPacket(packetId) {
+      return documentRequest(`/packets/${encodeURIComponent(normalizedDocumentId(packetId))}`, { method: "GET" });
+    },
+    confirmPacketPlan(packetId, plan) {
+      return documentRequest(`/packets/${encodeURIComponent(normalizedDocumentId(packetId))}/plan`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(plan),
+      });
+    },
+    deletePacket(packetId) {
+      return documentRequest(`/packets/${encodeURIComponent(normalizedDocumentId(packetId))}`, { method: "DELETE" });
+    },
+    async getPacketOriginal(packetId, { signal } = {}) {
+      const result = await documentRequest(`/packets/${encodeURIComponent(normalizedDocumentId(packetId))}/source`, {
+        method: "GET", responseType: "blob", cache: "no-store", signal,
+      });
+      if (!result?.blob) throw new Error("Packet source returned an invalid response");
+      return { blob: result.blob, filename: responseFilename(result.headers) || "packet.pdf" };
+    },
+    async getPacketPagePreview(packetId, page, { signal } = {}) {
+      const result = await documentRequest(`/packets/${encodeURIComponent(normalizedDocumentId(packetId))}/pages/${page}/preview`, {
+        method: "GET", responseType: "blob", cache: "no-store", signal,
+      });
+      if (!result?.blob) throw new Error("Page preview returned an invalid response");
+      return result.blob;
     },
     submitDocument(formData) {
       return documentRequest("/extract", { method: "POST", body: formData });

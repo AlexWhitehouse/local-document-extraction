@@ -95,7 +95,7 @@ test("provider completeness and capacity relationships are checked before startu
     { MAX_SOURCE_FILE_BYTES: String(128 * 1024 * 1024) },
     { EXTRACTION_MAX_CONCURRENCY: "33" },
   ]) expect(() => read(environment)).toThrow();
-  expect(read({ MAX_SOURCE_FILE_BYTES: "200000000", SUBMISSION_MAX_RESERVED_BYTES: "200032768" }).maxSourceFileBytes).toBe(200000000);
+  expect(read({ MAX_SOURCE_FILE_BYTES: "200000000", SUBMISSION_MAX_RESERVED_BYTES: "200040960" }).maxSourceFileBytes).toBe(200000000);
 });
 
 test("state configuration cannot chmod shared filesystem roots", () => {

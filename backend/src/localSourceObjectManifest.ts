@@ -4,8 +4,8 @@ import type { Database } from "bun:sqlite";
 import { nowIso } from "./lib/ids";
 
 export type SourceObjectPhase = "preparing" | "linked" | "deleting";
-/** Who references the object: an Extraction job's retained original or a Saved Evaluation document's. */
-export type SourceObjectOwnerKind = "job" | "evaluation_document";
+/** Independent owners prevent child deletion from releasing a packet original. */
+export type SourceObjectOwnerKind = "job" | "packet" | "evaluation_document";
 
 export type SourceObjectManifestEntry = {
   object_key: string;
@@ -55,7 +55,20 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
     const manifestColumns = new Set((database.query("PRAGMA table_info(source_object_manifest)").all() as Array<{ name: string }>).map((column) => column.name));
     if (manifestColumns.has("job_id")) database.exec("ALTER TABLE source_object_manifest RENAME COLUMN job_id TO owner_id");
     if (!manifestColumns.has("owner_kind")) {
-      database.exec("ALTER TABLE source_object_manifest ADD COLUMN owner_kind TEXT NOT NULL DEFAULT 'job' CHECK (owner_kind IN ('job', 'evaluation_document'))");
+      database.exec("ALTER TABLE source_object_manifest ADD COLUMN owner_kind TEXT NOT NULL DEFAULT 'job' CHECK (owner_kind IN ('job', 'packet', 'evaluation_document'))");
+    }
+    const schema = database.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'source_object_manifest'").get() as { sql: string };
+    if (!schema.sql.includes("'packet'")) {
+      // SQLite cannot widen a CHECK constraint in place. Rebuild atomically,
+      // preserving every ownership/cleanup field and all existing indexes.
+      const indexes = database.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'source_object_manifest' AND sql IS NOT NULL").all() as Array<{ sql: string }>;
+      database.exec(manifestTableSql("source_object_manifest_with_packets"));
+      database.exec(`INSERT INTO source_object_manifest_with_packets
+        (object_key, workspace_id, owner_kind, owner_id, phase, created_at, updated_at, attempts, next_attempt_at)
+        SELECT object_key, workspace_id, owner_kind, owner_id, phase, created_at, updated_at, attempts, next_attempt_at FROM source_object_manifest`);
+      database.exec("DROP TABLE source_object_manifest");
+      database.exec("ALTER TABLE source_object_manifest_with_packets RENAME TO source_object_manifest");
+      for (const index of indexes) database.exec(index.sql);
     }
     database.exec(MANIFEST_INDEXES);
   }).immediate();
@@ -145,10 +158,13 @@ const MANIFEST_SCHEMA = `
     created_at TEXT NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS source_object_manifest (
+  ${manifestTableSql("source_object_manifest")}
+`;
+
+function manifestTableSql(name: string) { return `CREATE TABLE IF NOT EXISTS ${name} (
     object_key TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,
-    owner_kind TEXT NOT NULL DEFAULT 'job' CHECK (owner_kind IN ('job', 'evaluation_document')),
+    owner_kind TEXT NOT NULL DEFAULT 'job' CHECK (owner_kind IN ('job', 'packet', 'evaluation_document')),
     owner_id TEXT NOT NULL,
     phase TEXT NOT NULL CHECK (phase IN ('preparing', 'linked', 'deleting')),
     created_at TEXT NOT NULL,
@@ -156,7 +172,7 @@ const MANIFEST_SCHEMA = `
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at TEXT
   );
-`;
+`; }
 
 const MANIFEST_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_source_object_manifest_due

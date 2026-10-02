@@ -25,7 +25,7 @@ export type LocalSourceObjectCleanup = {
 
 /**
  * Background cleanup for remote retained originals. It never deletes an object a committed owner (an
- * accepted job or a Saved Evaluation document) may reference: stale uploads are released only when the
+ * accepted job, packet, or Saved Evaluation document) may reference: stale uploads are released only when the
  * Workspace is gone or its product data positively shows the owner does not reference the object.
  * Unreadable product data is uncertainty, not proof. Failed deletions retry with backoff
  * indefinitely; intent is never discarded after a retry limit.
@@ -66,6 +66,8 @@ export function createLocalSourceObjectCleanup({
       return;
     }
     try {
+      // Packet originals have their own source_files row under the packet ID;
+      // children reference separate derived sources and cannot release it.
       const referencedKey = entry.owner_kind === "evaluation_document"
         ? lease.store.getEvaluationDocumentSource(entry.owner_id)?.retained_object_key
         : lease.store.getRetainedSourceFile(entry.owner_id)?.retained_object_key;

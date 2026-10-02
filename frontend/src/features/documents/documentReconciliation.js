@@ -393,7 +393,7 @@ export function createDocumentReconciliation({
     return ctx.modelsRequest;
   }
 
-  async function submitBatch({ templateId, entries, onProgress, onComplete }) {
+  async function submitBatch({ templateId, templateTags, entries, onProgress, onComplete, onPacket }) {
     const ctx = context;
     if (!ctx || !isCurrent(ctx) || snapshot.uploading) return;
     const requests = ctx.requests;
@@ -412,7 +412,9 @@ export function createDocumentReconciliation({
         let preview = null;
         try {
           const form = new FormData();
-          form.append("template_id", templateId);
+          if (templateId) form.append("template_id", templateId);
+          if (templateTags?.length) form.append("template_tags", JSON.stringify(templateTags));
+          if (entry.pages?.length) form.append("pages", JSON.stringify(entry.pages));
           form.append("document", entry.file);
           form.append("options", JSON.stringify({ include_confidence: true, include_evidence: true }));
           let result;
@@ -426,10 +428,16 @@ export function createDocumentReconciliation({
           }
           queued += 1;
           if (!acceptsBatch()) continue;
+          if (result.packet_id && !result.job_id) {
+            onPacket?.({ ...result, source_name: entry.file.name, source_mime_type: entry.file.type });
+            emit(ctx, "onCapacityChange");
+            onProgress?.(entry.id, "success", "");
+            continue;
+          }
           preview = createPreview(entry.file);
           if (preview) ctx.previews.set(result.job_id, preview);
           merge(ctx, {
-            ...result, status: result.status || "queued", template_id: templateId,
+            ...result, status: result.status || "queued", template_id: result.template_id || templateId || null,
             source_name: entry.file.name, source_mime_type: entry.file.type,
             source_preview_url: preview, queued_at: new Date().toISOString(),
           }, { countNew: true });
@@ -495,7 +503,15 @@ export function createDocumentReconciliation({
     cancelPendingSubmissions: () => { submissionRevision += 1; },
     configure, clear, refresh, loadDetails, loadModels, ensureSelectedDetails,
     setSearch, setFilters, receiveLiveUpdates, submitBatch, deleteDocuments, exportDocuments,
-    selectDocument: (id) => { if (context) publish(context, { selectedDocumentId: normalizeId(id) }); },
+    selectDocument: (id, { clearFilters = false } = {}) => {
+      if (!context) return;
+      if (clearFilters) {
+        clearTimeout(context.searchTimer);
+        context.queryRevision += 1;
+        publish(context, { selectedDocumentId: normalizeId(id), search: "", debouncedSearch: "", filters: { ...EMPTY_FILTERS } });
+        scheduleRefresh(context);
+      } else publish(context, { selectedDocumentId: normalizeId(id) });
+    },
     toggleSelection: (ids, selected) => {
       if (!context) return;
       const selection = new Set(snapshot.selectedDocumentIds);

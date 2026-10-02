@@ -45,7 +45,7 @@ Without `--version`, the release is named `development`. That allows uncommitted
    git push origin vX.Y.Z
    ```
 
-3. The [release workflow](../.github/workflows/release.yml) reruns CI on the tag, checks that `LICENSE` exists, builds the release files, and publishes them to a GitHub release. Running the workflow by hand builds the files as an artifact without publishing anything.
+3. The [release workflow](../.github/workflows/release.yml) reruns CI on the tag, checks that `LICENSE` exists, builds the release files, and publishes them to a GitHub release. When `docs/releases/<tag>.md` exists, its notes appear before the generated change list. Running the workflow by hand builds the files as an artifact without publishing anything.
 
 ## 4. Verify the published release
 

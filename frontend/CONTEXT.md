@@ -93,7 +93,7 @@ A non-commercial guardrail that prevents unsupported or excessive Documents from
 _Avoid_: commercial quota, account tier
 
 **Extraction job**:
-The displayed processing item created when a **Document** is submitted with a **Template**.
+The displayed processing item for one logical **Document**. Its **Template** is either pinned at explicit submission or selected after automatic classification; a held item may await a manual Template choice.
 _Avoid_: job, upload, document row
 
 **Extraction result**:
@@ -101,7 +101,7 @@ The displayed output value for a **Template field** in a completed **Extraction 
 _Avoid_: answer row, model response, result item
 
 **Template**:
-A reusable extraction schema selected when submitting **Documents**.
+A reusable extraction schema selected explicitly or automatically for a **Document**.
 _Avoid_: form, prompt, extraction config
 
 **Template tag**:
@@ -315,13 +315,24 @@ _Avoid_: demo mode, sample data sandbox
 - Standard MIME types, generated files, and required platform API vocabulary may retain `image` where that word is part of the external standard or platform contract.
 - Use **Document** synonymously for supported source formats, including PNG, JPEG, WebP, and PDF, unless a standards-level MIME type must be named.
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
-- A **Document** submitted with a **Template** creates one **Extraction job** in the document list.
-- The header Documents count represents the total number of durable **Extraction jobs** in the current accepted **Workspace** across `queued`, `processing`, `completed`, and `failed`, regardless of pagination, search, or how many list rows the frontend has loaded.
+- Upload requires an explicit **Template** or Automatic with one or more existing **Template tags**. Automatic uses any matching tag to constrain candidates and assesses each logical Document independently. An explicit Template remains authoritative.
+- Automatic upload selection shows existing **Template tags** as checkbox chips with counts and a preview of matching Templates. Creating or managing tags belongs to the Template page.
+- The upload default remains the previously selected Template. Automatic has no Workspace enable/disable toggle.
+- Browser uploads submit all pages. Physical original-page selection remains available through the API; page numbers in split review and lineage never refer to a renumbered preview or child.
+- **Workspace document processing settings** govern every upload and API request. Their section appears directly below Model gateway on the Workspace page; the upload modal has no policy paragraph or per-request overrides. Smart splitting and blank exclusion default to disabled; blank exclusion only applies during enabled Smart splitting. Setting toggles save immediately and show an **Action toast**; a failed save restores the previous value.
+- Without Smart splitting, one submitted **Document** creates one **Extraction job**. Smart splitting creates a **Document packet** parent with logical child jobs.
+- A **Document packet** with multiple logical Documents or unresolved boundaries is displayed as a parent, with original-page groups, excluded pages, progress and child links. Single-page uploads show ordinary Document preparation, and an accepted one-document split opens that child's normal results and Source file view automatically, including for multi-page Documents. The list shows one ordinary Document row using the child ID and status, without packet tabs or counts. This presentation follows the accepted plan, so deleting siblings from a multi-document packet does not turn it into a single Document. The durable parent is not an extracted Document, export row, or Completed document cache entry; packet counts never inflate extraction-job counts.
+- Packet review and Template selection request human intervention only after bounded automatic reassessment or when no further automatic work can help. Held sources remain available for resolution without another upload.
+- The packet review editor shows original-page previews and requires every selected page in exactly one nonempty group or explicitly justified exclusion. Confirmation submits the displayed plan revision; a conflict refreshes the plan and requires renewed review.
+- A verified all-blank packet completes as **No documents to extract**, with exclusion records and zero child jobs.
+- Packet-wide deletion explicitly deletes the parent and all children. Deleting a child from a multi-document packet leaves siblings and the parent intact. Deleting a split result presented as a single Document also removes its hidden parent and retained original; Download and Export use the child Document. Downloading a retained packet original includes the entire originally submitted file, even excluded pages.
+- Automatic Template selection displays the pinned Template/version and concise reason. Manual resolution can select any usable authorized Template without re-uploading the Source file.
+- The header Documents count represents the total number of durable **Extraction jobs** in the current accepted **Workspace** across `queued`, `processing`, `awaiting_template`, `completed`, and `failed`, regardless of pagination, search, or how many list rows the frontend has loaded.
 - Document status counters also represent authoritative Workspace-wide totals, regardless of pagination or filters. Lifecycle updates revalidate counts independently of list pages, including changes to Documents that have not been loaded.
 - A **Template** has one or more **Template fields** displayed and edited by the frontend.
 - **Template fields** are always requested during extraction; the template editing UI does not offer required/optional field controls.
 - The Template field editor and JSON modal allow at most one table-shaped **Template field** with no more than 20 **Template object columns**.
-- An **Extraction job** shows results for the **Template version** used when the Document was submitted.
+- An **Extraction job** shows results for its fixed **Template version**, pinned at explicit submission or when automatic/manual selection resolves. Subsequent Template edits do not change its interpretation.
 - A completed **Extraction job** displays **Extraction results** for extracted **Template fields**.
 - **Selected upload Template** is derived from backend Templates after Workspace resolution and does not persist across page refresh.
 - **Workspace live updates** are not durable history; clients revalidate authoritative **Workspace product data** and accepted **Workspace context** over HTTP after reconnecting.

@@ -66,7 +66,7 @@ Download `install.sh` from the [releases page](https://github.com/AlexWhitehouse
 For example:
 
 ```bash
-bash install.sh --version v0.1.4 --no-start
+bash install.sh --version v1.0.0 --no-start
 
 bash install.sh --install-dir "$HOME/Applications/Document Extraction" \
   --config-dir "$HOME/.config/document-extraction" \
@@ -168,7 +168,7 @@ Don't mix individual database files from different backups. An older app version
 ### Installer setup
 
 1. Stop the app and make a backup.
-2. Run `document-extraction update` for the latest release, or `document-extraction update v0.1.4` for a specific one. Alternatively, rerun the installer with `--version` and the same folder options you used originally.
+2. Run `document-extraction update` for the latest release, or `document-extraction update v1.0.0` for a specific one. Alternatively, rerun the installer with `--version` and the same folder options you used originally.
 3. Run `status` and open the app to check it works.
 
 The update refuses to run while the app is running. It keeps your settings and data and makes an automatic backup under `backups/before-*` inside the app folder before upgrading the database. Copy anything important out of there before removing the app. Keeping the old app files alone is not enough to downgrade.

@@ -37,13 +37,15 @@ When it finishes, open **[http://127.0.0.1:8787](http://127.0.0.1:8787)**, or yo
 
 4. **Review the results.** Follow progress in **Documents**, then open a completed document to review its extracted fields. You can retrieve results through the API or select completed documents and click **Export** to download an Excel spreadsheet.
 
+For automatic selection, add shared tags and useful descriptions to your Templates, then choose **Automatic** and tags when uploading. Workspace owners/admins can enable **Smart splitting** for PDF packets and optionally exclude verified blank pages. Both settings are off by default. Single-page uploads and PDFs resolved as one document open directly into the normal results view; files with multiple documents show a packet with separate results for each. See [Workspace document processing](docs/configuration.md#workspace-document-processing).
+
 ## Compare models and templates
 
-Open **Evaluations** to compare up to eight candidates on one document. Compare different models against the same template, or edit template variants while keeping the model fixed. **Run all** sends every candidate for extraction, and results appear in the comparison table as each one finishes.
+Open **Evaluations** to compare up to eight candidates across one or more documents. Compare different models against the same template, or edit template variants while keeping the model fixed. Choose documents from the Evaluation library, upload new samples, or use both. **Start and run** sends every candidate for extraction, and results appear in the comparison table as each one finishes.
 
 To measure accuracy, enter the correct answers for the document and each candidate is scored against them. If a candidate's template edits work well, save them as a new template.
 
-Evaluations are temporary: refreshing or closing the tab discards the document, candidates, answers, and results. See the [Evaluations guide](docs/evaluations.md) for details.
+Evaluation runs are temporary: refreshing or closing the tab discards candidates, results, and unsaved documents and answers. Documents and Expected answers explicitly saved to the Evaluation library remain available. See the [Evaluations guide](docs/evaluations.md) for details.
 
 ## Automate with the API
 
@@ -51,10 +53,10 @@ Scripts and applications can send documents and collect the results without usin
 
 1. In the app, set up your Workspace's model and create a template.
 2. Generate a **Workspace API key** on the Workspace page.
-3. Submit a document with `POST /v1/extract`. You get back a job ID.
-4. Check `GET /v1/jobs/{job_id}` until the job is `completed`, then read its `results`.
+3. Submit a document with `POST /v1/extract`, using a Template ID or tags for automatic selection. With Smart splitting disabled, you get a job ID; enabled PDF splitting returns a packet ID.
+4. Poll the returned location. Read completed child jobs for a packet, or the ordinary job results. Resolve a review hold only when automatic processing cannot finish.
 
-The [API specification](mkdocs/docs/api/overview.md) has a copy-and-paste quickstart and the full endpoint reference.
+The [API specification](mkdocs/docs/api/overview.md) has a copy-and-paste quickstart and the full endpoint reference, including a [packet and child request-chain example](mkdocs/docs/api/overview.md#follow-the-packet-and-child-request-chain).
 
 ## Starting and stopping
 

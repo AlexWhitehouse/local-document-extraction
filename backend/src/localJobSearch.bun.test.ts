@@ -80,7 +80,7 @@ test("the Document adapter searches one Workspace's stable job metadata and retu
     await expect(adapter.listDocuments({ search: "isolated" })).resolves.toEqual({
       jobs: [],
       total: 4,
-      status_counts: { queued: 1, processing: 1, completed: 1, failed: 1 },
+      status_counts: { awaiting_template: 0, queued: 1, processing: 1, completed: 1, failed: 1 },
       next_cursor: null,
       has_more: false,
     });

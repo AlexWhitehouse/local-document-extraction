@@ -22,11 +22,13 @@ const TEMPORARY_DIRECTORIES: Record<Purpose, string> = {
   extraction: "submissions", "template-generation": "submissions", "template-assistance": "submissions", evaluation: "evaluations", "evaluation-document": "evaluation-documents",
 };
 const ALLOWED_FIELDS: Record<Purpose, string[]> = {
-  extraction: ["fields", "options", "template_id", "template_tags"], "template-generation": ["instructions"], "template-assistance": ["payload"], evaluation: ["evaluation"], "evaluation-document": ["metadata"],
+  extraction: ["fields", "options", "template_id", "template_tags", "pages"], "template-generation": ["instructions"], "template-assistance": ["payload"], evaluation: ["evaluation"], "evaluation-document": ["metadata"],
 };
 
 type LocalStreamedExtractRequest = {
-  templateId: string;
+  templateId: string | null;
+  templateTags?: string[];
+  pages?: number[] | null;
   instructions?: string;
   evaluation?: string;
   metadata?: string;
@@ -201,7 +203,7 @@ export async function parseLocalMultipartSubmission({
       if (!parsedDocument.size) throw new HttpError(400, "invalid_document", "The sample file is empty");
       return { templateId: "", instructions: fields.get("instructions")?.trim() || "", source: { ...parsedDocument, temporaryPath } };
     }
-    const { templateId } = validateExtractSubmissionMetadata({
+    const metadata = validateExtractSubmissionMetadata({
       hasInlineFields: fields.has("fields"),
       maxSourceFileBytes,
       optionsRaw: fields.get("options") ?? null,
@@ -209,8 +211,9 @@ export async function parseLocalMultipartSubmission({
       sourceSize: parsedDocument.size,
       templateIdRaw: fields.get("template_id") ?? null,
       templateTagsRaw: fields.get("template_tags") ?? null,
+      pagesRaw: fields.get("pages") ?? null,
     });
-    return { templateId, source: { ...parsedDocument, temporaryPath } };
+    return { ...metadata, source: { ...parsedDocument, temporaryPath } };
   } catch (error) {
     await rm(temporaryPath, { force: true });
     if (error instanceof HttpError) throw error;

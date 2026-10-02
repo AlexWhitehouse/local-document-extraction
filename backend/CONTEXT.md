@@ -125,15 +125,39 @@ A newly created personal **Workspace** that preserves the expectation that a use
 _Avoid_: fallback workspace, default workspace
 
 **Document**:
-A user-provided file submitted for extraction.
+A logical item submitted for extraction, either directly or as a page group within a **Document packet**.
 _Avoid_: image, upload, input file
 
 **Source file**:
-The original uploaded binary for a **Document**.
+The binary input owned by a **Document** or **Document packet**. A split child owns a **Derived Source file** containing only its assigned pages.
 _Avoid_: object-store record, file blob
 
+**Document packet**:
+An uploaded PDF assessed for logical document boundaries under the Workspace's **Smart splitting** policy. It owns the original Source file, selected original pages, split plan, and related child Documents.
+_Avoid_: parent extraction result, batch upload, combined result
+
+**Split plan**:
+The division of a Document packet's selected physical pages into logical Documents and explicit exclusions. Once accepted, the page groups and child identities remain fixed.
+_Avoid_: template selection, page reorder, extraction result
+
+**Derived Source file**:
+An independent PDF containing exactly one child Document's assigned pages, with their original physical page references retained separately.
+_Avoid_: parent original, shared working file
+
+**Smart splitting**:
+The Workspace-controlled identification of logical Documents within selected PDF pages, with human review only when automatic resolution cannot establish a valid plan.
+_Avoid_: split every page, template classification
+
+**Automatic template selection**:
+Selection of a suitable existing Template from those matching any supplied Template tag, based on a logical Document and the candidate names and descriptions.
+_Avoid_: template generation, global template search, field extraction
+
+**Template binding**:
+The fixed Template and Template version used for an Extraction job. Explicit selection binds at submission; automatic or manual resolution binds before extraction.
+_Avoid_: current template, mutable extraction schema
+
 **Source file retention**:
-Keeping a **Source file** beyond temporary processing needs so it remains available through its **Extraction job**.
+Keeping a **Source file** beyond temporary processing needs so it remains available through its **Extraction job** or **Document packet**.
 _Avoid_: processing storage, result retention
 
 **Workspace source retention**:
@@ -149,7 +173,7 @@ A non-commercial guardrail that protects local document processing from unsuppor
 _Avoid_: commercial quota, account tier
 
 **Extraction job**:
-The durable processing record created when a **Document** is submitted with a **Template**.
+The durable processing record for one logical **Document**, with a **Template binding** resolved before field extraction.
 _Avoid_: job, document, processing task
 
 **Extraction job lifecycle**:
@@ -165,11 +189,11 @@ The local background processor that claims, retries, and completes persisted **E
 _Avoid_: external worker, cron task
 
 **Model gateway**:
-The external model-routing service used for field extraction and **Template generation**.
+The external model-routing service used for field extraction, Template authoring, document classification, and Smart splitting.
 _Avoid_: AI gateway, provider endpoint, model API
 
 **Workspace model configuration**:
-The Workspace-owned configuration that identifies the **Model gateway**, model, credential, and declared processing capabilities available for extraction and **Template generation**.
+The Workspace-owned gateway, credential, model roles, and declared processing capabilities for Extraction, Template assistant, and Document classification & splitting.
 _Avoid_: application model settings, profile model settings, global gateway configuration
 
 **Extraction result**:
@@ -177,7 +201,7 @@ The completed output value for a **Template field** in an **Extraction job**.
 _Avoid_: answer row, model response, result item
 
 **Template**:
-A reusable extraction schema selected when submitting **Documents**.
+A reusable extraction schema selected explicitly or through **Automatic template selection** for a **Document**.
 _Avoid_: form, prompt, extraction config
 
 **Template tag**:
@@ -465,7 +489,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
 - Background processor retry steps, not **Extraction job** status values, own retryability for transient processing failures.
 - Do not model retryability with a durable `retryable_failed` **Extraction job** status.
-- The durable **Extraction job lifecycle** states are `queued`, `processing`, `completed`, and `failed`.
+- The durable **Extraction job lifecycle** states are `queued`, `awaiting_template`, `processing`, `completed`, and `failed`. `awaiting_template` is a deliberate manual-resolution hold, not an automatic retry.
 - Authoritative **Extraction job lifecycle** state belongs to **Workspace product data**.
 - The **Extraction processor** performs long-running extraction work but does not own authoritative **Extraction job lifecycle** state.
 - Background processor instance details are implementation metadata, not durable **Extraction job lifecycle** states.
@@ -506,10 +530,10 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Existing **Extraction jobs** migrate as not retained, whether or not their processing file still exists.
 - With S3-compatible storage, a retained original must be saved to object storage before its **Extraction job** is accepted; if saving fails, the upload fails with a retryable error and no job is created. Processing uses a local working copy that is removed once processing ends.
 - Deleting a **Document** or **Workspace** removes app access immediately and hands remote originals to durable background cleanup; logical deletion never waits on remote storage, and confirmation does not claim physical erasure.
-- A retained original is streamed only through its **Extraction job** in the same **Workspace**, for sessions and **Workspace API keys**, with `private, no-store` caching. Retrieval failure never changes the job's status or results; not retained, missing from storage, and temporarily unavailable are reported separately.
+- A retained original is streamed through its owning **Extraction job** or **Document packet** in the same **Workspace**, for sessions and **Workspace API keys**, with `private, no-store` caching. Available working sources remain readable for active or held template/split resolution even when completed-original retention is disabled. Retrieval failure never changes processing status or results; not retained, missing from storage, and temporarily unavailable are reported separately.
 - A **Template** must have at least one **Template field** before it can be used for extraction.
 - Changing **Template fields** creates a new **Template version**.
-- An **Extraction job** is interpreted against the **Template version** selected at submission time.
+- An **Extraction job** is interpreted against its fixed **Template binding**: the version captured at explicit submission, or at successful automatic/manual resolution.
 - An **Extraction result** may include confidence and evidence when requested.
 - Authoritative **Template** existence, status, current version, field count, version creation, and deletion checks belong to **Workspace product data**.
 
@@ -530,12 +554,12 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - A deleted **Workspace** has no remaining authoritative **Workspace product data**.
 - In-flight **Extraction processing** for a deleted **Workspace** may finish externally, but it has no **Extraction job lifecycle** state to update after hard-erasure.
 - A **Document** has exactly one **Source file** at submission time.
-- A **Document** submitted with a **Template** creates one **Extraction job**.
+- A logical **Document** creates one **Extraction job**. A **Document packet** owns zero or more child Documents; it is not itself an Extraction job or result.
 - An **Extraction job lifecycle** is coordinated by authoritative **Workspace product data** and executed by an **Extraction processor** after the **Extraction job** is queued.
 - A **Template** has one or more **Template fields**.
 - A **Template** has one or more **Template versions**.
 - A **Template field** may have a **Template object schema** when its data type is `object` or `array<object>`.
-- An **Extraction job** belongs to exactly one **Template version**.
+- An **Extraction job** has one fixed **Template version** once its **Template binding** is resolved; unresolved automatic jobs have no binding.
 - A completed **Extraction job** has one **Extraction result** per extracted **Template field**.
 
 ## Example Dialogue

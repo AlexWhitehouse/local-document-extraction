@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import type { PDFDict, PDFRawStream } from "pdf-lib";
+import type { PDFDict, PDFDocument, PDFRawStream } from "pdf-lib";
 import { PDF_INSPECTION_LIMITS as limits } from "./pdfInspectionLimits";
 
 export class PdfInspectionLimitError extends Error {}
@@ -11,6 +11,11 @@ export class PdfInspectionConfigurationError extends Error {}
  * Fail closed on a dependency change until these allocation seams are requalified.
  */
 export async function inspectPdfPages(bytes: Uint8Array): Promise<number> {
+  return (await loadInspectedPdf(bytes)).pages;
+}
+
+/** Retain a guarded document only inside its disposable subprocess. */
+export async function loadInspectedPdf(bytes: Uint8Array): Promise<{ document: PDFDocument; pages: number; checkLimits: () => void }> {
   const require = createRequire(import.meta.url);
   if (require("pdf-lib/package.json").version !== "1.17.1") throw new PdfInspectionConfigurationError();
   const library = require("pdf-lib/cjs/index.js") as typeof import("pdf-lib");
@@ -172,7 +177,7 @@ export async function inspectPdfPages(bytes: Uint8Array): Promise<number> {
       } else throw new Error("Invalid PDF page tree node");
     }
     if (!pages) throw new Error("PDF has no pages");
-    return pages;
+    return { document: pdf, pages, checkLimits: check };
   } catch (error) {
     // A dependency recovery path must never turn a breached budget into success
     // or reclassify it as a harmless malformed object.

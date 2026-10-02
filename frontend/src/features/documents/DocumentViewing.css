@@ -19,8 +19,6 @@
 .document-split-results { min-height: 0; overflow: auto; padding: 0 20px 24px; }
 .studio-main .document-split-results .studio-results-scroll { max-height: none; }
 /* In a narrow results pane, values wrap within their column; the table scrolls only below 480px. */
-.document-split-results .studio-results-table :is(th, td),
-.document-split-results .studio-results-table :is(th, td) p { white-space: normal; }
 .studio-main .document-split-results .studio-results-table { min-width: 480px; }
 .document-split-tabs { display: flex; border-bottom: 1px solid var(--rule); }
 .studio-main .document-split-tabs button {

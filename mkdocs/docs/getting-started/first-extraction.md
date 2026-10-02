@@ -22,11 +22,13 @@ Open **Documents**, pick the template, and upload a PNG, JPEG, WebP, or PDF file
 
 ## 4. Review the results
 
-Each upload becomes a job that moves from `queued` to `processing`, and then to `completed` or `failed`. Open a completed job to see each extracted field and the evidence behind it. Select several jobs to export them to an Excel workbook.
+By default, each upload becomes a job that moves from `queued` to `processing`, and then to `completed` or `failed`. Open a completed document to see each extracted field and the evidence behind it. Select several documents to export them to an Excel workbook.
+
+For automatic template selection, add tags and useful descriptions to your templates, then choose **Automatic — select by tags** in the upload modal. Owners and admins can enable **Smart splitting** below **Model gateway** on the Workspace page to identify separate documents within PDFs. A PDF resolved as one document opens directly into its normal results; multiple documents appear together in a packet. See [Document extraction](../usage/document-extraction.md) for the full workflow.
 
 ## Good to know
 
 - Always check important values. AI models can make mistakes.
 - Documents and your field instructions are sent to the model gateway you configured. Choose a local model if they must not leave your machine, or a remote provider whose data policy suits you.
-- Uploaded files are deleted once a job succeeds. Extracted results stay until you delete them.
+- Originals remain available if retention was enabled for the upload. Otherwise successful working files are cleaned up; sources needed for manual split or template review stay available until resolution. Extracted results stay until you delete them.
 - Templates can be edited at any time as your documents change. Existing jobs keep the template version they were run with.

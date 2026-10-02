@@ -7,14 +7,15 @@ export function ExtractionJobStatusDisplay({ job }) {
   const isFailure = job.status === "failed";
   const isCompleted = job.status === "completed";
   const isProcessing = LIVE_DOCUMENT_STATUSES.has(job.status);
-  const statusLabel = isFailure
+  const isHeld = job.status === "awaiting_template";
+  const statusLabel = isHeld ? "Template selection needs your attention." : job.routing_status === "assessing" ? "Choosing a template from the document" : isFailure
     ? "This extraction finished with a failure status."
     : isCompleted
       ? "This extraction completed successfully."
       : isProcessing
         ? "The document is processing"
         : "The document is queued";
-  const isTerminal = isCompleted || isFailure;
+  const isTerminal = isCompleted || isFailure || isHeld;
   const currentAttempt = Number(job.current_attempt || 0);
   const completedAttempt = Number(job.completed_attempt || 0);
   const lastFailedAttempt = Number(job.last_failed_attempt || 0);

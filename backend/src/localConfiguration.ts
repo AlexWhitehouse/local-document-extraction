@@ -103,7 +103,7 @@ export function readLocalConfiguration({
   if (fromName.length > 200 || /[\r\n\0]/.test(fromName)) throw new Error("EMAIL_FROM_NAME must be a single line of at most 200 characters.");
   const maxSourceFileBytes = integer("MAX_SOURCE_FILE_BYTES", 10 * 1024 * 1024, 1, Number.MAX_SAFE_INTEGER - 65536);
   const submissionMaxReservedBytes = integer("SUBMISSION_MAX_RESERVED_BYTES", 128 * 1024 * 1024);
-  if (submissionMaxReservedBytes < localDocumentRequestBodyLimit(maxSourceFileBytes)) throw new Error("SUBMISSION_MAX_RESERVED_BYTES must accommodate MAX_SOURCE_FILE_BYTES plus 32768 bytes of multipart overhead.");
+  if (submissionMaxReservedBytes < localDocumentRequestBodyLimit(maxSourceFileBytes)) throw new Error("SUBMISSION_MAX_RESERVED_BYTES must accommodate MAX_SOURCE_FILE_BYTES plus 40960 bytes of multipart overhead.");
   const extractionMaxConcurrency = integer("EXTRACTION_MAX_CONCURRENCY", 8);
   const extractionMaximumConcurrency = integer("EXTRACTION_MAX_CONCURRENCY_LIMIT", 32);
   if (extractionMaxConcurrency > extractionMaximumConcurrency) throw new Error("EXTRACTION_MAX_CONCURRENCY must not exceed EXTRACTION_MAX_CONCURRENCY_LIMIT.");

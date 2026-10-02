@@ -44,7 +44,13 @@ The **Model gateway** section of the Workspace page is the most stateful part of
 - A new Workspace starts with no model. The section header shows its status; there's no separate banner.
 - Only owners and admins can edit it. Members can only see whether a model is set up.
 - The model credential is separate from the Workspace API key, and it's write-only. Leave the credential blank when editing to keep the saved one, or type a new one to replace it. Clearing the whole configuration asks for confirmation.
-- All capability switches start off.
+- Extraction is the default for the optional Template assistant and Document classification & splitting roles. Each override has its own direct-PDF and structured-output capabilities on the shared gateway. All capability switches start off.
 - **Test connection** tests the current draft and never saves it. **Save** doesn't contact the gateway. Editing any field clears the previous test result.
 - Switching Workspace or signing out clears any unsaved credential. Responses that arrive after a switch are ignored.
 - When another browser changes the settings, a live update makes this one reload them. If someone else saved in the meantime, your save is rejected and you're asked to reload, rather than overwriting their change.
+
+## Document processing and packets
+
+**Document processing** appears below Model gateway on the Workspace page. Its Smart splitting and blank-exclusion switches save immediately, show outcome toasts, and restore their previous value if saving fails. The upload modal uses these settings without displaying a policy paragraph or offering overrides. Automatic selection uses existing tag chips with a preview of matching Templates; browser uploads submit all pages.
+
+The backend always returns a packet for a PDF accepted with Smart splitting enabled. The frontend presents a one-page upload or an accepted one-document plan as an ordinary Document, without packet tabs or a duplicate row. Multi-document and unresolved plans retain the packet view. This decision follows the accepted plan, not the number of surviving children after deletion. Deleting a single-document presentation removes its hidden parent too; downloading and exporting use the child Document.

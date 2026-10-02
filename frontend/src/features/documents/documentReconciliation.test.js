@@ -37,6 +37,21 @@ function setup(options = {}) {
 const entries = () => ["first", "second"].map((id) => ({ id, file: new File([id], `${id}.png`, { type: "image/png" }) }));
 
 describe("Document reconciliation", () => {
+  it("submits automatic tags and physical pages without creating a job row for packet admission", async () => {
+    const { module, requests, snapshot } = setup();
+    requests.submitDocument.mockResolvedValue({ packet_id: "packet_1", status: "queued" });
+    const onPacket = vi.fn();
+    await module.submitBatch({ templateTags: ["finance", "invoice"], entries: [{ id: "pdf", file: new File(["pdf"], "packet.pdf", { type: "application/pdf" }), pages: [1, 3] }], onPacket });
+    const form = requests.submitDocument.mock.calls[0][0];
+    expect(form.has("template_id")).toBe(false);
+    expect(JSON.parse(form.get("template_tags"))).toEqual(["finance", "invoice"]);
+    expect(JSON.parse(form.get("pages"))).toEqual([1, 3]);
+    expect(form.has("smart_split")).toBe(false);
+    expect(onPacket).toHaveBeenCalledWith(expect.objectContaining({ packet_id: "packet_1", source_name: "packet.pdf" }));
+    expect(snapshot().documents).toEqual([]);
+    expect(snapshot().totalDocuments).toBe(0);
+  });
+
   it("refreshes counts for an unloaded lifecycle update without discarding loaded pages", async () => {
     vi.useFakeTimers();
     const { module, snapshot, requests } = setup();

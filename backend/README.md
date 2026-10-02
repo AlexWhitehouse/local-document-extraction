@@ -26,9 +26,9 @@ Every setting is read and validated in one place, [`src/localConfiguration.ts`](
 | Other `/v1/*` routes | `src/localApplication.ts` | Browser session + `x-workspace-id` header, or `Authorization: Bearer <workspace API key>` |
 | Anything else (`GET`/`HEAD`) | Built frontend files, with fallback to `index.html` | — |
 
-Workspace API keys only reach templates, document submission, and extraction jobs. They can't open live updates, or manage accounts, Workspaces, invitations, model settings, or admin features.
+Workspace API keys reach templates, document submission, extraction jobs, and document packet processing/review. They can't open live updates, or manage accounts, Workspaces, invitations, model settings, or admin features.
 
-When a document is submitted, it's checked, stored, and queued as a job (`src/localMultipartSubmission.ts`, `src/localExtractionQueue.ts`). A runner (`src/localExtractionRunner.ts`) picks jobs up, prepares the document for the model, calls the Workspace's model gateway (`src/consumer/modelGateway.ts`), and saves the normalised results. Browsers are told about changes over the live-update WebSocket; API clients poll the job instead.
+When a document is submitted, it's checked, stored, and queued as a job (`src/localMultipartSubmission.ts`, `src/localExtractionQueue.ts`). A runner (`src/localExtractionRunner.ts`) picks jobs up, prepares the document for the model, calls the Workspace's model gateway (`src/consumer/modelGateway.ts`), and saves the normalised results. `src/localDocumentProcessingRunner.ts` uses the same durable queue for tag-scoped classification and PDF packet splitting before field extraction. Splitting commits fixed child IDs and original-page maps before creating independent derived sources; automatic jobs bind a checked Template version before extraction. Both stages stop after one initial assessment and at most two targeted reassessments, holding unresolved work for manual resolution. Browsers are told about changes over the live-update WebSocket; API clients poll the returned job or packet location, discover packet children, and fetch each job for full results. Even an accepted one-document PDF split retains its packet API identity; collapsing it to one ordinary Document is a frontend presentation rule.
 
 ## Local data
 
@@ -39,7 +39,7 @@ By default everything lives in `.local/`:
 | Path | Contents |
 | --- | --- |
 | `data/control.sqlite` | Accounts, sessions, Workspaces, members, invitations, and API key hashes. |
-| `data/workspaces/*.sqlite` | One database per Workspace: templates, jobs, results, and its encrypted model credential. |
+| `data/workspaces/*.sqlite` | One database per Workspace: templates/tags, jobs/results, document packets and split plans, processing settings, and its encrypted model credential. |
 | `data/better-auth-secret` | Key that signs sessions. |
 | `secrets/model-gateway.key` | Key that encrypts model credentials. Created the first time a credential is saved. |
 | `source-files/` | Uploaded documents, kept only while they're needed. |
@@ -61,7 +61,11 @@ Each Workspace has its own model settings. New Workspaces, including ones upgrad
   - **Structured output** asks the model for JSON matching the template.
   - **Sequential calls** stops the Workspace from making more than one model call at a time.
 
-**Test connection** is optional. It sends one `chat/completions` request with the prompt "Reply with OK.", waits up to 30 seconds without retrying, and checks for a readable reply. It doesn't check capabilities or save anything, and saving doesn't contact the gateway.
+**Document classification & splitting** is a third optional role alongside Extraction and Template assistant. It inherits Extraction by default, or uses its own model and capability flags on the shared gateway. Classification receives only eligible Template IDs, names, and descriptions, plus the actual source. Field schemas are reserved for extraction. **Enable smart splitting** and **Exclude blank pages** are Workspace settings, both off by default; exclusion only operates as part of splitting.
+
+Model routes can impose document and image-count limits below the runtime limits. Assessment sends selected PDF pages in one request, either directly or as page images according to the chosen role’s capabilities; it does not automatically batch requests around provider limits.
+
+**Test connection** is optional. It sends one `chat/completions` request per distinct configured model with the prompt "Reply with OK.", waits up to 30 seconds without retrying, and checks for a readable reply. It doesn't check capabilities or save anything, and saving doesn't contact the gateway.
 
 Until a Workspace is set up, document uploads get `409 workspace_model_not_configured`. If the saved credential can't be decrypted, they get `503 workspace_model_configuration_unavailable`. Both checks happen before the upload is stored or a job is created.
 
@@ -72,6 +76,7 @@ The browser uses `/v1/workspaces/:workspaceId/model-configuration`, which accept
 - Members can only see whether settings exist; owners and admins can read the details (never the credential), replace them with `PUT`, clear them with `DELETE`, or test a draft with `POST …/test`.
 - Changes need a revision precondition: `If-None-Match: *` to create, `If-Match: <revision>` to replace or clear. An out-of-date revision returns `412`, and a missing precondition returns `428`.
 - After a change, other open browsers get a `model_configuration_changed` live update and reload the settings.
+- The optional `classification_model` object has `model_name`, `supports_pdf_input`, and `supports_structured_output`. Omission or `null` inherits Extraction, as for `assistant_model`; each claimed assessment captures the resolved model/capabilities and non-secret configuration revision.
 
 The old global model environment variables are ignored, and startup logs any it finds by name (see [configuration](../docs/configuration.md#model-settings-are-per-workspace)). The old `/v1/settings/model` route returns 404. On startup, a leftover `data/model-gateway.json` from old versions is deleted without being read.
 
@@ -81,11 +86,11 @@ The runtime limits how much work it takes on, so a busy or small machine degrade
 
 ### Uploads
 
-The file limit (`MAX_SOURCE_FILE_BYTES`) and the request limit are separate. A document request may be up to the file limit plus 32 KiB for the form fields and multipart framing. A maximum-size browser upload measured about 25 KB of framing.
+The file limit (`MAX_SOURCE_FILE_BYTES`) and the request limit are separate. A document request may be up to the file limit plus 40 KiB for the form fields and multipart framing. A maximum-size browser upload measured about 25 KB of framing.
 
-Oversized requests are rejected with `400 source_file_too_large` before anything is stored. Checks happen in this order: authorization, Workspace storage, model settings, then the `Content-Length` header. Uploads without a length are counted as they stream. Bun's own hard limit sits a further 32 KiB above that, so the app can always send its own error first.
+Oversized requests are rejected with `400 source_file_too_large` before anything is stored. Checks happen in this order: authorization, Workspace storage, model settings, then the `Content-Length` header. Uploads without a length are counted as they stream. Bun's own hard limit sits a further 40 KiB above that, so the app can always send its own error first.
 
-PDFs are inspected in a separate, short-lived process with strict limits on size, decoding, and time (see [configuration](../docs/configuration.md#uploads-and-extraction)).
+PDFs are inspected in a separate, short-lived process with strict limits on size, decoding, and time. PDF subset creation, child materialization, previews, and blank verification also use disposable processes with bounded output and cancellable deadlines (see [configuration](../docs/configuration.md#uploads-and-extraction)).
 
 ### Memory pressure
 
@@ -96,7 +101,7 @@ When the operating system reports memory pressure, the resource controller react
 
 Work already in progress is never cancelled. Normal service resumes after three samples in a row show enough memory and event-loop headroom. `/v1/health` diagnostics show the current and last pressure level and recovery times, and never include Workspace or document content.
 
-Memory for preparing documents is budgeted up front. By default the budget is 72% of physical RAM, leaving room below the 80% memory threshold. It's an estimate, not an operating-system limit, so lower it on machines shared with a local model server.
+Memory for preparing documents is budgeted up front. Split subsets are created after admission, and fan-out holds its shared memory reservation until derived files are persisted. By default the budget is 72% of physical RAM, leaving room below the 80% memory threshold. It's an estimate, not an operating-system limit, so lower it on machines shared with a local model server.
 
 ### Live updates
 

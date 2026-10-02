@@ -74,6 +74,21 @@ export async function withPreparedModelSource<T>(
   additionalContextCharacters = 0,
 ): Promise<T> {
   const sourceSize = source instanceof Blob ? source.size : source.byteLength;
+  return withPreparedModelSourceFactory(env, sourceSize, sourceMimeType, signal, async () => source, work, additionalContextCharacters);
+}
+
+/** Source derivatives are created only after shared memory and sequencing admission. */
+export async function withPreparedModelSourceFactory<T>(
+  env: ModelGatewayConfiguration,
+  sourceSizeUpperBound: number,
+  sourceMimeType: string,
+  signal: AbortSignal | undefined,
+  prepareSource: () => Promise<ArrayBuffer | Blob>,
+  work: (parts: Record<string, unknown>[], onPrepared: (characters: number) => void) => Promise<T>,
+  additionalContextCharacters = 0,
+): Promise<T> {
+  const sourceSize = sourceSizeUpperBound;
+  if (!Number.isSafeInteger(sourceSize) || sourceSize < 0) throw new ModelGatewayRequestError("Invalid model source size");
   const rendered = sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
   const reservation = Math.max(1024 * 1024, rendered
     ? MAX_RENDERED_PDF_BYTES * 3 + sourceSize + 16 * 1024 * 1024
@@ -81,6 +96,9 @@ export async function withPreparedModelSource<T>(
   if (reservation > localMemoryLimits.preparationMaxBytes) throw new ModelGatewayRequestError("Source exceeds the local model preparation budget");
   return scheduleModelCall(env, () => preparationBudget.run(reservation, async (lease) => {
     if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
+    const source = await prepareSource();
+    const actualSize = source instanceof Blob ? source.size : source.byteLength;
+    if (actualSize > sourceSize) throw new ModelGatewayRequestError("Prepared source exceeds its model preparation reservation");
     const sourceBytes = source instanceof Blob ? await source.arrayBuffer() : source;
     const parts = await prepareSourceContent(sourceBytes, sourceMimeType, rendered, signal);
     return work(parts, (characters) => {
@@ -91,6 +109,12 @@ export async function withPreparedModelSource<T>(
     if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
     throw error;
   });
+}
+
+/** Hold derived-artifact memory through persistence; do not nest another preparation lease inside work. */
+export async function withDocumentProcessingMemory<T>(reservationBytes: number, signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+  if (!Number.isSafeInteger(reservationBytes) || reservationBytes < 0 || reservationBytes > localMemoryLimits.preparationMaxBytes) throw new ModelGatewayRequestError("Document processing exceeds the local model preparation budget");
+  return preparationBudget.run(reservationBytes, async () => { signal.throwIfAborted(); return work(); }, signal);
 }
 
 /** Source-free assistance shares the extraction scheduler and preparation memory budget. */

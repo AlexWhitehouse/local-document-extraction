@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, s
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createLocalWorkspaceProductStore, openLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
-import { assistantModelEnvironment, createWorkspaceCredentialVault, publicModelConfiguration, validateWorkspaceModelDraft } from "./workspaceModelConfiguration";
+import { classificationModelEnvironment, assistantModelEnvironment, createWorkspaceCredentialVault, publicModelConfiguration, validateWorkspaceModelDraft } from "./workspaceModelConfiguration";
 
 const directories: string[] = [];
 const temporaryState = () => { const directory = mkdtempSync(join(tmpdir(), "workspace-model-test-")); directories.push(directory); return directory; };
@@ -167,4 +167,38 @@ test("Workspace databases refuse linked database, sidecar and parent paths witho
     if (suffix === "directory") expect(readdirSync(outside)).toEqual([]);
     else expect(readFileSync(outside, "utf8")).toBe("unchanged external file");
   }
+});
+
+test("classification and splitting use one strictly validated role independently of assistant and extraction", () => {
+  const classification_model = { model_name: " classify/model ", supports_pdf_input: true, supports_structured_output: true };
+  expect(validateWorkspaceModelDraft(draft).classification_model).toBeNull();
+  expect(validateWorkspaceModelDraft({ ...draft, classification_model: null }).classification_model).toBeNull();
+  expect(validateWorkspaceModelDraft({ ...draft, classification_model }).classification_model).toEqual({ ...classification_model, model_name: "classify/model" });
+  for (const invalid of [[], "classify/model", {}, { ...classification_model, model_name: " " }, { ...classification_model, credential: "different-key" }, { ...classification_model, supports_pdf_input: "true" }]) {
+    expect(() => validateWorkspaceModelDraft({ ...draft, classification_model: invalid })).toThrow();
+  }
+  const input = { credential: "dummy-secret", workspaceId: "workspace_a", requestTimeoutMs: "1500" };
+  const configuration = { ...draft, sequential_calls: true, classification_model: { ...classification_model, model_name: "classify/model" }, assistant_model: { model_name: "assistant/model", supports_pdf_input: false, supports_structured_output: false } };
+  expect(classificationModelEnvironment(configuration, input)).toEqual({
+    AI_MODEL: "classify/model", MODEL_GATEWAY_URL: draft.gateway_url, LITELLM_KEY: "dummy-secret", MODEL_GATEWAY_SEQUENTIAL_CALLS: "true",
+    MODEL_SUPPORTS_PDF_INPUT: "true", MODEL_SUPPORTS_STRUCTURED_OUTPUT: "true", MODEL_GATEWAY_WORKSPACE_ID: "workspace_a", MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "1500",
+  });
+  expect(assistantModelEnvironment(configuration, input).AI_MODEL).toBe("assistant/model");
+  expect(classificationModelEnvironment({ ...configuration, classification_model: null }, input)).toMatchObject({ AI_MODEL: draft.model_name, MODEL_SUPPORTS_PDF_INPUT: "false", MODEL_SUPPORTS_STRUCTURED_OUTPUT: "false" });
+});
+
+test("classification model survives reopening and clearing restores extraction inheritance", () => {
+  const stateDirectory = temporaryState();
+  const workspaceId = "workspace_classification";
+  let store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+  const classification_model = { model_name: "classify/model", supports_pdf_input: true, supports_structured_output: false };
+  const configuration = { ...draft, classification_model, credential_ciphertext: createWorkspaceCredentialVault(stateDirectory).encrypt(workspaceId, "dummy-secret") };
+  const saved = store.putModelConfiguration({ configuration, expectedRevision: null, updatedAt: "2026-10-02T10:00:00Z" })!;
+  store.close();
+  store = openLocalWorkspaceProductStore({ stateDirectory, workspaceId })!;
+  expect(store.getModelConfiguration()?.classification_model).toEqual(classification_model);
+  expect(publicModelConfiguration(store.getModelConfiguration(), workspaceId, true, createWorkspaceCredentialVault(stateDirectory))).toMatchObject({ classification_model });
+  const inherited = store.putModelConfiguration({ configuration: { ...configuration, classification_model: null }, expectedRevision: saved.revision, updatedAt: "2026-10-02T10:01:00Z" });
+  expect(inherited?.classification_model).toBeNull();
+  store.close();
 });

@@ -12,6 +12,8 @@ import {
 } from "./consumer/modelResultNormalizer";
 import { HttpError } from "./lib/http";
 import { configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
+import { createLocalDocumentProcessingRunner, type DocumentProcessingFunctions } from "./localDocumentProcessingRunner";
+import type { LocalRetainedSourceObjects } from "./localApplication";
 import { nowIso } from "./lib/ids";
 import type { FieldDefinition } from "./lib/types";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
@@ -54,6 +56,10 @@ type ExtractionFunction = (input: {
 
 export function createLocalExtractionRunner({
   extract,
+  classify,
+  splitDocument,
+  materializePages,
+  sourceObjects,
   modelGatewayRequestTimeoutMs,
   maxAttempts = EXTRACTION_MAX_ATTEMPTS,
   maxRetryDelayMs = EXTRACTION_MAX_RETRY_DELAY_MS,
@@ -72,8 +78,9 @@ export function createLocalExtractionRunner({
   stateDirectory,
   workspaceControl,
   workspaceProductOperations,
-}: {
+}: DocumentProcessingFunctions & {
   extract?: ExtractionFunction;
+  sourceObjects?: LocalRetainedSourceObjects;
   modelGatewayRequestTimeoutMs?: string;
   maxAttempts?: number;
   maxRetryDelayMs?: number;
@@ -121,6 +128,11 @@ export function createLocalExtractionRunner({
     : DEFAULT_RECOVERY_BATCH_SIZE;
   const recoveries = new Map<string, Promise<void>>();
   const activeJobs = new Map<string, Set<string>>();
+  const documentProcessing = createLocalDocumentProcessingRunner({
+    classify, splitDocument, materializePages, stateDirectory, sourceFiles: localSourceFileStore, sourceObjects,
+    now, modelGatewayRequestTimeoutMs, scheduleJob, onGatewayOutcome,
+    notifyJob: (workspaceId, store, jobId) => notifyJobLifecycle(onJobLifecycleChange, workspaceId, store, jobId),
+  });
 
   const recover = async (targetWorkspaceId?: string) => {
     const workspaceIds = targetWorkspaceId ? [targetWorkspaceId] : await listLocalWorkspaceIds(stateDirectory);
@@ -139,6 +151,7 @@ export function createLocalExtractionRunner({
       }
       if (!productStoreLease) continue;
       let recovered;
+      let packets;
       try {
         recovered = productStoreLease.store.recoverExtractionJobs({
           limit: normalizedRecoveryBatchSize,
@@ -147,10 +160,14 @@ export function createLocalExtractionRunner({
           staleProcessingBefore,
           isJobActive: (jobId) => activeJobs.get(workspaceId)?.has(jobId) ?? false,
         });
+        packets = productStoreLease.store.recoverDocumentPackets({
+          limit: normalizedRecoveryBatchSize, staleProcessingBefore,
+          isJobActive: (packetId) => activeJobs.get(workspaceId)?.has(packetId) ?? false,
+        });
       } finally {
         productStoreLease.release();
       }
-      for (const job of recovered) {
+      for (const job of [...recovered, ...packets]) {
         if (!workspaceExists(workspaceControl, workspaceId)) break;
         await scheduleJob({
           job_id: job.job_id,
@@ -159,7 +176,8 @@ export function createLocalExtractionRunner({
           template_version: job.template_version,
           enqueued_at: recoveredAt,
           attempt: job.attempt,
-          not_before: job.not_before,
+          ...("not_before" in job ? { not_before: job.not_before } : {}),
+          ...("kind" in job ? { kind: job.kind } : {}),
         });
       }
     }
@@ -184,6 +202,11 @@ export function createLocalExtractionRunner({
       activeJobs.set(job.workspace_id, owned);
       return productDataAccess.run({ workspaceId: job.workspace_id, jobId: job.job_id, mode: "existing" }, async ({ store: productStore, signal }) => {
         if (!productStore) return;
+        const processingContext = { store: productStore, workspaceId: job.workspace_id, ownerId: job.job_id, signal };
+        if (job.kind === "packet") { await documentProcessing.processPacket(processingContext); return; }
+        const summary = productStore.getExtractionJobSummary(job.job_id);
+        if (summary && summary.template_id === null && !await documentProcessing.route(processingContext)) return;
+        if (signal.aborted) return;
         const attempt = job.attempt ?? 1;
         const claimed = productStore.claimExtractionJobForProcessing({
           jobId: job.job_id,

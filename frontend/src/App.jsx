@@ -34,6 +34,7 @@ import {
   WorkspaceUserActionModal,
 } from "./features/workspaces/WorkspacePages.jsx";
 import { useWorkspaceController } from "./features/workspaces/useWorkspaceController.js";
+import { useWorkspaceDocumentProcessingSettings } from "./features/workspaces/useWorkspaceDocumentProcessingSettings.js";
 import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
 import { useWorkspaceSourceRetention } from "./features/workspaces/useWorkspaceSourceRetention.js";
 import "./features/layout/StudioLayouts.css";
@@ -139,13 +140,20 @@ function AuthenticatedApp({ configuration }) {
   }, [coreRequest, hasSession, recoverForbiddenWorkspaceAccess, workspaceId]);
   const workspaceModel = useWorkspaceModelConfiguration({
     coreRequest,
+    showActionToast,
     workspaceId,
     sessionUserId,
     role: workspaceContext.selectedWorkspaceRole,
     enabled: hasApiAccess && !isWorkspaceInvitationSelected,
   });
+  const workspaceDocumentProcessing = useWorkspaceDocumentProcessingSettings({
+    coreRequest, showActionToast, workspaceId, sessionUserId,
+    role: workspaceContext.selectedWorkspaceRole,
+    enabled: hasApiAccess && !isWorkspaceInvitationSelected,
+  });
   const workspaceSourceRetention = useWorkspaceSourceRetention({
     coreRequest,
+    showActionToast,
     workspaceId,
     sessionUserId,
     role: workspaceContext.selectedWorkspaceRole,
@@ -166,6 +174,9 @@ function AuthenticatedApp({ configuration }) {
     maxSourceFileBytes,
     apiBase: API_BASE,
     templates,
+    workspaceTags: templateController.templatePage.tagPicker.tags,
+    onTagsRefresh: templateController.templatePage.tagPicker.onReload,
+    onProcessingPolicyRefresh: workspaceDocumentProcessing.reload,
     selectedUploadTemplateId: templateController.selectedUploadTemplateId,
     onSelectedUploadTemplateChange: templateController.setSelectedUploadTemplateId,
     documentRequests: documentRequests.documents,
@@ -272,10 +283,11 @@ function AuthenticatedApp({ configuration }) {
       ? workspaceToolbar.workspaceLabel
       : visiblePage === "templates"
         ? templateController.templatePage.templateName || "Create Template"
-        : selectedDocument?.source_name || "Documents";
+        : documentController.documentPage.selectedPacketId ? documentController.documentPage.packetPage.packet?.source_name || "Document packet" : selectedDocument?.source_name || "Documents";
   const pageDescription =
     PAGE_DESCRIPTIONS[visiblePage] ||
     documentController.documentPage.selectedDocumentTemplateName ||
+    (documentController.documentPage.selectedPacketId ? documentController.documentPage.isSingleDocument ? "Processing document" : "Smart splitting" : "") ||
     "Select a document to see its extraction results.";
 
   return (
@@ -286,7 +298,7 @@ function AuthenticatedApp({ configuration }) {
         activePage={visiblePage}
         contentSelection={
           visiblePage === "documents"
-            ? documentToolbar.selectedDocumentId
+            ? packetContentSelection(documentController.documentPage) || documentToolbar.selectedDocumentId
             : visiblePage === "templates"
               ? templateController.toolbar.selectedTemplateId
               : visiblePage === "workspace"
@@ -360,6 +372,7 @@ function AuthenticatedApp({ configuration }) {
                     <span className="status-chip" title="All queued documents in this workspace">
                       Queued {documentStatusCounts.queued}
                     </span>
+                    {documentStatusCounts.awaiting_template ? <span className="status-chip" title="Documents awaiting a template choice">Needs template {documentStatusCounts.awaiting_template}</span> : null}
                     <span className="status-chip good" title="All completed documents in this workspace">
                       Completed {documentStatusCounts.completed}
                     </span>
@@ -443,6 +456,7 @@ function AuthenticatedApp({ configuration }) {
               workspaceRole={workspaceContext.selectedWorkspaceRole}
               modelConfiguration={workspaceModel}
               sourceRetention={workspaceSourceRetention}
+              processingSettings={workspaceDocumentProcessing}
               modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
             />
           )
@@ -697,4 +711,12 @@ function AdminContextList() {
       </button>
     </div>
   );
+}
+
+// Each packet tab counts as its own selection so switching tabs fades like opening a document.
+// An opening packet keys on the tab it is opening, so the fade runs once rather than again on load.
+function packetContentSelection({ selectedPacketId, packetPage }) {
+  if (!selectedPacketId) return "";
+  const tab = packetPage.isOpeningDocument ? packetPage.pendingDocumentId : packetPage.activeDocumentId;
+  return `${selectedPacketId}:${tab || "overview"}`;
 }

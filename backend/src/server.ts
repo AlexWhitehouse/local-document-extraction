@@ -160,7 +160,7 @@ const retainedSourceObjects = s3SourceStorage && sourceObjectStore ? (() => {
   return {
     store: sourceObjectStore,
     manifest: sourceObjectManifest,
-    keyFor: (input: { workspaceId: string; jobId: string; mimeType: string }) =>
+    keyFor: (input: { workspaceId: string; jobId: string; mimeType: string; ownerKind?: "job" | "packet" }) =>
       retainedObjectKey({ prefix: s3SourceStorage.prefix, namespace, ...input }),
     documentKeyFor: (input: { workspaceId: string; documentId: string; mimeType: string }) =>
       evaluationDocumentObjectKey({ prefix: s3SourceStorage.prefix, namespace, ...input }),
@@ -200,6 +200,7 @@ const localExtractionRunner = createLocalExtractionRunner({
   productAnalytics: localProductAnalytics,
   retryDelayMs: extractionRetryDelayMs,
   scheduleJob: localExtractionQueue.schedule,
+  sourceObjects: retainedSourceObjects,
   sourceFileStore: localSourceFiles,
   stateDirectory,
   workspaceControl: localAuth.workspaceControl,

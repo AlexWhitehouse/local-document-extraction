@@ -304,21 +304,24 @@ function extractObjectMetadata(description: string) {
 export async function validateExtractRequest(
   request: Request,
   maxSourceFileBytes: number
-): Promise<{ templateId: string; source: File }> {
+): Promise<ExtractSubmissionMetadata & { source: File }> {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) {
     throw new HttpError(415, "unsupported_media_type", "Use multipart/form-data");
   }
 
   const form = await request.formData();
-  if (form.getAll("template_tags").length > 1) {
-    throw new HttpError(400, "invalid_multipart", "Duplicate multipart field: template_tags");
+  for (const field of ["template_id", "template_tags", "pages", "document", "options"]) {
+    if (form.getAll(field).length > 1) throw new HttpError(400,"invalid_multipart",`Duplicate multipart field: ${field}`);
+  }
+  for (const field of ["enable_smart_splitting", "exclude_blank_pages", "smart_split"]) {
+    if (form.has(field)) throw new HttpError(400,"invalid_options","Document processing policy is configured in workspace settings");
   }
   const sourcePart = form.get("document");
   if (!(sourcePart instanceof File)) {
     throw new HttpError(400, "invalid_document", "document is required");
   }
-  const { templateId } = validateExtractSubmissionMetadata({
+  const metadata = validateExtractSubmissionMetadata({
     hasInlineFields: form.has("fields"),
     maxSourceFileBytes,
     optionsRaw: form.get("options"),
@@ -326,10 +329,13 @@ export async function validateExtractRequest(
     sourceSize: sourcePart.size,
     templateIdRaw: form.get("template_id"),
     templateTagsRaw: form.get("template_tags"),
+    pagesRaw: form.get("pages"),
   });
 
-  return { templateId, source: sourcePart };
+  return { ...metadata, source: sourcePart };
 }
+
+export type ExtractSubmissionMetadata = { templateId: string | null; templateTags: string[]; pages: number[] | null };
 
 export function validateExtractSubmissionMetadata({
   hasInlineFields,
@@ -339,6 +345,7 @@ export function validateExtractSubmissionMetadata({
   sourceSize,
   templateIdRaw,
   templateTagsRaw = null,
+  pagesRaw = null,
 }: {
   hasInlineFields: boolean;
   maxSourceFileBytes: number;
@@ -347,27 +354,39 @@ export function validateExtractSubmissionMetadata({
   sourceSize: number;
   templateIdRaw: FormDataEntryValue | null;
   templateTagsRaw?: FormDataEntryValue | null;
-}): { templateId: string } {
+  pagesRaw?: FormDataEntryValue | null;
+}): ExtractSubmissionMetadata {
   if (hasInlineFields) {
     throw new HttpError(400, "inline_fields_forbidden", "Inline fields are not allowed");
   }
-  if (typeof templateIdRaw !== "string" || templateIdRaw.trim().length === 0) {
-    throw new HttpError(400, "invalid_template_id", "template_id is required");
+  if (templateIdRaw !== null && (typeof templateIdRaw !== "string" || !templateIdRaw.trim())) {
+    throw new HttpError(400, "invalid_template_id", "template_id must be a nonempty string");
   }
   validateSourceFileMetadata(sourceMimeType, sourceSize, maxSourceFileBytes);
   validateOptions(optionsRaw);
-  validateExtractTemplateTags(templateTagsRaw);
-  return { templateId: templateIdRaw.trim() };
+  const templateTags = validateExtractTemplateTags(templateTagsRaw);
+  const templateId = typeof templateIdRaw === "string" ? templateIdRaw.trim() : null;
+  if (!templateId && !templateTags.length) throw new HttpError(400, "invalid_template_id", "Provide template_id or a nonempty template_tags array");
+  let pages: number[] | null = null;
+  if (pagesRaw !== null) {
+    if (sourceMimeType !== "application/pdf") throw new HttpError(400,"invalid_pages","Page selection is supported only for PDFs");
+    try {
+      const parsed: unknown = typeof pagesRaw === "string" ? JSON.parse(pagesRaw) : null;
+      if (!Array.isArray(parsed) || !parsed.length || parsed.length > 10000 || parsed.some(page=>!Number.isSafeInteger(page)||page<1) || new Set(parsed).size!==parsed.length) throw new Error();
+      pages = (parsed as number[]).sort((a,b)=>a-b);
+    } catch { throw new HttpError(400,"invalid_pages","pages must be a nonempty JSON array of unique positive physical page numbers"); }
+  }
+  return { templateId, templateTags, pages };
 }
 
-/** Reserved for future template selection; validated but not stored or used for routing. */
-function validateExtractTemplateTags(value: FormDataEntryValue | null): void {
-  if (value === null) return;
+/** Normalize the explicit tag scope; unknown names never broaden template selection. */
+function validateExtractTemplateTags(value: FormDataEntryValue | null): string[] {
+  if (value === null) return [];
   if (typeof value !== "string") throw new HttpError(400, "invalid_template_tags", "template_tags must be a JSON string array");
   let parsed: unknown;
   try { parsed = JSON.parse(value); }
   catch { throw new HttpError(400, "invalid_template_tags", "template_tags must be valid JSON"); }
-  try { normalizeTemplateTags(parsed); }
+  try { return normalizeTemplateTags(parsed); }
   catch (error) { throw new HttpError(400, "invalid_template_tags", (error as Error).message); }
 }
 
@@ -387,6 +406,9 @@ function validateOptions(value: FormDataEntryValue | null): void {
   }
   if (!parsed || typeof parsed !== "object") {
     throw new HttpError(400, "invalid_options", "options must be an object");
+  }
+  for (const name of ["enable_smart_splitting", "exclude_blank_pages", "smart_split"]) {
+    if (name in parsed) throw new HttpError(400,"invalid_options","Document processing policy is configured in workspace settings");
   }
   for (const name of ["include_confidence", "include_evidence"]) {
     const option = (parsed as Record<string, unknown>)[name];

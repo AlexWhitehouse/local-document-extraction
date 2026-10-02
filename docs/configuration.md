@@ -203,7 +203,7 @@ Set both Cloudflare values or neither, even with local email.
 | `MAX_SOURCE_FILE_BYTES` | 10 MiB (`10485760`) | Largest PDF, PNG, JPEG, or WebP file that can be uploaded. |
 | `MAX_JSON_REQUEST_BYTES` | 1 MiB (`1048576`) | Largest JSON request body (everything except file uploads). |
 | `SUBMISSION_MAX_CONCURRENCY` | `8` | How many uploads can be received at once. |
-| `SUBMISSION_MAX_RESERVED_BYTES` | 128 MiB (`134217728`) | Total space shared by uploads in progress. Must fit one maximum-size file plus 32 KiB. |
+| `SUBMISSION_MAX_RESERVED_BYTES` | 128 MiB (`134217728`) | Total space shared by uploads in progress. Must be at least `MAX_SOURCE_FILE_BYTES + 40960` (40 KiB of multipart overhead). |
 | `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` | 5 minutes (`300000`) | How long to wait for the model to answer. |
 | `EXTRACTION_RETRY_DELAY_MS` | `1000` | Wait before retrying after a temporary model failure. |
 | `EXTRACTION_MAX_CONCURRENCY` | `8` | How many documents are extracted at once, to start with. |
@@ -215,6 +215,9 @@ Set both Cloudflare values or neither, even with local email.
 Some limits are fixed in the code rather than configurable:
 
 - Each document gets at most three extraction attempts, with retries at most 60 seconds apart.
+- Automatic selection considers at most 100 matching templates and 64 KiB of candidate metadata; narrow the tags if that scope is too large. Smart splitting assesses up to 128 selected PDF pages and creates at most 100 child Documents. Oversize work stops with an actionable outcome; pages and candidates are never silently truncated.
+- Split planning and each child classification have separate durable budgets: one initial assessment plus at most two targeted reassessments. Transport retries are separately bounded.
+- PDF subsets, previews, and derived files use isolated cancellable processing: one operation at a time, at most four waiting, 20 seconds per operation, 32 MiB per derived PDF, and 64 MiB total derived output. Previews are limited to 16 MiB. Existing parser bounds still apply.
 - The **Test connection** button times out after 30 seconds.
 - PDF pages sent as images are rendered at up to 2048 pixels on each side, with at most 64 MiB of images per document.
 - PDF checking: at most 32 MiB per PDF, 16 MiB per decoded stream, 32 MiB of decoding work in total, 10,000 pages, and five seconds. Two PDFs are checked at once, and up to eight more can wait for up to five seconds. When that queue is full, uploads get `503 pdf_validation_capacity_unavailable`.
@@ -250,8 +253,25 @@ The AI model isn't configured here. Each Workspace's owner or admin sets its gat
 Once saved, the panel shows a summary; select **Edit** to change it. The **Models** table lists which model each use calls, with its declared capabilities (direct PDF input and structured output):
 
 - **Extraction** runs Extraction jobs and Evaluations.
+- **Document classification & splitting** chooses among tag-matching Templates and identifies PDF document boundaries, including targeted reassessments. It inherits Extraction unless you choose **Different model**, with its own direct PDF and structured-output settings. It shares the Workspace gateway, credential, and sequential-call policy. A failed custom model does not silently switch back to Extraction.
 - **Template assistant** runs the Template assistant, its suggested requests, and Auto generate. It uses the extraction model unless you choose **Different model**, which calls another model on the same gateway, with the same credential and call behavior, and its own capabilities. **Test connection** checks each distinct model.
 
 Model credentials are encrypted with `secrets/model-gateway.key` in the data folder, so keep that file with your backups. Workspace admins can point the model at any address, including private network ones, so only give that role to people you trust.
 
+Choose model routes that support the document input you intend to send. Without Direct PDF input, each assessment sends the selected pages as images in one request. A provider may impose image-count, payload, context, or output limits below the application limits; the app does not automatically batch around them. A successful text-only connection test does not verify these capabilities. Configure a suitable Document classification & splitting model, or narrow the PDF page selection through the API when necessary.
+
 These old global settings are ignored; the app lists any it finds when it starts: `MODEL_GATEWAY_URL`, `AI_MODEL`, `LITELLM_KEY`, `MODEL_GATEWAY_ROUTE_LABEL`, `MODEL_GATEWAY_SEQUENTIAL_CALLS`, `MODEL_SUPPORTS_PDF_INPUT`, `MODEL_SUPPORTS_STRUCTURED_OUTPUT`, and `MODEL_GATEWAY_USE_MANAGED_FILES`. Old global credentials aren't imported.
+
+## Workspace document processing
+
+Workspace owners and admins can change **Enable smart splitting** and **Exclude blank pages** under **Workspaces → Document processing**, immediately below Model gateway. Each toggle saves immediately and reports the outcome in a notification; a failed save restores the previous value. Both default to **off** for new and existing Workspaces and apply to every subsequent browser upload and API submission. Each accepted item captures its effective policy; changing settings does not alter already accepted work. There are no per-request or per-upload overrides.
+
+Smart splitting applies to PDFs and identifies logical documents across their pages. Image uploads retain their ordinary one-document behavior. API clients can supply a PDF `pages` selection to limit the source pages before processing; browser uploads use all pages. Page selection does not override Workspace settings. With splitting disabled, the selected pages become one extraction job and no blank pages are removed. With splitting enabled, blank pages remain unless **Exclude blank pages** is also enabled. Nonblank cover pages are retained. When every selected page is independently verified blank and both settings are enabled, the packet completes as **No documents to extract**, with exclusion records and no child jobs.
+
+Automatic template selection has no enable/disable setting. Supply an explicit Template ID or one or more Template tags. Without an ID, templates matching **any** supplied tag form the candidate pool; the classification model sees the document plus candidate IDs, names, and descriptions, never their field definitions or field guidance. An explicit ID wins and pins the same Template version for every child, while splitting still runs. With tags, each child selects independently after splitting. No matching candidates or unresolved ambiguity eventually requires manual selection without another upload.
+
+Held packets and documents keep the working source needed for resolution even when completed-original retention is disabled. Child Documents own independent derived PDFs; deleting a child leaves its siblings and the packet original intact. Deleting a packet removes the whole group. Keeping a packet original means deleting a child does not redact those pages from that original.
+
+The browser displays a single-page upload or an accepted one-document split as a normal Document with its own results, download, and export. Multi-document or unresolved packets retain the packet overview. Deleting a Document presented this way also deletes its hidden parent and original. The API still exposes a packet for every PDF accepted with splitting enabled, including one-child and all-blank outcomes.
+
+The session-only settings endpoint is `GET|PUT /v1/workspaces/:workspaceId/document-processing-settings`. Members may read the effective settings; owners/admins may replace them with `{"enable_smart_splitting":true,"exclude_blank_pages":false}`. Workspace API keys cannot manage these settings. See the [packet API](../mkdocs/docs/api/overview.md#document-packets-and-review) for processing and last-resort resolution.

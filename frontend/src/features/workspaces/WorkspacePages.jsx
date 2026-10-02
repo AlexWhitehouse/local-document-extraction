@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
+import { WorkspaceDocumentProcessingSettings } from "./WorkspaceDocumentProcessingSettings.jsx";
 import { ModalHeader } from "../layout/ModalDialog.jsx";
 import { CopyIcon, EditIcon } from "../layout/Icons.jsx";
+import { SettingToggle } from "./SettingToggle.jsx";
 
 export function WorkspaceInvitationPage({
   invitation,
@@ -120,16 +122,15 @@ function WorkspaceSourceRetention({ controller }) {
           <p>Whether new uploads keep their original file.</p>
         </div>
       </div>
-      <label className="studio-source-retention-toggle">
-        <input
-          type="checkbox"
+      <div className="studio-setting-toggles">
+        <SettingToggle
+          label="Retain original documents"
+          description={explanation}
           checked={retaining}
           disabled={!settings || !configured || !canManage || saving}
-          onChange={(event) => void controller.setRetainOriginals(event.target.checked)}
+          onChange={(checked) => void controller.setRetainOriginals(checked)}
         />
-        <span>Retain original documents</span>
-      </label>
-      {explanation ? <p className="studio-users-note">{explanation}</p> : null}
+      </div>
       {configured && !canManage ? <p className="studio-users-note">An owner or admin manages this setting.</p> : null}
       {error ? (
         <p role="alert" className="form-error">
@@ -142,6 +143,7 @@ function WorkspaceSourceRetention({ controller }) {
 }
 
 export function AcceptedWorkspacePage({
+  processingSettings,
   sourceRetention,
   modelConfiguration,
   modelConfigurationKey,
@@ -269,11 +271,16 @@ export function AcceptedWorkspacePage({
           </section>
           {sourceRetention ? <WorkspaceSourceRetention controller={sourceRetention} /> : null}
         </section>
-        {modelConfiguration ? (
-          <WorkspaceModelConfiguration
-            key={modelConfigurationKey}
-            controller={modelConfiguration}
-          />
+        {modelConfiguration || processingSettings ? (
+          <div className="studio-workspace-model-settings">
+            {modelConfiguration ? (
+              <WorkspaceModelConfiguration
+                key={modelConfigurationKey}
+                controller={modelConfiguration}
+              />
+            ) : null}
+            {processingSettings ? <WorkspaceDocumentProcessingSettings controller={processingSettings} /> : null}
+          </div>
         ) : null}
       </div>
       <section className="studio-workspace-users">
