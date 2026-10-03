@@ -151,6 +151,22 @@ describe("auth sign-in feedback", () => {
     );
   });
 
+  it.each([
+    ["/workspaces/ws_1/templates/tpl_1", "/workspaces/ws_1/templates/tpl_1"],
+    ["/reset-password?error=invalid_token", ""],
+  ])("uses a usable Google sign-in callback from %s", async (path, callbackPath) => {
+    window.history.replaceState(null, "", path);
+    authClientMock.signInSocial.mockResolvedValue({ error: null });
+    render(<App configuration={{ ...configuration, auth: { ...configuration.auth, emailPasswordEnabled: false } }} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with Google" }));
+
+    expect(authClientMock.signInSocial).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: window.location.origin + callbackPath,
+    });
+  });
+
   it("submits sign-in when Enter is pressed in the sign-in form", async () => {
     const user = userEvent.setup();
     authClientMock.signInEmail.mockResolvedValue({ error: null });
