@@ -176,13 +176,13 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .studio-main .evaluation-setup-thumb:hover:not(:disabled) { border-color: var(--accent); background: var(--row-hover); }
 .evaluation-setup-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
 .evaluation-mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.studio-main .evaluation-mode-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; height: auto; padding: 12px 14px; border: 1px solid var(--rule-strong); background: transparent; color: var(--text-1); text-align: left; font-weight: 400; white-space: normal; }
+.studio-main .evaluation-mode-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; height: auto; padding: 12px 14px; border: 1px solid var(--rule-strong); background: transparent; color: var(--text-1); text-align: left; font-weight: 400; white-space: normal; }
 .studio-main .evaluation-mode-card:hover:not(:disabled) { background: var(--row-hover); border-color: var(--line-2); }
 .studio-main .evaluation-mode-card[aria-checked=true] { border-color: var(--accent); background: var(--row-selected); box-shadow: inset 0 0 0 1px var(--accent); }
 .evaluation-mode-card strong { display: block; font-size: 12.5px; font-weight: 500; color: var(--text-0); }
 .evaluation-mode-card em { display: block; margin-top: 2px; font-style: normal; font-size: 11px; color: var(--accent-strong); }
 .evaluation-mode-card small { display: block; margin-top: 6px; font-size: 11px; color: var(--text-2); line-height: 1.45; }
-.evaluation-mode-shape { display: flex; align-items: center; gap: 4px; padding-top: 2px; }
+.evaluation-mode-shape { display: flex; align-items: center; gap: 4px; }
 .evaluation-mode-shape i { display: grid; place-items: center; width: 22px; height: 16px; border: 1px solid var(--line-2); font: 8.5px var(--font-mono); font-style: normal; color: var(--text-2); }
 .evaluation-mode-shape > i { border-color: var(--accent); color: var(--accent-strong); }
 .evaluation-mode-shape b { width: 8px; height: 1px; background: var(--line-2); }
