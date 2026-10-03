@@ -98,12 +98,14 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
       {exclusions.length ? (
         <section className="packet-section" aria-label="Excluded pages">
           <h3 className="packet-section-title">Excluded pages</h3>
-          <table className="studio-table packet-table">
-            <thead><tr><th scope="col">Page</th><th scope="col">Reason</th></tr></thead>
-            <tbody>{exclusions.map(({ page, reason }) => (
-              <tr key={page}><th scope="row">{page}</th><td>{reason}</td></tr>
-            ))}</tbody>
-          </table>
+          <div className="packet-table-scroll">
+            <table className="studio-table packet-table">
+              <thead><tr><th scope="col">Page</th><th scope="col">Reason</th></tr></thead>
+              <tbody>{exclusions.map(({ page, reason }) => (
+                <tr key={page}><th scope="row">{page}</th><td>{reason}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
         </section>
       ) : null}
     </div>
@@ -156,26 +158,28 @@ function PacketDocuments({ documents, templates, onSelectDocument }) {
   return (
     <section className="packet-section" aria-label="Documents in this packet">
       <h3 className="packet-section-title">Documents</h3>
-      <table className="studio-table packet-table packet-documents">
-        <thead><tr><th scope="col">Document</th><th scope="col">Pages</th><th scope="col">Template</th><th scope="col">Status</th></tr></thead>
-        <tbody>{documents.map((child, index) => {
-          const template = templates.find((entry) => entry.id === child.template_id);
-          const status = String(child.status || "queued");
-          return (
-            <tr key={child.job_id}>
-              <th scope="row">
-                <button type="button" className="studio-text-button" aria-label={`Open document ${index + 1} · ${pagesLabel(child.source_pages)}`}
-                  onClick={() => onSelectDocument?.(child.job_id)}>
-                  Document {index + 1}
-                </button>
-              </th>
-              <td>{formatPages(child.source_pages)}</td>
-              <td>{template?.name || child.template_name || child.template_id || (LIVE_CHILD_STATUSES.has(status) ? "Choosing template…" : "—")}</td>
-              <td><span className={`studio-document-status ${status}`}><i aria-hidden="true" />{status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ")}</span></td>
-            </tr>
-          );
-        })}</tbody>
-      </table>
+      <div className="packet-table-scroll">
+        <table className="studio-table packet-table packet-documents">
+          <thead><tr><th scope="col">Document</th><th scope="col">Pages</th><th scope="col">Template</th><th scope="col">Status</th></tr></thead>
+          <tbody>{documents.map((child, index) => {
+            const template = templates.find((entry) => entry.id === child.template_id);
+            const status = String(child.status || "queued");
+            return (
+              <tr key={child.job_id}>
+                <th scope="row">
+                  <button type="button" className="studio-text-button" aria-label={`Open document ${index + 1} · ${pagesLabel(child.source_pages)}`}
+                    onClick={() => onSelectDocument?.(child.job_id)}>
+                    Document {index + 1}
+                  </button>
+                </th>
+                <td>{formatPages(child.source_pages)}</td>
+                <td>{template?.name || child.template_name || child.template_id || (LIVE_CHILD_STATUSES.has(status) ? "Choosing template…" : "—")}</td>
+                <td><span className={`studio-document-status ${status}`}><i aria-hidden="true" />{status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ")}</span></td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </div>
     </section>
   );
 }

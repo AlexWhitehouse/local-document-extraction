@@ -29,6 +29,8 @@ export function useDocumentController({
   const actionScopeRef = useRef(null);
   const actionScope = useMemo(() => ({ sessionId, workspaceId, hasApiAccess }), [sessionId, workspaceId, hasApiAccess]);
   actionScopeRef.current = actionScope;
+  const documentRequestsRef = useRef(documentRequests);
+  documentRequestsRef.current = documentRequests;
   const [isUploadDragActive, setIsUploadDragActive] = useState(false);
   const [liveUpdatesUnavailable, setLiveUpdatesUnavailable] = useState(false);
   const [isDownloadingOriginal, setIsDownloadingOriginal] = useState(false);
@@ -440,10 +442,14 @@ export function useDocumentController({
     });
   }
 
-  const loadOriginal = useCallback(
-    (documentId, options) => documentRequests.getOriginal(documentId, options),
-    [documentRequests],
-  );
+  // UI interactions can replace the request adapter without changing the Source file.
+  // Keep the loader stable within this scope so the preview retains its request and URL.
+  const loadOriginal = useCallback((documentId, options) => {
+    if (!actionScope.hasApiAccess || actionScopeRef.current !== actionScope) {
+      return Promise.reject(new DOMException("Workspace changed", "AbortError"));
+    }
+    return documentRequestsRef.current.getOriginal(documentId, options);
+  }, [actionScope]);
 
   async function downloadSelectedOriginal() {
     const packetOriginal = !actionDocument && openPacket?.source_retained === true;

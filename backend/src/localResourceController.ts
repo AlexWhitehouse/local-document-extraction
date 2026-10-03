@@ -59,8 +59,8 @@ export function createLocalResourceController({
   diskReserveBytes = 1024 * 1024 * 1024,
   evictIdleStores = () => 0,
   getQueueSnapshot,
-  initialPermits = 8,
-  maximumPermits = Math.max(8, Math.min(32, cpus().length * 4)),
+  initialPermits = 16,
+  maximumPermits = 32,
   memoryLimitRatio = 0.8,
   memoryPressureLargeSubmissionBytes = 4 * 1024 * 1024,
   now = Date.now,
@@ -83,7 +83,7 @@ export function createLocalResourceController({
   stateDirectory: string;
 }) {
   const cores = Math.max(1, cpus().length);
-  const normalizedInitialPermits = positiveInteger(initialPermits, 8);
+  const normalizedInitialPermits = positiveInteger(initialPermits, 16);
   const normalizedMaximumPermits = Math.max(
     normalizedInitialPermits,
     positiveInteger(maximumPermits, normalizedInitialPermits),

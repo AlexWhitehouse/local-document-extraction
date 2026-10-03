@@ -104,7 +104,7 @@ export function readLocalConfiguration({
   const maxSourceFileBytes = integer("MAX_SOURCE_FILE_BYTES", 10 * 1024 * 1024, 1, Number.MAX_SAFE_INTEGER - 65536);
   const submissionMaxReservedBytes = integer("SUBMISSION_MAX_RESERVED_BYTES", 128 * 1024 * 1024);
   if (submissionMaxReservedBytes < localDocumentRequestBodyLimit(maxSourceFileBytes)) throw new Error("SUBMISSION_MAX_RESERVED_BYTES must accommodate MAX_SOURCE_FILE_BYTES plus 40960 bytes of multipart overhead.");
-  const extractionMaxConcurrency = integer("EXTRACTION_MAX_CONCURRENCY", 8);
+  const extractionMaxConcurrency = integer("EXTRACTION_MAX_CONCURRENCY", 16);
   const extractionMaximumConcurrency = integer("EXTRACTION_MAX_CONCURRENCY_LIMIT", 32);
   if (extractionMaxConcurrency > extractionMaximumConcurrency) throw new Error("EXTRACTION_MAX_CONCURRENCY must not exceed EXTRACTION_MAX_CONCURRENCY_LIMIT.");
   const { memoryLimitRatio: localMemoryLimitRatio, preparationMaxBytes: modelPreparationMaxBytes } = readLocalMemoryLimits(env, totalMemoryBytes);

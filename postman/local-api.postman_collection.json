@@ -7,7 +7,8 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "http://localhost:8787"
+      "value": "http://localhost:8787",
+      "description": "API origin without a trailing slash or /v1."
     },
     {
       "key": "api_key",
@@ -31,7 +32,8 @@
     },
     {
       "key": "poll_path",
-      "value": ""
+      "value": "",
+      "description": "Location returned by the upload, including its leading slash."
     },
     {
       "key": "child_job_ids",
@@ -286,15 +288,7 @@
             "type": "text"
           }
         ],
-        "url": {
-          "raw": "{{base_url}}{{poll_path}}",
-          "host": [
-            "{{base_url}}"
-          ],
-          "path": [
-            "{{poll_path}}"
-          ]
-        },
+        "url": "{{base_url}}{{poll_path}}",
         "description": "Poll the Location saved by the upload, normally every 2\u20135 seconds. Job states: queued, processing, awaiting_template, completed, failed. Packet states: queued, processing, awaiting_review, materializing, processing_children, completed, failed. A signed-in Workspace member must resolve review/template holds in the frontend before processing can continue; API keys cannot resolve them. Packet reads contain child summaries, not results. The script saves child_job_ids; copy each desired ID to job_id and read Return Job Results, tracking consumed IDs in your integration. A failed packet can still have successful or running children."
       },
       "event": [

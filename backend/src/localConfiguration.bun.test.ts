@@ -8,6 +8,9 @@ test("a clean local install has usable private defaults and a secret-free public
   const config = read();
   expect(config.stateDirectory).toBe("/tmp/document-extraction-config-test/.local");
   expect(config.host).toBe("127.0.0.1");
+  expect(config.extractionMaxConcurrency).toBe(16);
+  expect(config.extractionMaximumConcurrency).toBe(32);
+  expect(config.extractionAdaptiveConcurrency).toBe(true);
   expect(publicLocalConfiguration(config)).toEqual({
     auth: { emailPasswordEnabled: true, googleEnabled: false, signupEnabled: true, requireEmailVerification: false, mailDelivery: "local" },
     limits: { maxSourceFileBytes: 10485760 },
@@ -96,6 +99,8 @@ test("provider completeness and capacity relationships are checked before startu
     { EXTRACTION_MAX_CONCURRENCY: "33" },
   ]) expect(() => read(environment)).toThrow();
   expect(read({ MAX_SOURCE_FILE_BYTES: "200000000", SUBMISSION_MAX_RESERVED_BYTES: "200040960" }).maxSourceFileBytes).toBe(200000000);
+  expect(read({ EXTRACTION_MAX_CONCURRENCY: "8", EXTRACTION_MAX_CONCURRENCY_LIMIT: "16", EXTRACTION_ADAPTIVE_CONCURRENCY: "false" }))
+    .toMatchObject({ extractionMaxConcurrency: 8, extractionMaximumConcurrency: 16, extractionAdaptiveConcurrency: false });
 });
 
 test("state configuration cannot chmod shared filesystem roots", () => {

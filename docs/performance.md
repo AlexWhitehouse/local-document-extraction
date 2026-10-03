@@ -11,6 +11,7 @@ How the app stays responsive as jobs, documents, and users add up. The design tr
 
 ## Extraction queue
 
+- Extraction starts with 16 simultaneous jobs and can adapt up to 32 by default. Explicit environment settings override these defaults; changes apply when the server restarts.
 - Before starting each job, the queue checks the Workspace's current sequential-calls setting. Jobs waiting behind a sequential Workspace hold only a small amount of queue metadata in memory.
 - When a Workspace's in-memory queue runs dry, it refills from SQLite. The same happens if the in-memory queue overflows.
 - The queue is also checked against the database every minute (`EXTRACTION_RECONCILE_INTERVAL_MS`), as a safety net for missed work. Recovery never takes over an attempt that's still running, and it picks up jobs in order of `COALESCE(next_retry_at, updated_at)`, then ID.
