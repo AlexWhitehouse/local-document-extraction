@@ -1,144 +1,111 @@
-import React, { useEffect, useRef, useState } from "react";
+import React from "react";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
+import { displayName, isApplicationAdmin, isEmailVerified, safeText, userIdOf } from "./adminAccounts.js";
 
 export function ApplicationAdminPage({ admin }) {
+  const user = admin.selectedUser;
+  const isCurrentUser = Boolean(user) && userIdOf(user) === String(admin.sessionUserId || "").trim();
+  const actions = user ? getUserActions(admin, user) : [];
+
   return (
     <>
       <header className="studio-page-heading">
         <p className="studio-eyebrow">Admin / Accounts</p>
-        <h1>Application admin</h1>
+        <h1>{user ? displayName(user) : "Application admin"}</h1>
         <div className="studio-heading-actions">
-          <span className="status-chip">Total users {admin.total}</span>
+          {isCurrentUser ? <span className="status-chip good">Your account</span> : null}
+          {actions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              className={action.className}
+              disabled={action.disabled}
+              onClick={action.onClick}
+            >
+              {action.label}
+            </button>
+          ))}
         </div>
         <p className="studio-page-description">
-          Manage application-wide accounts separately from Workspace access.
+          {user ? safeText(user.email) : "Application-wide accounts, managed separately from Workspace access."}
         </p>
       </header>
 
-      <section className="studio-admin-users">
-        <div className="studio-section-heading">
-          <div>
-            <h2>Account management</h2>
-            <p>Find Better Auth accounts without exposing Workspace data.</p>
-          </div>
+      {user ? (
+        <div className="studio-workspace-settings admin-account-settings">
+          <section aria-label="Account details">
+            <div className="studio-section-heading">
+              <div>
+                <h2>Account details</h2>
+                <p>How this person signs in to Studio.</p>
+              </div>
+            </div>
+            <dl className="studio-workspace-facts">
+              <div>
+                <dt>Name</dt>
+                <dd>{safeText(user.name)}</dd>
+              </div>
+              <div>
+                <dt>Email</dt>
+                <dd>{safeText(user.email)}</dd>
+              </div>
+              <div>
+                <dt>Email status</dt>
+                <dd>
+                  <span className={isEmailVerified(user) ? "status-chip good" : "status-chip warn"}>
+                    {isEmailVerified(user) ? "Verified" : "Unverified"}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Created</dt>
+                <dd><code>{formatExactLocalDateTime(user.createdAt)}</code></dd>
+              </div>
+            </dl>
+          </section>
+          <section className="studio-workspace-model-settings" aria-label="Application access">
+            <div className="studio-section-heading">
+              <div>
+                <h2>Application access</h2>
+                <p>Role and sign-in access across every Workspace.</p>
+              </div>
+            </div>
+            <dl className="studio-workspace-facts">
+              <div>
+                <dt>Application role</dt>
+                <dd>
+                  {isApplicationAdmin(user) ? (
+                    <span className="status-chip busy">Application admin</span>
+                  ) : (
+                    "Regular user"
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Access</dt>
+                <dd>
+                  <span className={user.banned ? "status-chip bad" : "status-chip"}>
+                    {user.banned ? "Banned" : "Active"}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Ban reason</dt>
+                <dd>{user.banned ? safeText(user.banReason) : "Not banned"}</dd>
+              </div>
+            </dl>
+            <p className="studio-users-note">
+              {isCurrentUser
+                ? "You can't remove your own admin access or ban your own account."
+                : "Application admins manage every account. Roles inside a Workspace are set by its owners."}
+            </p>
+          </section>
         </div>
-
-        <form className="admin-user-search" onSubmit={admin.onSubmitSearch}>
-          <label>
-            Search field
-            <select
-              value={admin.searchField}
-              onChange={(event) => admin.onSearchFieldChange(event.target.value)}
-            >
-              <option value="email">Email</option>
-              <option value="name">Name</option>
-            </select>
-          </label>
-          <label>
-            Search users
-            <input
-              value={admin.searchInput}
-              placeholder="Search by email"
-              onChange={(event) => admin.onSearchInputChange(event.target.value)}
-            />
-          </label>
-          <div className="actions compact admin-user-search-actions">
-            <button
-              type="button"
-              className="secondary"
-              disabled={admin.isLoading || !admin.submittedSearch.value}
-              onClick={admin.onClearSearch}
-            >
-              Clear search
-            </button>
-            <button type="submit" disabled={admin.isLoading}>Search</button>
-          </div>
-        </form>
-
-        {admin.listError ? (
-          <div className="form-error admin-list-error" role="alert">
-            {admin.listError}
-            <button type="button" className="studio-text-button" onClick={admin.onRetry}>
-              Retry
-            </button>
-          </div>
-        ) : null}
-
-        <div className="table-scroll admin-users-table" aria-label="Application admin users">
-          <table className="studio-table">
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Name</th>
-                <th>Email status</th>
-                <th>Application role</th>
-                <th>Access</th>
-                <th>Ban reason</th>
-                <th>Created</th>
-                <th aria-label="Actions" />
-              </tr>
-            </thead>
-            <tbody>
-              {admin.users.length ? (
-                admin.users.map((user) => (
-                  <tr key={String(user.id || user.email)}>
-                    <td>{safeText(user.email)}</td>
-                    <td>{safeText(user.name)}</td>
-                    <td>
-                      <span className={isEmailVerified(user) ? "status-chip good" : "status-chip warn"}>
-                        {isEmailVerified(user) ? "Verified" : "Unverified"}
-                      </span>
-                    </td>
-                    <td>
-                      {isApplicationAdmin(user) ? (
-                        <span className="status-chip busy">Application admin</span>
-                      ) : (
-                        "Regular user"
-                      )}
-                    </td>
-                    <td>
-                      <span className={user.banned ? "status-chip bad" : "status-chip"}>
-                        {user.banned ? "Banned" : "Active"}
-                      </span>
-                    </td>
-                    <td>{user.banned ? safeText(user.banReason) : "Not banned"}</td>
-                    <td className="admin-user-created">{formatExactLocalDateTime(user.createdAt)}</td>
-                    <td className="admin-user-actions-cell"><UserActionsMenu admin={admin} user={user} /></td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={8} className="studio-table-empty">
-                    {admin.isLoading ? <span role="status">Loading users…</span> : "No users found."}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="admin-user-pagination">
-          <span className="studio-eyebrow">Page {admin.currentPage}</span>
-          <div className="actions compact">
-            <button
-              type="button"
-              className="secondary"
-              disabled={admin.isLoading || !admin.hasPreviousPage}
-              onClick={admin.onPreviousPage}
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              disabled={admin.isLoading || !admin.hasNextPage}
-              onClick={admin.onNextPage}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </section>
+      ) : (
+        <p className="studio-empty-state">
+          {admin.isLoading ? "Loading users…" : "Choose an account from the list to see its details."}
+        </p>
+      )}
 
       {admin.banDialogUser ? <BanUserDialog admin={admin} user={admin.banDialogUser} /> : null}
       {admin.unbanDialogUser ? <UnbanUserDialog admin={admin} user={admin.unbanDialogUser} /> : null}
@@ -146,88 +113,7 @@ export function ApplicationAdminPage({ admin }) {
   );
 }
 
-function UserActionsMenu({ admin, user }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
-  const triggerRef = useRef(null);
-  const actions = getUserActions(admin, user, () => setIsOpen(false));
-  const email = safeText(user.email);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-
-    function closeMenu() {
-      setIsOpen(false);
-    }
-
-    window.addEventListener("scroll", closeMenu, true);
-    window.addEventListener("resize", closeMenu);
-    return () => {
-      window.removeEventListener("scroll", closeMenu, true);
-      window.removeEventListener("resize", closeMenu);
-    };
-  }, [isOpen]);
-
-  function toggleMenu() {
-    const nextIsOpen = !isOpen;
-    if (nextIsOpen && triggerRef.current) {
-      const triggerRect = triggerRef.current.getBoundingClientRect();
-      const menuWidth = 180;
-      const menuHeight = Math.max(actions.length, 1) * 42 + 12;
-      const top =
-        triggerRect.bottom + menuHeight > window.innerHeight - 8
-          ? Math.max(8, triggerRect.top - menuHeight - 6)
-          : triggerRect.bottom + 6;
-      setMenuPosition({
-        top,
-        left: Math.max(8, triggerRect.right - menuWidth),
-      });
-    }
-    setIsOpen(nextIsOpen);
-  }
-
-  return (
-    <div className="admin-user-actions-menu">
-      <button
-        ref={triggerRef}
-        type="button"
-        className="icon-action-button admin-user-actions-trigger"
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        aria-label={`User actions for ${email}`}
-        onClick={toggleMenu}
-      >
-        <span aria-hidden="true">⋯</span>
-      </button>
-      {isOpen ? (
-        <div className="admin-user-actions-dropdown" role="menu" style={menuPosition}>
-          {actions.length ? (
-            actions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                className={action.className || "ghost"}
-                disabled={action.disabled}
-                role="menuitem"
-                onClick={action.onClick}
-              >
-                {action.label}
-              </button>
-            ))
-          ) : (
-            <span className="muted" role="menuitem">
-              No actions available
-            </span>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function getUserActions(admin, user, closeMenu) {
+function getUserActions(admin, user) {
   const userId = String(user.id || "").trim();
   const isCurrentUser = userId && userId === String(admin.sessionUserId || "").trim();
   const disabled = admin.isLoading || admin.mutatingUserId === userId;
@@ -235,25 +121,22 @@ function getUserActions(admin, user, closeMenu) {
     label,
     className,
     disabled,
-    onClick: () => {
-      closeMenu();
-      run(user);
-    },
+    onClick: () => run(user),
   });
 
   const actions = [];
+  if (!isCurrentUser && !isApplicationAdmin(user) && !user.banned) {
+    actions.push(action("Impersonate user", admin.onStartImpersonation, "secondary"));
+  }
   if (isApplicationAdmin(user)) {
-    if (!isCurrentUser) actions.push(action("Remove admin", admin.onRemoveAdmin));
+    if (!isCurrentUser) actions.push(action("Remove admin", admin.onRemoveAdmin, "secondary"));
   } else {
-    actions.push(action("Make admin", admin.onMakeAdmin));
+    actions.push(action("Make admin", admin.onMakeAdmin, "secondary"));
   }
   if (user.banned) {
-    actions.push(action("Unban user", admin.onOpenUnbanDialog));
+    actions.push(action("Unban user", admin.onOpenUnbanDialog, "secondary"));
   } else if (!isCurrentUser) {
-    actions.push(action("Ban user", admin.onOpenBanDialog, "ghost danger"));
-  }
-  if (!isCurrentUser && !isApplicationAdmin(user) && !user.banned) {
-    actions.push(action("Impersonate user", admin.onStartImpersonation));
+    actions.push(action("Ban user", admin.onOpenBanDialog, "danger"));
   }
   return actions;
 }
@@ -330,19 +213,6 @@ function BanUserDialog({ admin, user }) {
       </form>
     </ModalDialog>
   );
-}
-
-function safeText(value) {
-  const text = String(value || "").trim();
-  return text || "—";
-}
-
-function isEmailVerified(user) {
-  return Boolean(user.emailVerified ?? user.email_verified);
-}
-
-function isApplicationAdmin(user) {
-  return String(user.role || "user").trim() === "admin";
 }
 
 function formatExactLocalDateTime(value) {

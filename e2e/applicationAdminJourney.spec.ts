@@ -32,11 +32,11 @@ test("an Application admin manages account access through the frontend", async (
     await signUpAndVerify(adminPage, harness, ADMIN);
     const navigation = adminPage.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: "Admin" }).click();
-    await expect(adminPage.getByRole("heading", { name: "Application admin" })).toBeVisible();
+    await expect(adminPage.getByRole("region", { name: "Account list" })).toBeVisible();
 
     await adminPage.getByLabel("Search users").fill(REGULAR_USER.email);
-    await adminPage.getByRole("button", { name: "Search", exact: true }).click();
-    await expect(managedUserRow(adminPage)).toBeVisible();
+    await managedUserListItem(adminPage).click();
+    await expect(managedUserRow(adminPage).getByRole("heading", { name: REGULAR_USER.name })).toBeVisible();
     await expect(managedUserRow(adminPage)).toContainText("Regular user");
     await expect(managedUserRow(adminPage)).toContainText("Active");
 
@@ -69,7 +69,7 @@ test("an Application admin manages account access through the frontend", async (
     await expect(adminPage.getByRole("heading", { name: "Workspace details" })).toBeVisible();
 
     await impersonation.getByRole("button", { name: "Stop impersonating" }).click();
-    await expect(adminPage.getByRole("heading", { name: "Application admin" })).toBeVisible();
+    await expect(adminPage.getByRole("region", { name: "Account list" })).toBeVisible();
     await expect(adminPage.getByText("Impersonation stopped")).toBeVisible();
   } finally {
     if (!regularContext.pages().every((page) => page.isClosed())) {
@@ -83,25 +83,18 @@ test("an Application admin manages account access through the frontend", async (
   }
 });
 
+// The selected account's details and actions fill the main pane.
 function managedUserRow(page: Page) {
-  return page.getByRole("row").filter({ hasText: REGULAR_USER.email });
+  return page.getByRole("main");
+}
+
+function managedUserListItem(page: Page) {
+  return page
+    .getByRole("region", { name: "Account list" })
+    .getByRole("button", { name: new RegExp(`^${REGULAR_USER.name}`) });
 }
 
 async function chooseUserAction(page: Page, action: string): Promise<void> {
-  const trigger = managedUserRow(page).getByRole("button", {
-    name: `User actions for ${REGULAR_USER.email}`,
-  });
-  await trigger.evaluate((button, actionLabel) => new Promise<void>((resolve, reject) => {
-    (button as HTMLElement).click();
-    requestAnimationFrame(() => {
-      const menuItem = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")]
-        .find((candidate) => candidate.textContent?.trim() === actionLabel);
-      if (!menuItem) {
-        reject(new Error(`User action ${actionLabel} did not open`));
-        return;
-      }
-      menuItem.click();
-      resolve();
-    });
-  }), action);
+  await managedUserListItem(page).click();
+  await managedUserRow(page).getByRole("button", { name: action, exact: true }).click();
 }

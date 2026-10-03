@@ -4,6 +4,9 @@ const ADMIN_USERS_PAGE_SIZE = 25;
 
 const INITIAL_SEARCH = { field: "email", value: "" };
 
+// Matches the other context sidebars: typing searches without a separate submit step.
+const SEARCH_DEBOUNCE_MS = 300;
+
 export function useApplicationAdminController({
   authClient,
   isActive,
@@ -26,6 +29,20 @@ export function useApplicationAdminController({
   const [unbanDialogUser, setUnbanDialogUser] = useState(null);
   const [banReason, setBanReason] = useState("");
   const [banReasonError, setBanReasonError] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
+
+  useEffect(() => {
+    const next = { field: searchField, value: searchInput.trim() };
+    const current = submittedSearch.value.trim();
+    if (next.value === current && (next.field === submittedSearch.field || !current)) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      setOffset(0);
+      setSubmittedSearch(next);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchField, searchInput, submittedSearch.field, submittedSearch.value]);
 
   useEffect(() => {
     if (!isActive) {
@@ -86,14 +103,7 @@ export function useApplicationAdminController({
   function submitSearch(event) {
     event.preventDefault();
     setOffset(0);
-    setSubmittedSearch({ field: searchField, value: searchInput });
-  }
-
-  function clearSearch() {
-    setSearchField(INITIAL_SEARCH.field);
-    setSearchInput("");
-    setSubmittedSearch(INITIAL_SEARCH);
-    setOffset(0);
+    setSubmittedSearch({ field: searchField, value: searchInput.trim() });
   }
 
   // Runs a Better Auth admin mutation for one user, then reloads the list.
@@ -205,9 +215,14 @@ export function useApplicationAdminController({
     }
   }
 
+  // The selection falls back to the first listed account so the detail pane is never blank.
+  const selectedUser = users.find((user) => userIdOf(user) === selectedUserId) || users[0] || null;
+
   return {
     users,
+    selectedUser,
     total,
+    pageSize: ADMIN_USERS_PAGE_SIZE,
     currentPage: Math.floor(offset / ADMIN_USERS_PAGE_SIZE) + 1,
     hasPreviousPage: offset > 0,
     hasNextPage: offset + ADMIN_USERS_PAGE_SIZE < total,
@@ -225,7 +240,7 @@ export function useApplicationAdminController({
     onSearchFieldChange: setSearchField,
     onSearchInputChange: setSearchInput,
     onSubmitSearch: submitSearch,
-    onClearSearch: clearSearch,
+    onSelectUser: (user) => setSelectedUserId(userIdOf(user)),
     onPreviousPage: () => setOffset((current) => Math.max(0, current - ADMIN_USERS_PAGE_SIZE)),
     onNextPage: () => setOffset((current) => current + ADMIN_USERS_PAGE_SIZE),
     onRetry: () => setReloadToken((current) => current + 1),
