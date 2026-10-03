@@ -1498,7 +1498,6 @@ input[type="checkbox"]:disabled {
 
 /* Anchored dropdowns and popovers drop in from their trigger. */
 @media (prefers-reduced-motion: no-preference) {
-  .admin-user-actions-dropdown,
   .context-filter-popover,
   .evaluation-menu-panel {
     animation: popover-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -1797,108 +1796,85 @@ button.modal-close.modal-close:hover:not(:disabled) {
   color: var(--text-0);
 }
 
-/* Application admin: one Studio section with a search row, table and pager. */
-.studio-admin-users {
-  display: grid;
-  gap: 14px;
-  padding-top: 20px;
+/* Application admin: the account list lives in the context sidebar, details in the main pane. */
+.admin-search-shell {
+  grid-template-columns: minmax(0, 1fr) 68px;
 }
 
-.studio-admin-users .studio-section-heading {
-  margin-bottom: 0;
-}
-
-.admin-list-error {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0;
-}
-
-.admin-user-pagination {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-}
-
-.admin-user-created {
+.context-search-shell.admin-search-shell > select {
+  min-width: 0;
+  height: 28px;
+  min-height: 0;
+  padding: 0 6px;
+  border-left: 1px solid var(--rule);
   font: 10.5px var(--font-mono);
-  white-space: nowrap;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-.studio-main .studio-table .admin-user-actions-cell {
-  width: 1%;
-  text-align: right;
+.admin-search-shell:focus-within > select {
+  border-color: var(--accent);
 }
 
-.studio-main .studio-table td.studio-table-empty {
-  padding: 28px 12px;
-  text-align: center;
-  color: var(--text-3);
+.admin-search-shell > select:focus {
+  box-shadow: none;
+}
+
+/* Three-line rows: keep the grid from squeezing them when the stacked sidebar is height-capped. */
+.admin-account-list {
+  grid-auto-rows: max-content;
+}
+
+.context-item-account.is-banned {
+  box-shadow: inset 2px 0 0 0 var(--rose);
+}
+
+.context-item-account.is-admin {
+  box-shadow: inset 2px 0 0 0 var(--blue);
+}
+
+.context-item-main .admin-account-flags {
+  display: flex;
+  gap: 8px;
+  margin-top: 1px;
+}
+
+.admin-account-flags em {
+  font: 9.5px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.admin-account-flags .busy { color: var(--blue-text); }
+.admin-account-flags .bad { color: var(--rose-text); }
+.admin-account-flags .warn { color: var(--amber-text); }
+
+.admin-context-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font: 10px var(--font-mono);
+  color: var(--text-2);
+}
+
+.admin-context-pager button {
+  width: 22px;
+  height: 20px;
+  min-height: 0;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.studio-main .admin-account-settings .studio-workspace-facts dd {
+  overflow-wrap: anywhere;
 }
 
 .admin-user-action-form {
   display: grid;
   gap: 12px;
-}
-
-.admin-user-search {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.3fr) minmax(220px, 1fr) auto;
-  gap: 10px;
-  align-items: end;
-}
-
-.admin-user-search-actions {
-  align-self: end;
-}
-
-.admin-users-table {
-  max-height: 520px;
-}
-
-/* Text columns wrap so the date and actions menu stay inside the pane. */
-.studio-main .admin-users-table .studio-table td {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.studio-main .admin-users-table .studio-table td:has(> .status-chip),
-.studio-main .admin-users-table .studio-table td.admin-user-created {
-  white-space: nowrap;
-  overflow-wrap: normal;
-}
-
-.admin-user-actions-menu {
-  position: relative;
-  display: inline-flex;
-  justify-content: flex-end;
-}
-
-.admin-user-actions-trigger {
-  line-height: 1;
-}
-
-.admin-user-actions-dropdown {
-  position: fixed;
-  z-index: 100;
-  display: grid;
-  gap: 4px;
-  width: 180px;
-  padding: 6px;
-  border: 1px solid var(--rule-strong);
-  border-radius: 0;
-  background: var(--pane-raised);
-  box-shadow: var(--shadow-popover);
-}
-
-.admin-user-actions-dropdown button,
-.admin-user-actions-dropdown span {
-  width: 100%;
-  justify-content: flex-start;
-  margin: 0;
-  white-space: nowrap;
 }
 
 .admin-user-action-modal {

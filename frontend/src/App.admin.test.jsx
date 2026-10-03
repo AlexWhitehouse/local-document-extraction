@@ -55,20 +55,25 @@ vi.mock("sonner", () => ({
 import { App } from "./App.jsx";
 import { toast } from "sonner";
 
-function getUserRow(email) {
-  const usersTable = screen.getByRole("table");
-  return within(usersTable).getByText(email).closest("tr");
+function accountList() {
+  return within(screen.getByRole("region", { name: "Account list" }));
 }
 
-async function openUserActions(user, email) {
-  const row = getUserRow(email);
-  await user.click(within(row).getByRole("button", { name: `User actions for ${email}` }));
-  return row;
+function accountDetails() {
+  return within(screen.getByRole("main"));
+}
+
+async function selectAccount(user, email) {
+  await user.click((await accountList().findByText(email)).closest("button"));
+}
+
+function actionButton(name) {
+  return accountDetails().queryByRole("button", { name });
 }
 
 async function clickUserAction(user, email, actionName) {
-  const row = await openUserActions(user, email);
-  await user.click(await within(row).findByRole("menuitem", { name: actionName }));
+  await selectAccount(user, email);
+  await user.click(actionButton(actionName));
 }
 
 describe("Application admin page gate", () => {
@@ -137,24 +142,33 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
 
     expect(await screen.findByText("Total users 2")).toBeTruthy();
-    const usersTable = within(screen.getByRole("table"));
-    expect(usersTable.getByText("grace@example.com")).toBeTruthy();
-    expect(usersTable.getByText("Grace Hopper")).toBeTruthy();
-    expect(usersTable.getByText("Verified")).toBeTruthy();
-    expect(usersTable.getByText("Application admin")).toBeTruthy();
-    expect(usersTable.getByText("Active")).toBeTruthy();
-    expect(usersTable.getByText("alan@example.com")).toBeTruthy();
-    expect(usersTable.getByText("Alan Turing")).toBeTruthy();
-    expect(usersTable.getByText("Unverified")).toBeTruthy();
-    expect(usersTable.getByText("Regular user")).toBeTruthy();
-    expect(usersTable.getAllByText("Banned").length).toBeGreaterThan(0);
-    expect(usersTable.getByText("Compromised credentials")).toBeTruthy();
-    expect(usersTable.getByText(/2026-01-02 \d{2}:\d{2}:\d{2}/)).toBeTruthy();
-    expect(usersTable.queryByText("user_internal_1")).toBeNull();
+    const list = accountList();
+    expect(list.getByText("grace@example.com")).toBeTruthy();
+    expect(list.getByText("Grace Hopper")).toBeTruthy();
+    expect(list.getByText("alan@example.com")).toBeTruthy();
+    expect(list.getByText("Alan Turing")).toBeTruthy();
+    expect(list.getByText("Banned")).toBeTruthy();
+
+    // The first account is selected by default.
+    const details = accountDetails();
+    expect(details.getByRole("heading", { name: "Grace Hopper" })).toBeTruthy();
+    expect(details.getByText("Verified")).toBeTruthy();
+    expect(details.getByText("Application admin")).toBeTruthy();
+    expect(details.getByText("Active")).toBeTruthy();
+    expect(details.getByText(/2026-01-02 \d{2}:\d{2}:\d{2}/)).toBeTruthy();
+
+    await selectAccount(user, "alan@example.com");
+    expect(details.getByRole("heading", { name: "Alan Turing" })).toBeTruthy();
+    expect(details.getByText("Unverified")).toBeTruthy();
+    expect(details.getByText("Regular user")).toBeTruthy();
+    expect(details.getByText("Banned")).toBeTruthy();
+    expect(details.getByText("Compromised credentials")).toBeTruthy();
+    expect(screen.queryByText("user_internal_1")).toBeNull();
+    expect(screen.queryByText("user_internal_2")).toBeNull();
     expect(authClientMock.listUsers).toHaveBeenCalledWith(listUsersQuery());
   });
 
-  it("searches users manually by selected field and clears back to the first unfiltered page", async () => {
+  it("searches users as the admin types by the selected field and clears back to the first unfiltered page", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
 
@@ -164,7 +178,6 @@ describe("Application admin page gate", () => {
     expect(screen.getByLabelText("Search field").value).toBe("email");
     await user.selectOptions(screen.getByLabelText("Search field"), "name");
     await user.type(screen.getByLabelText("Search users"), "Grace");
-    await user.click(screen.getByRole("button", { name: "Search" }));
 
     await waitFor(() => {
       expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery({
@@ -173,13 +186,14 @@ describe("Application admin page gate", () => {
         searchOperator: "contains",
       }));
     });
+    // Debouncing keeps keystrokes from each issuing a request.
+    expect(authClientMock.listUsers).toHaveBeenCalledTimes(2);
 
-    await user.click(screen.getByRole("button", { name: "Clear search" }));
+    await user.clear(screen.getByLabelText("Search users"));
 
     await waitFor(() => {
       expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery());
     });
-    expect(screen.getByLabelText("Search field").value).toBe("email");
     expect(screen.getByLabelText("Search users").value).toBe("");
   });
 
@@ -194,17 +208,17 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
     await screen.findByText("Total users 30");
 
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
     await waitFor(() => {
       expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery({ offset: 25 }));
     });
-    expect(screen.getByText("Page 2")).toBeTruthy();
+    expect(screen.getByText("Page 2 of 2")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Previous" }));
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
     await waitFor(() => {
       expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery());
     });
-    expect(screen.getByText("Page 1")).toBeTruthy();
+    expect(screen.getByText("Page 1 of 2")).toBeTruthy();
   });
 
   it("shows Application admin list loading errors inline", async () => {
@@ -231,8 +245,10 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
 
-    const currentAdminRow = await openUserActions(user, "ada@example.com");
-    expect(within(currentAdminRow).getByText("No actions available")).toBeTruthy();
+    await selectAccount(user, "ada@example.com");
+    expect(accountDetails().getByText("Your account")).toBeTruthy();
+    expect(actionButton("Remove admin")).toBeNull();
+    expect(actionButton("Ban user")).toBeNull();
     await clickUserAction(user, "grace@example.com", "Remove admin");
 
     expect(confirmSpy).toHaveBeenCalledWith(
@@ -265,7 +281,7 @@ describe("Application admin page gate", () => {
         "Application role could not be updated. Please try again.",
       );
     });
-    expect(screen.getByText("alan@example.com")).toBeTruthy();
+    expect(accountList().getByText("alan@example.com")).toBeTruthy();
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
     expect(authClientMock.refetchSession).not.toHaveBeenCalled();
     expect(authClientMock.signOut).not.toHaveBeenCalled();
@@ -292,8 +308,8 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
 
-    const currentAdminRow = await openUserActions(user, "ada@example.com");
-    expect(within(currentAdminRow).getByText("No actions available")).toBeTruthy();
+    await selectAccount(user, "ada@example.com");
+    expect(actionButton("Ban user")).toBeNull();
     await clickUserAction(user, "grace@example.com", "Ban user");
 
     expect(screen.getByRole("dialog", { name: "Ban grace@example.com" })).toBeTruthy();
@@ -351,14 +367,14 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
 
     await screen.findByText("Total users 4");
-    const currentAdminRow = await openUserActions(user, "ada@example.com");
-    expect(within(currentAdminRow).queryByRole("menuitem", { name: "Impersonate user" })).toBeNull();
-    const otherAdminRow = await openUserActions(user, "grace@example.com");
-    expect(within(otherAdminRow).queryByRole("menuitem", { name: "Impersonate user" })).toBeNull();
-    const bannedUserRow = await openUserActions(user, "katherine@example.com");
-    expect(within(bannedUserRow).queryByRole("menuitem", { name: "Impersonate user" })).toBeNull();
-    const regularUserRow = await openUserActions(user, "alan@example.com");
-    expect(within(regularUserRow).getByRole("menuitem", { name: "Impersonate user" })).toBeTruthy();
+    await selectAccount(user, "ada@example.com");
+    expect(actionButton("Impersonate user")).toBeNull();
+    await selectAccount(user, "grace@example.com");
+    expect(actionButton("Impersonate user")).toBeNull();
+    await selectAccount(user, "katherine@example.com");
+    expect(actionButton("Impersonate user")).toBeNull();
+    await selectAccount(user, "alan@example.com");
+    expect(actionButton("Impersonate user")).toBeTruthy();
   });
 
   it("clears session-scoped UI state, refetches the session, and moves to Workspace after impersonation", async () => {
@@ -408,8 +424,8 @@ describe("Application admin page gate", () => {
         "Impersonation could not be started. Please try again.",
       );
     });
-    expect(screen.getByRole("heading", { name: "Application admin" })).toBeTruthy();
-    expect(screen.getByText("alan@example.com")).toBeTruthy();
+    expect(accountDetails().getByRole("heading", { name: "Alan Turing" })).toBeTruthy();
+    expect(accountList().getByText("alan@example.com")).toBeTruthy();
     expect(authClientMock.refetchSession).not.toHaveBeenCalled();
     expect(window.localStorage.removeItem).not.toHaveBeenCalledWith("documentextraction.workspace.v1");
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
@@ -531,8 +547,8 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
 
     expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
-    expect(screen.getByText("Users, roles, bans, and impersonation")).toBeTruthy();
-    expect(screen.getByText("Application-wide")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Accounts" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Account list" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Workspace toolbar" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Create Workspace" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Create user" })).toBeNull();

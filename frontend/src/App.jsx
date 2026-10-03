@@ -11,6 +11,7 @@ import {
   useAuthProfileController,
 } from "./features/auth/useAuthProfileController.js";
 import { ApplicationAdminPage } from "./features/admin/ApplicationAdminPage.jsx";
+import { AdminContextFooter, AdminContextList } from "./features/admin/AdminContextList.jsx";
 import { useApplicationAdminController } from "./features/admin/useApplicationAdminController.js";
 import { ContextSidebar } from "./features/context/ContextSidebar.jsx";
 import { DocumentContextList } from "./features/documents/DocumentContextList.jsx";
@@ -52,7 +53,7 @@ const PAGE_DESCRIPTIONS = {
 const CONTEXT_SIDEBAR_TITLES = {
   documents: "Documents",
   templates: "Templates",
-  admin: "Admin",
+  admin: "Accounts",
   workspace: "Workspaces",
 };
 
@@ -385,7 +386,9 @@ function AuthenticatedApp({ configuration, navigation }) {
               ? templateController.toolbar.selectedTemplateId
               : visiblePage === "workspace"
                 ? workspaceToolbar.workspaceId
-                : ""
+                : visiblePage === "admin"
+                  ? String(adminController.selectedUser?.id || "")
+                  : ""
         }
         counts={{
           workspace: workspaceContext.availableWorkspaces.length,
@@ -445,7 +448,7 @@ function AuthenticatedApp({ configuration, navigation }) {
             <ContextSidebar
               title={CONTEXT_SIDEBAR_TITLES[visiblePage]}
               footer={
-                visiblePage === "admin" ? null : visiblePage === "documents" ? (
+                visiblePage === "admin" ? <AdminContextFooter admin={adminController} /> : visiblePage === "documents" ? (
                   <>
                     {documentToolbar.selectedDocumentCount ? (
                       <span className="status-chip good">
@@ -473,7 +476,7 @@ function AuthenticatedApp({ configuration, navigation }) {
               }
             >
               {visiblePage === "admin" ? (
-                <AdminContextList />
+                <AdminContextList admin={adminController} />
               ) : !hasApiAccess && ["documents", "templates"].includes(visiblePage) ? (
                 <p className="muted">{workspaceContext.isWorkspaceContextLoading ? "Loading workspace context…" : "Choose an accessible Workspace."}</p>
               ) : visiblePage === "documents" ? (
@@ -793,18 +796,6 @@ function getAccountPasswordResetRoute(location) {
   }
   const token = params.get("token");
   return token ? { token } : { error: "missing-token" };
-}
-
-function AdminContextList() {
-  return (
-    <div className="context-list admin-context-list">
-      <button type="button" className="context-item active">
-        <strong>Account management</strong>
-        <span>Users, roles, bans, and impersonation</span>
-        <span>Application-wide</span>
-      </button>
-    </div>
-  );
 }
 
 // Each packet tab counts as its own selection so switching tabs fades like opening a document.
