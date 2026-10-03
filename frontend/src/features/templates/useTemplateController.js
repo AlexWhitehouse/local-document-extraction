@@ -723,22 +723,23 @@ export function useTemplateController({
     return () => { generationRef.current += 1; tagListRequestRef.current?.abort(); tagMutationRef.current?.abort(); };
   }, [hasApiAccess, listTemplates, listTemplateTags, workspaceId, sessionId, clearWorkspaceScopedTemplates]);
 
+  const hasUnsavedChanges = (isEditingTemplate ? isEditedTemplateDirty : hasNewDraftEdits) ||
+    (showTemplateJsonModal && isJsonDraftDirty);
+
   const routeActionsRef = useRef(null);
-  routeActionsRef.current = { loadTemplateForEditing, startNewTemplateDraft, updateTemplateId, showDraftTemplateNav, hasNewDraftEdits };
+  routeActionsRef.current = { loadTemplateForEditing, startNewTemplateDraft, updateTemplateId, showDraftTemplateNav, hasUnsavedChanges };
   useEffect(() => {
     if (!hasApiAccess || routeTemplateId === undefined) return;
     const actions = routeActionsRef.current;
     if (routeTemplateId === "new") {
-      if (!actions.updateTemplateId && actions.hasNewDraftEdits) setShowDraftTemplateNav(true);
+      // Canonicalizing a draft URL must also preserve unapplied JSON edits.
+      if (!actions.updateTemplateId && actions.hasUnsavedChanges) setShowDraftTemplateNav(true);
       else if (actions.updateTemplateId || !actions.showDraftTemplateNav) actions.startNewTemplateDraft();
     } else if (routeTemplateId && routeTemplateId !== actions.updateTemplateId) {
       void actions.loadTemplateForEditing(routeTemplateId);
     }
     return () => { editorRequestRef.current += 1; };
   }, [hasApiAccess, workspaceId, sessionId, routeTemplateId]);
-
-  const hasUnsavedChanges = (isEditingTemplate ? isEditedTemplateDirty : hasNewDraftEdits) ||
-    (showTemplateJsonModal && isJsonDraftDirty);
 
   return {
     navigation: {

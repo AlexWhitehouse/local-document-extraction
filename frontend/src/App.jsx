@@ -338,8 +338,8 @@ function AuthenticatedApp({ configuration, navigation }) {
     return <AuthScreen {...authScreen} />;
   }
 
-  const workspaceUnavailable = !route.root && workspaceContext.unavailableRoute;
-  const workspaceResolutionFailed = !route.root && workspaceContext.hasWorkspaceResolutionError;
+  const workspaceUnavailable = activePage !== "admin" && !route.root && workspaceContext.unavailableRoute;
+  const workspaceResolutionFailed = activePage !== "admin" && !route.root && workspaceContext.hasWorkspaceResolutionError;
   const templateLoad = templateController.navigation.load;
   const requestedTemplate = activePage === "templates" && route.templateId && route.templateId !== "new";
   const templateUnavailable = requestedTemplate && templateLoad.id === route.templateId && ["missing", "error"].includes(templateLoad.status);

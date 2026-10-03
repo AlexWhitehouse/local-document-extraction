@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { spawn } from "node:child_process";
+import { stripVTControlCharacters } from "node:util";
 import { startRuntimeHarness } from "./support/runtimeHarnessClient";
 import { submitSignUp } from "./support/journeyHelpers";
 
@@ -74,13 +75,17 @@ test("Vite serves and restores an authenticated deep link", async ({ page }) => 
     env: { ...process.env, DEV_API_ORIGIN: harness.origin }, stdio: ["ignore", "pipe", "pipe"],
   });
   const exited = new Promise(resolve => vite.once("exit", resolve));
+  let output = "";
+  const captureOutput = (chunk: Buffer) => { output = (output + String(chunk)).slice(-16_384); };
+  vite.stdout.on("data", captureOutput);
+  vite.stderr.on("data", captureOutput);
   try {
     const origin = await new Promise<string>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Vite did not start")), 15_000);
+      const timeout = setTimeout(() => reject(new Error(`Vite did not start: ${stripVTControlCharacters(output)}`)), 15_000);
       vite.once("error", error => { clearTimeout(timeout); reject(error); });
       vite.once("exit", () => { clearTimeout(timeout); reject(new Error("Vite exited before readiness")); });
-      vite.stdout.on("data", chunk => {
-        const match = String(chunk).match(/http:\/\/127\.0\.0\.1:\d+/);
+      vite.stdout.on("data", () => {
+        const match = stripVTControlCharacters(output).match(/http:\/\/127\.0\.0\.1:\d+/);
         if (match) { clearTimeout(timeout); resolve(match[0]); }
       });
     });
