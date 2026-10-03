@@ -1091,6 +1091,52 @@ describe("Workspace action toast feedback", () => {
     expect(await screen.findByText("$42.00")).toBeTruthy();
   });
 
+  it.each([
+    ["invoice.pdf", "application/pdf", "%PDF"],
+    ["invoice.png", "image/png", "image"],
+  ])("keeps the completed Document preview for %s loaded through unrelated interactions", async (sourceName, mimeType, contents) => {
+    const { createObjectURL, revokeObjectURL } = stubObjectUrls("blob:document-preview");
+    const document = completedDocument({
+      source_name: sourceName,
+      source_retained: true,
+      source_mime_type: mimeType,
+      results: [totalResult()],
+    });
+    let originalRequests = 0;
+    routeFetch((url) => {
+      if (url.endsWith("/jobs")) return jobList(document);
+      if (url.endsWith("/jobs/job_completed_1")) return jsonResponse(document);
+      if (url.endsWith("/jobs/job_completed_1/source")) {
+        originalRequests += 1;
+        return new Response(contents, { headers: { "content-type": mimeType } });
+      }
+    });
+
+    await act(async () => { render(<App />); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Documents/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("radio", { name: "Side by side" })); });
+    const getPreview = () => mimeType === "application/pdf"
+      ? screen.getByTitle(`Preview of ${sourceName}`)
+      : screen.getByAltText(`Original ${sourceName}`);
+    const preview = getPreview();
+    const previewUrl = preview.getAttribute("src");
+    expect(originalRequests).toBe(1);
+
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Upload Document" })[0]); });
+    expect(screen.getByRole("dialog", { name: "Upload document" })).toBeTruthy();
+    expect(getPreview()).toBe(preview);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true })); });
+    expect(screen.queryByRole("dialog", { name: "Upload document" })).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole("checkbox", { name: "Select document job_completed_1" })); });
+    expect(screen.getByRole("checkbox", { name: "Select document job_completed_1" }).checked).toBe(true);
+
+    expect(originalRequests).toBe(1);
+    expect(getPreview()).toBe(preview);
+    expect(preview.getAttribute("src")).toBe(previewUrl);
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+  });
+
   describe("document deletion", () => {
     async function deleteOpenDocument(deleteResponse) {
       const user = userEvent.setup();
