@@ -206,7 +206,7 @@ Set both Cloudflare values or neither, even with local email.
 | `SUBMISSION_MAX_RESERVED_BYTES` | 128 MiB (`134217728`) | Total space shared by uploads in progress. Must be at least `MAX_SOURCE_FILE_BYTES + 40960` (40 KiB of multipart overhead). |
 | `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` | 5 minutes (`300000`) | How long to wait for the model to answer. |
 | `EXTRACTION_RETRY_DELAY_MS` | `1000` | Wait before retrying after a temporary model failure. |
-| `EXTRACTION_MAX_CONCURRENCY` | `8` | How many documents are extracted at once, to start with. |
+| `EXTRACTION_MAX_CONCURRENCY` | `16` | How many documents are extracted at once, to start with. |
 | `EXTRACTION_MAX_CONCURRENCY_LIMIT` | `32` | The most documents extracted at once when adaptive concurrency scales up. |
 | `EXTRACTION_ADAPTIVE_CONCURRENCY` | `true` | Scale the number of simultaneous extractions up or down with the machine's load. |
 | `EXTRACTION_MAX_BUFFERED` | `10000` | How many queued jobs are held in memory. All jobs are also stored in the database. |

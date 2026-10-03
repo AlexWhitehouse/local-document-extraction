@@ -18,22 +18,21 @@ test("the resource controller exposes storage/process telemetry and backs off on
     diskReserveBytes: Number.MAX_SAFE_INTEGER,
     getQueueSnapshot: () => ({
       accepting: true,
-      active: 8,
+      active: 16,
       deferred: 0,
       durableDeferrals: 0,
       maxBuffered: 10_000,
-      maxConcurrent: 8,
+      maxConcurrent: 16,
       oldestEnqueuedAt: "2026-08-16T12:00:00.000Z",
       pending: 1,
       readyWorkspaces: 1,
     }),
-    initialPermits: 8,
-    maximumPermits: 16,
     setPermits: (value) => permits.push(value),
     stateDirectory,
   });
 
   try {
+    expect(controller.snapshot()).toMatchObject({ adaptive: true, permits: { initial: 16, current: 16, maximum: 32 } });
     controller.recordCompletedJob();
     controller.recordGatewayOutcome("throttled");
     await controller.sampleNow();
@@ -42,8 +41,8 @@ test("the resource controller exposes storage/process telemetry and backs off on
     expect(snapshot.gateway.throttled).toBe(1);
     expect(snapshot.disk).toMatchObject({ sourceBytes: 128, sqliteBytes: 256, walBytes: 64 });
     expect(snapshot.memory.rssBytes).toBeGreaterThan(0);
-    expect(snapshot.permits).toMatchObject({ current: 5, lastChangeReason: "gateway_throttled" });
-    expect(permits).toEqual([5]);
+    expect(snapshot.permits).toMatchObject({ current: 11, lastChangeReason: "gateway_throttled" });
+    expect(permits).toEqual([11]);
     expect(await controller.canReserveSubmission({ requestBytes: 1, reservedBytes: 0 })).toBe(false);
   } finally {
     controller.stop();

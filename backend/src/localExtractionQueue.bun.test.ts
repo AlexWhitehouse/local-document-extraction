@@ -64,23 +64,24 @@ test("the local extraction queue does not dispatch a retry before its not-before
   expect(started).toBe(true);
 });
 
-test("the local extraction queue bounds active handlers and keeps only metadata pending", async () => {
-  const queue = createLocalExtractionQueue({ maxConcurrent: 2 });
+test.each([
+  ["default", undefined, 16],
+  ["configured", 2, 2],
+] as const)("the local extraction queue bounds active handlers at its %s limit and keeps only metadata pending", async (_name, maxConcurrent, expectedLimit) => {
+  const queue = createLocalExtractionQueue({ maxConcurrent });
   const releases: Array<() => void> = [];
   queue.subscribe(async () => {
     await new Promise<void>((resolve) => releases.push(resolve));
   });
 
-  await Promise.all([
-    queue.schedule(job("job_1", "workspace_one")),
-    queue.schedule(job("job_2", "workspace_one")),
-    queue.schedule(job("job_3", "workspace_one")),
-  ]);
+  await Promise.all(Array.from({ length: expectedLimit + 1 }, (_, index) =>
+    queue.schedule(job(`job_${index + 1}`, "workspace_one")),
+  ));
 
-  expect(queue.snapshot()).toMatchObject({ active: 2, maxConcurrent: 2, pending: 1 });
+  expect(queue.snapshot()).toMatchObject({ active: expectedLimit, maxConcurrent: expectedLimit, pending: 1 });
   releases.shift()?.();
   await waitFor(() => queue.snapshot().pending === 0);
-  expect(queue.snapshot().active).toBe(2);
+  expect(queue.snapshot().active).toBe(expectedLimit);
   for (const release of releases.splice(0)) release();
   await queue.waitForIdle();
   expect(queue.snapshot()).toMatchObject({ active: 0, pending: 0 });

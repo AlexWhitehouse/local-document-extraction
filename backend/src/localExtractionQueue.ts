@@ -54,7 +54,7 @@ type DeferredJob = {
 
 export function createLocalExtractionQueue({
   maxBuffered = 10_000,
-  maxConcurrent = 8,
+  maxConcurrent = 16,
   now = Date.now,
   scheduleTimer = (handler, delayMs) => setTimeout(handler, delayMs),
   cancelTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
@@ -75,7 +75,7 @@ export function createLocalExtractionQueue({
 } = {}): LocalExtractionQueue {
   let currentMaxConcurrent = Number.isSafeInteger(maxConcurrent) && maxConcurrent > 0
     ? maxConcurrent
-    : 8;
+    : 16;
   const normalizedMaxBuffered = Number.isSafeInteger(maxBuffered) && maxBuffered > 0
     ? maxBuffered
     : 10_000;
