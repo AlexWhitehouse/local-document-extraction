@@ -707,7 +707,6 @@ export function useDocumentController({
       selectedPacketId: packetController.selectedId,
       isSingleDocument,
       templates, onResolveTemplate: resolveTemplate, isResolvingTemplate, templateResolutionError,
-      onSelectPacket: selectPacket,
       packetPage: {
         packet: packetController.selectedPacket, busy: packetController.busy, error: packetController.error,
         documentError: packetChildError?.message || "", documentErrorId: packetChildError?.id || "",
