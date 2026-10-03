@@ -211,7 +211,6 @@ export function WorkspaceToolbar({
   pageDescription,
   isWorkspaceInvitationSelected,
   hasApiAccess,
-  isUploadDisabled = false,
   workspaceId,
   workspacePrimaryAction,
   isDeletingWorkspace,
@@ -227,7 +226,6 @@ export function WorkspaceToolbar({
   onAutoGenerateTemplate,
   onCreateWorkspace,
   onExportDocuments,
-  onUploadDocument,
   onWorkspacePrimaryAction,
   onDeleteTemplate,
   onDeleteDocument,
@@ -278,14 +276,6 @@ export function WorkspaceToolbar({
                 : selectedDocumentCount
                   ? `Delete ${selectedDocumentCount}`
                   : "Delete"}
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              disabled={!hasApiAccess || isUploadDisabled}
-              onClick={onUploadDocument}
-            >
-              Upload
             </button>
             <button
               type="button"

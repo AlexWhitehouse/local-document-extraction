@@ -418,7 +418,6 @@ function AuthenticatedApp({ configuration }) {
             workspaceLabel={workspaceToolbar.workspaceLabel}
             isWorkspaceInvitationSelected={isWorkspaceInvitationSelected}
             hasApiAccess={hasApiAccess}
-            isUploadDisabled={!hasWorkspaceApiAccess}
             workspaceId={workspaceToolbar.workspaceId}
             workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
             isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
@@ -434,7 +433,6 @@ function AuthenticatedApp({ configuration }) {
             onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
             onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
             onExportDocuments={documentToolbar.onExportDocuments}
-            onUploadDocument={documentToolbar.onUploadDocument}
             onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
             onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
             onDeleteDocument={documentToolbar.onDeleteDocument}
