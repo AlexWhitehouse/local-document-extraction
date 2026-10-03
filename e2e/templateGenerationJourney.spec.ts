@@ -10,7 +10,7 @@ test("generate a template from a sample, review the draft, then explicitly save"
     await submitSignUp(page, harness, { name: "Template Designer", email: "template-designer@example.test", password: "Strong1!" });
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await saveModelGateway(page, harness, "browser/template-generator");
-    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /Templates/ }).click();
+    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Unsaved work");
     await page.getByRole("button", { name: "Auto generate new template", exact: true }).click();

@@ -182,7 +182,7 @@ export function useAuthProfileController({
     try {
       const result = await authClient.signIn.social({
         provider: "google",
-        callbackURL: window.location.origin,
+        callbackURL: window.location.pathname === "/reset-password" ? window.location.origin : window.location.href,
       });
       if (result?.error) {
         throw new Error(result.error.message || "Google sign in failed");

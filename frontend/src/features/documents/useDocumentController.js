@@ -19,6 +19,7 @@ export function useDocumentController({
   isWorkspaceDeletionInProgress = false, sessionId, workspaceId,
   onActivePageChange, onWorkspaceCapacityRefresh, onWorkspaceAccessRevalidation,
   onModelConfigurationInvalidation, onEvaluationDocumentChanged, modelReady = true, maxSourceFileBytes,
+  routeDocumentId = "", routePacketId = "", onDocumentNavigation,
 }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
@@ -126,7 +127,7 @@ export function useDocumentController({
 
   const { reconciliation, snapshot } = useDocumentReconciliation({
     sessionId, workspaceId: normalizedWorkspaceId, enabled: hasApiAccess,
-    requests: documentRequests, initialWorkspace,
+    requests: documentRequests, initialWorkspace, routeDocumentId,
     callbacks: {
       onCapacityChange: scheduleWorkspaceCapacityRefresh,
       onAccessDenied: revalidateWorkspaceAccessNow,
@@ -178,6 +179,15 @@ export function useDocumentController({
   }, [reconciliation, hasApiAccess, selectedDocumentId, selectedDocument?.status, selectedDocument?.updated_at, selectedDocument?.current_attempt, loadingDocumentDetailsId]);
   useEffect(() => () => clearWorkspaceCapacityRefreshTimer(), [clearWorkspaceCapacityRefreshTimer]);
   useEffect(() => setTemplateResolutionError(""), [selectedDocumentId]);
+  useEffect(() => {
+    if (hasApiAccess && routeDocumentId) void reconciliation.loadDetails(routeDocumentId, { showLoading: true });
+  }, [reconciliation, hasApiAccess, normalizedWorkspaceId, sessionId, routeDocumentId]);
+  useEffect(() => {
+    if (!onDocumentNavigation || !hasApiAccess) return;
+    packetControllerRef.current.select(routePacketId);
+    packetTabRequestRef.current += 1;
+    setPacketChildId(""); setPendingPacketTab(null); setPacketChildError(null);
+  }, [hasApiAccess, normalizedWorkspaceId, sessionId, routePacketId, routeDocumentId, onDocumentNavigation]);
 
   function openUploadModal() {
     if (!modelReady || isAppBusy) {
@@ -247,14 +257,17 @@ export function useDocumentController({
       return;
     }
     onSelectedUploadTemplateChange(uploadTemplateId.trim());
+    let lastSelection;
     await reconciliation.submitBatch({
       templateId: uploadTemplateId === "automatic" ? "" : uploadTemplateId.trim(),
       templateTags: uploadTemplateId === "automatic" ? uploadTags : undefined, entries: uploadFiles,
-      onPacket: packetController.admitted,
+      onPacket: (packet) => { lastSelection = { packetId: packet.packet_id }; packetController.admitted(packet); },
+      onDocument: (documentId) => { lastSelection = { documentId }; },
       onProgress: (id, queueStatus, queueError) => setUploadFiles((rows) => rows.map((row) => row.id === id ? { ...row, queueStatus, queueError } : row)),
       onComplete: (outcome) => {
         showDocumentUploadToast(outcome);
-        onActivePageChange("documents");
+        if (lastSelection && onDocumentNavigation) onDocumentNavigation(lastSelection);
+        else onActivePageChange("documents");
       },
     });
   }
@@ -279,6 +292,7 @@ export function useDocumentController({
   }
 
   function selectPacket(id) {
+    if (onDocumentNavigation) { onDocumentNavigation({ packetId: id }); return; }
     packetController.select(id);
     // Packets that have split open on their first document; the rest open on the overview.
     const packet = packetController.packets.find((row) => row.packet_id === id);
@@ -309,7 +323,14 @@ export function useDocumentController({
     setPacketChildId(id);
   }, [reconciliation, documents]);
 
+  useEffect(() => {
+    if (!routePacketId || !routeDocumentId || !hasApiAccess || packetController.selectedPacket?.packet_id !== routePacketId) return;
+    if (!packetController.selectedPacket.children?.some(child => child.job_id === routeDocumentId)) return;
+    if (packetChildId !== routeDocumentId && pendingPacketTab?.id !== routeDocumentId) void selectPacketChild(routeDocumentId, { isOpening: true });
+  }, [routePacketId, routeDocumentId, hasApiAccess, packetController.selectedPacket, packetChildId, pendingPacketTab?.id, selectPacketChild]);
+
   function selectDocument(id) {
+    if (onDocumentNavigation) { onDocumentNavigation({ documentId: id }); return; }
     packetController.select("");
     cancelPacketTab();
     setPacketChildId("");
@@ -611,6 +632,12 @@ export function useDocumentController({
   ]);
 
   return {
+    navigation: {
+      error: snapshot.selectedDocumentError || (routePacketId && routeDocumentId && packetController.selectedPacket?.packet_id === routePacketId && !packetController.selectedPacket.children?.some(child => child.job_id === routeDocumentId) ? "missing" : ""),
+      packetError: packetController.detailStatus,
+      retryPacket: () => packetController.select(routePacketId),
+      retry: () => reconciliation.loadDetails(routeDocumentId, { showLoading: true }),
+    },
     contextList: {
       search: snapshot.search,
       documents,
@@ -686,7 +713,7 @@ export function useDocumentController({
         documentError: packetChildError?.message || "", documentErrorId: packetChildError?.id || "",
         activeDocumentId: packetChildId, activeDocument: activePacketChild, templates,
         pendingDocumentId: pendingPacketTab?.id || "", isOpeningDocument: Boolean(pendingPacketTab?.isOpening),
-        onConfirmPlan: packetController.confirmPlan, onSelectDocument: selectPacketChild,
+        onConfirmPlan: packetController.confirmPlan, onSelectDocument: onDocumentNavigation ? (id) => onDocumentNavigation({ packetId: packetController.selectedId, documentId: id }) : selectPacketChild,
         loadPagePreview: packetController.loadPagePreview,
       },
       selectedDocumentTemplateName,

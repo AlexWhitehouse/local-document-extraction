@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const TERMINAL = new Set(["completed", "failed"]);
-const emptyState = () => ({ packets: [], selectedId: "", selectedPacket: null, cursor: null, hasMore: false, loading: false, busy: false, error: "" });
+const emptyState = () => ({ packets: [], selectedId: "", selectedPacket: null, cursor: null, hasMore: false, loading: false, busy: false, error: "", detailStatus: "" });
 
 // Match the API's descending (created_at, packet_id) order. A removed boundary
 // is still covered once the refreshed page reaches a packet older than it.
@@ -68,9 +68,15 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
     const revision = ++ctx.detailRevision;
     try {
       const packet = await ctx.requests.getPacket(id);
-      if (revision === ctx.detailRevision && ctx.selectedId === id) apply(ctx, { selectedPacket: packet, error: "" });
+      if (revision === ctx.detailRevision && ctx.selectedId === id) apply(ctx, { selectedPacket: packet, error: "", detailStatus: "" });
       return context.current === ctx && ctx.active ? packet : null;
-    } catch (error) { fail(ctx, error); return null; }
+    } catch (error) {
+      if (revision === ctx.detailRevision && ctx.selectedId === id) {
+        fail(ctx, error);
+        apply(ctx, { detailStatus: error.status === 404 ? "missing" : "error", ...(error.status === 404 ? { selectedPacket: null } : {}) });
+      }
+      return null;
+    }
   }, [apply, fail]);
 
   useEffect(() => {
@@ -105,7 +111,7 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
     if (!ctx?.active) return;
     ctx.selectedId = id || "";
     ++ctx.detailRevision;
-    apply(ctx, { selectedId: id || "", selectedPacket: stateRef.current.packets.find((packet) => packet.packet_id === id) || null, error: "" });
+    apply(ctx, { selectedId: id || "", selectedPacket: stateRef.current.packets.find((packet) => packet.packet_id === id) || null, error: "", detailStatus: "" });
     if (id) void loadPacket(id);
   }, [apply, loadPacket]);
 
@@ -149,7 +155,7 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
       ++ctx.listRevision;
       ++ctx.detailRevision;
       const gone = new Set(removed);
-      if (gone.has(ctx.selectedId)) { ctx.selectedId = ""; apply(ctx, { selectedId: "", selectedPacket: null }); }
+      if (gone.has(ctx.selectedId)) { ctx.selectedId = ""; apply(ctx, { selectedId: "", selectedPacket: null, detailStatus: "missing" }); }
       apply(ctx, { packets: stateRef.current.packets.filter((packet) => !gone.has(packet.packet_id)) });
       if (removed.length) callbacks.current.onJobsChanged?.();
       await refresh();

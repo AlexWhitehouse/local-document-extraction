@@ -31,7 +31,7 @@ test("an Application admin manages account access through the frontend", async (
 
     await signUpAndVerify(adminPage, harness, ADMIN);
     const navigation = adminPage.getByRole("navigation", { name: "Main navigation" });
-    await navigation.getByRole("button", { name: "Admin" }).click();
+    await navigation.getByRole("link", { name: "Admin" }).click();
     await expect(adminPage.getByRole("heading", { name: "Application admin" })).toBeVisible();
 
     await adminPage.getByLabel("Search users").fill(REGULAR_USER.email);

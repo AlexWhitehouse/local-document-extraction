@@ -35,7 +35,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await saveModelGateway(page, harness, "browser/model");
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
-    await navigation.getByRole("button", { name: /Templates/ }).click();
+    await navigation.getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
     await page.getByRole("button", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
@@ -52,7 +52,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     };
 
     // One upload, verified and then explicitly saved; running never saves anything by itself.
-    await navigation.getByRole("button", { name: /Evaluations/ }).click();
+    await navigation.getByRole("link", { name: /Evaluations/ }).click();
     await evaluations.getByLabel("Evaluation document").setInputFiles(SAVED);
     await setUp();
     const matrix = evaluations.getByRole("region", { name: "Comparison matrix" });
@@ -109,7 +109,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
 
     // Refresh discards the private Evaluation; the saved document stays in the library.
     await page.reload();
-    await navigation.getByRole("button", { name: /Evaluations/ }).click();
+    await navigation.getByRole("link", { name: /Evaluations/ }).click();
     await expect(evaluations.getByRole("heading", { name: "Compare extraction results on your documents" })).toBeVisible();
     await expect(evaluations.getByRole("navigation", { name: "Documents in this Evaluation" })).toHaveCount(0);
     await evaluations.getByRole("button", { name: "Manage library" }).first().click();

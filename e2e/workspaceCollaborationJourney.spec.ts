@@ -117,7 +117,7 @@ async function selectInvitation(
   workspaceName: string,
 ) {
   await page
-    .getByRole("button")
+    .getByRole("link")
     .filter({ hasText: workspaceName })
     .filter({ hasText: "Invited as Member" })
     .click();

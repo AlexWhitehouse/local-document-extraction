@@ -9,8 +9,8 @@ The UI representation of either an accepted **Workspace** or a pending **Workspa
 _Avoid_: workspace state, workspace mode
 
 **Active page**:
-The in-memory sidebar section currently shown in the SPA.
-_Avoid_: persisted route, workspace page state
+The sidebar section selected by the current browser URL in the SPA.
+_Avoid_: workspace page state
 
 **Accepted workspace entry**:
 A selectable workspace list item backed by an accepted workspace membership.
@@ -172,13 +172,16 @@ _Avoid_: demo mode, sample data sandbox
 - Creating a new **Workspace** from the SPA moves the frontend into the new accepted **Workspace context** without generating a **Workspace API key**.
 - Renaming the current **Workspace** updates the selected **Workspace** display and **Stored workspace preference** without clearing workspace-scoped data.
 - Startup workspace resolution chooses an accepted **Workspace context** when one exists; it does not auto-select an **Invited workspace entry**.
-- **Active page** does not persist across page refresh; the SPA starts from the Workspace page unless URL routing is introduced later.
+- **Active page** and persisted Document/Template selection are represented by browser URLs. `/workspaces/{workspaceId}` opens the Workspace page; `/documents/{jobId}`, `/templates/{templateId}`, `/packets/{packetId}`, and `/evaluations` beneath that Workspace identify its product views. `/admin` is account-level and `/invitations/{invitationId}` opens a pending Workspace invitation. List URLs omit the resource ID; `/templates/new` represents a temporary draft, not a saved Template.
+- An explicit URL takes precedence over **Stored workspace preference** and is resolved only after authentication and backend Workspace access loading. `/` opens the remembered accessible Workspace, or the first accepted Workspace, then replaces itself with its canonical URL. Inaccessible explicit links show recovery without silently substituting another Workspace or resource. Missing resources remain at their URL until the user chooses recovery.
+- Browser Back/Forward restores Workspace, page and resource selection. A packet's selected child tab uses `/workspaces/{workspaceId}/packets/{packetId}/documents/{jobId}` to preserve packet context. Native navigation links support copying addresses and opening separate tabs. Search, filters, sort and bulk selection remain local. Template links open the current saved version; historical version URLs are not supported. `/reset-password` retains its existing token flow.
+- Same-Workspace section navigation preserves Template drafts and temporary Evaluations in memory. Replacing a dirty Template, switching Workspace, or leaving an open Evaluation dialog confirms before discarding relevant edits; cancelled Back/Forward restores the original history entry. Refresh or leaving the app warns about unsaved Template/Evaluation state but does not persist it.
 - **Stored workspace preference** persists accepted **Workspace** selection, not selected **Workspace invitations**.
 - **Stored workspace preference** contains only accepted **Workspace** ID and display name.
 - **Stored workspace preference** may restore an **Accepted workspace entry**, but only when that **Workspace** still appears in the backend workspace list.
 - If **Stored workspace preference** no longer matches an accepted **Workspace**, the frontend silently selects another accepted **Workspace** from the backend list and replaces the stored preference.
 - After the user deletes the current **Workspace**, the frontend clears current workspace-scoped state, refreshes the backend workspace list, and selects the first remaining accepted **Workspace**.
-- If the selected accepted **Workspace** starts returning forbidden access, the frontend refreshes the backend workspace list, moves to another accepted **Workspace** if available, and shows an **Action toast** that access changed.
+- If the selected accepted **Workspace** starts returning forbidden access, the frontend refreshes backend access. An explicit Workspace URL stays on a recovery screen when access is lost; the user can choose an accessible Workspace or return to `/` for default resolution.
 - **Stored workspace preference** does not persist **Workspace API key** material.
 - Legacy stored `workspace_local_default` values are treated as no accepted **Workspace** preference.
 - The frontend stores workspace preference under a Document Extraction local storage key and does not read the legacy `imageextraction.workspace.v1` key.
@@ -306,8 +309,8 @@ _Avoid_: demo mode, sample data sandbox
 - **Completed document cache** entries are removed when the backend no longer lists the **Extraction job** or the user deletes the **Document**.
 - **Completed document cache** entries are not removed merely because a filtered job list does not show them.
 - **Completed document cache** entries are pruned conservatively after unfiltered backend job-list refreshes and removed immediately when a job detail request returns not found.
-- If the selected **Document** is no longer available after a backend job-list refresh, the frontend selects the first available **Document** or shows the empty document state.
-- Selected **Document** is in-memory UI state and does not persist across page refresh.
+- A Document list without an explicit resource URL may select the first available **Document**. An explicitly linked Document remains selected independently of list membership; a not-found detail response shows recovery.
+- Selected **Document** is restored from its URL across refresh. Explicit detail reads are independent of list pagination and filters; an absent list row does not establish that the linked Document was deleted.
 - **Completed document cache** is cleared when the accepted **Workspace context** changes.
 - **Completed document cache** and user-specific stored workspace data are cleared on sign-out.
 - A **Document** has one **Source file** selected in the browser before submission.

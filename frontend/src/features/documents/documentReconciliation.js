@@ -17,7 +17,7 @@ function emptySnapshot(scopeKey = "") {
     search: "", debouncedSearch: "", filters: { ...EMPTY_FILTERS }, availableModels: [],
     totalDocuments: 0, nextCursor: null, hasMore: false, loadingMore: false,
     statusCounts: { queued: 0, processing: 0, completed: 0, failed: 0 },
-    loadingDocumentId: "", uploading: false, deleting: false, exporting: false,
+    loadingDocumentId: "", selectedDocumentError: "", uploading: false, deleting: false, exporting: false,
   };
 }
 
@@ -61,8 +61,9 @@ export function createDocumentReconciliation({
       ctx.visible = new Set(next.documents.map((job) => job.job_id));
       ctx.rowsDirty = false;
     }
-    next.selectedDocument = next.documents.find((job) => job.job_id === next.selectedDocumentId) || next.documents[0] || null;
-    next.selectedDocumentId = next.selectedDocument?.job_id || "";
+    next.selectedDocument = ctx.routeDocumentId ? ctx.rows.get(ctx.routeDocumentId) || null : next.documents.find((job) => job.job_id === next.selectedDocumentId) || next.documents[0] || null;
+    next.selectedDocumentId = ctx.routeDocumentId || next.selectedDocument?.job_id || "";
+    next.selectedDocumentError = ctx.detailErrors.get(next.selectedDocumentId) || "";
     const selected = next.selectedDocumentIds.filter((id) => ctx.visible.has(id));
     if (selected.length !== next.selectedDocumentIds.length) next.selectedDocumentIds = selected;
     snapshot = next;
@@ -80,7 +81,7 @@ export function createDocumentReconciliation({
     context = null;
   }
 
-  function configure({ sessionId, workspaceId, enabled, requests, callbacks = {} }) {
+  function configure({ sessionId, workspaceId, enabled, requests, callbacks = {}, routeDocumentId = "" }) {
     sessionId = normalizeId(sessionId);
     workspaceId = normalizeId(workspaceId);
     if (session?.id !== sessionId) {
@@ -97,6 +98,7 @@ export function createDocumentReconciliation({
     if (context?.key === key && session.active) {
       context.requests = requests;
       context.callbacks = callbacks;
+      if (context.routeDocumentId !== routeDocumentId) { context.routeDocumentId = routeDocumentId; publish(context); }
       return;
     }
     if (!key || endedSessionId === sessionId || blockedScopeKey === key) {
@@ -114,7 +116,7 @@ export function createDocumentReconciliation({
     context = {
       key, workspaceId, requests, callbacks, session, active: true,
       rows: new Map(), known: new Set(), deleted: new Set(), revisions: new Map(), previews: new Map(),
-      rowsDirty: true, visible: new Set(),
+      rowsDirty: true, visible: new Set(), routeDocumentId, detailErrors: new Map(),
       revision: 0, countRevision: 0, queryRevision: 0, listRequest: 0,
       details: new Map(), detailAttempts: new Map(), hydrated: new Map(), modelsRequest: null,
       refreshTimer: null, searchTimer: null,
@@ -241,7 +243,7 @@ export function createDocumentReconciliation({
       }
       if (!append) {
         for (const id of ctx.rows.keys()) {
-          if (!listed.has(id) && (ctx.revisions.get(id) || 0) <= revision) { ctx.rows.delete(id); ctx.rowsDirty = true; }
+          if (id !== ctx.routeDocumentId && !listed.has(id) && (ctx.revisions.get(id) || 0) <= revision) { ctx.rows.delete(id); ctx.rowsDirty = true; }
         }
       }
       if (!append && !data?.has_more && !overlap) {
@@ -253,6 +255,10 @@ export function createDocumentReconciliation({
         statusCounts: !overlap && countsRequestId === ctx.countsRequest && data?.status_counts ? data.status_counts : snapshot.statusCounts,
         nextCursor: data?.next_cursor || null, hasMore: Boolean(data?.has_more),
       });
+      // Partial/filtered lists cannot disprove a deep link. A complete list
+      // missing it warrants an authoritative detail read (for remote deletion).
+      if (!append && !data?.has_more && !search && !Object.values(filters).some(Boolean) &&
+        ctx.routeDocumentId && !listed.has(ctx.routeDocumentId)) await loadDetails(ctx.routeDocumentId);
       if (overlap) { scheduleRefresh(ctx); scheduleCountsRefresh(ctx); }
     } catch (error) {
       if (isCurrent(ctx) && queryRevision === ctx.queryRevision && requestId === ctx.listRequest) {
@@ -298,6 +304,7 @@ export function createDocumentReconciliation({
     if (ctx.deleted.has(id)) return;
     changed(ctx, id);
     ctx.deleted.add(id);
+    ctx.detailErrors.set(id, "missing");
     scheduleCountsRefresh(ctx);
     ctx.rows.delete(id);
     ctx.rowsDirty = true;
@@ -343,6 +350,7 @@ export function createDocumentReconciliation({
         }
         const wasLive = LIVE_STATUSES.has(existing?.status);
         const next = merge(ctx, data, { details: true });
+        ctx.detailErrors.delete(id);
         ctx.hydrated.set(id, version(next));
         if (next.status === "completed") cached("store", ctx.workspaceId, next);
         publish(ctx);
@@ -357,6 +365,8 @@ export function createDocumentReconciliation({
           return;
         }
         if (error.status === 403) emit(ctx, "onAccessDenied");
+        ctx.detailErrors.set(id, "error");
+        publish(ctx);
         return null;
       }
     })().finally(() => {
@@ -393,7 +403,7 @@ export function createDocumentReconciliation({
     return ctx.modelsRequest;
   }
 
-  async function submitBatch({ templateId, templateTags, entries, onProgress, onComplete, onPacket }) {
+  async function submitBatch({ templateId, templateTags, entries, onProgress, onComplete, onPacket, onDocument }) {
     const ctx = context;
     if (!ctx || !isCurrent(ctx) || snapshot.uploading) return;
     const requests = ctx.requests;
@@ -442,6 +452,7 @@ export function createDocumentReconciliation({
             source_preview_url: preview, queued_at: new Date().toISOString(),
           }, { countNew: true });
           publish(ctx, { selectedDocumentId: result.job_id });
+          onDocument?.(result.job_id);
           emit(ctx, "onCapacityChange");
           onProgress?.(entry.id, "success", "");
         } catch (error) {

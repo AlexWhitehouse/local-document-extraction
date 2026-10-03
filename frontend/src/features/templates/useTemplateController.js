@@ -102,7 +102,13 @@ export function useTemplateController({
   activePage,
   maxSourceFileBytes,
   onActivePageChange,
+  routeTemplateId,
+  onTemplateNavigation,
 }) {
+  const [routeLoad, setRouteLoad] = useState({ id: "", status: "idle" });
+  const navigationRef = useRef(onTemplateNavigation);
+  navigationRef.current = onTemplateNavigation;
+  const [isJsonDraftDirty, setIsJsonDraftDirty] = useState(false);
   const [templates, setTemplates] = useState(
     Array.isArray(initialWorkspace.templates) ? initialWorkspace.templates : [],
   );
@@ -152,6 +158,7 @@ export function useTemplateController({
   const generationRef = useRef(0);
   const listRequestRef = useRef(0);
   const editorRequestRef = useRef(0);
+  const saveRequestRef = useRef(0);
   if (scopeRef.current !== scope) {
     scopeRef.current = scope;
     generationRef.current += 1;
@@ -197,6 +204,7 @@ export function useTemplateController({
         setLoadedTemplateSnapshot(null);
       }
       if (createNew || !isEditingTemplate) setShowDraftTemplateNav(true);
+      if (createNew) navigationRef.current?.("new", { force: true });
     },
   });
   const cancelGeneration = templateGeneration.cancel;
@@ -242,6 +250,9 @@ export function useTemplateController({
 
   const clearWorkspaceScopedTemplates = useCallback(() => {
     generationRef.current += 1;
+    saveRequestRef.current += 1;
+    setRouteLoad({ id: "", status: "idle" });
+    setIsJsonDraftDirty(false);
     tagListRequestRef.current?.abort();
     tagMutationRef.current?.abort();
     tagListRequestRef.current = null;
@@ -390,7 +401,8 @@ export function useTemplateController({
     }
 
     const generation = generationRef.current;
-    const isCurrent = () => generation === generationRef.current;
+    const saveRequest = ++saveRequestRef.current;
+    const isCurrent = () => generation === generationRef.current && saveRequest === saveRequestRef.current;
     const savePayload = buildSavePayload(payload);
     if (!Object.keys(savePayload).length) return;
     setIsSavingTemplate(true);
@@ -407,11 +419,13 @@ export function useTemplateController({
       );
       if (!isCurrent()) return;
       setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
+      setHasNewDraftEdits(false);
       setTemplateVersion(data.version ?? data.template_version ?? (targetTemplateId && templateVersion ? templateVersion + (savePayload.fields ? 1 : 0) : 1));
       if (!targetTemplateId) {
         setUpdateTemplateId(data.template_id);
         setSelectedUploadTemplateId(data.template_id);
         setShowDraftTemplateNav(false);
+        navigationRef.current?.(data.template_id, { replace: true, force: true });
       }
       showActionToast("template.save", "success", {
         targetName: (!targetTemplateId && data?.name) || payload.name,
@@ -449,6 +463,7 @@ export function useTemplateController({
       setTemplateJsonError(error.message); setTemplateJsonDiagnostics(error.diagnostics || []);
     }
     setShowTemplateJsonModal(true);
+    setIsJsonDraftDirty(false);
   }
 
   function closeTemplateJsonModal() {
@@ -498,7 +513,8 @@ export function useTemplateController({
 
     const targetTemplateId = updateTemplateId.trim();
     const generation = generationRef.current;
-    const isCurrent = () => generation === generationRef.current;
+    const saveRequest = ++saveRequestRef.current;
+    const isCurrent = () => generation === generationRef.current && saveRequest === saveRequestRef.current;
     const savePayload = buildSavePayload(payload);
     if (!Object.keys(savePayload).length) {
       setTemplateName(payload.name);
@@ -529,12 +545,14 @@ export function useTemplateController({
       setTemplateTags(payload.tags);
       setTemplateFields(payload.fields.map(hydrateFieldFromTemplate));
       setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
+      setHasNewDraftEdits(false);
       setTemplateVersion(data.version ?? data.template_version ?? (targetTemplateId && templateVersion ? templateVersion + (savePayload.fields ? 1 : 0) : 1));
       setShowDraftTemplateNav(false);
 
       if (data?.template_id) {
         setUpdateTemplateId(data.template_id);
         setSelectedUploadTemplateId(data.template_id);
+        navigationRef.current?.(data.template_id, { replace: true, force: true });
       }
 
       setTemplateJsonDraft(JSON.stringify(payload, null, 2));
@@ -593,6 +611,13 @@ export function useTemplateController({
       );
 
       setShowDraftTemplateNav(false);
+      if (navigationRef.current) {
+        setHasNewDraftEdits(false);
+        setLoadedTemplateSnapshot(null);
+        setUpdateTemplateId("");
+        navigationRef.current(nextTemplate?.id || "new", { replace: true, force: true });
+        return;
+      }
       if (nextTemplate?.id) {
         await loadTemplateForEditing(nextTemplate.id);
       } else {
@@ -613,6 +638,10 @@ export function useTemplateController({
   }
 
   async function loadTemplateForEditing(templateIdOverride = "") {
+    saveRequestRef.current += 1;
+    setIsSavingTemplate(false);
+    setShowTemplateJsonModal(false);
+    setIsJsonDraftDirty(false);
     touchDraft(); cancelAssistant();
     cancelGeneration();
     const targetTemplateId = String(
@@ -626,6 +655,7 @@ export function useTemplateController({
     const requestId = ++editorRequestRef.current;
     const tagRevision = completedTagChangesRef.current.length;
     const isCurrent = () => generation === generationRef.current && requestId === editorRequestRef.current;
+    setRouteLoad({ id: targetTemplateId, status: "loading" });
     try {
       const loaded = await request(
         `/templates/${encodeURIComponent(targetTemplateId)}`,
@@ -636,6 +666,7 @@ export function useTemplateController({
       // captured before those mutations so it cannot restore old tag names.
       const template = { ...loaded, tags: completedTagChangesRef.current.slice(tagRevision).reduce((tags, change) => replaceTagName(tags, change.before, change.after), normalizeTemplateTags(loaded.tags ?? [])) };
       setShowDraftTemplateNav(false);
+      setHasNewDraftEdits(false);
       setUpdateTemplateId(targetTemplateId);
       setTemplateVersion(template.current_version ?? template.version ?? template.template_version ?? null);
       setTemplateName(template.name || "");
@@ -654,12 +685,18 @@ export function useTemplateController({
         setLoadedTemplateSnapshot(null);
       }
       setSelectedUploadTemplateId(targetTemplateId);
-    } catch {
+      setRouteLoad({ id: targetTemplateId, status: "ready" });
+    } catch (error) {
+      if (isCurrent()) setRouteLoad({ id: targetTemplateId, status: error.status === 404 ? "missing" : "error" });
       // A Template that fails to load leaves the current editor state untouched.
     }
   }
 
   function startNewTemplateDraft({ empty = false } = {}) {
+    saveRequestRef.current += 1;
+    setIsSavingTemplate(false);
+    setShowTemplateJsonModal(false);
+    setIsJsonDraftDirty(false);
     touchDraft(); cancelAssistant(); setValidationFocus(null);
     cancelGeneration();
     setHasNewDraftEdits(false);
@@ -686,7 +723,33 @@ export function useTemplateController({
     return () => { generationRef.current += 1; tagListRequestRef.current?.abort(); tagMutationRef.current?.abort(); };
   }, [hasApiAccess, listTemplates, listTemplateTags, workspaceId, sessionId, clearWorkspaceScopedTemplates]);
 
+  const hasUnsavedChanges = (isEditingTemplate ? isEditedTemplateDirty : hasNewDraftEdits) ||
+    (showTemplateJsonModal && isJsonDraftDirty);
+
+  const routeActionsRef = useRef(null);
+  routeActionsRef.current = { loadTemplateForEditing, startNewTemplateDraft, updateTemplateId, showDraftTemplateNav, hasUnsavedChanges };
+  useEffect(() => {
+    if (!hasApiAccess || routeTemplateId === undefined) return;
+    const actions = routeActionsRef.current;
+    if (routeTemplateId === "new") {
+      // Canonicalizing a draft URL must also preserve unapplied JSON edits.
+      if (!actions.updateTemplateId && actions.hasUnsavedChanges) setShowDraftTemplateNav(true);
+      else if (actions.updateTemplateId || !actions.showDraftTemplateNav) actions.startNewTemplateDraft();
+    } else if (routeTemplateId && routeTemplateId !== actions.updateTemplateId) {
+      void actions.loadTemplateForEditing(routeTemplateId);
+    }
+    return () => { editorRequestRef.current += 1; };
+  }, [hasApiAccess, workspaceId, sessionId, routeTemplateId]);
+
   return {
+    navigation: {
+      hasUnsavedChanges,
+      isDraft: showDraftTemplateNav,
+      load: routeLoad,
+      retry: () => loadTemplateForEditing(routeTemplateId),
+      confirmDiscard: () => !hasUnsavedChanges || window.confirm("Discard unsaved Template changes?"),
+      invalidatePendingLoad: () => { editorRequestRef.current += 1; },
+    },
     templates,
     selectedUploadTemplateId,
     setSelectedUploadTemplateId,
@@ -696,8 +759,9 @@ export function useTemplateController({
       selectedTemplateId: updateTemplateId,
       isEditingTemplate,
       onSearchChange: setTemplateSearch,
-      onSelectDraftTemplate: startNewTemplateDraft,
+      onSelectDraftTemplate: onTemplateNavigation ? () => onTemplateNavigation("new") : startNewTemplateDraft,
       onSelectTemplate: (templateId) => {
+        if (onTemplateNavigation) { onTemplateNavigation(templateId); return; }
         onActivePageChange("templates");
         loadTemplateForEditing(templateId);
       },
@@ -737,6 +801,7 @@ export function useTemplateController({
       hasApiAccess,
       onDraftChange: (value) => {
         touchDraft();
+        setIsJsonDraftDirty(true);
         setTemplateJsonDraft(value);
         setTemplateJsonError(""); setTemplateJsonDiagnostics([]);
         setTemplateJsonCopied(false);
@@ -748,7 +813,11 @@ export function useTemplateController({
     toolbar: {
       isDeletingTemplate,
       selectedTemplateId: updateTemplateId,
-      onCreateTemplate: startNewTemplateDraft,
+      onCreateTemplate: (options) => {
+        if (onTemplateNavigation && !updateTemplateId && hasUnsavedChanges && !window.confirm("Discard unsaved Template changes?")) return;
+        if (onTemplateNavigation && !onTemplateNavigation("new")) return;
+        startNewTemplateDraft(options);
+      },
       onAutoGenerateTemplate: () => {
         touchDraft(); cancelAssistant();
         templateGeneration.open({ createNew: true });

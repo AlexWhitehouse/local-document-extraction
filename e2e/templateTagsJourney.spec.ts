@@ -7,7 +7,7 @@ test("manage shared template tags in the frontend without creating field version
   try {
     await submitSignUp(page, harness, { name: "Tag Editor", email: "tag-editor@example.test", password: "Strong1!" });
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
-    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /Templates/ }).click();
+    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template", exact: true }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Tagged invoice");
     const creation = page.waitForResponse(response => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST");
@@ -93,7 +93,7 @@ test("manage shared template tags in the frontend without creating field version
     await saveChanges(secondId);
     expect((await readTemplate(secondId)).current_version).toBe(1);
 
-    await page.getByRole("region", { name: "Template list", exact: true }).getByRole("button", { name: /Tagged invoice/ }).click();
+    await page.getByRole("region", { name: "Template list", exact: true }).getByRole("link", { name: /Tagged invoice/ }).click();
     await expect(page.getByLabel("Template name", { exact: true })).toHaveValue("Tagged invoice");
     await openTags();
     await dropdown.getByRole("checkbox", { name: "finance docs", exact: true }).uncheck();

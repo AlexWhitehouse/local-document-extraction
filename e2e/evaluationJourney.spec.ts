@@ -39,7 +39,7 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
     await saveModelGateway(page, harness, "browser/model");
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
-    await navigation.getByRole("button", { name: /Templates/ }).click();
+    await navigation.getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
     await page.getByRole("button", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
@@ -47,7 +47,7 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
     await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
-    await navigation.getByRole("button", { name: /Evaluations/ }).click();
+    await navigation.getByRole("link", { name: /Evaluations/ }).click();
     const evaluations = page.getByRole("region", { name: "Evaluations" });
     await expect(evaluations.getByRole("heading", { name: "Compare extraction results on your documents" })).toBeVisible();
     await expect(evaluations.getByText("Workspace model", { exact: true })).toHaveCount(0);

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { MagicIcon } from "../templates/MagicIcon.jsx";
+import { NavigationLink } from "../context/NavigationLink.jsx";
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "studio.sidebarCollapsed";
 
@@ -20,6 +21,7 @@ export function MainLayout({
   uploadAriaDisabled,
   isUploadDisabled,
   onNavigate,
+  navigationHref,
   onUploadDocument,
   profileSlot,
   contextSidebar,
@@ -59,6 +61,7 @@ export function MainLayout({
           counts={counts}
           showAdminNavigation={showAdminNavigation}
           onNavigate={onNavigate}
+          navigationHref={navigationHref}
         />
 
         <button
@@ -172,6 +175,7 @@ function SidebarNavigation({
   counts,
   showAdminNavigation,
   onNavigate,
+  navigationHref,
 }) {
   const items = [
     ...SIDEBAR_ITEMS,
@@ -181,10 +185,10 @@ function SidebarNavigation({
   return (
     <nav className="sidebar-nav" aria-label="Main navigation">
       {items.map((item) => (
-        <button
+        <NavigationLink
           key={item.id}
           data-tour={`nav-${item.id}`}
-          type="button"
+          href={navigationHref?.(item.id)}
           className={
             item.id === activePage ? "sidebar-link active" : "sidebar-link"
           }
@@ -197,7 +201,7 @@ function SidebarNavigation({
           {item.id === "admin" ? null : (
             <span className="sidebar-link-count">{counts[item.id] ?? ""}</span>
           )}
-        </button>
+        </NavigationLink>
       ))}
     </nav>
   );

@@ -2,8 +2,11 @@ import React from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
+import { NavigationLink } from "../context/NavigationLink.jsx";
+import { appPath } from "../../lib/appRoutes";
 
 export function TemplateContextList({
+  workspaceId,
   search,
   templates,
   selectedTemplateId,
@@ -32,8 +35,8 @@ export function TemplateContextList({
               key={`context-${template.id}`}
               className={(isActive ? "context-item-card active" : "context-item-card") + rowMotion(template.id)}
             >
-              <button
-                type="button"
+              <NavigationLink
+                href={workspaceId ? appPath({ workspaceId, page: "templates", templateId: template.is_draft ? "new" : template.id }) : undefined}
                 className={isActive ? "context-item-main active" : "context-item-main"}
                 onClick={() => {
                   if (template.is_draft) {
@@ -49,7 +52,7 @@ export function TemplateContextList({
                     : template.name || "Untitled template"}
                 </strong>
                 <span>{itemDetail}</span>
-              </button>
+              </NavigationLink>
               <ContextCopyButton
                 ariaLabel={`Copy template ID ${itemDetail}`}
                 value={itemDetail}
@@ -66,4 +69,3 @@ export function TemplateContextList({
     </>
   );
 }
-
