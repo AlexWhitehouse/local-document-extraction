@@ -2,33 +2,39 @@
 
 ## 1. Connect a model
 
-As a Workspace owner or admin, open **Workspaces → Model gateway → Set up** and enter:
+As a Workspace owner or admin, open **Workspaces → Model gateway → Set up**. Enter these values:
 
-- **Gateway URL:** the address of an OpenAI-compatible service or local model server.
-- **Model name:** the model to use.
-- **Gateway API key:** the key for that service. This is different from the Workspace API key your own scripts use to call this app.
+- **Gateway URL:** The address of an OpenAI-compatible service or local model server.
+- **Model name:** The model to use.
+- **Gateway API key:** The service credential. This differs from the Workspace API key that scripts use to access this app.
 
-Pick a model that accepts images. Unless you turn on **Direct PDF input**, PDF pages are sent to the model as images. Only turn on **Direct PDF input** or **Structured output** if your model supports them.
+Select a model that accepts images. Without **Direct PDF input**, the app sends PDF pages as images. Enable **Direct PDF input** or **Structured output** only if the model supports them.
 
-**Test connection** sends a short text message to check the model answers. It doesn't check PDF or image support.
+Select **Test connection** to verify that the model replies to a short text message. This test does not verify PDF or image support.
 
 ## 2. Choose or create a template
 
-Use the example invoice template, or open **Templates** and create your own. Give each field a name, a description of what to extract, and a data type.
+Use the example invoice template or create one on **Templates**. Give each field a name, extraction instructions, and a data type.
 
 ## 3. Upload a document
 
-Open **Documents**, pick the template, and upload a PNG, JPEG, WebP, or PDF file. Files can be up to 10 MiB by default; the app shows the current limit.
+1. Open **Documents**.
+2. Select the template.
+3. Upload a PNG, JPEG, WebP, or PDF file.
+
+The default file limit is 10 MiB. The app shows the current limit.
 
 ## 4. Review the results
 
-By default, each upload becomes a job that moves from `queued` to `processing`, and then to `completed` or `failed`. Open a completed document to see each extracted field and the evidence behind it. Select several documents to export them to an Excel workbook.
+By default, each upload creates a job. Its state changes from `queued` to `processing`, then to `completed` or `failed`. Open a completed document to inspect extracted fields and evidence. Select multiple documents to export an Excel workbook.
 
-For automatic template selection, add tags and useful descriptions to your templates, then choose **Automatic — select by tags** in the upload modal. Owners and admins can enable **Smart splitting** below **Model gateway** on the Workspace page to identify separate documents within PDFs. A PDF resolved as one document opens directly into its normal results; multiple documents appear together in a packet. See [Document extraction](../usage/document-extraction.md) for the full workflow.
+For automatic template selection, add tags and useful descriptions to templates. Then select **Automatic — select by tags** in the upload modal.
+
+Owners and admins can enable **Smart splitting** below **Model gateway** on the Workspace page. Splitting identifies separate documents within PDFs. A PDF resolved as one document opens directly in its results. Multiple documents appear in a packet. See [Document extraction](../usage/document-extraction.md) for the full procedure.
 
 ## Good to know
 
-- Always check important values. AI models can make mistakes.
-- Documents and your field instructions are sent to the model gateway you configured. Choose a local model if they must not leave your machine, or a remote provider whose data policy suits you.
-- Originals remain available if retention was enabled for the upload. Otherwise successful working files are cleaned up; sources needed for manual split or template review stay available until resolution. Extracted results stay until you delete them.
-- Templates can be edited at any time as your documents change. Existing jobs keep the template version they were run with.
+- Verify important values. AI models can make errors.
+- The app sends documents and field instructions to the configured model gateway. Select a local model if the data must remain on your machine. For remote processing, select a provider with a suitable data policy.
+- Originals remain available if retention was enabled for the upload. Otherwise, the app removes successful working files. Sources needed for split or template review remain until resolution. Extracted results remain until deletion.
+- You can edit templates as documents change. Existing jobs retain their original template version.

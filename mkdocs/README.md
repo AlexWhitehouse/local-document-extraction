@@ -1,12 +1,12 @@
 # Documentation site
 
-This folder is the [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) site for people using the app and its API. The pages live in `docs/`, and the navigation is in `mkdocs.yml`.
+This folder contains the [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) site for app users and API clients. Pages are in `docs/`. `mkdocs.yml` defines navigation.
 
-To preview it locally with Python:
+To preview the site locally, run these Python commands:
 
 ```bash
 pip install -r mkdocs/requirements.txt
 mkdocs serve -f mkdocs/mkdocs.yml
 ```
 
-The pages are plain Markdown, so they also read fine on GitHub. Start with [the API specification](docs/api/overview.md).
+The pages use Markdown and can also be read on GitHub. Start with the [API specification](docs/api/overview.md).

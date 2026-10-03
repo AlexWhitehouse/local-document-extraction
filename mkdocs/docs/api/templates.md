@@ -12,12 +12,14 @@ DELETE /v1/template-tags/{tag_id}      # delete a shared tag and all association
 POST   /v1/templates/generate         # propose a template from a sample document
 ```
 
-Create requests are JSON with a `name`, optional `description` and `tags`, and `fields`. Update requests supply only the properties to change. Every field needs a `name`, a `description`, and a `data_type`.
+Create requests use JSON with `name`, `fields`, and optional `description` and `tags`. Update requests supply only changed properties. Each field requires `name`, `description`, and `data_type`.
 
-`tags` is an array of tag names, for example `["invoice", "finance"]`. Saving creates any unknown tags in the Workspace and replaces the template's associations. Omit `tags` on update to keep existing associations, or send `[]` to clear them. Names are lowercased, trimmed, deduplicated, and have repeated whitespace collapsed; nonempty names may use spaces and punctuation, but cannot contain control characters. Use at most 50 names, each no longer than 64 characters after normalization. Template reads include sorted `tags`; tag-only updates do not create a field version.
+`tags` is an array of names, such as `["invoice", "finance"]`. Saving creates unknown Workspace tags and replaces the template’s associations. Omit `tags` during an update to preserve associations. Send `[]` to clear them.
 
-The shared [tag management endpoints](overview.md#manage-template-tags) list, rename, and delete tags across the Workspace. Removing a tag from one template does not delete the shared tag.
+The app converts names to lowercase, trims whitespace, collapses repeated whitespace, and removes duplicates. Names must be nonempty and can include spaces and punctuation. Control characters are prohibited. Supply at most 50 names, each with at most 64 characters after normalization. Template reads return sorted `tags`. Tag-only updates do not create field versions.
 
-`POST /v1/templates/generate` takes a sample `document` and optional `instructions` as multipart form data, and returns a proposed template **without saving it**. Review it, then save it with `POST /v1/templates`. It needs the Workspace to have a model set up.
+The [tag management endpoints](overview.md#manage-template-tags) list, rename, and delete shared tags. Removing a template association does not delete the shared tag.
 
-The full request and response formats, limits, and error codes are in the [Templates section](overview.md#templates) of the specification.
+`POST /v1/templates/generate` accepts a sample `document` and optional `instructions` as multipart form data. It requires a configured Workspace model. The response contains an **unsaved** template proposal. Review it, then save it with `POST /v1/templates`.
+
+See [Templates](overview.md#templates) for request and response schemas, limits, and error codes.

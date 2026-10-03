@@ -1,6 +1,6 @@
 # Backend Context
 
-The backend context covers durable product rules for authentication, workspace access, templates, document extraction, and background document processing. It defines business language used by API handlers, policies, and background processing.
+This context defines durable rules for authentication, Workspace access, templates, extraction, and background document processing. Use its domain terms in handlers, policies, and background processing.
 
 ## Language
 
@@ -13,11 +13,11 @@ Proof that a user controls the email address used for application access.
 _Avoid_: email confirmation, verified user
 
 **Account password reset**:
-A self-service flow where someone who knows an account email can request a link and set a new password for an email/password Account.
+A self-service procedure to reset an email/password Account password. A person who knows the account email can request a reset link.
 _Avoid_: forgot password, password recovery, Workspace password reset
 
 **Local mail sink**:
-A local-only delivery surface that captures transactional email content and links without sending real outbound email.
+Local storage for transactional email content and action links. It does not send outbound email.
 _Avoid_: outbound delivery, SMTP, email bypass
 
 **Application admin**:
@@ -37,15 +37,15 @@ The rules that decide what a workspace member may do inside a **Workspace**.
 _Avoid_: role checks, permission helpers
 
 **Workspace context**:
-The currently selected accepted **Workspace** or pending **Workspace invitation** that determines what the user can see and do.
+The accepted **Workspace** or pending **Workspace invitation** currently selected by the user. It determines available content and actions.
 _Avoid_: selected workspace, active workspace state
 
 **Accepted workspace context**:
-A **Workspace context** backed by **Workspace membership** that enables workspace API access when the user has a session or workspace API key.
+A **Workspace context** with accepted **Workspace membership**. A valid session or Workspace API key permits access to its product data.
 _Avoid_: connected workspace, unlocked workspace
 
 **Pending workspace invitation context**:
-A **Workspace context** backed by a pending **Workspace invitation** that shows invitation details and actions but does not enable workspace API access.
+A **Workspace context** based on a pending **Workspace invitation**. It permits invitation details and actions, without access to Workspace product data.
 _Avoid_: pending workspace, disabled workspace
 
 **Workspace invitation**:
@@ -57,7 +57,7 @@ The owner/admin view of actionable pending **Workspace invitations** sent from a
 _Avoid_: invitation history, invite audit log
 
 **Workspace invitation summary**:
-The displayed details for a pending **Workspace invitation**, including workspace, invited email, offered role, pending status, inviter identity, invited time, and expiry.
+The details of a pending **Workspace invitation**. These include Workspace, invited email, role, status, inviter, invitation time, and expiry.
 _Avoid_: invitation row, invite card
 
 **Workspace member action**:
@@ -77,11 +77,11 @@ The recoverable secret a **Workspace** supplies to authenticate outbound extract
 _Avoid_: Workspace API key, application API key, global gateway key
 
 **Model gateway connection test**:
-A one-off owner/admin-requested probe of a draft **Workspace model configuration** that checks basic model invocation without certifying declared capabilities or changing configuration state.
+An owner/admin test of draft **Workspace model configuration**. It verifies basic model invocation without certifying capabilities or changing saved settings.
 _Avoid_: compatibility certification, health status, capability discovery
 
 **Workspace deletion**:
-The owner-only hard-erasure of a **Workspace**'s control access, authoritative **Workspace product data**, and residual **Source file** binaries; **Workspace product analytics** remains retained.
+Owner-only permanent deletion of **Workspace** access, authoritative **Workspace product data**, and remaining **Source file** binaries. **Workspace product analytics** remains retained.
 _Avoid_: soft delete, workspace archive, member departure
 
 **Workspace control data**:
@@ -93,7 +93,7 @@ Workspace-owned extraction configuration and processing records created inside a
 _Avoid_: app data, tenant payload, aggregate data
 
 **Workspace product data access**:
-The admitted use of authoritative **Workspace product data** for the duration of one product operation, distinct from the **Workspace membership** that authorizes a user.
+Admitted access to authoritative **Workspace product data** for one operation. **Workspace membership** separately determines user authorization.
 _Avoid_: workspace authorization, database access
 
 **Workspace product analytics**:
@@ -113,7 +113,7 @@ The in-process WebSocket fanout service that delivers **Workspace live updates**
 _Avoid_: durable event log, polling
 
 **Workspace context invalidation**:
-A freshness hint carried by **Workspace live updates** that tells a session browser its accepted **Workspace context** may need HTTP revalidation after product configuration or access state changes.
+A **Workspace live update** hint that product settings or access changed. It tells the browser to revalidate accepted **Workspace context** over HTTP.
 _Avoid_: context snapshot, durable event
 
 **Leave Workspace**:
@@ -121,7 +121,7 @@ A self-service action where a non-owner workspace member removes only their own 
 _Avoid_: exit group, delete access
 
 **Replacement personal Workspace**:
-A newly created personal **Workspace** that preserves the expectation that a user has at least one accepted **Workspace** after **Leave Workspace**.
+A personal **Workspace** created when **Leave Workspace** removes the user’s last accepted **Workspace**. It preserves the requirement for accepted Workspace access.
 _Avoid_: fallback workspace, default workspace
 
 **Document**:
@@ -145,11 +145,11 @@ An independent PDF containing exactly one child Document's assigned pages, with 
 _Avoid_: parent original, shared working file
 
 **Smart splitting**:
-The Workspace-controlled identification of logical Documents within selected PDF pages, with human review only when automatic resolution cannot establish a valid plan.
+Identification of logical Documents within selected PDF pages, controlled by the Workspace. Human review occurs only when automatic resolution cannot produce a valid plan.
 _Avoid_: split every page, template classification
 
 **Automatic template selection**:
-Selection of a suitable existing Template from those matching any supplied Template tag, based on a logical Document and the candidate names and descriptions.
+Selection of a suitable existing Template from those matching any supplied Template tag. The model uses the logical Document and candidate names and descriptions.
 _Avoid_: template generation, global template search, field extraction
 
 **Template binding**:
@@ -161,7 +161,7 @@ Keeping a **Source file** beyond temporary processing needs so it remains availa
 _Avoid_: processing storage, result retention
 
 **Workspace source retention**:
-A **Workspace**'s choice to inherit the installation's **Source file retention** default or disable retention, within the storage capability configured by the installation operator.
+A **Workspace** choice to inherit installation **Source file retention** or disable it. Available storage depends on operator configuration.
 _Avoid_: Workspace storage provider, Workspace bucket configuration
 
 **Source file page count**:
@@ -177,7 +177,7 @@ The durable processing record for one logical **Document**, with a **Template bi
 _Avoid_: job, document, processing task
 
 **Extraction job lifecycle**:
-The durable state progression for an **Extraction job** from submission through background processing, result persistence, completion, failure, and **Source file** cleanup.
+The durable states of an **Extraction job** from submission through processing, result storage, completion or failure, and **Source file** cleanup.
 _Avoid_: job status helpers, queue state, processor flag
 
 **Extraction processor**:
@@ -209,7 +209,7 @@ A user-defined, lowercase label shared within a **Workspace**, associated with z
 _Avoid_: field tag, extraction instruction, automatic selection rule
 
 **Template generation**:
-The model-assisted proposal of a complete, validated **Template** definition from a **Template sample** and optional user guidance, for review before explicit saving.
+A model proposal for a complete, valid **Template** from a **Template sample** and optional instructions. The user reviews it before saving.
 _Avoid_: extraction job, automatic template save
 
 **Template sample**:
@@ -217,11 +217,11 @@ A temporary user-provided file used to infer a reusable **Template**, without be
 _Avoid_: extraction job source, retained document
 
 **Template assistance**:
-A proposal-only model request that explains a captured **Template** draft or proposes focused edits. Optional evidence consists of one **Template sample** or explicitly chosen retained **Source file**, and one completed **Extraction job** with its historical **Template version** and results. Assistance never persists a Template or creates an Extraction job.
+A model request to explain a captured **Template** draft or propose focused edits. Optional binary evidence is one **Template sample** or an explicitly selected retained **Source file**. Evidence can also include one completed **Extraction job**, with its historical **Template version** and results. Assistance neither saves a Template nor creates an Extraction job.
 _Avoid_: automatic template repair, verified answer, persistent assistant conversation
 
 **Template change group**:
-An indivisible set of focused draft operations with a rationale and explicit dependencies. Applying selected groups requires a valid combined draft and the exact captured editor context; saving is a separate action.
+An indivisible group of draft edits with reasons and dependencies. Applying groups requires a valid combined draft and the exact captured editor context. Saving is a separate action.
 _Avoid_: saved Template version, whole-template replacement
 
 **Template field**:
@@ -233,7 +233,7 @@ A specific revision of a **Template** used to interpret **Extraction job** resul
 _Avoid_: current template, schema snapshot
 
 **Evaluation**:
-A temporary, browser-held comparison of extraction outputs for a shared Document, with optional user-verified expected answers for scoring. The product area is named **Evaluations**.
+A temporary comparison of extraction outputs for one Document in the browser. Optional verified Expected answers provide scoring references. The product area is **Evaluations**.
 _Avoid_: experiment, saved evaluation, benchmark history, model connection test
 
 **Batch Evaluation**:
@@ -245,23 +245,23 @@ A Workspace-shared collection of saved documents and user-verified **Expected an
 _Avoid_: saved Evaluation history, personal document library, model-generated ground truth
 
 **Saved Evaluation document**:
-A reusable **Evaluation document library** entry containing a fixed original **Source file** and one editable **Expected answer set**, with ownership independent of an ordinary **Extraction job**.
+A reusable **Evaluation document library** entry with a fixed original **Source file** and one editable **Expected answer set**. Its ownership is independent of ordinary **Extraction jobs**.
 _Avoid_: saved Evaluation run, Extraction job, temporary Evaluation upload
 
 **Expected answer set**:
-The reference field definitions and any user-verified **Expected answers** for one saved document in the **Evaluation document library**, including expected-table structure and matching rules. It may be incomplete or have no verified answers yet, and is reusable across compatible **Templates** rather than belonging to one **Template version**.
+Reference field definitions and verified **Expected answers** for one saved library document. The set includes expected-table structure and matching rules. It can be incomplete or contain no verified answers. Compatible **Templates** can reuse it; it does not belong to one **Template version**.
 _Avoid_: candidate output, Template-owned answer sheet, saved Evaluation results
 
 **Expected answer**:
-A user-verified reference value or explicit verified absence for a document field, entered manually or explicitly accepted after reviewing a candidate output, and used to score **Evaluations**. It may be saved in an **Expected answer set**; a field without an Expected answer has no correctness reference and remains unscored.
+A verified reference value or explicit verified absence for a document field. The user enters it manually or accepts it after reviewing candidate output. It supplies a scoring reference for **Evaluations** and can persist in an **Expected answer set**. Fields without Expected answers remain unscored.
 _Avoid_: model confidence, majority answer, automatically accepted ground truth
 
 **Expected table**:
-A user-verified reference table for an **Evaluation**, including its expected rows and cell values or explicit cell absence. Individual cells may be ignored, excluding them from table-cell accuracy. A cell marked absent expects an empty cell in an existing extracted row. Row identifiers require values, even when other cells are absent or ignored. It provides the reference for table-cell matching and missing or extra row checks.
+A verified reference table for an **Evaluation**, with expected rows and cell values or explicit absence. Ignored cells do not contribute to table-cell accuracy. Absent cells require empty output cells in existing rows. Row identifiers still require values. The table defines cell matching and missing or extra row detection.
 _Avoid_: unverified candidate table, partial table reference
 
 **Evaluation coverage**:
-The share of user-verified fields requested by a **Comparison candidate**'s Template, established through field alignment. It describes the scope requested, separately from whether the extracted answers match their **Expected answers**.
+The proportion of verified fields requested by a candidate Template, determined through field alignment. Coverage measures requested scope separately from matches against **Expected answers**.
 _Avoid_: extraction accuracy, model confidence, match rate
 
 **Comparison candidate**:
@@ -269,11 +269,11 @@ One model and Template definition evaluated together within an **Evaluation**.
 _Avoid_: comparison stream, comparison lane
 
 **Model comparison**:
-An **Evaluation** whose **Comparison candidates** use different model names through the same Model gateway and share one Template definition.
+An **Evaluation** that compares model names through one Model gateway. All **Comparison candidates** share one Template definition.
 _Avoid_: gateway comparison, model marketplace
 
 **Template comparison**:
-An **Evaluation** whose **Comparison candidates** share one model and have independently editable Template definitions, including variants derived from saved Templates, Template versions or unsaved drafts.
+An **Evaluation** that compares independently editable Templates through one model. **Comparison candidates** can use saved Templates, Template versions, or unsaved drafts.
 _Avoid_: model comparison, live Template edit
 
 **Template object schema**:
@@ -290,14 +290,14 @@ _Avoid_: nested field limit, table array field limit, max table fields
 
 ## Rules
 
-- Application admin permissions are explicitly limited to listing users, setting allowed roles, banning/unbanning, and starting/stopping impersonation. Generic account deletion, account updates, password overrides, and session administration are not supported admin capabilities.
-- Cookie-authenticated product mutations require a trusted browser Origin. Cookie-less **Workspace API key** clients remain independent of browser Origin checks.
-- Authentication throttling is explicitly enabled independently of runtime environment. Its bounded atomic counters belong to one authentication runtime; client identity comes from the socket peer or explicitly trusted single-address proxy headers, never an untrusted caller-supplied identity header.
-- **Workspace live updates** revalidate persisted session validity, account ban state, and accepted **Workspace membership** before each delivery; access loss closes the subscription without delivering the pending event.
+- **Application admin** permissions cover user listing, permitted role changes, bans, unbans, and impersonation start/stop. They exclude generic account deletion, account updates, password overrides, and session administration.
+- Product mutations authenticated by cookies require a trusted browser Origin. Cookie-less **Workspace API key** clients do not require browser Origin validation.
+- Authentication throttling is enabled in all runtime environments. One authentication runtime owns its bounded atomic counters. Client identity comes from the socket peer or explicitly trusted proxy headers containing one address. Untrusted caller-supplied identity headers are prohibited.
+- Before each delivery, **Workspace live updates** revalidate persisted sessions, ban state, and accepted **Workspace membership**. Access loss closes the subscription before the pending event is delivered.
 - Password changes enforce the same password complexity rules as sign-up and reset.
 - Expired **Workspace invitations** do not prevent a new invitation for the same workspace and email.
-- Deleting a **Document** commits durable Source-file cleanup intent with metadata deletion. That intent survives crashes and unlink failures until immediate cleanup or retention successfully removes the binary.
-- Numeric **Extraction results** accept finite numbers, signed decimal/scientific strings, and decimal amounts with optional `$`, `£`, or `€` prefixes and comma groups of three digits. Unsupported formats retain their raw answer with `invalid_type` rather than silently changing its meaning.
+- **Document** deletion commits durable Source-file cleanup intent with metadata deletion. The intent survives crashes and unlink failures until immediate cleanup or retention removes the binary.
+- Numeric **Extraction results** accept finite numbers, signed decimal/scientific strings, and decimal currency amounts. Amounts can have `$`, `£`, or `€` prefixes and comma groups of three digits. Unsupported formats keep the raw answer with `invalid_type`.
 - Malformed Model gateway result envelopes or entries are retryable failures, including JSON `null`.
 
 - **Account password policy** requires at least 8 characters, one ASCII uppercase letter, one ASCII number, and one special character.
@@ -338,7 +338,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Initial **Application admin** access is bootstrapped by a one-time migration that promotes known Better Auth users to the persisted Application admin role.
 - **Application admin page** visibility is based on persisted application role in the authenticated session.
 - Better Auth application role is single-valued: a user is either `user` or `admin` in the application-wide auth context.
-- Better Auth admin plugin account fields are added through an explicit forward migration, including a safe one-time promotion of known bootstrap users when those users exist.
+- An explicit forward migration adds Better Auth admin plugin fields. It performs a safe one-time promotion for known bootstrap users that already exist.
 - Better Auth's persisted application role field remains unconstrained in the database; single-role `user`/`admin` semantics are enforced by application behavior.
 - Better Auth synthetic user responses include admin plugin fields so email-verification flows do not expose a different user shape from real account records.
 - The first **Application admin** capability set includes listing users, searching users, changing application roles, banning/unbanning users with reasons, and impersonating non-admin users.
@@ -350,7 +350,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Better Auth admin endpoints are served by the existing `/api/auth/*` Better Auth handler delegation, not custom product routing.
 - Backend coverage for **Application admin** setup verifies Better Auth admin plugin configuration rather than Better Auth endpoint internals.
 - **Application admins** may impersonate regular users, but may not impersonate other **Application admins**.
-- Banning a user through **Application admin** account management blocks that user's account sessions and future sign-in, but does not automatically delete Workspace memberships or rotate Workspace API keys.
+- An **Application admin** ban blocks account sessions and future sign-in. It does not delete Workspace memberships or rotate Workspace API keys.
 - The first **Application admin** ban flow creates permanent bans with required reasons; temporary ban duration is not exposed.
 - **Application admin** role changes require confirmation, with stronger confirmation language when removing Application admin authority.
 - An **Application admin** cannot demote their own application role in the first admin capability set.
@@ -362,18 +362,18 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - An **Application admin** cannot impersonate their own account.
 - Banned users are not eligible impersonation targets until unbanned.
 - Banned users receive Better Auth's default banned-user sign-in message.
-- A personal **Workspace** is created after configured authentication policy grants account access; when verification is required, an unverified registration does not create it.
-- Personal **Workspace** creation after **Account email verification** is idempotent; users who already have accepted **Workspace membership** do not receive another personal **Workspace**.
+- The app creates a personal **Workspace** after authentication policy permits account access. When verification is required, unverified registration does not create one.
+- Personal **Workspace** creation after **Account email verification** is idempotent. Existing accepted **Workspace membership** prevents another personal Workspace.
 - Pending **Workspace invitations** do not suppress personal **Workspace** creation after **Account email verification**.
 - A **Workspace invitation** is not workspace access until accepted.
 - **Workspace invitations** are in-app invitations; outbound email is outside the current invitation lifecycle.
 - Use `cancelled` for a **Workspace invitation** that ended without acceptance, including when the invitee declines it.
 - Invitee decline and owner/admin cancellation are separate actions with different authorization paths, but both make the invitation `cancelled`.
 - Only workspace owners and admins may see or cancel pending **Workspace invitations** sent from a **Workspace**.
-- A workspace owner/admin should confirm before cancelling someone else's pending **Workspace invitation**.
-- A **Workspace invitation** remains valid after inviter role changes or inviter departure unless it is cancelled or expires.
+- A workspace owner/admin should confirm before canceling someone else's pending **Workspace invitation**.
+- A **Workspace invitation** remains valid after inviter role changes or inviter departure unless it is canceled or expires.
 - Deleting a **Workspace** deletes its **Workspace invitations**.
-- **Workspace invitation management** shows actionable pending invitations, not accepted, cancelled, or expired invitation history.
+- **Workspace invitation management** shows actionable pending invitations, not accepted, canceled, or expired invitation history.
 - Invitees should see inviter identity, offered role, invited email, invited time, and expiry before accepting a **Workspace invitation**.
 - Only actionable pending **Workspace invitations** should appear in an invitee's workspace list; expired invitations are hidden from that list.
 - Invitees accept or decline a **Workspace invitation** from the invitation detail view, not directly from the workspace list.
@@ -383,19 +383,19 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - **Workspace invitations** match the invitee by the account's current email address; account email is not user-editable.
 - A signed-in user must always have at least one accepted **Workspace** after sign-up or first login.
 - A user cannot delete their only accepted **Workspace**.
-- If the accepted **Workspace** invariant is broken, the backend owns repairing it; clients must not create a replacement through the normal user-facing create-workspace flow.
+- The backend repairs a missing accepted **Workspace**. Clients must not use the normal create-workspace action to perform this repair.
 - `GET /v1/workspaces` repairs a broken zero-accepted-Workspace invariant by creating a personal **Workspace** through the same bootstrap path used for first login.
 - Pending **Workspace invitations** do not satisfy the accepted **Workspace** invariant.
-- A workspace owner/admin may remove another user's **Workspace membership** even if that was the target user's last accepted **Workspace**; the target user's invariant is repaired when they next list their Workspaces.
+- Owners and admins can remove another user’s **Workspace membership**, including their last accepted **Workspace**. The next Workspace listing repairs the removed user’s access invariant.
 - Removing another user's **Workspace membership** does not immediately create that user's replacement personal **Workspace**.
 - Accepted **Workspace** IDs are backend-owned; clients must not invent default or fallback workspace IDs.
 - When a client needs a replacement accepted **Workspace context**, it should use the first accepted **Workspace** returned by the backend workspace list.
 - The SPA uses the signed-in user session plus accepted **Workspace context** for workspace-scoped requests; **Workspace API keys** are for external API clients.
 - **Workspace API keys** may be generated and shown to workspace owners/admins for external clients, but they are not SPA authentication credentials.
 - **Workspace API keys** authenticate external clients for workspace-scoped product routes such as templates, extraction jobs, and document submission.
-- **Workspace API keys** authorize only integration product routes. **Template assistance**, assistance suggestions/evidence, held Template selection, and split-plan confirmation require an authenticated user session and accepted **Workspace membership**; API keys cannot authorize them.
+- **Workspace API keys** authorize integration product routes. Signed-in members perform **Template assistance**, suggestion and evidence selection, held Template selection, and split-plan confirmation in the frontend.
 - **Workspace API keys** require only accepted Workspace authorization in the local-only runtime.
-- **Workspace API keys** do not authenticate user/session-only routes such as profile, workspace membership, invitations, workspace deletion, API key generation, **Template assistance**, or manual document review. Sample-based **Template generation** remains available to API-key clients.
+- Users manage profiles, membership, invitations, Workspace deletion, and API key generation in the frontend. **Template assistance** and manual document review also require sign-in. Sample-based **Template generation** remains available to API-key clients.
 - **Workspace API keys** do not create browser sessions or authenticate access to the SPA shell.
 - **Workspace API key** material is visible only immediately after creation or rotation because the backend stores only a hash.
 - **Workspace API key format** is opaque to users and clients beyond being passed as a bearer token.
@@ -408,17 +408,17 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - An absent **Workspace model configuration** means the **Workspace** is unconfigured; blank Workspaces do not require placeholder configuration.
 - **Workspace model configuration** is complete or absent; creating it requires a gateway, model, and **Model gateway credential**.
 - Updating non-secret **Workspace model configuration** may preserve an existing credential, while credential replacement is explicit and atomic with the update.
-- Replacing **Workspace model configuration** may omit the credential only while the stored **Model gateway credential** remains usable; an unreadable stored credential must be replaced with a newly supplied credential.
+- Configuration replacement can omit the credential only when the stored **Model gateway credential** remains usable. An unreadable credential requires explicit replacement.
 - Clearing **Workspace model configuration** removes the complete configuration rather than leaving partial gateway, model, or credential state.
-- Clearing **Workspace model configuration** requires the current configured resource ETag; a concurrent change or prior clear fails the precondition instead of being treated as an idempotent success, and an already-unconfigured Workspace has no mutation ETag.
+- Clearing **Workspace model configuration** requires the current resource ETag. A concurrent change or earlier clear fails the precondition. An unconfigured Workspace has no mutation ETag. Repeated clearing is not an idempotent success.
 - **Workspace model configuration** mutations reject stale revisions rather than silently overwriting concurrent changes.
-- New **Workspace model configuration** treats native PDF input and structured output as unsupported until explicitly declared; sequential Model gateway calls are opt-in, and Model gateway processing does not use managed-file upload.
+- New **Workspace model configuration** disables native PDF input and structured output until explicitly declared. Sequential gateway calls are opt-in. Model processing does not use managed-file upload.
 - Workspace owners/admins may read non-secret **Workspace model configuration** details; ordinary members may read only whether configuration is present.
-- Workspace owners/admins may distinguish a usable **Model gateway credential** from an unreadable one through non-secret credential status; ordinary members still see only whether **Workspace model configuration** is present.
+- Owners and admins can inspect non-secret credential status to distinguish usable and unreadable **Model gateway credentials**. Members see only whether **Workspace model configuration** exists.
 - **Workspace model configuration** management requires an authenticated user session and accepted **Workspace membership**; **Workspace API keys** cannot read or mutate it.
-- The Workspace model-configuration endpoint returns unauthorised for callers without a valid user session, including callers presenting only a **Workspace API key**; signed-in non-members and members attempting owner/admin mutations are forbidden.
+- Model-configuration access requires a valid user session. An API key alone returns unauthorized. Signed-in non-members are forbidden. Members are forbidden from owner/admin mutations.
 - Saved **Model gateway credential** material is never returned through a product interface; replacing it requires a new credential value.
-- An unreadable encrypted **Model gateway credential** is an internal configuration failure, not an absent **Workspace model configuration**; operations that require it fail while authorised replacement or clearing remains available.
+- An unreadable encrypted **Model gateway credential** is a configuration failure, not absent configuration. Dependent operations fail. Authorized users can still replace or clear it.
 - **Workspace model configuration** follows the backup, restoration, and hard-erasure boundary of its authoritative **Workspace product data**.
 - **Workspace product data** includes Templates, Template fields and versions, Extraction jobs, Extraction results, and Source file metadata.
 - **Workspace product data** includes Source file metadata, not Source file binary contents.
@@ -431,12 +431,12 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Workspace limit configuration is limited to non-commercial **Product safety limits**.
 - Template shape constraints that depend on counting **Template fields** or **Template object columns** are enforced against authoritative **Workspace product data**.
 - Workspace membership and **Workspace API key** authorization are checked against **Workspace control data** before routing to authoritative **Workspace product data**.
-- **Workspace product analytics** may include stable product identifiers such as Workspace ID, Template ID, and Extraction job ID when needed for aggregate usage analysis or operational debugging.
+- **Workspace product analytics** can include stable Workspace, Template, and Extraction job IDs. These identifiers support aggregate usage analysis and operational debugging.
 - **Workspace product analytics** must not include extracted answers, evidence text, Source file names, account emails, API keys, or Document contents.
 - **Workspace product analytics** is not authoritative **Workspace product data** and is not part of Workspace deletion hard-erasure.
 - **Workspace product analytics** emission is best-effort and must not fail the product action that produced the analytics event.
 - The local-only runtime appends **Workspace product analytics** to one **Local product analytics log** per UTC day beneath local runtime state.
-- A **Local product analytics log** is limited to whitelisted stable product IDs and operational metadata; it excludes extracted answers, evidence text, Source file names, account emails, API keys, Source file binary contents, and Document contents.
+- A **Local product analytics log** permits only approved stable product IDs and operational metadata. It excludes answers, evidence text, filenames, emails, API keys, Source file binaries, and Document contents.
 - **Workspace live updates** notify clients about **Extraction job lifecycle** changes after authoritative **Workspace product data** has been persisted.
 - The local-only runtime delivers **Workspace live updates** through a **Local live update hub** keyed by Workspace ID.
 - **Workspace live updates** cover all **Extraction job lifecycle** changes for the accepted **Workspace context**, not only the currently selected Extraction job.
@@ -447,8 +447,8 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - **Workspace live updates** use a versioned batch message envelope.
 - **Extraction job lifecycle** live update events must not include extracted answers, evidence text, Source file binary contents, account emails, API keys, or Document contents.
 - **Workspace context invalidation** live update events must not include account identity, API keys, extracted answers, evidence text, Source file binary contents, or Document contents.
-- A committed Workspace model-configuration create, replacement, credential rotation, or clear emits **Workspace context invalidation** with reason `model_configuration_changed`; the event carries no configuration fields, and other open SPA clients refetch the authoritative Workspace product resource.
-- Workspace model-configuration readiness is not duplicated into **Workspace control data** or Workspace-list responses; the initiating SPA client uses its mutation response while other clients refetch after invalidation.
+- Committed model-configuration creation, replacement, credential rotation, or clearing emits **Workspace context invalidation** with reason `model_configuration_changed`. The event excludes configuration fields. Other open SPA clients retrieve the authoritative product resource again.
+- Model-configuration readiness is absent from **Workspace control data** and Workspace-list responses. The initiating client uses its mutation response. Other clients reload after invalidation.
 - Creating a **Workspace** and generating a **Workspace API key** are separate user intents.
 - `POST /v1/workspaces` returns the new accepted **Workspace context** with `has_api_key: false` and no **Workspace API key** secret.
 - First-login Workspace bootstrap creates the accepted **Workspace** and starter template, not visible external-client **Workspace API key** material.
@@ -479,58 +479,58 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Use **Document** synonymously for supported source formats, including PNG, JPEG, WebP, and PDF, unless a standards-level MIME type must be named.
 - The background processor that processes submitted **Documents** should use **Document** or **Source file** terminology in application-owned code.
 - Local Source file storage should use non-legacy **Document** or **Source file** naming for physical paths and application configuration.
-- Local Source file storage remains the authoritative binary store for **Source files**. With local **Source file retention**, the processing file and the retained original are the same local file; only its retained flag decides whether processing cleanup may remove it.
+- Local Source file storage is the authoritative binary store for local **Source files**. With local **Source file retention**, the processing file and original are the same file. Its retention flag controls whether processing cleanup can remove it.
 - Local runtime state is grouped under one local state directory so reset and backup behavior is explicit.
 - A **Source file page count** applies only to PDF **Source files** and is absent for non-PDF **Source files**.
-- PDF **Source files** require a **Source file page count** at Document submission time; if the count cannot be determined, the Document submission is rejected.
-- PDF **Source file page count** inspection for Document submission and Template generation runs outside the API process with a cancellable deadline, bounded admission, and pre-allocation decoded-buffer and parser-structure limits. Exceeding these **Product safety limits** rejects the Source before promotion, job creation, or a Model gateway call.
+- PDF submissions require a **Source file page count**. An unknown count rejects the submission.
+- PDF page-count inspection runs outside the API process for Document submission and Template generation. It has bounded admission, a cancellable deadline, and pre-allocation decoded-buffer and parser-structure limits. Exceeding **Product safety limits** rejects the Source before promotion, job creation, or a Model gateway call.
 - A **Source file page count** is internal Source file metadata until a product feature requires exposing or enforcing it.
 - Existing **Source files** are not backfilled with a **Source file page count** because their original binary may already have been cleaned up.
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
 - Background processor retry steps, not **Extraction job** status values, own retryability for transient processing failures.
 - Do not model retryability with a durable `retryable_failed` **Extraction job** status.
-- The durable **Extraction job lifecycle** states are `queued`, `awaiting_template`, `processing`, `completed`, and `failed`. `awaiting_template` is a deliberate manual-resolution hold, not an automatic retry. Held Template choices and packet split plans are resolved by signed-in Workspace members through the frontend; integrations observe their states and resume after review.
+- Durable **Extraction job lifecycle** states are `queued`, `awaiting_template`, `processing`, `completed`, and `failed`. The `awaiting_template` state holds work for manual selection; it does not retry automatically. Signed-in Workspace members resolve held Template choices and packet plans in the frontend. Integrations observe states and resume after review.
 - Authoritative **Extraction job lifecycle** state belongs to **Workspace product data**.
 - The **Extraction processor** performs long-running extraction work but does not own authoritative **Extraction job lifecycle** state.
 - Background processor instance details are implementation metadata, not durable **Extraction job lifecycle** states.
 - The **Local extraction runner** scans authoritative **Workspace product data** on startup for resumable `queued` and stale `processing` **Extraction jobs**.
 - A server restart must not permanently strand an accepted **Extraction job** that has not reached `completed` or `failed`.
 - The **Local extraction runner** owns bounded retry attempts as processor metadata, not as additional **Extraction job lifecycle** states.
-- Each **Extraction processor** attempt resolves the latest complete **Workspace model configuration** when that attempt starts; an in-flight attempt retains the configuration revision it already captured.
-- **Extraction jobs** retain only the non-secret Workspace model configuration revision, model, and route used by their latest or final attempt, not permanent per-attempt configuration history or the **Model gateway credential**.
-- Clearing **Workspace model configuration** is a deliberate stop for queued and retrying work: the next attempt fails deterministically as unconfigured, while already in-flight attempts continue with their captured configuration.
-- An unreadable **Model gateway credential** fails accepted queued or retrying **Extraction jobs** deterministically as configuration unavailable; it is not a transient Model gateway retry.
-- Changing **Workspace model configuration** does not reschedule queued retries, cancel in-flight attempts, or discard successful results; the next normally scheduled attempt resolves the latest configuration.
+- Each **Extraction processor** attempt reads the latest complete **Workspace model configuration** at startup. An active attempt retains its captured revision.
+- **Extraction jobs** retain the non-secret configuration revision, model, and route for the latest or final attempt. They exclude permanent per-attempt history and the **Model gateway credential**.
+- Clearing **Workspace model configuration** stops queued and retrying work at its next attempt. That attempt fails as unconfigured. Active attempts continue with captured settings.
+- An unreadable **Model gateway credential** fails queued or retrying **Extraction jobs** as configuration unavailable. It does not cause a temporary gateway retry.
+- Configuration changes do not reschedule retries, cancel active attempts, or discard successful results. The next scheduled attempt reads the latest settings.
 - The **Extraction processor** sends the original **Source file** to the **Model gateway** for extraction rather than creating a separate OCR or text-conversion artifact first.
 - Completed **Extraction jobs** record a stable **Model gateway** route label for support/debugging rather than the full request URL.
 - The configured LiteLLM endpoint remains the **Model gateway** in the local-only runtime.
-- The **Extraction processor** uses the configured **Model gateway** as the single extraction route; transient gateway failures are retried by background processing rather than hidden behind a fallback provider.
+- The **Extraction processor** uses one configured **Model gateway**. Background processing retries temporary failures. There is no fallback provider.
 - Deterministic Model gateway rejections fail an **Extraction job** terminally; throttling, timeouts, network failures, and gateway service failures use the bounded durable retry policy.
 - Missing or unreadable **Workspace model configuration** does not consume the Model gateway retry budget.
 - A persisted queued **Extraction job** notifies the local runner asynchronously, so Document acceptance is not delayed by Model gateway processing.
 - After the **Extraction processor** receives a **Model gateway** response, **Extraction results** should be persisted and the **Extraction job** should be marked `completed`.
 - Without **Source file retention**, a completed **Extraction job** does not keep its **Source file** binary after processing cleanup succeeds. A retained original outlives processing for both completed and failed jobs until its **Document** or **Workspace** is deleted.
-- **Document** admission checks **Workspace model configuration** readiness immediately after Workspace authorisation and before parsing the request body, persisting a **Source file**, or creating an **Extraction job**.
-- Workspace model-configuration HTTP errors use the product error envelope without echoing credential material: invalid representations are `400 invalid_workspace_model_configuration`, missing mutation preconditions are `428 precondition_required`, and failed or stale preconditions are `412 precondition_failed`.
-- Workspace model-configuration responses use `Cache-Control: no-store`; only a configured owner/admin representation exposes an ETag, and that ETag is a mutation concurrency token rather than a conditional-read cache validator.
-- **Document** admission rejects an absent **Workspace model configuration** as `409 workspace_model_not_configured` and an unreadable **Model gateway credential** as `503 workspace_model_configuration_unavailable`; configuration-unavailable responses do not advertise automatic retry timing because owner/admin repair is required.
-- Multipart **Document** admission streams a bounded `document` part to temporary local storage, validates required metadata and PDF page count, then atomically promotes the **Source file** before the **Extraction job** is accepted.
+- **Document** admission verifies **Workspace model configuration** immediately after Workspace authorization. This occurs before body parsing, **Source file** storage, or **Extraction job** creation.
+- Model-configuration HTTP errors use the product envelope and exclude credentials. Invalid representations return `400 invalid_workspace_model_configuration`. Missing mutation preconditions return `428 precondition_required`. Failed or stale preconditions return `412 precondition_failed`.
+- Model-configuration responses use `Cache-Control: no-store`. Only a configured owner/admin representation supplies an ETag. This token controls mutation concurrency, not conditional-read caching.
+- **Document** admission returns `409 workspace_model_not_configured` for absent configuration. An unreadable **Model gateway credential** returns `503 workspace_model_configuration_unavailable`. Configuration-unavailable responses omit retry timing because repair requires an owner or admin.
+- Multipart **Document** admission streams a bounded `document` part to temporary local storage. It validates required metadata and PDF page count. It then atomically promotes the **Source file** before **Extraction job** acceptance.
 - Admission count, reserved bytes, process memory, and disk reserve are local capacity limits; shared pressure returns retry guidance without creating an **Extraction job**.
 - If local **Workspace product data** rejects a queued **Extraction job** after its **Source file** is written, the local Source file binary is deleted.
 - If queuing an **Extraction processor** fails during Document submission, the **Extraction job** is marked `failed` and its **Source file** follows the failed-source retention window.
 - A processing failure marks the **Extraction job** `failed` with durable error details. A Source file that is not retained is kept for recovery or inspection for seven days by default.
 - Configuration-related terminal processing failures follow the same failed **Source file** retention policy as other processing failures.
-- Completed **Source files** that are not retained are deleted immediately; a restart-safe sweep also removes interrupted completed cleanup and expired failed-source binaries without deleting job metadata, errors, or results. Neither path removes a retained original.
-- The in-memory extraction queue is a bounded, Workspace-fair metadata accelerator over authoritative queued **Workspace product data**; periodic reconciliation recovers work left only in SQLite.
+- Successful processing immediately deletes non-retained **Source files**. A sweep that survives restarts completes interrupted cleanup and removes expired failed-source binaries. It preserves job metadata, errors, and results. Neither cleanup path removes retained originals.
+- The memory queue is a bounded, Workspace-fair metadata accelerator for authoritative queued **Workspace product data**. Periodic reconciliation recovers work stored only in SQLite.
 - Individual **Extraction job** retrieval uses entity validators and server-directed retry timing so unchanged polls do not hydrate or serialize **Extraction results**.
-- Each active **Workspace product data** database has one lease-aware process owner; SQLite write transactions remain short and journal mode stays on the safe rollback journal until the bundled SQLite passes the WAL safety gate.
+- Each active **Workspace product data** database has one process owner that tracks leases. SQLite write transactions remain short. Use rollback journaling until the bundled SQLite passes the WAL safety gate.
 - **Workspace** deletion cleanup sweeps residual **Source files** that normal **Extraction job lifecycle** cleanup did not delete.
-- **Source file retention** is captured once per Document when the server begins accepting its upload: installation storage configured, installation retention enabled, and no **Workspace source retention** opt-out. Later setting changes affect later uploads only.
-- **Workspace source retention** is stored with Workspace control data and may be changed only by a signed-in Workspace owner or admin, not by a **Workspace API key**.
+- The server records **Source file retention** once when it starts accepting a Document upload. Retention requires configured storage, enabled installation retention, and no **Workspace source retention** opt-out. Later setting changes affect later uploads only.
+- **Workspace control data** stores **Workspace source retention**. Only signed-in owners or admins can change it. **Workspace API keys** cannot change this setting.
 - Existing **Extraction jobs** migrate as not retained, whether or not their processing file still exists.
-- With S3-compatible storage, a retained original must be saved to object storage before its **Extraction job** is accepted; if saving fails, the upload fails with a retryable error and no job is created. Processing uses a local working copy that is removed once processing ends.
-- Deleting a **Document** or **Workspace** removes app access immediately and hands remote originals to durable background cleanup; logical deletion never waits on remote storage, and confirmation does not claim physical erasure.
-- A retained original is streamed through its owning **Extraction job** or **Document packet** in the same **Workspace**, for sessions and **Workspace API keys**, with `private, no-store` caching. Available working sources remain readable for active or held template/split resolution even when completed-original retention is disabled. Retrieval failure never changes processing status or results; not retained, missing from storage, and temporarily unavailable are reported separately.
+- With S3-compatible storage, original storage must succeed before **Extraction job** acceptance. Failure returns a retryable upload error without creating a job. Processing uses a local copy, removed when processing ends.
+- **Document** or **Workspace** deletion removes access immediately. Durable background cleanup removes remote originals. Logical deletion does not wait for remote storage. Its confirmation does not assert physical erasure.
+- Sessions and **Workspace API keys** can stream retained originals through their owning **Extraction job** or **Document packet** in the same **Workspace**. Responses use `private, no-store` caching. Active or held template/split resolution can read available working sources without completed-original retention. Retrieval failure does not change processing state or results. The app distinguishes non-retained, missing, and temporarily unavailable sources.
 - A **Template** must have at least one **Template field** before it can be used for extraction.
 - Changing **Template fields** creates a new **Template version**.
 - An **Extraction job** is interpreted against its fixed **Template binding**: the version captured at explicit submission, or at successful automatic/manual resolution.
@@ -565,11 +565,11 @@ _Avoid_: nested field limit, table array field limit, max table fields
 ## Example Dialogue
 
 > **Dev:** "If a user selects an invited workspace, can we treat it as the active workspace for API calls?"
-> **Domain expert:** "No. It is a **Pending workspace invitation context** until accepted, so it can show invitation details but must not enable workspace API access."
+> **Domain expert:** "No. Until acceptance, this is a **Pending workspace invitation context**. Show invitation details without enabling Workspace product access."
 
 ## Flagged Ambiguities
 
-- "group" was used to describe what a user leaves; resolved: the domain term is **Workspace**, and access is represented by **Workspace membership**.
-- "user status" was used for workspace access management; resolved: the domain term is **Workspace member action**.
-- "workspace state" can mean backend access, local persistence, or UI presentation; resolved: use **Workspace context** for backend access context and **Workspace selection view** for the frontend UI concept.
-- Legacy `image` terminology was used for earlier document submission, but the resolved product term is **Document** because source files can include PDFs as well as images; use **Source file** when referring to the original submitted binary.
+- Use **Workspace** for the environment a user leaves. **Workspace membership** represents their access. The older term "group" is ambiguous.
+- Use **Workspace member action** for Workspace access management. The older term "user status" is ambiguous.
+- Use **Workspace context** for backend access and **Workspace selection view** for frontend presentation. "Workspace state" can also refer to local storage and is ambiguous.
+- Use **Document** for submitted PDFs and images. Use **Source file** for the original binary. Legacy `image` terminology does not describe all supported sources.

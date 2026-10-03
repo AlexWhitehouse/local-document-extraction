@@ -7,20 +7,24 @@ POST /v1/extract
 Authorization: Bearer <workspace_api_key>
 ```
 
-Send one multipart `document` and either `template_id` or a nonempty `template_tags` JSON array. An explicit Template wins. Without an ID, templates matching any supplied tag are assessed against the document using their names and descriptions. Unknown tags match nothing; the scope never broadens automatically. Optional PDF-only `pages` selects physical page numbers.
+Send one multipart `document` with `template_id` or a nonempty `template_tags` JSON array. An explicit Template takes priority. Without an ID, the model assesses templates matching any supplied tag. It uses their names and descriptions. Unknown tags match nothing and do not expand the scope. Optional PDF-only `pages` selects physical page numbers.
 
-With Workspace Smart splitting off (the default), the response is `202 Accepted` with a `job_id`. With splitting on, a PDF returns a `packet_id` and a pollable packet location; each resulting logical document gets its own job. The response means processing was accepted, not that extraction is complete.
+With Workspace Smart splitting disabled, submission returns `202 Accepted` and `job_id`. This is the default. With splitting enabled, a PDF returns `packet_id` and a polling location. Each resulting logical document receives its own job. Acceptance confirms processing admission; extraction is not yet complete.
 
-The Workspace also controls blank-page exclusion, which only operates within Smart splitting. Both settings default to No and cannot be overridden per request. See [Document submission](overview.md#document-submission) and [Document packets and review](overview.md#document-packets-and-review).
+The Workspace also controls blank-page exclusion, which requires Smart splitting. Both settings default to No. Requests cannot override them. See [Document submission](overview.md#document-submission) and [Document packets and review](overview.md#document-packets-and-review).
 
 ## Get results and handle review holds
 
-Poll the returned `Location`. Jobs use `GET /v1/jobs/{job_id}`; packets use `GET /v1/packets/{packet_id}` and expose child job summaries. Completed jobs contain a `results` array; packet child summaries do not. Discover each child `job_id` from the packet, then read `/v1/jobs/{job_id}` for its results. A failed packet may still contain successful or running children, so track them independently. A verified all-blank packet completes with `outcome: "no_documents"` and zero children.
+Poll the returned `Location`. Jobs use `GET /v1/jobs/{job_id}`. Packets use `GET /v1/packets/{packet_id}` and include child job summaries.
 
-Automatic processing investigates ambiguity within a durable initial-plus-two assessment budget. If it cannot resolve a choice, pause polling and direct a Workspace member to **Documents** in the browser. They can [choose a template or review the page groups](../usage/document-extraction.md#progress-and-review) for `awaiting_template` or `awaiting_review`. Retain the IDs and resume polling after review; the existing source is reused without another upload.
+Completed jobs contain `results`; packet child summaries do not. Retrieve each child `job_id` from the packet. Read `/v1/jobs/{job_id}` for its results. A failed packet can contain successful or running children. Monitor each child independently.
 
-`GET /v1/jobs` lists extraction jobs, including packet children; `GET /v1/packets` lists parents. Children can be viewed, exported, and deleted independently. Deleting a child leaves the retained parent original intact; `DELETE /v1/packets/{packet_id}` removes the full group.
+A verified all-blank packet completes with `outcome: "no_documents"` and no children.
 
-One-page PDFs and accepted one-document plans still use this packet API, even when the UI displays them as ordinary documents. Source reads use `GET|HEAD /v1/jobs/{job_id}/source` for the child document and `GET|HEAD /v1/packets/{packet_id}/source` for the full original, subject to retention and review-source availability.
+Automatic processing permits one initial assessment and at most two targeted reassessments to resolve ambiguity. If the choice remains unresolved, pause polling. Direct a Workspace member to **Documents** in the browser. They can [select a template or review page groups](../usage/document-extraction.md#progress-and-review) for `awaiting_template` or `awaiting_review`. Keep the IDs and resume polling after review. The app reuses the existing source without another upload.
 
-The [packet request-chain example](overview.md#follow-the-packet-and-child-request-chain) shows the upload response, child discovery, and results retrieval. The [quickstart](overview.md#quickstart-document-to-structured-data) demonstrates ordinary explicit extraction. The [full reference](overview.md#jobs-and-results) covers polling, exports, retention, and deletion.
+`GET /v1/jobs` lists extraction jobs, including packet children. `GET /v1/packets` lists parents. You can read, export, and delete children independently. Child deletion keeps the retained parent original. `DELETE /v1/packets/{packet_id}` deletes the group.
+
+One-page PDFs and accepted one-document plans retain packet identity, even when the frontend presents them as ordinary documents. Read child sources with `GET|HEAD /v1/jobs/{job_id}/source`. Read the full original with `GET|HEAD /v1/packets/{packet_id}/source`. Retention and review-source availability control access.
+
+The [packet request-chain example](overview.md#follow-the-packet-and-child-request-chain) covers submission, child discovery, and result retrieval. The [quickstart](overview.md#quickstart-document-to-structured-data) covers explicit extraction. The [full reference](overview.md#jobs-and-results) covers polling, exports, retention, and deletion.

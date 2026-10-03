@@ -2,19 +2,25 @@
 
 ## Upload and select a template
 
-Open **Upload Document**, choose a template, and add one or more PDF, PNG, JPEG, or WebP files. Each file is submitted separately. The upload modal shows the current file-size limit.
+1. Open **Upload Document**.
+2. Select a template.
+3. Add one or more PDF, PNG, JPEG, or WebP files.
 
-To choose a template automatically, select **Automatic — select by tags**, then check one or more **Template tags**. The picker shows the templates carrying any selected tag. Add and manage tags on the Templates page first. The model uses each candidate's name and description to choose a suitable template; it does not compare every candidate's extraction fields. An explicit template choice always takes precedence and is used for every document found within that file.
+The app submits each file separately. The upload modal shows the current file-size limit.
 
-Uploads use the Workspace's document-processing settings. The browser submits all pages; API clients can supply a PDF `pages` selection. There are no upload-specific splitting or blank-page overrides.
+For automatic selection, first add tags on Templates. In the upload modal, select **Automatic — select by tags**, then select one or more **Template tags**. The picker shows templates with any selected tag. The model uses candidate names and descriptions, without comparing their extraction fields. An explicit template takes priority and applies to all documents found in the file.
+
+Uploads use Workspace processing settings. The browser submits all pages. API clients can specify PDF `pages`. Individual uploads cannot override splitting or blank-page settings.
 
 ## Smart splitting
 
-An owner or admin can enable **Smart splitting** under **Workspaces → Document processing**, below Model gateway. It finds logical documents within a PDF and extracts each separately. Multiple pages can belong to the same document. Image uploads remain single documents. Splitting and optional **Exclude blank pages** are both off by default; blank exclusion only applies while splitting is enabled. Nonblank covers are kept, and excluded pages retain their original page numbers and reasons.
+An owner or admin can enable **Smart splitting** under **Workspaces → Document processing**, below Model gateway. Splitting identifies logical documents within a PDF and extracts each separately. One document can span multiple pages. Image uploads remain single documents.
 
-A one-page PDF and a multi-page PDF resolved as one document appear as a normal document in the list and open directly into results. If pages were excluded, their reasons remain visible. Files containing multiple documents show a packet overview with progress, original-page groups, and a tab for each child document. A packet that still needs boundary review also keeps its overview. Deleting children from a multi-document packet does not turn it into a single-document view.
+Splitting and **Exclude blank pages** default to off. Blank exclusion requires splitting. Nonblank covers remain. Excluded pages retain their original page numbers and exclusion reasons.
 
-Smart splitting runs even when you choose a specific template. Every resulting document then uses that pinned template version. With Automatic selection, each resulting document chooses independently from templates matching the supplied tags.
+A one-page PDF or accepted one-document split appears as a normal document and opens directly in results. Exclusion reasons remain visible. Multiple documents appear in a packet overview with progress, original-page groups, and one tab per child document. Unresolved boundaries also require the packet overview. Deleting children does not convert a multi-document packet to a single-document view.
+
+Splitting also runs with an explicit template. All resulting documents use its fixed version. With automatic selection, each document selects independently from templates that match the supplied tags.
 
 ## Progress and review
 
@@ -22,32 +28,47 @@ Extraction runs in the background. The browser updates progress automatically. E
 
 | State | Meaning |
 | --- | --- |
-| `queued` | Waiting for classification or extraction. A temporary processing failure may return a job here for a bounded retry. |
-| `processing` | Being read by the extraction model. |
-| `awaiting_template` | Automatic selection could not establish a suitable template. Choose one to continue using the existing source. |
-| `completed` | Finished. Results are saved before the job is marked completed. |
-| `failed` | Could not be completed. The job shows an error code and message. |
+| `queued` | Waiting for classification or extraction. A temporary failure can return the job here for a bounded retry. |
+| `processing` | The extraction model is reading the document. |
+| `awaiting_template` | Automatic selection needs assistance. Select a template to continue with the existing source. |
+| `completed` | Processing finished. Results were saved before the state changed. |
+| `failed` | Processing failed. The job shows an error code and message. |
 
-Packet progress moves through split analysis, creation of child documents, and extraction. Clear decisions proceed automatically. Split analysis and each template selection can make one initial assessment and up to two targeted reassessments. Manual review is the last resort when those assessments cannot resolve the choice or no further automatic attempt can help.
+Packets progress through split analysis, child-document creation, and extraction. Clear decisions continue automatically. Split analysis and each template selection permit one initial assessment and at most two targeted reassessments. Manual review follows only when these assessments cannot resolve the choice or another attempt cannot help.
 
-Sign in to the Workspace and open the held item in **Documents**. Review uses the existing uploaded source, so you do not need to upload it again.
+Sign in to the Workspace and open the held item in **Documents**. Review uses the existing source. You do not need to upload it again.
 
 ### Choose a template
 
-When automatic selection needs help, choose a usable Template under **Template for this document**, then select **Use template and continue**. You can choose a Template outside the original tag selection. The app saves that Template's current version for this document and resumes extraction. Once accepted, the choice stays fixed even if the Template is edited later.
+1. Select a usable Template under **Template for this document**.
+2. Select **Use template and continue**.
+
+You can select a Template outside the original tags. The app records its current version for the document and resumes extraction. Later Template edits do not change this accepted choice.
 
 ### Confirm document boundaries
 
-For **Review needed**, use original-page previews to assign every page to exactly one document group or exclude it with a reason, then choose **Confirm plan and extract**. A group can contain nonadjacent pages; pages keep their original order. You can explicitly exclude nonblank pages, such as a cover, when appropriate.
+For **Review needed**, use this procedure:
 
-If another user changes the plan, reload it before confirming. Confirmed groups stay fixed, and confirming again does not create duplicate documents. An all-blank PDF completes as **No documents to extract** only when blank exclusion is enabled and every selected page is independently verified blank.
+1. Inspect the original-page previews.
+2. Assign each page to exactly one document group, or exclude it with a reason.
+3. Select **Confirm plan and extract**.
+
+A group can include nonadjacent pages. Pages retain their original order. You can explicitly exclude nonblank pages, such as covers, when necessary.
+
+If another user changes the plan, reload before confirmation. Confirmed groups remain fixed. Repeated confirmation does not duplicate documents.
+
+An all-blank PDF completes as **No documents to extract** only with blank exclusion enabled. Each selected page must be independently verified as blank.
 
 ## Results, originals, and deletion
 
-Open a completed document to see extracted values, confidence, and evidence. When an original was retained, choose **Side by side** to view it beside the results or **Download** to save it. A split child's source contains only its assigned pages. The packet overview's original download includes the whole uploaded PDF, including excluded pages.
+Open a completed document to inspect extracted values, confidence, and evidence. If its original remains available, select **Side by side** to compare it with results. Select **Download** to save it.
 
-Use **Export** for completed documents, including children of a packet. A packet is a container and contributes no extra result row. Deleting a child from a multi-document packet leaves its siblings and packet original intact. Deleting the packet removes the whole group. Deleting an upload presented as one normal document also removes its hidden parent and original.
+A child source contains only its assigned pages. The packet’s original download contains the full uploaded PDF, including excluded pages.
 
-Original retention depends on the installation and Workspace settings. Without retention, successful working files are cleaned up; failed files normally remain for seven days. Sources needed for split or template review stay available until resolution. Results remain until deleted, even if a source is unavailable.
+Select **Export** for completed documents, including packet children. A packet is a container and adds no result row.
 
-Scripts follow the submission's `Location`, poll packets to discover children, and retrieve results from each child's job endpoint. API keys cannot confirm split plans or choose templates for held documents; a signed-in Workspace member performs those review actions in the frontend before the integration continues. See the [packet request-chain example](../api/overview.md#follow-the-packet-and-child-request-chain).
+Deleting a child from a multi-document packet keeps its siblings and packet original. Deleting the packet removes the group. Deleting an upload shown as one normal document also removes its hidden parent and original.
+
+Installation and Workspace settings control original retention. Without retention, successful working files are removed. Failed files normally remain for seven days. Sources needed for split or template review remain until resolution. Results remain until deletion, even when their source is unavailable.
+
+Integrations follow the submission’s `Location`, poll packets for children, and retrieve each child job’s results. A Workspace member resolves held choices in **Documents** before integration processing continues. See the [packet request-chain example](../api/overview.md#follow-the-packet-and-child-request-chain).
