@@ -103,8 +103,8 @@ export function TemplatePage({
       />
       <footer className="studio-editor-footer">
         <span>
-          <span>
-            {templateFields.length} fields ·{" "}
+          {templateFields.length} fields ·{" "}
+          <span className={isEditingTemplate ? (isEditedTemplateDirty ? "template-footer-unsaved" : "template-footer-saved") : undefined}>
             {isEditingTemplate
               ? isEditedTemplateDirty
                 ? "Unsaved changes"
@@ -113,7 +113,7 @@ export function TemplatePage({
           </span>
           {issues.length
             ? <span className="template-footer-problems"> · {issues.length} problem{issues.length === 1 ? "" : "s"}</span>
-            : <span className="template-footer-ready"> · Ready to save</span>}
+            : null}
         </span>
         <span className="template-footer-actions">
           {/* One entry point: it opens on Explain issues while the draft has problems, otherwise on Propose edits. */}
