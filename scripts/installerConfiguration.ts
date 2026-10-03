@@ -144,7 +144,6 @@ export function createSetupTerminal(): SetupPrompt & { close(): void } {
     ask: (question, secret = false) => new Promise((resolve, reject) => {
       if (closed) { reject(new Error("Setup cancelled. No answers were saved.")); return; }
       rejectPending = reject;
-      process.stdout.write(`${question}: `);
       hidden = secret;
       terminal.question("", (answer) => {
         rejectPending = undefined;
@@ -152,6 +151,8 @@ export function createSetupTerminal(): SetupPrompt & { close(): void } {
         if (secret) process.stdout.write("\n");
         resolve(answer);
       });
+      // Prepare readline and terminal input before a fast reply can reach the PTY.
+      process.stdout.write(`${question}: `);
     }),
     close: () => terminal.close(),
   };
