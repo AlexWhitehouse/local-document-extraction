@@ -44,13 +44,11 @@ describe("Automatic document processing UI", () => {
   });
 
   it("keeps the model's selection reasoning off an automatically routed document", async () => {
-    const onSelectPacket = vi.fn();
-    render(<DocumentPage selectedDocument={{ job_id: "job_2", status: "completed", selection_mode: "automatic", template_id: "tpl_invoice", template_version: 3, selection_reason: "Invoice number and total", parent_packet_id: "packet_1", source_pages: [2, 3] }} templates={uploadProps.templates} onSelectPacket={onSelectPacket} />);
+    render(<DocumentPage selectedDocument={{ job_id: "job_2", status: "completed", selection_mode: "automatic", template_id: "tpl_invoice", template_version: 3, selection_reason: "Invoice number and total", parent_packet_id: "packet_1", source_pages: [2, 3] }} templates={uploadProps.templates} />);
     expect(screen.queryByText(/Automatically selected/)).toBeNull();
     expect(screen.queryByText("Invoice number and total")).toBeNull();
     expect(screen.getByText("Pages 2, 3")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "View parent packet" }));
-    expect(onSelectPacket).toHaveBeenCalledWith("packet_1");
+    expect(screen.queryByRole("button", { name: "View parent packet" })).toBeNull();
   });
 
   it("validates complete page coverage before confirming the current plan revision", async () => {

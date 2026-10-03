@@ -21,7 +21,7 @@ export function DocumentPage({
     if (isSingleDocumentPacket(packetPage?.packet)) {
       return <SinglePacketDocument {...detail} packetPage={packetPage} />;
     }
-    return <PacketPage {...packetPage} renderDocument={(document) => <DocumentDetail {...detail} selectedDocument={document} isInPacket />} />;
+    return <PacketPage {...packetPage} renderDocument={(document) => <DocumentDetail {...detail} selectedDocument={document} />} />;
   }
   if (!selectedDocument)
     return (
@@ -47,7 +47,6 @@ function SinglePacketDocument({ packetPage, ...detail }) {
           loadingDocumentDetailsId={hasDetails ? detail.loadingDocumentDetailsId : child.job_id}
           documentError={hasDetails ? "" : documentError}
           onRetryDocument={() => onSelectDocument?.(child.job_id)}
-          isInPacket
         />
       ) : (
         <section className="studio-document-page document-layout-results" aria-label="Document results">
@@ -76,10 +75,8 @@ function SinglePacketDocument({ packetPage, ...detail }) {
 
 function DocumentDetail({
   selectedDocument,
-  isInPacket = false,
   templates = [],
   onResolveTemplate,
-  onSelectPacket,
   isResolvingTemplate,
   templateResolutionError,
   loadingDocumentDetailsId,
@@ -168,9 +165,6 @@ function DocumentDetail({
         ) : null}
       </div>
       {isHeld ? <TemplateHold job={selectedDocument} templates={templates} onResolve={onResolveTemplate} busy={isResolvingTemplate} error={templateResolutionError} /> : null}
-      {selectedDocument.parent_packet_id && !isInPacket ? <p className="document-lineage">
-        <button type="button" className="ghost" onClick={() => onSelectPacket?.(selectedDocument.parent_packet_id)}>View parent packet</button>
-      </p> : null}
       {layout === "side-by-side" ? (
         <SideBySide key={selectedDocument.job_id} document={selectedDocument} loadOriginal={loadOriginal}>
           {resultDisplay}
