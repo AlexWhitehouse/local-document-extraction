@@ -373,11 +373,11 @@ Every target index addresses the BASE draft, and expectName/expectHeading must e
 
 export const SUGGESTION_LIMITS = Object.freeze({ suggestions: 6, labelCharacters: 80, requestCharacters: 300, reasonCharacters: 160 });
 export type RequestSuggestion = { label: string; request: string; reason: string };
-export const SUGGESTION_OUTPUT_CONTRACT = `Return exactly a JSON object {"suggestions":[{"label":string,"request":string,"reason":string}]} with 1 to ${SUGGESTION_LIMITS.suggestions} suggestions. No additional properties anywhere. label: a short, specific request the user could make about THIS draft (at most ${SUGGESTION_LIMITS.labelCharacters} characters). request: the full request text that will be sent if chosen (at most ${SUGGESTION_LIMITS.requestCharacters} characters). reason: why it is relevant, citing the draft field, column, problem or evidence it is based on (at most ${SUGGESTION_LIMITS.reasonCharacters} characters).`;
+export const SUGGESTION_OUTPUT_CONTRACT = `Return exactly a JSON object {"suggestions":[{"label":string,"request":string,"reason":string}]} with 0 to ${SUGGESTION_LIMITS.suggestions} suggestions. Return an empty array when no grounded suggestions are available. No additional properties anywhere. label: a short, specific request the user could make about THIS draft (at most ${SUGGESTION_LIMITS.labelCharacters} characters). request: the full request text that will be sent if chosen (at most ${SUGGESTION_LIMITS.requestCharacters} characters). reason: why it is relevant, citing the draft field, column, problem or evidence it is based on (at most ${SUGGESTION_LIMITS.reasonCharacters} characters).`;
 /** Suggested requests only prefill the user's request box; they never change the draft. */
 export function validateSuggestionOutput(value: unknown): RequestSuggestion[] {
   const record = object(value, "suggestion output", ["suggestions"]);
-  if (!Array.isArray(record.suggestions) || !record.suggestions.length || record.suggestions.length > SUGGESTION_LIMITS.suggestions) fail(`Return between 1 and ${SUGGESTION_LIMITS.suggestions} suggestions`);
+  if (!Array.isArray(record.suggestions) || record.suggestions.length > SUGGESTION_LIMITS.suggestions) fail(`Return between 0 and ${SUGGESTION_LIMITS.suggestions} suggestions`);
   const seen = new Set<string>();
   return record.suggestions.map((item: unknown) => {
     const suggestion = object(item, "suggestion", ["label", "request", "reason"]);

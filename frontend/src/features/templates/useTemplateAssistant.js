@@ -4,10 +4,10 @@ import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 import { suggestTemplateRequests } from "./templateAssistantSuggestions.js";
 
 const SUGGESTION_DELAY_MS = 400;
-// Structural context only, so typing inside an instructions box doesn't refetch on every keystroke.
-const suggestionContext = draft => [draft?.name, (Array.isArray(draft?.fields) ? draft.fields : []).map(field => [field?.name, field?.data_type,
-  (Array.isArray(field?.object_schema?.columns) ? field.object_schema.columns : []).map(column => [column?.heading, column?.data_type])]),
-  diagnoseTemplateDraft(draft).map(issue => issue.id)];
+// Include extraction guidance; the assistant's request text is separate and never triggers a refetch.
+const suggestionContext = draft => [draft?.name, draft?.description, (Array.isArray(draft?.fields) ? draft.fields : []).map(field => [field?.name, field?.description, field?.data_type,
+  (Array.isArray(field?.object_schema?.columns) ? field.object_schema.columns : []).map(column => [column?.heading, column?.description, column?.data_type])]),
+  diagnoseTemplateDraft(draft)];
 
 /** Private, proposal-only state. Every asynchronous acceptance checks monotonic lifetimes. */
 export function useTemplateAssistant({ request, workspaceId, sessionId, activePage, templateId, templateVersion, hasApiAccess,
@@ -143,7 +143,7 @@ export function useTemplateAssistant({ request, workspaceId, sessionId, activePa
       }
     }, SUGGESTION_DELAY_MS);
     return () => { clearTimeout(timer); controller.abort(); };
-    // The key captures the draft structure, evidence, tab and scope that suggestions depend on.
+    // The key captures the draft structure and guidance, evidence, tab and scope that suggestions depend on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestionKey]);
 
