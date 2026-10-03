@@ -140,7 +140,10 @@ install_application() {
 # A curl | bash install uses stdin for the script. Reconnect to the terminal
 # for setup questions, while preserving unattended and --non-interactive use.
 if [ "$setup_mode" != non-interactive ] && [ ! -t 0 ] && [ -t 1 ] && ( : </dev/tty ) 2>/dev/null; then
-  install_application </dev/tty
+  # macOS cannot poll the /dev/tty alias with kqueue. Resolve the actual
+  # terminal from stdout before capturing tty's output, then open that device.
+  { terminal_device=$(tty <&3); } 3<&1 || fail 'Cannot resolve the setup terminal'
+  install_application < "$terminal_device"
 else
   install_application
 fi
