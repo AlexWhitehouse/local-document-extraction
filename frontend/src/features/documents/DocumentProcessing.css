@@ -55,7 +55,7 @@ label.upload-tag-option:has(input:focus-visible) { box-shadow: 0 0 0 1px var(--a
 .packet-section .studio-empty-state { padding-top: 4px; margin: 0; }
 .packet-message { margin: 14px 0 0; font-size: 12px; }
 .packet-message.is-error, .processing-error { color: var(--rose-text); }
-.studio-main .packet-table th[scope="col"] { position: static; }
+.packet-table-scroll { max-height: clamp(180px, 40dvh, 360px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
 .studio-main .packet-table tbody th { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--studio-rule); background: transparent; color: #e3ecf8; font: 500 12px var(--font-body); text-align: left; text-transform: none; letter-spacing: 0; }
 .studio-main .packet-table td { font-family: var(--font-mono); font-size: 11px; white-space: normal; }
 .studio-main .packet-table td:last-child { width: auto; }
