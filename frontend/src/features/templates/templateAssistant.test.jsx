@@ -194,7 +194,68 @@ describe("suggested requests", () => {
     await waitFor(() => expect(result.current.templatePage.assistant.suggestions.status).toBe("ready"));
     expect(result.current.templatePage.assistant.suggestions.source).toBe("rules");
     expect(result.current.templatePage.assistant.suggestions.notice).toContain("No model is configured");
-    expect(result.current.templatePage.assistant.suggestions.items.map(item => item.label)).toContain("Add VAT rate to each line item");
+    expect(result.current.templatePage.assistant.suggestions.items.map(item => item.label)).toContain("Add a Unit of Measure column to Line Items");
+  });
+
+  it.each(["Template", "field", "column"])("refreshes after debounced %s instructions change, but not assistant request typing", async target => {
+    vi.useFakeTimers();
+    try {
+      const request = vi.fn(async path => path === "/templates/assist/suggestions" ? { source: "model", suggestions: [] } : { templates: [] });
+      const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
+      const calls = () => request.mock.calls.filter(([path]) => path === "/templates/assist/suggestions");
+      act(() => result.current.templatePage.onOpenAssistant());
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      expect(calls()).toHaveLength(1);
+      expect(result.current.templatePage.assistant.suggestions).toMatchObject({ status: "ready", source: "model", items: [] });
+      act(() => result.current.templatePage.assistant.onInstructionsChange("My own request"));
+      await act(() => vi.advanceTimersByTimeAsync(800));
+      expect(calls()).toHaveLength(1);
+      const change = description => {
+        const page = result.current.templatePage;
+        if (target === "Template") page.onTemplateDescriptionChange(description);
+        else {
+          const fields = structuredClone(page.templateFields);
+          if (target === "field") fields[0].description = description;
+          else fields[5].object_schema.columns[0].description = description;
+          page.onTemplateFieldsChange(fields);
+        }
+      };
+      act(() => change("First revision of extraction guidance"));
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      act(() => change("Final revision of extraction guidance"));
+      await act(() => vi.advanceTimersByTimeAsync(399));
+      expect(calls()).toHaveLength(1);
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(calls()).toHaveLength(2);
+      const sent = JSON.parse(calls()[1][1].body).draft;
+      const description = target === "Template" ? sent.description : target === "field" ? sent.fields[0].description : sent.fields[5].object_schema.columns[0].description;
+      expect(description).toBe("Final revision of extraction guidance");
+      expect(result.current.templatePage.assistant.instructions).toBe("My own request");
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("discards late suggestions after changing the tab or guidance", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = [];
+      const request = vi.fn(async path => {
+        if (path !== "/templates/assist/suggestions") return { templates: [] };
+        const response = deferred(); pending.push(response); return response.promise;
+      });
+      const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
+      act(() => result.current.templatePage.onOpenAssistant());
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      act(() => result.current.templatePage.assistant.onActionChange("explain"));
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      act(() => result.current.templatePage.onTemplateDescriptionChange("Updated extraction scope"));
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      const calls = request.mock.calls.filter(([path]) => path === "/templates/assist/suggestions");
+      expect(calls).toHaveLength(3);
+      expect(calls.slice(0, 2).every(([, options]) => options.signal.aborted)).toBe(true);
+      await act(async () => pending[2].resolve({ source: "model", suggestions: [] }));
+      await act(async () => { for (const response of pending.slice(0, 2)) response.resolve({ source: "model", suggestions: [modelSuggestion] }); });
+      expect(result.current.templatePage.assistant.suggestions).toMatchObject({ status: "ready", source: "model", items: [] });
+    } finally { vi.useRealTimers(); }
   });
 });
 

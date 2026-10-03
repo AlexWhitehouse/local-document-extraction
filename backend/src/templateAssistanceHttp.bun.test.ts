@@ -297,7 +297,7 @@ test("the configured whole-request deadline aborts model IO and releases sample 
   expect(getModelPreparationSnapshot().reservedBytes).toBe(0);
 });
 
-const suggestionOutput = { suggestions: [{ label: "Say which currency Total uses", request: "Clarify the currency in the Total instructions", reason: "“Total” has no currency guidance" }] };
+const suggestionOutput = { suggestions: [{ label: "Is Total clear about currency?", request: "Is the currency guidance for Total ambiguous?", reason: "Review the short Total instructions for possible ambiguity" }] };
 
 test("suggestions use one text-only call with the draft, its diagnostics and job evidence, and never write", async () => {
   const f = fixture();
@@ -319,6 +319,41 @@ test("suggestions use one text-only call with the draft, its diagnostics and job
   expect(getModelPreparationSnapshot().reservedBytes).toBe(0);
   expect(f.store.listTemplates()).toHaveLength(1);
   expect(f.store.listExtractionJobs()).toHaveLength(1);
+});
+
+test.each(["explain", "edit"] as const)("%s suggestions receive only that tab's rules with the full draft context", async action => {
+  const f = fixture();
+  const gateway = f.mockGateway(responder({ suggestions: [] }));
+  const currentDraft = { ...draft, description: "Capture invoice totals and currency", fields: [
+    ...draft.fields, { name: "Lines", description: "Items across all pages", data_type: "array<object>", object_schema: { columns: [
+      { heading: "Quantity", description: "Number of units per row", data_type: "number" },
+    ] } },
+  ] };
+  const response = await f.suggest({ action, draft: currentDraft, sampleName: "unseen.pdf" });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ source: "model", suggestions: [] });
+  expect(gateway).toHaveBeenCalledTimes(1);
+  const sent = JSON.parse(gateway.mock.calls[0][1]!.body as string);
+  const rules = sent.messages[0].content;
+  expect(rules).toContain("contents have NOT been read");
+  expect(rules).toContain("stored results are model output, not verified answers");
+  expect(rules).toContain("empty suggestions array when context is insufficient");
+  if (action === "explain") {
+    expect(rules).toContain("Only supplied deterministic diagnostics are confirmed Template validation errors");
+    expect(rules).toContain("If diagnostics are empty, do not imply the Template is invalid or cannot save");
+    expect(rules).toContain("Do not suggest new fields or columns");
+    expect(rules).not.toContain("Suggest additions only");
+  } else {
+    expect(rules).toContain("Suggest additions only");
+    expect(rules).toContain("equivalent information already captured");
+    expect(rules).toContain("name, supported type, and concrete extraction instructions");
+    expect(rules).toContain("at most 50 fields, one table-shaped field, and 20 columns");
+    expect(rules).not.toContain("Explain issues tab");
+  }
+  const context = JSON.parse(sent.messages[1].content);
+  expect(context.action).toBe(action);
+  expect(context.untrustedContext.currentDraft).toEqual(currentDraft);
+  expect(context.untrustedContext.deterministicDiagnostics).toEqual([]);
 });
 
 test("suggestions reject malformed requests and unsupported output, and report a missing model configuration", async () => {

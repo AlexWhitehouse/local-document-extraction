@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ASSISTANT_LIMITS, diagnoseTemplateDraft, evaluateSelection, identityImpacts, previewRows, validateAssistantOutput, type ProposalGroup, type ProposalOperation, type DraftRecord } from "../../../shared/templateAssistant";
+import { ASSISTANT_LIMITS, SUGGESTION_LIMITS, diagnoseTemplateDraft, evaluateSelection, identityImpacts, previewRows, validateAssistantOutput, validateSuggestionOutput, type ProposalGroup, type ProposalOperation, type DraftRecord } from "../../../shared/templateAssistant";
 import { validateTemplatePayload } from "./validation";
 
 const field = (name = "Total", description = "Exact amount", data_type = "number") => ({ name, description, data_type });
@@ -11,6 +11,19 @@ const output = (groups: ProposalGroup[]) => ({ explanation: "Review these change
 const update = (set: Record<string, unknown>): ProposalOperation => ({ op: "update_field", fieldIndex: 0, expectName: "Total", set });
 const addVAT: ProposalOperation = { op: "add_column", fieldIndex: 1, expectName: "Lines", after: null, column: column("VAT rate") };
 const validates = (groups: ProposalGroup[], base = draft()) => validateAssistantOutput(output(groups), base, "edit");
+
+describe("suggestion output contract", () => {
+  const suggestion = { label: "Review Total", request: "Is Total clear about currency?", reason: "Review its instructions" };
+  it("accepts an empty list without weakening the suggestion contract", () => {
+    expect(validateSuggestionOutput({ suggestions: [] })).toEqual([]);
+    expect(validateSuggestionOutput({ suggestions: [suggestion] })).toEqual([suggestion]);
+    for (const value of [{}, { suggestions: null }, { suggestions: [], extra: true },
+      { suggestions: [suggestion, suggestion] }, { suggestions: [{ ...suggestion, reason: "" }] },
+      { suggestions: [{ ...suggestion, request: "x".repeat(SUGGESTION_LIMITS.requestCharacters + 1) }] },
+      { suggestions: Array.from({ length: SUGGESTION_LIMITS.suggestions + 1 }, (_, index) => ({ ...suggestion, label: `Review ${index}` })) },
+    ]) expect(() => validateSuggestionOutput(value)).toThrow();
+  });
+});
 
 describe("shared deterministic Template diagnostics", () => {
   it("accepts incomplete or malformed drafts without mutation or exceptions", () => {
