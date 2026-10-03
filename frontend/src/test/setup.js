@@ -42,6 +42,7 @@ afterEach(() => {
   vi.resetAllMocks();
   vi.unstubAllGlobals();
   for (const captured of capturedDescriptors) restoreDescriptor(captured);
+  window.history.replaceState(null, "", "/");
 });
 
 function captureDescriptor(object, key) {

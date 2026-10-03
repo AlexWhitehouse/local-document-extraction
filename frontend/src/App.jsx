@@ -1,7 +1,9 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import { createRuntimeAuthClient } from "./lib/authClient";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
+import { appPath } from "./lib/appRoutes";
+import { useAppNavigation } from "./lib/useAppNavigation";
 import { createAppRuntimeCore, createWorkspaceRequestLayer } from "./lib/appRuntime";
 import { AuthScreen } from "./features/auth/AuthScreen.jsx";
 import {
@@ -55,23 +57,23 @@ const CONTEXT_SIDEBAR_TITLES = {
 };
 
 export function App({ configuration = DEFAULT_RUNTIME_CONFIGURATION }) {
-  const [resetPasswordRoute, setResetPasswordRoute] = useState(() =>
-    getAccountPasswordResetRoute(window.location),
-  );
+  const navigation = useAppNavigation();
+  const resetPasswordRoute = navigation.route.page === "reset-password" ? getAccountPasswordResetRoute(window.location) : null;
   if (resetPasswordRoute) {
     return (
       <AccountPasswordResetRoute
         authOptions={configuration.auth}
         resetState={resetPasswordRoute}
-        onResetComplete={() => setResetPasswordRoute(null)}
+        onResetComplete={() => navigation.navigate("/", { replace: true, force: true })}
       />
     );
   }
 
-  return <AuthenticatedApp configuration={configuration} />;
+  return <AuthenticatedApp configuration={configuration} navigation={navigation} />;
 }
 
-function AuthenticatedApp({ configuration }) {
+function AuthenticatedApp({ configuration, navigation }) {
+  const { route, navigate } = navigation;
   const authClient = useMemo(() => createRuntimeAuthClient(), []);
   const {
     data: session,
@@ -82,7 +84,7 @@ function AuthenticatedApp({ configuration }) {
   const [busy, setBusy] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
   const [isStoppingImpersonation, setIsStoppingImpersonation] = useState(false);
-  const [activePage, setActivePage] = useState("workspace");
+  const activePage = route.page;
   // Live Workspace events reach the Evaluation controller, which is created after the socket owner.
   const evaluationRef = useRef(null);
 
@@ -115,6 +117,9 @@ function AuthenticatedApp({ configuration }) {
     isAppBusy: busy,
     setBusy,
     onActivePageChange: setActivePage,
+    requestedWorkspaceId: route.workspaceId,
+    requestedInvitationId: route.invitationId,
+    onWorkspaceNavigation: (id, options = {}) => navigate(appPath({ workspaceId: id, invitationId: options.invitationId }), options),
     beforeWorkspaceSelection: () => evaluation.confirmDiscard(),
     onClearWorkspaceScopedData: (options) => {
       evaluation.clear();
@@ -123,8 +128,9 @@ function AuthenticatedApp({ configuration }) {
     },
   });
   const workspaceContext = workspaceController.context;
-  const { workspaceId, hasApiAccess, hasWorkspaceApiAccess, isWorkspaceInvitationSelected } =
+  const { workspaceId, hasWorkspaceApiAccess, isWorkspaceInvitationSelected } =
     workspaceContext;
+  const hasApiAccess = workspaceContext.hasApiAccess;
   const { recoverForbiddenWorkspaceAccess, refreshSelectedWorkspaceContext } =
     workspaceController.actions;
   const workspaceToolbar = workspaceController.toolbar;
@@ -168,8 +174,12 @@ function AuthenticatedApp({ configuration }) {
     sessionId,
     activePage,
     onActivePageChange: setActivePage,
+    routeTemplateId: activePage === "templates" ? route.templateId || "" : undefined,
+    onTemplateNavigation: (templateId, options) => options?.force && activePage !== "templates"
+      ? true : navigate(appPath({ workspaceId, page: "templates", templateId }), options),
   });
   const templates = templateController.templates;
+  const navigateDocument = useCallback((selection, options) => navigate(appPath({ workspaceId, page: "documents", ...selection }), options), [navigate, workspaceId]);
   const documentController = useDocumentController({
     maxSourceFileBytes,
     apiBase: API_BASE,
@@ -194,6 +204,9 @@ function AuthenticatedApp({ configuration }) {
     onModelConfigurationInvalidation: workspaceModel.invalidate,
     onWorkspaceAccessRevalidation: recoverForbiddenWorkspaceAccess,
     onEvaluationDocumentChanged: (change) => evaluationRef.current?.documentChanged(change),
+    routeDocumentId: activePage === "documents" ? route.documentId : "",
+    routePacketId: activePage === "documents" ? route.packetId : "",
+    onDocumentNavigation: navigateDocument,
   });
   const evaluation = useEvaluations({
     workspaceId,
@@ -206,10 +219,61 @@ function AuthenticatedApp({ configuration }) {
   const documentToolbar = documentController.toolbar;
   const documentStatusCounts = documentController.statusCounts;
 
+  function pagePath(page) {
+    return appPath({ page, workspaceId: hasApiAccess ? workspaceId : route.workspaceId,
+      ...(page === "workspace" && route.invitationId ? { invitationId: route.invitationId } : {}),
+      ...(hasApiAccess && page === "templates" ? { templateId: templateController.toolbar.selectedTemplateId || (templateController.navigation.isDraft ? "new" : "") } : {}),
+      ...(hasApiAccess && page === "documents" ? documentController.documentPage.selectedPacketId
+        ? { packetId: documentController.documentPage.selectedPacketId, documentId: documentController.documentPage.isSingleDocument ? "" : documentController.documentPage.packetPage.activeDocumentId }
+        : { documentId: documentController.documentPage.selectedDocument?.job_id } : {}),
+    });
+  }
+  function setActivePage(page) { return navigate(pagePath(page)); }
+
+  navigation.guard.current = (next) => {
+    const changingWorkspace = Boolean((next.workspaceId && next.workspaceId !== workspaceId) ||
+      next.invitationId !== route.invitationId && next.invitationId || next.root);
+    const changingTemplate = next.page === "templates" && next.templateId !==
+      (templateController.toolbar.selectedTemplateId || (templateController.navigation.isDraft ? "new" : ""));
+    // Evaluation dialogs hold unapplied local form state, while accepted inputs
+    // and results live in the controller and survive section navigation.
+    if (activePage === "evaluations" && (next.page !== "evaluations" || changingWorkspace) &&
+      document.querySelector('[role="dialog"]') &&
+      !window.confirm("Leave Evaluations and discard unapplied changes in the open dialog?")) return false;
+    if ((changingWorkspace || changingTemplate) && !templateController.navigation.confirmDiscard()) return false;
+    if (changingWorkspace && !evaluation.confirmDiscard()) return false;
+    templateController.navigation.invalidatePendingLoad();
+    return true;
+  };
+  navigation.hasUnsavedChanges.current = hasSession && (templateController.navigation.hasUnsavedChanges ||
+    Boolean(evaluation.state.documents.length || evaluation.state.candidates.length));
+  const navigationGuard = navigation.guard;
+  const navigationUnsaved = navigation.hasUnsavedChanges;
+  useEffect(() => () => {
+    navigationGuard.current = null;
+    navigationUnsaved.current = false;
+  }, [navigationGuard, navigationUnsaved]);
+
+  useEffect(() => {
+    if (!hasSession || !hasApiAccess || isWorkspaceInvitationSelected) return;
+    if (route.root) { navigate(appPath({ workspaceId }), { replace: true, force: true }); return; }
+    if (activePage === "templates" && !route.templateId) {
+      const templateId = templateController.toolbar.selectedTemplateId ||
+        (templateController.navigation.hasUnsavedChanges || templateController.navigation.isDraft ? "new" : templates[0]?.id);
+      if (templateId) navigate(appPath({ workspaceId, page: "templates", templateId }), { replace: true, force: true });
+    }
+    if (activePage === "documents" && !route.documentId && !route.packetId && documentController.documentPage.selectedDocument?.job_id) {
+      navigateDocument({ documentId: documentController.documentPage.selectedDocument.job_id }, { replace: true, force: true });
+    }
+  }, [hasSession, hasApiAccess, isWorkspaceInvitationSelected, route.root, route.templateId, route.documentId, route.packetId, activePage, workspaceId, templates, templateController.toolbar.selectedTemplateId, templateController.navigation.hasUnsavedChanges, templateController.navigation.isDraft, documentController.documentPage.selectedDocument?.job_id, navigate, navigateDocument]);
+
+  const dismissApiKey = workspaceController.actions.dismissApiKey;
+  useEffect(() => { if (activePage !== "workspace") dismissApiKey(); }, [activePage, dismissApiKey]);
+
   async function handleImpersonationStarted() {
     workspaceController.actions.clearSessionWorkspaceData();
     await refetchSession();
-    setActivePage("workspace");
+    navigate("/", { replace: true, force: true });
   }
 
   async function handleStopImpersonating() {
@@ -222,7 +286,7 @@ function AuthenticatedApp({ configuration }) {
       }
       workspaceController.actions.clearSessionWorkspaceData();
       await refetchSession();
-      setActivePage("admin");
+      navigate("/admin", { replace: true, force: true });
       showActionToast("applicationUser.stopImpersonating", "success");
     } catch {
       showActionToast("applicationUser.stopImpersonating", "failure");
@@ -264,9 +328,6 @@ function AuthenticatedApp({ configuration }) {
     }
 
     setActivePage(pageId);
-    if (pageId === "templates") {
-      templateController.actions.handleTemplateNavigation();
-    }
   }
 
   if (isSessionPending) {
@@ -276,6 +337,27 @@ function AuthenticatedApp({ configuration }) {
   if (!hasSession) {
     return <AuthScreen {...authScreen} />;
   }
+
+  const workspaceUnavailable = !route.root && workspaceContext.unavailableRoute;
+  const workspaceResolutionFailed = !route.root && workspaceContext.hasWorkspaceResolutionError;
+  const templateLoad = templateController.navigation.load;
+  const requestedTemplate = activePage === "templates" && route.templateId && route.templateId !== "new";
+  const templateUnavailable = requestedTemplate && templateLoad.id === route.templateId && ["missing", "error"].includes(templateLoad.status);
+  const templateLoading = requestedTemplate && !templateUnavailable && templateController.toolbar.selectedTemplateId !== route.templateId;
+  const documentUnavailable = activePage === "documents" && route.documentId && documentController.navigation.error;
+  const packetUnavailable = activePage === "documents" && route.packetId && documentController.navigation.packetError;
+  const documentLoading = activePage === "documents" && route.documentId && !documentUnavailable &&
+    documentController.documentPage.selectedDocument?.job_id !== route.documentId;
+  const routeMessage = activePage === "not-found" ? "Page not found."
+    : activePage === "admin" && !isApplicationAdmin ? "This page is not available to your account."
+    : workspaceUnavailable ? "This Workspace or invitation is unavailable. It may have been removed, or you may no longer have access."
+    : workspaceResolutionFailed ? "Workspace could not be loaded. Try again."
+    : packetUnavailable ? packetUnavailable === "missing" ? "This Document packet is unavailable. It may have been deleted." : "Document packet could not be loaded. Try again."
+    : templateUnavailable ? templateLoad.status === "missing" ? "This Template is unavailable. It may have been deleted." : "Template could not be loaded. Try again."
+    : documentUnavailable ? documentUnavailable === "missing" ? "This Document is unavailable. It may have been deleted." : "Document could not be loaded. Try again." : "";
+  const packetLoading = activePage === "documents" && route.packetId && documentController.documentPage.packetPage.packet?.packet_id !== route.packetId;
+  const routeLoading = !routeMessage && !route.root && activePage !== "admin" && (workspaceContext.isWorkspaceContextLoading || templateLoading || documentLoading || packetLoading);
+  const hideRouteContent = Boolean(routeMessage || routeLoading);
 
   const selectedDocument = documentController.documentPage.selectedDocument;
   const pageTitle =
@@ -307,8 +389,8 @@ function AuthenticatedApp({ configuration }) {
         }
         counts={{
           workspace: workspaceContext.availableWorkspaces.length,
-          templates: templates.length,
-          documents: documentToolbar.documentCount,
+          templates: hasApiAccess ? templates.length : 0,
+          documents: hasApiAccess ? documentToolbar.documentCount : 0,
         }}
         uploadAriaDisabled={busy || !hasWorkspaceApiAccess || !workspaceModel.ready}
         isUploadDisabled={!hasWorkspaceApiAccess || !workspaceModel.ready}
@@ -329,6 +411,7 @@ function AuthenticatedApp({ configuration }) {
           ) : null
         }
         onNavigate={handleSidebarNavigation}
+        navigationHref={pagePath}
         onUploadDocument={documentToolbar.onUploadDocument}
         profileSlot={
           isImpersonating ? (
@@ -391,12 +474,14 @@ function AuthenticatedApp({ configuration }) {
             >
               {visiblePage === "admin" ? (
                 <AdminContextList />
+              ) : !hasApiAccess && ["documents", "templates"].includes(visiblePage) ? (
+                <p className="muted">{workspaceContext.isWorkspaceContextLoading ? "Loading workspace context…" : "Choose an accessible Workspace."}</p>
               ) : visiblePage === "documents" ? (
-                <DocumentContextList {...documentController.contextList} />
+                <DocumentContextList {...documentController.contextList} workspaceId={workspaceId} />
               ) : visiblePage === "templates" ? (
-                <TemplateContextList {...templateController.contextList} />
+                <TemplateContextList {...templateController.contextList} workspaceId={workspaceId} />
               ) : (
-                <WorkspaceContextList {...workspaceController.sidebar} />
+                <WorkspaceContextList {...workspaceController.sidebar} routed />
               )}
             </ContextSidebar>
           )
@@ -404,12 +489,23 @@ function AuthenticatedApp({ configuration }) {
         modalSlot={
           <>
             <WorkspaceUserActionModal {...workspaceController.userActionModal} />
-            <TemplateGenerationModal {...templateController.generationModal} />
-            <TemplateJsonModal {...templateController.jsonModal} />
+            {activePage === "templates" ? <TemplateGenerationModal {...templateController.generationModal} /> : null}
+            {activePage === "templates" ? <TemplateJsonModal {...templateController.jsonModal} /> : null}
             <DocumentUploadModal {...documentController.uploadModal} />
           </>
         }
       >
+        {routeMessage ? <section className="panel" role="alert">
+          <h1>{routeMessage}</h1>
+          <button type="button" onClick={() => navigate(appPath({ workspaceId: workspaceUnavailable ? "" : workspaceId, page: templateUnavailable ? "templates" : documentUnavailable || packetUnavailable ? "documents" : "workspace" }))}>
+            {templateUnavailable ? "Back to Templates" : documentUnavailable || packetUnavailable ? "Back to Documents" : "Back to Workspaces"}
+          </button>
+          {templateLoad.status === "error" && templateUnavailable ? <button type="button" onClick={templateController.navigation.retry}>Retry</button> : null}
+          {documentUnavailable === "error" ? <button type="button" onClick={documentController.navigation.retry}>Retry</button> : null}
+          {packetUnavailable === "error" ? <button type="button" onClick={documentController.navigation.retryPacket}>Retry</button> : null}
+          {workspaceResolutionFailed ? <button type="button" onClick={workspaceController.sidebar.onRetryResolution}>Retry Workspace</button> : null}
+        </section> : routeLoading ? <p role="status">Loading linked page…</p> : null}
+        {!hideRouteContent ? <>
         {visiblePage !== "admin" && visiblePage !== "evaluations" ? (
           <WorkspaceToolbar
             activePage={visiblePage}
@@ -480,6 +576,7 @@ function AuthenticatedApp({ configuration }) {
             sourceStorageConfigured={sourceStorageConfigured}
           />
         ) : null}
+        </> : null}
       </MainLayout>
     </>
   );
@@ -577,7 +674,6 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
         setConfirmNewPassword("");
         setPasswordTouched(false);
         setSubmitAttempted(false);
-        window.history.replaceState(null, "", "/");
         onResetComplete();
       } catch {
         toast.error("Password reset failed. Please request a new reset link.");

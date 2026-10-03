@@ -98,8 +98,11 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await expect(tour).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: "Upload document" })).toHaveCount(0);
     await expect(page.locator("[inert]")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/documents\/job_[^/]+$/);
+    const documentUrl = page.url();
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Document results" })).toBeVisible();
+    await expect(page).toHaveURL(documentUrl);
     await expect(invitation).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Take a tour", exact: true })).toHaveCount(0);
     await page.locator(".sidebar-profile-trigger").click();

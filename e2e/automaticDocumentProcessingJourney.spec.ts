@@ -41,7 +41,7 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await expect(model.getByText("browser/document-classifier", { exact: true })).toBeVisible();
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
-    await navigation.getByRole("button", { name: /Templates/ }).click();
+    await navigation.getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template", exact: true }).click();
     await page.getByRole("button", { name: "View JSON", exact: true }).click();
     const json = page.getByRole("dialog", { name: "Export or import template JSON" });
@@ -79,14 +79,14 @@ test("tag routing, split review, page preview and all-blank completion work thro
     } });
     expect(unknown.status()).toBe(202);
     const unknownId = (await unknown.json()).job_id;
-    await expect(page.getByRole("region", { name: "Document list", exact: true }).locator("button.context-item-main").filter({ hasText: unknownId })).toBeVisible();
-    await page.getByRole("region", { name: "Document list", exact: true }).locator("button.context-item-main").filter({ hasText: unknownId }).click();
+    await expect(page.getByRole("region", { name: "Document list", exact: true }).locator("a.context-item-main").filter({ hasText: unknownId })).toBeVisible();
+    await page.getByRole("region", { name: "Document list", exact: true }).locator("a.context-item-main").filter({ hasText: unknownId }).click();
     await expect(page.getByRole("heading", { name: "Choose a template to continue" })).toBeVisible();
     await page.getByRole("combobox", { name: "Template for this document", exact: true }).selectOption(templateId);
     await page.getByRole("button", { name: "Use template and continue", exact: true }).click();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
 
-    await navigation.getByRole("button", { name: /Workspaces/ }).click();
+    await navigation.getByRole("link", { name: /Workspaces/ }).click();
     const settings = page.getByRole("region", { name: "Document processing", exact: true });
     await settings.getByRole("checkbox", { name: "Enable smart splitting" }).click();
     await expect(settings.getByRole("checkbox", { name: "Enable smart splitting" })).toBeChecked();
@@ -112,13 +112,16 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await page.screenshot({ path: testInfo.outputPath("packet-overview.png"), fullPage: true });
     await page.getByRole("tab", { name: /Document 1/ }).click();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/packets/${packetId}/documents/[^/]+$`));
+    await page.reload();
+    await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("packet-document-tab.png"), fullPage: true });
     await page.getByRole("tab", { name: "Overview", exact: true }).click();
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("header[aria-label=\"Workspace toolbar\"]").getByRole("button", { name: "Delete", exact: true }).click();
     await expect.poll(async () => (await page.request.get(`${harness.origin}/v1/packets/${packetId}`, { headers })).status()).toBe(404);
 
-    await navigation.getByRole("button", { name: /Workspaces/ }).click();
+    await navigation.getByRole("link", { name: /Workspaces/ }).click();
     await settings.getByRole("checkbox", { name: "Exclude blank pages" }).click();
     await expect(settings.getByRole("checkbox", { name: "Exclude blank pages" })).toBeChecked();
     await model.getByRole("button", { name: "Edit", exact: true }).click();
@@ -160,7 +163,7 @@ test("smart splitting displays one logical document as a normal document for sin
     await expect(settings.getByRole("checkbox", { name: "Enable smart splitting" })).toBeChecked();
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
-    await navigation.getByRole("button", { name: /Templates/ }).click();
+    await navigation.getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template", exact: true }).click();
     await page.getByRole("button", { name: "View JSON", exact: true }).click();
     const json = page.getByRole("dialog", { name: "Export or import template JSON" });
@@ -197,7 +200,7 @@ test("smart splitting displays one logical document as a normal document for sin
       expect(packet.children).toHaveLength(1);
       const childId = packet.children[0].job_id;
       const documentList = page.getByRole("region", { name: "Document list", exact: true });
-      const row = documentList.locator("button.context-item-main").filter({ hasText: sourceName });
+      const row = documentList.locator("a.context-item-main").filter({ hasText: sourceName });
       await expect(row).toHaveCount(1);
       await expect(row).toContainText(childId);
       await expect(documentList.locator(".context-item-packet")).toHaveCount(0);
@@ -205,7 +208,7 @@ test("smart splitting displays one logical document as a normal document for sin
 
       // Restored packet metadata must also present its sole child normally.
       await page.reload();
-      await navigation.getByRole("button", { name: /Documents/ }).click();
+      await navigation.getByRole("link", { name: /Documents/ }).click();
       await expect(row).toBeVisible();
       await row.click();
       await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();

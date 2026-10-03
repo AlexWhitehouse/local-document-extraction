@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { createDocumentReconciliation, documentScopeKey, EMPTY_DOCUMENT_SNAPSHOT } from "./documentReconciliation";
 
-export function useDocumentReconciliation({ sessionId, workspaceId, enabled, requests, initialWorkspace, callbacks }) {
+export function useDocumentReconciliation({ sessionId, workspaceId, enabled, requests, initialWorkspace, callbacks, routeDocumentId }) {
   const [reconciliation] = useState(() => createDocumentReconciliation({ initialWorkspace }));
   // Configure before paint, while keeping construction free of requests and
   // subscriptions. The render mask below never exposes the previous Workspace.
   useLayoutEffect(() => {
-    reconciliation.configure({ sessionId, workspaceId, enabled, requests, callbacks });
+    reconciliation.configure({ sessionId, workspaceId, enabled, requests, callbacks, routeDocumentId });
   });
   useEffect(() => () => reconciliation.dispose(), [reconciliation]);
   const snapshot = useSyncExternalStore(reconciliation.subscribe, reconciliation.getSnapshot);

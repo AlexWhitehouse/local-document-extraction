@@ -11,7 +11,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
     await submitSignUp(page, harness, { email: "expected-answers@example.test", name: "Expected Answers", password: "Strong1!" });
     await saveModelGateway(page, harness, "browser/expected-answers");
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
-    await navigation.getByRole("button", { name: /Templates/ }).click();
+    await navigation.getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
     await page.getByRole("button", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
@@ -26,7 +26,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
     }));
     await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
     await expect(page.getByText("Template saved: Expected answer checks")).toBeVisible();
-    await navigation.getByRole("button", { name: /Evaluations/ }).click();
+    await navigation.getByRole("link", { name: /Evaluations/ }).click();
     const evaluations = page.getByRole("region", { name: "Evaluations" });
     const start = async () => {
       await evaluations.getByRole("combobox", { name: "Template", exact: true }).selectOption({ label: "Expected answer checks" });

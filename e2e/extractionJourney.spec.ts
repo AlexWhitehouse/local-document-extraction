@@ -40,7 +40,7 @@ test("a new user completes a Document Extraction job without email verification 
     await expect(page.getByRole("article", { name: "Workspace Model gateway" }).getByText("browser/model", { exact: true })).toBeVisible();
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
-    await navigation.getByRole("button", { name: /Templates/ }).click();
+    await navigation.getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
     await expect(page.getByRole("region", { name: "Template editor" })).toBeVisible();
     await expect(page.getByLabel("Template name", { exact: true })).toHaveValue("Invoice Template");
@@ -84,7 +84,7 @@ test("a new user completes a Document Extraction job without email verification 
     await expect(uploadDialog.getByText("Success", { exact: true })).toBeVisible();
     await uploadDialog.getByRole("button", { name: "Cancel" }).click();
 
-    await navigation.getByRole("button", { name: /Documents/ }).click();
+    await navigation.getByRole("link", { name: /Documents/ }).click();
     await expect(page.getByRole("region", { name: "Document results" })).toBeVisible();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
     expect(evidence.completedWorkspaceFrames()).not.toEqual([]);
@@ -105,7 +105,7 @@ test("a new user completes a Document Extraction job without email verification 
     await expect(page.getByText(/Document deleted:/)).toBeVisible();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toHaveCount(0);
 
-    await navigation.getByRole("button", { name: /Templates/ }).click();
+    await navigation.getByRole("link", { name: /Templates/ }).click();
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete Template" }).click();
     await expect(page.getByText(`Template deleted: ${TEMPLATE.name}`)).toBeVisible();

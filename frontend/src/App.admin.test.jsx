@@ -86,8 +86,8 @@ describe("Application admin page gate", () => {
   it("does not show the Admin sidebar item to a regular user", async () => {
     render(<App />);
 
-    expect(await screen.findByRole("button", { name: /Workspaces/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Admin/ })).toBeNull();
+    expect(await screen.findByRole("link", { name: /Workspaces/ })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Admin/ })).toBeNull();
     expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
     expect(authClientMock.listUsers).not.toHaveBeenCalled();
   });
@@ -97,7 +97,7 @@ describe("Application admin page gate", () => {
 
     render(<App />);
 
-    const adminButton = await screen.findByRole("button", { name: /^Admin$/ });
+    const adminButton = await screen.findByRole("link", { name: /^Admin$/ });
     expect(adminButton).toBeTruthy();
     expect(within(adminButton).queryByText(/\d+/)).toBeNull();
   });
@@ -108,7 +108,7 @@ describe("Application admin page gate", () => {
 
     render(<App />);
 
-    const adminButton = await screen.findByRole("button", { name: /^Admin$/ });
+    const adminButton = await screen.findByRole("link", { name: /^Admin$/ });
     currentSession = sessionForRole("user");
     await user.click(adminButton);
 
@@ -116,7 +116,7 @@ describe("Application admin page gate", () => {
       expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
     });
     expect(screen.queryByRole("heading", { name: "Application admin" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Admin$/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^Admin$/ })).toBeNull();
   });
 
   it("lists Application admin users through Better Auth without exposing internal user IDs", async () => {
@@ -468,7 +468,7 @@ describe("Application admin page gate", () => {
     await waitFor(() => {
       expect(
         globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces")),
-      ).toHaveLength(2);
+      ).toHaveLength(3);
     });
   });
 
@@ -518,7 +518,7 @@ describe("Application admin page gate", () => {
 
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
-    await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+    await user.click(await screen.findByRole("link", { name: /^Admin$/ }));
 
     expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
     expect(await screen.findByText("Total users 0")).toBeTruthy();
@@ -545,7 +545,7 @@ describe("Application admin page gate", () => {
 
 async function openAdminPage(user) {
   render(<App />);
-  await user.click(await screen.findByRole("button", { name: /^Admin$/ }));
+  await user.click(await screen.findByRole("link", { name: /^Admin$/ }));
 }
 
 function listUsersQuery(overrides = {}) {

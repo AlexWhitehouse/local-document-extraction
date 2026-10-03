@@ -2,11 +2,14 @@ import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
+import { NavigationLink } from "../context/NavigationLink.jsx";
+import { appPath } from "../../lib/appRoutes";
 import { isPacketListed, isSingleDocumentPacket, singlePacketDocument, PACKET_STATUS_LABELS } from "./packetListing.js";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
 
 export function DocumentContextList({
+  workspaceId,
   search,
   packets = [], selectedPacketId = "", packetError = "", onSelectPacket, onLoadMorePackets, hasMorePackets = false, loadingPackets = false,
   selectedPacketIds = [], onTogglePacketSelection = () => {},
@@ -158,8 +161,8 @@ export function DocumentContextList({
                   }
                 />
               </label>
-              <button
-                type="button"
+              <NavigationLink
+                href={workspaceId ? appPath({ workspaceId, page: "documents", ...(item.kind === "packet" ? { packetId: item.id } : { documentId: item.id }) }) : undefined}
                 data-selected-document={isActive ? "true" : undefined}
                 className={isActive ? "context-item-main active" : "context-item-main"}
                 onClick={() => select(item)}
@@ -173,7 +176,7 @@ export function DocumentContextList({
               >
                 <strong>{item.title}</strong>
                 <span>{item.detail}</span>
-              </button>
+              </NavigationLink>
               <ContextCopyButton
                 ariaLabel={`Copy ${item.displayKind} ID ${item.displayId}`}
                 value={item.displayId}

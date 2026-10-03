@@ -83,7 +83,7 @@ describe("Workspace action toast feedback", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Research Workspace/ })).toBeTruthy();
+      expect(screen.getByRole("link", { name: /Research Workspace/ })).toBeTruthy();
     });
 
     expect(lastStoredWorkspacePreference()).toEqual({
@@ -125,7 +125,7 @@ describe("Workspace action toast feedback", () => {
     expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(true);
   });
 
-  it("refreshes Workspaces and shows an Action toast when selected Workspace access is forbidden", async () => {
+  it("refreshes Workspaces and keeps an explicit inaccessible Workspace on a recovery screen", async () => {
     installLocalStorage({ workspaceId: "ws_removed", workspaceName: "Removed Workspace" });
     let workspaceListCalls = 0;
     routeFetch((url, method, options) => {
@@ -152,10 +152,10 @@ describe("Workspace action toast feedback", () => {
       render(<App />);
     });
 
-    expect(screen.getByRole("button", { name: /Remaining Workspace/ })).toBeTruthy();
-    expect(toastMock.success).toHaveBeenCalledWith(
-      "Workspace access changed. Switched to Remaining Workspace.",
-    );
+    expect(screen.getByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
+    expect(screen.getByText(/Workspace or invitation is unavailable/)).toBeTruthy();
+    expect(window.location.pathname).toBe("/workspaces/ws_removed");
+    expect(toastMock.success).not.toHaveBeenCalledWith("Workspace access changed. Switched to Remaining Workspace.");
   });
 
   it("revalidates a second browser's Workspace context after a live access invalidation", async () => {
@@ -204,7 +204,7 @@ describe("Workspace action toast feedback", () => {
       await Promise.resolve();
     });
 
-    expect(await screen.findByRole("button", { name: /Remaining Workspace/ })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
     expect(toastMock.success).toHaveBeenCalledWith(
       "Workspace access changed. Switched to Remaining Workspace.",
     );
@@ -319,7 +319,7 @@ describe("Workspace action toast feedback", () => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace created: New Workspace");
     });
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /New Workspace/ }).className).toContain("active");
+      expect(screen.getByRole("link", { name: /New Workspace/ }).className).toContain("active");
     });
   });
 
@@ -339,10 +339,10 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(screen.getByRole("link", { name: /Documents/ }));
     expect(await screen.findByRole("heading", { name: "invoice.pdf" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: /Workspaces/ }));
+    await user.click(screen.getByRole("link", { name: /Workspaces/ }));
     await user.clear(screen.getByLabelText("Workspace name"));
     await user.type(screen.getByLabelText("Workspace name"), "Clinical Workspace");
     await user.click(screen.getByRole("button", { name: "Save name" }));
@@ -350,9 +350,9 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace renamed: Clinical Workspace");
     });
-    expect(screen.getByRole("button", { name: "Documents1" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Documents1" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(screen.getByRole("link", { name: /Documents/ }));
     expect(screen.getByRole("heading", { name: "invoice.pdf" })).toBeTruthy();
   });
 
@@ -376,7 +376,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: /Research Workspace/ });
+    await screen.findByRole("link", { name: /Research Workspace/ });
 
     await user.click(screen.getByRole("button", { name: "Leave Workspace" }));
 
@@ -404,14 +404,14 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: /Research Workspace/ });
+    await screen.findByRole("link", { name: /Research Workspace/ });
 
     await user.click(screen.getByRole("button", { name: "Delete Workspace" }));
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace deleted");
     });
-    expect(await screen.findByRole("button", { name: /Remaining Workspace/ })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
   });
 
   it("stays quiet when Workspace deletion confirmation is cancelled", async () => {
@@ -420,7 +420,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: /Research Workspace/ });
+    await screen.findByRole("link", { name: /Research Workspace/ });
 
     await user.click(screen.getByRole("button", { name: "Delete Workspace" }));
 
@@ -473,19 +473,19 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(screen.getByRole("link", { name: /Documents/ }));
     expect(await screen.findByRole("heading", { name: "research.pdf" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: /Workspaces/ }));
-    await user.click(screen.getByRole("button", { name: /Clinical Workspace/ }));
+    await user.click(screen.getByRole("link", { name: /Workspaces/ }));
+    await user.click(screen.getByRole("link", { name: /Clinical Workspace/ }));
 
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: "research.pdf" })).toBeNull();
-      expect(screen.getByRole("button", { name: "Documents0" })).toBeTruthy();
+      expect(screen.getByRole("link", { name: "Documents0" })).toBeTruthy();
     });
 
     secondWorkspaceJobs.resolve(jobList(failedDocument({ job_id: "job_ws_2", source_name: "clinical.pdf" })));
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(screen.getByRole("link", { name: /Documents/ }));
     expect(await screen.findByRole("heading", { name: "clinical.pdf" })).toBeTruthy();
   });
 
@@ -505,7 +505,7 @@ describe("Workspace action toast feedback", () => {
     render(<App />);
 
     expect(await screen.findByText("Grace Hopper")).toBeTruthy();
-    await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
+    await user.click(await screen.findByRole("link", { name: /Clinical Workspace/ }));
 
     await waitFor(() => {
       expect(screen.queryByText("Grace Hopper")).toBeNull();
@@ -671,7 +671,7 @@ describe("Workspace action toast feedback", () => {
 
       render(<App />);
 
-      await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
+      await user.click(await screen.findByRole("link", { name: /Clinical Workspace/ }));
       await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
 
       await waitFor(() => {
@@ -694,7 +694,7 @@ describe("Workspace action toast feedback", () => {
 
       render(<App />);
 
-      await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
+      await user.click(await screen.findByRole("link", { name: /Clinical Workspace/ }));
       await user.click(await screen.findByRole("button", { name: "Decline invitation" }));
 
       await waitFor(() => {
@@ -718,7 +718,7 @@ describe("Workspace action toast feedback", () => {
 
       render(<App />);
 
-      await user.click(await screen.findByRole("button", { name: /Clinical Workspace/ }));
+      await user.click(await screen.findByRole("link", { name: /Clinical Workspace/ }));
       await user.click(await screen.findByRole("button", { name: buttonName }));
 
       await waitFor(() => {
@@ -779,7 +779,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Templates/i }));
+    await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "Save new template" }));
 
     await waitFor(() => {
@@ -797,7 +797,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Templates/i }));
+    await user.click(screen.getByRole("link", { name: /Templates/i }));
 
     const saveButton = await screen.findByRole("button", { name: "Save changes" });
     expect(saveButton.disabled).toBe(true);
@@ -819,7 +819,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Templates/i }));
+    await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "+ Add field" }));
 
     expectNoToasts();
@@ -844,7 +844,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Templates/i }));
+    await user.click(screen.getByRole("link", { name: /Templates/i }));
     await screen.findByRole("button", { name: "Save changes" });
 
     await user.click(screen.getByRole("button", { name: "Delete Template" }));
@@ -865,7 +865,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Templates/i }));
+    await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "View JSON" }));
     fireEvent.change(screen.getByLabelText("Template JSON"), { target: { value: "{" } });
     await user.click(screen.getByRole("button", { name: "Save Template JSON" }));
@@ -884,7 +884,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Templates/i }));
+    await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "View JSON" }));
     fireEvent.change(screen.getByLabelText("Template JSON"), {
       target: { value: JSON.stringify(validTemplatePayload("Imported Template")) },
@@ -903,7 +903,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Templates/i }));
+    await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "View JSON" }));
     await user.click(screen.getByRole("button", { name: "Copy template JSON" }));
 
@@ -945,7 +945,7 @@ describe("Workspace action toast feedback", () => {
     expect(extractFormData.has("image")).toBe(false);
     expect(extractFormData.has("file")).toBe(false);
     expect(screen.getByText("Success")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Documents1" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Documents1" })).toBeTruthy();
     await waitFor(() => {
       expect(workspaceContextRefreshes).toBe(1);
     });
@@ -1086,7 +1086,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Documents/ }));
+    await userEvent.click(await screen.findByRole("link", { name: /Documents/ }));
 
     expect(await screen.findByText("$42.00")).toBeTruthy();
   });
@@ -1113,7 +1113,7 @@ describe("Workspace action toast feedback", () => {
     });
 
     await act(async () => { render(<App />); });
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Documents/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("link", { name: /Documents/ })); });
     await act(async () => { fireEvent.click(screen.getByRole("radio", { name: "Side by side" })); });
     const getPreview = () => mimeType === "application/pdf"
       ? screen.getByTitle(`Preview of ${sourceName}`)
@@ -1147,7 +1147,7 @@ describe("Workspace action toast feedback", () => {
 
       render(<App />);
 
-      await user.click(screen.getByRole("button", { name: /Documents/ }));
+      await user.click(screen.getByRole("link", { name: /Documents/ }));
       await user.click(screen.getByRole("button", { name: "Delete" }));
     }
 
@@ -1201,7 +1201,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(screen.getByRole("link", { name: /Documents/ }));
     await user.click(screen.getByRole("checkbox", { name: "Select all available documents" }));
     await user.click(screen.getByRole("button", { name: "Delete 2" }));
 
@@ -1231,7 +1231,7 @@ describe("Workspace action toast feedback", () => {
     });
 
     render(<App />);
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(screen.getByRole("link", { name: /Documents/ }));
     await screen.findByRole("checkbox", { name: "Select document job_completed_1" });
     await user.click(screen.getByRole("button", { name: "Export", exact: true }));
     await waitFor(() => expect(requestedIds).toEqual(["job_completed_1"]));
@@ -1273,7 +1273,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(screen.getByRole("link", { name: /Documents/ }));
     await user.click(await screen.findByRole("checkbox", { name: "Select all available documents" }));
     const exportButton = screen.getByRole("button", { name: "Export 3" });
     expect(exportButton.title).toContain("2 of 3 selected documents are ready");
@@ -1330,7 +1330,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /Documents/ }));
+    await user.click(screen.getByRole("link", { name: /Documents/ }));
     await waitFor(() => {
       expect(screen.getByText("job_failed_1")).toBeTruthy();
     });

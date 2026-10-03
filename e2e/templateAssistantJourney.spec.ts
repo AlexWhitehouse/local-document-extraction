@@ -8,7 +8,7 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
     await submitSignUp(page, harness, { name: "Template Reviewer", email: "template-reviewer@example.test", password: "Strong1!" });
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await saveModelGateway(page, harness, "browser/template-assistant");
-    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: /Templates/ }).click();
+    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template", exact: true }).click();
     await page.getByLabel("Template name", { exact: true }).fill("VAT invoice");
     const creation = page.waitForResponse(response => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST");

@@ -37,6 +37,29 @@ function setup(options = {}) {
 const entries = () => ["first", "second"].map((id) => ({ id, file: new File([id], `${id}.png`, { type: "image/png" }) }));
 
 describe("Document reconciliation", () => {
+  it("keeps an explicit Document outside list pages and filters, then confirms remote deletion by detail", async () => {
+    const { module, requests, snapshot, configure } = setup();
+    configure({ routeDocumentId: "linked" });
+    requests.getDocument.mockResolvedValue(job("linked", { status: "completed", model_name: "original" }));
+    await module.loadDetails("linked");
+    requests.listDocuments.mockResolvedValue(page([job("another")], { has_more: true, next_cursor: "next" }));
+    await module.refresh();
+    expect(snapshot().selectedDocumentId).toBe("linked");
+    expect(requests.getDocument).toHaveBeenCalledTimes(1);
+    module.setFilters({ model: "other" });
+    requests.listDocuments.mockResolvedValue(page([]));
+    await module.refresh();
+    expect(snapshot().selectedDocument?.job_id).toBe("linked");
+    expect(snapshot().documents).toEqual([]);
+    expect(requests.getDocument).toHaveBeenCalledTimes(1);
+    requests.getDocument.mockRejectedValue(Object.assign(new Error("Deleted"), { status: 404 }));
+    module.setFilters({});
+    await module.refresh();
+    expect(snapshot().selectedDocumentId).toBe("linked");
+    expect(snapshot().selectedDocument).toBeNull();
+    expect(snapshot().selectedDocumentError).toBe("missing");
+  });
+
   it("submits automatic tags and physical pages without creating a job row for packet admission", async () => {
     const { module, requests, snapshot } = setup();
     requests.submitDocument.mockResolvedValue({ packet_id: "packet_1", status: "queued" });

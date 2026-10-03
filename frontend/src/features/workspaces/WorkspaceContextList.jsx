@@ -3,8 +3,11 @@ import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
+import { NavigationLink } from "../context/NavigationLink.jsx";
+import { appPath } from "../../lib/appRoutes";
 
 export function WorkspaceContextList({
+  routed = false,
   search,
   workspaces,
   selectedWorkspaceId,
@@ -51,8 +54,8 @@ export function WorkspaceContextList({
                 key={workspaceKey(workspace)}
                 className={itemClassName + rowMotion(workspaceKey(workspace))}
               >
-                <button
-                  type="button"
+                <NavigationLink
+                  href={routed ? appPath({ workspaceId: workspace.id, invitationId: workspace.type === "invitation" ? workspace.invitation_id : undefined }) : undefined}
                   className={itemClassName.replace("context-item-card", "context-item-main")}
                   onClick={() => {
                     if (workspace.type === "invitation") {
@@ -70,7 +73,7 @@ export function WorkspaceContextList({
                     </span>
                   ) : null}
                   {workspace.connected ? <span>Connected</span> : null}
-                </button>
+                </NavigationLink>
                 <ContextCopyButton
                   ariaLabel={`Copy workspace ID ${workspace.id}`}
                   value={workspace.id}
