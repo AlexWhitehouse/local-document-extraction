@@ -31,6 +31,9 @@ async function command(args: string[], extra: Record<string, string> = {}): Prom
 function passed(result: Result) {
   if (result.code !== 0) throw new Error(`Command exited ${result.code}:\n${result.output.slice(-6000)}`);
 }
+function pipeInstaller(args: string[]) {
+  return ["bash", "-o", "pipefail", "-c", 'cat "$1" | bash -s -- "${@:2}"', "installer-pipe", ...args.slice(1)];
+}
 async function install(extra: string[] = [], environment: Record<string, string> = {}) {
   return command(["bash", join(repository, "scripts/install.sh"), "--archive", archive, "--sha256", checksum,
     "--install-dir", root, "--config-dir", config, "--state-dir", state, ...extra], environment);
@@ -54,8 +57,19 @@ afterAll(async () => {
 }, 40_000);
 
 describe("macOS/Linux release installer", () => {
-  test("installs a clean release, renders a PDF, starts the SPA and protects persistent files", async () => {
-    passed(await install());
+  test("an incomplete piped script executes no installer commands", async () => {
+    const script = await readFile(join(repository, "scripts/install.sh"), "utf8");
+    const partial = join(temporary, "incomplete-install.sh");
+    await writeFile(partial, script.slice(0, script.indexOf("work=$(mktemp")));
+    const result = await command(pipeInstaller(["bash", partial, "--help"]));
+    expect(result.code).not.toBe(0);
+    expect(result.output).not.toContain("Usage:");
+    expect(result.output).toContain("syntax error");
+  });
+
+  test("piped install without a terminal uses defaults, renders a PDF, starts the SPA and protects persistent files", async () => {
+    passed(await command(pipeInstaller(["bash", join(repository, "scripts/install.sh"), "--archive", archive, "--sha256", checksum,
+      "--install-dir", root, "--config-dir", config, "--state-dir", state])));
     const metadata = JSON.parse(await readFile(join(root, "installation.json"), "utf8"));
     const running = JSON.parse(await readFile(join(root, "running.json"), "utf8"));
     const response = await fetch(`${running.origin}/v1/health`);
@@ -90,17 +104,17 @@ describe("macOS/Linux release installer", () => {
     passed(await command([metadata.bun, "run", "--cwd", metadata.release, "lint"]));
   }, 180_000);
 
-  test("interactive install saves provider settings privately and upgrades preserve them", async () => {
+  test("piped install asks setup questions, saves provider settings privately and upgrades preserve them", async () => {
     const fixture = join(temporary, "interactive");
     const installRoot = join(fixture, "app");
     const configRoot = join(fixture, "config");
     const installedLauncher = join(installRoot, "document-extraction");
     const args = ["bash", join(repository, "scripts/install.sh"), "--archive", archive, "--sha256", checksum,
-      "--install-dir", installRoot, "--config-dir", configRoot, "--state-dir", join(fixture, "state"), "--no-start", "--interactive"];
+      "--install-dir", installRoot, "--config-dir", configRoot, "--state-dir", join(fixture, "state"), "--no-start"];
     const googleSecret = "synthetic-google-$HOME-secret";
     const emailToken = "synthetic-email-$PATH-token";
     try {
-      const result = await inTerminal(args, [
+      const result = await inTerminal(pipeInstaller(args), [
         ["reverse proxy? [y/N]: ", "y\n"], ["Public app URL (for example https://documents.example.com): ", "https://docs.example.com\n"],
         ["Google sign-in? [y/N]: ", "y\n"], ["Google client ID: ", "synthetic-client\n"],
         ["Google client secret (hidden): ", `${googleSecret}\n`], ["email and password login? [Y/n]: ", "y\n"],
@@ -122,8 +136,8 @@ describe("macOS/Linux release installer", () => {
         `import {readLocalConfiguration} from ${JSON.stringify(join(metadata.release, "backend/src/localConfiguration.ts"))}; const c=readLocalConfiguration(); console.log(JSON.stringify({origin:c.auth.baseURL,google:c.auth.googleEnabled,verify:c.auth.requireEmailVerification,provider:c.email.provider,storage:c.sourceStorage,secret:process.env.GOOGLE_CLIENT_SECRET,token:process.env.CLOUDFLARE_EMAIL_API_TOKEN}));`]);
       passed(configuration);
       expect(JSON.parse(configuration.output)).toEqual({ origin: "https://docs.example.com", google: true, verify: true, provider: "cloudflare", storage: { provider: "local", originalRetentionEnabled: true }, secret: googleSecret, token: emailToken });
-      // Even --interactive on a piped upgrade skips the wizard when config already exists.
-      const upgraded = await command(args);
+      // Even --interactive without a terminal skips the wizard when config already exists.
+      const upgraded = await command([...args, "--interactive"]);
       passed(upgraded);
       expect(upgraded.output).toContain("setup questions are skipped on upgrades");
       expect(await readFile(savedPath, "utf8")).toBe(saved);

@@ -1,16 +1,16 @@
 # Testing strategy
 
-A good test fails when something a user or operator relies on breaks, and keeps passing when the code is refactored without changing that behaviour. This page explains which kind of test to write and how to run each kind.
+Tests must fail when behavior required by a user or operator breaks. They must still pass after refactoring that preserves that behavior. This guide describes test selection and commands.
 
 ## Which kind of test to write
 
-Pick the widest level that can express the behaviour clearly:
+Select the broadest level that clearly verifies the behavior:
 
-1. **Browser journeys** (`e2e/`). Workflows a person completes in the app. They run the built frontend, the Bun server, Better Auth, SQLite, and the filesystem together. Only the model gateway is faked.
-2. **HTTP integration tests** (`backend/src/*.bun.test.ts`). API behaviour, permissions, error responses, and cases that are awkward to reach through the browser.
-3. **Focused tests.** Complex state changes, parsing, security rules, concurrency, and failure recovery, where testing a smaller piece makes the rule clearer. Frontend component and hook tests live next to the code as `*.test.js(x)`.
+1. **Browser journeys** (`e2e/`) verify workflows in the app. They run the built frontend, Bun server, Better Auth, SQLite, and filesystem together. Only the model gateway uses a fake.
+2. **HTTP integration tests** (`backend/src/*.bun.test.ts`) verify API behavior, permissions, and errors. They also cover cases that are difficult to reach in a browser.
+3. **Focused tests** verify complex state changes, parsing, security rules, concurrency, and recovery. Use them when a smaller test makes the rule clearer. Frontend component and hook tests use `*.test.js(x)` files beside the code.
 
-Use real databases, files, routes, and sign-in wherever you can. Only replace something at a genuine outside boundary that can't be made reliable: the model gateway, the clock, or operating-system signals such as memory pressure.
+Use real databases, files, routes, and sign-in where possible. Replace external dependencies only when they cannot run reliably in a test. Examples include the model gateway, clock, and operating-system memory-pressure signals.
 
 ## What the browser journeys cover
 
@@ -22,20 +22,21 @@ Use real databases, files, routes, and sign-in wherever you can. Only replace so
 | Generate a template from a sample, review it, save it | `templateGenerationJourney.spec.ts` | Template generation HTTP tests |
 | Request a focused Template edit, review its output key, apply once, then save explicitly | `templateAssistantJourney.spec.ts` | Assistant HTTP, shared contract, diagnostics, and request lifetime tests |
 | Create, assign, rename, detach, and delete shared Template tags while preserving field versions | `templateTagsJourney.spec.ts` | Tag HTTP, persistence, multipart validation, and draft lifetime tests |
-| Set up, run, and score a model Evaluation | `evaluationJourney.spec.ts` | Evaluation HTTP tests and scoring unit tests |
-| Save a verified document to the Evaluation library, reuse it in a Batch Evaluation and update its saved answers | `evaluationLibraryJourney.spec.ts` | Library HTTP, recovery and batch runner tests; saved answer sets, result cache and controller unit tests |
+| Set up, run, and score a model Evaluation | `evaluationJourney.spec.ts` | Evaluation execution and scoring unit tests |
+| Save a verified document to the Evaluation library, reuse it in a Batch Evaluation and update its saved answers | `evaluationLibraryJourney.spec.ts` | Library persistence, recovery and batch runner tests; saved answer sets, result cache and controller unit tests |
 | Verify date formats and table cell statuses, then save and reuse expected answers | `evaluationExpectedAnswers.spec.ts` | Reference editor, scoring, saved answer set and backend reference validation tests |
 | Follow the optional onboarding tour | `onboardingTour.spec.ts` | Onboarding component tests |
 | Search users, change roles, ban, and impersonate as an Application admin | `applicationAdminJourney.spec.ts` | Admin permission tests |
 
 ## Tests to avoid
 
-- Assertions on source code text, `package.json` script text, exact CSS, internal call order, or how many times a mock was called, when you could check visible behaviour instead.
-- Tests whose only check is that nothing threw.
-- Tests that only check the mock you just set up.
-- Component tests that repeat what a browser journey or a clearer higher-level test already covers.
+- Tests of source text, `package.json` script text, or exact CSS when visible behavior can be verified instead.
+- Assertions about internal call order or mock-call counts when visible behavior can be verified instead.
+- Tests that only confirm the absence of an exception.
+- Tests that only verify the mock's configured behavior.
+- Component tests that repeat a browser journey or a clearer higher-level test.
 
-Checking that something *didn't* reach an outside boundary is still worthwhile when it enforces a security or validation rule. For example, invalid input must never be sent to the model gateway.
+Negative checks remain useful for security and validation rules. For example, invalid input must never reach the model gateway.
 
 ## Commands
 
@@ -47,8 +48,10 @@ Checking that something *didn't* reach an outside boundary is still worthwhile w
 | `bun run ci:quality` | Typecheck, lint, tests, frontend coverage, and build: what CI runs on Ubuntu and macOS. |
 | `bun run ci` | `ci:quality` plus the browser journeys. In GitHub Actions the journeys run separately, on Ubuntu only. |
 
-The [backend README](../backend/README.md#tests) lists the backend-only commands, such as quiet output, changed-file runs, and flaky-test hunting.
+The [backend README](../backend/README.md#tests) lists backend commands for quiet output, changed-file tests, and repeated tests that detect intermittent failures.
 
 ## Coverage floors
 
-The coverage floors in `frontend/coverage-baseline.json` and `backend/coverage-baseline.json` are fixed regression gates. They never update themselves. Raise them by hand when coverage genuinely improves, and only lower them as a reviewed decision, for example after deleting tests for removed code. Browser journeys don't count towards these numbers, so a floor can be lower than the real protection the suite gives.
+`frontend/coverage-baseline.json` and `backend/coverage-baseline.json` define fixed minimum coverage. These limits do not update automatically.
+
+When coverage improves, increase the limits manually. Decrease them only through a reviewed decision, such as removal of tests for deleted code. Browser journeys do not contribute to these measurements. Actual behavior coverage can therefore exceed the reported minimum.

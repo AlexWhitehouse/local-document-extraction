@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Download fully before invoking this script. No root privileges are required.
+# Run directly or pipe into Bash. No root privileges are required.
+# Bash reads this whole block before executing it, so an incomplete download
+# cannot start installation or let a child process consume the script's input.
+{
 set -euo pipefail
 umask 077
 
@@ -128,7 +131,20 @@ else
 fi
 chmod 700 "$work/bun"
 [ "$("$work/bun" --version)" = "$bun_version" ] || fail 'Pinned Bun runtime failed validation'
-"$work/bun" --no-env-file "$work/source/scripts/installApplication.ts" \
-  --source "$work/source" --bun "$work/bun" --repo "$repo" --version "${ref:-$version}" \
-  --sha256 "$expected" --install-dir "$install_dir" --config-dir "$config_dir" \
-  --state-dir "$state_dir" --no-start "$no_start" --setup-mode "$setup_mode"
+install_application() {
+  "$work/bun" --no-env-file "$work/source/scripts/installApplication.ts" \
+    --source "$work/source" --bun "$work/bun" --repo "$repo" --version "${ref:-$version}" \
+    --sha256 "$expected" --install-dir "$install_dir" --config-dir "$config_dir" \
+    --state-dir "$state_dir" --no-start "$no_start" --setup-mode "$setup_mode"
+}
+# A curl | bash install uses stdin for the script. Reconnect to the terminal
+# for setup questions, while preserving unattended and --non-interactive use.
+if [ "$setup_mode" != non-interactive ] && [ ! -t 0 ] && [ -t 1 ] && ( : </dev/tty ) 2>/dev/null; then
+  # macOS cannot poll the /dev/tty alias with kqueue. Resolve the actual
+  # terminal from stdout before capturing tty's output, then open that device.
+  { terminal_device=$(tty <&3); } 3<&1 || fail 'Cannot resolve the setup terminal'
+  install_application < "$terminal_device"
+else
+  install_application
+fi
+}

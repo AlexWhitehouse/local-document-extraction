@@ -1,57 +1,68 @@
 # Templates
 
-A template describes the data you want from a document: a name, an optional description, optional tags, and between 1 and 50 fields. Each field has a name, a description telling the model what to look for, and a data type.
+A template defines the data to extract from a document. It has a name, optional description, optional tags, and 1 to 50 fields. Each field has a name, extraction instructions, and a data type.
 
 ## Organize templates with tags
 
-Use **Tags** beside the description in the Template header to select one or more tags. Search the dropdown to find an existing Workspace tag, or type a new name and choose **Create**. Select a checked tag again to remove it from the draft. Save the template to persist new tags and changes to its associations; leaving an unsaved draft creates no tags.
+1. Select **Tags** beside the Template description.
+2. Search for an existing Workspace tag, or enter a name and select **Create**.
+3. Select the required tags. To remove a tag from the draft, select it again.
+4. Save the template to persist tags and associations.
 
-Tags are shared by everyone who can edit templates in the Workspace. Names are displayed in lowercase, with surrounding whitespace removed and repeated spaces collapsed: ` INVOICE ` becomes `invoice`. Case variations refer to the same tag. A name can contain spaces and punctuation, must contain at least one non-whitespace character, and is limited to 64 characters after normalization. Control characters are not allowed. A template can have up to 50 tags.
+Leaving an unsaved draft creates no tags. All users who can edit Workspace templates share its tags.
 
-Open **Manage tags** to rename or delete shared tags. Renaming changes the name everywhere the tag is used; a name already used by another tag cannot be reused. Deleting removes the tag from every template. These management actions save separately from the current Template draft. Deselecting a tag only removes its association when you save the template. Unused tags stay in the dropdown until deleted, including after deleting their last template.
+The app converts names to lowercase, removes surrounding whitespace, and collapses repeated spaces. Thus ` INVOICE ` becomes `invoice`. Case variants refer to the same tag. Names can include spaces and punctuation, but require a non-whitespace character. Control characters are prohibited. Limits are 64 characters per normalized name and 50 tags per template.
 
-Tag changes do not create a new field version or change existing extraction results. For automatic selection, choose **Automatic — select by tags** when uploading, or omit `template_id` and supply a nonempty `template_tags` array in the API. Templates matching **any** supplied tag form the complete candidate pool. The model uses the document and candidate names and descriptions to select a suitable template, so write descriptions that distinguish similar templates. An explicit Template ID takes precedence. Unknown tags do not create new tags or widen the candidate pool; unresolved choices require manual selection. See [Document extraction](document-extraction.md).
+Open **Manage tags** to rename or delete shared tags. Renaming changes all uses of the tag. Another tag’s name cannot be reused. Deleting removes all associations. These actions save separately from the current Template draft.
+
+Deselecting a tag removes only its template association, and only after you save. Unused tags remain until deletion, including after their last template is deleted. Tag changes do not create field versions or change historical extraction results.
+
+For automatic selection, use **Automatic — select by tags** during upload. In the API, omit `template_id` and supply a nonempty `template_tags` array. The candidate pool contains all templates matching **any** supplied tag. The model selects from candidate names and descriptions. Write descriptions that distinguish similar templates.
+
+An explicit Template ID takes priority. Unknown tags do not create tags or expand the candidate pool. Unresolved choices require manual selection. See [Document extraction](document-extraction.md).
 
 ## Field types
 
 | Type | Use for |
 | --- | --- |
 | `string` | Text |
-| `number` | Amounts, quantities |
+| `number` | Amounts and quantities |
 | `boolean` | Yes/no questions |
-| `date` | Dates (returned as `DD/MM/YYYY`) |
+| `date` | Dates, returned as `DD/MM/YYYY` |
 | `object` | A group of related values |
 | `array` | A list of values |
 | `array<object>` | A table, such as invoice line items |
 
-Each field gets an ID made from its name, so field names must be unique. `object` and `array<object>` fields can define table columns. A template can have only one of them, with at most 20 columns.
+The app derives each field ID from its name. Field names must be unique. `object` and `array<object>` fields can define table columns. A template permits only one such field, with at most 20 columns.
 
 ## Explain problems and propose focused edits
 
-The editor explains validation problems beside the affected input and can focus each problem. These checks work without a model and are also available in Evaluation Template editing.
+The editor shows validation problems beside affected inputs. Select a problem to focus its input. Validation works without a model and also applies in the Evaluation Template editor.
 
-On **Templates**, select **Assistant**, then **Explain issues** or **Propose edits**. Describe your request, optionally attach a sample or a completed Extraction job, and submit it. While you compose a request, the panel suggests requests based on the open Template, using the Workspace model. Select a suggestion to fill in the request. Without a configured model, suggestions come from the app’s own checks. The Workspace needs a model configured for submitted assistance requests.
+On **Templates**, select **Assistant**, then **Explain issues** or **Propose edits**. Enter your request. Optionally attach a sample or select a completed Extraction job. Submit the request to the configured Workspace model.
 
-Review the rationale and every before/after value, including field IDs and column keys affected by renames. Select the change groups you want. Dependencies apply together and the full selected draft must be valid. **Apply** changes the current draft once; **Save** persists it separately. Editing or leaving the draft invalidates old proposals.
+The panel suggests requests from the open Template. Select a suggestion to fill the request. Without a model, suggestions use application validation. Submitted assistance requests require a configured model.
 
-Selected jobs supply their historical Template version and results. Choose the retained original explicitly to send it, or upload a separate sample; only one binary source is allowed. Result-only requests are supported when an original is unavailable. A separate sample is not assumed to match the result. Results are model output, not verified answers, and suggestions do not establish improved accuracy.
+Review the reasons and before/after values for proposed changes. Include field IDs and column keys affected by renames. Select the required change groups. Dependent changes apply together, and the combined draft must be valid. Select **Apply** to update the draft once, then **Save** to persist it. Editing or leaving the draft invalidates old proposals.
 
-Assistance does not run extraction, modify historical results, create Expected answers, or save a chat history. Closing the Assistant clears its temporary evidence and cancels pending work. The Assistant, including suggestions and evidence selection, is available to signed-in Workspace members in the frontend; Workspace API keys cannot use it.
+Selected jobs supply historical Template versions and results. To include a retained original, select it explicitly. Alternatively, upload a separate sample. Each request permits one binary source. Result-only requests work without an original. A separate sample is not assumed to be the result’s source.
+
+Results are model output, not verified answers. Suggestions do not establish improved accuracy. Assistance does not run extraction, change historical results, create Expected answers, or keep chat history. Closing the Assistant clears temporary evidence and cancels pending work. Sign in to use suggestions, evidence selection, and assistance in the frontend.
 
 ## Generate a template from a sample
 
-Instead of writing fields by hand, you can let the model propose a template from an example document. The Workspace needs a model set up first.
+With a Workspace model configured, use a sample to propose a template:
 
-1. On the **Create Template** button, click the magic icon. The rest of the button starts an empty template.
-2. Upload one PDF, PNG, JPEG, or WebP sample, within the normal upload limit.
-3. Optionally, describe what the template should capture.
-4. If the editor has unsaved changes, confirm that you're happy for them to be replaced.
+1. Select the magic icon on **Create Template**. The rest of the button starts an empty template.
+2. Upload one PDF, PNG, JPEG, or WebP within the normal upload limit.
+3. Optionally enter instructions for the proposed template.
+4. If the editor has unsaved changes, confirm their replacement.
+5. Review the **unsaved draft** and make necessary changes.
+6. Select **Save new template** or **Save changes**.
 
-The result is an **unsaved draft**. Review it, make any changes, then click **Save new template** or **Save changes**.
+Generation has these behaviors:
 
-Behind the scenes:
-
-- If the model's proposal isn't a valid template, it's told what was wrong and gets up to three more tries.
-- If the model can't be reached, generation stops straight away and you can try again.
-- Cancelling, failing, leaving the template, or switching Workspace leaves your editor as it was.
-- The sample is deleted when generation finishes. It doesn't appear in your documents or create a job.
+- An invalid proposal receives corrective feedback and at most three further attempts.
+- An unreachable model stops generation immediately. You can try again.
+- Cancellation, failure, navigation away, or a Workspace switch leaves the editor unchanged.
+- The app deletes the sample after generation. It creates no Document or job.

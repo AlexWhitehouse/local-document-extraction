@@ -1,6 +1,6 @@
 # Errors
 
-Every error has the same shape:
+All errors use this structure:
 
 ```json
 {
@@ -11,19 +11,19 @@ Every error has the same shape:
 }
 ```
 
-Check both the HTTP status and `error.code` in your code. The `message` is for people to read, and may change.
+Use the HTTP status and `error.code` in application logic. The `message` provides a human-readable explanation and can change.
 
-| Status | Usually means |
+| Status | Usual meaning |
 | --- | --- |
-| `400` | Something in the request is invalid. |
-| `401` | No API key or session was sent. |
-| `403` | The API key is wrong, or you don't have access to that Workspace. |
-| `404` | The route or resource doesn't exist. |
-| `409` | The request conflicts with the current state, for example the Workspace has no model set up yet. |
-| `413` | The request or export is too large. |
-| `415` | Wrong content type; file uploads must be multipart form data. |
-| `503` | The app is temporarily busy, starting, or stopping. Wait and retry, honouring `Retry-After`. |
+| `400` | The request is invalid. |
+| `401` | The request has no Workspace API key. |
+| `403` | The key is invalid or does not permit access to the Workspace. |
+| `404` | The route or resource does not exist. |
+| `409` | The request conflicts with current state. For example, the Workspace has no configured model. |
+| `413` | The request or export exceeds a size limit. |
+| `415` | The content type is incorrect. File uploads require multipart form data. |
+| `503` | The app is busy, starting, or stopping. Wait, then retry according to `Retry-After`. |
 
-A job that fails still returns `200` when you read it. Its failure is reported in the job's own `error_code` and `error_message`.
+Reading a failed job still returns `200`. Inspect its `error_code` and `error_message` for the failure.
 
-Every error code is listed in [Errors and limits](overview.md#errors-and-limits).
+See [Errors and limits](overview.md#errors-and-limits) for all error codes.

@@ -1,8 +1,8 @@
 # Backend
 
-The backend is a single Bun server. It serves the web app, the `/v1` API, the Better Auth routes under `/api/auth`, and the WebSocket that pushes live updates to the browser. By default it runs at http://127.0.0.1:8787.
+The backend uses one Bun server. It serves the frontend, the `/v1` API, Better Auth under `/api/auth`, and browser progress updates through a WebSocket. The default address is http://127.0.0.1:8787.
 
-For installing and running the app, start with the [root README](../README.md) and [Contributing](../CONTRIBUTING.md). This page explains how the backend works.
+To install and run the app, see the [root README](../README.md) and [Contributing](../CONTRIBUTING.md). This page describes backend operation.
 
 ## Running it
 
@@ -15,25 +15,33 @@ bun run build       # builds the frontend the server will serve
 bun run start       # or `bun run dev` to restart on code changes
 ```
 
-Every setting is read and validated in one place, [`src/localConfiguration.ts`](src/localConfiguration.ts). Startup, `bun run migrate`, and `bun backend/src/checkConfiguration.ts` all use it. The settings themselves are documented in [docs/configuration.md](../docs/configuration.md) and [`.env.example`](../.env.example). The frontend reads public settings, such as enabled sign-in methods and the upload limit, from `GET /v1/config`, so changing them needs a restart, not a rebuild.
+The shared loader, [`src/localConfiguration.ts`](src/localConfiguration.ts), reads and validates settings. Startup, `bun run migrate`, and `bun backend/src/checkConfiguration.ts` use this loader. See [Configuration](../docs/configuration.md) and [`.env.example`](../.env.example) for setting definitions.
+
+The frontend reads public settings from `GET /v1/config`, including enabled sign-in methods and upload limits. Restart the app after a settings change. A rebuild is unnecessary.
 
 ## How requests are handled
 
-| Request | Handled by | Authentication |
+| Activity | Handled by | Access |
 | --- | --- | --- |
-| `/api/auth/*` | Better Auth (`src/localAuth.ts`) | — |
-| `/v1/workspaces/:id/live` | WebSocket live updates (`src/localLiveUpdateUpgrade.ts`) | Browser session only |
-| Template assistant and document review mutations | `src/localApplication.ts`, `src/localDocumentProcessingHttp.ts` | Browser session + `x-workspace-id`; Workspace API keys are not accepted |
-| Integration product routes under `/v1/*` | `src/localApplication.ts` | Browser session + `x-workspace-id` header, or `Authorization: Bearer <workspace API key>` |
-| Anything else (`GET`/`HEAD`) | Built frontend files, with fallback to `index.html` | — |
+| Sign-in and account actions | Better Auth (`src/localAuth.ts`) | Browser |
+| Automatic Workspace progress updates | `src/localLiveUpdateUpgrade.ts` | Signed-in Workspace member |
+| Template assistant and document review | `src/localApplication.ts`, `src/localDocumentProcessingHttp.ts` | Signed-in Workspace member |
+| Workspace API integrations | `src/localApplication.ts` | `Authorization: Bearer <workspace API key>` |
+| Frontend page and asset reads (`GET`/`HEAD`) | Built frontend files, with fallback to `index.html` | — |
 
-Workspace API keys reach templates, sample-based template generation, document submission, extraction jobs, and document packet reads/deletion. They can't use the Template assistant, resolve held template/split decisions, open live updates, or manage accounts, Workspaces, invitations, model settings, or admin features. The Studio uses session-only [Template assistant](docs/template-assistant-http.md) and [document review](docs/document-review-http.md) operations; their contracts are contributor references rather than part of the public Workspace API.
+Workspace API keys permit template management, sample-based template generation, document submission, extraction job access, and packet reads and deletion. See the [Workspace API specification](../mkdocs/docs/api/overview.md).
 
-When a document is submitted, it's checked, stored, and queued as a job (`src/localMultipartSubmission.ts`, `src/localExtractionQueue.ts`). A runner (`src/localExtractionRunner.ts`) picks jobs up, prepares the document for the model, calls the Workspace's model gateway (`src/consumer/modelGateway.ts`), and saves the normalised results. `src/localDocumentProcessingRunner.ts` uses the same durable queue for tag-scoped classification and PDF packet splitting before field extraction. Splitting commits fixed child IDs and original-page maps before creating independent derived sources; automatic jobs bind a checked Template version before extraction. Both stages stop after one initial assessment and at most two targeted reassessments, holding unresolved work for manual resolution. Browsers are told about changes over the live-update WebSocket; API clients poll the returned job or packet location, discover packet children, and fetch each job for full results. Even an accepted one-document PDF split retains its packet API identity; collapsing it to one ordinary Document is a frontend presentation rule.
+Use **Templates → Assistant** for [draft assistance](../docs/template-assistant.md) and **Documents** for [held-document review](../mkdocs/docs/usage/document-extraction.md#progress-and-review). Manage membership, invitations, and model settings in **Workspaces**. Account and admin actions also occur in the app.
+
+Submission validates and stores a document, then queues a job through `src/localMultipartSubmission.ts` and `src/localExtractionQueue.ts`. The runner, `src/localExtractionRunner.ts`, prepares the document and calls the Workspace model through `src/consumer/modelGateway.ts`. It then saves normalized results.
+
+`src/localDocumentProcessingRunner.ts` uses the same durable queue for classification by tags and PDF splitting before extraction. Splitting commits child IDs and original-page maps before it creates independent derived sources. Automatic jobs bind a validated Template version before extraction. Each stage permits one initial assessment and at most two targeted reassessments. Unresolved work waits for manual resolution.
+
+The WebSocket sends changes to browsers. API clients poll the returned job or packet location, discover children, and read each job for results. An accepted one-document split retains its packet API identity. The frontend presents it as one ordinary Document.
 
 ## Local data
 
-`bun run migrate` creates the control database, the Better Auth tables, the session-signing secret, and the data folders. It's safe to run more than once. Each Workspace's own database is created the first time it's used.
+`bun run migrate` creates the control database, Better Auth tables, session signing secret, and data folders. You can run it repeatedly. Each Workspace database initializes on first use.
 
 By default everything lives in `.local/`:
 
@@ -43,88 +51,85 @@ By default everything lives in `.local/`:
 | `data/workspaces/*.sqlite` | One database per Workspace: templates/tags, jobs/results, document packets and split plans, processing settings, and its encrypted model credential. |
 | `data/better-auth-secret` | Key that signs sessions. |
 | `secrets/model-gateway.key` | Key that encrypts model credentials. Created the first time a credential is saved. |
-| `source-files/` | Uploaded documents, kept only while they're needed. |
-| `mail/YYYY-MM-DD.jsonl` | Captured verification and password-reset emails, when email isn't sent through Cloudflare. |
+| `source-files/` | Uploaded documents, kept only while they are needed. |
+| `mail/YYYY-MM-DD.jsonl` | Captured verification and password-reset emails, when email is not sent through Cloudflare. |
 | `analytics/YYYY-MM-DD.jsonl` | Local usage events (see [Analytics](#analytics)). |
 
-The two key files must stay with the databases. A Workspace database restored without `secrets/model-gateway.key` keeps its model settings, but the credential has to be entered again. Exports, analytics, diagnostics, and live updates never include credentials, encrypted or not.
+Keep both key files with the databases. A restored Workspace database retains model settings without `secrets/model-gateway.key`, but requires a new credential entry. Exports, analytics, diagnostics, and live updates exclude both plaintext and encrypted credentials.
 
 Deleting `.local/` deletes every account, Workspace, and result. For backups, see [Backing up and restoring](../docs/setup.md#backing-up-and-restoring).
 
 ## Workspace model gateway
 
-Each Workspace has its own model settings. New Workspaces, including ones upgraded from the old global settings, start with none. An owner or admin sets them up under **Workspaces → Model gateway → Set up**:
+Each Workspace has separate model settings. New Workspaces and Workspaces upgraded from global settings start without configuration. An owner or admin configures them under **Workspaces → Model gateway → Set up**:
 
-- **Gateway URL** and **model name.** Any HTTP(S) address works, including private and local ones. Redirects are refused.
-- **Gateway credential.** This is the key the app uses to call the model, which is different from the Workspace API key that clients use to call the app. It's write-only: leave it blank when editing to keep the saved one.
+- **Gateway URL** and **model name.** The app accepts HTTP(S) addresses, including private and local addresses. It rejects redirects.
+- **Gateway credential.** The app uses this secret for model calls. It differs from the Workspace API key used by clients. The credential is write-only. Leave it blank during editing to keep the saved value.
 - **Capability switches** (all off by default):
   - **Direct PDF input** sends PDFs to the model as they are. Without it, pages are rendered as images.
   - **Structured output** asks the model for JSON matching the template.
   - **Sequential calls** stops the Workspace from making more than one model call at a time.
 
-**Document classification & splitting** is a third optional role alongside Extraction and Template assistant. It inherits Extraction by default, or uses its own model and capability flags on the shared gateway. Classification receives only eligible Template IDs, names, and descriptions, plus the actual source. Field schemas are reserved for extraction. **Enable smart splitting** and **Exclude blank pages** are Workspace settings, both off by default; exclusion only operates as part of splitting.
+**Document classification & splitting** is an optional role alongside Extraction and Template assistant. It inherits Extraction settings or uses its own model and capabilities on the shared gateway. Classification receives the source and eligible Template IDs, names, and descriptions. Field schemas are used only for extraction.
 
-Model routes can impose document and image-count limits below the runtime limits. Assessment sends selected PDF pages in one request, either directly or as page images according to the chosen role’s capabilities; it does not automatically batch requests around provider limits.
+The Workspace settings **Enable smart splitting** and **Exclude blank pages** default to off. Blank exclusion requires splitting.
 
-**Test connection** is optional. It sends one `chat/completions` request per distinct configured model with the prompt "Reply with OK.", waits up to 30 seconds without retrying, and checks for a readable reply. It doesn't check capabilities or save anything, and saving doesn't contact the gateway.
+Model routes can impose document and image-count limits below runtime limits. Each assessment sends selected PDF pages in one request. Role capabilities determine whether the request uses a PDF or page images. The app does not automatically batch requests to meet provider limits.
 
-Until a Workspace is set up, document uploads get `409 workspace_model_not_configured`. If the saved credential can't be decrypted, they get `503 workspace_model_configuration_unavailable`. Both checks happen before the upload is stored or a job is created.
+**Test connection** is optional. It sends one `chat/completions` request per distinct model with the prompt "Reply with OK." It waits up to 30 seconds without retries and requires a readable reply. The test neither verifies capabilities nor saves configuration. Saving settings does not contact the gateway.
 
-Each extraction attempt uses the latest saved settings. Changing or clearing the settings doesn't stop an attempt already in progress.
+Without Workspace model settings, uploads return `409 workspace_model_not_configured`. An unreadable encrypted credential returns `503 workspace_model_configuration_unavailable`. Both validations occur before upload storage or job creation.
 
-The browser uses `/v1/workspaces/:workspaceId/model-configuration`, which accepts browser sessions only:
+Each extraction attempt uses the latest saved settings. Changing or clearing the settings does not stop an attempt already in progress.
 
-- Members can only see whether settings exist; owners and admins can read the details (never the credential), replace them with `PUT`, clear them with `DELETE`, or test a draft with `POST …/test`.
-- Changes need a revision precondition: `If-None-Match: *` to create, `If-Match: <revision>` to replace or clear. An out-of-date revision returns `412`, and a missing precondition returns `428`.
-- After a change, other open browsers get a `model_configuration_changed` live update and reload the settings.
-- The optional `classification_model` object has `model_name`, `supports_pdf_input`, and `supports_structured_output`. Omission or `null` inherits Extraction, as for `assistant_model`; each claimed assessment captures the resolved model/capabilities and non-secret configuration revision.
+Under **Workspaces → Model gateway**, members can view configuration status. Owners and admins can read non-secret settings, edit or clear configuration, and test drafts. If another user changes settings during editing, reload before saving. Other open browsers refresh after a saved change.
 
-The old global model environment variables are ignored, and startup logs any it finds by name (see [configuration](../docs/configuration.md#model-settings-are-per-workspace)). The old `/v1/settings/model` route returns 404. On startup, a leftover `data/model-gateway.json` from old versions is deleted without being read.
+The app ignores old global model environment variables and logs their names during startup. See [Configuration](../docs/configuration.md#model-settings-are-per-workspace). Startup deletes an old `data/model-gateway.json` file without reading it.
 
 ## Built-in protections
 
-The runtime limits how much work it takes on, so a busy or small machine degrades gracefully instead of running out of memory.
+The runtime limits admitted work to control memory use on busy machines and machines with limited resources.
 
 ### Uploads
 
-The file limit (`MAX_SOURCE_FILE_BYTES`) and the request limit are separate. A document request may be up to the file limit plus 40 KiB for the form fields and multipart framing. A maximum-size browser upload measured about 25 KB of framing.
+The file limit, `MAX_SOURCE_FILE_BYTES`, is separate from the request limit. Document requests permit the file limit plus 40 KiB for fields and multipart framing. A measured maximum-size browser upload used approximately 25 KB of framing.
 
-Oversized requests are rejected with `400 source_file_too_large` before anything is stored. Checks happen in this order: authorization, Workspace storage, model settings, then the `Content-Length` header. Uploads without a length are counted as they stream. Bun's own hard limit sits a further 40 KiB above that, so the app can always send its own error first.
+Oversized requests return `400 source_file_too_large` before storage. Validation order is authorization, Workspace storage, model settings, then `Content-Length`. Requests without a length are counted during streaming. Bun’s hard limit permits another 40 KiB so the app can return its own error first.
 
-PDFs are inspected in a separate, short-lived process with strict limits on size, decoding, and time. PDF subset creation, child materialization, previews, and blank verification also use disposable processes with bounded output and cancellable deadlines (see [configuration](../docs/configuration.md#uploads-and-extraction)).
+PDF inspection uses a separate, short-lived process with size, decoding, and time limits. PDF subsets, child sources, previews, and blank verification also use disposable processes. These operations have output bounds and cancellable deadlines. See [Configuration](../docs/configuration.md#uploads-and-extraction).
 
 ### Memory pressure
 
-When the operating system reports memory pressure, the resource controller reacts straight away:
+When the operating system reports memory pressure, the resource controller reacts immediately:
 
-- **Warning:** halves the number of extractions running at once (never below one) and refuses new uploads at or above `MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES`.
-- **Critical:** pauses new extractions, refuses all new uploads, and closes idle Workspace databases.
+- **Warning:** Reduce extraction concurrency by half, with a minimum of one. Reject new uploads at or above `MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES`.
+- **Critical:** Pause new extractions, reject all new uploads, and close idle Workspace databases.
 
-Work already in progress is never cancelled. Normal service resumes after three samples in a row show enough memory and event-loop headroom. `/v1/health` diagnostics show the current and last pressure level and recovery times, and never include Workspace or document content.
+Active work continues. Normal service resumes after three consecutive samples show sufficient memory and event-loop capacity. `/v1/health` reports current and previous pressure levels and recovery times. Diagnostics exclude Workspace and document content.
 
-Memory for preparing documents is budgeted up front. Split subsets are created after admission, and fan-out holds its shared memory reservation until derived files are persisted. By default the budget is 72% of physical RAM, leaving room below the 80% memory threshold. It's an estimate, not an operating-system limit, so lower it on machines shared with a local model server.
+The runtime reserves preparation memory before work starts. It creates split subsets after admission and holds the shared reservation until derived files persist. The default budget is 72% of physical RAM, below the 80% memory threshold. This budget is an estimate, not an operating-system limit. Lower it when a local model server shares the machine.
 
 ### Live updates
 
-The live-update WebSocket only sends to the browser: any message the browser sends closes the connection with code 1008. Messages over 64 bytes are cut off by Bun, which the browser sees as code 1006. Quiet connections stay open for five minutes, with automatic pings.
+The live-update WebSocket sends only to the browser. Any client message closes the connection with code 1008. Bun rejects messages above 64 bytes, which the browser sees as code 1006. Quiet connections remain open for five minutes, with automatic pings.
 
-Each connection can have at most 64 KiB of unsent data. It's closed when it reaches that limit, and messages aren't queued for retry. Diagnostics include only aggregate counts, never Workspace IDs or message content.
+Each connection permits at most 64 KiB of unsent data. Reaching this limit closes the connection. Messages are not queued for retry. Diagnostics include aggregate counts and exclude Workspace IDs and message content.
 
 ## Transactional email
 
-With `EMAIL_PROVIDER=local` (the default), verification and password-reset emails aren't sent. Their links are written to the server log and to `mail/YYYY-MM-DD.jsonl`, and installer users can read them with the launcher's `mail` command.
+With the default `EMAIL_PROVIDER=local`, the app captures verification and password reset emails without sending them. It writes links to the server log and `mail/YYYY-MM-DD.jsonl`. Installer users can read them with the launcher’s `mail` command.
 
-With `EMAIL_PROVIDER=cloudflare`, emails are sent through Cloudflare's Email REST API and aren't saved locally. See [Send email with Cloudflare](../docs/configuration.md#send-email-with-cloudflare).
+With `EMAIL_PROVIDER=cloudflare`, the app sends emails through Cloudflare’s Email REST API. It does not save them locally. See [Send email with Cloudflare](../docs/configuration.md#send-email-with-cloudflare).
 
-Workspace invitations appear inside the app and are never emailed. The frontend only offers the sign-in and verification options that are actually configured.
+Workspace invitations appear in the app and are not emailed. The frontend offers only configured sign-in and verification options.
 
 ## Analytics
 
-When `LOCAL_ANALYTICS_ENABLED=true` (the default), template changes, document submissions, and extraction outcomes are written to `.local/analytics/YYYY-MM-DD.jsonl`. These files contain IDs and a little metadata only: no emails, API keys, file names, document contents, or extracted answers. Nothing is sent anywhere.
+With the default `LOCAL_ANALYTICS_ENABLED=true`, `.local/analytics/YYYY-MM-DD.jsonl` records template changes, submissions, and extraction outcomes. Records include IDs and limited metadata. They exclude emails, API keys, filenames, document content, and answers. No analytics leave the machine.
 
 ## Tests
 
-From the repository root, `bun run test` runs the backend and frontend suites. Backend-only commands, run from `backend/`:
+From the repository root, `bun run test` runs backend and frontend suites. Run these backend-only commands from `backend/`:
 
 | Command | Use it to |
 | --- | --- |
@@ -133,22 +138,22 @@ From the repository root, `bun run test` runs the backend and frontend suites. B
 | `bun run test:target <filter>` | Run matching tests, stopping at the first failure. |
 | `bun run test:bun:changed` | Run tests affected by changes since `HEAD` (or `BUN_CHANGED_BASE`). |
 | `bun run test:evidence` | Run the full suite serially in a fixed order, writing JUnit, timings, and coverage to `.scratch/ci/backend/`. This is the CI lane. |
-| `bun run test:bun:flake` | Rerun the suite in random orders to find flaky tests. Reproduce a run with the command it prints, e.g. `BUN_TEST_SEED=90909 BUN_TEST_RERUNS=20 bun run test:bun:flake`. |
+| `bun run test:bun:flake` | Rerun the suite in random orders to find flaky tests. Reproduce a run with the command it prints, for example `BUN_TEST_SEED=90909 BUN_TEST_RERUNS=20 bun run test:bun:flake`. |
 
-From the root, `bun run check:agent` runs typecheck, lint, backend tests, and frontend tests side by side and reports every result.
+From the root, `bun run check:agent` runs typecheck, lint, backend tests, and frontend tests concurrently. It reports every result.
 
-The backend coverage floor is in `backend/coverage-baseline.json`. Nothing updates it automatically; raise it by hand when coverage improves.
+The backend coverage floor is in `backend/coverage-baseline.json`. Raise it manually when coverage improves. No process updates it automatically.
 
 ## Benchmarks
 
-The benchmarks compare approaches on your machine. Their results are useful for spotting regressions, not as capacity guarantees. Run them from `backend/`. Most write a Markdown report under `.scratch/`.
+Benchmarks compare implementations on your machine. Use them to detect regressions; their results do not guarantee capacity. Run them from `backend/`. Most write a Markdown report under `.scratch/`.
 
 | Command | Measures |
 | --- | --- |
 | `bun run benchmark:static-assets` | Serving frontend files lazily with `Bun.file()`, compared with buffering them in memory. Tune with `STATIC_ASSET_BENCH_BYTES`, `_CONCURRENCY`, and `_ROUNDS`. |
-| `bun run benchmark:memory-pressure` | Behaviour under simulated memory-pressure events, with the policy on and off. It never actually exhausts memory. |
+| `bun run benchmark:memory-pressure` | Behavior under simulated memory-pressure events, with the policy on and off. It never actually exhausts memory. |
 | `bun run benchmark:document-body-limit` | A real server under oversized and aborted uploads: responses, latency, memory, and leftover files. |
-| `bun run benchmark:live-update-fanout` | The cost of sending live updates to many subscribers inside the hub. Network and browser time aren't included. |
+| `bun run benchmark:live-update-fanout` | The cost of sending live updates to many subscribers inside the hub. Network and browser time are not included. |
 | `bun run benchmark:loopback-saturation` | Extraction throughput against a local fake gateway that can throttle, fail, or time out, sending PDFs inline or as rendered pages. |
 | `bun run benchmark:model-payload-base64` | Encoding documents for model requests. |
 | `bun run benchmark:test-parallel` | Running the test suite in parallel compared with serially. |

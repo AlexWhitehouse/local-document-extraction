@@ -1,33 +1,45 @@
 # Template assistant
 
-Open a new or existing draft on **Templates**, then select **Assistant**. Use **Explain issues** to ask about the draft, or **Propose edits** to describe a focused change, such as “add VAT rate to each line item.” Requests use the current Workspace's Template assistant model: the extraction model, unless an owner or admin chose a different one under **Workspaces → Model gateway**. While you compose a request, the panel asks the model for suggested requests based on the open draft, its problems and any selected job (one short, text-only call, refreshed after a pause when the draft structure, descriptions, tab or evidence changes). Typing your Assistant request does not refresh suggestions. Choosing a suggestion only fills in the request; the explanation or edit request is sent when you submit it. If no model is configured or the call fails, suggestions come from the app’s own checks.
+Open a new or existing draft on **Templates**. Select **Assistant**, then **Explain issues** or **Propose edits**. Enter a focused request, such as “add VAT rate to each line item.”
 
-**Explain issues** suggestions focus on existing fields and columns. App validation errors are confirmed checks; concerns inferred from instructions or stored results are phrased as review questions about potential issues. **Propose edits** suggestions focus on missing fields or table columns, with a proposed name, type, extraction instructions, and a reason based on the current Template. You can still type any focused edit request, including fixes or renames. Suggestions may be empty when there is insufficient context. Suggestion generation receives only an attached sample's name, never its contents, so it cannot report observations from that file.
+Requests use the Workspace’s Template assistant model. This role inherits the extraction model unless an owner or admin selects another model under **Workspaces → Model gateway**.
 
-Validation problems appear beside the affected Template name, field, or table column. Each problem explains what is wrong and how to fix it; the problem controls take you to the input. These checks also work in the Evaluation Template editor and without a configured model.
+The panel suggests requests from the draft, its problems, and any selected job. It makes one short text-only model call after relevant changes and a pause. Relevant changes include draft structure, descriptions, the selected tab, or evidence. Typing your request does not refresh suggestions. Selecting a suggestion fills the request; submit it to request an explanation or edits. If the model is unavailable or unconfigured, suggestions use application validation.
+
+**Explain issues** suggestions concern existing fields and columns. Application validation errors are confirmed problems. Inferred concerns from instructions or stored results appear as questions about possible problems.
+
+**Propose edits** suggestions concern missing fields or table columns. Each includes a proposed name, type, extraction instructions, and a reason based on the current Template. You can also enter focused fixes or renames. Insufficient context can produce no suggestions. Suggestions use an attached sample’s name, never its contents. They cannot report observations from that file.
+
+Validation messages appear beside the affected Template name, field, or table column. Each explains the problem and corrective action. Select a problem control to focus its input. These controls also work in the Evaluation Template editor and without a configured model.
 
 ## Review and apply
 
-An edit request returns change groups with a rationale and before/after values. Select the groups you want. Changes that depend on each other must be selected together, and changes within one group apply together. Apply stays unavailable when the combined selection conflicts or leaves the draft invalid.
+An edit request returns change groups with reasons and before/after values. Select the required groups. Dependent changes must be selected together. All changes in one group apply together. Conflicts or an invalid combined draft disable **Apply**.
 
-Field names determine output IDs, and table headings determine column keys. Review the identity and type warnings before applying a rename, removal, or type change. These changes affect future extraction output and Evaluation alignment. Historical Extraction results and user-owned Expected answers remain unchanged.
+Field names determine output IDs. Table headings determine column keys. Before a rename, removal, or type change, review the identity and type warnings. These changes affect future extraction output and Evaluation alignment. Historical Extraction results and user-owned Expected answers remain unchanged.
 
-**Apply** updates the open draft once. Use the existing **Save** action to persist it. Explain-only requests do not stage edits. Nothing runs extraction, creates Expected answers, changes scores, or measures an accuracy improvement implicitly.
+Select **Apply** to update the open draft once. Select **Save** to persist it. Explain-only requests do not stage edits. Assistance does not implicitly run extraction, create Expected answers, change scores, or measure accuracy improvements.
 
-Editing, importing JSON, saving, switching Templates, starting a new draft, changing Workspace or session, and leaving the Templates page invalidate previous requests. Restoring the same text does not revive a proposal. Regenerate against the current draft when a proposal is stale. Closing the Assistant cancels its request and clears its temporary evidence and explanations; refreshing also clears them.
+Draft edits, JSON imports, saves, Template switches, and new drafts invalidate previous requests. Workspace or session changes and navigation away from Templates also invalidate them. Restoring the same text does not restore a proposal. Regenerate a stale proposal from the current draft.
+
+Closing the Assistant cancels its request and clears temporary evidence and explanations. Refreshing also clears them.
 
 ## Evidence
 
-You can attach one PDF, PNG, JPEG, or WebP sample and select one completed Extraction job from the current Workspace. The job picker loads pages from the server, so it can find Documents outside the browser's cache.
+You can attach one PDF, PNG, JPEG, or WebP sample. You can also select one completed Extraction job from the current Workspace. The job picker loads pages from the server, including Documents outside the browser cache.
 
-A selected Extraction job supplies its stored results and the historical Template version and fields used to produce them, even when that Template was subsequently deleted. Its retained original is sent only when you choose it. You may instead upload a separate sample; a separate sample is not assumed to be the source of the stored result. Only one binary source may be sent in a request.
+A selected job supplies stored results and the historical Template version and fields that produced them. This evidence remains available after Template deletion. The retained original is sent only when you explicitly select it.
 
-Result-only analysis works without a retained original. If evidence you selected disappears or cannot be loaded, the request fails with a useful error; explicitly remove that evidence to proceed without it. Evidence is never silently dropped.
+You can upload a separate sample instead. The Assistant does not assume that this sample produced the selected job’s results. Each request permits only one binary source.
 
-Deterministic validation errors, observations about supplied output, and model hypotheses or suggestions are distinct. Stored results are model output, not verified answers. Suggestions should be evaluated with verified Expected answers before drawing conclusions about accuracy.
+Result-only analysis works without a retained original. If selected evidence disappears or cannot load, the request fails with an explanatory error. Remove that evidence explicitly to continue without it. The app does not silently omit evidence.
+
+The Assistant distinguishes validation errors, output observations, and model hypotheses or suggestions. Stored results are model output, not verified answers. Evaluate suggestions with verified Expected answers before you conclude that accuracy improved.
 
 ## Scope
 
-Assistance is temporary and available only on Templates. It does not maintain a conversation history, save autonomously, change the supported schema, migrate historical output identities, relink Expected answers, or provide general concurrent-save protection. The sample-based Auto generate flow (the magic icon on **Create Template**) remains available for proposing a complete Template. Temporary Evaluation results and library answers cannot be imported into Assistant requests.
+Assistance is temporary and available only on Templates. It does not keep conversation history, save automatically, or expand the supported schema. It does not migrate historical output identities, relink Expected answers, or provide general protection against concurrent saves.
 
-The Template assistant, including suggestions and historical-evidence reads, requires a signed-in Workspace member using the frontend. Workspace API keys cannot use it. Scripts can still [generate a complete template from a sample](../mkdocs/docs/api/overview.md#generate-a-template-from-a-sample). Contributor request details are in the [frontend HTTP contract](../backend/docs/template-assistant-http.md).
+Auto generate remains available through the magic icon on **Create Template**. It proposes a complete Template from a sample. Assistant requests cannot import temporary Evaluation results or library answers.
+
+Sign in to the Workspace and open **Templates → Assistant** to request suggestions, select completed jobs, and review edits. Scripts can [generate a complete template from a sample](../mkdocs/docs/api/overview.md#generate-a-template-from-a-sample).

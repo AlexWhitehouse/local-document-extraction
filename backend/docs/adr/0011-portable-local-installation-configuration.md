@@ -1,47 +1,23 @@
 # Portable Local Installation Configuration
 
-The public distribution must start without a maintainer account, deployment domain,
-model endpoint, or private credential. A shared validated configuration loader owns
-deployment settings for startup, migration, and installation checks. The frontend
-reads only public authentication capabilities and upload limits from `/v1/config`.
+The public distribution must start without a maintainer account, deployment domain, model endpoint, or private credential. One shared loader validates deployment settings for startup, migration, and installation checks. The frontend reads only public authentication capabilities and upload limits from `/v1/config`.
 
-This extends ADR-0005: local email capture remains the default, and an explicit
-Cloudflare Email REST transport is available for actual account-email delivery.
-Sender identity belongs to deployment configuration and is passed to the code-owned
-templates. Delivery attempts are awaited and bounded; external mode does not also
-capture usable account links locally. Workspace invitations remain in-app.
+This decision extends ADR-0005. Local email capture remains the default. Cloudflare Email REST transport is an explicit option for account-email delivery. Deployment configuration supplies the sender identity to templates in the code. The application waits for each bounded delivery attempt. External delivery does not also capture usable account links locally.
 
-Email/password login and registration default on. Email verification defaults off
-and can be required with `AUTH_REQUIRE_EMAIL_VERIFICATION=true`. This default was
-revised on 2026-09-23 to allow immediate account access for a local installation;
-earlier releases required verification by default. Explicit installation settings
-are preserved during upgrades. Google OAuth defaults off and requires explicit
-enablement plus a complete credential pair.
-Registration controls apply to password and Google account creation. At least one
-login method must remain enabled. Generic OIDC and SAML are outside this decision.
-Administrator email bootstrap applies when accounts are created; operators must
-establish access before closing registration. The disk-generated auth secret remains
-the installation's signing secret.
+Workspace invitations remain in the app. Email/password login and registration are enabled by default. Email verification is disabled by default. `AUTH_REQUIRE_EMAIL_VERIFICATION=true` makes verification mandatory.
 
-The default listener remains loopback. The browser-facing origin, optional trusted
-origins, and explicitly trusted proxy IP headers are configurable. No personal
-origin or proxy-provider header is trusted by default. Standard development loopback
-origins are allowed when the application itself has a loopback origin.
+The verification default changed on 2026-09-23 to permit immediate account access in local installations. Earlier releases required verification by default. Upgrades keep explicit installation settings. Google OAuth is disabled by default. It requires explicit enablement and a complete credential pair.
 
-Payload settings are validated with their admission budgets. Internal parser,
-protocol, and fixed safety limits remain code-owned when independent tuning would
-break memory assumptions or public contracts. Local analytics can be disabled.
+Registration controls apply to password and Google account creation. At least one login method must remain enabled. This decision does not include generic OIDC or SAML. Administrator email bootstrap applies when accounts are created. Operators must establish access before they close registration. The generated authentication secret on disk remains the installation's signing secret.
 
-Source checkouts default to `.local/`; installers separate versioned application
-releases, private configuration, and persistent state. Runtime state is owner-only.
-First-time terminal installs collect optional public-origin, login, and email-provider
-settings through conditional questions. Secrets are hidden and answers are validated
-before saving private configuration. Unattended installs retain the documented defaults
-or a prepared configuration file; existing configuration always skips the questions.
-Upgrades preserve state and machine secrets, and backups must include the matching
-databases and keys. No automatic downgrade or database rollback is promised.
+The default listener uses loopback. Operators can configure the browser-facing origin, additional trusted origins, and trusted proxy IP headers. No personal origin or proxy-provider header is trusted by default. Standard development loopback origins are permitted when the application itself uses a loopback origin.
 
-ADR-0008 remains authoritative for model configuration: gateway URL, model,
-capabilities, and encrypted outbound credentials belong to each Workspace. The
-release configuration surface must not revive global model defaults or import a
-maintainer's legacy configuration.
+The loader validates payload settings against admission budgets. Parser, protocol, and fixed safety limits stay in code where separate adjustment would invalidate memory assumptions or public contracts. Operators can disable local analytics.
+
+Source checkouts use `.local/` by default. Installers separate versioned releases, private configuration, and persistent state. Only the owner can access runtime state.
+
+First-time terminal installs ask conditional questions for optional public-origin, login, and email-provider settings. The installer hides secrets and validates answers before saving private configuration. Unattended installs use documented defaults or a prepared configuration file. Existing configuration always skips the questions.
+
+Upgrades keep state and machine secrets. Backups must include the matching databases and keys. Automatic downgrade and database rollback are not guaranteed.
+
+ADR-0008 controls model configuration. Each Workspace owns its gateway URL, model, capabilities, and encrypted outbound credentials. Release configuration must not restore global model defaults or import a maintainer's legacy configuration.

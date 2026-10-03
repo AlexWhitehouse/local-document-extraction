@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Document Extraction Local API",
-    "description": "Local Postman collection for the Document Extraction Workspace API.\n\nPrerequisites:\n1) From the repository root, run bun run build && bun run start.\n2) Configure the Workspace model gateway in the browser and generate a Workspace API key.\n3) Set api_key and template_id, or use template_tags for automatic selection. Choose one upload example and attach a PDF, PNG, JPEG, or WebP.\n\nSmart splitting is a Workspace setting. Enabled PDF uploads return a packet_id; other uploads return a job_id. Upload scripts save poll_path from Location. Poll the submission, then follow each child_job_ids entry with Return Job Results. A packet always remains a packet in the API even when the UI shows a single document.\n\nAll product endpoints use Bearer API-key authentication; x-workspace-id is unnecessary. Full contract: mkdocs/docs/api/overview.md.",
+    "description": "Use this collection for the Document Extraction Workspace API.\n\nPrerequisites:\n1) Run bun run build && bun run start from the repository root.\n2) Configure the Workspace model gateway in the browser.\n3) Generate a Workspace API key.\n4) Set api_key and template_id, or use template_tags for automatic selection.\n5) Select one upload example and attach a PDF, PNG, JPEG, or WebP.\n\nWorkspace settings control Smart splitting. With splitting enabled, PDF uploads return packet_id. Other uploads return job_id. Upload scripts save poll_path from Location. Poll the submission, then read each child_job_ids entry with Return Job Results.\n\nThe API preserves packet identity even when the frontend presents one document. All product endpoints require Bearer API-key authentication. See mkdocs/docs/api/overview.md for the full specification.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -71,7 +71,7 @@
             "templates"
           ]
         },
-        "description": "Creates a template. Do not provide field IDs or object column keys; the API derives field IDs from field name and object column keys from column heading.\n\nExpected: HTTP 201 with { template_id, version, status }."
+        "description": "Create a template. Omit field IDs and object column keys. The API derives IDs from field names and column keys from headings.\n\nExpect HTTP 201 with { template_id, version, status }."
       },
       "event": [
         {
@@ -126,7 +126,7 @@
             "{{template_id}}"
           ]
         },
-        "description": "Updates a template. Do not provide field IDs or object column keys; the API derives field IDs from field name and object column keys from column heading.\n\nExpected: HTTP 200 with { template_id, version, status }."
+        "description": "Update a template. Omit field IDs and object column keys. The API derives IDs from field names and column keys from headings.\n\nExpect HTTP 200 with { template_id, version, status }."
       },
       "event": [
         {
@@ -188,7 +188,7 @@
             "extract"
           ]
         },
-        "description": "Choose this example OR 1b and attach document. Expected: HTTP 202, Location, and either job_id or packet_id. Smart splitting still runs for PDFs with a specific template; all children inherit that template version. The script clears stale IDs and saves poll_path for Check Submission Status. Repeating an upload creates new work."
+        "description": "Select this example or 1b and attach document. Expect HTTP 202, Location, and job_id or packet_id. Smart splitting also applies to PDFs with an explicit template. All children inherit that template version. The script clears stale IDs and saves poll_path for Check Submission Status. Repeating an upload creates new work."
       },
       "event": [
         {
@@ -253,7 +253,7 @@
             "extract"
           ]
         },
-        "description": "Alternative to 1a: omit template_id and send a nonempty JSON array of tag names. Templates matching ANY tag are candidates; every split child selects independently. Unknown tags match nothing and may require manual selection. Smart splitting uses the Workspace setting. The upload script saves either job_id or packet_id and poll_path. Repeating an upload creates new work."
+        "description": "As an alternative to 1a, omit template_id and send a nonempty JSON array of tag names. Candidates match ANY supplied tag. Each split child selects independently. Unknown tags match nothing and can require manual selection. Workspace settings control Smart splitting. The script saves job_id or packet_id and poll_path. Repeating an upload creates new work."
       },
       "event": [
         {
@@ -289,7 +289,7 @@
           }
         ],
         "url": "{{base_url}}{{poll_path}}",
-        "description": "Poll the Location saved by the upload, normally every 2\u20135 seconds. Job states: queued, processing, awaiting_template, completed, failed. Packet states: queued, processing, awaiting_review, materializing, processing_children, completed, failed. A signed-in Workspace member must resolve review/template holds in the frontend before processing can continue; API keys cannot resolve them. Packet reads contain child summaries, not results. The script saves child_job_ids; copy each desired ID to job_id and read Return Job Results, tracking consumed IDs in your integration. A failed packet can still have successful or running children."
+        "description": "Poll the saved Location, normally every 2\u20135 seconds. Job states are queued, processing, awaiting_template, completed, and failed. Packet states are queued, processing, awaiting_review, materializing, processing_children, completed, and failed.\n\nA signed-in Workspace member resolves template or boundary holds in Documents before processing continues. Packet reads include child summaries without results. The script saves child_job_ids. Copy each required ID to job_id and use Return Job Results. Record consumed IDs in your integration to prevent duplicate imports. A failed packet can still contain successful or running children."
       },
       "event": [
         {
@@ -332,7 +332,7 @@
             "{{job_id}}"
           ]
         },
-        "description": "Read the ordinary job or one packet child. For a packet, set job_id to each ID in child_job_ids in turn. Completed jobs contain results; other states return results: []. A failed job still returns HTTP 200 with error_code/error_message. An awaiting_template job requires a signed-in Workspace member to choose a template in the frontend. API keys cannot resolve the hold. This example expects the chosen job to be completed."
+        "description": "Read an ordinary job or one packet child. For packets, set job_id to each child_job_ids value in turn. Completed jobs include results. Other states return results: []. Failed jobs return HTTP 200 with error_code/error_message. For awaiting_template, a signed-in Workspace member selects a template in Documents. This example expects a completed job."
       },
       "event": [
         {
@@ -378,7 +378,7 @@
             "{{packet_id}}"
           ]
         },
-        "description": "Read the parent and its current children using packet_id saved at upload. Children contain job_id, status, parent_packet_id, and source_pages in the original PDF. Fetch each child job separately for extracted fields. A completed all-blank packet has outcome no_documents and no children."
+        "description": "Read the parent and current children with the packet_id saved during upload. Children include job_id, status, parent_packet_id, and source_pages from the original PDF. Read each child job for extracted fields. A completed all-blank packet has outcome no_documents and no children."
       }
     },
     {
@@ -402,7 +402,7 @@
             "document-processing-settings"
           ]
         },
-        "description": "Read effective enable_smart_splitting and exclude_blank_pages switches. API keys cannot change them; Workspace owners/admins use the browser. The upload captures these settings."
+        "description": "Read effective enable_smart_splitting and exclude_blank_pages settings. Owners and admins change these settings in the browser. Each accepted upload records its effective settings."
       }
     },
     {
@@ -428,7 +428,7 @@
             "source"
           ]
         },
-        "description": "Download an available retained or held source. For a packet child this contains only its pages. Source errors do not change extraction results."
+        "description": "Download an available retained source or working source held for review. A child source contains only its assigned pages. Source errors do not change extraction results."
       }
     },
     {
@@ -454,7 +454,7 @@
             "source"
           ]
         },
-        "description": "Download the full original when retained or still available for review. It includes excluded pages and deleted-child pages."
+        "description": "Download the full original when retained or available for review. It includes excluded pages and pages from deleted children."
       }
     }
   ]

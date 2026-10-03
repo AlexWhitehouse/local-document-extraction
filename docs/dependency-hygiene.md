@@ -1,10 +1,10 @@
 # Dependency hygiene
 
-How dependencies are installed, checked, and upgraded.
+This guide describes dependency installation, checks, and upgrades.
 
 ## Installing
 
-The repository uses Bun's isolated linker with a global package store. CI installs with `bun ci`, and the install must leave `bun.lock` exactly as it was. Locally, use `bun install --frozen-lockfile` for the same guarantee.
+The repository uses Bun's isolated linker and global package store. CI uses `bun ci`. Installation must not change `bun.lock`. For local installation with the same restriction, use `bun install --frozen-lockfile`.
 
 ## Checking dependencies
 
@@ -12,36 +12,36 @@ The repository uses Bun's isolated linker with a global package store. CI instal
 bun run package:hygiene
 ```
 
-This runs the same read-only checks as CI:
+This command runs the same read-only checks as CI:
 
-- `bun audit --prod --json` for known vulnerabilities in production dependencies
-- `bun dedupe --check` for duplicate package versions
-- `bun pm licenses --prod --json` for a license inventory
+- `bun audit --prod --json` lists known vulnerabilities in production dependencies.
+- `bun dedupe --check` identifies duplicate package versions.
+- `bun pm licenses --prod --json` creates a license inventory.
 
-Reports are written to `.scratch/ci/package-hygiene/`. The command never changes anything: it doesn't run `bun audit fix`, `bun dedupe`, or any upgrade.
+Reports use `.scratch/ci/package-hygiene/`. The command does not change dependencies. It does not run `bun audit fix`, `bun dedupe`, or upgrades.
 
-The license report is an inventory, not a legal decision. There's no automatic allow or deny list.
+The license inventory does not make legal decisions. There is no automatic allow or deny list.
 
 ## Upgrading sensitive dependencies
 
-Upgrades to dependencies that handle authentication, document parsing, native binaries, networking, builds, or spreadsheets need a closer look. Generate a diff of what changed in the packages themselves:
+Review dependency upgrades carefully when they affect authentication, document parsing, native binaries, networking, builds, or spreadsheets. Generate the package changes:
 
 ```bash
 bun run package:diff-evidence
 ```
 
-This compares the published packages without installing or updating anything. Review:
+This command compares published packages without installing or updating them. Review these items:
 
-- files that were added or deleted
-- install scripts, entry points, and executable bits
-- new imports of sensitive built-in modules, and newly imported packages
-- the normalised patch
+- Added and deleted files.
+- Install scripts, entry points, and executable permissions.
+- New imports of sensitive built-in modules and other packages.
+- The normalized patch.
 
 ## New releases have to wait three days
 
-`bunfig.toml` refuses package versions published less than three days (259,200 seconds) ago, which gives the community time to spot malicious releases. The one permanent exception is `bun-types`, which is pinned to match the exact Bun version the project uses.
+`bunfig.toml` rejects package versions published less than three days (259,200 seconds) earlier. This delay gives the community time to identify malicious releases. The only permanent exception is `bun-types`. Its version must match the repository's Bun version exactly.
 
-For an urgent security fix, you can skip the wait for that one change with `--minimum-release-age=0`. The change still needs the package diff, a production audit, focused tests, and the full set of checks. Don't add broad or transitive exceptions just to speed up ordinary upgrades.
+For an urgent security fix, `--minimum-release-age=0` can bypass the delay for that change. The change still requires a package diff, production audit, focused tests, and the complete checks. Do not add broad or transitive exceptions for routine upgrades.
 
 ## Measuring the global store
 
@@ -49,4 +49,6 @@ For an urgent security fix, you can skip the wait for that one change with `--mi
 bun run benchmark:global-store
 ```
 
-This measures how the global package store performs for this repository, rather than relying on Bun's published benchmarks. It creates throwaway Git worktrees and warms a private package cache. Then it measures filling and reusing the global store, running the second install with registry access blocked. It checks symlinks and that the lockfile and Git stay clean, and runs `@napi-rs/canvas` in both worktrees. It never clears or changes your own Bun cache.
+This benchmark measures the global store with this repository. It does not depend on Bun's published benchmark results. It creates temporary Git worktrees and prepares a private package cache. It measures initial storage and reuse, with registry access blocked for the second install.
+
+The benchmark verifies symlinks and confirms that the lockfile and Git remain unchanged. It runs `@napi-rs/canvas` in both worktrees. It does not clear or change your Bun cache.

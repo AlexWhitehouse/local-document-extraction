@@ -1,6 +1,6 @@
 # Frontend Context
 
-The frontend context covers the browser experience for authenticated users managing workspaces, templates, and document extraction. It names UI concepts and interaction states; durable workspace rules are defined in the backend context.
+This context defines browser concepts and interactions for signed-in users who manage Workspaces, templates, and document extraction. The backend context defines durable Workspace rules.
 
 ## Language
 
@@ -21,7 +21,7 @@ A selectable workspace list item backed by a pending **Workspace invitation** ra
 _Avoid_: pending workspace, inactive workspace
 
 **Locked invitation state**:
-The workspace view shown for an **Invited workspace entry**, where invitation details and invitation actions are available but workspace API access is unavailable.
+The view for an **Invited workspace entry**. It shows invitation details and actions without access to Workspace product data.
 _Avoid_: disabled workspace, read-only workspace
 
 **Action toast**:
@@ -33,7 +33,7 @@ The auth-screen message telling an email/password user to verify their email bef
 _Avoid_: signup success, generic auth notice
 
 **Account password reset**:
-The auth-screen flow where someone who knows an account email can request a reset link and set a new password for an email/password Account.
+An auth-screen procedure to reset an email/password Account password. A person who knows the account email can request a reset link.
 _Avoid_: forgot password flow, password recovery, Workspace password reset
 
 **Application admin page**:
@@ -49,11 +49,11 @@ Browser-local cached details for completed **Extraction jobs**, scoped by accept
 _Avoid_: job history storage, workspace data persistence
 
 **Workspace live update**:
-A session-only realtime message stream for the accepted **Workspace context** that can update visible **Extraction jobs** and carry Workspace context invalidation hints.
+Realtime browser notifications for an accepted **Workspace context**. They update visible **Extraction jobs** and carry Workspace context invalidation hints. They require a signed-in session.
 _Avoid_: durable event history, polling replacement for all data, context snapshot
 
 **Workspace context invalidation**:
-A freshness hint from **Workspace live updates** that tells the browser to revalidate the selected accepted **Workspace context** over HTTP because product configuration or access state may have changed.
+A **Workspace live update** hint that product settings or access changed. It tells the browser to revalidate accepted **Workspace context** over HTTP.
 _Avoid_: local rule, context snapshot
 
 **Document**:
@@ -61,7 +61,7 @@ A user-provided file submitted for extraction.
 _Avoid_: image, upload, input file
 
 **Document reconciliation**:
-Keeping displayed **Extraction jobs**, Document selection, and the **Completed document cache** consistent with accepted updates for the current session and **Workspace context**.
+Coordination of displayed **Extraction jobs**, Document selection, and **Completed document cache** with accepted updates for the current session and **Workspace context**.
 _Avoid_: job merging, cache synchronization
 
 **Source file**:
@@ -69,23 +69,23 @@ The original uploaded binary for a **Document**.
 _Avoid_: image file, browser file, upload blob
 
 **Document viewing preference**:
-A user's per-Account, browser-local choice between viewing **Extraction results** alone and viewing the **Source file** alongside the results.
+An Account-specific browser preference for **Extraction results** alone or **Source file** and results together.
 _Avoid_: Workspace layout setting, Source file retention setting
 
 **Evaluation document library**:
-A Workspace-shared collection of saved documents and user-verified **Expected answers** that members can select for future single-document or Batch Evaluations.
+A Workspace-shared collection of documents and verified **Expected answers**. Members reuse them in single-document or Batch Evaluations.
 _Avoid_: saved Evaluation history, personal document library, model-generated ground truth
 
 **Saved Evaluation document**:
-A reusable library entry containing a fixed original **Source file** and one editable **Expected answer set**, independently of ordinary extraction history.
+A library entry with a fixed original **Source file** and editable **Expected answer set**. It is independent of ordinary extraction history.
 _Avoid_: saved Evaluation run, Extraction job, temporary Evaluation upload
 
 **Expected answer set**:
-The reference field definitions and any verified **Expected answers** saved with one library document, including expected-table structure and matching rules, for reuse across compatible **Templates**. It may be incomplete or have no verified answers yet.
+Reference field definitions and verified **Expected answers** saved with one library document. The set includes expected-table structure and matching rules. Compatible **Templates** can reuse it. It can be incomplete or contain no verified answers.
 _Avoid_: candidate output, Template-owned answer sheet, saved Evaluation results
 
 **Temporary Evaluation result cache**:
-Private, encrypted detailed-result storage usable only by its current live **Evaluation** in one tab and **Workspace**. It preserves the temporary Evaluation's lifetime and never supplies refresh restoration or saved run history.
+Private, encrypted storage for detailed results in one live **Evaluation**, tab, and **Workspace**. It preserves the Evaluation lifetime without refresh restoration or saved run history.
 _Avoid_: saved Evaluation history, Completed document cache, reusable Evaluation results
 
 **Product safety limit**:
@@ -93,7 +93,7 @@ A non-commercial guardrail that prevents unsupported or excessive Documents from
 _Avoid_: commercial quota, account tier
 
 **Extraction job**:
-The displayed processing item for one logical **Document**. Its **Template** is either pinned at explicit submission or selected after automatic classification; a held item may await a manual Template choice.
+The displayed processing record for one logical **Document**. An explicit submission fixes its **Template** immediately. Automatic classification selects it later. A held record can require manual selection.
 _Avoid_: job, upload, document row
 
 **Extraction result**:
@@ -105,19 +105,19 @@ A reusable extraction schema selected explicitly or automatically for a **Docume
 _Avoid_: form, prompt, extraction config
 
 **Template tag**:
-A user-defined, lowercase label shared within a **Workspace**, associated with zero or more **Templates**. Selected tags are part of the editable Template draft; the shared vocabulary also includes unused tags.
+A user-defined lowercase label shared within a **Workspace**, with zero or more associated **Templates**. Selected tags belong to the draft. The shared vocabulary includes unused tags.
 _Avoid_: field tag, personal label, automatic selection rule
 
 **Generated template draft**:
-An unsaved, model-proposed **Template** definition inferred from a user-provided file for review and editing before explicit saving. It may become a new Template or a revision of an existing Template.
+An unsaved **Template** proposed by a model from a sample file. The user reviews and edits it before saving. It can create a Template or revise an existing one.
 _Avoid_: automatically saved template, extraction result
 
 **Template assistant**:
-The Templates-only panel for explicitly requesting an explanation or focused edits to the current draft. Evidence, explanations, and proposals are temporary; opening the panel does not call the model. Shared deterministic diagnostics remain available in the Evaluation Template editor without model configuration.
+The Templates panel for explanations and focused edits to a draft. Evidence, explanations, and proposals are temporary. Opening the panel alone does not call the model. Shared deterministic diagnostics also work in the Evaluation Template editor without a model.
 _Avoid_: persistent chat, automatic repair, Evaluation assistant
 
 **Template change group**:
-An indivisible proposed edit with before/after values, a rationale, dependencies, and any future output-identity impact. Users select valid groups and Apply updates only the current draft once; Save remains explicit. Draft, request, target, page, Workspace, and session changes invalidate the captured proposal even if text later becomes identical.
+An indivisible proposed edit with before/after values, reasons, dependencies, and output-identity effects. **Apply** updates the draft once with the selected valid groups. Save is explicit. Draft, request, target, page, Workspace, or session changes invalidate the proposal. Restoring identical text does not restore validity.
 _Avoid_: saved Template version, verified improvement
 
 **Selected upload Template**:
@@ -149,18 +149,18 @@ The UI surface for generating and showing a workspace-scoped credential intended
 _Avoid_: frontend auth mode, session replacement
 
 **Getting started tour**:
-An optional guided walkthrough of real Workspace creation, Template fields and object-array columns, model configuration, and Document upload.
+An optional guided procedure that creates real Workspaces, configures Template fields and object-array columns, sets model configuration, and uploads Documents.
 _Avoid_: demo mode, sample data sandbox
 
 ## Relationships
 
 - The **Getting started tour** is offered after an authenticated user's Workspace context resolves, unless that Account has already started or dismissed it in this browser.
 - Tour preference is browser-local and keyed by Account; impersonated sessions do not show the tour.
-- The tour can be restarted from the left sidebar within the profile modal, which closes when the tour starts. Starting again begins a new Workspace walkthrough; it does not resume earlier progress.
-- On desktop the left navigation sidebar collapses to an icon rail (toggle button or `[`). The choice is browser-local and not tied to an Account.
+- Restart the tour from the profile modal in the left sidebar. Starting closes the modal and begins a new Workspace procedure. It does not resume earlier progress.
+- On desktop, the navigation sidebar collapses to icons through its toggle or `[`. The browser stores this choice independently of Account.
 - The tour invitation card is hidden while the navigation sidebar is collapsed; the tour stays available from the profile modal.
-- Tour actions create real Workspaces, Templates and Extraction jobs. Exiting or refreshing leaves saved data intact and does not save unfinished drafts.
-- While the tour is active, only the highlighted control or editor group and the tour controls accept pointer or keyboard interaction. Escape and Exit tour release the interaction restriction.
+- Tour actions create real Workspaces, Templates, and Extraction jobs. Exiting or refreshing preserves saved data and discards unfinished drafts.
+- During the tour, only highlighted controls, highlighted editor groups, and tour controls accept pointer or keyboard input. Escape and Exit tour remove this restriction.
 - Creation and upload steps advance on successful state changes, while validation or request failures keep the user on the relevant step for retry.
 - The tour explains **Workspace model configuration** before uploading; a configured Model gateway is required to continue to Document submission.
 
@@ -169,40 +169,40 @@ _Avoid_: demo mode, sample data sandbox
 - **Locked invitation state** does not provide workspace API access.
 - Accepting a **Workspace invitation** moves the frontend into the newly accepted **Workspace context**.
 - Declining a **Workspace invitation** removes the invited entry and returns the frontend to an accepted **Workspace context**.
-- Creating a new **Workspace** from the SPA moves the frontend into the new accepted **Workspace context** without generating a **Workspace API key**.
+- Creating a **Workspace** in the SPA selects its accepted **Workspace context**. It does not generate a **Workspace API key**.
 - Renaming the current **Workspace** updates the selected **Workspace** display and **Stored workspace preference** without clearing workspace-scoped data.
 - Startup workspace resolution chooses an accepted **Workspace context** when one exists; it does not auto-select an **Invited workspace entry**.
-- **Active page** and persisted Document/Template selection are represented by browser URLs. `/workspaces/{workspaceId}` opens the Workspace page; `/documents/{jobId}`, `/templates/{templateId}`, `/packets/{packetId}`, and `/evaluations` beneath that Workspace identify its product views. `/admin` is account-level and `/invitations/{invitationId}` opens a pending Workspace invitation. List URLs omit the resource ID; `/templates/new` represents a temporary draft, not a saved Template.
-- An explicit URL takes precedence over **Stored workspace preference** and is resolved only after authentication and backend Workspace access loading. `/` opens the remembered accessible Workspace, or the first accepted Workspace, then replaces itself with its canonical URL. Inaccessible explicit links show recovery without silently substituting another Workspace or resource. Missing resources remain at their URL until the user chooses recovery.
-- Browser Back/Forward restores Workspace, page and resource selection. A packet's selected child tab uses `/workspaces/{workspaceId}/packets/{packetId}/documents/{jobId}` to preserve packet context. Native navigation links support copying addresses and opening separate tabs. Search, filters, sort and bulk selection remain local. Template links open the current saved version; historical version URLs are not supported. `/reset-password` retains its existing token flow.
-- Same-Workspace section navigation preserves Template drafts and temporary Evaluations in memory. Replacing a dirty Template, switching Workspace, or leaving an open Evaluation dialog confirms before discarding relevant edits; cancelled Back/Forward restores the original history entry. Refresh or leaving the app warns about unsaved Template/Evaluation state but does not persist it.
+- URLs determine **Active page** and persisted Document/Template selection. `/workspaces/{workspaceId}` opens the Workspace page. Its `/documents/{jobId}`, `/templates/{templateId}`, `/packets/{packetId}`, and `/evaluations` paths select product views. `/admin` is account-level. `/invitations/{invitationId}` opens a pending invitation. List URLs omit resource IDs; `/templates/new` opens a temporary draft.
+- Explicit URLs take priority over **Stored workspace preference** after authentication and backend access loading. `/` selects the remembered accessible Workspace or first accepted Workspace, then uses its canonical URL. Inaccessible explicit links show recovery without substituting a Workspace or resource. Missing resources keep their URL until the user selects recovery.
+- Browser Back/Forward restores Workspace, page, and resource selection. Packet child tabs use `/workspaces/{workspaceId}/packets/{packetId}/documents/{jobId}` to preserve packet context. Native links permit address copying and separate tabs. Search, filters, sort, and bulk selection remain local. Template links open the current saved version; historical version URLs are unsupported. `/reset-password` retains its token procedure.
+- Navigation within one Workspace preserves Template drafts and temporary Evaluations in memory. Replacing a dirty Template, switching Workspace, or leaving an Evaluation dialog requires confirmation before relevant edits are discarded. Canceling Back/Forward restores the original history entry. Refreshing or leaving the app warns about unsaved Template/Evaluation state without saving it.
 - **Stored workspace preference** persists accepted **Workspace** selection, not selected **Workspace invitations**.
 - **Stored workspace preference** contains only accepted **Workspace** ID and display name.
 - **Stored workspace preference** may restore an **Accepted workspace entry**, but only when that **Workspace** still appears in the backend workspace list.
-- If **Stored workspace preference** no longer matches an accepted **Workspace**, the frontend silently selects another accepted **Workspace** from the backend list and replaces the stored preference.
-- After the user deletes the current **Workspace**, the frontend clears current workspace-scoped state, refreshes the backend workspace list, and selects the first remaining accepted **Workspace**.
-- If the selected accepted **Workspace** starts returning forbidden access, the frontend refreshes backend access. An explicit Workspace URL stays on a recovery screen when access is lost; the user can choose an accessible Workspace or return to `/` for default resolution.
+- If **Stored workspace preference** is no longer accessible, select another accepted **Workspace** from the backend list. Replace the preference without a prompt.
+- After current **Workspace** deletion, clear its frontend state. Refresh the Workspace list and select the first remaining accepted Workspace.
+- If accepted **Workspace** access becomes forbidden, refresh backend access. An explicit Workspace URL remains on a recovery screen. The user can select an accessible Workspace or open `/` for default resolution.
 - **Stored workspace preference** does not persist **Workspace API key** material.
 - Legacy stored `workspace_local_default` values are treated as no accepted **Workspace** preference.
 - The frontend stores workspace preference under a Document Extraction local storage key and does not read the legacy `imageextraction.workspace.v1` key.
 - Replacing the legacy storage key is an intentional clean break from old local workspace preference and cached workspace data.
 - Auth form values are not part of **Stored workspace preference** and are not persisted by default.
-- The frontend must not invent a default or fallback **Workspace**; before an accepted **Workspace** is resolved, it shows **Loading workspace context**.
+- The frontend must not invent a fallback **Workspace**. Show **Loading workspace context** until accepted backend access resolves.
 - **Loading workspace context** uses a generic loading display rather than a stored Workspace name hint.
 - During **Loading workspace context**, workspace-scoped UI actions are unavailable until an accepted **Workspace** is resolved.
-- A **Workspace resolution error** keeps workspace-scoped UI actions unavailable and offers retry rather than falling back to stored Workspace preference.
+- A **Workspace resolution error** keeps Workspace actions disabled. Offer retry without falling back to stored preference.
 - Unauthenticated users accessing the SPA are taken to the login page and do not have a **Workspace context**.
-- The frontend loads public runtime capabilities before presenting auth: only enabled login methods and registration actions are offered, and the upload limit follows runtime configuration.
-- When email verification is required, email/password sign-up shows an **Account verification prompt** instead of resolving a session or Workspace. When disabled (the default), the frontend resolves account access without that prompt.
+- Load public runtime capabilities before showing auth controls. Offer only enabled login methods and registration actions. Use the configured upload limit.
+- If verification is required, email/password signup shows **Account verification prompt** without resolving session or Workspace. Otherwise, resolve account access directly. Verification is disabled by default.
 - The **Account verification prompt** and password-reset feedback distinguish local captured links from actual inbox delivery.
 - After email/password sign-up, the **Account verification prompt** replaces the create-account form rather than appearing alongside it.
 - Leaving the **Account verification prompt** for sign-in preserves the submitted email address and clears password fields.
 - While the **Account verification prompt** is visible, it owns the transition back to sign-in; normal auth form switch links are not shown alongside it.
 - The email address shown in the **Account verification prompt** is read-only display text, not an editable resend or account-change control.
-- The **Account verification prompt** tells the user to open the verification link to finish setting up the account, rather than implying manual sign-in is always required after verification.
+- **Account verification prompt** tells users to open the verification link to complete account setup. It must not imply that manual sign-in always follows verification.
 - The **Account verification prompt** does not show alternate auth actions such as Google sign-in; those remain available on the sign-in screen.
 - The visible **Account verification prompt** blocks another sign-up attempt until the user leaves the prompt and intentionally opens sign-up again.
-- When verification is required and an unverified email/password user tries to sign in, the frontend explains the configured delivery surface for the new verification link.
+- If required verification blocks an unverified email/password sign-in, explain where the new verification link is delivered.
 - The initial **Account verification prompt** does not include a separate resend control; sign-in retries send a new verification link.
 - **Account password reset** request feedback does not reveal whether the submitted email belongs to an email/password Account.
 - **Account password reset** links open the unauthenticated `/reset-password` SPA experience with a Better Auth reset token or token error in the query string.
@@ -244,7 +244,7 @@ _Avoid_: demo mode, sample data sandbox
 - **Application admin page** user listing uses a fixed page size of 25 with previous/next pagination.
 - **Application admin page** user listing sorts by newest accounts first by default.
 - The first **Application admin page** does not expose role or banned-status filters.
-- If a non-admin frontend state attempts to show the **Application admin page**, the frontend returns to the Workspace page rather than rendering an unauthorized admin view.
+- If a non-admin state selects **Application admin page**, return to the Workspace page. Do not render unauthorized admin content.
 - **Application admin page** actions use Action toasts for operation outcomes and inline errors for recoverable form or loading issues.
 - **Application admin page** user listing uses a simple in-panel loading state rather than a skeleton layout.
 - The Admin sidebar item does not show a count badge in the first slice; total user count appears inside the **Application admin page** after loading.
@@ -265,26 +265,26 @@ _Avoid_: demo mode, sample data sandbox
 - The **Application admin page** allows banning another Application admin with explicit confirmation.
 - Unbanning a user from the **Application admin page** requires confirmation that shows the user's email and existing ban reason.
 - Application role changes from the **Application admin page** do not trigger custom session invalidation in the first slice.
-- After an Application admin starts impersonating a user, the frontend clears session-scoped Workspace, Template, and Document UI state, refetches the session, and moves to the Workspace page.
+- After impersonation starts, clear session-scoped Workspace, Template, and Document state. Reload the session and open the Workspace page.
 - During impersonation, the frontend shows a persistent impersonation indicator with a stop-impersonating action.
 - The primary impersonation indicator appears in the main layout, not only inside the profile menu.
 - Impersonation state is read from Better Auth's session response rather than a custom product session endpoint.
 - The impersonation indicator names the current impersonated user and does not show the original admin's Better Auth user ID.
 - Stopping impersonation is immediate and does not require confirmation.
-- Stopping impersonation clears session-scoped Workspace, Template, and Document UI state, refetches the session, and returns an Application admin to the **Application admin page**.
+- After impersonation stops, clear session-scoped Workspace, Template, and Document state. Reload the session and return the admin to **Application admin page**.
 - Backend repair of a broken zero-accepted-Workspace invariant is not surfaced as a user-facing **Action toast**.
 - The frontend SPA uses the signed-in user session plus accepted **Workspace context** for workspace-scoped requests, not **Workspace API key display** credentials.
-- **Template assistant** requests, suggested requests, and historical-evidence reads are session-only frontend operations. They are not part of the Workspace API-key integration surface; sample-based Template generation remains available there.
-- When the accepted **Workspace context** changes, the frontend immediately clears visible workspace-scoped data from the previous **Workspace** before loading the new **Workspace** data.
-- **Workspace API key display** may show newly generated key material for external clients, but the SPA must not store or use it as its own active credential.
+- Signed-in members use **Template assistant**, suggested requests, and historical evidence in the frontend. Sample-based Template generation is also available to integrations.
+- On accepted **Workspace context** change, immediately clear the previous Workspace’s visible data. Then load the new Workspace.
+- **Workspace API key display** can show newly generated credentials for external clients. The SPA must not store or use them as its active credential.
 - **Workspace API key display** shows key material only immediately after creation or rotation; after navigation or refresh, the secret is no longer available.
 - Creating a **Workspace** from the SPA does not automatically show external-client credential material; owners/admins explicitly generate or rotate the key when needed.
-- After an owner/admin generates or rotates a **Workspace API key**, the frontend always shows the new key material in **Workspace API key display**, attempts to copy it to the clipboard, and shows an **Action toast**.
-- Successful clipboard copy reports "Workspace API key generated and copied" or "Workspace API key rotated and copied"; failed clipboard copy reports that the key was generated or rotated and must be copied before leaving the page.
+- After key generation or rotation, show the new secret in **Workspace API key display**. Attempt clipboard copying and show an **Action toast**.
+- Successful copying reports "Workspace API key generated and copied" or "Workspace API key rotated and copied". Copy failure reports successful generation or rotation and instructs the user to copy the key before leaving.
 - One-time visible **Workspace API key** material remains visible until the user dismisses it, changes **Workspace**, signs out, refreshes, or navigates away.
 - Visible **Workspace API key** material includes a small icon-only copy button inside the key field.
 - The icon-only copy button for visible **Workspace API key** material has an accessible label such as `Copy API key`.
-- The **Workspace API key display** action is labelled "Generate API Key" before an external-client key exists and "Rotate API Key" when replacing an existing key.
+- The **Workspace API key display** action is labeled "Generate API Key" before an external-client key exists and "Rotate API Key" when replacing an existing key.
 - Rotating an existing **Workspace API key** requires confirmation because it invalidates existing external clients; first generation does not require confirmation.
 - When no **Workspace API key** exists, **Workspace API key display** says "Generate an API key to view".
 - When a **Workspace API key** exists but key material is not visible, **Workspace API key display** says "Rotate API key to view again".
@@ -292,25 +292,25 @@ _Avoid_: demo mode, sample data sandbox
 - The **Workspace API key display** section is visible to workspace members, but only owners/admins can generate or rotate **Workspace API keys**.
 - An **Action toast** may report the outcome of actions on Workspaces, Templates, Documents, Workspace invitations, Workspace members, or clipboard content.
 - A **Document upload toast** is a specialized **Action toast** for document queueing outcomes.
-- **Document reconciliation** owns Document reads, submission and deletion, displayed **Extraction jobs**, selection, pagination, counts, and the **Completed document cache** for the current session and accepted **Workspace context**.
-- An overlapping Document read preserves changes observed since that read began, merges unaffected rows, and schedules one coalesced backend refresh to reconcile list membership and counts.
-- A Document submission batch captures its original **Workspace context** and request adapter. Switching **Workspace** lets remaining files submit to the original **Workspace**, while suppressing its later UI and cache effects.
-- A session change stops unsent files in Document submission batches. Sign-out and impersonation actions stop unsent files when the action begins; already submitted backend work may finish.
-- React owns Document presentation, confirmations, toasts, downloads, and **Workspace live updates** transport; **Document reconciliation** decides which Document updates and request outcomes are accepted.
+- **Document reconciliation** owns reads, submission, deletion, displayed **Extraction jobs**, selection, pagination, counts, and **Completed document cache**. Its scope is the current session and accepted **Workspace context**.
+- An overlapping Document read preserves changes received after the read started. It merges unaffected rows and schedules one combined refresh for list membership and counts.
+- Submission batches capture their original **Workspace context** and request adapter. After a Workspace switch, remaining files submit to the original Workspace. Later UI and cache effects are suppressed.
+- Session changes stop unsent batch files. Sign-out and impersonation stop unsent files when the action starts. Accepted backend work can finish.
+- React owns presentation, confirmations, toasts, downloads, and **Workspace live updates** transport. **Document reconciliation** accepts or rejects Document updates and request outcomes.
 - **Completed document cache** may render completed **Extraction job** details immediately after an accepted **Workspace context** is resolved, while the backend remains the source of truth.
 - **Completed document cache** contains backend-returned completed job metadata and **Extraction results**, not source file contents, `File` objects, blob URLs, or source preview URLs.
-- The **Document viewing preference** defaults to results, is keyed by Account in browser storage, and is read-only during impersonation: changes then apply to the page without being stored.
-- A **Document** whose **Source file** was not retained shows results only, with no layout switch or Download, while keeping the Account's stored preference for other Documents.
-- The retained **Source file** is fetched only while its side-by-side pane is visible, held in memory as an object URL, and released when the Document, layout, session or Workspace changes. Below a 600px main area, side by side shows Results | Document tabs and opens on Results.
+- **Document viewing preference** defaults to results and uses Account-specific browser storage. During impersonation, changes affect the page without changing the stored preference.
+- Without a retained **Source file**, a **Document** shows results only. Hide layout switching and Download. Preserve the Account’s preference for other Documents.
+- Load a retained **Source file** only while its side-by-side pane is visible. Keep it in memory as an object URL. Release it when Document, layout, session, or Workspace changes. Below a 600px main-area width, use Results | Document tabs and start on Results.
 - **Completed document cache** stores a completed **Extraction job** only after the user opens that **Document** and its details load.
 - **Completed document cache** keeps at most 50 completed **Documents** per accepted **Workspace**.
 - **Completed document cache** may survive page refresh for the same resolved accepted **Workspace**.
 - **Completed document cache** does not store queued, processing, or failed **Extraction jobs** as durable UI state.
 - **Completed document cache** entries are removed when the backend no longer lists the **Extraction job** or the user deletes the **Document**.
 - **Completed document cache** entries are not removed merely because a filtered job list does not show them.
-- **Completed document cache** entries are pruned conservatively after unfiltered backend job-list refreshes and removed immediately when a job detail request returns not found.
-- A Document list without an explicit resource URL may select the first available **Document**. An explicitly linked Document remains selected independently of list membership; a not-found detail response shows recovery.
-- Selected **Document** is restored from its URL across refresh. Explicit detail reads are independent of list pagination and filters; an absent list row does not establish that the linked Document was deleted.
+- Prune **Completed document cache** conservatively after unfiltered list refreshes. A not-found detail response removes its entry immediately.
+- Without an explicit resource URL, the Document list can select its first available item. An explicit link preserves selection independently of list membership. A not-found detail response shows recovery.
+- Restore the selected **Document** from its URL after refresh. Detail reads do not depend on pagination or filters. An absent list row does not prove deletion.
 - **Completed document cache** is cleared when the accepted **Workspace context** changes.
 - **Completed document cache** and user-specific stored workspace data are cleared on sign-out.
 - A **Document** has one **Source file** selected in the browser before submission.
@@ -319,31 +319,32 @@ _Avoid_: demo mode, sample data sandbox
 - Standard MIME types, generated files, and required platform API vocabulary may retain `image` where that word is part of the external standard or platform contract.
 - Use **Document** synonymously for supported source formats, including PNG, JPEG, WebP, and PDF, unless a standards-level MIME type must be named.
 - The product/API label is **Document Extraction**, not legacy Image Extraction.
-- Upload requires an explicit **Template** or Automatic with one or more existing **Template tags**. Automatic uses any matching tag to constrain candidates and assesses each logical Document independently. An explicit Template remains authoritative.
+- Upload requires an explicit **Template** or Automatic with one or more existing **Template tags**. Automatic candidates match any selected tag. Each logical Document is assessed independently. An explicit Template takes priority.
 - Automatic upload selection shows existing **Template tags** as checkbox chips with counts and a preview of matching Templates. Creating or managing tags belongs to the Template page.
 - The upload default remains the previously selected Template. Automatic has no Workspace enable/disable toggle.
-- Browser uploads submit all pages. Physical original-page selection remains available through the API; page numbers in split review and lineage never refer to a renumbered preview or child.
-- **Workspace document processing settings** govern every upload and API request. Their section appears directly below Model gateway on the Workspace page; the upload modal has no policy paragraph or per-request overrides. Smart splitting and blank exclusion default to disabled; blank exclusion only applies during enabled Smart splitting. Setting toggles save immediately and show an **Action toast**; a failed save restores the previous value.
+- Browser uploads submit all pages. API clients can select physical original pages. Split review and lineage always use original page numbers, never preview or child numbering.
+- **Workspace document processing settings** apply to all uploads and API requests. Show them directly below Model gateway. The upload modal has no policy paragraph or overrides. Splitting and blank exclusion default to disabled; exclusion requires splitting. Toggles save immediately and show an **Action toast**. A failed save restores the previous value.
 - Without Smart splitting, one submitted **Document** creates one **Extraction job**. Smart splitting creates a **Document packet** parent with logical child jobs.
-- A **Document packet** with multiple logical Documents or unresolved boundaries is displayed as a parent, with original-page groups, excluded pages, progress and child links. Single-page uploads show ordinary Document preparation, and an accepted one-document split opens that child's normal results and Source file view automatically, including for multi-page Documents. The list shows one ordinary Document row using the child ID and status, without packet tabs or counts. This presentation follows the accepted plan, so deleting siblings from a multi-document packet does not turn it into a single Document. The durable parent is not an extracted Document, export row, or Completed document cache entry; packet counts never inflate extraction-job counts.
-- Packet review and Template selection request human intervention only after bounded automatic reassessment or when no further automatic work can help. Held sources remain available for resolution without another upload. Confirmation requires the signed-in user session and accepted Workspace context; Workspace API keys cannot perform manual resolution.
-- The packet review editor shows original-page previews and requires every selected page in exactly one nonempty group or explicitly justified exclusion. Confirmation submits the displayed plan revision; a conflict refreshes the plan and requires renewed review.
+- Show multi-document packets and unresolved boundaries in a parent view. Include original-page groups, exclusions, progress, and child links. Single-page uploads show ordinary Document preparation. Accepted one-document splits open normal child results and Source file views, including for multi-page Documents.
+- Show an accepted one-document split as one row with the child ID and status. Omit packet tabs and counts. This decision follows the accepted plan; deleting siblings does not convert a multi-document packet. The durable parent is not an extracted Document, export row, or Completed document cache entry. Packet counts do not increase extraction-job counts.
+- Request manual review only after bounded reassessment or when further automatic work cannot help. Keep held sources available without another upload. A signed-in member confirms boundaries or selects Templates within accepted Workspace context.
+- Packet review shows original-page previews. Every selected page must belong to one nonempty group or have an explicit exclusion reason. Confirmation uses the displayed plan revision. A conflict reloads the plan and requires renewed review.
 - A verified all-blank packet completes as **No documents to extract**, with exclusion records and zero child jobs.
-- Packet-wide deletion explicitly deletes the parent and all children. Deleting a child from a multi-document packet leaves siblings and the parent intact. Deleting a split result presented as a single Document also removes its hidden parent and retained original; Download and Export use the child Document. Downloading a retained packet original includes the entire originally submitted file, even excluded pages.
+- Packet deletion removes the parent and all children. Child deletion in a multi-document packet preserves siblings and parent. Deleting a split result shown as one Document also removes its hidden parent and retained original. Download and Export use the child. A retained packet download contains the full uploaded file, including excluded pages.
 - Automatic Template selection displays the pinned Template/version and concise reason. Manual resolution can select any usable authorized Template without re-uploading the Source file.
-- The header Documents count represents the total number of durable **Extraction jobs** in the current accepted **Workspace** across `queued`, `processing`, `awaiting_template`, `completed`, and `failed`, regardless of pagination, search, or how many list rows the frontend has loaded.
-- Document status counters also represent authoritative Workspace-wide totals, regardless of pagination or filters. Lifecycle updates revalidate counts independently of list pages, including changes to Documents that have not been loaded.
+- The header Documents count totals all durable **Extraction jobs** in the accepted **Workspace**. It includes `queued`, `processing`, `awaiting_template`, `completed`, and `failed`. Pagination, search, and loaded-row count do not affect it.
+- Status counters show authoritative Workspace totals independently of pagination and filters. Lifecycle updates revalidate counts separately from lists, including updates to unloaded Documents.
 - A **Template** has one or more **Template fields** displayed and edited by the frontend.
 - **Template fields** are always requested during extraction; the template editing UI does not offer required/optional field controls.
 - The Template field editor and JSON modal allow at most one table-shaped **Template field** with no more than 20 **Template object columns**.
-- An **Extraction job** shows results for its fixed **Template version**, pinned at explicit submission or when automatic/manual selection resolves. Subsequent Template edits do not change its interpretation.
+- An **Extraction job** shows results for its fixed **Template version**, pinned at explicit submission or when automatic/manual selection resolves. Later Template edits do not change its interpretation.
 - A completed **Extraction job** displays **Extraction results** for extracted **Template fields**.
 - **Selected upload Template** is derived from backend Templates after Workspace resolution and does not persist across page refresh.
-- **Workspace live updates** are not durable history; clients revalidate authoritative **Workspace product data** and accepted **Workspace context** over HTTP after reconnecting.
+- **Workspace live updates** do not provide durable history. After reconnecting, revalidate authoritative **Workspace product data** and accepted **Workspace context** over HTTP.
 - **Extraction job** lifecycle live updates update Documents UI state without refreshing **Workspace context**.
 - **Workspace context invalidation** refreshes selected accepted **Workspace context** over HTTP through bounded scheduling so bursts coalesce.
-- Workspace and Template reads apply only while their originating session and **Workspace context** remain current. Switching away and back also invalidates earlier requests; stale errors cannot trigger workspace recovery.
-- Switching session or **Workspace context** clears Template editor state, JSON drafts, lists, and **Selected upload Template**. Late Template mutations cannot repopulate the new context, and later Template selection or draft actions supersede pending detail reads.
+- Workspace and Template reads apply only to their originating session and **Workspace context**. Switching away and back invalidates earlier reads. Stale errors cannot trigger Workspace recovery.
+- Session or context changes clear Template editor state, JSON drafts, lists, and **Selected upload Template**. Late mutations cannot repopulate the new context. Later selections or draft actions supersede pending detail reads.
 - **Workspace access** invalidation revalidates selected accepted **Workspace context** immediately and blocks useful live update effects until revalidation succeeds.
 - The common live invalidation path refreshes selected accepted **Workspace context** without fetching pending **Workspace invitations** or unrelated Workspaces.
 - A full Workspace-list refresh remains available for startup, Stored workspace preference recovery, Workspace switching, pending **Workspace invitation** resolution, and access recovery.
@@ -355,16 +356,20 @@ _Avoid_: demo mode, sample data sandbox
 
 ## Flagged Ambiguities
 
-- "workspace state" can mean backend access, local persistence, or UI presentation; resolved: use **Workspace selection view** for the UI concept and **Workspace context** for the backend-defined access context.
-- "default workspace" was used for a synthetic frontend workspace ID; resolved: use **Loading workspace context** until a backend-backed accepted **Workspace** is available.
-- Legacy "image" terminology was used for earlier document submission, but the resolved product term is **Document** because source files can include PDFs as well as images; use **Source file** when referring to the original submitted binary.
+- Use **Workspace selection view** for frontend presentation and **Workspace context** for backend-defined access. "Workspace state" can also refer to local storage and is ambiguous.
+- The old "default workspace" represented a synthetic frontend ID. Use **Loading workspace context** until an accepted backend **Workspace** is available.
+- Use **Document** for supported PDFs and images. Use **Source file** for the submitted binary. The older term "image" does not cover all supported formats.
 
 ## Evaluations
 
-**Evaluation** is a temporary comparison in one browser tab and Workspace. Its documents, candidate drafts, verified Expected answers and results belong to that live tab so navigation preserves them. Refresh discards them. There is no idle expiry or saved Evaluation history. Detailed results are held in a **Temporary Evaluation result cache** that preserves this lifetime. Clear, tab closure, session or access loss, and Workspace change also discard private Evaluation state. Only documents explicitly saved to the **Evaluation document library** outlive it; a selected Saved Evaluation document brings a private working copy of its **Expected answer set**, which changes the shared set only through an explicit, conflict-checked update.
+**Evaluation** is a temporary comparison in one browser tab and Workspace. Documents, candidate drafts, verified Expected answers, and results belong to that tab. Navigation preserves them. Refresh discards them. There is no idle expiry or saved run history.
 
-**Comparison candidates** either share Template fields and compare models, or share model/capabilities and compare independently editable Templates. A result carries its tested input snapshot; later edits require an explicit rerun. Only an explicitly verified Expected answer supplies a correctness reference. Coverage and matches are separate; table-cell matches are separate from scalar-field matches.
+The **Temporary Evaluation result cache** preserves this lifetime. Clear, tab closure, session or access loss, and Workspace changes discard private Evaluation state. Only documents saved explicitly to **Evaluation document library** persist. A selected **Saved Evaluation document** supplies a private working copy of its **Expected answer set**. Changes reach the shared set only through an explicit update with conflict detection.
 
-Expected date inputs default to day/month/year, with an explicit month/day/year choice and an interpreted-date preview. Verification stores dates in ISO form. Candidate date comparison uses the app's day/month/year convention for ambiguous numeric dates, so the same calendar day matches across returned and stored formats. Expected table cells can contain a value, be explicitly absent, or be ignored for scoring. Absent cells expect empty output cells in existing rows; ignored cells do not affect accuracy or difference highlighting. These statuses travel with saved Expected answer sets. Validation feedback appears beside the failing input, and table errors select the affected row.
+**Comparison candidates** either share Template fields to compare models, or share model/capabilities to compare editable Templates. Each result records its tested inputs. Later edits require an explicit rerun. Only verified Expected answers provide correctness references. Coverage and matches are separate measures. Table-cell matches are separate from scalar-field matches.
 
-The **Template field editor** is shared between the Templates page and the full modal used for Evaluation candidate editing. Apply updates a draft. Save as new Template explicitly persists an independent normal Template from the current draft.
+Expected dates default to day/month/year. Users can select month/day/year and inspect the interpreted date before verification. Verification stores ISO dates. Candidate comparison uses day/month/year for ambiguous numeric dates. Equivalent calendar days match across stored and returned formats.
+
+Expected table cells can hold values, explicit absence, or an ignored state. Absent cells require empty output cells in existing rows. Ignored cells do not affect accuracy or difference highlighting. Saved Expected answer sets preserve these states. Validation errors appear beside affected inputs. Table errors select the affected row.
+
+The **Template field editor** serves Templates and the full Evaluation candidate-editing modal. Apply changes the draft. Save as new Template explicitly saves an independent normal Template from that draft.

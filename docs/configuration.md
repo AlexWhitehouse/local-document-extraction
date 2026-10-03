@@ -1,6 +1,6 @@
 # Configuration
 
-Most people never need to change a setting: the defaults give you a private app on your own machine with email and password accounts. This page explains how to change things when you do.
+The default settings provide a private app on your machine, with email and password accounts. Use this guide when you need to change a setting.
 
 - [How settings work](#how-settings-work)
 - Guides: [access from other machines](#access-from-other-machines) · [Google sign-in](#google-sign-in) · [transactional email](#transactional-email) · [larger uploads](#allow-larger-uploads)
@@ -9,37 +9,39 @@ Most people never need to change a setting: the defaults give you a private app 
 
 ## How settings work
 
-Settings are environment variables read once when the app starts. **Restart the app after changing them.**
+The app reads environment variables once during startup. **Restart the app after you change these settings.**
 
 | Setup | Settings file |
 | --- | --- |
 | Installer | `config.env` in the config folder (`~/.config/document-extraction/` by default). The installer's [setup questions](setup.md#first-time-setup-questions) write this file for you. |
 | Source checkout | `.env` in the repository root. Create it by copying `.env.example`. |
 
-A few rules apply to every setting:
+Use these rules for all settings:
 
-- The file uses dotenv syntax. Don't `source` it as a shell script.
-- An environment variable already set in your shell overrides the file. If a setting seems to be ignored, check for an exported variable with the same name.
-- Leaving an optional value empty is the same as not setting it.
-- True/false settings accept `true`/`false`, `1`/`0`, `yes`/`no`, or `on`/`off`. Sizes are whole numbers of bytes; durations are whole numbers of milliseconds.
+- The file uses dotenv syntax. Do not `source` it as a shell script.
+- A shell environment variable overrides the settings file. If the app ignores a file value, look for an exported variable with the same name.
+- An empty optional value has the same effect as an unset value.
+- Boolean settings accept `true`/`false`, `1`/`0`, `yes`/`no`, or `on`/`off`. Give sizes as whole numbers of bytes. Give durations as whole numbers of milliseconds.
 - Never put secrets in frontend files, source code, issue reports, or Git.
 
-To check your settings without starting the app, run the launcher's `doctor` command, or `bun backend/src/checkConfiguration.ts` from a source checkout. Errors name the setting at fault without printing secret values.
+To validate settings without starting the app, run the launcher’s `doctor` command. For a source checkout, run `bun backend/src/checkConfiguration.ts`. Errors identify the incorrect setting and do not show secret values.
 
 ## Access from other machines
 
-By default the app only accepts connections from the machine it runs on. To reach it from elsewhere:
+By default, the app accepts connections only from its own machine. To allow access from other machines, use this procedure:
 
-1. Put a reverse proxy with HTTPS in front of the app, and have it forward `/api/auth`, `/v1`, and the Workspace live-update WebSocket.
-2. Set `BETTER_AUTH_URL` to the HTTPS address people will use, for example `https://documents.example.com`. Account emails and Google sign-in use this address.
-3. Leave `HOST` as `127.0.0.1` if the proxy runs on the same machine. Setting `HOST=0.0.0.0` exposes the app to your network; only do that with firewall rules in place.
-4. If the proxy sets a header with the visitor's real IP address, name it in `AUTH_TRUSTED_IP_HEADERS`. Without it, every visitor appears to come from the proxy and shares one sign-in rate limit. Only do this if the proxy always overwrites that header, so visitors can't fake it. For example, `cf-connecting-ip` is only safe when traffic really comes through Cloudflare.
+1. Put an HTTPS reverse proxy in front of the app.
+2. Configure the proxy to forward `/api/auth`, `/v1`, and the Workspace live-update WebSocket.
+3. Set `BETTER_AUTH_URL` to the public HTTPS address, for example `https://documents.example.com`. Account emails and Google sign-in use this address.
+4. Keep `HOST` at `127.0.0.1` if the proxy runs on the same machine. Use `HOST=0.0.0.0` only with firewall rules that control network access.
+5. If the proxy supplies the visitor’s IP address, specify its header in `AUTH_TRUSTED_IP_HEADERS`. The proxy must always overwrite this header to prevent forged addresses. Without a trusted header, all visitors share the proxy’s sign-in rate limit. Use `cf-connecting-ip` only when traffic comes through Cloudflare.
 
 ## Google sign-in
 
-1. In the [Google credentials console](https://console.cloud.google.com/apis/credentials), create an OAuth web client, and set up its consent screen and test users as Google requires.
-2. Register this redirect address, using your own address and port: `http://127.0.0.1:8787/api/auth/callback/google` for a local install, or `https://documents.example.com/api/auth/callback/google` behind a proxy.
-3. Add these settings, restart, and try signing in:
+1. Create an OAuth web client in the [Google credentials console](https://console.cloud.google.com/apis/credentials).
+2. Configure its consent screen and test users as Google requires.
+3. Register the redirect address with your host and port. Use `http://127.0.0.1:8787/api/auth/callback/google` locally, or `https://documents.example.com/api/auth/callback/google` behind a proxy.
+4. Add these settings.
 
 ```dotenv
 AUTH_GOOGLE_ENABLED=true
@@ -48,22 +50,28 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 BETTER_AUTH_URL=http://127.0.0.1:8787
 ```
 
-To allow only Google sign-in, set `AUTH_EMAIL_PASSWORD_ENABLED=false` once Google sign-in works. Google is the only supported sign-in provider; OIDC, SAML, and Microsoft Entra ID would need code changes. See [Better Auth's Google guide](https://better-auth.com/docs/authentication/google) for more detail.
+5. Restart the app.
+6. Verify that Google sign-in works.
+
+To permit only Google sign-in, set `AUTH_EMAIL_PASSWORD_ENABLED=false` after you verify Google sign-in. Google is the only supported sign-in provider. OIDC, SAML, and Microsoft Entra ID require code changes. See [Better Auth’s Google guide](https://better-auth.com/docs/authentication/google).
 
 ## Transactional email
 
-The app sends two kinds of email: account verification and password reset. (Workspace invitations appear inside the app and are never emailed.)
+The app sends account verification and password reset emails. Workspace invitations appear in the app. The app does not email invitations.
 
-**By default, emails are not sent.** They are saved on this machine instead. The links in them appear in the server log and in `mail/YYYY-MM-DD.jsonl` inside the data folder. Installer users can read them with the launcher's `mail` command. Open each link in the same browser you use for the app. The links give access to accounts, so don't share them or include them in screenshots.
+**By default, the app does not send emails.** It saves them on this machine. Email links appear in the server log and in `mail/YYYY-MM-DD.jsonl` inside the data folder. Installer users can read them with the launcher’s `mail` command.
 
-This works well when you are the only user, or when you control the machine. If other people need to receive their own emails, set up Cloudflare delivery.
+Open each link in the browser you use for the app. These links give access to accounts. Do not share them or include them in screenshots.
+
+Local email is suitable for a single user or a machine you control. Configure Cloudflare delivery when other users need to receive their own emails.
 
 ### Send email with Cloudflare
 
-1. Add a sending domain in Cloudflare Email Service and finish its DNS setup. Cloudflare requires the domain to use Cloudflare DNS. See [Cloudflare's setup guide](https://developers.cloudflare.com/email-service/get-started/send-emails/).
-2. In the [Cloudflare dashboard](https://dash.cloudflare.com/), find your account ID (search for **Copy account ID**, or see [where to find it](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)).
-3. Under [API Tokens](https://dash.cloudflare.com/profile/api-tokens), create a custom token with the **Account → Email Sending → Edit** permission, limited to that account.
-4. Add these settings with your own values, then restart:
+1. Add a sending domain in Cloudflare Email Service.
+2. Complete its DNS configuration. The domain must use Cloudflare DNS. See [Cloudflare’s setup guide](https://developers.cloudflare.com/email-service/get-started/send-emails/).
+3. Find your account ID in the [Cloudflare dashboard](https://dash.cloudflare.com/). Search for **Copy account ID**, or see [where to find it](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/).
+4. Under [API Tokens](https://dash.cloudflare.com/profile/api-tokens), create a custom token. Give it **Account → Email Sending → Edit** permission for that account only.
+5. Add these settings with your values.
 
 ```dotenv
 EMAIL_PROVIDER=cloudflare
@@ -74,48 +82,50 @@ CLOUDFLARE_EMAIL_API_TOKEN=your-send-capable-token
 BETTER_AUTH_URL=https://documents.your-domain.example
 ```
 
-5. Test it by requesting a password reset for an inbox you control.
+6. Restart the app.
+7. Request a password reset for an inbox you control.
+8. Verify that the email arrives.
 
-`BETTER_AUTH_URL` must be an address the person reading the email can open. When Cloudflare is on, links are no longer saved locally. Cloudflare accepting a message doesn't guarantee it arrives, so check Cloudflare's delivery logs if it doesn't. No Cloudflare Worker is needed.
+`BETTER_AUTH_URL` must be accessible to the email recipient. With Cloudflare enabled, the app does not save email links locally. Cloudflare acceptance does not guarantee delivery. Examine Cloudflare’s delivery logs if an email does not arrive. This configuration does not need a Cloudflare Worker.
 
 ### Require email verification
 
-New accounts can sign in straight away by default. To make people confirm their email address first, set:
+By default, new accounts can sign in immediately. To require email verification before sign-in, set:
 
 ```dotenv
 AUTH_REQUIRE_EMAIL_VERIFICATION=true
 ```
 
-With local email, you'll need to pass the verification links on yourself using the `mail` command, so this is most useful with Cloudflare delivery. Once it's on, anyone with an unverified account who tries to sign in is sent a new verification link. People who are already signed in stay signed in.
+With local email, use the `mail` command to retrieve verification links and give them to the account owners. Cloudflare delivery sends these links directly. An unverified account receives a new link when its owner tries to sign in. Existing signed-in sessions remain active.
 
-If you installed v0.1.0, verification may still be switched on from that release's old default. Set it to `false` and restart if you don't want it.
+An installation from v0.1.0 can retain that release’s enabled verification default. To disable verification, set the value to `false` and restart.
 
 ## Allow larger uploads
 
-Uploads are limited to 10 MiB per file by default. To raise the limit, increase both the file limit and the shared upload budget. The budget must fit at least one maximum-size file:
+The default upload limit is 10 MiB per file. To permit larger files, increase the file limit and the shared upload budget. The budget must hold at least one maximum-size file:
 
 ```dotenv
 MAX_SOURCE_FILE_BYTES=52428800         # 50 MiB per file
 SUBMISSION_MAX_RESERVED_BYTES=268435456 # 256 MiB shared between uploads in progress
 ```
 
-A higher limit doesn't guarantee a file can be processed:
+A higher limit does not guarantee a file can be processed:
 
-- PDFs have their own fixed safety limits: 32 MiB per PDF, and bounds on how much they can expand when decoded. A small but heavily compressed PDF can still be rejected with `pdf_source_file_limit_exceeded`.
-- Images go through separate memory limits while they're prepared for the model.
+- PDF limits are fixed at 32 MiB per file, with additional limits on decoded content. A small, heavily compressed PDF can fail with `pdf_source_file_limit_exceeded`.
+- Separate memory limits apply when the app prepares images for the model.
 - Your model provider may have its own request size limit.
 
 If you use a reverse proxy, raise its upload limit too.
 
 ## Keep original documents
 
-By default the app keeps only extraction results: each uploaded file is deleted once its job succeeds, or after seven days if it fails. You can keep originals instead, so people can view a document beside its results and download it. Choose where they're kept:
+By default, the app keeps extraction results and deletes successful working files. It keeps failed working files for seven days. Enable original retention to let users view documents beside their results and download them. Select a storage provider:
 
-- `none` (default): originals aren't kept.
+- `none` (default): originals are not kept.
 - `local`: originals stay in the private state directory, so backups of that directory include them.
-- `s3`: originals go to an S3-compatible bucket, such as AWS S3 or a RustFS server you run. While a document is processed, the app also keeps a temporary local copy.
+- `s3`: originals are stored in an S3-compatible bucket, such as AWS S3 or your RustFS server. The app also keeps a temporary local copy during processing.
 
-For an installed app, stop it and run the storage command. It asks the storage questions, checks S3 settings by writing, reading and deleting a small test file, and saves nothing if a step fails:
+For an installed app, run these commands. The storage command asks for settings and tests S3 with a small file. It writes, reads, and deletes the test file. If a step fails, it saves no settings.
 
 ```sh
 document-extraction stop
@@ -136,13 +146,13 @@ SOURCE_STORAGE_S3_ACCESS_KEY_ID=...
 SOURCE_STORAGE_S3_SECRET_ACCESS_KEY=...
 ```
 
-Things to know:
+Apply these storage requirements:
 
-- **The bucket must not use object versioning or Object Lock.** The app doesn't check this. It deletes files by key, so on a versioned or locked bucket, earlier copies of deleted originals stay in the bucket. `storage configure` asks you to confirm this; scripted setups pass `--confirm-unversioned-bucket`.
-- Workspace owners and admins can switch off **Retain original documents** on the Workspace page. That, and `SOURCE_ORIGINAL_RETENTION_ENABLED=false` for the whole installation, affect new uploads only. Originals already kept stay available until their Document or Workspace is deleted.
-- If the bucket can't be reached, the app still starts and existing results stay available, but uploads that need to keep their original fail with a message asking to try again.
-- Deleting a Document or Workspace removes access straight away. The original is then deleted from storage in the background, and retried until storage confirms it.
-- You can rotate S3 credentials at any time. You can't change the endpoint, bucket, prefix or addressing style while any originals, or deletions still in progress, use the current ones; the app refuses to start if you try. Moving originals to a new location isn't supported yet.
+- **The bucket must not use object versioning or Object Lock.** The app does not verify these settings. It deletes objects by key. Earlier copies can remain in a versioned or locked bucket. Confirm the bucket settings during `storage configure`. For scripted setup, supply `--confirm-unversioned-bucket`.
+- Workspace owners and admins can disable **Retain original documents** on the Workspace page. This setting and the installation setting `SOURCE_ORIGINAL_RETENTION_ENABLED=false` affect new uploads only. Existing originals remain available until you delete their Document or Workspace.
+- If the bucket is unavailable, the app starts and existing results remain available. Uploads that require original retention fail with a message to try again.
+- Document or Workspace deletion removes access immediately. The app then deletes the original in the background. It retries until storage confirms deletion.
+- You can rotate S3 credentials at any time. Keep the endpoint, bucket, prefix, and addressing style unchanged while originals or pending deletions depend on them. The app refuses startup if these values change. It cannot move originals to another location.
 
 ## Reference
 
@@ -155,16 +165,16 @@ Things to know:
 | `BETTER_AUTH_URL` | The app's own local address | The address people open in their browser. Used in email links and Google sign-in. Must be just an origin: no path, query, or login details. |
 | `DOCUMENT_EXTRACTION_STATE_DIR` | `.local/` in a source checkout | Where data is stored. The installer manages this for you. Use an absolute path. |
 | `DOCUMENT_EXTRACTION_ASSETS_DIR` | `frontend/dist/` in a source checkout | Where the built web app is. The installer manages this for you. |
-| `DOCUMENT_EXTRACTION_ADMIN_EMAILS` | Empty | Comma-separated emails that become Application admins **when their account is created**. Adding an email later doesn't promote an existing account; an existing admin can do that in the app. |
-| `AUTH_TRUSTED_ORIGINS` | Empty | Extra comma-separated browser addresses allowed to sign in, such as a development server. The app's own address is always allowed. Wildcards aren't supported. |
+| `DOCUMENT_EXTRACTION_ADMIN_EMAILS` | Empty | Comma-separated emails that become Application admins **when their account is created**. Adding an email later does not promote an existing account; an existing admin can do that in the app. |
+| `AUTH_TRUSTED_ORIGINS` | Empty | Extra comma-separated browser addresses allowed to sign in, such as a development server. The app's own address is always allowed. Wildcards are not supported. |
 | `AUTH_TRUSTED_IP_HEADERS` | Empty | Header names a trusted proxy uses for the visitor's IP address. See [access from other machines](#access-from-other-machines). |
 | `DEV_API_ORIGIN` | `http://127.0.0.1:<PORT>` | Development only: where the Vite dev server forwards API requests. |
 
 Notes:
 
-- `localhost` and `127.0.0.1` count as different addresses in a browser, so use the same one consistently. When the app runs on a local address, the usual Vite development addresses on port 5173 are allowed automatically.
-- The data folder must be a dedicated, real folder. The app refuses to use the filesystem root, your home folder, the repository root, or a symlink. On startup it makes the folder readable only by you.
-- Sign-in rate limits are always on. Too many attempts return HTTP 429 with an `X-Retry-After` header in seconds. Limits reset when the app restarts, and IPv6 visitors are grouped by `/64` network.
+- Browsers treat `localhost` and `127.0.0.1` as different addresses. Use one address consistently. Local installations automatically permit the usual Vite development addresses on port 5173.
+- Use a dedicated, real data folder. The app rejects the filesystem root, home folder, repository root, and symlinks. During startup, it restricts folder access to the owner.
+- Sign-in rate limits are always enabled. Too many attempts return HTTP 429 with `X-Retry-After` in seconds. Restarting the app resets these limits. IPv6 visitors share a limit within each `/64` network.
 
 ### Accounts and sign-in
 
@@ -179,10 +189,10 @@ Notes:
 
 Notes:
 
-- At least one sign-in method must be on. Setting only one of the two Google values is an error, even when Google sign-in is off.
-- There is no built-in admin account or default password. Set `DOCUMENT_EXTRACTION_ADMIN_EMAILS` and create the accounts you need before turning off signup.
-- Passwords need at least eight characters, including an uppercase letter, a number, and a special character. Password reset links expire after one hour, and changing a password signs out the account's other sessions.
-- The key that signs sessions is generated automatically in `data/better-auth-secret`. Keep it with your backups. `BETTER_AUTH_SECRET` is not used.
+- Enable at least one sign-in method. Supply both Google values or neither, even when Google sign-in is disabled.
+- The app has no built-in admin account or default password. Set `DOCUMENT_EXTRACTION_ADMIN_EMAILS` and create the required accounts before you disable signup.
+- Passwords require at least eight characters, including an uppercase letter, a number, and a special character. Password reset links expire after one hour. A password change signs out the account’s other sessions.
+- The app generates its session signing key in `data/better-auth-secret`. Include this file in backups. The app does not use `BETTER_AUTH_SECRET`.
 
 ### Email
 
@@ -214,13 +224,13 @@ Set both Cloudflare values or neither, even with local email.
 
 Some limits are fixed in the code rather than configurable:
 
-- Each document gets at most three extraction attempts, with retries at most 60 seconds apart.
-- Automatic selection considers at most 100 matching templates and 64 KiB of candidate metadata; narrow the tags if that scope is too large. Smart splitting assesses up to 128 selected PDF pages and creates at most 100 child Documents. Oversize work stops with an actionable outcome; pages and candidates are never silently truncated.
-- Split planning and each child classification have separate durable budgets: one initial assessment plus at most two targeted reassessments. Transport retries are separately bounded.
-- PDF subsets, previews, and derived files use isolated cancellable processing: one operation at a time, at most four waiting, 20 seconds per operation, 32 MiB per derived PDF, and 64 MiB total derived output. Previews are limited to 16 MiB. Existing parser bounds still apply.
+- Each document has at most three extraction attempts. Retry delays cannot exceed 60 seconds.
+- Automatic selection permits at most 100 matching templates and 64 KiB of candidate metadata. Narrow the tags if the scope exceeds these limits. Smart splitting assesses at most 128 selected PDF pages and creates at most 100 child Documents. Work above these limits stops with an actionable result. The app never silently truncates pages or candidates.
+- Split planning and each child classification have separate durable budgets. Each permits one initial assessment and at most two targeted reassessments. Separate bounds apply to transport retries.
+- PDF subsets, previews, and derived files use isolated, cancellable processing. Limits are one active operation, four waiting operations, and 20 seconds per operation. Derived PDFs are limited to 32 MiB each and 64 MiB in total. Previews are limited to 16 MiB. Parser bounds also apply.
 - The **Test connection** button times out after 30 seconds.
 - PDF pages sent as images are rendered at up to 2048 pixels on each side, with at most 64 MiB of images per document.
-- PDF checking: at most 32 MiB per PDF, 16 MiB per decoded stream, 32 MiB of decoding work in total, 10,000 pages, and five seconds. Two PDFs are checked at once, and up to eight more can wait for up to five seconds. When that queue is full, uploads get `503 pdf_validation_capacity_unavailable`.
+- PDF validation permits 32 MiB per PDF, 16 MiB per decoded stream, and 32 MiB of total decoding work. Other limits are 10,000 pages and five seconds per validation. Two PDFs can be validated concurrently. Eight more can wait for up to five seconds. A full queue rejects uploads with `503 pdf_validation_capacity_unavailable`.
 - Excel exports: at most 500 documents and 32 MiB of results, with two exports running at a time.
 
 ### Resources and cleanup
@@ -232,8 +242,8 @@ Some limits are fixed in the code rather than configurable:
 | `MODEL_PREPARATION_MAX_BYTES` | 90% of the memory allowance | Memory set aside for preparing documents for the model. Can only be lowered. |
 | `MEMORY_PRESSURE_LARGE_SUBMISSION_BYTES` | 4 MiB (`4194304`) | Uploads at least this size are refused while the operating system reports low memory. |
 | `LOCAL_DISK_RESERVE_BYTES` | 1 GiB (`1073741824`) | Free disk space to keep; uploads are refused below it. `0` turns this off. |
-| `SOURCE_RETENTION_SWEEP_INTERVAL_MS` | 1 hour (`3600000`) | How often uploaded files that aren't kept as originals are cleaned up. |
-| `FAILED_SOURCE_RETENTION_MS` | 7 days (`604800000`) | How long to keep the uploaded file of a failed job when originals aren't kept. `0` removes it at the next cleanup. |
+| `SOURCE_RETENTION_SWEEP_INTERVAL_MS` | 1 hour (`3600000`) | How often uploaded files that are not kept as originals are cleaned up. |
+| `FAILED_SOURCE_RETENTION_MS` | 7 days (`604800000`) | How long to keep the uploaded file of a failed job when originals are not kept. `0` removes it at the next cleanup. |
 | `SOURCE_STORAGE_PROVIDER` | `none` | Where to keep original documents: `none`, `local` or `s3`. See [Keep original documents](#keep-original-documents). |
 | `SOURCE_ORIGINAL_RETENTION_ENABLED` | `true` when storage is set | Keep originals of new uploads. `false` stops keeping new ones without removing existing ones. |
 | `SOURCE_STORAGE_S3_*` | — | S3 endpoint, region, bucket, prefix (default `document-extraction/`), path-style addressing, access key ID, secret access key and optional session token. |
@@ -242,36 +252,48 @@ Some limits are fixed in the code rather than configurable:
 
 Notes:
 
-- Ratios must be above 0 and at most 1. Other values must be positive whole numbers, except the disk reserve and failed-file retention, which can be 0.
-- With the default settings, the app may use up to 72% of the machine's RAM while preparing documents (90% of the 80% memory allowance). This is a budget, not a hard cap, and other programs, such as a local model server, need memory too. Lower these limits if you share the machine. `/v1/health` shows current usage.
-- Unless originals are kept, uploaded files are removed once a job succeeds, and kept for the retention period when it fails. Job records, results, accounts, saved emails, and analytics are never cleaned up automatically. Delete old `mail/` and `analytics/` files yourself if you need to.
+- Ratios must be greater than 0 and no greater than 1. Other values must be positive whole numbers. The disk reserve and failed-file retention also permit 0.
+- Default document preparation can use up to 72% of machine RAM: 90% of the 80% memory allowance. This budget is an estimate, not a hard limit. Other programs, including a local model server, also need memory. Lower the limits on a shared machine. `/v1/health` shows current usage.
+- Without original retention, successful jobs lose their working files immediately. Failed jobs keep them for the retention period. The app does not automatically remove job records, results, accounts, saved emails, or analytics. Delete old `mail/` and `analytics/` files manually when necessary.
 
 ## Model settings are per Workspace
 
-The AI model isn't configured here. Each Workspace's owner or admin sets its gateway URL, credential, and models in the app, under **Workspaces → Model gateway**. Until that's done, uploads to the Workspace are refused.
+Configure the AI model separately for each Workspace. An owner or admin sets its gateway URL, credential, and models under **Workspaces → Model gateway**. The Workspace rejects uploads until this configuration is complete.
 
-Once saved, the panel shows a summary; select **Edit** to change it. The **Models** table lists which model each use calls, with its declared capabilities (direct PDF input and structured output):
+After you save, the panel shows a summary. Select **Edit** to change the settings. The **Models** table shows each role’s model and declared capabilities: direct PDF input and structured output.
 
 - **Extraction** runs Extraction jobs and Evaluations.
-- **Document classification & splitting** chooses among tag-matching Templates and identifies PDF document boundaries, including targeted reassessments. It inherits Extraction unless you choose **Different model**, with its own direct PDF and structured-output settings. It shares the Workspace gateway, credential, and sequential-call policy. A failed custom model does not silently switch back to Extraction.
-- **Template assistant** runs the Template assistant, its suggested requests, and Auto generate. It uses the extraction model unless you choose **Different model**, which calls another model on the same gateway, with the same credential and call behavior, and its own capabilities. **Test connection** checks each distinct model.
+- **Document classification & splitting** selects tag-matching Templates and identifies PDF boundaries, including targeted reassessments. It inherits Extraction settings unless you select **Different model**. A different model has its own direct PDF and structured-output settings. It shares the Workspace gateway, credential, and sequential-call policy. Failure of a custom model does not cause a fallback to Extraction.
+- **Template assistant** supplies assistance, suggested requests, and Auto generate. It inherits the extraction model unless you select **Different model**. A different model shares the gateway, credential, and call behavior, with its own capabilities. **Test connection** tests each distinct model.
 
-Model credentials are encrypted with `secrets/model-gateway.key` in the data folder, so keep that file with your backups. Workspace admins can point the model at any address, including private network ones, so only give that role to people you trust.
+The app encrypts model credentials with `secrets/model-gateway.key` in the data folder. Include this file in backups. Workspace admins can select any gateway address, including private network addresses. Give this role only to people you trust.
 
-Choose model routes that support the document input you intend to send. Without Direct PDF input, each assessment sends the selected pages as images in one request. A provider may impose image-count, payload, context, or output limits below the application limits; the app does not automatically batch around them. A successful text-only connection test does not verify these capabilities. Configure a suitable Document classification & splitting model, or narrow the PDF page selection through the API when necessary.
+Select model routes that support the required document input. Without Direct PDF input, each assessment sends selected pages as images in one request. Provider limits on image count, payload, context, or output can be lower than application limits. The app does not automatically batch requests to meet provider limits.
 
-These old global settings are ignored; the app lists any it finds when it starts: `MODEL_GATEWAY_URL`, `AI_MODEL`, `LITELLM_KEY`, `MODEL_GATEWAY_ROUTE_LABEL`, `MODEL_GATEWAY_SEQUENTIAL_CALLS`, `MODEL_SUPPORTS_PDF_INPUT`, `MODEL_SUPPORTS_STRUCTURED_OUTPUT`, and `MODEL_GATEWAY_USE_MANAGED_FILES`. Old global credentials aren't imported.
+A successful text-only connection test does not verify document capabilities. Configure a suitable Document classification & splitting model. If necessary, narrow the PDF page selection through the API.
+
+The app ignores these old global settings and lists their names during startup: `MODEL_GATEWAY_URL`, `AI_MODEL`, `LITELLM_KEY`, `MODEL_GATEWAY_ROUTE_LABEL`, `MODEL_GATEWAY_SEQUENTIAL_CALLS`, `MODEL_SUPPORTS_PDF_INPUT`, `MODEL_SUPPORTS_STRUCTURED_OUTPUT`, and `MODEL_GATEWAY_USE_MANAGED_FILES`. It does not import old global credentials.
 
 ## Workspace document processing
 
-Workspace owners and admins can change **Enable smart splitting** and **Exclude blank pages** under **Workspaces → Document processing**, immediately below Model gateway. Each toggle saves immediately and reports the outcome in a notification; a failed save restores the previous value. Both default to **off** for new and existing Workspaces and apply to every subsequent browser upload and API submission. Each accepted item captures its effective policy; changing settings does not alter already accepted work. There are no per-request or per-upload overrides.
+Workspace owners and admins can change **Enable smart splitting** and **Exclude blank pages** under **Workspaces → Document processing**. These controls are immediately below Model gateway. Each toggle saves immediately and shows a notification. A failed save restores the previous value.
 
-Smart splitting applies to PDFs and identifies logical documents across their pages. Image uploads retain their ordinary one-document behavior. API clients can supply a PDF `pages` selection to limit the source pages before processing; browser uploads use all pages. Page selection does not override Workspace settings. With splitting disabled, the selected pages become one extraction job and no blank pages are removed. With splitting enabled, blank pages remain unless **Exclude blank pages** is also enabled. Nonblank cover pages are retained. When every selected page is independently verified blank and both settings are enabled, the packet completes as **No documents to extract**, with exclusion records and no child jobs.
+Both settings default to **off** for new and existing Workspaces. They apply to later browser uploads and API submissions. Each accepted item records its effective policy. Later changes do not alter accepted work. Uploads and requests cannot override the policy.
 
-Automatic template selection has no enable/disable setting. Supply an explicit Template ID or one or more Template tags. Without an ID, templates matching **any** supplied tag form the candidate pool; the classification model sees the document plus candidate IDs, names, and descriptions, never their field definitions or field guidance. An explicit ID wins and pins the same Template version for every child, while splitting still runs. With tags, each child selects independently after splitting. No matching candidates or unresolved ambiguity eventually requires manual selection without another upload.
+Smart splitting identifies logical documents within PDFs. Image uploads continue to produce one document. API clients can supply PDF `pages` to limit source pages before processing. Browser uploads use all pages. Page selection does not override Workspace settings.
 
-Held packets and documents keep the working source needed for resolution even when completed-original retention is disabled. Child Documents own independent derived PDFs; deleting a child leaves its siblings and the packet original intact. Deleting a packet removes the whole group. Keeping a packet original means deleting a child does not redact those pages from that original.
+With splitting disabled, the selected pages produce one extraction job. No blank pages are removed. With splitting enabled, blank pages remain unless **Exclude blank pages** is also enabled. Nonblank cover pages remain.
 
-The browser displays a single-page upload or an accepted one-document split as a normal Document with its own results, download, and export. Multi-document or unresolved packets retain the packet overview. Deleting a Document presented this way also deletes its hidden parent and original. The API still exposes a packet for every PDF accepted with splitting enabled, including one-child and all-blank outcomes.
+With both settings enabled, a packet can complete as **No documents to extract**. This requires independent verification that every selected page is blank. The packet records exclusions and creates no child jobs.
 
-The session-only settings endpoint is `GET|PUT /v1/workspaces/:workspaceId/document-processing-settings`. Members may read the effective settings; owners/admins may replace them with `{"enable_smart_splitting":true,"exclude_blank_pages":false}`. Workspace API keys cannot manage these settings. See the [packet API](../mkdocs/docs/api/overview.md#document-packets-and-review) for processing and hold statuses. Last-resort template and split-plan decisions are resolved by signed-in Workspace members in the frontend; Workspace API keys cannot perform those review actions.
+Automatic template selection has no enable/disable setting. Supply an explicit Template ID or one or more Template tags. Without an ID, the candidate pool includes templates that match **any** supplied tag. The classification model receives the document and candidate IDs, names, and descriptions. It does not receive field definitions or field guidance.
+
+An explicit ID takes priority and fixes the same Template version for all children. Splitting still runs. With tags, each child selects a template independently after splitting. No candidates or unresolved ambiguity eventually requires manual selection. You do not need to upload the file again.
+
+Held packets and documents keep the working source necessary for resolution, even with completed-original retention disabled. Each child Document owns a separate derived PDF. Deleting a child keeps its siblings and the packet original. Deleting a packet removes the group. Deleting a child does not redact its pages from a retained packet original.
+
+The browser shows a single-page upload or an accepted one-document split as a normal Document. It has its own results, download, and export. Multiple documents or unresolved packets use the packet overview. Deleting a Document shown this way also deletes its hidden parent and original.
+
+The API exposes a packet for every PDF accepted with splitting enabled. This includes one-child and all-blank results.
+
+Members can view effective settings under **Workspaces → Document processing**. Owners and admins can change the toggles. To resolve a held document, open it in **Documents**. Select a Template or confirm its page groups. See [Reviewing documents](../mkdocs/docs/usage/document-extraction.md#progress-and-review) for browser steps. See the [packet API](../mkdocs/docs/api/overview.md#document-packets-and-review) to poll progress from an integration.

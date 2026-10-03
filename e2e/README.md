@@ -1,43 +1,44 @@
 # Browser tests
 
-These Playwright tests drive the real app in Chromium: the production frontend build, the Bun server, sign-in, email verification, live updates, uploads, and extraction. The AI model is replaced with a fake gateway, so no real model is called.
+Playwright tests run the real app in Chromium. They use the production frontend build and Bun server. They cover sign-in, email verification, live updates, uploads, and extraction. A fake gateway replaces the AI model. The tests do not call a real model.
 
 ## Run them
 
-From the repository root, the first time:
+For the first run, install Chromium from the repository root:
 
 ```bash
 bunx playwright install chromium
 ```
 
-Then:
+Run the browser tests:
 
 ```bash
 bun run test:e2e
 ```
 
-This builds the frontend and runs every journey in `e2e/*.spec.ts`. To run one, build first and then call Playwright directly:
+This command builds the frontend and runs every journey in `e2e/*.spec.ts`. To run one journey, build the frontend first:
 
 ```bash
 bun run build
 bunx playwright test e2e/extractionJourney.spec.ts
 ```
 
-The tests check that the Bun version matches the one pinned in `package.json`. If yours differs, run through the pinned version, for example `bunx bun@1.4.2 run test:e2e`.
+The tests require the Bun version specified in `package.json`. If your version differs, use the specified version. For example, run `bunx bun@1.4.2 run test:e2e`.
 
 ## What the harness does
 
-- Starts the app on loopback with a fresh, temporary data folder, and deletes it afterwards.
+- Starts the app on loopback with a new temporary data folder.
+- Deletes that folder after the tests.
 - Runs a fake model gateway on loopback.
-- Verifies accounts by reading the locally captured emails.
-- Keeps the browser off the public internet: external stylesheet requests get an empty response.
+- Verifies accounts through locally captured email.
+- Blocks browser access to the public internet. External stylesheet requests receive an empty response.
 
 ## Results
 
 | Location | Contents |
 | --- | --- |
-| `.scratch/ci/playwright/report` | The HTML report. Open it with `bunx playwright show-report .scratch/ci/playwright/report`. |
-| `.scratch/ci/playwright/results` | The trace and screenshot for each failed test. |
-| `.scratch/ci/playwright/evidence` | Structured summaries of each run, for tooling. |
+| `.scratch/ci/playwright/report` | HTML report. Open it with `bunx playwright show-report .scratch/ci/playwright/report`. |
+| `.scratch/ci/playwright/results` | Trace and screenshot for each failed test. |
+| `.scratch/ci/playwright/evidence` | Structured run summaries for tools. |
 
-The evidence files avoid recording anything sensitive. Network entries include only the method, status, resource type, and URL without its query string. Live-update entries include only the event type, job ID, and status.
+Evidence files exclude sensitive content. Network entries contain only the method, status, resource type, and URL without its query string. Live-update entries contain only the event type, job ID, and status.

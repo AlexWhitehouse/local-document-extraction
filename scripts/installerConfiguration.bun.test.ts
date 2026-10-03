@@ -100,14 +100,17 @@ describe("first-install configuration", () => {
     try {
       const secret = "synthetic-secret-$HOME-123";
       const result = await inTerminal([process.execPath, "--no-env-file", script], [
-        ["reverse proxy? [y/N]: ", "n\n"], ["Google sign-in? [y/N]: ", "y\n"],
+        ["reverse proxy? [y/N]: ", "y\n"], ["Public app URL (for example https://documents.example.com): ", "https://docs.example.com\n"],
+        ["Google sign-in? [y/N]: ", "y\n"],
         ["Google client ID: ", "synthetic-client\n"], ["Google client secret (hidden): ", `${secret}\n`],
         ["email and password login? [Y/n]: ", "y\n"], ["with Cloudflare? [y/N]: ", "n\n"],
       ], { cwd: directory, env });
       expect(result.code).toBe(0);
-      expect(result.answered).toBe(6);
+      expect(result.answered).toBe(7);
       expect(result.output).not.toContain(secret);
-      expect(JSON.parse(await readFile(destination, "utf8")).GOOGLE_CLIENT_SECRET).toBe(secret);
+      expect(JSON.parse(await readFile(destination, "utf8"))).toMatchObject({
+        BETTER_AUTH_URL: "https://docs.example.com", GOOGLE_CLIENT_SECRET: secret,
+      });
       await rm(destination);
       const cancelled = await inTerminal([process.execPath, "--no-env-file", script], [
         ["reverse proxy? [y/N]: ", "n\n"], ["Google sign-in? [y/N]: ", "y\n"],

@@ -1,31 +1,17 @@
 # Bounded PDF page inspection
 
-Source size is a bound on compressed input, not on decoded PDF memory. Page
-counting previously loaded the PDF inside the API process before model preparation
-admission. A small compressed object stream could allocate far beyond its upload
-reservation and block every Workspace.
+Source size limits compressed input. It does not limit the memory needed to decode a PDF. Previously, page counting loaded the PDF in the API process before model preparation admission. A small compressed object stream could use much more memory than its upload reservation. This could block every Workspace.
 
-Document submission and Template generation now inspect page counts in disposable
-Bun subprocesses. Concurrent inspections and queued requests are bounded; timeout
-or cancellation kills and reaps the child before releasing its permit. Parsing
-uses limits checked before decoded-buffer allocation and structural expansion,
-including object streams, cross-reference streams and page-tree traversal.
+Document submission and Template generation now inspect page counts in disposable Bun subprocesses. The runtime limits concurrent inspections and queued requests. Timeout or cancellation terminates the child and waits for its exit before releasing the permit.
 
-The installed pdf-lib version exposes no public decompression budget. The isolated
-inspector therefore verifies and loads its specific CommonJS implementation and
-guards its decoder/parser allocation seams. These guards are confined to the
-short-lived child. Compatibility checks fail closed: a dependency upgrade must
-review these seams and pass compressed-stream and structural-limit regressions
-before it can be accepted. Parser recovery must not swallow a limit breach.
+The parser applies limits before it allocates decoded buffers or expands structures. These limits cover object streams, cross-reference streams, and page-tree traversal.
 
-This combines a hard bound on the guarded parser allocations with a terminable
-execution context. It does not claim a portable operating-system RSS ceiling;
-Bun worker memory options and sampled memory pressure are insufficient for that
-claim. PDF.js rendering remains a separate stage under the model preparation
-policy in ADR-0010. This decision closes the admission/page-counting boundary and
-does not replace the existing Source-size, image, or model-payload limits.
+The installed pdf-lib version has no public decompression budget. The isolated inspector therefore verifies and loads a specific CommonJS implementation. It guards allocation points in that decoder and parser. These guards exist only in the short-lived child.
 
-Limit failures are sanitized product errors and leave no accepted job or promoted
-Source file. Parser saturation is retryable. The public interface remains a page
-count; parser internals, document content and subprocess diagnostics are not sent
-to API clients.
+Failed compatibility checks stop inspection. A dependency upgrade requires review of these allocation points and passing compressed-stream and structural-limit regression tests. Parser recovery must not ignore a limit breach.
+
+This design combines allocation limits in the guarded parser with a process that can be terminated. It does not guarantee a portable operating-system RSS ceiling. Bun worker memory options and sampled memory-pressure controls cannot provide that guarantee.
+
+PDF.js rendering remains a separate stage under ADR-0010's model preparation policy. This decision covers admission and page counting. It does not replace Source-size, image, or model-payload limits.
+
+Limit failures return product errors without sensitive details. They leave no accepted job or promoted Source file. Parser saturation is retryable. The public result remains a page count. API clients do not receive parser internals, document content, or subprocess diagnostics.

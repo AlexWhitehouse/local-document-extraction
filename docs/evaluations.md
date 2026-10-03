@@ -1,125 +1,126 @@
 # Evaluations
 
-Evaluations help you choose the best setup for a kind of document. You run one or more documents through several **candidates** side by side and compare the results. Each candidate is a model plus a template. With more than one document, it's a **Batch Evaluation**: every document runs against the same candidates, and you review the results one document at a time.
+Use Evaluations in the browser to compare extraction settings for a document type. Each **candidate** combines a model and a template. A **Batch Evaluation** runs multiple documents against the same candidates. Review its results one document at a time.
 
-There are two kinds of comparison:
+Select one of these comparison types:
 
-- **Models:** one template, different models. Use this to find the most accurate or fastest model.
-- **Template versions:** one model, different templates. Use this to check whether rewording your field instructions improves the results.
+- **Models:** Use one template with different models to compare accuracy and speed.
+- **Template versions:** Use one model with different templates to assess changes to field instructions.
 
-You can compare up to eight candidates, on as many documents as you like. Any member of a Workspace can use Evaluations.
+Signed-in Workspace members can compare up to eight candidates. There is no limit on the number of documents.
 
-> **Runs and results are temporary.** Refreshing or closing the tab, clearing the Evaluation, or switching Workspace discards the candidates, results, and any unsaved documents and answers. Moving between pages in the same Workspace keeps them. Only documents you explicitly save to the [Evaluation library](#the-evaluation-library) are kept.
+> **Runs and results are temporary.** Refreshing or closing the tab, clearing the Evaluation, or switching Workspace discards candidates, results, and unsaved documents and answers. Navigation within the same Workspace keeps them. Only documents explicitly saved to the [Evaluation library](#the-evaluation-library) persist.
 
 ## Set up an Evaluation
 
-Open **Evaluations**. The setup screen walks you through four steps:
+Open **Evaluations** and complete the four setup steps:
 
-1. **Documents:** choose saved documents with **Library**, upload new PDFs or images with **Upload new** (or drop them), or both. Each document shows whether it’s saved, and anything that needs attention, such as an unsaved upload or an unavailable original.
-2. **What to compare:** models or template versions.
-3. **Template:** pick a saved template, or an earlier version of one.
-4. **Candidates:**
-   - When comparing models, list the models to try. The Workspace's model comes first, and models already used in this Workspace are suggested.
-   - When comparing templates, pick the versions to compare. They all use the Workspace's model. If you pick just one version, you get two copies so you can edit one.
+1. **Documents:** Select saved documents with **Library**, add files with **Upload new**, or use both. You can also drop PDFs or images. Each document shows its saved status and problems, such as an unsaved upload or unavailable original.
+2. **What to compare:** Select models or template versions.
+3. **Template:** Select a saved template or an earlier version.
+4. **Candidates:** Select the models or template versions to compare.
 
-Click **Start and run** to run every candidate on every document straight away.
+For model comparisons, the Workspace model appears first. The app also suggests models previously used in the Workspace.
+
+For template comparisons, all candidates use the Workspace model. If you select one version, the app creates two copies so you can edit one.
+
+Select **Start and run** to run all candidates on all documents.
 
 ## Read the results
 
-Results appear in a table with one column per candidate, filled in as each candidate finishes. With several documents, use the centered **Previous** and **Next** controls to move between documents. **Document 1 of x** shows your position; field filters sit on the left of that same toolbar. The top of each column shows:
+The results table has one column per candidate. Each column fills when its candidate finishes. For multiple documents, use the centered **Previous** and **Next** controls. **Document 1 of x** shows your position. Field filters appear on the left of the same toolbar.
 
-- **Accuracy:** how many of the fields you have checked it got right (see [Check accuracy](#check-accuracy)).
-- **Table cells:** how many table cells matched.
-- The candidate's status, and a button to run it again.
+Each candidate column shows:
 
-The best candidate is marked **Best**. Ties are broken by table-cell matches, then by speed.
+- **Accuracy:** The proportion of verified fields with correct answers. See [Check accuracy](#check-accuracy).
+- **Table cells:** The number of matching table cells.
+- The candidate status and a control to run it again.
 
-Click any answer to open the inspector. It shows the full answer, how it was scored, how table columns were matched up, and what the other candidates answered.
+The app marks the best candidate **Best**. It resolves ties by table-cell matches, then speed.
 
-Use the filters to show only the fields where candidates disagree, fields with a wrong answer, or fields you haven't checked yet.
+Select an answer to open the inspector. The inspector shows the full answer, scoring details, table-column alignment, and other candidates’ answers.
+
+Use filters to show disagreements, incorrect answers, or fields that you have not verified.
 
 ## Change candidates
 
-Each candidate's **⋯** menu lets you change its settings, see run details, edit its template, duplicate it, remove it, or **Save as new Template**.
+Open a candidate’s **⋯** menu to change settings, inspect run details, or edit its template. You can also duplicate or remove the candidate, or select **Save as new Template**.
 
-- **Add candidate** copies the last candidate's settings, without its results.
-- In a template comparison, you can swap a candidate's template for another template or version.
+- **Add candidate** copies the last candidate’s settings without results.
+- In a template comparison, you can replace a candidate’s template with another template or version.
 - Template editing uses the same editor as the Templates page.
-- You can keep editing while candidates are running. Each run uses the settings it started with, and edited candidates are marked as needing another run.
+- You can edit candidates during a run. Each run uses its initial settings. Edited candidates show that another run is necessary.
 
-**Save as new Template** opens the candidate's template in the editor. Nothing is saved until you click Save. It creates a new template and never changes the original. Your answers and results aren't included.
+**Save as new Template** opens the candidate’s template in the editor. Select **Save** to create a new template. This action keeps the original template unchanged and excludes expected answers and results.
 
 ## Check accuracy
 
-Candidates are only scored once you tell the Evaluation what the correct answers are. These are called **expected answers**, and they're optional.
+Scoring requires **expected answers** that you verify as correct. Expected answers are optional.
 
-- Type a correct answer into the **Expected** column, or pick a candidate's answer with **Use as expected answer**.
-- **More options** and **Review as expected answer** open the full editor, where you can also turn on **Exact match**.
+1. Enter an answer in the **Expected** column, or select **Use as expected answer** on a candidate’s answer.
+2. For the full editor, select **More options** or **Review as expected answer**.
+3. Enable **Exact match** in the editor when necessary.
 
-Answers are compared like this:
+The app compares answers with these rules:
 
-| Type | How answers are compared |
+| Type | Comparison rule |
 | --- | --- |
-| Text | Ignores capitals, punctuation, and extra spaces, unless **Exact match** is on. |
-| Number | Must be exactly equal; there is no rounding tolerance. |
-| Yes/No | "yes"/"no" and "true"/"false" are treated the same. |
-| Date | Must represent the same calendar day. |
+| Text | Ignore case, punctuation, and extra spaces unless **Exact match** is enabled. |
+| Number | Require exact equality. No rounding tolerance applies. |
+| Yes/No | Treat "yes"/"no" and "true"/"false" as equivalent. |
+| Date | Require the same calendar day. |
 
-Expected date entry defaults to **DD/MM/YYYY**. Use **Date format** to switch to **MM/DD/YYYY**; the editor shows the interpreted day before you verify. ISO dates (**YYYY-MM-DD**) and written month names also work. Verified dates are saved as ISO dates so their meaning stays the same when reused. Candidate dates use day/month/year when a numeric date could be read either way, so **08/09/1871** matches **1871-09-08**. Impossible calendar dates are rejected with an error beside the input.
+Expected dates default to **DD/MM/YYYY**. Use **Date format** to select **MM/DD/YYYY**. The editor shows the interpreted day before verification. It also accepts ISO dates (**YYYY-MM-DD**) and written month names. It stores verified dates as ISO dates to preserve their meaning during reuse.
 
-Saying a value is *absent from the document* is different from leaving it unchecked. An "absent" answer never matches an error or an unreadable result.
+Candidates use day/month/year for ambiguous numeric dates. Thus **08/09/1871** matches **1871-09-08**. Invalid calendar dates produce an error beside the input.
 
-Expected answers live in the browser tab, like the rest of the Evaluation, unless you save the document to the library.
+An answer marked *absent from the document* differs from an unchecked answer. Absence never matches an error or an unreadable result.
+
+Expected answers remain in the browser tab unless you save the document to the library.
 
 ### Tables
 
-For a table field, the editor shows one row at a time, using the template's column names and types. A new table starts with one empty row. Reviewing a candidate's table copies in all of its rows.
+The table editor shows one row at a time, with the template’s column names and types. A new table has one empty row. Reviewing a candidate table copies all its rows.
 
-Each cell can have an **Expected value**, be **Not present in document**, or use **Ignore for scoring**. Not present expects an empty cell in an extracted row and counts toward accuracy. Ignored cells are excluded from accuracy and difference highlighting. These choices apply only to the selected row's cell and are kept when you save its expected answers to the library. A row identifier must still have a value; otherwise choose a different identifier or match by position.
+Each cell has one of three scoring states:
 
-Before checking a table, choose how rows are matched: by a column that uniquely identifies each row (such as an invoice line number), or by position. If some rows are missing that column, or have the same value in it, the table isn't scored until you fix them. Missing and extra rows are reported separately.
+- **Expected value:** Compare the extracted cell with the verified value.
+- **Not present in document:** Require an empty cell in an extracted row. This state counts toward accuracy.
+- **Ignore for scoring:** Exclude the cell from accuracy and difference highlighting.
 
-**Compare all tables** shows the expected rows and every candidate's rows together, grouped by row, stacked, or side by side. Cells that differ from the expected answer are highlighted. Before you've entered expected rows, cells are compared with the most common answer across candidates. You can show only the rows that differ.
+The state applies only to the selected cell in the selected row. Saving expected answers to the library preserves these states. A row identifier must still have a value. Otherwise, select another identifier or match rows by position.
 
-Free-form lists and nested objects are shown side by side for you to compare by eye, but aren't scored.
+Before you verify a table, select how to match rows. Use a column with a unique value for each row, such as an invoice line number, or match by position. Missing or duplicate identifiers prevent scoring until you correct them. The app reports missing and extra rows separately.
+
+**Compare all tables** shows expected rows and all candidate rows together. Select grouped, stacked, or side-by-side views. Highlighted cells differ from expected answers. Without expected rows, the app compares cells with the most common candidate answer. You can filter the view to rows with differences.
+
+Free-form lists and nested objects appear side by side for visual comparison. The app does not score them.
 
 ## The Evaluation library
 
-The library keeps documents and their expected answers so anyone in the Workspace can reuse them. It never keeps candidates, results, scores, or run history.
+The library stores documents and expected answers for all Workspace members. It does not store candidates, results, scores, or run history.
 
-- **Saving is always your choice.** A new upload stays in the tab until you choose **Save to library…** and give it a name. You can save with some or none of the answers checked and finish later; saving never marks an answer as checked. Saving needs the Workspace to keep original documents (see [Configuration](configuration.md)); without that, you can still evaluate uploads in the tab.
-- **Saved documents bring a working copy.** Choosing a saved document copies its answers into this Evaluation. Editing them only affects this Evaluation, marked **answer changes not saved**, until you choose **Update saved answers…**. You always see the changes before they're saved. If someone else changed the saved answers since you loaded them, you see their version, yours, and the one you started from, and choose **Use saved version** or **Replace with mine**. Nothing is merged automatically.
-- **Answers follow fields by name and type.** A saved answer is reused for a field with the same name and type. If a field's type changed, it shows **Needs review** until you check it again. Saved answers that the template doesn't ask for stay visible and count toward coverage.
-- **Link renamed fields yourself.** If a field was renamed (say **Total** became **Invoice total**), use **Renamed? Link it to** beside the saved answer in the comparison table. Only fields of the same type that have no checked answer of their own are offered. A link applies to that document for this Evaluation only. It doesn't change the saved answers, and **Unlink** undoes it. Names are never matched up automatically.
-- **Manage library** opens a centered modal where any Workspace member can rename or delete saved documents. Long names and details use ellipses with their full text available on hover; the document list scrolls when needed. Deleting removes the document and its answers for everyone. Evaluations that already show its results keep them, but it can't run again. A saved document's file can't be replaced; save a corrected file as a new document.
-- If a saved original can't be read right now, that document is skipped when running and the others still run. **Clear Evaluation** lists any unsaved uploads or answer changes before it clears.
+To save an upload, select **Save to library…** and enter a name. You can save with some or no verified answers and continue later. Saving does not verify answers automatically. Library saving requires original-document retention for the Workspace; see [Configuration](configuration.md). Without retention, you can still evaluate uploads in the tab.
+
+A saved document supplies a working copy of its answers. Edits affect the current Evaluation and show **answer changes not saved**. Select **Update saved answers…** to preview and save changes. If another user changed the saved answers, the app shows the saved version, your version, and the original version. Select **Use saved version** or **Replace with mine**. The app does not merge answers automatically.
+
+Saved answers match fields by name and type. A changed field type shows **Needs review** until you verify the answer again. Answers for fields absent from the template remain visible and count toward coverage.
+
+Link renamed fields manually. For example, if **Total** becomes **Invoice total**, select **Renamed? Link it to** beside the saved answer. Eligible fields have the same type and no verified answer of their own. The link applies only to this document in this Evaluation. It does not change saved answers. Select **Unlink** to remove it; the app never infers renamed-field links.
+
+Select **Manage library** to open the centered management modal. Any Workspace member can rename or delete saved documents. Long names and details use ellipses; hover to read the full text. The document list scrolls when necessary.
+
+Deletion removes the document and its answers for everyone. Evaluations that already show its results keep them, but cannot run that document again. You cannot replace a saved file. Save a corrected file as a new document.
+
+If a saved original is temporarily unreadable, runs skip that document and continue with the others. **Clear Evaluation** lists unsaved uploads and answer changes before clearing them.
 
 ## How runs behave
 
-- **Run all** runs every candidate on every document. Each document is sent once and shared by its candidates. Work goes to the same extraction queue that normal documents use. Evaluations don't get a separate pool, and they don't appear in your Documents list.
-- Each candidate's **▶** runs it on the document currently shown. A result that's already running can't be started again.
-- If the queue is full, only the affected candidates are rejected.
-- If a rerun fails, the previous successful result is kept and labelled **Previous result**.
-- If you lose your connection, rerun the affected candidates yourself.
-- A submitted candidate can't be cancelled, and model requests may cost money with your provider.
-- Result details are kept in encrypted browser storage while the Evaluation is open, so large batches don't fill memory. If the browser runs out of space, new documents pause and you can **Retry storage** or clear the Evaluation. Results whose details couldn't be kept are marked unavailable and cannot be scored until rerun.
+- **Run all** runs all candidates on all documents. Evaluations share capacity with normal extractions and do not appear in Documents.
+- A candidate’s **▶** control runs it on the current document. You cannot start a second run for a result that is already running.
+- If the app is busy, some candidates cannot start. Run them again when capacity is available.
+- If a rerun fails, the last successful result remains as **Previous result**.
+- After a connection failure, rerun the affected candidates manually.
+- You cannot cancel a running candidate. Runs use the configured model provider and can incur charges.
 
-## For developers
-
-How Evaluations fit into the backend:
-
-- **Access.** `localEvaluations.ts` and `localEvaluationDocuments.ts` only accept browser sessions: API keys are rejected, even alongside a cookie. Model credentials and gateway addresses never leave the server. A submission made against an out-of-date revision of the Workspace's model settings is rejected, while work already running keeps the settings it started with.
-- **Scheduling.** Candidates go through `localExtractionQueue.ts` as temporary tasks, sharing the same concurrency, Workspace fairness, sequential-call, and retry rules as documents (`extractionRetryPolicy.ts`). Instead of being deferred like documents, a temporary task is either accepted or rejected immediately.
-- **Extraction.** Candidates reuse `runExtraction` and `normalizeModelResults`. Original field values are kept, within limits, so the browser can do strict matching. Token counts are shown only when the gateway reports them.
-- **Delivery.** Each run streams progress and results back to the tab that started it as NDJSON. Nothing is broadcast to other tabs, stored, or replayed. If delivery fails, queued and retrying work stops; model requests already sent finish within their deadline and the results are discarded.
-- **Limits.**
-  - Upload metadata is capped at 1 MiB, on top of the usual file, PDF, and memory limits.
-  - The upload itself must finish within 60 seconds or the gateway timeout, whichever is longer.
-  - The whole submission must finish within four gateway timeouts plus two minutes, with a minimum of one minute. That covers queueing, preparation, three attempts, and retry delays. A model asking the app to retry too far in the future fails the candidate.
-- **Cleanup.** Uploads live in the private `temporary/evaluations` folder and are deleted when the last candidate finishes. Leftover files are retried at startup and every 30 seconds. The browser shows cleanup as pending until deletion is confirmed.
-- **Cancellation.** Clearing the Evaluation, switching Workspace, or losing the session stops queued work and ignores late results.
-- **Library.** `localEvaluationDocuments.ts` serves `/v1/evaluations/documents`: status, paged list, explicit multipart save with an idempotent `operation_id`, read, conditional update (`expected_revision`, `409 revision_conflict` with the current entry), delete and original download. Entries and their versioned Expected answer sets (`lib/evaluationReference.ts`) live in the Workspace product database. Originals are owned by the entry, not by an Extraction job, and are cleaned up in the background after deletion. See [ADR-0014](../backend/docs/adr/0014-saved-evaluation-document-originals.md).
-- **Batches.** The browser runs one request per document with one to eight candidates, keeping at most `staging.document_concurrency` (the queue's concurrency) open at once. There is no document or result cap. A **Run** click first creates a short-lived action (`POST /v1/evaluations/actions`) that captures the model settings once in server memory, so every document in that run uses the same settings. Saved documents are sent by id; the server copies the original to a private working file. Each result is owned by its document and candidate, so a result can't run twice at once. Deleting a library entry stops its queued and retrying work.
-- **Browser cache.** Result details are encrypted in IndexedDB under a key that exists only in the open page, and are discarded when the Evaluation ends. See [ADR-0015](../backend/docs/adr/0015-temporary-evaluation-result-cache.md).
-
-Backend integration tests cover eight candidates, queue and retry rejection, duplicate uploads, configuration snapshots, access isolation, revocation, historical template reads, cleanup, and disconnects. `localEvaluationBatch.bun.test.ts` covers saved-document runs, per-document ownership, run actions and deletion at each stage. `localEvaluationDocuments.bun.test.ts` and `localEvaluationDocumentRecovery.bun.test.ts` cover library access, retention eligibility, conflicts, idempotent saves, crash windows, orphan and deletion recovery, manifest migration and Workspace erasure. Frontend tests cover scoring and table-alignment edge cases, ranking, setup, expected answers, filters, the table comparison, editing, and saving. `savedAnswerSets.test.js`, `resultCache.test.js` and `EvaluationJourneys.test.jsx` cover answer-set round trips, cache encryption and failure handling, and mixed-document journeys. `e2e/evaluationJourney.spec.ts` sets up, runs, and scores a model comparison in a real browser using a fake model gateway. `e2e/evaluationLibraryJourney.spec.ts` saves a verified document, reuses it with a fresh upload in a Batch Evaluation, navigates with Previous and Next, updates the saved answers and checks that refresh discards the Evaluation. `e2e/evaluationExpectedAnswers.spec.ts` covers date validation and saving and reloading table-cell absence and ignore statuses.
+The Evaluation keeps result details in encrypted browser storage to limit memory use for large batches. If storage is full, new documents pause. Select **Retry storage** or clear the Evaluation. Results with unsaved details show as unavailable. Rerun them before scoring.

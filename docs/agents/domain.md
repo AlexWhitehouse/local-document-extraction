@@ -1,22 +1,22 @@
 # Domain Docs
 
-How the engineering skills should consume this repo's domain documentation when exploring the codebase.
+Use these instructions when engineering skills read the repository's domain documentation.
 
 ## Layout
 
-This repo uses a multi-context domain-doc layout. Read `CONTEXT-MAP.md` at the repo root when it exists; it points to the relevant per-context `CONTEXT.md` files.
+The repository has multiple contexts. If `CONTEXT-MAP.md` exists at the root, read it first. It links to the relevant `CONTEXT.md` files.
 
 ## Before exploring, read these
 
-- `CONTEXT-MAP.md` at the repo root, if it exists. Read each mapped `CONTEXT.md` relevant to the topic.
-- `docs/adr/` for system-wide decisions that touch the area you're about to work in.
-- Context-scoped ADRs such as `src/<context>/docs/adr/`, `backend/docs/adr/`, or `frontend/docs/adr/` when they exist and are relevant.
+- The root `CONTEXT-MAP.md`, if present. Then read each mapped `CONTEXT.md` relevant to the task.
+- Relevant system decisions in `docs/adr/`.
+- Relevant context decisions in locations such as `src/<context>/docs/adr/`, `backend/docs/adr/`, or `frontend/docs/adr/`.
 
-If any of these files don't exist, proceed silently. Don't flag their absence; don't suggest creating them upfront. The producer skill (`/grill-with-docs`) creates them lazily when terms or decisions actually get resolved.
+If a file is absent, continue without comment. Do not report its absence or propose creating it in advance. The `/grill-with-docs` producer skill creates these files when terms or decisions are resolved.
 
 ## File structure
 
-Multi-context repo:
+A repository with multiple contexts uses this structure:
 
 ```
 /
@@ -32,12 +32,12 @@ Multi-context repo:
 
 ## Use the glossary's vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
+Use the terms defined in `CONTEXT.md` whenever you name a domain concept. This applies to issue titles, refactor proposals, hypotheses, and test names. Do not use synonyms that the glossary excludes.
 
-If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/grill-with-docs`).
+If a required concept is absent, first reconsider whether the project uses that concept. If the glossary has a real gap, record it for `/grill-with-docs`.
 
 ## Flag ADR conflicts
 
-If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
+If your proposal conflicts with an existing ADR, state the conflict and explain why the decision needs review. Do not silently replace it.
 
-> Contradicts ADR-0007 (event-sourced orders), but worth reopening because...
+> This proposal conflicts with ADR-0007 (event-sourced orders). Reopen the decision because...

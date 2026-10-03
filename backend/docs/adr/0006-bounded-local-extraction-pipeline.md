@@ -1,16 +1,16 @@
 # Bounded Local Extraction Pipeline
 
-The single-machine runtime treats per-Workspace SQLite as the durable work queue and keeps bounded in-memory structures only as scheduling accelerators. Multipart admission, active extraction, database ownership, polling, source retention, and resource control share explicit local capacity limits.
+Each Workspace's SQLite database is the durable work queue for the single-machine runtime. Bounded structures in memory only make scheduling faster. Multipart admission, active extraction, database ownership, polling, source retention, and resource control share explicit local capacity limits.
 
-Scheduling, indexed reads, and storage-admission details are revised by [ADR-0009](0009-indexed-work-and-resource-admission.md).
+[ADR-0009](0009-indexed-work-and-resource-admission.md) revises scheduling, indexed reads, and storage admission.
 
 ## Consequences
 
-- Multipart Documents stream through bounded parser buffers into unique temporary files and are atomically promoted after metadata and page-count validation.
-- The process owns one lease-aware SQLite connection per active Workspace, evicts only idle owners, and uses short rollback-journal writes. WAL remains gated while Bun embeds an affected SQLite version.
-- The extraction queue bounds active handlers and buffered metadata, deduplicates attempts, rotates Workspaces, and relies on periodic SQLite reconciliation for overflow and restart recovery.
-- Gateway retries distinguish deterministic failures from retryable `408`, `429`, and `5xx` responses, honor `Retry-After`, and use bounded full jitter.
-- Individual job polling uses `ETag`, `If-None-Match`, `304`, and `Retry-After`; nonterminal and unchanged reads do not hydrate result rows.
-- Completed Source binaries delete immediately. Failed Source binaries remain for seven days by default, while job metadata, error details, and results remain durable indefinitely. [ADR-0013](0013-retained-source-files.md) exempts retained originals from both cleanups.
-- A local controller observes queue depth, completed throughput, gateway outcomes, CPU, RSS/external memory, event-loop lag, free disk, Source bytes, SQLite bytes, and WAL bytes. It can pause or adjust extraction permits while enforcing the 85% CPU and 80% memory limits.
-- `/v1/health` exposes aggregate local diagnostics. Capacity and retention settings remain configurable through environment variables for Bun-supported macOS and Linux hosts.
+- Multipart Documents stream through bounded parser buffers into unique temporary files. After metadata and page-count validation, the runtime promotes each file in one atomic operation.
+- The process owns one SQLite connection per active Workspace and tracks its leases. It removes only idle connections. Writes use short rollback-journal transactions. WAL stays disabled while Bun contains an affected SQLite version.
+- The extraction queue limits active handlers and buffered metadata. It prevents duplicate attempts and rotates Workspaces. Periodic SQLite reconciliation recovers overflow and work interrupted by a restart.
+- Gateway retries separate deterministic failures from retryable `408`, `429`, and `5xx` responses. Retries obey `Retry-After` and use bounded full jitter.
+- Job polling uses `ETag`, `If-None-Match`, `304`, and `Retry-After`. Reads of unchanged or nonterminal jobs do not load result rows.
+- The runtime deletes completed Source binaries immediately. It keeps failed Source binaries for seven days by default. Job metadata, error details, and results remain in durable storage indefinitely. [ADR-0013](0013-retained-source-files.md) exempts retained originals from both cleanup rules.
+- A local controller monitors queue depth, completed throughput, gateway outcomes, CPU, RSS/external memory, and event-loop delay. It also monitors free disk space, Source bytes, SQLite bytes, and WAL bytes. It can pause or adjust extraction permits to enforce the 85% CPU and 80% memory limits.
+- `/v1/health` provides aggregate local diagnostics. Environment variables configure capacity and retention on macOS and Linux hosts that Bun supports.

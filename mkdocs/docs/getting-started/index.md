@@ -2,13 +2,13 @@
 
 ## Install and start
 
-The easiest way to install is the one-line installer in the project README. It prints a launcher you use to start and stop the app:
+Run the installer command in the project README. The installer prints the launcher path. Use the launcher to start and stop the app:
 
 ```bash
 ~/.local/share/document-extraction/document-extraction start
 ```
 
-To run from a source checkout instead, from the repository root:
+For a source checkout, run these commands from the repository root:
 
 ```bash
 bun install --frozen-lockfile
@@ -18,21 +18,23 @@ bun run build
 bun run start
 ```
 
-Then open `http://127.0.0.1:8787`, or the address your installation printed.
+Open `http://127.0.0.1:8787` or the address printed by your installation.
 
 ## Create your account
 
-Sign up with your name, email address, and password. A Google sign-in button appears only if the person running the app has set it up.
+Sign up with your name, email address, and password. Google sign-in appears only when the operator enables it.
 
-By default, new accounts can sign in straight away. If email verification has been switched on, you need to open a verification link first:
+By default, new accounts can sign in immediately. If the operator requires email verification, open the verification link first:
 
-- If the app sends email through Cloudflare, the link is in your inbox.
-- Otherwise, no email is sent. Installer users can see the link with the launcher's `mail` command, and source users can find it in `.local/mail/YYYY-MM-DD.jsonl`. Keep these links private; they give access to your account.
+- With Cloudflare email delivery, find the link in your inbox.
+- With local email, use the launcher’s `mail` command or read `.local/mail/YYYY-MM-DD.jsonl` in a source installation.
+
+Local email does not send messages. Keep verification links private because they give access to your account.
 
 ## Choose a Workspace
 
-Everything you do happens inside a **Workspace**, which holds its own templates, documents, members, API keys, and model settings. A new account gets a personal Workspace with an example invoice template.
+A **Workspace** holds its own templates, documents, members, API keys, and model settings. All work occurs within a Workspace. Each new account receives a personal Workspace with an example invoice template.
 
-**Before you can upload documents, the Workspace needs a model.** The next page shows you how to set one up.
+**Configure a Workspace model before you upload documents.** The next guide gives the procedure.
 
-Next: [your first extraction](first-extraction.md).
+Continue with [your first extraction](first-extraction.md).

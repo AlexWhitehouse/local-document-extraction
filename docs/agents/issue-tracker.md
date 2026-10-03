@@ -1,30 +1,30 @@
 # Issue tracker: Local Markdown
 
-Local issues and PRDs live as markdown files in `.scratch/`. The entire directory is ignored and is not published to GitHub.
+Local issues and PRDs are Markdown files in `.scratch/`. Git ignores this directory. It is not published to GitHub.
 
 ## Conventions
 
-- One feature per directory: `.scratch/<feature-slug>/`
-- The PRD is `.scratch/<feature-slug>/PRD.md`
-- Implementation issues are `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`
-- Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
-- Comments and conversation history append to the bottom of the file under a `## Comments` heading
+- Use one directory per feature: `.scratch/<feature-slug>/`.
+- Store the PRD at `.scratch/<feature-slug>/PRD.md`.
+- Store implementation issues at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`. Start numbering at `01`.
+- Put a `Status:` line near the top of each issue. Use the role strings in `triage-labels.md`.
+- Append comments and conversation history under `## Comments` at the end of the file.
 
 ## When a skill says "publish to the issue tracker"
 
-Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed).
+Create a file under `.scratch/<feature-slug>/`. If necessary, create the directory first.
 
 ## When a skill says "fetch the relevant ticket"
 
-Read the file at the referenced path. The user will normally pass the path or the issue number directly.
+Read the file at the supplied path. The user normally supplies a path or issue number.
 
 ## Wayfinding operations
 
-- The canonical map is `.scratch/<feature-slug>/map.md`, with `Labels: wayfinder:map`. Decision tickets live under the same feature's `issues/` directory and carry one `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling`, or `wayfinder:task` label.
-- Use the title as the human-facing name. Each issue has a unique `ID:` within the feature, `State: open|closed`, a canonical triage `Status:`, `Assignee: unassigned|<dev>`, and `Parent:` linking to the map. The map has no parent. IDs identify records; prose and links use their titles.
-- This tracker has no native parent or blocking relationships. Express dependencies with `Blocked by:` followed by relative Markdown links using ticket titles, or `none`. Create all referenced tickets before wiring dependencies.
-- List children by scanning the feature's issue files for `Parent:` pointing to the map. The frontier is children with `State: open`, `Assignee: unassigned`, and no blocker whose `State:` is open. Order the frontier by the numbered filenames. Blocked status is derived from dependency state, not maintained separately.
-- Claim a ticket by assigning it to the dev driving the map before work. Re-read the issue immediately before changing it to preserve another session's claim or edits.
-- Resolve a ticket by appending a resolution comment under `## Comments`, setting `State: closed` and `Status: completed`, and adding a title-linked one-line gist to the map's Decisions so far. Keep the resolution itself only in the ticket. Link supporting assets rather than copying their contents.
-- Out-of-scope tickets close with `Status: wontfix` and a title-linked explanation in the map's Out of scope, not Decisions so far.
-- The map does not enumerate open tickets; query children and dependencies to discover the frontier. All map and ticket files remain ignored local planning data.
+- Store the canonical map at `.scratch/<feature-slug>/map.md`. Set `Labels: wayfinder:map`. Store decision tickets in the feature's `issues/` directory. Assign one label: `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling`, or `wayfinder:task`.
+- Use each title as its displayed name. Give each issue a unique `ID:` within its feature. Include `State: open|closed`, a canonical triage `Status:`, and `Assignee: unassigned|<dev>`. Set `Parent:` to the map. The map has no parent. IDs identify records. Use titles in prose and links.
+- Record dependencies after `Blocked by:`. Use relative Markdown links with ticket titles, or `none`. Create referenced tickets before adding dependency links. The tracker has no built-in parent or blocking relationships.
+- Find children by reading issue files whose `Parent:` points to the map. The frontier contains unassigned, open children with no open blocker. Sort it by numbered filename. Derive blocked status from dependencies. Do not maintain a separate blocked state.
+- Before work, assign the ticket to the developer responsible for the map. Immediately before editing, read the issue again. Keep claims and edits from other sessions.
+- To resolve a ticket, append its resolution under `## Comments`. Set `State: closed` and `Status: completed`. Add a one-line, title-linked summary to the map's Decisions so far. Keep the full resolution only in the ticket. Link supporting assets instead of copying them.
+- Close out-of-scope tickets with `Status: wontfix`. Add a title-linked explanation under Out of scope in the map. Do not add it under Decisions so far.
+- Do not list open tickets in the map. Query children and dependencies to find the frontier. Maps and tickets remain ignored local planning data.

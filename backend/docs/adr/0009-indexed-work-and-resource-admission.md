@@ -1,9 +1,15 @@
 # Indexed work and resource admission
 
-Large durable histories made list searches, recovery, retention and upload admission perform work unrelated to the current request. We retain per-Workspace SQLite authority, add transactionally maintained search/count indexes, and move gateway eligibility ahead of source preparation so sequential Workspace calls cannot consume all global extraction permits.
+Large job histories made list searches, recovery, retention, and upload admission do work unrelated to the current request. Each Workspace's SQLite database remains the source of truth. Search and count indexes update within transactions. Gateway eligibility is determined before source preparation. Thus, sequential Workspace calls cannot consume all global extraction permits.
 
-This revises ADR-0006: drained Workspaces refill directly, buffer overflow requests reconciliation, and a 60-second repair sweep remains for missed hints and abandoned work. Queued work is ordered by its retry due time or initial update time, then ID; attempts owned by the current runner are excluded from stale recovery. Free-space admission is separate from diagnostic filesystem enumeration. WAL with FULL durability is enabled only for SQLite 3.51.3 or newer; the current 3.51.0 runtime retains rollback journaling.
+This decision revises ADR-0006. Workspaces with empty memory queues refill directly. Buffer overflow requests reconciliation. A repair sweep runs every 60 seconds for missed hints and abandoned work. Queued work sorts by retry due time or initial update time, then ID. Stale recovery excludes attempts that the current runner owns.
 
-Search uses bounded FTS5 trigram candidates with the original literal predicate as authority. Broad terms use the date-ordered path, and short/NUL-containing terms retain literal scanning. Indexes and exact totals are backfilled once and maintained in the same transaction as job mutations. This spends additional write work and disk space to keep common reads independent of historical volume.
+Free-space admission does not require a diagnostic scan of the filesystem. WAL with FULL durability requires SQLite 3.51.3 or newer. The current SQLite 3.51.0 runtime keeps rollback journaling.
 
-Model preparation originally reserved an estimated 256 MiB shared budget; [ADR-0010](0010-ram-aware-model-preparation.md) replaces that fixed budget with a RAM-aware allowance and shrinks reservations after preparation. Cumulative rendered PNGs remain capped at 64 MiB, keeping existing rendering quality and inline transport. Exports admit at most two workers, 500 Documents and 32 MiB of stored answer/evidence data per request. These bounds protect the local runtime; gateway-managed files and lossy image conversion still require compatibility and extraction-quality evidence before adoption.
+Search uses bounded FTS5 trigram candidates. The original literal predicate determines the final matches. Broad terms use the date-ordered path. Short terms and terms containing NUL use literal scans. The migration fills indexes and exact totals once. Later job changes update them in the same transaction.
+
+These indexes require more writes and disk space. In return, common reads do not depend on the volume of historical data.
+
+Model preparation originally used an estimated shared budget of 256 MiB. [ADR-0010](0010-ram-aware-model-preparation.md) replaces this fixed budget with an allowance based on RAM. Reservations decrease after preparation. Rendered PNGs remain limited to 64 MiB in total. Rendering quality and inline transport remain unchanged.
+
+Exports permit at most two workers. Each request permits at most 500 Documents and 32 MiB of stored answer/evidence data. These limits protect the local runtime. Gateway-managed files and lossy image conversion still require evidence of compatibility and extraction quality before adoption.
