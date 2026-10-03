@@ -15,12 +15,7 @@ For **macOS or Linux** (glibc), on Intel/AMD or ARM. You’ll need Bash, `curl`,
 Paste this into your terminal:
 
 ```bash
-(
-  installer=$(mktemp) &&
-  trap 'rm -f "$installer"' EXIT &&
-  curl -fsSL https://github.com/AlexWhitehouse/local-document-extraction/releases/latest/download/install.sh -o "$installer" &&
-  bash "$installer"
-)
+curl -fsSL https://github.com/AlexWhitehouse/local-document-extraction/releases/latest/download/install.sh | bash
 ```
 
 The installer asks a few questions about a reverse proxy, Google sign-in, Cloudflare email, and whether to keep original documents. **Press Enter at each one** for a normal local installation with email and password login. You can change these later, and updates keep your settings.
@@ -41,7 +36,7 @@ For automatic selection, add shared tags and useful descriptions to your Templat
 
 ## Compare models and templates
 
-Open **Evaluations** to compare up to eight candidates across one or more documents. Compare different models against the same template, or edit template variants while keeping the model fixed. Choose documents from the Evaluation library, upload new samples, or use both. **Start and run** sends every candidate for extraction, and results appear in the comparison table as each one finishes.
+Open **Evaluations** in the browser to compare up to eight candidates across one or more documents. Compare different models against the same template, or edit template variants while keeping the model fixed. Choose documents from the Evaluation library, upload new samples, or use both. **Start and run** sends every candidate for extraction, and results appear in the comparison table as each one finishes.
 
 To measure accuracy, enter the correct answers for the document and each candidate is scored against them. If a candidate's template edits work well, save them as a new template.
 

@@ -7,7 +7,7 @@ There are two kinds of comparison:
 - **Models:** one template, different models. Use this to find the most accurate or fastest model.
 - **Template versions:** one model, different templates. Use this to check whether rewording your field instructions improves the results.
 
-You can compare up to eight candidates, on as many documents as you like. Any member of a Workspace can use Evaluations.
+Evaluations are available in the browser to signed-in Workspace members. You can compare up to eight candidates, on as many documents as you like.
 
 > **Runs and results are temporary.** Refreshing or closing the tab, clearing the Evaluation, or switching Workspace discards the candidates, results, and any unsaved documents and answers. Moving between pages in the same Workspace keeps them. Only documents you explicitly save to the [Evaluation library](#the-evaluation-library) are kept.
 
@@ -96,30 +96,10 @@ The library keeps documents and their expected answers so anyone in the Workspac
 
 ## How runs behave
 
-- **Run all** runs every candidate on every document. Each document is sent once and shared by its candidates. Work goes to the same extraction queue that normal documents use. Evaluations don't get a separate pool, and they don't appear in your Documents list.
+- **Run all** runs every candidate on every document. Evaluations share processing capacity with normal extractions and do not appear in your Documents list.
 - Each candidate's **▶** runs it on the document currently shown. A result that's already running can't be started again.
-- If the queue is full, only the affected candidates are rejected.
+- If the app is busy, some candidates may not start. Run those candidates again when capacity is available.
 - If a rerun fails, the previous successful result is kept and labelled **Previous result**.
 - If you lose your connection, rerun the affected candidates yourself.
-- A submitted candidate can't be cancelled, and model requests may cost money with your provider.
+- A running candidate can't be cancelled. Running candidates uses your configured model provider and may incur charges.
 - Result details are kept in encrypted browser storage while the Evaluation is open, so large batches don't fill memory. If the browser runs out of space, new documents pause and you can **Retry storage** or clear the Evaluation. Results whose details couldn't be kept are marked unavailable and cannot be scored until rerun.
-
-## For developers
-
-How Evaluations fit into the backend:
-
-- **Access.** `localEvaluations.ts` and `localEvaluationDocuments.ts` only accept browser sessions: API keys are rejected, even alongside a cookie. Model credentials and gateway addresses never leave the server. A submission made against an out-of-date revision of the Workspace's model settings is rejected, while work already running keeps the settings it started with.
-- **Scheduling.** Candidates go through `localExtractionQueue.ts` as temporary tasks, sharing the same concurrency, Workspace fairness, sequential-call, and retry rules as documents (`extractionRetryPolicy.ts`). Instead of being deferred like documents, a temporary task is either accepted or rejected immediately.
-- **Extraction.** Candidates reuse `runExtraction` and `normalizeModelResults`. Original field values are kept, within limits, so the browser can do strict matching. Token counts are shown only when the gateway reports them.
-- **Delivery.** Each run streams progress and results back to the tab that started it as NDJSON. Nothing is broadcast to other tabs, stored, or replayed. If delivery fails, queued and retrying work stops; model requests already sent finish within their deadline and the results are discarded.
-- **Limits.**
-  - Upload metadata is capped at 1 MiB, on top of the usual file, PDF, and memory limits.
-  - The upload itself must finish within 60 seconds or the gateway timeout, whichever is longer.
-  - The whole submission must finish within four gateway timeouts plus two minutes, with a minimum of one minute. That covers queueing, preparation, three attempts, and retry delays. A model asking the app to retry too far in the future fails the candidate.
-- **Cleanup.** Uploads live in the private `temporary/evaluations` folder and are deleted when the last candidate finishes. Leftover files are retried at startup and every 30 seconds. The browser shows cleanup as pending until deletion is confirmed.
-- **Cancellation.** Clearing the Evaluation, switching Workspace, or losing the session stops queued work and ignores late results.
-- **Library.** `localEvaluationDocuments.ts` serves `/v1/evaluations/documents`: status, paged list, explicit multipart save with an idempotent `operation_id`, read, conditional update (`expected_revision`, `409 revision_conflict` with the current entry), delete and original download. Entries and their versioned Expected answer sets (`lib/evaluationReference.ts`) live in the Workspace product database. Originals are owned by the entry, not by an Extraction job, and are cleaned up in the background after deletion. See [ADR-0014](../backend/docs/adr/0014-saved-evaluation-document-originals.md).
-- **Batches.** The browser runs one request per document with one to eight candidates, keeping at most `staging.document_concurrency` (the queue's concurrency) open at once. There is no document or result cap. A **Run** click first creates a short-lived action (`POST /v1/evaluations/actions`) that captures the model settings once in server memory, so every document in that run uses the same settings. Saved documents are sent by id; the server copies the original to a private working file. Each result is owned by its document and candidate, so a result can't run twice at once. Deleting a library entry stops its queued and retrying work.
-- **Browser cache.** Result details are encrypted in IndexedDB under a key that exists only in the open page, and are discarded when the Evaluation ends. See [ADR-0015](../backend/docs/adr/0015-temporary-evaluation-result-cache.md).
-
-Backend integration tests cover eight candidates, queue and retry rejection, duplicate uploads, configuration snapshots, access isolation, revocation, historical template reads, cleanup, and disconnects. `localEvaluationBatch.bun.test.ts` covers saved-document runs, per-document ownership, run actions and deletion at each stage. `localEvaluationDocuments.bun.test.ts` and `localEvaluationDocumentRecovery.bun.test.ts` cover library access, retention eligibility, conflicts, idempotent saves, crash windows, orphan and deletion recovery, manifest migration and Workspace erasure. Frontend tests cover scoring and table-alignment edge cases, ranking, setup, expected answers, filters, the table comparison, editing, and saving. `savedAnswerSets.test.js`, `resultCache.test.js` and `EvaluationJourneys.test.jsx` cover answer-set round trips, cache encryption and failure handling, and mixed-document journeys. `e2e/evaluationJourney.spec.ts` sets up, runs, and scores a model comparison in a real browser using a fake model gateway. `e2e/evaluationLibraryJourney.spec.ts` saves a verified document, reuses it with a fresh upload in a Batch Evaluation, navigates with Previous and Next, updates the saved answers and checks that refresh discards the Evaluation. `e2e/evaluationExpectedAnswers.spec.ts` covers date validation and saving and reloading table-cell absence and ignore statuses.

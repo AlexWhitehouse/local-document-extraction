@@ -2,7 +2,7 @@
 
 Use the Workspace API to define extraction templates, submit PDFs and images, and retrieve structured data from scripts, applications, and automated workflows. Processing runs asynchronously: a submission returns a job ID or, for PDFs with Smart splitting enabled, a packet ID. Poll the returned location, then read each completed job for its results.
 
-This page specifies the API available to Workspace API-key clients, including template, extraction-job, and document-packet endpoints. Account, membership, model-configuration, live-update, Template assistant, and manual document-review operations use browser sessions and are outside this integration API.
+This page specifies the endpoints available to Workspace API-key clients. For browser workflows, see [Accounts and Workspaces](../usage/accounts-and-workspaces.md), [Templates](../usage/templates.md), and [Document extraction](../usage/document-extraction.md).
 
 ## Base URL and conventions
 
@@ -32,9 +32,9 @@ Authenticate every template, job, and packet request with:
 Authorization: Bearer <workspace_api_key>
 ```
 
-The key selects its Workspace, so API-key requests do not need `x-workspace-id`. Keep the key on your server or in your script's secret configuration. Rotating the key invalidates the previous key. The Workspace API key authenticates incoming requests; the model gateway credential is a separate secret used to call your model.
+The key selects its Workspace automatically. Keep the key on your server or in your script's secret configuration. Rotating the key invalidates the previous key. The Workspace API key authenticates incoming requests; the model gateway credential is a separate secret used to call your model.
 
-API keys can read and modify templates and shared template tags, submit documents, generate template drafts, read results and processing settings, delete jobs or packets, and export results in their Workspace. They cannot manage accounts, Workspaces, members, invitations, model configuration, or live updates, use the Template assistant, or resolve held template/split decisions. Those actions require the frontend. Browser clients use a session cookie and `x-workspace-id` for product routes instead.
+API keys can read and modify templates and shared template tags, submit documents, generate template drafts, read results and processing settings, delete jobs or packets, and export results in their Workspace. Manage accounts, membership, invitations, and model settings on the app's **Workspaces** and account pages. Use **Templates → Assistant** for help with a draft and **Documents** to review held work.
 
 Missing authentication returns `401 unauthorized`. A supplied but invalid API key returns `403 forbidden`. Resources in another Workspace are not accessible with your key.
 
@@ -42,7 +42,7 @@ Template CRUD and existing result reads do not require a model gateway. Extracti
 
 ## Endpoint index
 
-All template, job, and packet endpoints require Workspace authentication. The health endpoint is public.
+All endpoints below except health require a Workspace API key. The health endpoint is public.
 
 | Method | Path | Purpose | Success |
 | --- | --- | --- | --- |
@@ -385,7 +385,7 @@ Cache-Control: no-store
 {"enable_smart_splitting":true,"exclude_blank_pages":false}
 ```
 
-Workspace API keys can read these settings but cannot change them. Owners and admins manage them in the browser. The values are captured when a submission is accepted; a concurrent settings change can affect the next submission, so always inspect its returned ID and `Location` rather than assuming it will be a job or packet.
+Workspace API keys can read these settings. To change them, an owner or admin opens **Workspaces → Document processing** and adjusts the toggles; see [Document processing](../usage/accounts-and-workspaces.md#document-processing). The values are captured when a submission is accepted; a concurrent settings change can affect the next submission, so always inspect its returned ID and `Location` rather than assuming it will be a job or packet.
 
 ## Document packets and review
 
@@ -512,9 +512,9 @@ Packet reads use `Cache-Control: private, no-store` and do not provide condition
 
 ### Holds requiring frontend review
 
-A packet in `awaiting_review` needs a signed-in Workspace member to open it in **Documents**, review the page groups and exclusions, and confirm the plan. A job in `awaiting_template` needs a member to open that document and select a suitable template. The existing source is reused; another upload is not required. Manual selection may choose a usable template outside the original tag scope.
+A packet in `awaiting_review` or a job in `awaiting_template` needs a Workspace member to review the held item in **Documents**. Follow the [browser review steps](../usage/document-extraction.md#progress-and-review) to confirm page groups or choose a template.
 
-These review actions are available only in the frontend, not through Workspace API keys. Keep the packet and job IDs in your integration, surface the hold to a user, and resume polling after review. Once accepted, page groups, child identities, and template bindings remain fixed.
+Keep the packet and job IDs in your integration, surface the hold to a user, and resume polling after review. The existing source is reused; another upload is not required. Once accepted, page groups, child identities, and template bindings remain fixed.
 
 ### Read and manage packets
 

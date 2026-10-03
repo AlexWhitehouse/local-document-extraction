@@ -19,15 +19,15 @@ Every setting is read and validated in one place, [`src/localConfiguration.ts`](
 
 ## How requests are handled
 
-| Request | Handled by | Authentication |
+| Activity | Handled by | Access |
 | --- | --- | --- |
-| `/api/auth/*` | Better Auth (`src/localAuth.ts`) | — |
-| `/v1/workspaces/:id/live` | WebSocket live updates (`src/localLiveUpdateUpgrade.ts`) | Browser session only |
-| Template assistant and document review mutations | `src/localApplication.ts`, `src/localDocumentProcessingHttp.ts` | Browser session + `x-workspace-id`; Workspace API keys are not accepted |
-| Integration product routes under `/v1/*` | `src/localApplication.ts` | Browser session + `x-workspace-id` header, or `Authorization: Bearer <workspace API key>` |
-| Anything else (`GET`/`HEAD`) | Built frontend files, with fallback to `index.html` | — |
+| Sign-in and account actions | Better Auth (`src/localAuth.ts`) | Browser |
+| Automatic Workspace progress updates | `src/localLiveUpdateUpgrade.ts` | Signed-in Workspace member |
+| Template assistant and document review | `src/localApplication.ts`, `src/localDocumentProcessingHttp.ts` | Signed-in Workspace member |
+| Workspace API integrations | `src/localApplication.ts` | `Authorization: Bearer <workspace API key>` |
+| Frontend page and asset reads (`GET`/`HEAD`) | Built frontend files, with fallback to `index.html` | — |
 
-Workspace API keys reach templates, sample-based template generation, document submission, extraction jobs, and document packet reads/deletion. They can't use the Template assistant, resolve held template/split decisions, open live updates, or manage accounts, Workspaces, invitations, model settings, or admin features. The Studio uses session-only [Template assistant](docs/template-assistant-http.md) and [document review](docs/document-review-http.md) operations; their contracts are contributor references rather than part of the public Workspace API.
+Workspace API keys reach templates, sample-based template generation, document submission, extraction jobs, and document packet reads/deletion. See the [Workspace API specification](../mkdocs/docs/api/overview.md) for integration requests. In the browser, use **Templates → Assistant** for [draft assistance](../docs/template-assistant.md), **Documents** for [held-document review](../mkdocs/docs/usage/document-extraction.md#progress-and-review), and **Workspaces** for membership, invitations, and model settings. Account and admin actions also take place in the app.
 
 When a document is submitted, it's checked, stored, and queued as a job (`src/localMultipartSubmission.ts`, `src/localExtractionQueue.ts`). A runner (`src/localExtractionRunner.ts`) picks jobs up, prepares the document for the model, calls the Workspace's model gateway (`src/consumer/modelGateway.ts`), and saves the normalised results. `src/localDocumentProcessingRunner.ts` uses the same durable queue for tag-scoped classification and PDF packet splitting before field extraction. Splitting commits fixed child IDs and original-page maps before creating independent derived sources; automatic jobs bind a checked Template version before extraction. Both stages stop after one initial assessment and at most two targeted reassessments, holding unresolved work for manual resolution. Browsers are told about changes over the live-update WebSocket; API clients poll the returned job or packet location, discover packet children, and fetch each job for full results. Even an accepted one-document PDF split retains its packet API identity; collapsing it to one ordinary Document is a frontend presentation rule.
 
@@ -72,14 +72,9 @@ Until a Workspace is set up, document uploads get `409 workspace_model_not_confi
 
 Each extraction attempt uses the latest saved settings. Changing or clearing the settings doesn't stop an attempt already in progress.
 
-The browser uses `/v1/workspaces/:workspaceId/model-configuration`, which accepts browser sessions only:
+Under **Workspaces → Model gateway**, members can see whether a model is configured. Owners and admins can view its non-secret settings, edit or clear the configuration, and test a draft. If someone else changes the settings while you edit, reload them before saving. Other open browsers refresh after a saved change.
 
-- Members can only see whether settings exist; owners and admins can read the details (never the credential), replace them with `PUT`, clear them with `DELETE`, or test a draft with `POST …/test`.
-- Changes need a revision precondition: `If-None-Match: *` to create, `If-Match: <revision>` to replace or clear. An out-of-date revision returns `412`, and a missing precondition returns `428`.
-- After a change, other open browsers get a `model_configuration_changed` live update and reload the settings.
-- The optional `classification_model` object has `model_name`, `supports_pdf_input`, and `supports_structured_output`. Omission or `null` inherits Extraction, as for `assistant_model`; each claimed assessment captures the resolved model/capabilities and non-secret configuration revision.
-
-The old global model environment variables are ignored, and startup logs any it finds by name (see [configuration](../docs/configuration.md#model-settings-are-per-workspace)). The old `/v1/settings/model` route returns 404. On startup, a leftover `data/model-gateway.json` from old versions is deleted without being read.
+The old global model environment variables are ignored, and startup logs any it finds by name (see [configuration](../docs/configuration.md#model-settings-are-per-workspace)). On startup, a leftover `data/model-gateway.json` from old versions is deleted without being read.
 
 ## Built-in protections
 

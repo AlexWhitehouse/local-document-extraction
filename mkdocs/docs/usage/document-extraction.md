@@ -30,7 +30,17 @@ Extraction runs in the background. The browser updates progress automatically. E
 
 Packet progress moves through split analysis, creation of child documents, and extraction. Clear decisions proceed automatically. Split analysis and each template selection can make one initial assessment and up to two targeted reassessments. Manual review is the last resort when those assessments cannot resolve the choice or no further automatic attempt can help.
 
-For **Review needed**, use original-page previews to assign every page to exactly one document group or exclude it with a reason, then choose **Confirm plan and extract**. Pages keep their original order. If another user changes the plan, reload it before confirming. An all-blank PDF completes as **No documents to extract** only when blank exclusion is enabled and every selected page is independently verified blank.
+Sign in to the Workspace and open the held item in **Documents**. Review uses the existing uploaded source, so you do not need to upload it again.
+
+### Choose a template
+
+When automatic selection needs help, choose a usable Template under **Template for this document**, then select **Use template and continue**. You can choose a Template outside the original tag selection. The app saves that Template's current version for this document and resumes extraction. Once accepted, the choice stays fixed even if the Template is edited later.
+
+### Confirm document boundaries
+
+For **Review needed**, use original-page previews to assign every page to exactly one document group or exclude it with a reason, then choose **Confirm plan and extract**. A group can contain nonadjacent pages; pages keep their original order. You can explicitly exclude nonblank pages, such as a cover, when appropriate.
+
+If another user changes the plan, reload it before confirming. Confirmed groups stay fixed, and confirming again does not create duplicate documents. An all-blank PDF completes as **No documents to extract** only when blank exclusion is enabled and every selected page is independently verified blank.
 
 ## Results, originals, and deletion
 

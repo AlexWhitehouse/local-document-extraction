@@ -16,7 +16,7 @@ Check both the HTTP status and `error.code` in your code. The `message` is for p
 | Status | Usually means |
 | --- | --- |
 | `400` | Something in the request is invalid. |
-| `401` | No API key or session was sent. |
+| `401` | No Workspace API key was sent. |
 | `403` | The API key is wrong, or you don't have access to that Workspace. |
 | `404` | The route or resource doesn't exist. |
 | `409` | The request conflicts with the current state, for example the Workspace has no model set up yet. |

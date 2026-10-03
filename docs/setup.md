@@ -50,7 +50,13 @@ To change your answers later, edit `config.env` and restart the app, or use `sto
 
 ### Installer options
 
-Download `install.sh` from the [releases page](https://github.com/AlexWhitehouse/local-document-extraction/releases), review it, then run it with any of these options:
+To pass options to the one-line installer, use `bash -s --`:
+
+```bash
+curl -fsSL https://github.com/AlexWhitehouse/local-document-extraction/releases/latest/download/install.sh | bash -s -- --no-start
+```
+
+Setup questions still use your terminal when the script is piped into Bash. You can also download `install.sh` from the [releases page](https://github.com/AlexWhitehouse/local-document-extraction/releases), review it, then run it with any of these options:
 
 | Option | What it does |
 | --- | --- |
