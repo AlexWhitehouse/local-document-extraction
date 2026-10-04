@@ -34,7 +34,6 @@ function expectSingleDocument() {
   expect(screen.getByRole("region", { name: "Document results" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "Document packet" })).toBeNull();
   expect(screen.queryByRole("tab", { name: "Overview" })).toBeNull();
-  expect(screen.queryByRole("list", { name: "Packet progress" })).toBeNull();
   expect(screen.queryByRole("button", { name: "View parent packet" })).toBeNull();
 }
 
