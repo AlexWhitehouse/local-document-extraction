@@ -7,6 +7,8 @@ import { ProcessingCost } from "./ProcessingCost.jsx";
 
 const LIVE_CHILD_STATUSES = new Set(["queued", "processing"]);
 
+const LIVE_PACKET_STATUSES = new Set(["processing", "materializing", "processing_children"]);
+
 export function PacketPage({
   packet,
   activeDocumentId = "",
@@ -226,6 +228,7 @@ function PacketProgress({ packet, documents }) {
           ? "Nothing to extract"
           : `${done} of ${documents.length} complete${failed ? ` · ${failed} failed` : ""}`,
       attention: failed > 0 || (packet.status === "failed" && splitDone),
+      fill: documents.length ? (done + failed) / documents.length : 0,
     },
     {
       label: "Done",
@@ -245,16 +248,19 @@ function PacketProgress({ packet, documents }) {
     <ol className="packet-progress" aria-label="Packet progress">
       {steps.map((step, index) => {
         const state = index < stage || stage === 3 ? "done" : index === stage ? "current" : "pending";
+        const working = state === "current" && LIVE_PACKET_STATUSES.has(packet.status);
 
         return (
           <li
             key={step.label}
-            className={`is-${state}${step.attention ? " is-attention" : ""}`}
+            className={`is-${state}${step.attention ? " is-attention" : ""}${working ? " is-working" : ""}`}
             aria-current={state === "current" ? "step" : undefined}
+            style={state === "current" && step.fill ? { "--packet-stage-fill": step.fill } : undefined}
           >
             <span className="packet-progress-index">{String(index + 1).padStart(2, "0")}</span>
             <strong>{step.label}</strong>
-            <span>{step.detail}</span>
+            {/* Keyed by its text so each new count or state fades in. */}
+            <span key={step.detail}>{step.detail}</span>
           </li>
         );
       })}
