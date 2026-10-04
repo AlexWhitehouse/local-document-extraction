@@ -10,4 +10,4 @@ Use `split`, `auto_template`, and `extraction` stages. Each Document owns its di
 
 Child deletion preserves incurred costs in the parent packet and does not redistribute split allocations. Packet deletion removes parent and child receipts. Standalone Document deletion removes its receipts. Workspace erasure removes all accounting data. Cost snapshots are included in job HTTP validators, live-update summaries, and the completed-document cache.
 
-Completed Document headers and packet headers show the total with an accessible hover/focus/tap breakdown for the three stages. Document headers hide the total until completion, and document tooltips omit the page-allocation explanation. Packet tooltips explain excluded-page overhead and show costs so far during processing. Unavailable or partial costs remain distinguishable from zero.
+Document and packet headers hide the total until their respective status is completed, then show it with an accessible hover/focus/tap breakdown for the three stages. Document tooltips omit the page-allocation explanation. Packet tooltips explain excluded-page overhead. Unavailable or partial costs remain distinguishable from zero.

@@ -10,7 +10,7 @@ function amountLabel(cost) {
 }
 
 /** The same total and breakdown in document and packet headers; keyboard/touch accessible. */
-export function ProcessingCost({ costs, kind = "Document", inProgress = false }) {
+export function ProcessingCost({ costs, kind = "Document" }) {
   const id = useId();
   const trigger = useRef(null);
   const tooltip = useRef(null);
@@ -43,7 +43,7 @@ export function ProcessingCost({ costs, kind = "Document", inProgress = false })
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     return () => { observer?.disconnect(); window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
-  }, [open, costs, inProgress]);
+  }, [open, costs]);
 
   const total = amountLabel(costs?.total);
   return <span className="processing-cost" onMouseEnter={show} onMouseLeave={hide}>
@@ -67,7 +67,6 @@ export function ProcessingCost({ costs, kind = "Document", inProgress = false })
         <p>Split includes {amountLabel(costs.excluded_pages_cost)} for excluded pages, kept at packet level.</p>
       ) : null}
       {!costs || !costs.total.complete ? <p>{costs?.total.amount != null ? "+ marks a known subtotal. Some call costs are unavailable." : "The endpoint did not report a usable cost, or this work predates cost tracking."}</p> : null}
-      {inProgress ? <p>Costs so far. Processing is not finished.</p> : null}
     </div>, document.body) : null}
   </span>;
 }

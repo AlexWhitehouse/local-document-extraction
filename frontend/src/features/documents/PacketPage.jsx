@@ -68,7 +68,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
         {pages.length ? <span><strong>{pages.length}</strong> {pages.length === 1 ? "page" : "pages"}</span> : null}
         {documents.length ? <span><strong>{documents.length}</strong> {documents.length === 1 ? "document" : "documents"}</span> : null}
         {exclusions.length ? <span><strong>{exclusions.length}</strong> excluded</span> : null}
-        <ProcessingCost costs={packet.costs} kind="Packet" inProgress={!["completed", "failed"].includes(packet.status)} />
+        {packet.status === "completed" ? <ProcessingCost costs={packet.costs} kind="Packet" /> : null}
         {Number.isNaN(date.getTime()) ? null : (
           <time dateTime={date.toISOString()}>
             {date.toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
