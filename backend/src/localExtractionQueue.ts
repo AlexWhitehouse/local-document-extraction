@@ -92,6 +92,7 @@ export function createLocalExtractionQueue({
   let pending = 0;
   let overflowed = false;
   const activeByWorkspace = new Map<string, number>();
+  const lastWasPacket = new Map<string, boolean>();
   let durableDeferrals = 0;
   let deferredTimer: unknown = null;
   let deferredTimerDueAt: number | null = null;
@@ -135,7 +136,14 @@ export function createLocalExtractionQueue({
     while (active < currentMaxConcurrent && readyWorkspaces.length > skipped) {
       const workspaceId = readyWorkspaces.shift()!;
       const workspaceActive = activeByWorkspace.get(workspaceId) ?? 0;
-      const first = workspaceQueues.get(workspaceId)?.[0];
+      const queue = workspaceQueues.get(workspaceId);
+      // Packet fan-out must not leave ready child extractions behind an entire
+      // upload backlog. Alternate stages, preserving FIFO within each stage.
+      const previousPacket = lastWasPacket.get(workspaceId);
+      const alternate = previousPacket === undefined ? -1
+        : queue?.findIndex((item) => (item.kind === "packet") !== previousPacket) ?? -1;
+      const nextIndex = alternate < 0 ? 0 : alternate;
+      const first = queue?.[nextIndex];
       if (workspaceActive >= getWorkspaceMaxConcurrent(workspaceId) || (first && !isTransient(first) && handlers.size === 0)) {
         readyWorkspaces.push(workspaceId);
         skipped += 1;
@@ -143,12 +151,12 @@ export function createLocalExtractionQueue({
       }
       skipped = 0;
       readyWorkspaceSet.delete(workspaceId);
-      const queue = workspaceQueues.get(workspaceId);
-      const job = queue?.shift();
+      const job = queue?.splice(nextIndex, 1)[0];
       if (!job) {
         workspaceQueues.delete(workspaceId);
         continue;
       }
+      lastWasPacket.set(workspaceId, job.kind === "packet");
       pending -= 1;
       if (queue!.length > 0) {
         readyWorkspaceSet.add(workspaceId);
@@ -170,6 +178,7 @@ export function createLocalExtractionQueue({
           pump();
           settleIdle();
           settleClose();
+          if (!activeByWorkspace.has(workspaceId) && !workspaceQueues.has(workspaceId)) lastWasPacket.delete(workspaceId);
           if (accepting && !activeByWorkspace.has(workspaceId) && !workspaceQueues.has(workspaceId)) {
             void Promise.resolve().then(() => onWorkspaceIdle?.(workspaceId)).catch((error) => { if (!isTransient(job)) onHandlerError(error, job); });
           }
@@ -218,6 +227,7 @@ export function createLocalExtractionQueue({
         for (const queue of workspaceQueues.values()) for (const job of queue) if (isTransient(job)) job.discard();
         deferredJobs.splice(0);
         workspaceQueues.clear();
+        lastWasPacket.clear();
         pending = 0;
         readyWorkspaces.splice(0);
         readyWorkspaceSet.clear();

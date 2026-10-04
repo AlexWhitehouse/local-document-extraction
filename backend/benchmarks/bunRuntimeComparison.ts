@@ -135,7 +135,7 @@ const repositoryRoot = resolve(import.meta.dir, "../..");
 const prototypePath = resolve(import.meta.dir, "throughput.ts");
 const rawRoot = resolve(repositoryRoot, ".scratch/bun-1-4-review/raw/19-bun-runtime-comparison");
 const evidenceRoot = resolve(repositoryRoot, ".scratch/bun-1-4-review/evidence");
-const sharedCommand = "bunx bun@1.4.0 run --cwd backend benchmark:bun-runtime";
+const sharedCommand = "bunx bun@1.4.2 run --cwd backend benchmark:bun-runtime";
 
 export function parsePrototypeResult(stdout: string): PrototypeResult {
   const resultLines = stdout.split(/\r?\n/).filter((line) => line.startsWith(resultPrefix));
@@ -188,35 +188,35 @@ export function evaluateRuntimeRegression(
     "Throughput",
     candidate.throughputJobsPerSecond.mean,
     baseline.throughputJobsPerSecond.mean * 0.9,
-    "Bun 1.4 mean must be at least 90% of Bun 1.3.14",
+    "Bun 1.4.2 mean must be at least 90% of Bun 1.3.14",
     " jobs/s",
   ));
   checks.push(upperBoundCheck(
     "Lifecycle p95",
     candidate.lifecycleP95Ms.mean,
     baseline.lifecycleP95Ms.mean * 1.15,
-    "Bun 1.4 mean must be no more than 115% of Bun 1.3.14",
+    "Bun 1.4.2 mean must be no more than 115% of Bun 1.3.14",
     " ms",
   ));
   checks.push(upperBoundCheck(
     "Peak RSS",
     candidate.peakRssBytes.mean,
     baseline.peakRssBytes.mean + Math.max(32 * 1024 ** 2, baseline.peakRssBytes.mean * 0.15),
-    "Bun 1.4 mean must be within +15% or a 32 MiB noise floor",
+    "Bun 1.4.2 mean must be within +15% or a 32 MiB noise floor",
     " bytes",
   ));
   checks.push(upperBoundCheck(
     "Normalized CPU",
     candidate.normalizedCpuFraction.mean,
     baseline.normalizedCpuFraction.mean + Math.max(0.02, baseline.normalizedCpuFraction.mean * 0.15),
-    "Bun 1.4 mean must be within +15 percentage-relative or a 2-point noise floor",
+    "Bun 1.4.2 mean must be within +15 percentage-relative or a 2-point noise floor",
     "",
   ));
   checks.push(upperBoundCheck(
     "Maximum event-loop lag",
     candidate.maxEventLoopLagMs.mean,
     baseline.maxEventLoopLagMs.mean + Math.max(10, baseline.maxEventLoopLagMs.mean * 0.15),
-    "Bun 1.4 mean must be within +15% or a 10 ms noise floor",
+    "Bun 1.4.2 mean must be within +15% or a 10 ms noise floor",
     " ms",
   ));
   checks.push({
@@ -340,7 +340,7 @@ function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): str
     "| --- | --- | --- | --- |",
     ...assessment.checks.map((check) => `| ${check.metric} | ${check.actual} | ${check.threshold} | ${check.passed ? "PASS" : "FAIL"} |`),
     "",
-    "## Bun 1.4 native Markdown profiles",
+    "## Bun 1.4.2 native Markdown profiles",
     "",
     "The profiling repetition uses the same synthetic fixtures and bounded settings. Bun's raw Markdown profiles stay under ignored `raw/` scratch state. Shareable copies are path- and credential-scrubbed at [`19-bun-runtime-profiles/cpu.md`](19-bun-runtime-profiles/cpu.md) and [`19-bun-runtime-profiles/heap.md`](19-bun-runtime-profiles/heap.md). Profiles help explain an observed comparison; they are not added to the timed steady repetitions.",
     "",
@@ -380,7 +380,7 @@ async function runCoordinator(): Promise<void> {
   ]);
   const fixtureIdentities = await createSharedFixtures(fixtureDirectory);
   const runtimes = [] as BunRuntimeComparisonEvidence["runtimes"];
-  for (const version of ["1.3.14", "1.4.0"]) {
+  for (const version of ["1.3.14", "1.4.2"]) {
     process.stdout.write(`Warming Bun ${version}...\n`);
     for (let repetition = 0; repetition < settings.warmupRepetitions; repetition += 1) {
       await runRuntimeInvocation({ fixtureDirectory, fixtureIdentities, repetition: 0, settings, version });
@@ -393,7 +393,7 @@ async function runCoordinator(): Promise<void> {
     runtimes.push({ aggregate: aggregateRuntimeRuns(runs), runs, version });
   }
 
-  process.stdout.write("Profiling the Bun 1.4.0 bounded server...\n");
+  process.stdout.write("Profiling the Bun 1.4.2 bounded server...\n");
   await runRuntimeInvocation({
     fixtureDirectory,
     fixtureIdentities,
@@ -407,7 +407,7 @@ async function runCoordinator(): Promise<void> {
       "--heap-prof-dir", profileDirectory,
     ],
     settings,
-    version: "1.4.0",
+    version: "1.4.2",
   });
   const rawCpu = await readFile(join(profileDirectory, "server-cpu.md"), "utf8");
   const rawHeap = await readFile(join(profileDirectory, "server-heap.md"), "utf8");

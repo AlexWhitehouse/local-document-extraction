@@ -99,11 +99,17 @@ export async function withPreparedModelSourceFactory<T>(
     const source = await prepareSource();
     const actualSize = source instanceof Blob ? source.size : source.byteLength;
     if (actualSize > sourceSize) throw new ModelGatewayRequestError("Prepared source exceeds its model preparation reservation");
+    // A derivative reserves its worst-case output while it is built. Once its
+    // actual size is known, free that unused allowance before model preparation.
+    const actualReservation = Math.max(1024 * 1024, rendered
+      ? MAX_RENDERED_PDF_BYTES * 3 + actualSize + 16 * 1024 * 1024
+      : actualSize * 4) + additionalContextCharacters * 6;
+    lease.shrinkTo(actualReservation);
     const sourceBytes = source instanceof Blob ? await source.arrayBuffer() : source;
     const parts = await prepareSourceContent(sourceBytes, sourceMimeType, rendered, signal);
     return work(parts, (characters) => {
-      const retainedBytes = sourceSize + characters * 6 + 16 * 1024 * 1024;
-      lease.shrinkTo(Math.min(reservation, retainedBytes));
+      const retainedBytes = actualSize + characters * 6 + 16 * 1024 * 1024;
+      lease.shrinkTo(Math.min(actualReservation, retainedBytes));
     });
   }, signal), signal).catch((error) => {
     if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
@@ -112,9 +118,9 @@ export async function withPreparedModelSourceFactory<T>(
 }
 
 /** Hold derived-artifact memory through persistence; do not nest another preparation lease inside work. */
-export async function withDocumentProcessingMemory<T>(reservationBytes: number, signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+export async function withDocumentProcessingMemory<T>(reservationBytes: number, signal: AbortSignal, work: (lease: { shrinkTo(bytes: number): void }) => Promise<T>): Promise<T> {
   if (!Number.isSafeInteger(reservationBytes) || reservationBytes < 0 || reservationBytes > localMemoryLimits.preparationMaxBytes) throw new ModelGatewayRequestError("Document processing exceeds the local model preparation budget");
-  return preparationBudget.run(reservationBytes, async () => { signal.throwIfAborted(); return work(); }, signal);
+  return preparationBudget.run(reservationBytes, async (lease) => { signal.throwIfAborted(); return work(lease); }, signal);
 }
 
 /** Source-free assistance shares the extraction scheduler and preparation memory budget. */

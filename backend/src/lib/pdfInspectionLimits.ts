@@ -13,8 +13,12 @@ export const PDF_INSPECTION_LIMITS = Object.freeze({
   streamEntries: 50_000,
   pages: 10_000,
   wallTimeMs: 5_000,
-  concurrent: 2,
+  concurrent: 8,
   queued: 8,
+  workerDocuments: 32,
+  workerSourceBytes: 64 * 1024 * 1024,
+  workerRssBytes: 128 * 1024 * 1024,
+  workerIdleMs: 5_000,
 });
 
 export type PdfInspectionResult = { pages: number } | { error: "invalid" | "limit" | "configuration" };

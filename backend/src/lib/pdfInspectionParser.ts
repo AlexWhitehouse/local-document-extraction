@@ -5,8 +5,10 @@ import { PDF_INSPECTION_LIMITS as limits } from "./pdfInspectionLimits";
 export class PdfInspectionLimitError extends Error {}
 export class PdfInspectionConfigurationError extends Error {}
 
+let restorePreviousGuards = () => {};
+
 /**
- * Private pdf-lib adapter. Only import in a disposable child: its prototype guards
+ * Private pdf-lib adapter. Only import in an isolated child: its prototype guards
  * and pdf-lib's intern pools must never modify or retain data in the API process.
  * Fail closed on a dependency change until these allocation seams are requalified.
  */
@@ -14,8 +16,11 @@ export async function inspectPdfPages(bytes: Uint8Array): Promise<number> {
   return (await loadInspectedPdf(bytes)).pages;
 }
 
-/** Retain a guarded document only inside its disposable subprocess. */
+/** Retain a guarded document only inside its isolated subprocess. */
 export async function loadInspectedPdf(bytes: Uint8Array): Promise<{ document: PDFDocument; pages: number; checkLimits: () => void }> {
+  // Inspectors process one document at a time. Never wrap a previous document's
+  // guards: its budgets and deadline must not leak into the next request.
+  restorePreviousGuards();
   const require = createRequire(import.meta.url);
   if (require("pdf-lib/package.json").version !== "1.17.1") throw new PdfInspectionConfigurationError();
   const library = require("pdf-lib/cjs/index.js") as typeof import("pdf-lib");
@@ -25,15 +30,18 @@ export async function loadInspectedPdf(bytes: Uint8Array): Promise<{ document: P
   const BaseParser = require("pdf-lib/cjs/core/parser/BaseParser.js").default;
   const ObjectStreamParser = require("pdf-lib/cjs/core/parser/PDFObjectStreamParser.js").default;
   const XRefStreamParser = require("pdf-lib/cjs/core/parser/PDFXRefStreamParser.js").default;
-  for (const [target, method] of [
+  const guardedMethods = [
     [DecodeStream.prototype, "ensureBuffer"], [ByteStream.prototype, "next"],
     [ByteStream.prototype, "slice"], [ObjectParser.prototype, "parseObject"],
     [ObjectParser.prototype, "parseString"], [ObjectParser.prototype, "parseHexString"],
     [ObjectParser.prototype, "parseName"], [ObjectStreamParser, "forStream"], [XRefStreamParser, "forStream"],
     [BaseParser.prototype, "parseRawInt"], [BaseParser.prototype, "parseRawNumber"],
-  ] as const) {
+  ] as const;
+  for (const [target, method] of guardedMethods) {
     if (typeof target?.[method] !== "function") throw new PdfInspectionConfigurationError();
   }
+  const originals = guardedMethods.map(([target, method]) => [target, method, target[method]] as const);
+  restorePreviousGuards = () => { for (const [target, method, original] of originals) target[method] = original; };
 
   let breached = false;
   let allocated = 0;

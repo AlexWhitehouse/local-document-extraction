@@ -134,7 +134,7 @@ async function runIsolatedMode(
       `stderr: ${stderr.slice(-4_000) || "<empty>"}`,
     ].join("\n"));
   }
-  const line = stdout.trim().split(/\r?\n/).findLast((entry) => entry.startsWith("MEMORY_PRESSURE_RESULT "));
+  const line = stdout.trim().split(/\r?\n/).reverse().find((entry) => entry.startsWith("MEMORY_PRESSURE_RESULT "));
   if (!line) throw new Error(`Memory-pressure benchmark ${mode} worker returned no result`);
   return JSON.parse(line.slice("MEMORY_PRESSURE_RESULT ".length)) as MemoryPressureBenchmarkResult;
 }

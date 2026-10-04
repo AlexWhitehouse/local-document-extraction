@@ -48,10 +48,16 @@ export function createLocalSubmissionAdmission({
       active += 1;
       reservedBytes += reservation;
       try {
-        const resourcesAvailable = await canReserve({
-          requestBytes: reservation,
-          reservedBytes: reservedBytes - reservation,
-        });
+        let resourcesAvailable = false;
+        try {
+          resourcesAvailable = await canReserve({
+            requestBytes: reservation,
+            reservedBytes: reservedBytes - reservation,
+          });
+        } catch {
+          // Native resource sampling can be interrupted (for example under CPU profiling).
+          // Without a capacity reading, reject before accepting any durable work.
+        }
         if (!resourcesAvailable) {
           rejected += 1;
           return await rejectSubmission(request, normalizedRetryAfterSeconds);

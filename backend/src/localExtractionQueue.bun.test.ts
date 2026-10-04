@@ -241,3 +241,17 @@ async function waitFor(condition: () => boolean): Promise<void> {
   }
   throw new Error("Timed out waiting for queue state");
 }
+
+
+test("packet backlog and extraction alternate without starving either stage or reordering a stage", async () => {
+  const queue = createLocalExtractionQueue({ maxConcurrent: 1 });
+  queue.setMaxConcurrent(0);
+  for (let index = 1; index <= 3; index++) await queue.schedule({ ...job(`packet_${index}`, "workspace_one"), kind: "packet" });
+  for (let index = 1; index <= 3; index++) await queue.schedule(job(`child_${index}`, "workspace_one"));
+  const order: string[] = [];
+  queue.subscribe((item) => { order.push(item.job_id); });
+  queue.setMaxConcurrent(1);
+  await queue.waitForIdle();
+  expect(order).toEqual(["packet_1", "child_1", "packet_2", "child_2", "packet_3", "child_3"]);
+  await queue.close();
+});

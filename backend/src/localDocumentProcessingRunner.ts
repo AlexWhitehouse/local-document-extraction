@@ -1,6 +1,6 @@
 import { assessDocumentSplit, classifyDocument, DOCUMENT_ASSESSMENT_LIMITS, type AssessmentFeedback } from "./consumer/documentAssessment";
 import { RetryableError, withDocumentProcessingMemory } from "./consumer/modelGateway";
-import { materializePdfPageGroups, PDF_PAGE_OPERATION_LIMITS } from "./lib/pdfPageOperations";
+import { withPdfOperationCapacity, materializePdfPageGroups, PDF_PAGE_OPERATION_LIMITS } from "./lib/pdfPageOperations";
 import type { LocalRetainedSourceObjects } from "./localApplication";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalSourceFileStore } from "./localSourceFileStore";
@@ -166,9 +166,10 @@ export function createLocalDocumentProcessingRunner(input: DocumentProcessingFun
             // through local writes and remote uploads. Keep that entire lifetime
             // inside the same byte budget used by model preparation.
             const maximumArtifacts = Math.min(PDF_PAGE_OPERATION_LIMITS.totalArtifactBytes, reserved.length * PDF_PAGE_OPERATION_LIMITS.artifactBytes);
-            await withDocumentProcessingMemory(PDF_PAGE_OPERATION_LIMITS.sourceBytes + maximumArtifacts * 3, signal, async () => {
+            await withDocumentProcessingMemory(PDF_PAGE_OPERATION_LIMITS.sourceBytes + maximumArtifacts * 3, signal, async (lease) => {
               document ??= await source(context);
-              const artifacts = await materialize(document, reserved.map((slot) => slot.pages), signal);
+              const artifacts = await withPdfOperationCapacity(() => materialize(document!, reserved.map((slot) => slot.pages), signal), signal);
+              lease.shrinkTo(document.size + artifacts.reduce((sum, bytes) => sum + bytes.byteLength, 0) * 3);
               for (let index = 0; index < reserved.length; index++) {
                 signal.throwIfAborted();
                 const slot = reserved[index]!;

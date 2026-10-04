@@ -2,9 +2,9 @@
 
 Large job histories made list searches, recovery, retention, and upload admission do work unrelated to the current request. Each Workspace's SQLite database remains the source of truth. Search and count indexes update within transactions. Gateway eligibility is determined before source preparation. Thus, sequential Workspace calls cannot consume all global extraction permits.
 
-This decision revises ADR-0006. Workspaces with empty memory queues refill directly. Buffer overflow requests reconciliation. A repair sweep runs every 60 seconds for missed hints and abandoned work. Queued work sorts by retry due time or initial update time, then ID. Stale recovery excludes attempts that the current runner owns.
+This decision revises ADR-0006. Workspaces with empty memory queues refill directly. Buffer overflow requests reconciliation. A repair sweep runs every 60 seconds for missed hints and abandoned work. Durable recovery sorts queued work by retry due time or initial update time, then ID. Within each ready Workspace, packet processing and extraction alternate when both stages are waiting, with FIFO order within each stage. This prevents a packet backlog from starving the child Documents it produces. Workspace rotation and retry due times still apply. Stale recovery excludes attempts that the current runner owns.
 
-Free-space admission does not require a diagnostic scan of the filesystem. WAL with FULL durability requires SQLite 3.51.3 or newer. The current SQLite 3.51.0 runtime keeps rollback journaling.
+Free-space admission does not require a diagnostic scan of the filesystem. WAL with FULL durability requires SQLite 3.51.3 or newer. Older SQLite builds keep rollback journaling; the runtime reads the bundled SQLite version at startup.
 
 Search uses bounded FTS5 trigram candidates. The original literal predicate determines the final matches. Broad terms use the date-ordered path. Short terms and terms containing NUL use literal scans. The migration fills indexes and exact totals once. Later job changes update them in the same transaction.
 

@@ -396,3 +396,27 @@ test("manual all-blank completion immediately cleans the unretained original wit
   expect(f.scheduled).toHaveLength(0);
   expect(f.store.getDocumentPacket("pkt_manual_blank")?.status).toBe("completed");
 });
+
+
+test("temporary PDF capacity retries materialization without repeating assessment or child identities", async () => {
+  const { PdfSourceFileCapacityError } = await import("./lib/sourceFilePageCount");
+  const { materializePdfPageGroups } = await import("./lib/pdfPageOperations");
+  const f = await fixture(); f.template("tpl_invoice");
+  await f.addPacket("pkt_capacity", { templateId: "tpl_invoice" });
+  let assessments = 0;
+  let materializations = 0;
+  const runner = f.runner({
+    splitDocument: async () => { assessments++; return plan([[1, 2], [3, 4]]); },
+    materializePages: async (...args) => {
+      if (++materializations === 1) throw new PdfSourceFileCapacityError();
+      return materializePdfPageGroups(...args);
+    },
+  });
+  await runner.run(f.queued("pkt_capacity", "packet"));
+  for (const child of f.scheduled) await runner.run(child);
+  expect(assessments).toBe(1);
+  expect(materializations).toBe(2);
+  expect(f.scheduled).toHaveLength(2);
+  expect(new Set(f.scheduled.map((child) => child.job_id)).size).toBe(2);
+  expect(f.store.getDocumentPacket("pkt_capacity")).toMatchObject({ status: "completed", assessment_rounds: 1 });
+});

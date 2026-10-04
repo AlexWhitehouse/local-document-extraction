@@ -725,3 +725,18 @@ describe("model gateway configuration", () => {
     expect(getModelGatewayRequestTimeoutMs(createEnv({ MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "-1" }))).toBe(300_000);
   });
 });
+
+it("releases unused derivative capacity before the model call and releases the remainder on failure", async () => {
+  const { withPreparedModelSourceFactory, getModelPreparationSnapshot } = await import("./modelGateway");
+  const baseline = getModelPreparationSnapshot().reservedBytes;
+  const upperBound = 32 * 1024 * 1024;
+  await expect(withPreparedModelSourceFactory(createEnv({ MODEL_SUPPORTS_PDF_INPUT: "true" }), upperBound, "application/pdf", undefined, async () => {
+    expect(getModelPreparationSnapshot().reservedBytes - baseline).toBe(upperBound * 4);
+    return new Blob([new Uint8Array(1024)], { type: "application/pdf" });
+  }, async (_parts, prepared) => {
+    expect(getModelPreparationSnapshot().reservedBytes - baseline).toBeLessThan(upperBound);
+    prepared(2048);
+    throw new Error("simulated transport failure");
+  })).rejects.toThrow("simulated transport failure");
+  expect(getModelPreparationSnapshot().reservedBytes).toBe(baseline);
+});

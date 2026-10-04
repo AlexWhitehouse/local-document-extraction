@@ -67,7 +67,7 @@ describe("isolated PDF page operations", () => {
 
   it("bounds its queue and removes cancelled waiters before dispatch", async () => {
     const source = await fixture();
-    const operations = createPdfPageOperations();
+    const operations = createPdfPageOperations({ maxConcurrent: 1, maxQueued: 4 });
     const controller = new AbortController();
     const first = operations.materialize(source, [[1]]);
     const pending = operations.materialize(source, [[2]], controller.signal);
@@ -91,4 +91,22 @@ describe("isolated PDF page operations", () => {
     expect(operations.snapshot()).toEqual({ active: 0, queued: 0 });
     await expect(operations.materialize(new TextEncoder().encode("private malformed source"), [[1]])).rejects.toThrow("PDF Source file could not be read");
   });
+});
+
+it("recycles page workers with fresh parser guards and retires malformed inputs", async () => {
+  const operations = createPdfPageOperations({ maxConcurrent: 1 });
+  const source = await fixture();
+  try {
+    for (let index = 0; index < 33; index++) {
+      const page = index % 4 + 1;
+      const [output] = await operations.materialize(source, [[page]]);
+      expect((await PDFDocument.load(output!)).getPages().map((item) => item.getWidth())).toEqual([100 + page]);
+    }
+    expect(operations.diagnostics().spawned).toBe(2);
+    await expect(operations.materialize(pdfWithCompressedObjectStreams([32 * 1024 * 1024]), [[1]])).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+    const [output] = await operations.materialize(source, [[2]]);
+    expect((await PDFDocument.load(output!)).getPageCount()).toBe(1);
+    expect(operations.diagnostics().spawned).toBe(3);
+  } finally { await operations.close(); }
+  expect(operations.diagnostics().idle).toBe(0);
 });

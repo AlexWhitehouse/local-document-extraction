@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, tmpdir, totalmem } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -10,6 +10,14 @@ import { createLocalAuth } from "../src/localAuth";
 import { ensureLocalStateDirectories } from "../src/localRuntime";
 import { createLocalWorkspaceControl } from "../src/localWorkspaceControl";
 import { createLocalWorkspaceProductStore } from "../src/localWorkspaceProductStore";
+import { PDF_INSPECTION_LIMITS } from "../src/lib/pdfInspectionLimits";
+import { PDF_PAGE_OPERATION_LIMITS } from "../src/lib/pdfPageOperations";
+
+import {
+  benchmarkModelName, benchmarkScenarios, benchmarkTemplateId, benchmarkTemplateTag,
+  scenarioWorkload, simulateModelResponse, submissionRetryDelayMs, summarizeOutcomes, waitForBenchmarkDrain,
+  type BenchmarkScenario, type ModelStage, type TimedOutcome,
+} from "./loopbackWorkload";
 
 type BenchmarkMode = "inline-pdf" | "rendered-pages";
 
@@ -49,9 +57,13 @@ type GatewayReport = {
   peakActive: number;
   peakRssBytes: number;
   requests: number;
+  requestsByStage: Record<ModelStage, number>;
+  invalidRequests: number;
 };
 
 type ProcessSample = {
+  childCpuPercent: number;
+  childRssBytes: number;
   cpuPercent: number;
   rssBytes: number;
 };
@@ -68,7 +80,11 @@ type BenchmarkSettings = {
   durationSeconds: number;
   gatewayLatencyMs: number;
   inlinePayloadBytes: number;
+  memoryLimitRatio: number;
+  preparationMaxBytes: number;
+  cpuProfile: boolean;
   modes: BenchmarkMode[];
+  scenarios: BenchmarkScenario[];
   renderPages: number;
   runnerConcurrency: number;
   submitters: number;
@@ -81,20 +97,17 @@ type FixtureIdentity = {
   sha256: string;
 };
 
-type PersistedTiming = {
-  completed: number;
-  completionSpanJobsPerSecond: number;
-  failed: number;
-  lifecycleP50Ms: number;
-  lifecycleP95Ms: number;
-  measurementCompleted: number;
-  measurementJobsPerSecond: number;
-  other: number;
+type PersistedTiming = ReturnType<typeof summarizeOutcomes> & {
+  submissions: ReturnType<typeof summarizeOutcomes>;
 };
 
 type ModeResult = {
   accepted: number;
+  scenario: BenchmarkScenario;
+  jobsPerSubmission: number;
   app: {
+    peakProcessTreeRssBytes: number;
+    peakProcessTreeCpuCoreEquivalents: number;
     minimumPermits: number;
     peakCpuCoreEquivalents: number;
     peakEventLoopLagMs: number;
@@ -116,7 +129,7 @@ type ModeResult = {
   mode: BenchmarkMode;
   observations: number;
   profile: {
-    path: string;
+    path: string | null;
     topFunctions: string[];
   };
   queue: {
@@ -138,6 +151,8 @@ type BenchmarkEvidence = {
     platform: string;
   };
   repositoryRevision: string;
+  runtime: { version: string; revision: string };
+  processingLimits: { inspection: typeof PDF_INSPECTION_LIMITS; pageOperations: typeof PDF_PAGE_OPERATION_LIMITS };
   results: ModeResult[];
   settings: BenchmarkSettings;
 };
@@ -159,15 +174,6 @@ const backendDirectory = resolve(import.meta.dir, "..");
 const repositoryRoot = resolve(backendDirectory, "..");
 const benchmarkPath = resolve(import.meta.path);
 const gatewayToken = "loopback-benchmark-only";
-const resultContent = JSON.stringify({
-  results: [{
-    field_id: "reference",
-    status: "ok",
-    answer: "LOOPBACK",
-    confidence: 1,
-    evidence: "Synthetic loopback benchmark response",
-  }],
-});
 
 async function runCoordinator(): Promise<void> {
   const settings = readSettings();
@@ -182,7 +188,8 @@ async function runCoordinator(): Promise<void> {
     "Loopback Model gateway saturation benchmark",
     `output=${runDirectory}`,
     `modes=${settings.modes.join(",")}`,
-    `duration=${settings.durationSeconds}s per mode`,
+    `scenarios=${settings.scenarios.join(",")}`,
+    `duration=${settings.durationSeconds}s per mode/scenario`,
     `runner_concurrency=${settings.runnerConcurrency}`,
     `submitters=${settings.submitters}`,
     `backlog=${settings.backlog}`,
@@ -191,22 +198,35 @@ async function runCoordinator(): Promise<void> {
   ].join("\n"));
 
   for (const mode of settings.modes) {
-    process.stdout.write(`Starting ${mode} saturation pass...\n`);
-    const result = await runMode({ mode, runDirectory, settings });
-    results.push(result);
-    process.stdout.write([
-      `${mode}: ${formatNumber(result.serverTiming.measurementJobsPerSecond)} jobs/s`,
-      `accepted=${result.accepted}`,
-      `completed=${result.serverTiming.completed}`,
-      `app_peak_cpu=${formatNumber(result.app.peakCpuCoreEquivalents)} cores`,
-      `gateway_cpu=${formatNumber(result.gateway.cpuCoreEquivalents)} cores`,
-      `queue_peak=${result.queue.peakPending}`,
-      "",
-    ].join(" | "));
+    // Reuse identical PDF bytes across scenarios so routing/splitting is the changed variable.
+    const fixture = await createFixture(mode, settings);
+    for (const scenario of settings.scenarios) {
+      process.stdout.write(`Starting ${mode}/${scenario} saturation pass...\n`);
+      const result = await runMode({ mode, scenario, fixture, runDirectory, settings });
+      results.push(result);
+      await writeFile(join(runDirectory, mode, scenario, "result.json"), `${JSON.stringify(result, null, 2)}\n`);
+      process.stdout.write(`${mode}/${scenario}: ${formatNumber(result.serverTiming.submissions.measurementJobsPerSecond)} uploads/s | ${formatNumber(result.serverTiming.measurementJobsPerSecond)} jobs/s | completed=${result.serverTiming.completed}\n`);
+    }
   }
 
   const evidence: BenchmarkEvidence = {
-    command: "bun run benchmark:loopback-saturation",
+    command: [
+      `LOOPBACK_BENCH_DURATION_SECONDS=${settings.durationSeconds}`,
+      `LOOPBACK_BENCH_WARMUP_SECONDS=${settings.warmupSeconds}`,
+      `LOOPBACK_BENCH_MODES=${settings.modes.join(",")}`,
+      `LOOPBACK_BENCH_SCENARIOS=${settings.scenarios.join(",")}`,
+      `LOOPBACK_BENCH_RUNNER_CONCURRENCY=${settings.runnerConcurrency}`,
+      `LOOPBACK_BENCH_SUBMITTERS=${settings.submitters}`,
+      `LOOPBACK_BENCH_BACKLOG=${settings.backlog}`,
+      `LOOPBACK_BENCH_GATEWAY_LATENCY_MS=${settings.gatewayLatencyMs}`,
+      `LOOPBACK_BENCH_INLINE_PAYLOAD_BYTES=${settings.inlinePayloadBytes}`,
+      `LOOPBACK_BENCH_CPU_PROFILE=${settings.cpuProfile ? "true" : "false"}`,
+      `LOOPBACK_BENCH_MEMORY_LIMIT_RATIO=${settings.memoryLimitRatio}`,
+      `LOOPBACK_BENCH_PREPARATION_MAX_BYTES=${settings.preparationMaxBytes}`,
+      `LOOPBACK_BENCH_RENDER_PAGES=${settings.renderPages}`,
+      `LOOPBACK_BENCH_DRAIN_TIMEOUT_SECONDS=${settings.drainTimeoutSeconds}`,
+      "bun run benchmark:loopback-saturation",
+    ].join(" "),
     generatedAt: new Date().toISOString(),
     host: {
       architecture: arch(),
@@ -216,6 +236,8 @@ async function runCoordinator(): Promise<void> {
       platform: platform(),
     },
     repositoryRevision: await gitRevision(),
+    runtime: { version: Bun.version, revision: Bun.revision },
+    processingLimits: { inspection: PDF_INSPECTION_LIMITS, pageOperations: PDF_PAGE_OPERATION_LIMITS },
     results,
     settings,
   };
@@ -227,29 +249,33 @@ async function runCoordinator(): Promise<void> {
   process.stdout.write(`${report}\n`);
   process.stdout.write(`LOOPBACK_BENCHMARK_RESULT ${JSON.stringify({ runDirectory, results })}\n`);
 
-  if (results.some((result) => result.serverTiming.completed !== result.accepted || result.serverTiming.failed > 0)) {
+  if (results.some((result) => resultFailures(result).length > 0)) {
     process.exitCode = 1;
   }
 }
 
 async function runMode({
   mode,
+  scenario,
+  fixture,
   runDirectory,
   settings,
 }: {
   mode: BenchmarkMode;
+  scenario: BenchmarkScenario;
+  fixture: Uint8Array;
   runDirectory: string;
   settings: BenchmarkSettings;
 }): Promise<ModeResult> {
-  const modeDirectory = join(runDirectory, mode);
+  const modeDirectory = join(runDirectory, mode, scenario);
   const stateDirectory = join(modeDirectory, "state");
   const profileDirectory = join(modeDirectory, "profile");
   await Promise.all([
     mkdir(stateDirectory, { recursive: true }),
     mkdir(profileDirectory, { recursive: true }),
   ]);
-  const fixture = await createFixture(mode, settings);
-  const fixtureIdentity = identityForFixture(fixture, mode === "rendered-pages" ? settings.renderPages : 1);
+  const fixtureIdentity = identityForFixture(fixture, settings.renderPages);
+  const workload = scenarioWorkload(scenario, fixtureIdentity.pages);
   await writeFile(join(modeDirectory, "fixture.pdf"), fixture);
   const workspace = await setupWorkspace(stateDirectory, mode);
   const gateway = await startGateway(settings.gatewayLatencyMs);
@@ -266,10 +292,11 @@ async function runMode({
     assertLoopbackOrigin(app.origin);
     const configuration = await fetch(new URL(`/v1/workspaces/${workspace.workspaceId}/model-configuration`, app.origin), {
       method: "PUT",
-      headers: { cookie: workspace.sessionCookie, "content-type": "application/json", "if-none-match": "*" },
+      headers: { cookie: workspace.sessionCookie, origin: app.origin, "content-type": "application/json", "if-none-match": "*" },
       body: JSON.stringify({
         gateway_url: new URL("/v1/", gateway.origin).toString(),
-        model_name: "benchmark/loopback",
+        // Exercise the named JSON-schema contracts used to identify simulated stages.
+        model_name: benchmarkModelName,
         credential: gatewayToken,
         sequential_calls: false,
         supports_pdf_input: mode === "inline-pdf",
@@ -277,7 +304,15 @@ async function runMode({
       }),
     });
     if (configuration.status !== 201) throw new Error(`Benchmark Workspace configuration failed (${configuration.status}).`);
+    const processing = await fetch(new URL(`/v1/workspaces/${workspace.workspaceId}/document-processing-settings`, app.origin), {
+      method: "PUT",
+      headers: { cookie: workspace.sessionCookie, origin: app.origin, "content-type": "application/json" },
+      body: JSON.stringify({ enable_smart_splitting: workload.splitting, exclude_blank_pages: false }),
+    });
+    if (!processing.ok) throw new Error(`Benchmark document processing configuration failed (${processing.status}).`);
     const load = await generateLoad({
+      observationPath: join(modeDirectory, "observations.jsonl"),
+      workload,
       apiKey: workspace.apiKey,
       app,
       fixture,
@@ -294,6 +329,8 @@ async function runMode({
     await gateway.flushLogs(modeDirectory);
 
     const serverTiming = readPersistedTiming({
+      jobsPerSubmission: workload.jobsPerSubmission,
+      splitting: workload.splitting,
       loadStartedAt: load.loadStartedAt,
       loadStoppedAt: load.loadStoppedAt,
       stateDirectory,
@@ -301,11 +338,15 @@ async function runMode({
       workspaceId: workspace.workspaceId,
     });
     const profilePath = join(profileDirectory, "app-cpu.md");
-    const profileMarkdown = await readFile(profilePath, "utf8");
+    const profileMarkdown = settings.cpuProfile ? await readFile(profilePath, "utf8") : "";
     const observations = load.observations;
     return {
       accepted: load.accepted,
+      scenario,
+      jobsPerSubmission: workload.jobsPerSubmission,
       app: {
+        peakProcessTreeRssBytes: max(observations.map(({ appProcess }) => (appProcess?.rssBytes ?? 0) + (appProcess?.childRssBytes ?? 0))),
+        peakProcessTreeCpuCoreEquivalents: max(observations.map(({ appProcess }) => ((appProcess?.cpuPercent ?? 0) + (appProcess?.childCpuPercent ?? 0)) / 100)),
         minimumPermits: min(observations.map((sample) => sample.health.diagnostics.resources.permits.current)),
         peakCpuCoreEquivalents: max(observations.map((sample) => (sample.appProcess?.cpuPercent ?? 0) / 100)),
         peakEventLoopLagMs: max(observations.map((sample) => sample.health.diagnostics.resources.eventLoopLagMs)),
@@ -330,7 +371,7 @@ async function runMode({
       mode,
       observations: observations.length,
       profile: {
-        path: profilePath,
+        path: settings.cpuProfile ? profilePath : null,
         topFunctions: readTopProfileFunctions(profileMarkdown),
       },
       queue: {
@@ -341,6 +382,7 @@ async function runMode({
       stateDirectory,
     };
   } catch (error) {
+    await writeFile(join(modeDirectory, "error.json"), JSON.stringify({ error: errorMessage(error), exitCode: app?.process.child.exitCode, limits: { inspection: PDF_INSPECTION_LIMITS, pageOperations: PDF_PAGE_OPERATION_LIMITS } }, null, 2)).catch(() => undefined);
     if (app) {
       await stopCapturedChild(app.process, 5_000).catch(() => undefined);
       await app.flushLogs(modeDirectory).catch(() => undefined);
@@ -352,6 +394,8 @@ async function runMode({
 }
 
 async function generateLoad({
+  observationPath,
+  workload,
   apiKey,
   app,
   fixture,
@@ -360,6 +404,8 @@ async function generateLoad({
   templateId,
   workspaceId,
 }: {
+  observationPath: string;
+  workload: ReturnType<typeof scenarioWorkload>;
   apiKey: string;
   app: Awaited<ReturnType<typeof startApplication>>;
   fixture: Uint8Array;
@@ -406,14 +452,16 @@ async function generateLoad({
   });
   const monitor = (async () => {
     while (monitoring) {
-      await Promise.race([Bun.sleep(5_000), monitorStopped]);
+      await Promise.race([Bun.sleep(1_000), monitorStopped]);
       if (!monitoring) break;
       try {
         const [health, appProcess] = await Promise.all([
           readHealth(app.origin),
           sampleProcess(app.process.child.pid),
         ]);
-        observations.push({ appProcess, at: new Date().toISOString(), health });
+        const observation = { appProcess, at: new Date().toISOString(), health };
+        observations.push(observation);
+        await appendFile(observationPath, `${JSON.stringify(observation)}\n`);
       } catch (error) {
         if (monitoring) {
           unexpectedResponses.push(`monitor: ${errorMessage(error)}`);
@@ -429,14 +477,15 @@ async function generateLoad({
 
   const submitters = Array.from({ length: settings.submitters }, async (_, submitter) => {
     while (Date.now() < loadDeadline) {
-      if (accepted - terminalJobIds.size >= settings.backlog) {
+      if (accepted - terminalJobIds.size / workload.jobsPerSubmission >= settings.backlog) {
         await Bun.sleep(5);
         continue;
       }
       const index = sequence;
       sequence += 1;
       const form = new FormData();
-      form.append("template_id", templateId);
+      if (workload.automatic) form.append("template_tags", JSON.stringify([benchmarkTemplateTag]));
+      else form.append("template_id", templateId);
       form.append(
         "document",
         new File([fixtureBlob], `loopback-${submitter}-${index}.pdf`, { type: "application/pdf" }),
@@ -455,16 +504,18 @@ async function generateLoad({
       }
       if (response.status === 202) {
         accepted += 1;
-        const body = await response.json() as { job_id?: unknown };
-        if (typeof body.job_id !== "string" && unexpectedResponses.length < 20) {
-          unexpectedResponses.push("submission HTTP 202 returned no job_id");
+        const body = await response.json() as { job_id?: unknown; packet_id?: unknown };
+        const id = workload.splitting ? body.packet_id : body.job_id;
+        if (typeof id !== "string" && unexpectedResponses.length < 20) {
+          unexpectedResponses.push(`submission HTTP 202 returned no ${workload.splitting ? "packet_id" : "job_id"}`);
         }
         continue;
       }
       const body = (await response.text()).slice(0, 300);
       if (response.status === 503) {
         rejected += 1;
-        await Bun.sleep(20);
+        const delay = submissionRetryDelayMs(response.headers.get("retry-after")) + Math.floor(Math.random() * 250);
+        await Bun.sleep(Math.min(delay, Math.max(0, loadDeadline - Date.now())));
         continue;
       }
       if (unexpectedResponses.length < 20) {
@@ -482,9 +533,13 @@ async function generateLoad({
   const drainStartedAt = Date.now();
   const drainDeadline = drainStartedAt + settings.drainTimeoutSeconds * 1_000;
 
-  while (Date.now() < drainDeadline && terminalJobIds.size < accepted) {
+  while (Date.now() < drainDeadline && terminalJobIds.size < accepted * workload.jobsPerSubmission) {
     await Bun.sleep(25);
   }
+  await waitForBenchmarkDrain(async () => ({
+    ...(await readHealth(app.origin)).diagnostics.extractionQueue,
+    terminalJobs: terminalJobIds.size,
+  }), accepted * workload.jobsPerSubmission, drainDeadline);
   const finalHealth = await readHealth(app.origin);
   observations.push({
     appProcess: await sampleProcess(app.process.child.pid),
@@ -495,6 +550,9 @@ async function generateLoad({
   stopMonitor();
   await monitor;
   socket.close();
+  if (terminalJobIds.size !== accepted * workload.jobsPerSubmission) {
+    unexpectedResponses.push(`drain incomplete: ${terminalJobIds.size}/${accepted * workload.jobsPerSubmission} terminal jobs`);
+  }
   const finalQueue = finalHealth.diagnostics.extractionQueue;
   if (finalQueue.active !== 0 || finalQueue.pending !== 0 || finalQueue.deferred !== 0) {
     unexpectedResponses.push(
@@ -588,7 +646,7 @@ async function setupWorkspace(stateDirectory: string, mode: BenchmarkMode): Prom
       userId: body.user.id,
       workspaceId: workspace.id,
     }).api_key;
-    const templateId = "tpl_loopback_saturation";
+    const templateId = benchmarkTemplateId;
     const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: workspace.id });
     try {
       productStore.createTemplate({
@@ -601,7 +659,14 @@ async function setupWorkspace(stateDirectory: string, mode: BenchmarkMode): Prom
           name: "Reference",
         }],
         name: "Loopback saturation",
+        tags: [benchmarkTemplateTag],
         templateId,
+      });
+      productStore.createTemplate({
+        createdAt: new Date().toISOString(), templateId: "tpl_loopback_alternative",
+        name: "Unrelated document", description: "A different synthetic document category",
+        tags: [benchmarkTemplateTag],
+        fields: [{ id: "other", name: "Other", description: "Other", data_type: "string" }],
       });
     } finally {
       productStore.close();
@@ -615,7 +680,7 @@ async function setupWorkspace(stateDirectory: string, mode: BenchmarkMode): Prom
 async function createFixture(mode: BenchmarkMode, settings: BenchmarkSettings): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const pages = mode === "rendered-pages" ? settings.renderPages : 1;
+  const pages = settings.renderPages;
   for (let pageIndex = 0; pageIndex < pages; pageIndex += 1) {
     const page = pdf.addPage([612, 792]);
     page.drawText(`Loopback saturation benchmark page ${pageIndex + 1}`, {
@@ -752,9 +817,7 @@ async function startApplication({
   const captured = captureChild(Bun.spawn([
     process.execPath,
     "--no-env-file",
-    "--cpu-prof-md",
-    "--cpu-prof-name", "app-cpu.md",
-    "--cpu-prof-dir", profileDirectory,
+    ...(settings.cpuProfile ? ["--cpu-prof-md", "--cpu-prof-name", "app-cpu.md", "--cpu-prof-dir", profileDirectory] : []),
     "src/server.ts",
   ], {
     cwd: backendDirectory,
@@ -770,7 +833,8 @@ async function startApplication({
       FAILED_SOURCE_RETENTION_MS: "0",
       LOCAL_CPU_LIMIT_RATIO: "1",
       LOCAL_DISK_RESERVE_BYTES: "0",
-      LOCAL_MEMORY_LIMIT_RATIO: "0.95",
+      LOCAL_MEMORY_LIMIT_RATIO: String(settings.memoryLimitRatio),
+      MODEL_PREPARATION_MAX_BYTES: String(settings.preparationMaxBytes),
       LOCAL_SHUTDOWN_TIMEOUT_MS: "30000",
       MAX_SOURCE_FILE_BYTES: String(maxSourceBytes),
       MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "30000",
@@ -987,7 +1051,7 @@ async function readGatewayReport(origin: string): Promise<GatewayReport> {
 
 async function sampleProcess(pid: number): Promise<ProcessSample | null> {
   try {
-    const child = Bun.spawn(["ps", "-p", String(pid), "-o", "%cpu=", "-o", "rss="], {
+    const child = Bun.spawn(["ps", "-eo", "pid=,ppid=,pcpu=,rss="], {
       stderr: "ignore",
       stdout: "pipe",
     });
@@ -996,87 +1060,104 @@ async function sampleProcess(pid: number): Promise<ProcessSample | null> {
       child.exited,
     ]);
     if (code !== 0) return null;
-    const [cpu, rss] = text.trim().split(/\s+/).map(Number);
-    if (!Number.isFinite(cpu) || !Number.isFinite(rss)) return null;
-    return { cpuPercent: cpu!, rssBytes: rss! * 1024 };
+    const rows = text.trim().split("\n").map((line) => {
+      const [id, parent, cpu, rss] = line.trim().split(/\s+/).map(Number);
+      return { id: id!, parent: parent!, cpu: cpu!, rss: rss! };
+    }).filter((row) => Object.values(row).every(Number.isFinite));
+    const app = rows.find((row) => row.id === pid);
+    if (!app) return null;
+    const descendants = new Set([pid]);
+    for (let previous = 0; previous !== descendants.size;) {
+      previous = descendants.size;
+      for (const row of rows) if (descendants.has(row.parent)) descendants.add(row.id);
+    }
+    const children = rows.filter((row) => row.id !== pid && descendants.has(row.id));
+    return {
+      cpuPercent: app.cpu, rssBytes: app.rss * 1024,
+      childCpuPercent: children.reduce((sum, row) => sum + row.cpu, 0),
+      childRssBytes: children.reduce((sum, row) => sum + row.rss * 1024, 0),
+    };
   } catch {
     return null;
   }
 }
 
-function readPersistedTiming({
-  loadStartedAt,
-  loadStoppedAt,
-  stateDirectory,
-  warmupSeconds,
-  workspaceId,
+export function readPersistedTiming({
+  loadStartedAt, loadStoppedAt, stateDirectory, warmupSeconds, workspaceId, splitting, jobsPerSubmission,
 }: {
-  loadStartedAt: string;
-  loadStoppedAt: string;
-  stateDirectory: string;
-  warmupSeconds: number;
-  workspaceId: string;
+  loadStartedAt: string; loadStoppedAt: string; stateDirectory: string; warmupSeconds: number;
+  workspaceId: string; splitting: boolean; jobsPerSubmission: number;
 }): PersistedTiming {
-  const database = new Database(join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`));
+  const database = new Database(join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`), { readonly: true });
   try {
-    const rows = database.query(
-      "SELECT status, created_at, completed_at FROM jobs ORDER BY created_at ASC",
-    ).all() as Array<{ completed_at: string | null; created_at: string; status: string }>;
-    const completedRows = rows.filter((row) => row.status === "completed" && row.completed_at);
-    const lifecycle = completedRows.map((row) => Math.max(
-      0,
-      Date.parse(row.completed_at!) - Date.parse(row.created_at),
-    ));
-    const completionTimes = completedRows.map((row) => Date.parse(row.completed_at!)).sort((left, right) => left - right);
-    const loadStartMs = Date.parse(loadStartedAt);
-    const loadStopMs = Date.parse(loadStoppedAt);
-    const measurementStartMs = Math.min(
-      loadStopMs,
-      loadStartMs + warmupSeconds * 1_000,
-    );
-    const measurementCompleted = completionTimes.filter(
-      (completedAt) => completedAt >= measurementStartMs && completedAt <= loadStopMs,
-    ).length;
-    const measurementElapsedMs = Math.max(1, loadStopMs - measurementStartMs);
-    const completionSpanMs = completionTimes.length > 1
-      ? completionTimes[completionTimes.length - 1]! - completionTimes[0]!
-      : 0;
-    return {
-      completed: completedRows.length,
-      completionSpanJobsPerSecond: completionSpanMs > 0
-        ? (completionTimes.length - 1) / (completionSpanMs / 1_000)
-        : 0,
-      failed: rows.filter((row) => row.status === "failed").length,
-      lifecycleP50Ms: percentile(lifecycle, 0.5),
-      lifecycleP95Ms: percentile(lifecycle, 0.95),
-      measurementCompleted,
-      measurementJobsPerSecond: measurementCompleted / (measurementElapsedMs / 1_000),
-      other: rows.length - completedRows.length - rows.filter((row) => row.status === "failed").length,
-    };
+    const rows = database.query("SELECT status, created_at, completed_at FROM jobs").all() as TimedOutcome[];
+    const stopMs = Date.parse(loadStoppedAt);
+    const startMs = Math.min(stopMs, Date.parse(loadStartedAt) + warmupSeconds * 1_000);
+    let submissions = rows;
+    if (splitting) {
+      // Packet status may be refreshed lazily by GET. Durable child completions determine completion.
+      const packets = database.query(`
+        SELECT p.status, p.created_at, MAX(j.completed_at) AS completed_at,
+          COUNT(c.job_id) AS children,
+          SUM(CASE WHEN j.status = 'completed' THEN 1 ELSE 0 END) AS completed_children,
+          SUM(CASE WHEN j.status = 'failed' THEN 1 ELSE 0 END) AS failed_children
+        FROM document_packets p
+        LEFT JOIN document_packet_children c ON c.packet_id = p.id
+        LEFT JOIN jobs j ON j.id = c.job_id
+        GROUP BY p.id
+      `).all() as Array<TimedOutcome & { children: number; completed_children: number; failed_children: number }>;
+      submissions = packets.map((packet) => ({
+        ...packet,
+        status: packet.status === "failed" || packet.failed_children > 0 ? "failed"
+          : ["completed", "processing_children"].includes(packet.status)
+            && packet.children === jobsPerSubmission && packet.completed_children === jobsPerSubmission
+            ? "completed" : "incomplete",
+      }));
+    }
+    return { ...summarizeOutcomes(rows, startMs, stopMs), submissions: summarizeOutcomes(submissions, startMs, stopMs) };
   } finally {
     database.close();
   }
 }
 
-function renderReport(evidence: BenchmarkEvidence, runDirectory: string): string {
+export function resultFailures(result: Pick<ModeResult, "accepted" | "scenario" | "jobsPerSubmission" | "serverTiming" | "gateway" | "client">): string[] {
+  const failures: string[] = [];
+  const expected = result.accepted * result.jobsPerSubmission;
+  const workload = scenarioWorkload(result.scenario, result.jobsPerSubmission);
+  if (result.accepted === 0) failures.push("No uploads were accepted");
+  if (result.serverTiming.submissions.completed !== result.accepted) failures.push("Not all uploads completed");
+  if (result.serverTiming.completed !== expected || result.serverTiming.failed > 0 || result.serverTiming.other > 0) failures.push("Unexpected extraction job outcomes");
+  const expectedCalls = { extraction: expected, classification: workload.automatic ? expected : 0, splitting: workload.splitting ? result.accepted : 0 };
+  for (const stage of Object.keys(expectedCalls) as ModelStage[]) {
+    if (result.gateway.requestsByStage[stage] !== expectedCalls[stage]) failures.push(`Unexpected ${stage} call count: ${result.gateway.requestsByStage[stage]}/${expectedCalls[stage]}`);
+  }
+  if (result.gateway.invalidRequests > 0) failures.push("Unrecognized simulated model requests");
+  if (result.client.networkErrors > 0 || result.client.unexpectedResponses.length > 0) failures.push("Load or drain errors");
+  return failures;
+}
+
+export function renderReport(evidence: BenchmarkEvidence, runDirectory: string): string {
   const lines = [
     "# Loopback Model gateway saturation benchmark",
     "",
     `Generated ${evidence.generatedAt} at revision \`${evidence.repositoryRevision}\` on ${evidence.host.cpuModel} (${evidence.host.cpuCount} logical CPUs, ${formatBytes(evidence.host.memoryBytes)} RAM).`,
     "",
-    "The application, load generator, and fake OpenAI-compatible Gateway ran as separate processes. The application was the only profiled process. Both configured Gateway and application origins were rejected unless they were explicit `http://127.0.0.1:<port>` URLs, and every Bun child ran with `.env` loading disabled.",
+    "The application, load generator, and fake OpenAI-compatible Gateway ran as separate processes. CPU profiling is opt-in: Bun 1.4.2 retains sampled closures and inflates memory under --cpu-prof. Profiled runs are diagnostic and must not be used as capacity or memory baselines. Both configured Gateway and application origins were rejected unless they were explicit `http://127.0.0.1:<port>` URLs, and every Bun child ran with `.env` loading disabled.",
+    "",
+    `Runtime: Bun ${evidence.runtime.version} (${evidence.runtime.revision}).`,
     "",
     "## Results",
     "",
-    "| Mode | Server jobs/s | Completed | Lifecycle p50/p95 | App peak CPU | App peak RSS | Event-loop lag | Queue pending peak | Min permits | Gateway CPU / peak active | Client CPU |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| Mode / scenario | Uploads/s | Jobs/s | Completed uploads / jobs | Upload lifecycle p50/p95 | App peak CPU | App / process tree peak RSS | Event-loop lag | Queue pending peak | Min permits | Gateway CPU / peak active | Client CPU |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...evidence.results.map((result) => [
-      `| ${result.mode}`,
+      `| ${result.mode} / ${result.scenario}`,
+      formatNumber(result.serverTiming.submissions.measurementJobsPerSecond),
       formatNumber(result.serverTiming.measurementJobsPerSecond),
-      `${result.serverTiming.completed}/${result.accepted}`,
-      `${formatNumber(result.serverTiming.lifecycleP50Ms)}/${formatNumber(result.serverTiming.lifecycleP95Ms)} ms`,
+      `${result.serverTiming.submissions.completed}/${result.accepted} uploads; ${result.serverTiming.completed}/${result.accepted * result.jobsPerSubmission} jobs`,
+      `${formatNumber(result.serverTiming.submissions.lifecycleP50Ms)}/${formatNumber(result.serverTiming.submissions.lifecycleP95Ms)} ms`,
       `${formatNumber(result.app.peakCpuCoreEquivalents)} cores (${formatPercent(result.app.peakHealthNormalizedCpu)})`,
-      formatBytes(result.app.peakRssBytes),
+      `${formatBytes(result.app.peakRssBytes)} / ${formatBytes(result.app.peakProcessTreeRssBytes)}`,
       `${formatNumber(result.app.peakEventLoopLagMs)} ms`,
       String(result.queue.peakPending),
       String(result.app.minimumPermits),
@@ -1084,7 +1165,25 @@ function renderReport(evidence: BenchmarkEvidence, runDirectory: string): string
       `${formatNumber(result.client.cpuCoreEquivalents)} cores |`,
     ].join(" | ")),
     "",
-    "Server jobs/s uses persisted server completion timestamps inside the steady measurement window; it is not derived from client polling. Completion-span throughput and full lifecycle figures remain in `result.json`.",
+    "Uploads/s counts fully completed submissions in the steady window. A split upload completes at its last child's persisted completion timestamp; upload latency starts at persisted acceptance and includes assessment, materialization, routing, and all child extractions. Jobs/s counts extracted Documents, so splitting can increase jobs per upload. Warm-up and drain completions are excluded from both rates; latency percentiles include all completed work. Full job latency and completion-span figures remain in `result.json`. Process-tree RSS includes PDF subprocesses; it sums resident pages, so shared pages can be counted more than once. CPU samples from ps are process-lifetime averages; short-lived children between samples may be missed.",
+    "",
+    `Every scenario within a PDF mode uses identical ${evidence.settings.renderPages}-page fixture bytes, two tagged candidate Templates, and fresh state. The simulated split produces one Document per page with no exclusions. Real production classification, PDF preparation, child materialization, and extraction paths run against deterministic model replies. Each model call delays ${evidence.settings.gatewayLatencyMs} ms. This measures processing overhead, not model decision quality. Adaptive tuning is disabled; production resource limits and memory-pressure pauses remain active. Differences are single-pass observations and should be repeated before drawing capacity conclusions.`,
+    "",
+    "## Impact relative to explicit template without splitting",
+    "",
+    "| Mode / scenario | Upload throughput change | Upload p95 change | Extraction / classification / split calls | Validation |",
+    "| --- | ---: | ---: | ---: | --- |",
+    ...evidence.results.map((result) => {
+      const baseline = evidence.results.find((candidate) => candidate.mode === result.mode && candidate.scenario === "explicit");
+      const baseRate = baseline?.serverTiming.submissions.measurementJobsPerSecond ?? 0;
+      const rateChange = baseRate > 0 && result.serverTiming.submissions.measurementCompleted > 0
+        ? formatPercent(result.serverTiming.submissions.measurementJobsPerSecond / baseRate - 1)
+        : "n/a (no measured completions or baseline)";
+      const latencyChange = baseline ? `${formatNumber(result.serverTiming.submissions.lifecycleP95Ms - baseline.serverTiming.submissions.lifecycleP95Ms)} ms` : "n/a";
+      const calls = result.gateway.requestsByStage;
+      const failures = resultFailures(result);
+      return `| ${result.mode} / ${result.scenario} | ${rateChange} | ${latencyChange} | ${calls.extraction} / ${calls.classification} / ${calls.splitting} | ${failures.length ? failures.join("; ") : "PASS"} |`;
+    }),
     "",
     "## Bottleneck signals",
     "",
@@ -1092,18 +1191,18 @@ function renderReport(evidence: BenchmarkEvidence, runDirectory: string): string
       result,
       evidence.host.cpuCount,
       evidence.host.memoryBytes,
-    ).map((finding) => `- **${result.mode}:** ${finding}`)),
+    ).map((finding) => `- **${result.mode}/${result.scenario}:** ${finding}`)),
     "",
     "## CPU profile leaders",
     "",
     ...evidence.results.flatMap((result) => [
-      `### ${result.mode}`,
+      `### ${result.mode}/${result.scenario}`,
       "",
-      `Profile: \`${result.profile.path}\``,
+      result.profile.path ? `Profile: \`${result.profile.path}\`` : "CPU profiling disabled for capacity measurement.",
       "",
       ...(result.profile.topFunctions.length > 0
         ? result.profile.topFunctions.map((row) => `- ${row}`)
-        : ["- Bun emitted no parseable hot-function rows."]),
+        : result.profile.path ? ["- Bun emitted no parseable hot-function rows."] : []),
       "",
     ]),
     "## Reproduce",
@@ -1112,7 +1211,7 @@ function renderReport(evidence: BenchmarkEvidence, runDirectory: string): string
     evidence.command,
     "```",
     "",
-    "Useful controls: `LOOPBACK_BENCH_DURATION_SECONDS`, `LOOPBACK_BENCH_MODES`, `LOOPBACK_BENCH_RUNNER_CONCURRENCY`, `LOOPBACK_BENCH_SUBMITTERS`, `LOOPBACK_BENCH_BACKLOG`, `LOOPBACK_BENCH_INLINE_PAYLOAD_BYTES`, and `LOOPBACK_BENCH_RENDER_PAGES`.",
+    "Useful controls: `LOOPBACK_BENCH_SCENARIOS`, `LOOPBACK_BENCH_GATEWAY_LATENCY_MS`, `LOOPBACK_BENCH_DURATION_SECONDS`, `LOOPBACK_BENCH_MODES`, `LOOPBACK_BENCH_RUNNER_CONCURRENCY`, `LOOPBACK_BENCH_SUBMITTERS`, `LOOPBACK_BENCH_BACKLOG`, `LOOPBACK_BENCH_INLINE_PAYLOAD_BYTES`, and `LOOPBACK_BENCH_RENDER_PAGES`.",
     "",
     `Raw logs, isolated state, fixtures, profiles, and JSON evidence: \`${runDirectory}\``,
   ];
@@ -1121,33 +1220,38 @@ function renderReport(evidence: BenchmarkEvidence, runDirectory: string): string
 
 function bottleneckFindings(result: ModeResult, cpuCount: number, hostMemoryBytes: number): string[] {
   const findings: string[] = [];
+  if (result.serverTiming.submissions.measurementCompleted === 0) {
+    findings.push("no uploads completed inside the measurement window; increase duration before interpreting throughput changes. Validation only confirms that accepted work eventually completed.");
+  }
   if (result.queue.peakPending > 0 && result.queue.peakActive >= 1) {
-    findings.push(`the runner was saturated (active peak ${result.queue.peakActive}, pending peak ${result.queue.peakPending}), so the offered load was sufficient.`);
+    findings.push(`the extraction queue built a backlog (active peak ${result.queue.peakActive}, pending peak ${result.queue.peakPending}); inspect PDF and preparation admission before raising runner concurrency.`);
+  } else if (result.client.rejected > 0) {
+    findings.push("admission rejected excess uploads before they could enter the extraction queue; an empty pending queue does not imply insufficient offered load.");
   } else {
     findings.push("the extraction queue did not build a pending backlog; increase submitters/backlog before treating this as a capacity ceiling.");
   }
   if (result.app.peakCpuCoreEquivalents >= 0.85) {
-    findings.push(`application CPU reached ${formatNumber(result.app.peakCpuCoreEquivalents)} core-equivalents, while whole-machine normalized CPU peaked at ${formatPercent(result.app.peakHealthNormalizedCpu)} across ${cpuCount} logical CPUs. A small number of hot runtime/native threads can therefore saturate without a conspicuous whole-machine spike.`);
+    findings.push(`sampled API CPU reached ${formatNumber(result.app.peakCpuCoreEquivalents)} core-equivalents; the resource controller measured API CPU up to ${formatPercent(result.app.peakHealthNormalizedCpu)} of ${cpuCount} logical CPUs. A small number of hot runtime/native threads can therefore saturate without a conspicuous whole-machine spike.`);
   } else if (result.queue.peakPending > 0) {
-    findings.push(`the queue grew while application CPU stayed below one full core (${formatNumber(result.app.peakCpuCoreEquivalents)}); inspect the profile for SQLite/filesystem/HTTP waits or profiler blind spots.`);
+    findings.push(`the queue grew while application CPU stayed below one full core (${formatNumber(result.app.peakCpuCoreEquivalents)}); inspect stage queues and SQLite/filesystem/HTTP waits before attributing the limit to CPU.`);
   }
   if (result.app.peakEventLoopLagMs >= 250) {
     findings.push(`event-loop lag reached ${formatNumber(result.app.peakEventLoopLagMs)} ms, which is a software scheduling/backpressure limit.`);
   }
   if (result.app.minimumPermits === 0) {
-    findings.push("the production resource controller reduced extraction permits to zero during the run; the configured concurrency exceeded its hard event-loop or memory safety threshold.");
+    findings.push("the production resource controller paused extraction during the run; raw health samples distinguish event-loop, RSS, and operating-system pressure causes.");
   }
   const hostMemoryFraction = result.app.peakRssBytes / Math.max(1, hostMemoryBytes);
   if (hostMemoryFraction >= 0.2) {
-    findings.push(`application RSS reached ${formatBytes(result.app.peakRssBytes)} (${formatPercent(hostMemoryFraction)} of physical memory), so buffer/canvas amplification is a hardware-capacity constraint even when retained benchmark state is small.`);
+    findings.push(`application RSS reached ${formatBytes(result.app.peakRssBytes)} (${formatPercent(hostMemoryFraction)} of physical memory), which must be compared with the configured memory threshold and pressure samples before concluding that memory constrained throughput.`);
   }
   if (result.gateway.cpuCoreEquivalents >= Math.max(0.8, result.app.peakCpuCoreEquivalents * 0.8)) {
     findings.push(`the fake Gateway itself consumed ${formatNumber(result.gateway.cpuCoreEquivalents)} core-equivalents; its request-body consumption is material and must remain separately attributed.`);
   } else {
-    findings.push(`the fake Gateway used ${formatNumber(result.gateway.cpuCoreEquivalents)} core-equivalents and had no artificial concurrency ceiling, so it was not the configured 80 jobs/s limiter from the older fake.`);
+    findings.push(`the fake Gateway used ${formatNumber(result.gateway.cpuCoreEquivalents)} core-equivalents and had no imposed concurrency ceiling; the configured simulated response delay still applies.`);
   }
   if (result.client.rejected > 0 || result.client.networkErrors > 0 || result.client.unexpectedResponses.length > 0) {
-    findings.push(`load-path anomalies: ${result.client.rejected} admission rejections, ${result.client.networkErrors} network errors, ${result.client.unexpectedResponses.length} unexpected observations.`);
+    findings.push(`admission backpressure: ${result.client.rejected} retryable rejections; load errors: ${result.client.networkErrors} network errors and ${result.client.unexpectedResponses.length} unexpected observations.`);
   }
   return findings;
 }
@@ -1161,6 +1265,8 @@ function readTopProfileFunctions(markdown: string): string[] {
 }
 
 function readSettings(): BenchmarkSettings {
+  const memoryLimitRatio = Number(process.env.LOOPBACK_BENCH_MEMORY_LIMIT_RATIO ?? "0.25");
+  if (!Number.isFinite(memoryLimitRatio) || memoryLimitRatio <= 0 || memoryLimitRatio > 1) throw new Error("LOOPBACK_BENCH_MEMORY_LIMIT_RATIO must be greater than zero and no greater than one");
   const runnerConcurrency = positiveInteger(
     process.env.LOOPBACK_BENCH_RUNNER_CONCURRENCY,
     Math.max(16, Math.min(64, cpus().length * 4)),
@@ -1175,10 +1281,22 @@ function readSettings(): BenchmarkSettings {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  if (modes.length === 0 || modes.some((mode) => mode !== "inline-pdf" && mode !== "rendered-pages")) {
+  if (modes.length === 0 || new Set(modes).size !== modes.length
+    || modes.some((mode) => mode !== "inline-pdf" && mode !== "rendered-pages")) {
     throw new Error("LOOPBACK_BENCH_MODES must contain inline-pdf and/or rendered-pages");
   }
+  const scenarios = (process.env.LOOPBACK_BENCH_SCENARIOS || benchmarkScenarios.join(","))
+    .split(",").map((value) => value.trim()).filter(Boolean);
+  if (!scenarios.length || new Set(scenarios).size !== scenarios.length
+    || scenarios.some((scenario) => !benchmarkScenarios.includes(scenario as BenchmarkScenario))) {
+    throw new Error(`LOOPBACK_BENCH_SCENARIOS must contain unique values from ${benchmarkScenarios.join(",")}`);
+  }
   return {
+    cpuProfile: process.env.LOOPBACK_BENCH_CPU_PROFILE === "true",
+    memoryLimitRatio,
+    preparationMaxBytes: positiveInteger(process.env.LOOPBACK_BENCH_PREPARATION_MAX_BYTES,
+      Math.min(512 * 1024 * 1024, Math.floor(totalmem() * memoryLimitRatio * 0.9)), "LOOPBACK_BENCH_PREPARATION_MAX_BYTES"),
+    scenarios: scenarios as BenchmarkScenario[],
     backlog: positiveInteger(
       process.env.LOOPBACK_BENCH_BACKLOG,
       runnerConcurrency * 4,
@@ -1266,12 +1384,6 @@ function nonNegativeInteger(value: string | undefined, fallback: number, name: s
   return parsed;
 }
 
-function percentile(values: number[], fraction: number): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)]!;
-}
-
 function max(values: number[]): number {
   return values.length > 0 ? Math.max(...values) : 0;
 }
@@ -1321,6 +1433,8 @@ async function runGatewayChild(): Promise<void> {
   let peakActive = 0;
   let peakRssBytes = process.memoryUsage.rss();
   let requests = 0;
+  let invalidRequests = 0;
+  const requestsByStage: Record<ModelStage, number> = { extraction: 0, classification: 0, splitting: 0 };
   const report = (): GatewayReport => {
     const elapsedMs = Math.max(1, performance.now() - startedAt);
     const cpu = process.cpuUsage(cpuStartedAt);
@@ -1334,6 +1448,8 @@ async function runGatewayChild(): Promise<void> {
       peakActive,
       peakRssBytes,
       requests,
+      requestsByStage: { ...requestsByStage },
+      invalidRequests,
     };
   };
   const stop = () => {
@@ -1362,14 +1478,19 @@ async function runGatewayChild(): Promise<void> {
         const body = await request.arrayBuffer();
         bytesReceived += body.byteLength;
         requests += 1;
+        const simulated = simulateModelResponse(JSON.parse(new TextDecoder().decode(body)));
+        requestsByStage[simulated.stage] += 1;
         if (latencyMs > 0) await Bun.sleep(latencyMs);
         return Response.json({
-          choices: [{ message: { content: resultContent, role: "assistant" } }],
+          choices: [{ message: { content: simulated.content, role: "assistant" } }],
           created: Math.floor(Date.now() / 1_000),
           id: `loopback-${requests}`,
-          model: "benchmark/loopback",
+          model: benchmarkModelName,
           object: "chat.completion",
         });
+      } catch (error) {
+        invalidRequests += 1;
+        return Response.json({ error: { message: errorMessage(error) } }, { status: 400 });
       } finally {
         active -= 1;
         peakRssBytes = Math.max(peakRssBytes, process.memoryUsage.rss());
@@ -1385,6 +1506,6 @@ async function runGatewayChild(): Promise<void> {
 
 if (process.argv.includes("--gateway-child")) {
   await runGatewayChild();
-} else {
+} else if (import.meta.main) {
   await runCoordinator();
 }
