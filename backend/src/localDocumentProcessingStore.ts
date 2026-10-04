@@ -393,6 +393,9 @@ export function createDocumentProcessingStore(database: Database, store: () => L
             const packet = getPacket(input.packetId);
             if (!packet)
                 return null;
+            // Capture once before deleting children; per-child capture would repeatedly
+            // rebuild the whole packet and turn a large deletion into quadratic work.
+            store().retainDeletedCostPacket(input.packetId);
             const sources: {
                 job_id: string;
                 source_file_key: string;
@@ -417,7 +420,6 @@ export function createDocumentProcessingStore(database: Database, store: () => L
                 sources.push({ job_id: input.packetId, ...source });
             }
             database.query("DELETE FROM document_packet_children WHERE packet_id=?").run(input.packetId);
-            database.query("DELETE FROM model_call_costs WHERE packet_id=?").run(input.packetId);
             database.query("DELETE FROM source_files WHERE job_id=?").run(input.packetId);
             database.query("DELETE FROM document_packets WHERE id=?").run(input.packetId);
             return { packet_id: input.packetId, sources };

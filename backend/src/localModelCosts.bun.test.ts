@@ -68,7 +68,7 @@ test("allocates split by selected pages, retains excluded overhead, and rolls up
   expect(f.store.getPacketCosts("packet").total.amount).toBeCloseTo(0.029, 12);
   expect(f.store.getDocumentCosts(second!.job_id).split.amount).toBeCloseTo(0.004, 12);
   f.store.deleteDocumentPacket({ packetId: "packet" });
-  expect(f.store.getPacketCosts("packet").total.amount).toBe(0);
+  expect(f.store.getPacketCosts("packet").total.amount).toBeCloseTo(0.029, 12);
 });
 
 test("all-blank packets keep the entire split cost and unknown stages make totals partial", async () => {
@@ -85,7 +85,7 @@ test("all-blank packets keep the entire split cost and unknown stages make total
   expect(f.store.getDocumentCosts("job").total).toMatchObject({ amount: 0.003, complete: false });
   f.store.deleteExtractionJob({ jobId: "job" });
   expect(() => observer(f.store, "job", "extraction").started()).toThrow();
-  expect(f.store.getDocumentCosts("job").total.amount).toBe(0);
+  expect(f.store.getDocumentCosts("job").total.amount).toBe(0.003);
 });
 
 test("migration marks historical calls unknown without backfilling invented zero costs", async () => {

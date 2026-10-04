@@ -102,6 +102,7 @@ try {
         ] }) } }] });
       }
       return Response.json({
+        ...(input.model === "browser/cost-dashboard" ? { usage: { cost: 0.01234 } } : {}),
         choices: [{
           message: {
             content: JSON.stringify({

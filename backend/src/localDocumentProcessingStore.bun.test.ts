@@ -37,6 +37,12 @@ test("migration from the v10 jobs schema preserves rowids, search, counts, resul
   // Recreate the previous nonnullable jobs schema and remove only migration 11.
   // All existing template/source/search/count data remain genuine populated data.
   db.transaction(() => {
+    // Remove the later dashboard migration before recreating a v10 database;
+    // its triggers intentionally depend on the routing tables introduced in v11.
+    const costTriggers = db.query("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'cost_%'").all() as { name: string }[];
+    for (const { name } of costTriggers) db.exec(`DROP TRIGGER ${name}`);
+    for (const table of ["cost_upload_search", "cost_uploads", "cost_documents", "cost_buckets", "cost_dirty", "cost_backfill"]) db.exec(`DROP TABLE ${table}`);
+    db.exec("DELETE FROM product_schema_version WHERE version=13");
     const schema = (db.query("SELECT sql FROM sqlite_master WHERE name='jobs'").get() as { sql: string }).sql;
     const auxiliaries = db.query("SELECT sql FROM sqlite_master WHERE tbl_name='jobs' AND type IN ('index','trigger') AND sql IS NOT NULL").all() as { sql: string }[];
     const columns = (db.query("PRAGMA table_info(jobs)").all() as { name: string }[]).map(({ name }) => `"${name}"`).join(",");

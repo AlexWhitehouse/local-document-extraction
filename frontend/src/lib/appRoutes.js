@@ -12,6 +12,9 @@ export function parseAppRoute(pathname) {
     const workspaceId = parts[1];
     if (parts.length === 2) return { page: "workspace", workspaceId };
     const section = parts[2];
+    if (section === "costs" && (parts.length === 3 || parts.length === 4 && parts[3] === "documents")) {
+      return { page: "costs", workspaceId, costTab: parts[3] === "documents" ? "documents" : "overview" };
+    }
     if (section === "packets" && parts.length === 6 && parts[4] === "documents") {
       return { page: "documents", workspaceId, packetId: parts[3], documentId: parts[5] };
     }
@@ -21,12 +24,13 @@ export function parseAppRoute(pathname) {
   } catch { return { page: "not-found" }; }
 }
 
-export function appPath({ page = "workspace", workspaceId, documentId, templateId, packetId, invitationId } = {}) {
+export function appPath({ page = "workspace", workspaceId, documentId, templateId, packetId, invitationId, costTab } = {}) {
   if (page === "admin") return "/admin";
   if (invitationId) return `/invitations/${encodeURIComponent(invitationId)}`;
   if (!workspaceId) return "/";
   const root = `/workspaces/${encodeURIComponent(workspaceId)}`;
   if (page === "workspace") return root;
+  if (page === "costs") return `${root}/costs${costTab === "documents" ? "/documents" : ""}`;
   if (packetId && page === "documents") return `${root}/packets/${encodeURIComponent(packetId)}${documentId ? `/documents/${encodeURIComponent(documentId)}` : ""}`;
   const id = page === "templates" ? templateId : page === "documents" ? documentId : "";
   return `${root}/${page}${id ? `/${encodeURIComponent(id)}` : ""}`;
