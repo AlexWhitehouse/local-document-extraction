@@ -141,6 +141,10 @@ export function useDocumentController({
   const packetController = usePacketController({
     requests: documentRequests, sessionId, workspaceId: normalizedWorkspaceId, enabled: hasApiAccess,
     onAccessDenied: revalidateWorkspaceAccessNow, onJobsChanged: () => reconciliation.refresh(),
+    listing: documentRequests.listDocumentEntries ? {
+      packets: snapshot.packets, loading: snapshot.loadingMore, refresh: reconciliation.refresh,
+      receivePackets: reconciliation.receivePackets, removePackets: reconciliation.removePackets,
+    } : undefined,
   });
   const packetControllerRef = useRef(packetController);
   packetControllerRef.current = packetController;

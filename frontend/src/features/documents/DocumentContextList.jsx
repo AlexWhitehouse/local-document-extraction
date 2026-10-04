@@ -219,8 +219,7 @@ export function DocumentContextList({
 
 
 function buildListItems(packets, documents, search, filters, hasActiveFilters) {
-  const packetIds = new Set(packets.map((packet) => packet.packet_id));
-  // Live updates can deliver a child before its packet link, so the packet's own child list also counts.
+  // The packet's child list also identifies children in older cached summaries.
   const childIds = new Set(packets.flatMap((packet) => (Array.isArray(packet.children) ? packet.children : []).map((child) => child.job_id)));
   const items = [];
   for (const packet of packets) {
@@ -240,7 +239,7 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
     });
   }
   for (const job of documents) {
-    if (packetIds.has(job.parent_packet_id) || childIds.has(job.job_id)) continue;
+    if (job.parent_packet_id || childIds.has(job.job_id)) continue;
     items.push({
       kind: "document", id: job.job_id, key: `document:${job.job_id}`, createdAt: job.created_at || job.queued_at,
       displayKind: "document", displayId: job.job_id,

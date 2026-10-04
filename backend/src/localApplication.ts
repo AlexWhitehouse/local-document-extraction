@@ -747,7 +747,21 @@ function handleLocalJobRead({
           dateTo: searchParams.get("date_to"),
           model: searchParams.get("model"),
         });
-        const cursor = decodeJobCursor({ cursor: searchParams.get("cursor"), filters, search, secret: jobCursorSecret });
+        const groupPackets = searchParams.get("group_packets") === "true";
+        const cursor = decodeJobCursor({ cursor: searchParams.get("cursor"), filters, search, groupPackets, secret: jobCursorSecret });
+        if (groupPackets) {
+          const candidates = productStore.listDocumentEntries({ search, ...filters, cursor, limit: jobPageSize + 1 });
+          const entries = candidates.slice(0, jobPageSize);
+          const last = entries.at(-1);
+          const hasMore = candidates.length > jobPageSize;
+          return Response.json({
+            jobs: entries.filter(entry => entry.kind === "document").map(entry => ({ ...productStore.getExtractionJobSummary(entry.id)!, results: [] })),
+            packets: entries.filter(entry => entry.kind === "packet").map(entry => publicDocumentPacket(productStore.getDocumentPacket(entry.id)!)),
+            ...productStore.getExtractionJobCounts(),
+            next_cursor: hasMore && last ? encodeJobCursor({ createdAt: last.created_at, jobId: last.entry_id, filters, search, groupPackets, secret: jobCursorSecret }) : null,
+            has_more: hasMore,
+          }, { headers: { "cache-control": "private, no-store" } });
+        }
         const candidates = productStore.listExtractionJobs({ search, ...filters, cursor, limit: jobPageSize + 1 });
         const hasMore = candidates.length > jobPageSize;
         const jobs = hasMore ? candidates.slice(0, jobPageSize) : candidates;
@@ -1145,11 +1159,12 @@ function normalizeJobFilterDate(value: string | null, parameterName: string): st
   return normalized;
 }
 
-function encodeJobCursor({ createdAt, filters, jobId, search, secret }: {
+function encodeJobCursor({ createdAt, filters, jobId, search, groupPackets = false, secret }: {
   createdAt: string;
   filters: JobFilters;
   jobId: string;
   search: string;
+  groupPackets?: boolean;
   secret: Uint8Array;
 }): string {
   const payload = Buffer.from(JSON.stringify({
@@ -1159,16 +1174,18 @@ function encodeJobCursor({ createdAt, filters, jobId, search, secret }: {
     job_id: jobId,
     model: filters.model,
     search,
+    group_packets: groupPackets,
   }), "utf8").toString("base64url");
   const signature = createHmac("sha256", secret).update(payload).digest("base64url");
   return `${payload}.${signature}`;
 }
 
 /** Cursors are signed and bound to the filters they were issued for. */
-function decodeJobCursor({ cursor, filters, search, secret }: {
+function decodeJobCursor({ cursor, filters, search, groupPackets = false, secret }: {
   cursor: string | null;
   filters: JobFilters;
   search: string;
+  groupPackets?: boolean;
   secret: Uint8Array;
 }): { createdAt: string; jobId: string } | null {
   if (!cursor) return null;
@@ -1191,7 +1208,8 @@ function decodeJobCursor({ cursor, filters, search, secret }: {
     parsed.date_from !== filters.dateFrom ||
     parsed.date_to !== filters.dateTo ||
     parsed.model !== filters.model ||
-    parsed.search !== search
+    parsed.search !== search ||
+    (parsed.group_packets ?? false) !== groupPackets
   ) {
     throw invalid();
   }

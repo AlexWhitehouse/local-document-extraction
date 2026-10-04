@@ -41,7 +41,7 @@ function createRequests() {
       if (immediateSource) return sourceResponse();
       return new Promise((resolve, reject) => previews.push({ signal: options.signal, resolve, reject }));
     }
-    if (path === "/jobs") return { jobs: [retainedDocument], total: 1 };
+    if (path === "/jobs?group_packets=true") return { jobs: [retainedDocument], packets: [], total: 1 };
     if (path === `/jobs/${retainedDocument.job_id}`) return retainedDocument;
     if (path === "/jobs/counts") return { total: 1, status_counts: { queued: 0, processing: 0, completed: 1, failed: 0 } };
     if (path === "/jobs/filter-options") return { available_models: [] };

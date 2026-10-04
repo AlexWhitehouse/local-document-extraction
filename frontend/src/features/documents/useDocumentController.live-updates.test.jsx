@@ -1,20 +1,46 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { useDocumentController } from "./useDocumentController";
 import { createDocumentRequestAdapter } from "./documentRequestAdapter";
+import { DocumentContextList } from "./DocumentContextList.jsx";
 
 describe("useDocumentController Workspace live updates", () => {
   it("shows workspace status totals when only the first 50 documents are loaded", async () => {
     installWebSocketStub();
     const jobs = Array.from({ length: 50 }, (_, i) => ({ job_id: `job_${i}`, status: "completed" }));
-    const request = vi.fn(async (path) => path === "/jobs" ? {
+    const request = vi.fn(async (path) => path === "/jobs?group_packets=true" ? {
       jobs, total: 137, status_counts: { queued: 7, processing: 5, completed: 120, failed: 5 },
       has_more: true, next_cursor: "next",
     } : { available_models: [] });
     const { controller } = renderController({ documentRequests: createDocumentRequestAdapter({ request }) });
     await waitFor(() => expect(controller().contextList.documents).toHaveLength(50));
     expect(controller().statusCounts).toEqual({ queued: 7, processing: 5, completed: 120, failed: 5 });
+  });
+
+  it("renders 50 combined entries, loads the next entry, and never flashes unlisted packet children", async () => {
+    const sockets = installWebSocketStub();
+    const jobs = Array.from({ length: 50 }, (_, i) => ({ job_id: `ordinary_${i}`, source_name: `ordinary-${i}.pdf`, status: "completed" }));
+    const children = Array.from({ length: 50 }, (_, i) => ({ job_id: `child_${i}`, parent_packet_id: "packet", status: "completed" }));
+    const packet = { packet_id: "packet", source_name: "bundle.pdf", status: "completed", children };
+    const request = vi.fn(async (path) => {
+      if (path.startsWith("/jobs?group_packets=true")) return path.includes("cursor=next")
+        ? { jobs: jobs.slice(49), packets: [], total: 100, has_more: false }
+        : { jobs: jobs.slice(0, 49), packets: [packet], total: 100, status_counts: { completed: 100 }, has_more: true, next_cursor: "next" };
+      if (path.startsWith("/jobs/ordinary_")) return jobs.find(job => path.endsWith(job.job_id));
+      return { available_models: [] };
+    });
+    const { getAllByRole, getByRole, controller } = renderController({ showList: true, documentRequests: createDocumentRequestAdapter({ request }) });
+    await waitFor(() => expect(getAllByRole("listitem")).toHaveLength(50));
+    expect(controller().toolbar.documentCount).toBe(100);
+    expect(controller().statusCounts.completed).toBe(100);
+    act(() => sockets.instances[0].onmessage({ data: JSON.stringify({ version: 1, events: [{
+      type: "extraction_job_lifecycle", job: { job_id: "new_child", parent_packet_id: "not_loaded_packet", status: "processing" },
+    }] }) }));
+    expect(getAllByRole("listitem")).toHaveLength(50);
+    fireEvent.click(getByRole("button", { name: /Load more Documents/ }));
+    await waitFor(() => expect(getAllByRole("listitem")).toHaveLength(51));
+    expect(request.mock.calls.some(([path]) => path.startsWith("/packets"))).toBe(false);
   });
 
   it("opens one session-only live update connection for the accepted Workspace context", async () => {
@@ -780,6 +806,7 @@ function DocumentControllerHarness({
   isWorkspaceDeletionInProgress = false,
   documentRequests,
   onController,
+  showList = false,
   onWorkspaceCapacityRefresh,
   onModelConfigurationInvalidation,
   request = vi.fn(async () => jobList([])),
@@ -825,7 +852,7 @@ function DocumentControllerHarness({
     onActivePageChange: vi.fn(),
   });
   onController?.(controller);
-  return null;
+  return showList ? <DocumentContextList {...controller.contextList} /> : null;
 }
 
 function installWebSocketStub() {

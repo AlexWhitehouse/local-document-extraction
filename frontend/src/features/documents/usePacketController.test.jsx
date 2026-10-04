@@ -1,6 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { usePacketController } from "./usePacketController.js";
+import { useState } from "react";
+import { flushSync } from "react-dom";
 
 function deferred() { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; }
 const packet = { packet_id: "p1", source_name: "packet.pdf", status: "awaiting_review", plan_revision: 1 };
@@ -16,6 +18,26 @@ function setup(overrides = {}) {
 }
 
 describe("Packet request lifetimes", () => {
+  it("refreshes selected details when the combined list completes during an active poll", async () => {
+    vi.useFakeTimers();
+    const finished = { ...packet, status: "completed", children: [{ job_id: "child", status: "completed" }] };
+    const getPacket = vi.fn().mockResolvedValueOnce(packet).mockResolvedValue(finished);
+    const { result } = renderHook(() => {
+      const [packets, setPackets] = useState([packet]);
+      return usePacketController({ requests: { listPackets: vi.fn(), getPacket }, enabled: true, sessionId: "session", workspaceId: "workspace",
+        listing: { packets, loading: false, refresh: async () => {
+          // Reconciliation publishes synchronously through useSyncExternalStore.
+          flushSync(() => setPackets([finished]));
+        } },
+      });
+    });
+    await act(async () => { result.current.select(packet.packet_id); });
+    expect(result.current.selectedPacket.status).toBe("awaiting_review");
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    expect(result.current.packets[0].status).toBe("completed");
+    expect(result.current.selectedPacket).toEqual(finished);
+    expect(getPacket).toHaveBeenCalledTimes(2);
+  });
   it.each([{ status: "processing", interval: 6000 }, { status: "completed", interval: 30000 }])("keeps loaded older packet pages during $status polling", async ({ status, interval }) => {
     vi.useFakeTimers();
     const newer = { ...packet, packet_id: "newer", status, created_at: "2026-10-02T12:00:00Z" };

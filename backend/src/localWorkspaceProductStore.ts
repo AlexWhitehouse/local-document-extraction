@@ -12,6 +12,7 @@ import { createWorkspaceDocumentProcessingSettingsStore, DOCUMENT_PROCESSING_SET
 import type { FieldDefinition } from "./lib/types";
 import { normalizeTemplateTagName, normalizeTemplateTags } from "../../shared/templateTags";
 import { newId } from "./lib/ids";
+import { listDocumentEntries, type DocumentListQuery } from "./localDocumentListing";
 import type { NormalizedModelField } from "./consumer/modelResultNormalizer";
 import type { StoredWorkspaceModelConfiguration } from "./workspaceModelConfiguration";
 import { assertRealStateDirectorySync, assertRegularStateFileSync, ensurePrivateStateDirectorySync } from "./localStatePaths";
@@ -325,6 +326,7 @@ export type LocalWorkspaceProductStore = DocumentProcessingStore & ReturnType<ty
   countExtractionJobs(): number;
   getExtractionJobCounts(): { total: number; status_counts: Record<LocalWorkspaceExtractionJobSummary["status"], number> };
   listExtractionJobModels(): string[];
+  listDocumentEntries(input: DocumentListQuery): ReturnType<typeof listDocumentEntries>;
   listExtractionJobs(input?: {
     cursor?: { createdAt: string; jobId: string } | null;
     dateFrom?: string;
@@ -1085,6 +1087,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
        WHERE model_name IS NOT NULL AND TRIM(model_name) != ''
        ORDER BY model_name COLLATE NOCASE ASC`,
     ).all() as Array<{ model_name: string }>).map((row) => row.model_name),
+    listDocumentEntries: (input) => listDocumentEntries(database, input),
     listExtractionJobs: (input = {}) => {
       const search = (input.search ?? "").trim().toLowerCase();
       const clauses: string[] = [];

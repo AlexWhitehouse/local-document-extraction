@@ -13,7 +13,7 @@ export function documentScopeKey(sessionId, workspaceId, enabled) {
 
 function emptySnapshot(scopeKey = "") {
   return {
-    scopeKey, documents: [], selectedDocument: null, selectedDocumentId: "", selectedDocumentIds: [],
+    scopeKey, documents: [], packets: [], selectedDocument: null, selectedDocumentId: "", selectedDocumentIds: [],
     search: "", debouncedSearch: "", filters: { ...EMPTY_FILTERS }, availableModels: [],
     totalDocuments: 0, nextCursor: null, hasMore: false, loadingMore: false,
     statusCounts: { queued: 0, processing: 0, completed: 0, failed: 0 },
@@ -55,6 +55,7 @@ export function createDocumentReconciliation({
   function publish(ctx, patch = {}) {
     if (!isCurrent(ctx)) return;
     const next = { ...snapshot, ...patch };
+    next.packets = [...ctx.packets.values()].sort(sortDocuments);
     if (ctx.rowsDirty || next.debouncedSearch !== snapshot.debouncedSearch || next.filters !== snapshot.filters) {
       next.documents = [...ctx.rows.values()]
         .filter((job) => matchesQuery(job, next.debouncedSearch, next.filters)).sort(sortDocuments);
@@ -116,6 +117,7 @@ export function createDocumentReconciliation({
     context = {
       key, workspaceId, requests, callbacks, session, active: true,
       rows: new Map(), known: new Set(), deleted: new Set(), revisions: new Map(), previews: new Map(),
+      packets: new Map(), deletedPackets: new Set(), listBoundary: null,
       rowsDirty: true, visible: new Set(), routeDocumentId, detailErrors: new Map(),
       revision: 0, countRevision: 0, queryRevision: 0, listRequest: 0,
       details: new Map(), detailAttempts: new Map(), hydrated: new Map(), modelsRequest: null,
@@ -228,9 +230,41 @@ export function createDocumentReconciliation({
     const { debouncedSearch: search, filters, nextCursor } = snapshot;
     publish(ctx, { loadingMore: append });
     try {
-      const data = await ctx.requests.listDocuments({ search, filters, cursor: append ? nextCursor : null });
+      const jobs = [], packets = [], visited = new Set();
+      const boundary = append ? null : ctx.listBoundary;
+      let cursor = append ? nextCursor : null;
+      let data;
+      let last;
+      do {
+        visited.add(cursor);
+        data = ctx.requests.listDocumentEntries
+          ? await ctx.requests.listDocumentEntries({ search, filters, cursor })
+          : await ctx.requests.listDocuments({ search, filters, cursor });
+        if (!isCurrent(ctx) || queryRevision !== ctx.queryRevision || requestId !== ctx.listRequest) return;
+        const pageJobs = Array.isArray(data?.jobs) ? data.jobs : [];
+        const pagePackets = Array.isArray(data?.packets) ? data.packets : [];
+        jobs.push(...pageJobs);
+        packets.push(...pagePackets);
+        const entries = [...pageJobs.map(job => ({ createdAt: job.created_at, id: `document:${job.job_id}` })),
+          ...pagePackets.map(packet => ({ createdAt: packet.created_at, id: `packet:${packet.packet_id}` }))].sort(compareEntries);
+        last = entries.at(-1);
+        cursor = data?.next_cursor;
+        if (!ctx.requests.listDocumentEntries || append || !boundary || !last || compareEntries(last, boundary) >= 0) break;
+      } while (data?.has_more && cursor && !visited.has(cursor));
       if (!isCurrent(ctx) || queryRevision !== ctx.queryRevision || requestId !== ctx.listRequest) return;
-      const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+      if (ctx.requests.listDocumentEntries) ctx.listBoundary = last || null;
+      const listedPackets = new Set(packets.map(packet => packet.packet_id));
+      for (const packet of packets) {
+        if (!ctx.deletedPackets.has(packet.packet_id) && (ctx.revisions.get(`packet:${packet.packet_id}`) || 0) <= revision) ctx.packets.set(packet.packet_id, packet);
+      }
+      if (!append) {
+        for (const id of ctx.packets.keys()) {
+          if (!listedPackets.has(id) && (ctx.revisions.get(`packet:${id}`) || 0) <= revision) ctx.packets.delete(id);
+        }
+      }
+      // Packet children remain available for selection, live reconciliation and
+      // exports, but their membership is represented by the single parent entry.
+      jobs.push(...packets.flatMap(packet => packet.children || []));
       const listed = new Set(jobs.map((job) => normalizeId(job.job_id)));
       let overlap = ctx.revision !== revision;
       for (const job of jobs) {
@@ -273,6 +307,7 @@ export function createDocumentReconciliation({
     const ctx = context;
     if (!ctx) return;
     ctx.queryRevision += 1;
+    ctx.listBoundary = null;
     publish(ctx, { ...patch, nextCursor: null, hasMore: false, loadingMore: false });
     void refresh();
   }
@@ -297,6 +332,29 @@ export function createDocumentReconciliation({
     const ctx = context;
     if (!ctx || ctx.key !== scopeKey || !isCurrent(ctx)) return;
     for (const job of jobs) merge(ctx, job, { countNew: true });
+    publish(ctx);
+  }
+
+  function receivePackets(packets) {
+    const ctx = context;
+    if (!ctx || !isCurrent(ctx)) return;
+    for (const packet of packets) {
+      if (ctx.deletedPackets.has(packet.packet_id)) continue;
+      changed(ctx, `packet:${packet.packet_id}`);
+      ctx.packets.set(packet.packet_id, packet);
+    }
+    publish(ctx);
+  }
+
+  function removePackets(ids) {
+    const ctx = context;
+    if (!ctx || !isCurrent(ctx)) return;
+    for (const id of ids) {
+      changed(ctx, `packet:${id}`);
+      ctx.deletedPackets.add(id);
+      ctx.packets.delete(id);
+      for (const job of ctx.rows.values()) if (job.parent_packet_id === id) remove(ctx, job.job_id);
+    }
     publish(ctx);
   }
 
@@ -513,12 +571,13 @@ export function createDocumentReconciliation({
   return {
     cancelPendingSubmissions: () => { submissionRevision += 1; },
     configure, clear, refresh, loadDetails, loadModels, ensureSelectedDetails,
-    setSearch, setFilters, receiveLiveUpdates, submitBatch, deleteDocuments, exportDocuments,
+    setSearch, setFilters, receiveLiveUpdates, receivePackets, removePackets, submitBatch, deleteDocuments, exportDocuments,
     selectDocument: (id, { clearFilters = false } = {}) => {
       if (!context) return;
       if (clearFilters) {
         clearTimeout(context.searchTimer);
         context.queryRevision += 1;
+        context.listBoundary = null;
         publish(context, { selectedDocumentId: normalizeId(id), search: "", debouncedSearch: "", filters: { ...EMPTY_FILTERS } });
         scheduleRefresh(context);
       } else publish(context, { selectedDocumentId: normalizeId(id) });
@@ -533,6 +592,11 @@ export function createDocumentReconciliation({
     subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
     dispose: () => { if (session) session.active = false; session = null; retire(); },
   };
+}
+
+function compareEntries(a, b) {
+  if (a.createdAt !== b.createdAt) return a.createdAt > b.createdAt ? -1 : 1;
+  return a.id === b.id ? 0 : a.id > b.id ? -1 : 1;
 }
 
 function version(job) {
