@@ -105,13 +105,14 @@ async function fixture() {
   const submit = async (
     fields: Record<string, string | undefined> = { template_tags: '[" INVOICE ","invoice"]' },
     pdf = false,
+    pdfPageCount = 3,
   ) => {
     const form = new FormData();
 
     if (pdf) {
       const doc = await PDFDocument.create();
 
-      for (let n = 1; n <= 3; n++) doc.addPage([100 + n, 100]);
+      for (let n = 1; n <= pdfPageCount; n++) doc.addPage([100 + n, 100]);
       form.set("document", new File([Uint8Array.from(await doc.save())], "packet.pdf", { type: "application/pdf" }));
     } else form.set("document", new File([new Uint8Array([1, 2, 3])], "image.png", { type: "image/png" }));
 
@@ -220,6 +221,80 @@ test("page selection validates before acceptance and creates the real subset wit
   const pdf = await PDFDocument.load(bytes!);
   expect(pdf.getPages().map((page) => page.getWidth())).toEqual([101, 103]);
   expect(f.store.listDocumentPackets()).toEqual([]);
+});
+
+test.each([false, true])(
+  "one-page PDF uploads extract directly with smart splitting enabled and blank exclusion %s",
+  async (excludeBlankPages) => {
+    const f = await fixture();
+    f.store.putDocumentProcessingSettings({ enable_smart_splitting: true, exclude_blank_pages: excludeBlankPages });
+    // The fixture contains a blank page, which must still be submitted for extraction.
+    const admitted = await f.submit({ template_id: "tpl_invoice" }, true, 1);
+    expect(admitted.status).toBe(202);
+    const { job_id } = await readJobAdmission(admitted);
+    expect(admitted.headers.get("location")).toBe(`/v1/jobs/${job_id}`);
+    expect(f.store.getExtractionJobSummary(job_id)).toMatchObject({
+      status: "queued",
+      source_file_page_count: 1,
+      template_id: "tpl_invoice",
+      template_version: 1,
+    });
+    expect(f.store.listDocumentPackets()).toEqual([]);
+    await f.runner.run(f.scheduled[0]!);
+    expect(f.store.getExtractionJobSummary(job_id)?.status).toBe("completed");
+  },
+);
+
+test.each([false, true])(
+  "one-page PDF uploads preserve automatic template selection with blank exclusion %s",
+  async (excludeBlankPages) => {
+    const f = await fixture();
+    f.store.putDocumentProcessingSettings({ enable_smart_splitting: true, exclude_blank_pages: excludeBlankPages });
+    const admitted = await f.submit({ template_tags: '["invoice"]', pages: "[1]" }, true, 1);
+    expect(admitted.status).toBe(202);
+    const { job_id } = await readJobAdmission(admitted);
+    expect(f.store.getExtractionJobSummary(job_id)).toMatchObject({
+      source_file_page_count: 1,
+      source_pages: [1],
+      template_id: null,
+      template_tags: ["invoice"],
+      selection_mode: "automatic",
+    });
+    expect(f.store.listDocumentPackets()).toEqual([]);
+    await f.runner.run(f.scheduled[0]!);
+    expect(f.store.getExtractionJobSummary(job_id)).toMatchObject({
+      status: "awaiting_template",
+      selection_reason: "No invoice present",
+    });
+    expect((await f.request(`/jobs/${job_id}/source`)).status).toBe(200);
+  },
+);
+
+test("multi-page PDF uploads retain split assessment and blank exclusion when only one page is selected", async () => {
+  const f = await fixture();
+  f.store.putDocumentProcessingSettings({ enable_smart_splitting: true, exclude_blank_pages: true });
+  const admitted = await f.submit({ template_id: "tpl_invoice", pages: "[2]" }, true);
+  expect(admitted.status).toBe(202);
+  const packet = await readTextFieldsResponse(admitted, "packet_id");
+  expect(admitted.headers.get("location")).toBe(`/v1/packets/${packet.packet_id}`);
+  expect(packet).toMatchObject({
+    source_file_page_count: 3,
+    selected_pages: [2],
+    processing_policy: { enable_smart_splitting: true, exclude_blank_pages: true },
+    children: [],
+  });
+  await f.runner.run(f.scheduled[0]!);
+  expect(f.store.getDocumentPacket(packet.packet_id)?.status).toBe("awaiting_review");
+
+  const response = await f.sessionRequest(`/packets/${packet.packet_id}/plan`, "POST", {
+    revision: 1,
+    groups: [],
+    exclusions: [{ page: 2, reason: "Blank", verified_blank: false }],
+  });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ status: "completed", outcome: "no_documents", children: [] });
+  expect(f.store.countExtractionJobs()).toBe(0);
 });
 
 test("smart splitting captures workspace policy, holds without children, previews, and commits one revision", async () => {

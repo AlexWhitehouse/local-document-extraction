@@ -779,7 +779,12 @@ function handleLocalDocumentSubmission({
           let sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!, signal);
 
           if (pages) validatePdfPageSelection(pages, sourceFilePageCount!);
-          const isPacket = sourceMimeType === "application/pdf" && processingPolicy.enable_smart_splitting;
+
+          // Use the uploaded page count before applying any requested page selection.
+          const isPacket =
+            sourceMimeType === "application/pdf" &&
+            processingPolicy.enable_smart_splitting &&
+            (sourceFilePageCount ?? 0) > 1;
 
           const selectedPages = sourceFilePageCount
             ? (pages ?? Array.from({ length: sourceFilePageCount }, (_, index) => index + 1))

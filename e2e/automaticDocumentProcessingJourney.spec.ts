@@ -206,7 +206,7 @@ test("tag routing, split review, page preview and all-blank completion work thro
   }
 });
 
-test("smart splitting displays one logical document as a normal document for single-page and multipage uploads", async ({
+test("single-page uploads and one-document split plans display as ordinary documents", async ({
   page,
 }, testInfo) => {
   test.setTimeout(120_000);
@@ -265,8 +265,12 @@ test("smart splitting displays one logical document as a normal document for sin
       await upload.getByRole("button", { name: "Upload Documents", exact: true }).click();
       const queued = await queuedPromise;
       expect(queued.status()).toBe(202);
-      const packetId = (await queued.json()).packet_id;
-      expect(packetId).toBeTruthy();
+      const admission = await queued.json();
+
+      if (pageCount === 1) {
+        expect(admission.job_id).toBeTruthy();
+        expect(admission).not.toHaveProperty("packet_id");
+      } else expect(admission.packet_id).toBeTruthy();
       await expect(upload.getByText("Success", { exact: true })).toBeVisible();
       await upload.getByRole("button", { name: "Cancel", exact: true }).click();
 
@@ -278,17 +282,25 @@ test("smart splitting displays one logical document as a normal document for sin
       await expect(page.getByRole("tab", { name: "Overview", exact: true })).toHaveCount(0);
       await expect(page.getByRole("region", { name: "Documents in this packet" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "View parent packet", exact: true })).toHaveCount(0);
-      const packet = await (await page.request.get(`${harness.origin}/v1/packets/${packetId}`, { headers })).json();
-      expect(packet.children).toHaveLength(1);
-      const childId = packet.children[0].job_id;
+      let documentId = admission.job_id;
+
+      if (pageCount > 1) {
+        const packet = await (
+          await page.request.get(`${harness.origin}/v1/packets/${admission.packet_id}`, { headers })
+        ).json();
+
+        expect(packet.children).toHaveLength(1);
+        documentId = packet.children[0].job_id;
+      }
+
       const documentList = page.getByRole("region", { name: "Document list", exact: true });
       const row = documentList.locator("a.context-item-main").filter({ hasText: sourceName });
       await expect(row).toHaveCount(1);
-      await expect(row).toContainText(childId);
+      await expect(row).toContainText(documentId);
       await expect(documentList.locator(".context-item-packet")).toHaveCount(0);
       await page.screenshot({ path: testInfo.outputPath(`single-document-${pageCount}-pages.png`), fullPage: true });
 
-      // Restored packet metadata must also present its sole child normally.
+      // Reloading preserves ordinary Document presentation for both submission paths.
       await page.reload();
       await navigation.getByRole("link", { name: /Documents/ }).click();
       await expect(row).toBeVisible();
@@ -300,11 +312,15 @@ test("smart splitting displays one logical document as a normal document for sin
         .locator('header[aria-label="Workspace toolbar"]')
         .getByRole("button", { name: "Delete", exact: true })
         .click();
+
+      if (pageCount > 1)
+        await expect
+          .poll(async () =>
+            (await page.request.get(`${harness.origin}/v1/packets/${admission.packet_id}`, { headers })).status(),
+          )
+          .toBe(404);
       await expect
-        .poll(async () => (await page.request.get(`${harness.origin}/v1/packets/${packetId}`, { headers })).status())
-        .toBe(404);
-      await expect
-        .poll(async () => (await page.request.get(`${harness.origin}/v1/jobs/${childId}`, { headers })).status())
+        .poll(async () => (await page.request.get(`${harness.origin}/v1/jobs/${documentId}`, { headers })).status())
         .toBe(404);
       await expect(row).toHaveCount(0);
       await expect(documentList.locator(".context-item-packet")).toHaveCount(0);

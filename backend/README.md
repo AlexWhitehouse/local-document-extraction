@@ -72,7 +72,7 @@ Each Workspace has separate model settings. New Workspaces and Workspaces upgrad
 
 **Document classification & splitting** is an optional role alongside Extraction and Template assistant. It inherits Extraction settings or uses its own model and capabilities on the shared gateway. Classification receives the source and eligible Template IDs, names, and descriptions. Field schemas are used only for extraction.
 
-The Workspace settings **Enable smart splitting** and **Exclude blank pages** default to off. Blank exclusion requires splitting.
+The Workspace settings **Enable smart splitting** and **Exclude blank pages** default to off. Blank exclusion requires splitting. One-page PDF uploads skip both checks and create ordinary extraction jobs. Multi-page uploads follow these settings even when only one page is selected.
 
 Model routes can impose document and image-count limits below runtime limits. Each assessment sends selected PDF pages in one request. Role capabilities determine whether the request uses a PDF or page images. The app does not automatically batch requests to meet provider limits.
 

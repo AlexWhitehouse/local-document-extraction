@@ -292,8 +292,8 @@ An explicit ID takes priority and fixes the same Template version for all childr
 
 Held packets and documents keep the working source necessary for resolution, even with completed-original retention disabled. Each child Document owns a separate derived PDF. Deleting a child keeps its siblings and the packet original. Deleting a packet removes the group. Deleting a child does not redact its pages from a retained packet original.
 
-The browser shows a single-page upload or an accepted one-document split as a normal Document. It has its own results, download, and export. Multiple documents or unresolved packets use the packet overview. Deleting a Document shown this way also deletes its hidden parent and original.
+The browser shows a single-page upload or an accepted one-document split as a normal Document. It has its own results, download, and export. Multiple documents or unresolved packets use the packet overview. Deleting a Document created by a one-document split also deletes its hidden parent and original.
 
-The API exposes a packet for every PDF accepted with splitting enabled. This includes one-child and all-blank results.
+One-page PDF uploads skip splitting and blank-page checks and create ordinary extraction jobs. The API exposes a packet for multi-page PDF uploads accepted with splitting enabled, even if only one page is selected. This includes one-child and all-blank results.
 
 Members can view effective settings under **Workspaces → Document processing**. Owners and admins can change the toggles. To resolve a held document, open it in **Documents**. Select a Template or confirm its page groups. See [Reviewing documents](../mkdocs/docs/usage/document-extraction.md#progress-and-review) for browser steps. See the [packet API](../mkdocs/docs/api/overview.md#document-packets-and-review) to poll progress from an integration.
