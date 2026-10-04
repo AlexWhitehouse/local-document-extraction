@@ -136,6 +136,7 @@ function setup(overrides = {}, templates = [], props = {}) {
     duplicate: vi.fn(),
     remove: vi.fn(),
     setReference: vi.fn(),
+    removeReference: vi.fn(),
     reviewReference: vi.fn(),
     setColumns: vi.fn(),
     addUploads: vi.fn(),
@@ -173,6 +174,21 @@ const saved = (evaluation, call = 0) => {
 const openMenu = (index = 1) => fireEvent.click(screen.getByRole("button", { name: `Candidate ${index} options` }));
 
 const savedTemplate = (fields = template.fields) => ({ ...template, fields, current_version: 3 });
+
+it("replaces a comparison candidate with a historical Template without running it", async () => {
+  const evaluation = setup({ mode: "templates" }, [{ id: "saved", name: "Saved Invoice", current_version: 3 }]);
+  evaluation.api.mockImplementation(async () => Response.json(savedTemplate()));
+  openMenu();
+  fireEvent.click(screen.getByRole("button", { name: "Choose another Template/version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose candidate Template" }));
+  fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "saved" } });
+  fireEvent.change(picker.getByRole("combobox", { name: "Field version" }), { target: { value: "2" } });
+  fireEvent.click(picker.getByRole("button", { name: "Replace candidate Template" }));
+  await waitFor(() => expect(evaluation.edit).toHaveBeenCalledWith("a", {
+    template: expect.objectContaining({ source: { id: "saved", version: 2 }, name: "Invoice" }),
+  }));
+  expect(evaluation.run).not.toHaveBeenCalled();
+});
 
 it("keeps editing available during processing and applies full editor changes only to the candidate", async () => {
   const evaluation = setup();
@@ -353,7 +369,7 @@ it("starts a model comparison from a saved historical field version with the cho
   const [mode, entries] = evaluation.start.mock.calls[0];
   expect(mode).toBe("models");
   expect(entries.map((entry) => entry.model)).toEqual(["model", "other-model"]);
-  expect(entries[0].template).toMatchObject({ source: { id: "saved", version: 2 }, name: "Invoice · fields v2" });
+  expect(entries[0].template).toMatchObject({ source: { id: "saved", version: 2 }, name: "Invoice" });
   expect(evaluation.api).toHaveBeenCalledWith("/evaluations/templates/saved?version=2");
   expect(evaluation.run).not.toHaveBeenCalled();
 });
@@ -719,4 +735,122 @@ it("preserves row matching when reviewing another result for an existing expecte
   expect(within(dialog).getByRole("combobox", { name: "Compare rows" }).value).toBe("sku");
   fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
   expect(saved(evaluation, 0)["items:array<object>"].rows).toEqual({ mode: "key", key: "sku" });
+});
+
+it.each(["saved answer", "candidate result"])(
+  "reviews a %s using updated boolean columns instead of the saved text schema",
+  (source) => {
+    const oldField = {
+      ...itemsField,
+      object_schema: {
+        columns: [
+          { key: "sku", heading: "SKU", data_type: "string" },
+          { key: "initiation", heading: "Initiation Dose", data_type: "string" },
+          { key: "maintenance", heading: "Maintenance Dose", data_type: "string" },
+        ],
+      },
+    };
+
+    const newField = {
+      ...oldField,
+      object_schema: {
+        columns: oldField.object_schema.columns.map((c) => (c.key === "sku" ? c : { ...c, data_type: "boolean" })),
+      },
+    };
+
+    const reference = {
+      verified: true,
+      value: [{ sku: "A", initiation: "true", maintenance: "false" }],
+      rows: { mode: "key", key: "sku" },
+    };
+
+    const answer = [{ sku: "A", initiation: true, maintenance: false }];
+
+    const evaluation = setup({
+      definitions: { "items:array<object>": oldField },
+      references: { "items:array<object>": reference },
+      candidates: [
+        {
+          id: "a",
+          model: "model",
+          status: "success",
+          template: { ...template, fields: [newField] },
+          result: result([newField], [{ field_id: "items", status: "ok", answer }]),
+        },
+      ],
+    });
+
+    expect(screen.getByText("Needs review · Template columns changed")).toBeTruthy();
+
+    if (source === "candidate result") {
+      fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
+      fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+    } else fireEvent.click(screen.getByRole("button", { name: "Review updated table" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
+    expect(dialog.getByText("Initiation Dose: Text → Yes / No")).toBeTruthy();
+    expect(dialog.getByRole("combobox", { name: "Expected row 1 Initiation Dose", exact: true }).value).toBe("true");
+    expect(dialog.getByRole("combobox", { name: "Expected row 1 Maintenance Dose", exact: true }).value).toBe("false");
+    expect(dialog.getByRole("combobox", { name: "Compare rows" }).value).toBe("sku");
+    fireEvent.click(dialog.getByRole("button", { name: "Use as expected answer" }));
+    expect(screen.queryByRole("dialog", { name: "Verify expected answer" })).toBeNull();
+    expect(evaluation.reviewReference).toHaveBeenCalledWith(
+      "doc",
+      "items:array<object>",
+      "items:array<object>",
+      expect.objectContaining({ verified: true, value: answer }),
+      newField,
+    );
+    expect(reference.value[0].maintenance).toBe("false");
+  },
+);
+
+it("finds added, removed and retyped fields together and preserves unchanged answers", () => {
+  const before = { id: "total", name: "Total", data_type: "string" };
+  const removed = { id: "code", name: "Old code", data_type: "string" };
+  const unchanged = { id: "name", name: "Name", data_type: "string" };
+  const added = { id: "date", name: "Invoice date", data_type: "date" };
+  const next = { ...before, data_type: "number" };
+  const definitions = { "total:string": before, "old code:string": removed, "name:string": unchanged };
+
+  const references = {
+    "total:string": { verified: true, value: "123" },
+    "old code:string": { verified: true, value: "A" },
+    "name:string": { verified: true, value: "Example" },
+  };
+
+  const evaluation = setup({
+    definitions,
+    references,
+    candidates: [
+      { id: "a", model: "model", status: "idle", template: { ...template, fields: [next, unchanged, added] } },
+    ],
+  });
+
+  expect(screen.getAllByRole("rowheader", { name: /^Total/ })).toHaveLength(1);
+  expect(screen.getByText('Previously saved as Text: “123”')).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Edit expected Total" })).toBeNull();
+  const removedRow = screen.getByRole("rowheader", { name: /^Old code/ }).closest("tr");
+  expect(removedRow.classList.contains("evaluation-omitted-row")).toBe(true);
+  expect(within(removedRow).getByText("A")).toBeTruthy();
+  expect(within(removedRow).queryByRole("button", { name: "Edit expected Old code" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Edit expected Name" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Review template changes" }));
+  const matrix = within(screen.getByRole("region", { name: "Comparison matrix" }));
+  expect(matrix.queryByRole("button", { name: "Edit expected Name" })).toBeNull();
+  expect(matrix.getByText("Text → Number")).toBeTruthy();
+  expect(matrix.getByText("No saved answer · verify this field")).toBeTruthy();
+  expect(matrix.getByText("Saved answer not requested by any candidate · shown in coverage")).toBeTruthy();
+  fireEvent.click(matrix.getByRole("button", { name: "Remove expected answer for Old code" }));
+  expect(evaluation.removeReference).toHaveBeenCalledWith("doc", "old code:string");
+  fireEvent.click(matrix.getByRole("button", { name: "Review as Number" }));
+  expect(screen.getByRole("textbox", { name: "Expected value" }).value).toBe("123");
+  fireEvent.click(screen.getByRole("button", { name: "Use as expected answer" }));
+  expect(evaluation.reviewReference).toHaveBeenCalledWith(
+    "doc",
+    "total:string",
+    "total:number",
+    expect.objectContaining({ value: 123, verified: true }),
+    next,
+  );
+  expect(references["name:string"].value).toBe("Example");
 });

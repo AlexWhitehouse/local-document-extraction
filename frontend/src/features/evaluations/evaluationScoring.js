@@ -115,6 +115,55 @@ export function tableColumns(field) {
   return hydrateFieldFromTemplate(field).object_schema?.columns || [];
 }
 
+// Match stable keys first; a unique unchanged heading also survives a key change.
+export function tableSchemaChanges(previous, next) {
+  const before = tableColumns(previous),
+    after = tableColumns(next);
+
+  const pairs = after.map((column) => {
+    const sameKey = before.find((old) => old.key === column.key);
+
+    const sameHeading = before.filter(
+      (old) =>
+        old.heading.toLocaleLowerCase() === column.heading.toLocaleLowerCase() &&
+        !after.some((current) => current.key === old.key),
+    );
+
+    const uniqueHeading =
+      after.filter((current) => current.heading.toLocaleLowerCase() === column.heading.toLocaleLowerCase()).length ===
+      1;
+
+    return [column, sameKey || (uniqueHeading && sameHeading.length === 1 ? sameHeading[0] : undefined)];
+  });
+
+  const added = pairs.flatMap(([column, old]) => (old ? [] : [column]));
+  const removed = before.filter((old) => !pairs.some(([, matched]) => matched === old));
+  const changed = pairs.filter(([column, old]) => old && column.data_type !== old.data_type);
+  const renamed = pairs.filter(([column, old]) => old && column.heading !== old.heading);
+  const updated = pairs.filter(([column, old]) => old && (column.description || "") !== (old.description || ""));
+
+  const reordered =
+    pairs.flatMap(([, old]) => (old ? [old.key] : [])).join("\n") !==
+    before
+      .filter((old) => pairs.some(([, matched]) => matched === old))
+      .map((old) => old.key)
+      .join("\n");
+
+  const needsReview = !!(added.length || removed.length || changed.length);
+
+  return {
+    pairs,
+    added,
+    removed,
+    changed,
+    renamed,
+    updated,
+    reordered,
+    needsReview,
+    hasChanges: needsReview || !!renamed.length || !!updated.length || reordered,
+  };
+}
+
 // User-entered expected dates have an explicit order and are stored as ISO dates.
 export function normalizeReferenceDates(field, reference, dateOrder) {
   const normalize = (value) => {
@@ -276,7 +325,12 @@ function scoreTable(field, value, reference, referenceField, mappings) {
 
   if (problem) return { state: "Needs review", reason: problem.message };
 
-  const pairs = tableColumnPairs(referenceField, field, mappings).filter(
+  const allPairs = tableColumnPairs(referenceField, field, mappings);
+
+  if (tableColumns(field).some((column) => !allPairs.some(([, actual]) => actual?.key === column.key)))
+    return { state: "Needs review", reason: "Template columns changed. Review the expected table." };
+
+  const pairs = allPairs.filter(
     ([column]) =>
       !reference.value.length ||
       (reference.rows?.mode === "key" && reference.rows.key === column.key) ||
@@ -592,8 +646,9 @@ export function referenceCompatibility(set, fields, alignments = {}) {
       const changed =
         field.data_type === "array<object>" &&
         definition &&
+        tableColumns(definition).length > 0 &&
         !references[identity].absent &&
-        tableColumnPairs(definition, field).some(([, actual]) => !actual);
+        tableSchemaChanges(definition, field).needsReview;
 
       return changed
         ? { field, identity, state: "review", from: identity, reason: "columns" }

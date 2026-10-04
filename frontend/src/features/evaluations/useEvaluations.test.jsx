@@ -23,6 +23,25 @@ const props = {
 const calls = (method, path) =>
   fetch.mock.calls.filter(([url, options = {}]) => (options.method || "GET") === method && url === `/v1${path}`);
 
+it("removes an obsolete answer only from the working copy and keeps the saved original", async () => {
+  const reference = {
+    version: 1,
+    definitions: { "total:number": template.fields[0] },
+    references: { "total:number": { verified: true, value: 10 } },
+  };
+
+  overrides["GET /evaluations/documents/evd_a"] = () => Response.json({ document: { id: "evd_a", name: "A", revision: 1 }, reference });
+  const { result } = await initialized({ documents: 0 });
+
+  await act(async () => { await result.current.addSaved([{ id: "evd_a" }]); });
+  const doc = result.current.state.documents[0].key;
+
+  act(() => result.current.removeReference(doc, "total:number"));
+  expect(result.current.state.documents[0].reference).toEqual({ definitions: {}, references: {} });
+  expect(result.current.state.documents[0].base.references["total:number"]).toEqual({ verified: true, value: 10 });
+  expect(calls("PATCH", "/evaluations/documents/evd_a")).toHaveLength(0);
+});
+
 beforeEach(() => {
   setup = {
     configured: true,
@@ -94,6 +113,36 @@ const pairOf = (result, docIndex, candidateIndex) =>
   result.current.state.pairs[result.current.state.documents[docIndex].key]?.[
     result.current.state.candidates[candidateIndex].id
   ];
+
+it("ignores a pending library edit after clearing the Evaluation or canceling the library modal", async () => {
+  let finish;
+  overrides["GET /evaluations/documents/evd_a"] = () => new Promise((resolve) => { finish = resolve; });
+  const { result } = await initialized({ documents: 0 });
+
+  const loaded = {
+    document: { id: "evd_a", name: "Invoice", revision: 1 },
+    reference: { version: 1, definitions: { "total:number": template.fields[0] }, references: {} },
+  };
+
+  let opening;
+  act(() => { opening = result.current.editSaved({ id: "evd_a" }); });
+  act(() => result.current.clear());
+  await act(async () => {
+    finish(Response.json(loaded));
+    expect(await opening).toBe(false);
+  });
+  expect(result.current.state.libraryEditor).toBeNull();
+  expect(result.current.state.documents).toHaveLength(0);
+
+  const controller = new AbortController();
+  act(() => { opening = result.current.editSaved({ id: "evd_a" }, controller.signal); });
+  controller.abort();
+  await act(async () => {
+    finish(Response.json(loaded));
+    expect(await opening).toBe(false);
+  });
+  expect(result.current.state.documents).toHaveLength(0);
+});
 
 const send = (stream, event) =>
   stream.controller.enqueue(

@@ -304,11 +304,30 @@ export function LibraryPicker({ evaluation, fields, onClose }) {
   );
 }
 
-// The only library management surface: rename or delete shared entries. Answers change via a working copy.
+// Answers open in a working copy; updates to the shared library stay explicit.
 export function ManageLibrary({ evaluation, fields, onClose }) {
   const list = useLibraryList(evaluation);
   const [renaming, setRenaming] = useState(null);
   const [message, setMessage] = useState("");
+  const [editing, setEditing] = useState(null);
+  const editRequest = useRef(null);
+  useEffect(() => () => editRequest.current?.abort(), []);
+
+  const edit = async (entry) => {
+    editRequest.current?.abort();
+    const controller = new AbortController();
+    editRequest.current = controller;
+    setEditing(entry.id);
+    setMessage("");
+
+    try {
+      if (await evaluation.editSaved(entry, controller.signal)) onClose();
+    } catch (error) {
+      if (!controller.signal.aborted) setMessage(error.message);
+    } finally {
+      if (!controller.signal.aborted) setEditing(null);
+    }
+  };
 
   const rename = async (entry, name, expectedRevision = entry.revision) => {
     if (!name.trim() || name.trim() === entry.name) {
@@ -415,7 +434,17 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
         <button
           type="button"
           className="studio-text-button"
+          aria-label={`Edit ${entry.name}`}
+          disabled={!!editing}
+          onClick={() => edit(entry)}
+        >
+          {editing === entry.id ? "Opening…" : "Edit"}
+        </button>
+        <button
+          type="button"
+          className="studio-text-button"
           aria-label={`Rename ${entry.name}`}
+          disabled={!!editing}
           onClick={() => setRenaming({ id: entry.id, name: entry.name })}
         >
           Rename
@@ -424,6 +453,7 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
           type="button"
           className="studio-text-button evaluation-danger-text"
           aria-label={`Delete ${entry.name}`}
+          disabled={!!editing}
           onClick={() => remove(entry)}
         >
           Delete
@@ -435,7 +465,7 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
   return (
     <LibraryModal
       label="Manage library"
-      description="Rename or delete documents shared with this Workspace. To change Expected answers, add the document to an Evaluation and use Update saved answers."
+      description="Edit saved fields and Expected answers without running a model, or rename and delete documents shared with this Workspace."
       onClose={onClose}
       footer={
         <>
@@ -773,16 +803,27 @@ export function ReviewPrompt({ field, definition, reference, onReview }) {
         !
       </span>
       <span>
-        Needs review · saved as {getDataTypeLabel(definition?.data_type)} “{refText(reference, definition)}”
+        {field.data_type === "array<object>" && definition?.data_type === "array<object>" ? (
+          "Needs review · Template columns changed"
+        ) : (
+          <>
+            Needs review
+            <span className="evaluation-muted evaluation-block">
+              Previously saved as {getDataTypeLabel(definition?.data_type)}: “{refText(reference, definition)}”
+            </span>
+          </>
+        )}
       </span>
       <button type="button" className="studio-text-button" onClick={onReview}>
-        Review as {getDataTypeLabel(field.data_type)}
+        {field.data_type === "array<object>"
+          ? "Review updated table"
+          : `Review as ${getDataTypeLabel(field.data_type)}`}
       </button>
     </div>
   );
 }
 
-export function DocumentBanner({ evaluation, document, onNotice }) {
+export function DocumentBanner({ evaluation, document, toast }) {
   const [retrying, setRetrying] = useState(false);
 
   const retry = async () => {
@@ -790,9 +831,9 @@ export function DocumentBanner({ evaluation, document, onNotice }) {
 
     try {
       await evaluation.retrySource(document.key);
-      onNotice?.("The saved original is available again. Run it when you’re ready.");
+      toast.success("The saved original is available again. Run it when you’re ready.");
     } catch (error) {
-      onNotice?.(error.message);
+      toast.error(error.message);
     } finally {
       setRetrying(false);
     }
@@ -822,7 +863,7 @@ export function DocumentBanner({ evaluation, document, onNotice }) {
         <button
           type="button"
           className="studio-text-button"
-          onClick={() => evaluation.loadLatest(document.key).catch((error) => onNotice?.(error.message))}
+          onClick={() => evaluation.loadLatest(document.key).catch((error) => toast.error(error.message))}
         >
           Load latest
         </button>

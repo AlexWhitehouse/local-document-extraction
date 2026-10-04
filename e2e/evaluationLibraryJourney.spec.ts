@@ -45,7 +45,15 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await page.getByRole("button", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));
+
+    const creation = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
+    );
+
     await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
+    const created = await creation;
+    const { template_id: templateId } = await created.json();
+    const headers = { "x-workspace-id": created.request().headers()["x-workspace-id"] };
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
     const evaluations = page.getByRole("region", { name: "Evaluations" });
@@ -72,7 +80,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     const saveDialog = page.getByRole("dialog", { name: "Save to Evaluation library" });
     await expect(saveDialog.getByText(/1 of 1 answers verified/)).toBeVisible();
     await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(evaluations.getByText("Saved “library-invoice” to the Workspace library.")).toBeVisible();
+    await expect(page.getByText("Saved “library-invoice” to the Workspace library.")).toBeVisible();
 
     await evaluations.getByRole("button", { name: /^Clear Evaluation/ }).click();
     const clearDialog = page.getByRole("dialog", { name: "Clear Evaluation" });
@@ -111,7 +119,8 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     const review = page.getByRole("dialog", { name: "Review saved answer update" });
     await expect(review.getByText(/INV-E2E-999/)).toBeVisible();
     await review.getByRole("button", { name: "Update saved answers" }).click();
-    await expect(evaluations.getByText("Saved answers updated for the Workspace.")).toBeVisible();
+    await expect(review).toBeHidden();
+    await expect(page.getByText("Saved answers updated for the Workspace.").last()).toBeVisible();
 
     // Refresh discards the private Evaluation; the saved document stays in the library.
     await page.reload();
@@ -123,6 +132,90 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await evaluations.getByRole("button", { name: "Manage library" }).first().click();
     const library = page.getByRole("dialog", { name: "Manage library" });
     await expect(library.getByText("library-invoice", { exact: true })).toBeVisible();
+
+    // The library editor opens only saved fields and answers, and saves without a model call.
+    const modelRequests: string[] = [];
+    page.on("request", (request) => {
+      if (/\/evaluations\/(run|actions)$/.test(new URL(request.url()).pathname)) modelRequests.push(request.url());
+    });
+    await library.getByRole("button", { name: "Edit library-invoice" }).click();
+    const editorMatrix = evaluations.getByRole("region", { name: "Comparison matrix" });
+    await expect(editorMatrix).toBeVisible();
+    await expect(editorMatrix.getByRole("columnheader")).toHaveCount(2);
+    await expect(evaluations.getByRole("textbox", { name: /model/ })).toHaveCount(0);
+    await expect(evaluations.getByRole("button", { name: /^Run/ })).toHaveCount(0);
+    await editorMatrix.getByRole("button", { name: "Edit expected Invoice Number" }).click();
+    await editorMatrix.getByRole("textbox", { name: "Expected Invoice Number" }).fill("INV-EDITED");
+    await editorMatrix.getByRole("button", { name: "Verify" }).click();
+    await evaluations.getByRole("button", { name: "Update saved answers…" }).click();
+    await page.getByRole("dialog", { name: "Review saved answer update" }).getByRole("button", { name: "Update saved answers" }).click();
+    await expect(review).toBeHidden();
+    await expect(page.getByText("Saved answers updated for the Workspace.").last()).toBeVisible();
+    await page.reload();
+    await evaluations.getByRole("button", { name: "Manage library" }).click();
+    await library.getByRole("button", { name: "Edit library-invoice" }).click();
+    await expect(editorMatrix.getByText("INV-EDITED", { exact: true })).toBeVisible();
+
+    // A saved Template changes later. Select historical or current fields without rerunning the document.
+    const updated = await page.request.patch(`${harness.origin}/v1/templates/${templateId}`, {
+      headers,
+      data: {
+        ...TEMPLATE,
+        fields: [...TEMPLATE.fields, { id: "reviewed", name: "Reviewed", data_type: "boolean", description: "Whether the invoice is reviewed." }],
+      },
+    });
+
+    expect(updated.status()).toBe(200);
+    await page.reload();
+    await evaluations.getByRole("button", { name: "Manage library" }).click();
+    await library.getByRole("button", { name: "Edit library-invoice" }).click();
+    await evaluations.getByRole("button", { name: "Choose Template/version" }).click();
+    const versions = page.getByRole("dialog", { name: "Choose Template/version" });
+    await versions.getByRole("combobox", { name: "Template", exact: true }).selectOption(templateId);
+    await expect(versions.getByRole("combobox", { name: "Field version" })).toContainText("Current · v2");
+    await versions.getByRole("combobox", { name: "Field version" }).selectOption("1");
+    await versions.getByRole("button", { name: "Use Template version" }).click();
+    await expect(evaluations.getByTitle(`${TEMPLATE.name} · fields v1`)).toBeVisible();
+    await expect(editorMatrix.getByRole("button", { name: "Add expected Reviewed" })).toHaveCount(0);
+    await evaluations.getByRole("button", { name: "Choose Template/version" }).click();
+    await expect(versions.getByRole("combobox", { name: "Template", exact: true })).toHaveValue(templateId);
+    await versions.getByRole("button", { name: "Use Template version" }).click();
+    await expect(evaluations.getByTitle(`${TEMPLATE.name} · fields v2`)).toBeVisible();
+    await expect(editorMatrix.getByText("INV-EDITED", { exact: true })).toBeVisible();
+
+    // Editing here saves the selected Template and uses its new version immediately.
+    await evaluations.getByRole("button", { name: "Edit Template" }).click();
+    const templateEditor = page.getByRole("dialog", { name: "Edit Template" });
+    await expect(templateEditor.getByRole("textbox", { name: "Template name" })).toHaveValue(TEMPLATE.name);
+    await templateEditor.getByRole("combobox", { name: "Type", exact: true }).selectOption("number");
+    await templateEditor.getByRole("button", { name: "Save Template", exact: true }).click();
+    await expect(templateEditor).toHaveCount(0);
+    await expect(evaluations.getByTitle(`${TEMPLATE.name} · fields v3`)).toBeVisible();
+    await expect(editorMatrix.getByRole("rowheader", { name: /^Invoice Number/ })).toHaveCount(1);
+    await expect(editorMatrix.getByRole("button", { name: "Edit expected Invoice Number" })).toHaveCount(0);
+    await expect(editorMatrix.getByText('Previously saved as Text: “INV-EDITED”')).toBeVisible();
+    const persisted = await page.request.get(`${harness.origin}/v1/templates/${templateId}`, { headers });
+    expect(await persisted.json()).toMatchObject({ name: TEMPLATE.name, current_version: 3, fields: [{ ...TEMPLATE.fields[0], data_type: "number" }, { name: "Reviewed" }] });
+    const previous = await page.request.get(`${harness.origin}/v1/evaluations/templates/${templateId}?version=2`, { headers });
+    expect((await previous.json()).fields[0].data_type).toBe("string");
+    await editorMatrix.getByRole("button", { name: "Review as Number" }).click();
+    const expected = page.getByRole("dialog", { name: "Verify expected answer" });
+    await expected.getByRole("textbox", { name: "Expected value", exact: true }).fill("1001");
+    await expected.getByRole("button", { name: "Use as expected answer" }).click();
+
+    await editorMatrix.getByRole("button", { name: "Add expected Reviewed" }).click();
+    await editorMatrix.getByRole("combobox", { name: "Expected Reviewed", exact: true }).selectOption("false");
+    await editorMatrix.getByRole("button", { name: "Verify" }).click();
+    await evaluations.getByRole("button", { name: "Update saved answers…" }).click();
+    await page.getByRole("dialog", { name: "Review saved answer update" }).getByRole("button", { name: "Update saved answers" }).click();
+    await expect(review).toBeHidden();
+    await expect(page.getByText("Saved answers updated for the Workspace.").last()).toBeVisible();
+    await page.reload();
+    await evaluations.getByRole("button", { name: "Manage library" }).click();
+    await library.getByRole("button", { name: "Edit library-invoice" }).click();
+    await expect(editorMatrix.getByRole("button", { name: "Edit expected Reviewed" })).toContainText("No");
+    await expect(editorMatrix.getByRole("button", { name: "Edit expected Invoice Number" })).toContainText("1001");
+    expect(modelRequests).toEqual([]);
     expect(evidence.externalWebSockets()).toEqual([]);
   } finally {
     try {
