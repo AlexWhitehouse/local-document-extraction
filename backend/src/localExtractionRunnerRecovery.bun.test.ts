@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import { RetryableError } from "./consumer/modelGateway";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
-import { createConfiguredTestProductStore as createLocalWorkspaceProductStore, configureTestWorkspace } from "./testing/workspaceModelFixture";
+import {
+  createConfiguredTestProductStore as createLocalWorkspaceProductStore,
+  configureTestWorkspace,
+} from "./testing/workspaceModelFixture";
 
 test("runner startup recovers queued jobs across local Workspace product stores", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-runner-recovery-"));
@@ -16,13 +19,19 @@ test("runner startup recovers queued jobs across local Workspace product stores"
   try {
     for (const workspaceId of workspaces) {
       const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+
       try {
         store.createTemplate({
           templateId: "tpl_invoice",
           name: "Invoice",
           description: "Extract invoice details.",
           fields: [
-            { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
+            {
+              id: "invoice_number",
+              name: "Invoice Number",
+              description: "Unique invoice identifier.",
+              data_type: "string",
+            },
           ],
           createdAt: "2026-07-09T12:00:00.000Z",
         });
@@ -47,12 +56,15 @@ test("runner startup recovers queued jobs across local Workspace product stores"
       },
       stateDirectory,
     });
+
     await runner.recover();
 
-    expect(scheduledJobs).toEqual(expect.arrayContaining([
-      expect.objectContaining({ job_id: "job_workspace_research", workspace_id: "workspace_research", attempt: 1 }),
-      expect.objectContaining({ job_id: "job_workspace_legal", workspace_id: "workspace_legal", attempt: 1 }),
-    ]));
+    expect(scheduledJobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ job_id: "job_workspace_research", workspace_id: "workspace_research", attempt: 1 }),
+        expect.objectContaining({ job_id: "job_workspace_legal", workspace_id: "workspace_legal", attempt: 1 }),
+      ]),
+    );
   } finally {
     await rm(stateDirectory, { recursive: true, force: true });
   }
@@ -70,10 +82,16 @@ test("runner startup requeues stale processing work and stops jobs that exhaust 
       name: "Invoice",
       description: "Extract invoice details.",
       fields: [
-        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
+        {
+          id: "invoice_number",
+          name: "Invoice Number",
+          description: "Unique invoice identifier.",
+          data_type: "string",
+        },
       ],
       createdAt: "2026-07-09T12:00:00.000Z",
     });
+
     for (const jobId of ["job_stale", "job_exhausted"]) {
       store.createQueuedExtractionJob({
         jobId,
@@ -100,11 +118,14 @@ test("runner startup requeues stale processing work and stops jobs that exhaust 
       staleProcessingAfterMs: 0,
       stateDirectory,
     });
+
     await runner.recover();
-    expect(scheduledJobs).toEqual(expect.arrayContaining([
-      { job_id: "job_stale", attempt: 2 },
-      { job_id: "job_exhausted", attempt: 2 },
-    ]));
+    expect(scheduledJobs).toEqual(
+      expect.arrayContaining([
+        { job_id: "job_stale", attempt: 2 },
+        { job_id: "job_exhausted", attempt: 2 },
+      ]),
+    );
     expect(store.getExtractionJob("job_stale")).toMatchObject({ status: "queued", current_attempt: 1 });
 
     store.claimExtractionJobForProcessing({
@@ -135,10 +156,16 @@ test("recovery selects ready queued jobs ahead of older deferred retries", async
       name: "Invoice",
       description: "Extract invoice details.",
       fields: [
-        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
+        {
+          id: "invoice_number",
+          name: "Invoice Number",
+          description: "Unique invoice identifier.",
+          data_type: "string",
+        },
       ],
       createdAt: "2026-07-09T12:00:00.000Z",
     });
+
     for (const [jobId, requeuedAt, nextRetryAt] of [
       ["job_deferred_first", "2026-07-09T12:03:00.000Z", "2026-07-09T20:00:00.000Z"],
       ["job_deferred_second", "2026-07-09T12:04:00.000Z", "2026-07-09T21:00:00.000Z"],
@@ -167,6 +194,7 @@ test("recovery selects ready queued jobs ahead of older deferred retries", async
         nextRetryAt,
       });
     }
+
     store.createQueuedExtractionJob({
       jobId: "job_ready",
       templateId: "tpl_invoice",
@@ -205,16 +233,23 @@ test("runner retries transient model failures within bounds and protects termina
       name: "Invoice",
       description: "Extract invoice details.",
       fields: [
-        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
+        {
+          id: "invoice_number",
+          name: "Invoice Number",
+          description: "Unique invoice identifier.",
+          data_type: "string",
+        },
       ],
       createdAt: "2026-07-09T12:00:00.000Z",
     });
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId,
       jobId: "job_retry",
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
+
     store.createQueuedExtractionJob({
       jobId: "job_retry",
       templateId: "tpl_invoice",
@@ -225,14 +260,22 @@ test("runner retries transient model failures within bounds and protects termina
       sourceFilePageCount: null,
       submittedAt: "2026-07-09T12:01:00.000Z",
     });
-    configureTestWorkspace({ stateDirectory, workspaceId, modelName: "retry/model", gatewayUrl: "https://retry-gateway.example/v1" });
+    configureTestWorkspace({
+      stateDirectory,
+      workspaceId,
+      modelName: "retry/model",
+      gatewayUrl: "https://retry-gateway.example/v1",
+    });
     let modelCalls = 0;
+
     const runner = createLocalExtractionRunner({
       extract: async () => {
         modelCalls += 1;
+
         if (modelCalls === 1) {
           throw new RetryableError("Temporary LiteLLM failure");
         }
+
         return [{ field_id: "invoice_number", status: "ok", answer: "INV-001" }];
       },
       maxAttempts: 2,
@@ -242,6 +285,7 @@ test("runner retries transient model failures within bounds and protects termina
       sourceFileStore: sourceFiles,
       stateDirectory,
     });
+
     const firstAttempt = {
       job_id: "job_retry",
       workspace_id: workspaceId,
@@ -250,6 +294,7 @@ test("runner retries transient model failures within bounds and protects termina
       enqueued_at: "2026-07-09T12:01:00.000Z",
       attempt: 1,
     };
+
     await runner.run(firstAttempt);
     expect(store.getExtractionJob("job_retry")).toMatchObject({
       status: "queued",
@@ -290,16 +335,23 @@ test("runner schedules a retry no earlier than the configured retry delay", asyn
       name: "Invoice",
       description: "Extract invoice details.",
       fields: [
-        { id: "invoice_number", name: "Invoice Number", description: "Unique invoice identifier.", data_type: "string" },
+        {
+          id: "invoice_number",
+          name: "Invoice Number",
+          description: "Unique invoice identifier.",
+          data_type: "string",
+        },
       ],
       createdAt: "2026-07-10T20:00:00.000Z",
     });
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId,
       jobId: "job_retry_delay",
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
+
     store.createQueuedExtractionJob({
       jobId: "job_retry_delay",
       templateId: "tpl_invoice",
@@ -311,6 +363,7 @@ test("runner schedules a retry no earlier than the configured retry delay", asyn
       submittedAt: "2026-07-10T20:00:00.000Z",
     });
     let modelCalls = 0;
+
     const runner = createLocalExtractionRunner({
       extract: async () => {
         modelCalls += 1;
@@ -339,10 +392,12 @@ test("runner schedules a retry no earlier than the configured retry delay", asyn
       attempt: 1,
     });
 
-    expect(scheduledJobs).toEqual([{
-      attempt: 2,
-      not_before: "2026-07-10T20:16:00.000Z",
-    }]);
+    expect(scheduledJobs).toEqual([
+      {
+        attempt: 2,
+        not_before: "2026-07-10T20:16:00.000Z",
+      },
+    ]);
 
     await runner.run({
       job_id: "job_retry_delay",
@@ -356,10 +411,12 @@ test("runner schedules a retry no earlier than the configured retry delay", asyn
 
     scheduledJobs.length = 0;
     await runner.recover();
-    expect(scheduledJobs).toEqual([{
-      attempt: 2,
-      not_before: "2026-07-10T20:16:00.000Z",
-    }]);
+    expect(scheduledJobs).toEqual([
+      {
+        attempt: 2,
+        not_before: "2026-07-10T20:16:00.000Z",
+      },
+    ]);
   } finally {
     store.close();
     await rm(stateDirectory, { recursive: true, force: true });

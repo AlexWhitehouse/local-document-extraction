@@ -23,7 +23,9 @@
     "package:release": "bun scripts/packageRelease.ts",
     "prototype:throughput": "bun backend/benchmarks/throughput.ts",
     "start": "bun backend/src/server.ts",
-    "lint": "bunx eslint .",
+    "lint": "bun run lint:eslint && bun run lint:anti-slop",
+    "lint:eslint": "bunx eslint .",
+    "lint:anti-slop": "bun --bun oxlint --deny-warnings .",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",
     "test:e2e": "bun run build && bun test e2e/support/browserEvidence.bun.test.ts && playwright test",
     "test:installer": "bun test scripts/installer.bun.test.ts scripts/installerConfiguration.bun.test.ts --timeout 180000",
@@ -36,6 +38,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@oxlint/plugins": "1.86.0",
     "@playwright/test": "1.62.1",
     "@types/node": "26.2.0",
     "bun-types": "1.4.2",
@@ -43,6 +46,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "oxlint": "1.86.0",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.60.1"
   }

@@ -6,7 +6,9 @@ import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 
 const DEFAULT_FAILED_SOURCE_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+
 const BATCH_SIZE = 500;
+
 const MAX_FILES_PER_RUN = 5_000;
 
 export type LocalSourceFileRetentionSnapshot = {
@@ -41,6 +43,7 @@ export function createLocalSourceFileRetention({
   workspaceControl?: Pick<LocalWorkspaceControl, "workspaceExists">;
 }): LocalSourceFileRetention {
   let activeRun: Promise<void> | null = null;
+
   const snapshot: LocalSourceFileRetentionSnapshot = {
     deleted: 0,
     failures: 0,
@@ -59,9 +62,11 @@ export function createLocalSourceFileRetention({
 
     for (const workspaceId of workspaceIds) {
       if (visited >= MAX_FILES_PER_RUN) break;
+
       if (workspaceControl && !workspaceControl.workspaceExists({ workspaceId })) continue;
 
       let lease;
+
       try {
         lease = productStoreRegistry.acquire({ workspaceId, mode: "existing" });
       } catch (error) {
@@ -69,6 +74,7 @@ export function createLocalSourceFileRetention({
         console.warn("Local Source retention could not acquire Workspace storage", error);
         continue;
       }
+
       if (!lease) continue;
 
       try {
@@ -77,21 +83,28 @@ export function createLocalSourceFileRetention({
             failedBefore,
             limit: Math.min(BATCH_SIZE, MAX_FILES_PER_RUN - visited),
           });
+
           if (due.length === 0) break;
 
           for (const source of due) {
             visited += 1;
+
             try {
               if (source.retained_object_key) {
-                if (!releaseRetainedObject) throw new Error("A remote original cannot be released without object cleanup");
+                if (!releaseRetainedObject)
+                  throw new Error("A remote original cannot be released without object cleanup");
                 releaseRetainedObject({ workspaceId, jobId: source.job_id, objectKey: source.retained_object_key });
               }
+
               await sourceFileStore.delete(source.source_file_key);
-              if (lease.store.markSourceFileCleaned({
-                jobId: source.job_id,
-                sourceFileKey: source.source_file_key,
-                cleanedAt: new Date(now()).toISOString(),
-              })) {
+
+              if (
+                lease.store.markSourceFileCleaned({
+                  jobId: source.job_id,
+                  sourceFileKey: source.source_file_key,
+                  cleanedAt: new Date(now()).toISOString(),
+                })
+              ) {
                 snapshot.deleted += 1;
               }
             } catch (error) {
@@ -106,13 +119,17 @@ export function createLocalSourceFileRetention({
         lease.release();
       }
     }
+
     snapshot.lastCompletedAt = new Date(now()).toISOString();
   };
 
   return {
     run: () => {
       if (activeRun) return activeRun;
-      activeRun = sweep().finally(() => { activeRun = null; });
+      activeRun = sweep().finally(() => {
+        activeRun = null;
+      });
+
       return activeRun;
     },
     snapshot: () => ({ ...snapshot }),
@@ -122,8 +139,11 @@ export function createLocalSourceFileRetention({
 export async function listLocalWorkspaceIds(stateDirectory: string): Promise<string[]> {
   const workspaceDirectory = join(stateDirectory, "data", "workspaces");
   const entries = await readdir(workspaceDirectory, { withFileTypes: true }).catch(() => []);
-  return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".sqlite"))
-    .map((entry) => entry.name.slice(0, -".sqlite".length))
-    .filter((workspaceId) => /^[a-zA-Z0-9_-]+$/.test(workspaceId));
+
+  return entries.flatMap((entry) => {
+    if (!entry.isFile() || !entry.name.endsWith(".sqlite")) return [];
+    const workspaceId = entry.name.slice(0, -".sqlite".length);
+
+    return /^[a-zA-Z0-9_-]+$/.test(workspaceId) ? [workspaceId] : [];
+  });
 }

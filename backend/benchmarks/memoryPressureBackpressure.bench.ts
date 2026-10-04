@@ -1,3 +1,4 @@
+import { isNumber, isJsonObject, parseJson, type JsonValue } from "../../shared/json";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -52,6 +53,7 @@ function renderMemoryPressureBenchmark({
 }): string {
   const disabled = results.find((result) => result.mode === "disabled");
   const enabled = results.find((result) => result.mode === "enabled");
+
   if (!disabled || !enabled) throw new Error("Both benchmark policy modes are required");
 
   return [
@@ -85,10 +87,13 @@ async function runCoordinator(): Promise<void> {
     pressureBytes: readPositiveInteger(process.env.MEMORY_PRESSURE_BENCH_PRESSURE_BYTES, 32 * 1024 * 1024),
     pressureHoldMs: readPositiveInteger(process.env.MEMORY_PRESSURE_BENCH_HOLD_MS, 40),
   };
-  const results = [] as MemoryPressureBenchmarkResult[];
+
+  const results: MemoryPressureBenchmarkResult[] = [];
+
   for (const mode of ["disabled", "enabled"] as const) {
     results.push(await runIsolatedMode(mode, parameters));
   }
+
   const markdown = renderMemoryPressureBenchmark({
     bunRevision: Bun.revision,
     bunVersion: Bun.version,
@@ -100,6 +105,7 @@ async function runCoordinator(): Promise<void> {
     pressureHoldMs: parameters.pressureHoldMs,
     results,
   });
+
   const evidenceDirectory = resolve(repositoryRoot, ".scratch/bun-1-4-review/evidence");
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(join(evidenceDirectory, "16-memory-pressure-backpressure.md"), markdown, "utf8");
@@ -110,39 +116,54 @@ async function runIsolatedMode(
   mode: "disabled" | "enabled",
   parameters: BenchmarkParameters,
 ): Promise<MemoryPressureBenchmarkResult> {
-  const child = Bun.spawn([
-    process.execPath,
-    "--no-env-file",
-    import.meta.path,
-    `--worker=${mode}`,
-    `--parameters=${encodeURIComponent(JSON.stringify(parameters))}`,
-  ], {
-    cwd: repositoryRoot,
-    env: { NO_COLOR: "1", TMPDIR: tmpdir() },
-    stderr: "pipe",
-    stdout: "pipe",
-  });
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "--no-env-file",
+      import.meta.path,
+      `--worker=${mode}`,
+      `--parameters=${encodeURIComponent(JSON.stringify(parameters))}`,
+    ],
+    {
+      cwd: repositoryRoot,
+      env: { NO_COLOR: "1", TMPDIR: tmpdir() },
+      stderr: "pipe",
+      stdout: "pipe",
+    },
+  );
+
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
+
   if (exitCode !== 0) {
-    throw new Error([
-      `Memory-pressure benchmark ${mode} worker exited with code ${exitCode}`,
-      `stdout: ${stdout.slice(-4_000) || "<empty>"}`,
-      `stderr: ${stderr.slice(-4_000) || "<empty>"}`,
-    ].join("\n"));
+    throw new Error(
+      [
+        `Memory-pressure benchmark ${mode} worker exited with code ${exitCode}`,
+        `stdout: ${stdout.slice(-4_000) || "<empty>"}`,
+        `stderr: ${stderr.slice(-4_000) || "<empty>"}`,
+      ].join("\n"),
+    );
   }
-  const line = stdout.trim().split(/\r?\n/).reverse().find((entry) => entry.startsWith("MEMORY_PRESSURE_RESULT "));
+
+  const line = stdout
+    .trim()
+    .split(/\r?\n/)
+    .reverse()
+    .find((entry) => entry.startsWith("MEMORY_PRESSURE_RESULT "));
+
   if (!line) throw new Error(`Memory-pressure benchmark ${mode} worker returned no result`);
-  return JSON.parse(line.slice("MEMORY_PRESSURE_RESULT ".length)) as MemoryPressureBenchmarkResult;
+
+  const result = parseJson(line.slice("MEMORY_PRESSURE_RESULT ".length));
+
+  if (!isMemoryPressureBenchmarkResult(result)) throw new Error("Invalid memory-pressure worker result");
+
+  return result;
 }
 
-async function runWorker(
-  mode: "disabled" | "enabled",
-  parameters: BenchmarkParameters,
-): Promise<void> {
+async function runWorker(mode: "disabled" | "enabled", parameters: BenchmarkParameters): Promise<void> {
   const stateDirectory = await mkdtemp(join(tmpdir(), `document-extraction-pressure-${mode}-`));
   const queue = createLocalExtractionQueue({ maxConcurrent: parameters.maxConcurrent });
   queue.setMaxConcurrent(0);
@@ -152,10 +173,13 @@ async function runWorker(
   let peakRssBytes = process.memoryUsage().rss;
   const queueLatencies: number[] = [];
   const scheduledAt = performance.now();
+
   const sampleRss = () => {
     peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
   };
+
   const rssSampler = setInterval(sampleRss, 1);
+
   const controller = createLocalResourceController({
     diskReserveBytes: 0,
     getQueueSnapshot: queue.snapshot,
@@ -165,14 +189,17 @@ async function runWorker(
     setPermits: queue.setMaxConcurrent,
     stateDirectory,
   });
+
   queue.subscribe(async () => {
     const startedAt = performance.now();
     firstStartedAt ??= startedAt;
     queueLatencies.push(startedAt - scheduledAt);
+
     try {
       const document = new Uint8Array(parameters.documentBytes);
       touchPages(document);
       await Bun.sleep(parameters.documentWorkMs);
+
       if (document[0] !== 1) throw new Error("Document allocation was not retained");
       completed += 1;
     } catch {
@@ -181,6 +208,7 @@ async function runWorker(
   });
 
   let pressureAllocation: Uint8Array | null = null;
+
   try {
     for (let index = 0; index < parameters.jobs; index += 1) {
       await queue.schedule({
@@ -197,6 +225,7 @@ async function runWorker(
     touchPages(pressureAllocation);
     sampleRss();
     const signalAt = performance.now();
+
     if (mode === "enabled") {
       await controller.handleMemoryPressure("critical");
     } else {
@@ -204,11 +233,13 @@ async function runWorker(
     }
 
     let rejectedAdmissions = 0;
+
     for (let probe = 0; probe < parameters.maxConcurrent; probe += 1) {
       const admitted = await controller.canReserveSubmission({
         requestBytes: parameters.documentBytes,
         reservedBytes: probe * parameters.documentBytes,
       });
+
       if (!admitted) rejectedAdmissions += 1;
     }
 
@@ -217,14 +248,17 @@ async function runWorker(
     Bun.gc(true);
     sampleRss();
     let recoveryTimeMs = 0;
+
     if (mode === "enabled") {
       await controller.sampleNow();
       await controller.sampleNow();
       recoveryTimeMs = performance.now() - signalAt;
     }
+
     await queue.waitForIdle();
     sampleRss();
     const finishedAt = performance.now();
+
     const result: MemoryPressureBenchmarkResult = {
       completed,
       failed,
@@ -237,6 +271,7 @@ async function runWorker(
       rejectedAdmissions,
       wallTimeMs: finishedAt - signalAt,
     };
+
     console.log(`MEMORY_PRESSURE_RESULT ${JSON.stringify(result)}`);
   } finally {
     void pressureAllocation;
@@ -249,6 +284,7 @@ async function runWorker(
 
 function touchPages(bytes: Uint8Array): void {
   for (let offset = 0; offset < bytes.length; offset += 4_096) bytes[offset] = 1;
+
   if (bytes.length) bytes[bytes.length - 1] = 1;
 }
 
@@ -256,6 +292,7 @@ function percentile(samples: number[], quantile: number): number {
   if (!samples.length) return 0;
   const sorted = [...samples].sort((left, right) => left - right);
   const index = Math.ceil(Math.max(0, Math.min(1, quantile)) * sorted.length) - 1;
+
   return sorted[Math.max(0, index)]!;
 }
 
@@ -270,9 +307,11 @@ function formatMiB(bytes: number): string {
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number(value);
+
   if (!Number.isSafeInteger(parsed) || parsed < 1) {
     throw new Error("Memory-pressure benchmark parameters must be positive integers");
   }
+
   return parsed;
 }
 
@@ -282,11 +321,46 @@ function argumentValue(prefix: string): string {
 
 if (import.meta.main) {
   const workerMode = argumentValue("--worker=");
+
   if (workerMode === "disabled" || workerMode === "enabled") {
     const rawParameters = argumentValue("--parameters=");
+
     if (!rawParameters) throw new Error("Memory-pressure benchmark worker requires parameters");
-    await runWorker(workerMode, JSON.parse(decodeURIComponent(rawParameters)) as BenchmarkParameters);
+    const parameters = parseJson(decodeURIComponent(rawParameters));
+
+    if (!isBenchmarkParameters(parameters)) throw new Error("Invalid memory-pressure worker parameters");
+    await runWorker(workerMode, parameters);
   } else {
     await runCoordinator();
   }
+}
+
+/** Validate every field consumed across the benchmark process boundary. */
+function isMemoryPressureBenchmarkResult(value: JsonValue | undefined): value is MemoryPressureBenchmarkResult {
+  return (
+    isJsonObject(value) &&
+    isNumber(value.completed) &&
+    isNumber(value.failed) &&
+    (value.mode === "disabled" || value.mode === "enabled") &&
+    isNumber(value.p50QueueLatencyMs) &&
+    isNumber(value.p95QueueLatencyMs) &&
+    isNumber(value.pauseDurationMs) &&
+    isNumber(value.peakRssBytes) &&
+    isNumber(value.recoveryTimeMs) &&
+    isNumber(value.rejectedAdmissions) &&
+    isNumber(value.wallTimeMs)
+  );
+}
+
+/** Validate every field consumed across the benchmark process boundary. */
+function isBenchmarkParameters(value: JsonValue | undefined): value is BenchmarkParameters {
+  return (
+    isJsonObject(value) &&
+    isNumber(value.documentBytes) &&
+    isNumber(value.documentWorkMs) &&
+    isNumber(value.jobs) &&
+    isNumber(value.maxConcurrent) &&
+    isNumber(value.pressureBytes) &&
+    isNumber(value.pressureHoldMs)
+  );
 }

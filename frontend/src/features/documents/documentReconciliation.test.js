@@ -3,22 +3,38 @@ import { createCompletedDocumentCache } from "../../lib/completedDocumentCache";
 import { createDocumentReconciliation } from "./documentReconciliation";
 
 const running = [];
-afterEach(() => { for (const module of running.splice(0)) module.dispose(); });
+
+afterEach(() => {
+  for (const module of running.splice(0)) module.dispose();
+});
 
 function deferred() {
   let resolve, reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+
   return { promise, resolve, reject };
 }
+
 const job = (id, overrides = {}) => ({
-  job_id: id, status: "processing", source_name: `${id}.pdf`,
-  created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:01Z",
-  current_attempt: 1, ...overrides,
+  job_id: id,
+  status: "processing",
+  source_name: `${id}.pdf`,
+  created_at: "2026-09-01T00:00:00Z",
+  updated_at: "2026-09-01T00:00:01Z",
+  current_attempt: 1,
+  ...overrides,
 });
+
 const page = (jobs, extra = {}) => ({ jobs, total: jobs.length, has_more: false, ...extra });
+
 function setup(options = {}) {
   const storage = { getItem: () => null, setItem: vi.fn() };
   const cache = options.cache || createCompletedDocumentCache({ storage });
+
   const requests = {
     listDocuments: vi.fn(async () => page([])),
     getDocument: vi.fn(async (id) => job(id)),
@@ -27,34 +43,64 @@ function setup(options = {}) {
     deleteDocument: vi.fn(async () => ({ deleted: true })),
     exportDocuments: vi.fn(async () => ({ blob: new Blob() })),
   };
+
   const callbacks = { onAccessDenied: vi.fn(), onCapacityChange: vi.fn() };
   const module = createDocumentReconciliation({ cache, uploadConcurrency: 1, ...options });
-  const configure = (patch = {}) => module.configure({ sessionId: "session-a", workspaceId: "workspace-a", enabled: true, requests, callbacks, ...patch });
+
+  const configure = (patch = {}) =>
+    module.configure({
+      sessionId: "session-a",
+      workspaceId: "workspace-a",
+      enabled: true,
+      requests,
+      callbacks,
+      ...patch,
+    });
+
   configure();
   running.push(module);
+
   return { module, requests, callbacks, cache, configure, snapshot: module.getSnapshot };
 }
-const entries = () => ["first", "second"].map((id) => ({ id, file: new File([id], `${id}.png`, { type: "image/png" }) }));
+
+const entries = () =>
+  ["first", "second"].map((id) => ({ id, file: new File([id], `${id}.png`, { type: "image/png" }) }));
 
 describe("Document reconciliation", () => {
   it("pages packets and documents together, preserves loaded entries on refresh, and resets the range for filters", async () => {
     const { module, requests, snapshot } = setup();
-    const children = Array.from({ length: 50 }, (_, i) => job(`child_${i}`, { parent_packet_id: "packet", status: "completed" }));
+
+    const children = Array.from({ length: 50 }, (_, i) =>
+      job(`child_${i}`, { parent_packet_id: "packet", status: "completed" }),
+    );
+
     const packet = { packet_id: "packet", created_at: "2026-09-02T00:00:00Z", children };
-    const ordinary = Array.from({ length: 50 }, (_, i) => job(`ordinary_${String(i).padStart(2, "0")}`, { status: "completed" }));
-    const first = { jobs: ordinary.slice(1), packets: [packet], total: 100, status_counts: { completed: 100 }, has_more: true, next_cursor: "next" };
-    requests.listDocumentEntries = vi.fn(async ({ cursor }) => cursor
-      ? { jobs: ordinary.slice(0, 1), packets: [], total: 100, has_more: false }
-      : first);
+
+    const ordinary = Array.from({ length: 50 }, (_, i) =>
+      job(`ordinary_${String(i).padStart(2, "0")}`, { status: "completed" }),
+    );
+
+    const first = {
+      jobs: ordinary.slice(1),
+      packets: [packet],
+      total: 100,
+      status_counts: { completed: 100 },
+      has_more: true,
+      next_cursor: "next",
+    };
+
+    requests.listDocumentEntries = vi.fn(async ({ cursor }) =>
+      cursor ? { jobs: ordinary.slice(0, 1), packets: [], total: 100, has_more: false } : first,
+    );
     await module.refresh();
     expect(snapshot().packets).toEqual([packet]);
-    expect(snapshot().documents.filter(job => !job.parent_packet_id)).toHaveLength(49);
+    expect(snapshot().documents.filter((job) => !job.parent_packet_id)).toHaveLength(49);
     expect(snapshot().totalDocuments).toBe(100);
     expect(snapshot().statusCounts.completed).toBe(100);
     await module.refresh({ append: true });
-    expect(snapshot().documents.filter(job => !job.parent_packet_id)).toHaveLength(50);
+    expect(snapshot().documents.filter((job) => !job.parent_packet_id)).toHaveLength(50);
     await module.refresh();
-    expect(snapshot().documents.filter(job => !job.parent_packet_id)).toHaveLength(50);
+    expect(snapshot().documents.filter((job) => !job.parent_packet_id)).toHaveLength(50);
     expect(requests.listDocumentEntries).toHaveBeenCalledTimes(4);
     requests.listDocumentEntries.mockResolvedValue({ jobs: [], packets: [], total: 100 });
     module.setFilters({ model: "other" });
@@ -77,7 +123,7 @@ describe("Document reconciliation", () => {
     module.removePackets([old.packet_id]);
     pending.resolve({ jobs: [], packets: [old] });
     await refresh;
-    expect(snapshot().packets.map(packet => packet.packet_id)).toEqual(["admitted"]);
+    expect(snapshot().packets.map((packet) => packet.packet_id)).toEqual(["admitted"]);
   });
 
   it("keeps an explicit Document outside list pages and filters, then confirms remote deletion by detail", async () => {
@@ -107,13 +153,19 @@ describe("Document reconciliation", () => {
     const { module, requests, snapshot } = setup();
     requests.submitDocument.mockResolvedValue({ packet_id: "packet_1", status: "queued" });
     const onPacket = vi.fn();
-    await module.submitBatch({ templateTags: ["finance", "invoice"], entries: [{ id: "pdf", file: new File(["pdf"], "packet.pdf", { type: "application/pdf" }), pages: [1, 3] }], onPacket });
+    await module.submitBatch({
+      templateTags: ["finance", "invoice"],
+      entries: [{ id: "pdf", file: new File(["pdf"], "packet.pdf", { type: "application/pdf" }), pages: [1, 3] }],
+      onPacket,
+    });
     const form = requests.submitDocument.mock.calls[0][0];
     expect(form.has("template_id")).toBe(false);
     expect(JSON.parse(form.get("template_tags"))).toEqual(["finance", "invoice"]);
     expect(JSON.parse(form.get("pages"))).toEqual([1, 3]);
     expect(form.has("smart_split")).toBe(false);
-    expect(onPacket).toHaveBeenCalledWith(expect.objectContaining({ packet_id: "packet_1", source_name: "packet.pdf" }));
+    expect(onPacket).toHaveBeenCalledWith(
+      expect.objectContaining({ packet_id: "packet_1", source_name: "packet.pdf" }),
+    );
     expect(snapshot().documents).toEqual([]);
     expect(snapshot().totalDocuments).toBe(0);
   });
@@ -122,12 +174,24 @@ describe("Document reconciliation", () => {
     vi.useFakeTimers();
     const { module, snapshot, requests } = setup();
     const counts = { queued: 0, processing: 1, completed: 120, failed: 0 };
-    requests.listDocuments.mockResolvedValueOnce(page([job("a", { status: "completed" })], { total: 121, status_counts: counts, has_more: true, next_cursor: "next" }));
+    requests.listDocuments.mockResolvedValueOnce(
+      page([job("a", { status: "completed" })], {
+        total: 121,
+        status_counts: counts,
+        has_more: true,
+        next_cursor: "next",
+      }),
+    );
     await module.refresh();
-    requests.listDocuments.mockResolvedValueOnce(page([job("b", { status: "completed" })], { total: 121, status_counts: counts }));
+    requests.listDocuments.mockResolvedValueOnce(
+      page([job("b", { status: "completed" })], { total: 121, status_counts: counts }),
+    );
     await module.refresh({ append: true });
     expect(snapshot().statusCounts.completed).toBe(120);
-    requests.getDocumentCounts = vi.fn(async () => ({ total: 121, status_counts: { ...counts, processing: 0, completed: 121 } }));
+    requests.getDocumentCounts = vi.fn(async () => ({
+      total: 121,
+      status_counts: { ...counts, processing: 0, completed: 121 },
+    }));
     module.receiveLiveUpdates([job("unloaded", { status: "completed" })]);
     module.receiveLiveUpdates([job("unloaded", { status: "completed" })]);
     await vi.advanceTimersByTimeAsync(150);
@@ -146,7 +210,10 @@ describe("Document reconciliation", () => {
     const pending = deferred();
     requests.listDocuments.mockReturnValueOnce(pending.promise);
     const refresh = module.refresh();
-    requests.getDocumentCounts = vi.fn(async () => ({ total: 121, status_counts: { ...counts, processing: 0, completed: 121 } }));
+    requests.getDocumentCounts = vi.fn(async () => ({
+      total: 121,
+      status_counts: { ...counts, processing: 0, completed: 121 },
+    }));
     module.receiveLiveUpdates([job("a", { status: "completed", updated_at: "2026-09-01T00:00:03Z" })]);
     await vi.advanceTimersByTimeAsync(150);
     pending.resolve(page([job("a")], { total: 121, status_counts: counts }));
@@ -163,7 +230,10 @@ describe("Document reconciliation", () => {
   it("rejects count responses overtaken by lifecycle updates or a Workspace change", async () => {
     vi.useFakeTimers();
     const { module, snapshot, requests, configure } = setup();
-    const first = deferred(), second = deferred();
+
+    const first = deferred(),
+      second = deferred();
+
     requests.getDocumentCounts = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     module.receiveLiveUpdates([job("a")]);
     await vi.advanceTimersByTimeAsync(150);
@@ -195,7 +265,10 @@ describe("Document reconciliation", () => {
 
   it("bounds parallel uploads and stops unsent files after the session ends", async () => {
     const { module, requests, configure } = setup({ uploadConcurrency: 2 });
-    const first = deferred(), second = deferred();
+
+    const first = deferred(),
+      second = deferred();
+
     requests.submitDocument.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const files = [...entries(), { id: "third", file: new File(["third"], "third.png", { type: "image/png" }) }];
     const batch = module.submitBatch({ templateId: "template", entries: files });
@@ -210,7 +283,9 @@ describe("Document reconciliation", () => {
   it("retries only explicit admission rejection with bounded backoff", async () => {
     vi.useFakeTimers();
     const { module, requests } = setup();
-    requests.submitDocument.mockRejectedValueOnce(Object.assign(new Error("full"), { code: "local_submission_capacity_unavailable" }));
+    requests.submitDocument.mockRejectedValueOnce(
+      Object.assign(new Error("full"), { code: "local_submission_capacity_unavailable" }),
+    );
     const batch = module.submitBatch({ templateId: "template", entries: entries().slice(0, 1) });
     await vi.advanceTimersByTimeAsync(1000);
     await batch;
@@ -241,10 +316,18 @@ describe("Document reconciliation", () => {
 
   it("accepts only the latest list request and invalidates old pagination when the query changes", async () => {
     const { module, requests, snapshot } = setup();
-    const old = deferred(), latest = deferred();
+
+    const old = deferred(),
+      latest = deferred();
+
     requests.listDocuments.mockReturnValueOnce(old.promise).mockReturnValueOnce(latest.promise);
-    const first = module.refresh(), second = module.refresh();
-    latest.resolve(page([job("new", { model_name: "new-model" })], { total: 20, has_more: true, next_cursor: "page-2" }));
+
+    const first = module.refresh(),
+      second = module.refresh();
+
+    latest.resolve(
+      page([job("new", { model_name: "new-model" })], { total: 20, has_more: true, next_cursor: "page-2" }),
+    );
     await second;
     old.resolve(page([job("old")]));
     await first;
@@ -286,10 +369,16 @@ describe("Document reconciliation", () => {
     await module.refresh();
     cache.store("workspace-a", job("a", { status: "completed", results: [{ answer: "cached" }] }));
     module.toggleSelection(["a", "b"], true);
-    const detail = deferred(), list = deferred();
+
+    const detail = deferred(),
+      list = deferred();
+
     requests.getDocument.mockReturnValueOnce(detail.promise);
     requests.listDocuments.mockReturnValueOnce(list.promise);
-    const reading = module.loadDetails("a"), refreshing = module.refresh();
+
+    const reading = module.loadDetails("a"),
+      refreshing = module.refresh();
+
     await module.deleteDocuments(["a"]);
     detail.resolve(job("a", { status: "completed", results: [{ answer: "stale" }] }));
     list.resolve(page([job("a"), job("b")]));
@@ -311,12 +400,16 @@ describe("Document reconciliation", () => {
     pending.resolve(job("a"));
     await reading;
     expect(snapshot().selectedDocument.status).toBe("completed");
-    requests.getDocument.mockResolvedValue(job("a", { status: "completed", updated_at: "2026-09-01T00:00:03Z", results: [{ answer: "42" }] }));
+    requests.getDocument.mockResolvedValue(
+      job("a", { status: "completed", updated_at: "2026-09-01T00:00:03Z", results: [{ answer: "42" }] }),
+    );
     await module.ensureSelectedDetails();
     await module.ensureSelectedDetails();
     expect(requests.getDocument).toHaveBeenCalledTimes(2);
     expect(cache.get("workspace-a", "a").results).toEqual([{ answer: "42" }]);
-    requests.listDocuments.mockResolvedValue(page([job("a", { status: "completed", updated_at: "2026-09-01T00:00:03Z", results: [] })]));
+    requests.listDocuments.mockResolvedValue(
+      page([job("a", { status: "completed", updated_at: "2026-09-01T00:00:03Z", results: [] })]),
+    );
     await module.refresh();
     expect(snapshot().selectedDocument.results).toEqual([{ answer: "42" }]);
   });
@@ -356,14 +449,18 @@ describe("Document reconciliation", () => {
   it("deduplicates details and settles synchronous adapter failures without retry loops", async () => {
     const { module, requests, snapshot } = setup();
     module.receiveLiveUpdates([job("a")]);
-    requests.getDocument.mockImplementationOnce(() => { throw new Error("offline"); });
+    requests.getDocument.mockImplementationOnce(() => {
+      throw new Error("offline");
+    });
     await Promise.all([module.ensureSelectedDetails(), module.loadDetails("a")]);
     await module.ensureSelectedDetails();
     expect(requests.getDocument).toHaveBeenCalledTimes(1);
     expect(snapshot().loadingDocumentId).toBe("");
     await module.loadDetails("a");
     expect(requests.getDocument).toHaveBeenCalledTimes(2);
-    requests.getFilterOptions.mockImplementationOnce(() => { throw new Error("offline"); });
+    requests.getFilterOptions.mockImplementationOnce(() => {
+      throw new Error("offline");
+    });
     await module.loadModels();
     await module.loadModels();
     expect(requests.getFilterOptions).toHaveBeenCalledTimes(2);
@@ -373,7 +470,9 @@ describe("Document reconciliation", () => {
     const { module, requests, cache, configure, snapshot } = setup();
     cache.store("workspace-a", job("a", { status: "completed", results: [{ answer: "42" }] }));
     cache.store("workspace-a", job("b", { status: "completed", results: [{ answer: "other" }] }));
-    requests.listDocuments.mockResolvedValueOnce(page([job("a", { status: "completed", results: [] })], { has_more: true, next_cursor: "next" }));
+    requests.listDocuments.mockResolvedValueOnce(
+      page([job("a", { status: "completed", results: [] })], { has_more: true, next_cursor: "next" }),
+    );
     await module.refresh();
     expect(snapshot().selectedDocument.results).toEqual([{ answer: "42" }]);
     await module.ensureSelectedDetails();
@@ -393,14 +492,28 @@ describe("Document reconciliation", () => {
 
   it("ignores old Workspace reads, access failures, exports, and model options", async () => {
     const { module, requests, callbacks, configure, snapshot, cache } = setup();
-    const detail = deferred(), list = deferred(), models = deferred(), exported = deferred(), deleted = deferred();
+
+    const detail = deferred(),
+      list = deferred(),
+      models = deferred(),
+      exported = deferred(),
+      deleted = deferred();
+
     requests.getDocument.mockReturnValue(detail.promise);
     requests.listDocuments.mockReturnValue(list.promise);
     requests.getFilterOptions.mockReturnValue(models.promise);
     requests.exportDocuments.mockReturnValue(exported.promise);
     requests.deleteDocument.mockReturnValue(deleted.promise);
     const onComplete = vi.fn();
-    const pending = [module.loadDetails("a"), module.refresh(), module.loadModels(), module.exportDocuments(["a"], { onComplete }), module.deleteDocuments(["a"], { onComplete })];
+
+    const pending = [
+      module.loadDetails("a"),
+      module.refresh(),
+      module.loadModels(),
+      module.exportDocuments(["a"], { onComplete }),
+      module.deleteDocuments(["a"], { onComplete }),
+    ];
+
     await Promise.resolve();
     configure({ workspaceId: "workspace-b" });
     detail.resolve(job("a", { status: "completed", results: [] }));
@@ -421,14 +534,20 @@ describe("Document reconciliation", () => {
     const { module, requests, callbacks, configure, snapshot } = setup({ createPreview });
     const first = deferred();
     requests.submitDocument.mockReturnValueOnce(first.promise);
-    const onComplete = vi.fn(), onProgress = vi.fn();
+
+    const onComplete = vi.fn(),
+      onProgress = vi.fn();
+
     const batch = module.submitBatch({ templateId: "template-a", entries: entries(), onComplete, onProgress });
     const nextRequests = { ...requests, submitDocument: vi.fn() };
     configure({ workspaceId: "workspace-b", requests: nextRequests });
     first.resolve({ job_id: "first", status: "queued" });
     await batch;
     expect(requests.submitDocument).toHaveBeenCalledTimes(2);
-    expect(requests.submitDocument.mock.calls.map(([form]) => form.get("template_id"))).toEqual(["template-a", "template-a"]);
+    expect(requests.submitDocument.mock.calls.map(([form]) => form.get("template_id"))).toEqual([
+      "template-a",
+      "template-a",
+    ]);
     expect(nextRequests.submitDocument).not.toHaveBeenCalled();
     expect(onComplete).not.toHaveBeenCalled();
     expect(onProgress).toHaveBeenCalledTimes(1);
@@ -437,30 +556,38 @@ describe("Document reconciliation", () => {
     expect(snapshot().documents).toEqual([]);
   });
 
-  it.each(["identity", "explicit-clear", "auth-action"])("stops unsent batch entries on session invalidation (%s)", async (change) => {
-    const { module, requests, configure, snapshot, callbacks } = setup();
-    const first = deferred();
-    requests.submitDocument.mockReturnValueOnce(first.promise);
-    const onComplete = vi.fn();
-    const batch = module.submitBatch({ templateId: "template-a", entries: entries(), onComplete });
-    if (change === "identity") configure({ sessionId: "session-b" });
-    if (change === "explicit-clear") {
-      module.clear({ sessionEnded: true });
-      configure(); // A render with the old session must not reactivate it.
-    }
-    if (change === "auth-action") module.cancelPendingSubmissions();
-    first.resolve({ job_id: "first", status: "queued" });
-    await batch;
-    expect(requests.submitDocument).toHaveBeenCalledTimes(1);
-    expect(onComplete).not.toHaveBeenCalled();
-    expect(callbacks.onCapacityChange).not.toHaveBeenCalled();
-    expect(snapshot()).toMatchObject({ documents: [], uploading: false });
-  });
+  it.each(["identity", "explicit-clear", "auth-action"])(
+    "stops unsent batch entries on session invalidation (%s)",
+    async (change) => {
+      const { module, requests, configure, snapshot, callbacks } = setup();
+      const first = deferred();
+      requests.submitDocument.mockReturnValueOnce(first.promise);
+      const onComplete = vi.fn();
+      const batch = module.submitBatch({ templateId: "template-a", entries: entries(), onComplete });
+
+      if (change === "identity") configure({ sessionId: "session-b" });
+
+      if (change === "explicit-clear") {
+        module.clear({ sessionEnded: true });
+        configure(); // A render with the old session must not reactivate it.
+      }
+
+      if (change === "auth-action") module.cancelPendingSubmissions();
+      first.resolve({ job_id: "first", status: "queued" });
+      await batch;
+      expect(requests.submitDocument).toHaveBeenCalledTimes(1);
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(callbacks.onCapacityChange).not.toHaveBeenCalled();
+      expect(snapshot()).toMatchObject({ documents: [], uploading: false });
+    },
+  );
 
   it("releases local previews exactly once when deleted or leaving a Workspace", async () => {
     const revokePreview = vi.fn();
     const { module, requests, configure } = setup({ createPreview: (file) => `blob:${file.name}`, revokePreview });
-    requests.submitDocument.mockResolvedValueOnce({ job_id: "a", status: "queued" }).mockResolvedValueOnce({ job_id: "b", status: "queued" });
+    requests.submitDocument
+      .mockResolvedValueOnce({ job_id: "a", status: "queued" })
+      .mockResolvedValueOnce({ job_id: "b", status: "queued" });
     await module.submitBatch({ templateId: "template-a", entries: entries() });
     await module.deleteDocuments(["a"]);
     configure({ workspaceId: "workspace-b" });
@@ -469,7 +596,13 @@ describe("Document reconciliation", () => {
   });
 
   it("continues to render completed details when browser cache writes fail", async () => {
-    const cache = { get: () => null, store: () => { throw new Error("quota"); } };
+    const cache = {
+      get: () => null,
+      store: () => {
+        throw new Error("quota");
+      },
+    };
+
     const { module, requests, snapshot } = setup({ cache });
     requests.getDocument.mockResolvedValue(job("a", { status: "completed", results: [{ answer: "42" }] }));
     await module.loadDetails("a");

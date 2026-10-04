@@ -35,19 +35,57 @@ function run(overrides: Partial<BunRuntimeRun> = {}): BunRuntimeRun {
 
 describe("Bun runtime comparison evidence", () => {
   test("parses the sole credential-free prototype result record", () => {
-    const result = parsePrototypeResult([
-      "prototype chatter",
-      `PROTOTYPE_RESULT ${JSON.stringify({
-        configuration: { workers: 20 },
-        fixtureBytes: [100, 200],
-        fixtureSha256: ["a", "b"],
-        results: [{ client: { completed: 20 }, profile: "bounded", server: { accepted: 20 } }],
-      })}`,
-    ].join("\n"));
+    const result = parsePrototypeResult(
+      [
+        "prototype chatter",
+        `PROTOTYPE_RESULT ${JSON.stringify({
+          bunVersion: "1.4.2",
+          bunRevision: "test-revision",
+          configuration: { workers: 20 },
+          fixtureBytes: [100, 200],
+          fixtureSha256: ["a", "b"],
+          results: [
+            {
+              client: {
+                completed: 20,
+                failed: 0,
+                elapsedMs: 1_000,
+                lifecycleLatencyMs: [100, 200],
+                submissionRetries: 0,
+              },
+              profile: "bounded",
+              server: {
+                admissionRejected: 0,
+                baselineRssBytes: 1_000,
+                completed: 20,
+                gatewayPeakActive: 4,
+                maxEventLoopLagMs: 10,
+                normalizedCpuFraction: 0.2,
+                peakRssBytes: 2_000,
+                queue: { peakActive: 4, peakPending: 8 },
+                sqliteBusyOutcomes: 0,
+                sqliteBusyRetries: 0,
+                timing: { lifecycleLatencyMs: [100, 200], measurementElapsedMs: 1_000, throughputJobsPerSecond: 20 },
+              },
+            },
+          ],
+        })}`,
+      ].join("\n"),
+    );
 
     expect(result.configuration).toEqual({ workers: 20 });
     expect(result.fixtureSha256).toEqual(["a", "b"]);
     expect(result.results).toHaveLength(1);
+    expect(() =>
+      parsePrototypeResult(
+        `PROTOTYPE_RESULT ${JSON.stringify({
+          ...result,
+          results: [
+            { ...result.results[0], client: { ...result.results[0].client, lifecycleLatencyMs: ["unparsed"] } },
+          ],
+        })}`,
+      ),
+    ).toThrow("valid configuration or results");
     expect(() => parsePrototypeResult("no structured result")).toThrow("PROTOTYPE_RESULT");
     expect(() => parsePrototypeResult("PROTOTYPE_RESULT {}\nPROTOTYPE_RESULT {}")).toThrow("exactly one");
   });
@@ -69,11 +107,13 @@ describe("Bun runtime comparison evidence", () => {
 
   test("applies explicit regression thresholds with practical noise floors", () => {
     const baseline = aggregateRuntimeRuns([run(), run({ repetition: 2 }), run({ repetition: 3 })]);
+
     const acceptable = aggregateRuntimeRuns([
       run({ bunVersion: "1.4.0", elapsedMs: 1_100 }),
       run({ bunVersion: "1.4.0", elapsedMs: 1_100, repetition: 2 }),
       run({ bunVersion: "1.4.0", elapsedMs: 1_100, repetition: 3 }),
     ]);
+
     const slow = aggregateRuntimeRuns([
       run({ bunVersion: "1.4.0", elapsedMs: 1_200 }),
       run({ bunVersion: "1.4.0", elapsedMs: 1_200, repetition: 2 }),
@@ -83,24 +123,25 @@ describe("Bun runtime comparison evidence", () => {
     expect(evaluateRuntimeRegression(baseline, acceptable).passed).toBe(true);
     expect(evaluateRuntimeRegression(baseline, slow)).toMatchObject({
       passed: false,
-      checks: expect.arrayContaining([
-        expect.objectContaining({ metric: "Throughput", passed: false }),
-      ]),
+      checks: expect.arrayContaining([expect.objectContaining({ metric: "Throughput", passed: false })]),
     });
   });
 
   test("scrubs absolute paths, identity, credentials, and long retained data", () => {
-    const sanitized = sanitizeBunProfileMarkdown([
-      "at /Users/developer/project/backend/src/server.ts:10",
-      "tmp=/private/var/folders/aa/bb/T/profile/source.pdf",
-      "Authorization: Bearer secret-token-123",
-      "api_key=lsk_supersecretvalue",
-      "email=person@example.com password=Strong1!",
-      `payload=${"A".repeat(120)}`,
-    ].join("\n"), {
-      repositoryRoot: "/Users/developer/project",
-      temporaryRoots: ["/private/var/folders/aa/bb/T/profile"],
-    });
+    const sanitized = sanitizeBunProfileMarkdown(
+      [
+        "at /Users/developer/project/backend/src/server.ts:10",
+        "tmp=/private/var/folders/aa/bb/T/profile/source.pdf",
+        "Authorization: Bearer secret-token-123",
+        "api_key=lsk_supersecretvalue",
+        "email=person@example.com password=Strong1!",
+        `payload=${"A".repeat(120)}`,
+      ].join("\n"),
+      {
+        repositoryRoot: "/Users/developer/project",
+        temporaryRoots: ["/private/var/folders/aa/bb/T/profile"],
+      },
+    );
 
     expect(sanitized).toContain("<repo>/backend/src/server.ts:10");
     expect(sanitized).toContain("<temp>/source.pdf");
@@ -109,22 +150,25 @@ describe("Bun runtime comparison evidence", () => {
   });
 
   test("keeps decision-rich native profile sections without the full heap graph", () => {
-    const condensed = condenseBunProfileMarkdown([
-      "# Bun Heap Profile",
-      "",
-      "## Summary",
-      "summary row",
-      "## Top 50 Types by Retained Size",
-      "type row",
-      "## Top 50 Largest Objects",
-      "object row",
-      "## Retainer Chains",
-      "retainer path",
-      "## GC Roots",
-      "root graph",
-      "## All Objects",
-      "complete graph",
-    ].join("\n"), "heap");
+    const condensed = condenseBunProfileMarkdown(
+      [
+        "# Bun Heap Profile",
+        "",
+        "## Summary",
+        "summary row",
+        "## Top 50 Types by Retained Size",
+        "type row",
+        "## Top 50 Largest Objects",
+        "object row",
+        "## Retainer Chains",
+        "retainer path",
+        "## GC Roots",
+        "root graph",
+        "## All Objects",
+        "complete graph",
+      ].join("\n"),
+      "heap",
+    );
 
     expect(condensed).toContain("retainer path");
     expect(condensed).toContain("Sanitized decision-rich excerpt");

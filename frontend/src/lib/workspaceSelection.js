@@ -15,6 +15,7 @@ export function getWorkspaceContextDisplay({
     type: "workspace",
     role: String(workspace.role || ""),
   }));
+
   const invitedEntries = userWorkspaceInvitations
     .map((invitation) => ({
       id: String(invitation.workspace_id || ""),
@@ -30,14 +31,16 @@ export function getWorkspaceContextDisplay({
       updated_at: String(invitation.updated_at || invitation.created_at || ""),
     }))
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+
   const availableWorkspaces = [...acceptedEntries, ...invitedEntries];
 
   // Without any accepted Workspace, the newest invitation is the only thing to show.
   const effectiveInvitationId =
     selectedWorkspaceInvitationId.trim() ||
     (acceptedEntries.length === 0 ? invitedEntries[0]?.invitation_id || "" : "");
-  const selectedWorkspaceName =
-    availableWorkspaces.find((workspace) => workspace.id === workspaceId)?.name || "";
+
+  const selectedWorkspaceName = availableWorkspaces.find((workspace) => workspace.id === workspaceId)?.name || "";
+
   const invitation = userWorkspaceInvitations.find(
     (candidate) => String(candidate.id || "").trim() === effectiveInvitationId,
   );
@@ -58,9 +61,7 @@ export function getWorkspaceContextDisplay({
             email: String(invitation.email || ""),
             role: String(invitation.role || ""),
             status: String(invitation.status || "pending"),
-            inviter: String(
-              invitation.inviter_display || invitation.inviter_name || invitation.inviter_email || "",
-            ),
+            inviter: String(invitation.inviter_display || invitation.inviter_name || invitation.inviter_email || ""),
             invitedAt: String(invitation.created_at || ""),
             expiresAt: String(invitation.expires_at || ""),
           },
@@ -85,27 +86,33 @@ export function selectAcceptedWorkspaceContext(workspace) {
 
 export function resolveAcceptedWorkspace({ storedWorkspacePreference, userWorkspaces }) {
   const storedWorkspaceId = String(storedWorkspacePreference?.workspaceId || "").trim();
+
   return (
-    userWorkspaces.find((workspace) => String(workspace.id || "") === storedWorkspaceId) ||
-    userWorkspaces[0] ||
-    null
+    userWorkspaces.find((workspace) => String(workspace.id || "") === storedWorkspaceId) || userWorkspaces[0] || null
   );
 }
 
 export function getWorkspacePrimaryAction(workspaceRole) {
   const role = workspaceRole.trim().toLowerCase();
+
   if (role === "owner") {
     return { type: "delete", label: "Delete Workspace" };
   }
+
   if (role === "admin" || role === "member") {
     return { type: "leave", label: "Leave Workspace" };
   }
+
   return { type: "none", label: "" };
 }
 
 export function getWorkspaceMemberPermissions(role) {
-  const normalizedRole = String(role || "").trim().toLowerCase();
+  const normalizedRole = String(role || "")
+    .trim()
+    .toLowerCase();
+
   const canManage = normalizedRole === "owner" || normalizedRole === "admin";
+
   return {
     canListUsers: canManage || normalizedRole === "member",
     canManage,
@@ -114,30 +121,42 @@ export function getWorkspaceMemberPermissions(role) {
 }
 
 export function canShowWorkspaceUserAction(permissions, targetRole) {
-  const role = String(targetRole || "").trim().toLowerCase();
+  const role = String(targetRole || "")
+    .trim()
+    .toLowerCase();
+
   return role === "owner" ? permissions.isOwner : permissions.canManage;
 }
 
 export function getWorkspaceUserActions(permissions, targetRole) {
-  const role = String(targetRole || "").trim().toLowerCase();
+  const role = String(targetRole || "")
+    .trim()
+    .toLowerCase();
+
   if (role === "owner") {
     return permissions.isOwner ? ["make_admin"] : [];
   }
+
   if (role === "admin") {
     return permissions.canManage ? ["remove_user", "make_owner"] : [];
   }
+
   if (role === "member") {
     if (permissions.isOwner) return ["remove_user", "make_admin", "make_owner"];
+
     if (permissions.canManage) return ["remove_user"];
   }
+
   return [];
 }
 
 export function formatRoleLabel(value) {
   const normalized = String(value || "").trim();
+
   if (!normalized) {
     return "—";
   }
+
   return normalized
     .split(/[_\s-]+/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())

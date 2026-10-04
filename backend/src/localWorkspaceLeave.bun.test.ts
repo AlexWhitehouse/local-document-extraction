@@ -1,3 +1,5 @@
+import { jsonObject } from "./testing/jsonFixture";
+import { jsonTextFields } from "./testing/responseFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,16 +12,14 @@ import { createLocalApplication } from "./localApplication";
 import { createLocalAuth } from "./localAuth";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
-import {
-  createLocalWorkspaceProductStore,
-  openLocalWorkspaceProductStore,
-} from "./localWorkspaceProductStore";
+import { createLocalWorkspaceProductStore, openLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 import { createFetchRequest, createSignedInUser } from "./testing/localAuthTestClient";
 
 test("a member can leave a non-final Workspace through the session-only adapter without erasing its resources", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-workspace-leave-"));
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -27,13 +27,16 @@ test("a member can leave a non-final Workspace through the session-only adapter 
     mailSink: {
       capture: async (message) => {
         const link = message.text.match(/https?:\/\/\S+/)?.[0];
+
         if (link) verificationLinks.push(link);
       },
     },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
+
   const application = createLocalApplication({
     auth,
     sourceFileStore: sourceFiles,
@@ -49,6 +52,7 @@ test("a member can leave a non-final Workspace through the session-only adapter 
       name: "Ada Lovelace",
       verificationLinks,
     });
+
     const member = await createSignedInUser({
       application,
       auth,
@@ -56,6 +60,7 @@ test("a member can leave a non-final Workspace through the session-only adapter 
       name: "Grace Hopper",
       verificationLinks,
     });
+
     const stranger = await createSignedInUser({
       application,
       auth,
@@ -63,19 +68,23 @@ test("a member can leave a non-final Workspace through the session-only adapter 
       name: "Linus Torvalds",
       verificationLinks,
     });
+
     const workspace = workspaceControl.listAcceptedWorkspaces({
       userId: owner.session.id,
       userName: owner.session.name,
     })[0]!;
+
     const memberPersonalWorkspace = workspaceControl.listAcceptedWorkspaces({
       userId: member.session.id,
       userName: member.session.name,
     })[0]!;
+
     const invitation = workspaceControl.createInvitation({
       workspaceId: workspace.id,
       inviterUserId: owner.session.id,
       email: member.session.email,
     });
+
     workspaceControl.acceptInvitation({
       invitationId: invitation.id,
       userId: member.session.id,
@@ -86,10 +95,12 @@ test("a member can leave a non-final Workspace through the session-only adapter 
       inviterUserId: owner.session.id,
       email: "pending@example.com",
     });
+
     const apiKey = workspaceControl.rotateApiKey({
       workspaceId: workspace.id,
       userId: owner.session.id,
     }).api_key;
+
     const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: workspace.id });
     productStore.createTemplate({
       templateId: "tpl_preserved",
@@ -109,6 +120,7 @@ test("a member can leave a non-final Workspace through the session-only adapter 
       submittedAt: "2026-07-10T12:00:00.000Z",
     });
     productStore.close();
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId: workspace.id,
       jobId: "job_source_preserved",
@@ -119,6 +131,7 @@ test("a member can leave a non-final Workspace through the session-only adapter 
     const memberAdapter = createWorkspaceRequestAdapter({
       request: createFetchRequest(application, member.cookie),
     });
+
     await expect(memberAdapter.leaveWorkspace(workspace.id)).resolves.toEqual({
       ok: true,
       workspace_id: workspace.id,
@@ -132,35 +145,46 @@ test("a member can leave a non-final Workspace through the session-only adapter 
     expect(workspaceControl.listAcceptedWorkspaces({ userId: member.session.id })).toEqual([
       expect.objectContaining({ id: memberPersonalWorkspace.id }),
     ]);
-    expect(workspaceControl.listWorkspaceUsers({ workspaceId: workspace.id, userId: owner.session.id }))
-      .toEqual([expect.objectContaining({ user_id: owner.session.id, role: "owner" })]);
-    expect(workspaceControl.listWorkspaceInvitations({ workspaceId: workspace.id, userId: owner.session.id }))
-      .toEqual([expect.objectContaining({ email: "pending@example.com" })]);
+    expect(workspaceControl.listWorkspaceUsers({ workspaceId: workspace.id, userId: owner.session.id })).toEqual([
+      expect.objectContaining({ user_id: owner.session.id, role: "owner" }),
+    ]);
+    expect(workspaceControl.listWorkspaceInvitations({ workspaceId: workspace.id, userId: owner.session.id })).toEqual([
+      expect.objectContaining({ email: "pending@example.com" }),
+    ]);
     expect(workspaceControl.authorizeApiKey({ apiKey })).toEqual(expect.objectContaining({ id: workspace.id }));
     const preservedStore = openLocalWorkspaceProductStore({ stateDirectory, workspaceId: workspace.id })!;
     expect(preservedStore.listTemplates()).toEqual([expect.objectContaining({ id: "tpl_preserved" })]);
-    expect(preservedStore.getExtractionJob("job_preserved")).toEqual(expect.objectContaining({ job_id: "job_preserved" }));
+    expect(preservedStore.getExtractionJob("job_preserved")).toEqual(
+      expect.objectContaining({ job_id: "job_preserved" }),
+    );
     preservedStore.close();
     await expect(sourceFiles.read(sourceFileKey)).resolves.toEqual(new Uint8Array([137, 80, 78, 71]));
 
     const ownerAdapter = createWorkspaceRequestAdapter({
       request: createFetchRequest(application, owner.cookie),
     });
+
     await expect(ownerAdapter.leaveWorkspace(workspace.id)).rejects.toMatchObject({
       code: "forbidden",
       status: 403,
     });
+
     const strangerAdapter = createWorkspaceRequestAdapter({
       request: createFetchRequest(application, stranger.cookie),
     });
+
     await expect(strangerAdapter.leaveWorkspace(workspace.id)).rejects.toMatchObject({
       code: "not_found",
       status: 404,
     });
-    const apiKeyResponse = await application(new Request(`http://127.0.0.1:8787/v1/workspaces/${workspace.id}/leave`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${apiKey}` },
-    }));
+
+    const apiKeyResponse = await application(
+      new Request(`http://127.0.0.1:8787/v1/workspaces/${workspace.id}/leave`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey}` },
+      }),
+    );
+
     expect(apiKeyResponse.status).toBe(401);
   } finally {
     database.close();
@@ -172,6 +196,7 @@ test("leaving a final Workspace creates one bootstrapped replacement without era
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-workspace-leave-replacement-"));
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -179,13 +204,16 @@ test("leaving a final Workspace creates one bootstrapped replacement without era
     mailSink: {
       capture: async (message) => {
         const link = message.text.match(/https?:\/\/\S+/)?.[0];
+
         if (link) verificationLinks.push(link);
       },
     },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
+
   const application = createLocalApplication({
     auth,
     sourceFileStore: sourceFiles,
@@ -201,6 +229,7 @@ test("leaving a final Workspace creates one bootstrapped replacement without era
       name: "Ada Lovelace",
       verificationLinks,
     });
+
     const member = await createSignedInUser({
       application,
       auth,
@@ -208,19 +237,23 @@ test("leaving a final Workspace creates one bootstrapped replacement without era
       name: "Grace Hopper",
       verificationLinks,
     });
+
     const workspace = workspaceControl.listAcceptedWorkspaces({
       userId: owner.session.id,
       userName: owner.session.name,
     })[0]!;
+
     const memberPersonalWorkspace = workspaceControl.listAcceptedWorkspaces({
       userId: member.session.id,
       userName: member.session.name,
     })[0]!;
+
     const acceptedInvitation = workspaceControl.createInvitation({
       workspaceId: workspace.id,
       inviterUserId: owner.session.id,
       email: member.session.email,
     });
+
     workspaceControl.acceptInvitation({
       invitationId: acceptedInvitation.id,
       userId: member.session.id,
@@ -230,19 +263,23 @@ test("leaving a final Workspace creates one bootstrapped replacement without era
       workspaceId: memberPersonalWorkspace.id,
       userId: member.session.id,
     });
+
     const pendingInvitationWorkspace = workspaceControl.createWorkspace({
       userId: owner.session.id,
       name: "Pending invitation Workspace",
     });
+
     workspaceControl.createInvitation({
       workspaceId: pendingInvitationWorkspace.workspace_id,
       inviterUserId: owner.session.id,
       email: member.session.email,
     });
+
     const apiKey = workspaceControl.rotateApiKey({
       workspaceId: workspace.id,
       userId: owner.session.id,
     }).api_key;
+
     const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: workspace.id });
     productStore.createTemplate({
       templateId: "tpl_departed_workspace",
@@ -252,6 +289,7 @@ test("leaving a final Workspace creates one bootstrapped replacement without era
       createdAt: "2026-07-10T12:00:00.000Z",
     });
     productStore.close();
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId: workspace.id,
       jobId: "job_departed_workspace",
@@ -262,36 +300,39 @@ test("leaving a final Workspace creates one bootstrapped replacement without era
     const memberAdapter = createWorkspaceRequestAdapter({
       request: createFetchRequest(application, member.cookie),
     });
-    const result = await memberAdapter.leaveWorkspace(workspace.id) as {
-      ok: true;
-      workspace_id: string;
-      next_workspace: { id: string; role: string; has_api_key: boolean };
-      replacement_workspace: { workspace_id: string; name: string; role: string; has_api_key: boolean; api_key?: string };
-    };
 
-    expect(result).toEqual(expect.objectContaining({
-      ok: true,
-      workspace_id: workspace.id,
-      next_workspace: expect.objectContaining({ role: "owner", has_api_key: false }),
-      replacement_workspace: expect.objectContaining({
-        name: "Grace Hopper Workspace",
-        role: "owner",
-        has_api_key: false,
+    const result = jsonObject(await memberAdapter.leaveWorkspace(workspace.id));
+    const replacement = jsonTextFields(result.replacement_workspace, "workspace_id");
+    const next = jsonTextFields(result.next_workspace, "id");
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        workspace_id: workspace.id,
+        next_workspace: expect.objectContaining({ role: "owner", has_api_key: false }),
+        replacement_workspace: expect.objectContaining({
+          name: "Grace Hopper Workspace",
+          role: "owner",
+          has_api_key: false,
+        }),
       }),
-    }));
-    expect(result.replacement_workspace.workspace_id).toBe(result.next_workspace.id);
+    );
+    expect(replacement.workspace_id).toBe(next.id);
     expect(result.replacement_workspace).not.toHaveProperty("api_key");
-    expect(workspaceControl.hasPendingStarterTemplateBootstrap({
-      workspaceId: result.replacement_workspace.workspace_id,
-    })).toBe(true);
+    expect(
+      workspaceControl.hasPendingStarterTemplateBootstrap({
+        workspaceId: replacement.workspace_id,
+      }),
+    ).toBe(true);
     expect(workspaceControl.listAcceptedWorkspaces({ userId: member.session.id })).toEqual([
-      expect.objectContaining({ id: result.replacement_workspace.workspace_id, role: "owner" }),
+      expect.objectContaining({ id: replacement.workspace_id, role: "owner" }),
     ]);
     expect(workspaceControl.listPendingInvitations({ email: member.session.email })).toEqual([
       expect.objectContaining({ workspace_id: pendingInvitationWorkspace.workspace_id }),
     ]);
-    expect(workspaceControl.listWorkspaceUsers({ workspaceId: workspace.id, userId: owner.session.id }))
-      .toEqual([expect.objectContaining({ user_id: owner.session.id, role: "owner" })]);
+    expect(workspaceControl.listWorkspaceUsers({ workspaceId: workspace.id, userId: owner.session.id })).toEqual([
+      expect.objectContaining({ user_id: owner.session.id, role: "owner" }),
+    ]);
     expect(workspaceControl.authorizeApiKey({ apiKey })).toEqual(expect.objectContaining({ id: workspace.id }));
     const preservedStore = openLocalWorkspaceProductStore({ stateDirectory, workspaceId: workspace.id })!;
     expect(preservedStore.listTemplates()).toEqual([expect.objectContaining({ id: "tpl_departed_workspace" })]);

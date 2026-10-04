@@ -23,23 +23,26 @@ export function createLocalSubmissionAdmission({
 
   const settleClose = () => {
     if (accepting || active !== 0) return;
+
     for (const resolve of closeWaiters.splice(0)) resolve();
   };
 
   return {
     close: async () => {
       accepting = false;
+
       if (active === 0) return;
       await new Promise<void>((resolve) => closeWaiters.push(resolve));
     },
     run: async (request: Request, handle: () => Response | Promise<Response>): Promise<Response> => {
       const reservation = requestReservationBytes(request, normalizedUnknownRequestBytes);
+
       const localCapacityFull =
-        !accepting
-        || active >= normalizedMaxConcurrent
-        || reservedBytes + reservation > normalizedMaxReservedBytes;
+        !accepting || active >= normalizedMaxConcurrent || reservedBytes + reservation > normalizedMaxReservedBytes;
+
       if (localCapacityFull) {
         rejected += 1;
+
         return rejectSubmission(request, normalizedRetryAfterSeconds);
       }
 
@@ -47,8 +50,10 @@ export function createLocalSubmissionAdmission({
       // callers can all observe the same counters and over-admit work.
       active += 1;
       reservedBytes += reservation;
+
       try {
         let resourcesAvailable = false;
+
         try {
           resourcesAvailable = await canReserve({
             requestBytes: reservation,
@@ -58,10 +63,13 @@ export function createLocalSubmissionAdmission({
           // Native resource sampling can be interrupted (for example under CPU profiling).
           // Without a capacity reading, reject before accepting any durable work.
         }
+
         if (!resourcesAvailable) {
           rejected += 1;
+
           return await rejectSubmission(request, normalizedRetryAfterSeconds);
         }
+
         return await handle();
       } finally {
         active -= 1;
@@ -82,6 +90,7 @@ export function createLocalSubmissionAdmission({
 
 async function rejectSubmission(request: Request, retryAfterSeconds: number): Promise<Response> {
   await drainRequestBody(request.body);
+
   return Response.json(
     {
       error: {
@@ -102,6 +111,7 @@ async function rejectSubmission(request: Request, retryAfterSeconds: number): Pr
 async function drainRequestBody(body: ReadableStream<Uint8Array> | null): Promise<void> {
   if (!body) return;
   const reader = body.getReader();
+
   try {
     while (!(await reader.read()).done) {
       // Discard bounded stream chunks without constructing FormData or Source bytes.
@@ -115,9 +125,8 @@ async function drainRequestBody(body: ReadableStream<Uint8Array> | null): Promis
 
 function requestReservationBytes(request: Request, fallback: number): number {
   const contentLength = Number(request.headers.get("content-length"));
-  return Number.isSafeInteger(contentLength) && contentLength > 0
-    ? contentLength
-    : fallback;
+
+  return Number.isSafeInteger(contentLength) && contentLength > 0 ? contentLength : fallback;
 }
 
 function positiveInteger(value: number, fallback: number): number {

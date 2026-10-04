@@ -4,11 +4,36 @@ import { describe, expect, it, vi } from "vitest";
 import { useTemplateController } from "./useTemplateController.js";
 import { TemplateGenerationModal } from "./TemplateGenerationModal.jsx";
 
-const proposal = { name: "Receipt", description: "Receipt details", fields: [{ name: "Total", description: "Amount paid", data_type: "number" }] };
+const proposal = {
+  name: "Receipt",
+  description: "Receipt details",
+  fields: [{ name: "Total", description: "Amount paid", data_type: "number" }],
+};
+
 const file = new File(["sample"], "receipt.png", { type: "image/png" });
-const propsFor = (request) => ({ request, workspaceId: "workspace_a", sessionId: "session_a", hasApiAccess: true,
-  activePage: "templates", showActionToast: vi.fn(), onActivePageChange: vi.fn() });
-const deferred = () => { let resolve; let reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { resolve, reject, promise }; };
+
+const propsFor = (request) => ({
+  request,
+  workspaceId: "workspace_a",
+  sessionId: "session_a",
+  hasApiAccess: true,
+  activePage: "templates",
+  showActionToast: vi.fn(),
+  onActivePageChange: vi.fn(),
+});
+
+const deferred = () => {
+  let resolve;
+  let reject;
+
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+
+  return { resolve, reject, promise };
+};
+
 async function open(result) {
   act(() => result.current.templatePage.onAutoGenerate());
   act(() => result.current.generationModal.onFileChange(file));
@@ -16,7 +41,14 @@ async function open(result) {
 
 describe("Template generation", () => {
   it("populates the complete new draft and saves only when explicitly requested", async () => {
-    const request = vi.fn(async (path, options) => path === "/templates/generate" ? proposal : options.method === "POST" ? { template_id: "new" } : { templates: [] });
+    const request = vi.fn(async (path, options) =>
+      path === "/templates/generate"
+        ? proposal
+        : options.method === "POST"
+          ? { template_id: "new" }
+          : { templates: [] },
+    );
+
     const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
     await open(result);
     act(() => result.current.generationModal.onInstructionsChange("Totals only"));
@@ -35,7 +67,11 @@ describe("Template generation", () => {
 
   it("replaces an existing template only as a draft and requires confirmation for unsaved changes", async () => {
     const old = { ...proposal, name: "Old", id: "old" };
-    const request = vi.fn(async (path) => path === "/templates/generate" ? proposal : path === "/templates/old" ? old : { templates: [old] });
+
+    const request = vi.fn(async (path) =>
+      path === "/templates/generate" ? proposal : path === "/templates/old" ? old : { templates: [old] },
+    );
+
     const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
     await act(async () => result.current.contextList.onSelectTemplate("old"));
     act(() => result.current.templatePage.onTemplateNameChange("Unsaved"));
@@ -54,45 +90,81 @@ describe("Template generation", () => {
   });
 
   it("preserves edits on failure and keeps inputs available for manual retry", async () => {
-    const request = vi.fn(async (path) => { if (path === "/templates/generate") throw new Error("Gateway timed out"); return { templates: [] }; });
+    const request = vi.fn(async (path) => {
+      if (path === "/templates/generate") throw new Error("Gateway timed out");
+
+      return { templates: [] };
+    });
+
     const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
     act(() => result.current.templatePage.onTemplateNameChange("My draft"));
     await open(result);
     act(() => result.current.generationModal.onConfirmedChange(true));
     await act(() => result.current.generationModal.onGenerate());
     expect(result.current.templatePage.templateName).toBe("My draft");
-    expect(result.current.generationModal).toMatchObject({ isOpen: true, isGenerating: false, error: "Gateway timed out", file });
+    expect(result.current.generationModal).toMatchObject({
+      isOpen: true,
+      isGenerating: false,
+      error: "Gateway timed out",
+      file,
+    });
   });
 
-  it.each(["cancel", "workspaceId", "sessionId", "activePage", "template", "draft"])("cancels and discards late results on %s", async (change) => {
-    const pending = deferred();
-    const request = vi.fn(async (path) => path === "/templates/generate" ? pending.promise : path === "/templates/other" ? { ...proposal, name: "Other" } : { templates: [] });
-    const props = propsFor(request);
-    const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
-    await open(result);
-    let completion;
-    act(() => { completion = result.current.generationModal.onGenerate(); });
-    const signal = request.mock.calls.find(([path]) => path === "/templates/generate")[1].signal;
-    await act(async () => {
-      if (change === "cancel") result.current.generationModal.onClose();
-      else if (change === "template") result.current.contextList.onSelectTemplate("other");
-      else if (change === "draft") result.current.toolbar.onCreateTemplate({ empty: true });
-      else rerender({ ...props, [change]: "different" });
-    });
-    expect(signal.aborted).toBe(true);
-    await act(async () => { pending.resolve(proposal); await completion; });
-    expect(result.current.templatePage.templateName).not.toBe("Receipt");
-    expect(result.current.generationModal.isOpen).toBe(false);
-  });
+  it.each(["cancel", "workspaceId", "sessionId", "activePage", "template", "draft"])(
+    "cancels and discards late results on %s",
+    async (change) => {
+      const pending = deferred();
+
+      const request = vi.fn(async (path) =>
+        path === "/templates/generate"
+          ? pending.promise
+          : path === "/templates/other"
+            ? { ...proposal, name: "Other" }
+            : { templates: [] },
+      );
+
+      const props = propsFor(request);
+      const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
+      await open(result);
+      let completion;
+      act(() => {
+        completion = result.current.generationModal.onGenerate();
+      });
+      const signal = request.mock.calls.find(([path]) => path === "/templates/generate")[1].signal;
+      await act(async () => {
+        if (change === "cancel") result.current.generationModal.onClose();
+        else if (change === "template") result.current.contextList.onSelectTemplate("other");
+        else if (change === "draft") result.current.toolbar.onCreateTemplate({ empty: true });
+        else rerender({ ...props, [change]: "different" });
+      });
+      expect(signal.aborted).toBe(true);
+      await act(async () => {
+        pending.resolve(proposal);
+        await completion;
+      });
+      expect(result.current.templatePage.templateName).not.toBe("Receipt");
+      expect(result.current.generationModal.isOpen).toBe(false);
+    },
+  );
 
   it("renders replacement confirmation, progress, errors, and accessible cancellation", async () => {
     function Harness() {
-      const controller = useTemplateController(propsFor(async (path) => {
-        if (path === "/templates/generate") throw new Error("Model is not configured");
-        return { templates: [] };
-      }));
-      return <><button onClick={() => controller.templatePage.onAutoGenerate()}>Open</button><TemplateGenerationModal {...controller.generationModal} /></>;
+      const controller = useTemplateController(
+        propsFor(async (path) => {
+          if (path === "/templates/generate") throw new Error("Model is not configured");
+
+          return { templates: [] };
+        }),
+      );
+
+      return (
+        <>
+          <button onClick={() => controller.templatePage.onAutoGenerate()}>Open</button>
+          <TemplateGenerationModal {...controller.generationModal} />
+        </>
+      );
     }
+
     render(<Harness />);
     fireEvent.click(screen.getByText("Open"));
     fireEvent.change(screen.getByLabelText("Sample file"), { target: { files: [file] } });
@@ -108,6 +180,7 @@ it("rotates generation messages and clears the timer when generation stops", () 
   vi.useFakeTimers();
   const props = { isOpen: true, file, instructions: "", isGenerating: true, hasApiAccess: true, onClose: vi.fn() };
   const view = render(<TemplateGenerationModal {...props} />);
+
   try {
     expect(screen.getByText("Combobulating response…")).toBeTruthy();
     act(() => vi.advanceTimersByTime(2800));
@@ -142,12 +215,17 @@ it("accepts a dropped sample, rejects multiple samples, and locks uploads during
 
 it("the toolbar magic action creates a new template and cancellation preserves the current editor", async () => {
   const old = { ...proposal, name: "Existing template", id: "old" };
+
   const request = vi.fn(async (path, options) => {
     if (path === "/templates/generate") return proposal;
+
     if (path === "/templates/old") return old;
+
     if (options.method === "POST") return { template_id: "new" };
+
     return { templates: [old] };
   });
+
   const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
   await act(async () => result.current.contextList.onSelectTemplate("old"));
   act(() => result.current.templatePage.onTemplateNameChange("Unsaved existing edit"));

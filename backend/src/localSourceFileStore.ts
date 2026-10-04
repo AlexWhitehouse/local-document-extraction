@@ -27,7 +27,10 @@ export type LocalSourceFileStore = {
     temporaryPath: string;
   }): Promise<string>;
   /** Library directories in a stable order, starting after `after` (`<workspaceId>/<documentId>`), so sweeps can resume. */
-  listEvaluationDocumentDirectories?(input: { limit: number; after?: string | null }): Promise<LocalEvaluationDocumentDirectory[]>;
+  listEvaluationDocumentDirectories?(input: {
+    limit: number;
+    after?: string | null;
+  }): Promise<LocalEvaluationDocumentDirectory[]>;
   deleteEvaluationDocumentDirectory?(input: { workspaceId: string; documentId: string }): Promise<void>;
   open?(sourceFileKey: string): Promise<Blob | null>;
   promoteTemporary?(input: {
@@ -54,8 +57,13 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
     delete: async (sourceFileKey) => {
       const path = pathForKey(rootDirectory, sourceFileKey);
       await rm(path, { force: true });
+
       // Only remove an empty owner directory, never recursively erase siblings.
-      if (/^workspaces\/[a-zA-Z0-9_-]+\/(?:jobs|evaluation-documents)\/[a-zA-Z0-9_-]+\/source\.[a-z]+$/.test(sourceFileKey)) {
+      if (
+        /^workspaces\/[a-zA-Z0-9_-]+\/(?:jobs|evaluation-documents)\/[a-zA-Z0-9_-]+\/source\.[a-z]+$/.test(
+          sourceFileKey,
+        )
+      ) {
         await rmdir(dirname(path)).catch((error: NodeJS.ErrnoException) => {
           if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error;
         });
@@ -71,42 +79,63 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
       const destination = pathForKey(rootDirectory, sourceFileKey);
       await mkdir(dirname(destination), { recursive: true });
       await rename(temporaryPath, destination);
+
       return sourceFileKey;
     },
     listEvaluationDocumentDirectories: async ({ limit, after = null }) => {
       const directories: LocalEvaluationDocumentDirectory[] = [];
       const byName = (a: { name: string }, b: { name: string }) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-      const workspaces = (await readdir(resolve(rootDirectory, "workspaces"), { withFileTypes: true }).catch(() => [])).sort(byName);
+
+      const workspaces = (
+        await readdir(resolve(rootDirectory, "workspaces"), { withFileTypes: true }).catch(() => [])
+      ).sort(byName);
+
       for (const workspace of workspaces) {
         if (!workspace.isDirectory() || !IDENTIFIER.test(workspace.name)) continue;
+
         if (after && workspace.name < after.split("/")[0]!) continue;
         const parent = resolve(rootDirectory, "workspaces", workspace.name, "evaluation-documents");
+
         for (const document of (await readdir(parent, { withFileTypes: true }).catch(() => [])).sort(byName)) {
           if (directories.length >= limit) return directories;
+
           if (!document.isDirectory() || !IDENTIFIER.test(document.name)) continue;
+
           if (after && `${workspace.name}/${document.name}` <= after) continue;
           const directory = resolve(parent, document.name);
-          const source = (await readdir(directory).catch(() => [] as string[])).find((name) => /^source\.[a-z]+$/.test(name));
+
+          const source = (await readdir(directory).catch((): string[] => [])).find((name) =>
+            /^source\.[a-z]+$/.test(name),
+          );
+
           const modified = await stat(source ? resolve(directory, source) : directory).catch(() => null);
+
           if (!modified) continue;
           directories.push({
             workspaceId: workspace.name,
             documentId: document.name,
-            sourceFileKey: source ? `workspaces/${workspace.name}/evaluation-documents/${document.name}/${source}` : null,
+            sourceFileKey: source
+              ? `workspaces/${workspace.name}/evaluation-documents/${document.name}/${source}`
+              : null,
             modifiedAtMs: modified.mtimeMs,
           });
         }
       }
+
       return directories;
     },
     deleteEvaluationDocumentDirectory: async ({ workspaceId, documentId }) => {
       assertIdentifier(workspaceId, "Workspace ID");
       assertIdentifier(documentId, "Evaluation document ID");
-      await rm(resolve(rootDirectory, "workspaces", workspaceId, "evaluation-documents", documentId), { recursive: true, force: true });
+      await rm(resolve(rootDirectory, "workspaces", workspaceId, "evaluation-documents", documentId), {
+        recursive: true,
+        force: true,
+      });
     },
     open: async (sourceFileKey) => {
       const file = Bun.file(pathForKey(rootDirectory, sourceFileKey));
-      return await file.exists() ? file : null;
+
+      return (await file.exists()) ? file : null;
     },
     promoteTemporary: async ({ workspaceId, jobId, mimeType, temporaryPath }) => {
       const sourceFileKey = newSourceFileKey(workspaceId, jobId, mimeType);
@@ -114,6 +143,7 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
       const destination = pathForKey(rootDirectory, sourceFileKey);
       await mkdir(dirname(destination), { recursive: true });
       await rename(temporaryPath, destination);
+
       return sourceFileKey;
     },
     read: async (sourceFileKey) => readFile(pathForKey(rootDirectory, sourceFileKey)).catch(() => null),
@@ -122,6 +152,7 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
       const path = pathForKey(rootDirectory, sourceFileKey);
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, new Uint8Array(bytes));
+
       return sourceFileKey;
     },
   };
@@ -133,11 +164,18 @@ function newSourceFileKey(workspaceId: string, jobId: string, mimeType: string):
   return ownedSourceFileKey(workspaceId, "jobs", jobId, mimeType);
 }
 
-function ownedSourceFileKey(workspaceId: string, owners: "jobs" | "evaluation-documents", ownerId: string, mimeType: string): string {
+function ownedSourceFileKey(
+  workspaceId: string,
+  owners: "jobs" | "evaluation-documents",
+  ownerId: string,
+  mimeType: string,
+): string {
   assertIdentifier(workspaceId, "Workspace ID");
   assertIdentifier(ownerId, owners === "jobs" ? "Extraction job ID" : "Evaluation document ID");
   const extension = EXTENSION_BY_MIME_TYPE.get(mimeType);
+
   if (!extension) throw new Error("Unsupported Source file MIME type");
+
   return `workspaces/${workspaceId}/${owners}/${ownerId}/source.${extension}`;
 }
 
@@ -150,11 +188,13 @@ function assertIdentifier(value: string, label: string): void {
 function pathForKey(rootDirectory: string, sourceFileKey: string): string {
   const path = resolve(rootDirectory, sourceFileKey);
   assertPathWithinRoot(rootDirectory, path, "Source file key");
+
   return path;
 }
 
 function assertPathWithinRoot(rootDirectory: string, path: string, label: string): void {
   const pathRelativeToRoot = relative(rootDirectory, resolve(path));
+
   if (!pathRelativeToRoot || pathRelativeToRoot.startsWith("..")) {
     throw new Error(`${label} is outside local Source file storage.`);
   }

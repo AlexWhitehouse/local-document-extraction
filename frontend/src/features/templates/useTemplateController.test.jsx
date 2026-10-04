@@ -4,13 +4,24 @@ import { useTemplateController } from "./useTemplateController";
 
 function deferred() {
   let resolve;
-  const promise = new Promise((yes) => { resolve = yes; });
+
+  const promise = new Promise((yes) => {
+    resolve = yes;
+  });
+
   return { promise, resolve };
 }
+
 const template = (id) => ({ id, name: id, fields: [{ id: "total", name: "Total", data_type: "number" }] });
+
 const propsFor = (request) => ({
-  request, workspaceId: "workspace_a", sessionId: "session_1", hasApiAccess: true,
-  activePage: "templates", showActionToast: vi.fn(), onActivePageChange: vi.fn(),
+  request,
+  workspaceId: "workspace_a",
+  sessionId: "session_1",
+  hasApiAccess: true,
+  activePage: "templates",
+  showActionToast: vi.fn(),
+  onActivePageChange: vi.fn(),
 });
 
 describe("template request scope", () => {
@@ -20,7 +31,12 @@ describe("template request scope", () => {
     await waitFor(() => expect(request).toHaveBeenCalled());
     expect(result.current.templatePage.templateName).toBe("Invoice Template");
     expect(result.current.templatePage.templateFields.map((field) => field.id)).toEqual([
-      "invoice_number", "invoice_date", "vendor_name", "total_amount", "currency", "line_items",
+      "invoice_number",
+      "invoice_date",
+      "vendor_name",
+      "total_amount",
+      "currency",
+      "line_items",
     ]);
     act(() => result.current.templatePage.onOpenJsonModal());
     const payload = JSON.parse(result.current.jsonModal.draft);
@@ -42,7 +58,9 @@ describe("template request scope", () => {
     expect(result.current.templatePage.templateName).toBe("");
     act(() => result.current.toolbar.onCreateTemplate());
     expect(result.current.templatePage.templateName).toBe("Invoice Template");
-    expect(result.current.templatePage.templateFields.map((field) => field.name)).toEqual(payload.fields.map((field) => field.name));
+    expect(result.current.templatePage.templateFields.map((field) => field.name)).toEqual(
+      payload.fields.map((field) => field.name),
+    );
   });
 
   it.each(["workspaceId", "sessionId"])("discards lists from the previous %s", async (key) => {
@@ -58,7 +76,7 @@ describe("template request scope", () => {
 
   it("clears the editor and discards pending details when workspace changes", async () => {
     const pending = deferred();
-    const request = vi.fn(async (path) => path === "/templates" ? { templates: [template("old")] } : pending.promise);
+    const request = vi.fn(async (path) => (path === "/templates" ? { templates: [template("old")] } : pending.promise));
     const props = propsFor(request);
     const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
     await waitFor(() => expect(result.current.templates).toHaveLength(1));
@@ -75,11 +93,15 @@ describe("template request scope", () => {
 
   it.each(["select", "draft"])("keeps the latest %s action when older details arrive", async (action) => {
     const pending = deferred();
+
     const request = vi.fn(async (path) => {
       if (path === "/templates") return { templates: [template("old"), template("new")] };
+
       if (path === "/templates/old") return pending.promise;
+
       return template("new");
     });
+
     const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
     await waitFor(() => expect(result.current.templates).toHaveLength(2));
     act(() => result.current.contextList.onSelectTemplate("old"));
@@ -93,13 +115,18 @@ describe("template request scope", () => {
 
   it("does not restore a newly created template into another workspace", async () => {
     const pending = deferred();
-    const request = vi.fn(async (_path, options) => options.method === "POST" ? pending.promise : { templates: [] });
+    const request = vi.fn(async (_path, options) => (options.method === "POST" ? pending.promise : { templates: [] }));
     const props = propsFor(request);
     const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
     let saving;
-    act(() => { saving = result.current.templatePage.onSaveTemplate(); });
+    act(() => {
+      saving = result.current.templatePage.onSaveTemplate();
+    });
     rerender({ ...props, workspaceId: "workspace_b", request: vi.fn(async () => ({ templates: [] })) });
-    await act(async () => { pending.resolve({ template_id: "old" }); await saving; });
+    await act(async () => {
+      pending.resolve({ template_id: "old" });
+      await saving;
+    });
     expect(result.current.templatePage.isEditingTemplate).toBe(false);
     expect(result.current.selectedUploadTemplateId).toBe("");
     expect(props.showActionToast).not.toHaveBeenCalled();

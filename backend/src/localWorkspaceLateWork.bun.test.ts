@@ -1,3 +1,4 @@
+import { readUserResponse } from "./testing/responseFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,6 +18,7 @@ import { createConfiguredTestProductStore as createLocalWorkspaceProductStore } 
 test("late queue deliveries after hard deletion do not recreate a Workspace product database", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-late-work-"));
   const database = new Database(":memory:");
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -24,34 +26,47 @@ test("late queue deliveries after hard deletion do not recreate a Workspace prod
     mailSink: { capture: async () => undefined },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
   const lifecycleUpdates: LocalWorkspaceExtractionJobSummary[] = [];
   const scheduledJobs: string[] = [];
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
+
   const productAnalytics: LocalProductAnalytics = {
     flush: async () => {},
     record: (event) => analyticsEvents.push(event),
   };
+
   let modelCalls = 0;
 
   try {
-    const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const user = await signUp.json() as { user: { id: string; name: string } };
-    const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({ userId: user.user.id, userName: user.user.name })[0]!;
+    const signUp = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+      }),
+    );
+
+    const user = await readUserResponse(signUp);
+
+    const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({
+      userId: user.user.id,
+      userName: user.user.name,
+    })[0]!;
+
     workspaceControl.createWorkspace({ userId: user.user.id, name: "Remaining Workspace" });
 
     const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: deletedWorkspace.id });
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId: deletedWorkspace.id,
       jobId: "job_late",
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
+
     productStore.createTemplate({
       templateId: "tpl_invoice",
       name: "Invoice",
@@ -71,7 +86,11 @@ test("late queue deliveries after hard deletion do not recreate a Workspace prod
     });
     productStore.close();
 
-    await createLocalWorkspaceDeletion({ sourceFileStore: sourceFiles, stateDirectory, workspaceControl }).deleteWorkspace({
+    await createLocalWorkspaceDeletion({
+      sourceFileStore: sourceFiles,
+      stateDirectory,
+      workspaceControl,
+    }).deleteWorkspace({
       workspaceId: deletedWorkspace.id,
       userId: user.user.id,
     });
@@ -89,6 +108,7 @@ test("late queue deliveries after hard deletion do not recreate a Workspace prod
       stateDirectory,
       workspaceControl,
     });
+
     const lateJob = {
       job_id: "job_late",
       workspace_id: deletedWorkspace.id,
@@ -96,11 +116,14 @@ test("late queue deliveries after hard deletion do not recreate a Workspace prod
       template_version: 1,
       enqueued_at: "2026-07-10T12:01:00.000Z",
     };
+
     await runner.run(lateJob);
     await runner.run(lateJob);
     await runner.recover();
 
-    await expect(stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     expect(lifecycleUpdates).toEqual([]);
     expect(scheduledJobs).toEqual([]);
     expect(analyticsEvents).toEqual([]);
@@ -108,14 +131,17 @@ test("late queue deliveries after hard deletion do not recreate a Workspace prod
 
     await writeFile(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`), "orphaned");
     let orphanOpenCalls = 0;
+
     const recoveryRunner = createLocalExtractionRunner({
       productStoreOpener: () => {
         orphanOpenCalls += 1;
+
         return null;
       },
       stateDirectory,
       workspaceControl,
     });
+
     await recoveryRunner.recover();
     expect(orphanOpenCalls).toBe(0);
     await rm(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`), { force: true });
@@ -128,6 +154,7 @@ test("late queue deliveries after hard deletion do not recreate a Workspace prod
 test("a retryable extraction failure does not requeue work after its Workspace is deleted", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-late-retry-"));
   const database = new Database(":memory:");
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -135,6 +162,7 @@ test("a retryable extraction failure does not requeue work after its Workspace i
     mailSink: { capture: async () => undefined },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
   const scheduledJobs: string[] = [];
@@ -142,24 +170,30 @@ test("a retryable extraction failure does not requeue work after its Workspace i
   const lifecycleUpdates: LocalWorkspaceExtractionJobSummary[] = [];
 
   try {
-    const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const user = await signUp.json() as { user: { id: string } };
+    const signUp = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+      }),
+    );
+
+    const user = await readUserResponse(signUp);
     workspaceControl.listAcceptedWorkspaces({ userId: user.user.id, userName: "Ada Lovelace" });
     const retryWorkspace = workspaceControl.createWorkspace({ userId: user.user.id, name: "Retry Workspace" });
+
     const productStore = createLocalWorkspaceProductStore({
       stateDirectory,
       workspaceId: retryWorkspace.workspace_id,
     });
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId: retryWorkspace.workspace_id,
       jobId: "job_retry",
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
+
     productStore.createTemplate({
       templateId: "tpl_invoice",
       name: "Invoice",
@@ -180,16 +214,21 @@ test("a retryable extraction failure does not requeue work after its Workspace i
     productStore.close();
 
     let extractionStarted: () => void = () => {};
+
     let failExtraction: (error: Error) => void = () => {};
+
     const extractionStartedPromise = new Promise<void>((resolve) => {
       extractionStarted = resolve;
     });
+
     const extractionResult = new Promise<never>((_resolve, reject) => {
       failExtraction = reject;
     });
+
     const runner = createLocalExtractionRunner({
       extract: async () => {
         extractionStarted();
+
         return extractionResult;
       },
       onJobLifecycleChange: (_workspaceId, job) => lifecycleUpdates.push(job),
@@ -204,6 +243,7 @@ test("a retryable extraction failure does not requeue work after its Workspace i
       stateDirectory,
       workspaceControl,
     });
+
     const running = runner.run({
       job_id: "job_retry",
       workspace_id: retryWorkspace.workspace_id,
@@ -214,7 +254,11 @@ test("a retryable extraction failure does not requeue work after its Workspace i
     });
 
     await extractionStartedPromise;
-    await createLocalWorkspaceDeletion({ sourceFileStore: sourceFiles, stateDirectory, workspaceControl }).deleteWorkspace({
+    await createLocalWorkspaceDeletion({
+      sourceFileStore: sourceFiles,
+      stateDirectory,
+      workspaceControl,
+    }).deleteWorkspace({
       workspaceId: retryWorkspace.workspace_id,
       userId: user.user.id,
     });
@@ -224,7 +268,9 @@ test("a retryable extraction failure does not requeue work after its Workspace i
     expect(scheduledJobs).toEqual([]);
     expect(analyticsEvents).toEqual([]);
     expect(lifecycleUpdates.map((job) => job.status)).toEqual(["processing"]);
-    await expect(stat(join(stateDirectory, "data", "workspaces", `${retryWorkspace.workspace_id}.sqlite`))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      stat(join(stateDirectory, "data", "workspaces", `${retryWorkspace.workspace_id}.sqlite`)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     database.close();
     await rm(stateDirectory, { recursive: true, force: true });

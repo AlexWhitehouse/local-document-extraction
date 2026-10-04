@@ -13,28 +13,32 @@ export async function upgradeLocalLiveUpdate({
   server,
   workspaceControl,
 }: {
-  auth: LocalAuth;
+  auth: Pick<LocalAuth, "getSession" | "isTrustedOrigin">;
   request: Request;
   server: LocalLiveUpdateUpgradeServer;
-  workspaceControl: LocalWorkspaceControl;
+  workspaceControl: Pick<LocalWorkspaceControl, "getAcceptedWorkspaceContext">;
 }): Promise<Response | undefined> {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/v1\/workspaces\/([^/]+)\/live$/);
+
   if (!match) {
     return Response.json({ error: { code: "not_found", message: "Route not found" } }, { status: 404 });
   }
+
   if (request.method !== "GET") {
     return Response.json(
       { error: { code: "method_not_allowed", message: "Workspace live updates require GET" } },
       { status: 405 },
     );
   }
+
   if (bearerApiKey(request)) {
     return Response.json(
       { error: { code: "unsupported_auth_mode", message: "Workspace API keys cannot open live updates" } },
       { status: 403 },
     );
   }
+
   if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
     return Response.json(
       { error: { code: "invalid_websocket_upgrade", message: "Expected WebSocket upgrade" } },
@@ -43,25 +47,32 @@ export async function upgradeLocalLiveUpdate({
   }
 
   const session = await auth.getSession(request);
+
   if (!session) {
     return Response.json({ error: { code: "unauthorized", message: "Authentication required" } }, { status: 401 });
   }
+
   const originFailure = localRequestOriginFailure(request, auth);
+
   if (originFailure) return originFailure;
   const workspaceId = decodeURIComponent(match[1] || "");
   const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId: session.id });
+
   if (!workspace) {
     return Response.json(
       { error: { code: "forbidden", message: "You do not have access to this workspace" } },
       { status: 403 },
     );
   }
-  const isAuthorized = () => (session.isActive?.() ?? true) && Boolean(
-    workspaceControl.getAcceptedWorkspaceContext({ workspaceId: workspace.id, userId: session.id }),
-  );
+
+  const isAuthorized = () =>
+    (session.isActive?.() ?? true) &&
+    Boolean(workspaceControl.getAcceptedWorkspaceContext({ workspaceId: workspace.id, userId: session.id }));
+
   if (server.upgrade(request, { data: { workspaceId: workspace.id, isAuthorized } })) {
     return undefined;
   }
+
   return Response.json(
     { error: { code: "websocket_upgrade_failed", message: "WebSocket upgrade failed" } },
     { status: 500 },

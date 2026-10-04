@@ -34,13 +34,16 @@ export function useApplicationAdminController({
   useEffect(() => {
     const next = { field: searchField, value: searchInput.trim() };
     const current = submittedSearch.value.trim();
+
     if (next.value === current && (next.field === submittedSearch.field || !current)) {
       return undefined;
     }
+
     const timer = setTimeout(() => {
       setOffset(0);
       setSubmittedSearch(next);
     }, SEARCH_DEBOUNCE_MS);
+
     return () => clearTimeout(timer);
   }, [searchField, searchInput, submittedSearch.field, submittedSearch.value]);
 
@@ -70,9 +73,11 @@ export function useApplicationAdminController({
         }
 
         const result = await authClient.admin.listUsers({ query });
+
         if (!isCurrent) {
           return;
         }
+
         if (result?.error) {
           throw new Error(result.error.message || "Unable to load users.");
         }
@@ -84,6 +89,7 @@ export function useApplicationAdminController({
         if (!isCurrent) {
           return;
         }
+
         setUsers([]);
         setTotal(0);
         setListError(error?.message || "Unable to load users.");
@@ -95,6 +101,7 @@ export function useApplicationAdminController({
     }
 
     void loadUsers();
+
     return () => {
       isCurrent = false;
     };
@@ -109,21 +116,27 @@ export function useApplicationAdminController({
   // Runs a Better Auth admin mutation for one user, then reloads the list.
   async function mutateUser(user, toastAction, mutate, fallbackMessage) {
     const userId = userIdOf(user);
+
     if (!userId) {
       return false;
     }
 
     setMutatingUserId(userId);
+
     try {
       const result = await mutate(userId);
+
       if (result?.error) {
         throw new Error(result.error.message || fallbackMessage);
       }
+
       showActionToast(toastAction, "success", { targetEmail: userLabel(user) });
       setReloadToken((current) => current + 1);
+
       return true;
     } catch {
       showActionToast(toastAction, "failure");
+
       return false;
     } finally {
       setMutatingUserId("");
@@ -136,9 +149,12 @@ export function useApplicationAdminController({
     }
 
     const email = userLabel(user);
-    const message = role === "user"
-      ? `Remove Application admin access from ${email}? This revokes application-wide account management access.`
-      : `Make ${email} an Application admin? This grants application-wide account management access.`;
+
+    const message =
+      role === "user"
+        ? `Remove Application admin access from ${email}? This revokes application-wide account management access.`
+        : `Make ${email} an Application admin? This grants application-wide account management access.`;
+
     if (!window.confirm(message)) {
       return;
     }
@@ -166,8 +182,10 @@ export function useApplicationAdminController({
   async function confirmBan(event) {
     event.preventDefault();
     const reason = banReason.trim();
+
     if (!reason) {
       setBanReasonError("Enter a ban reason before banning this user.");
+
       return;
     }
 
@@ -177,6 +195,7 @@ export function useApplicationAdminController({
       (userId) => authClient.admin.banUser({ userId, banReason: reason }),
       "Unable to ban user.",
     );
+
     if (banned) closeBanDialog();
   }
 
@@ -187,26 +206,35 @@ export function useApplicationAdminController({
       (userId) => authClient.admin.unbanUser({ userId }),
       "Unable to unban user.",
     );
+
     if (unbanned) setUnbanDialogUser(null);
   }
 
   async function startImpersonation(user) {
     const userId = userIdOf(user);
+
     if (!userId) {
       return;
     }
 
-    if (!window.confirm(`Start impersonating ${userLabel(user)}? You will leave the Admin page and enter this user's normal app experience.`)) {
+    if (
+      !window.confirm(
+        `Start impersonating ${userLabel(user)}? You will leave the Admin page and enter this user's normal app experience.`,
+      )
+    ) {
       return;
     }
 
     setMutatingUserId(userId);
+
     try {
       onImpersonationStarting?.();
       const result = await authClient.admin.impersonateUser({ userId });
+
       if (result?.error) {
         throw new Error(result.error.message || "Unable to start impersonation.");
       }
+
       onImpersonationStarted?.();
     } catch {
       showActionToast("applicationUser.impersonate", "failure");

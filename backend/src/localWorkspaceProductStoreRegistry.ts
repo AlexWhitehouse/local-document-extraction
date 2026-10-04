@@ -14,10 +14,7 @@ export type LocalWorkspaceProductStoreLease = {
 type StoreFactory<Store> = (input: { stateDirectory: string; workspaceId: string }) => Store;
 
 export type LocalWorkspaceProductStoreRegistry = {
-  acquire(input: {
-    workspaceId: string;
-    mode?: "create" | "existing";
-  }): LocalWorkspaceProductStoreLease | null;
+  acquire(input: { workspaceId: string; mode?: "create" | "existing" }): LocalWorkspaceProductStoreLease | null;
   closeAll(): void;
   evictIdleStores(): number;
   diagnostics(): {
@@ -66,19 +63,24 @@ export function createLocalWorkspaceProductStoreRegistry({
     if (entries.get(workspaceId) !== entry) return;
     entries.delete(workspaceId);
     entry.store.close();
+
     for (const resolve of entry.closeWaiters.splice(0)) resolve();
   };
 
   const evictOneIdleStore = (): boolean => {
     let candidate: { workspaceId: string; entry: StoreEntry } | null = null;
+
     for (const [workspaceId, entry] of entries) {
       if (entry.activeLeases !== 0 || entry.invalidated) continue;
+
       if (!candidate || entry.lastReleasedAt < candidate.entry.lastReleasedAt) {
         candidate = { workspaceId, entry };
       }
     }
+
     if (!candidate) return false;
     closeEntry(candidate.workspaceId, candidate.entry);
+
     return true;
   };
 
@@ -86,18 +88,21 @@ export function createLocalWorkspaceProductStoreRegistry({
     while (entries.size >= maxOpenStores && evictOneIdleStore()) {
       // Evict only as many idle owners as are needed for this acquisition.
     }
+
     if (entries.size >= maxOpenStores) {
       throw new LocalWorkspaceProductStoreRegistryError(
         "capacity_exhausted",
         "Workspace product-store capacity is temporarily exhausted",
       );
     }
-    const store = mode === "existing"
-      ? openStore({ stateDirectory, workspaceId })
-      : createStore({ stateDirectory, workspaceId });
+
+    const store =
+      mode === "existing" ? openStore({ stateDirectory, workspaceId }) : createStore({ stateDirectory, workspaceId });
+
     if (!store) return null;
     const entry: StoreEntry = { activeLeases: 0, closeWaiters: [], invalidated: false, lastReleasedAt: now(), store };
     entries.set(workspaceId, entry);
+
     return entry;
   };
 
@@ -111,9 +116,11 @@ export function createLocalWorkspaceProductStoreRegistry({
       }
 
       const entry = entries.get(workspaceId) ?? openEntry(workspaceId, mode);
+
       if (!entry) return null;
       entry.activeLeases += 1;
       let released = false;
+
       return {
         store: entry.store,
         release: () => {
@@ -121,6 +128,7 @@ export function createLocalWorkspaceProductStoreRegistry({
           released = true;
           entry.activeLeases -= 1;
           entry.lastReleasedAt = now();
+
           if (entry.invalidated && entry.activeLeases === 0) {
             closeEntry(workspaceId, entry);
           }
@@ -134,7 +142,9 @@ export function createLocalWorkspaceProductStoreRegistry({
     },
     evictIdleStores: () => {
       let evicted = 0;
+
       while (evictOneIdleStore()) evicted += 1;
+
       return evicted;
     },
     diagnostics: () => ({
@@ -146,12 +156,16 @@ export function createLocalWorkspaceProductStoreRegistry({
     invalidate: async ({ workspaceId }) => {
       invalidatedWorkspaces.add(workspaceId);
       const entry = entries.get(workspaceId);
+
       if (!entry) return;
       entry.invalidated = true;
+
       if (entry.activeLeases === 0) {
         closeEntry(workspaceId, entry);
+
         return;
       }
+
       await new Promise<void>((resolve) => entry.closeWaiters.push(resolve));
     },
   };
@@ -168,11 +182,12 @@ export function createEphemeralLocalWorkspaceProductStoreRegistry({
 }): LocalWorkspaceProductStoreRegistry {
   return {
     acquire: ({ workspaceId, mode = "create" }) => {
-      const store = mode === "existing"
-        ? openStore({ stateDirectory, workspaceId })
-        : createStore({ stateDirectory, workspaceId });
+      const store =
+        mode === "existing" ? openStore({ stateDirectory, workspaceId }) : createStore({ stateDirectory, workspaceId });
+
       if (!store) return null;
       let released = false;
+
       return {
         store,
         release: () => {

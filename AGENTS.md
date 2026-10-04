@@ -13,7 +13,7 @@
 - Run the complete app from the root: `bun run build && bun run start`.
 - Run the Bun server with reload: `bun run dev`.
 - Run the Vite UI separately: `bun run dev:frontend`.
-- Run the root checks: `bun run typecheck`, `bun run test`, and `bun run build`.
+- Run the root checks: `bun run typecheck`, `bun run lint`, `bun run test`, and `bun run build`.
 
 ## Local dev wiring and prerequisites
 
@@ -34,6 +34,10 @@
 - First, run focused checks for the change. Before finishing broad runtime work, run the root Bun commands.
 
 ## Agent skills
+
+### Code quality
+
+Follow the enforced anti-slop policy in `docs/agents/anti-slop.md`. `bun run lint` checks both existing ESLint rules and the vendored anti-slop rules.
 
 ### Issue tracker
 

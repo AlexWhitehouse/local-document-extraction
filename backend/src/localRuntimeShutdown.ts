@@ -1,5 +1,5 @@
 export function createLocalRuntimeShutdown({
-  cancelTimeout = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+  cancelTimeout = (timer) => clearTimeout(timer),
   closeAdmission,
   closeAuth,
   closeProductStores,
@@ -9,28 +9,30 @@ export function createLocalRuntimeShutdown({
   scheduleTimeout = (handler, delayMs) => {
     const timer = setTimeout(handler, delayMs);
     timer.unref?.();
+
     return timer;
   },
   stopRecurringWork,
   stopServer,
 }: {
-  cancelTimeout?: (timer: unknown) => void;
+  cancelTimeout?: (timer: ReturnType<typeof setTimeout> | number | undefined) => void;
   closeAdmission: () => Promise<void>;
   closeAuth: () => void | Promise<void>;
   closeProductStores: () => void | Promise<void>;
   closeQueue: () => Promise<void>;
   flushAnalytics: () => Promise<void>;
   forceAfterMs?: number;
-  scheduleTimeout?: (handler: () => void, delayMs: number) => unknown;
+  scheduleTimeout?: (handler: () => void, delayMs: number) => ReturnType<typeof setTimeout> | number | undefined;
   stopRecurringWork: () => void | Promise<void>;
   stopServer: (force: boolean) => void | Promise<void>;
 }) {
   let completion: Promise<void> | null = null;
-  let deadline: unknown = null;
+  let deadline: ReturnType<typeof setTimeout> | number | undefined | null = null;
   let finished = false;
   let forced = false;
   const drainingBarriersReleased = Promise.withResolvers<void>();
   const serverStopped = Promise.withResolvers<void>();
+
   const requestServerStop = (force: boolean) => {
     void callBoundary(() => stopServer(force)).then(serverStopped.resolve, serverStopped.reject);
   };
@@ -46,6 +48,7 @@ export function createLocalRuntimeShutdown({
     request: (): Promise<void> => {
       if (completion) {
         forceServerStop();
+
         return completion;
       }
 
@@ -55,12 +58,14 @@ export function createLocalRuntimeShutdown({
         callBoundary(stopRecurringWork),
         serverStopped.promise,
       ];
+
       requestServerStop(false);
       completion = (async () => {
         const settled = await Promise.allSettled(
           barriers.map((barrier) => Promise.race([barrier, drainingBarriersReleased.promise])),
         );
-        const failures: unknown[] = settled.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+
+        const failures: unknown[] = settled.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
 
         for (const cleanup of [flushAnalytics, closeAuth, closeProductStores]) {
           try {
@@ -73,12 +78,13 @@ export function createLocalRuntimeShutdown({
         if (failures.length > 0) {
           throw new AggregateError(failures, "Local Bun Runtime shutdown failed");
         }
-      })()
-        .finally(() => {
-          finished = true;
-          if (deadline !== null) cancelTimeout(deadline);
-        });
+      })().finally(() => {
+        finished = true;
+
+        if (deadline !== null) cancelTimeout(deadline);
+      });
       deadline = scheduleTimeout(forceServerStop, forceAfterMs);
+
       return completion;
     },
   };

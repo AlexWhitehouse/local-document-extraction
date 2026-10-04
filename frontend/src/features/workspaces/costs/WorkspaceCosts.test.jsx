@@ -7,14 +7,40 @@ import { useCostResource } from "./useCostResource.js";
 import { resolveRange, validCustomRange } from "./costRange.js";
 import { costAmount } from "../../../../../shared/processingCosts.ts";
 
-const costs = (amount = 0.3, unknown = 0) => ({ currency: "USD", total: costAmount(amount, amount === null ? 0 : 1, unknown), split: costAmount(), auto_template: costAmount(), extraction: costAmount(amount, amount === null ? 0 : 1, unknown) });
-const metrics = { costs: costs(), documents: 4, pages: 8, fullyCostedDocuments: 1, fullyCostedPages: 2, fullyCostedAmount: 0.2 };
+const costs = (amount = 0.3, unknown = 0) => ({
+  currency: "USD",
+  total: costAmount(amount, amount === null ? 0 : 1, unknown),
+  split: costAmount(),
+  auto_template: costAmount(),
+  extraction: costAmount(amount, amount === null ? 0 : 1, unknown),
+});
+
+const metrics = {
+  costs: costs(),
+  documents: 4,
+  pages: 8,
+  fullyCostedDocuments: 1,
+  fullyCostedPages: 2,
+  fullyCostedAmount: 0.2,
+};
+
 const overview = {
   range: { start: "2026-09-01T00:00:00.000Z", end: "2026-09-02T00:00:00.000Z", unit: "day" },
-  totals: metrics, previous: null, samples: [], sampled: false,
+  totals: metrics,
+  previous: null,
+  samples: [],
+  sampled: false,
   buckets: [{ ...metrics, key: "2026-09-01", date: "2026-09-01", hour: 0 }],
 };
-const props = { workspaceId: "workspace_a", workspaceName: "Intake", role: "owner", tab: "overview", onTab: vi.fn(), onBack: vi.fn() };
+
+const props = {
+  workspaceId: "workspace_a",
+  workspaceName: "Intake",
+  role: "owner",
+  tab: "overview",
+  onTab: vi.fn(),
+  onBack: vi.fn(),
+};
 
 describe("workspace costs", () => {
   it("shows exact backend figures with fully costed denominators and requests a twelve-month range", async () => {
@@ -27,7 +53,9 @@ describe("workspace costs", () => {
     fireEvent.click(screen.getByRole("radio", { name: "12M" }));
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     const url = new URL(request.mock.calls[1][0], "http://localhost");
-    expect((Date.parse(url.searchParams.get("end")) - Date.parse(url.searchParams.get("start"))) / 86400000).toBeGreaterThanOrEqual(365);
+    expect(
+      (Date.parse(url.searchParams.get("end")) - Date.parse(url.searchParams.get("start"))) / 86400000,
+    ).toBeGreaterThanOrEqual(365);
     expect(request.mock.calls[0][1].cache).toBe("no-store");
   });
 
@@ -43,8 +71,26 @@ describe("workspace costs", () => {
   });
 
   it("shows unknown totals as unavailable and labels background history building", async () => {
-    const unknown = { ...metrics, costs: costs(null, 1), fullyCostedDocuments: 0, fullyCostedPages: 0, fullyCostedAmount: 0 };
-    render(<WorkspaceCosts {...props} request={vi.fn().mockResolvedValue({ ...overview, totals: unknown, updating: true, historyBuilding: true, buckets: [{ ...overview.buckets[0], ...unknown }] })} />);
+    const unknown = {
+      ...metrics,
+      costs: costs(null, 1),
+      fullyCostedDocuments: 0,
+      fullyCostedPages: 0,
+      fullyCostedAmount: 0,
+    };
+
+    render(
+      <WorkspaceCosts
+        {...props}
+        request={vi.fn().mockResolvedValue({
+          ...overview,
+          totals: unknown,
+          updating: true,
+          historyBuilding: true,
+          buckets: [{ ...overview.buckets[0], ...unknown }],
+        })}
+      />,
+    );
     await screen.findByLabelText("Headline figures");
     expect(screen.getByText("Total spend").closest("div").textContent).toContain("—");
     expect(screen.getByText("Per day").closest("div").textContent).toContain("—");
@@ -52,10 +98,35 @@ describe("workspace costs", () => {
   });
 
   it("keeps sparse search continuation available and loads a deleted all-blank packet on selection", async () => {
-    const packet = { id: "packet", kind: "packet", name: "Blank packet.pdf", created_at: "2026-09-01T10:00:00.000Z", status: "completed", deleted: true,
-      documentCount: 0, pages: 2, pageNumbers: [2, 5], excludedPages: 2, excludedPageNumbers: [2, 5], children: [],
-      costs: { ...costs(), extraction: costAmount(), split: costAmount(0.3, 1), excluded_pages_cost: costAmount(0.3, 1) } };
-    const request = vi.fn(async path => path.includes("/documents/packet") ? packet : path.includes("cursor=") ? { items: [packet], cursor: null } : { items: [], cursor: "next", searchContinuing: true });
+    const packet = {
+      id: "packet",
+      kind: "packet",
+      name: "Blank packet.pdf",
+      created_at: "2026-09-01T10:00:00.000Z",
+      status: "completed",
+      deleted: true,
+      documentCount: 0,
+      pages: 2,
+      pageNumbers: [2, 5],
+      excludedPages: 2,
+      excludedPageNumbers: [2, 5],
+      children: [],
+      costs: {
+        ...costs(),
+        extraction: costAmount(),
+        split: costAmount(0.3, 1),
+        excluded_pages_cost: costAmount(0.3, 1),
+      },
+    };
+
+    const request = vi.fn(async (path) =>
+      path.includes("/documents/packet")
+        ? packet
+        : path.includes("cursor=")
+          ? { items: [packet], cursor: null }
+          : { items: [], cursor: "next", searchContinuing: true },
+    );
+
     render(<WorkspaceCosts {...props} tab="documents" request={request} />);
     fireEvent.click(await screen.findByRole("button", { name: "Continue search" }));
     const detail = await screen.findByRole("region", { name: "Blank packet.pdf cost" });
@@ -76,7 +147,7 @@ describe("workspace costs", () => {
 
 it("aborts obsolete reads and never renders another workspace's late result", async () => {
   const pending = [];
-  const request = vi.fn((path, options) => new Promise(resolve => pending.push({ path, options, resolve })));
+  const request = vi.fn((path, options) => new Promise((resolve) => pending.push({ path, options, resolve })));
   const hook = renderHook(({ path }) => useCostResource(request, path), { initialProps: { path: "/a" } });
   hook.rerender({ path: "/b" });
   expect(pending[0].options.signal.aborted).toBe(true);
@@ -90,18 +161,66 @@ it("validates dates and uses UTC hourly buckets even across daylight saving chan
   expect(validCustomRange("2026-02-30", "2026-03-01", "2026-10-04")).toBe(false);
   expect(validCustomRange("2024-01-01", "2026-01-01", "2026-10-04")).toBe(false);
   expect(validCustomRange("2025-01-01", "2025-12-31", "2026-10-04")).toBe(true);
-  expect(resolveRange({ preset: "1d" }, Date.parse("2026-10-04T13:20:00Z"))).toEqual({ start: "2026-10-03T14:00:00.000Z", end: "2026-10-04T14:00:00.000Z", unit: "hour" });
-  expect(resolveRange({ preset: "custom", from: "2026-03-29", to: "2026-03-29" }, Date.parse("2026-10-04"))).toEqual({ start: "2026-03-29T00:00:00.000Z", end: "2026-03-30T00:00:00.000Z", unit: "hour" });
+  expect(resolveRange({ preset: "1d" }, Date.parse("2026-10-04T13:20:00Z"))).toEqual({
+    start: "2026-10-03T14:00:00.000Z",
+    end: "2026-10-04T14:00:00.000Z",
+    unit: "hour",
+  });
+  expect(resolveRange({ preset: "custom", from: "2026-03-29", to: "2026-03-29" }, Date.parse("2026-10-04"))).toEqual({
+    start: "2026-03-29T00:00:00.000Z",
+    end: "2026-03-30T00:00:00.000Z",
+    unit: "hour",
+  });
 });
 
 it("shows weighted template percentiles, combines small groups, and explains reassessed outliers", () => {
-  const primary = { id: "ordinary", name: "Ordinary invoice", templateId: "invoices", template: "Primary invoice template", pages: 2, costs: costs(2), weight: 10 };
-  const retry = { ...primary, id: "retry", name: "Reassessed invoice", pages: 4, costs: costs(20), weight: 1, retried: true };
-  const samples = [primary, retry, ...Array.from({ length: 12 }, (_, index) => ({
-    id: `other-${index}`, name: `Other document ${index}`, templateId: `template-${index}`, template: `Template ${index}`, pages: 1, costs: costs(1), weight: 1,
-  }))];
-  const totals = { ...metrics, costs: costs(52), documents: 23, pages: 36, fullyCostedDocuments: 23, fullyCostedPages: 36, fullyCostedAmount: 52 };
-  render(<OverviewTab data={{ ...overview, totals, previous: { ...totals, costs: costs(26) }, samples, sampled: true }} />);
+  const primary = {
+    id: "ordinary",
+    name: "Ordinary invoice",
+    templateId: "invoices",
+    template: "Primary invoice template",
+    pages: 2,
+    costs: costs(2),
+    weight: 10,
+  };
+
+  const retry = {
+    ...primary,
+    id: "retry",
+    name: "Reassessed invoice",
+    pages: 4,
+    costs: costs(20),
+    weight: 1,
+    retried: true,
+  };
+
+  const samples = [
+    primary,
+    retry,
+    ...Array.from({ length: 12 }, (_, index) => ({
+      id: `other-${index}`,
+      name: `Other document ${index}`,
+      templateId: `template-${index}`,
+      template: `Template ${index}`,
+      pages: 1,
+      costs: costs(1),
+      weight: 1,
+    })),
+  ];
+
+  const totals = {
+    ...metrics,
+    costs: costs(52),
+    documents: 23,
+    pages: 36,
+    fullyCostedDocuments: 23,
+    fullyCostedPages: 36,
+    fullyCostedAmount: 52,
+  };
+
+  render(
+    <OverviewTab data={{ ...overview, totals, previous: { ...totals, costs: costs(26) }, samples, sampled: true }} />,
+  );
   expect(screen.getByText("▲ 100%")).toBeTruthy();
   const spread = screen.getByRole("region", { name: "Cost per document" });
   expect(within(spread).getByText(/Sample of 14 of 23 documents/)).toBeTruthy();
@@ -122,10 +241,35 @@ it("shows weighted template percentiles, combines small groups, and explains rea
 });
 
 it("keeps incomplete hourly spend distinct from fully costed averages in chart and table views", () => {
-  const partial = { ...costs(0.5, 1), split: costAmount(0.1, 1), auto_template: costAmount(0.1, 1), extraction: costAmount(0.3, 1, 1) };
+  const partial = {
+    ...costs(0.5, 1),
+    split: costAmount(0.1, 1),
+    auto_template: costAmount(0.1, 1),
+    extraction: costAmount(0.3, 1, 1),
+  };
+
   const bucket = { ...metrics, costs: partial, key: "2026-09-01T10", date: "2026-09-01", hour: 10 };
-  const empty = { ...bucket, key: "2026-09-01T11", hour: 11, documents: 0, fullyCostedDocuments: 0, costs: costs(null, 1) };
-  render(<OverviewTab data={{ ...overview, range: { ...overview.range, unit: "hour" }, totals: { ...metrics, costs: partial }, previous: metrics, buckets: [bucket, empty] }} />);
+
+  const empty = {
+    ...bucket,
+    key: "2026-09-01T11",
+    hour: 11,
+    documents: 0,
+    fullyCostedDocuments: 0,
+    costs: costs(null, 1),
+  };
+
+  render(
+    <OverviewTab
+      data={{
+        ...overview,
+        range: { ...overview.range, unit: "hour" },
+        totals: { ...metrics, costs: partial },
+        previous: metrics,
+        buckets: [bucket, empty],
+      }}
+    />,
+  );
   expect(screen.queryByText(/vs previous period/)).toBeNull();
   expect(screen.getByText("Total spend").closest("div").textContent).toContain("$0.50+");
   const chart = screen.getByRole("group", { name: "Spend by stage" });
@@ -142,7 +286,10 @@ it("keeps incomplete hourly spend distinct from fully costed averages in chart a
 });
 
 it("applies bounded historical custom ranges and supports dashboard navigation", async () => {
-  const request = vi.fn().mockResolvedValue(overview), onTab = vi.fn(), onBack = vi.fn();
+  const request = vi.fn().mockResolvedValue(overview),
+    onTab = vi.fn(),
+    onBack = vi.fn();
+
   render(<WorkspaceCosts {...props} request={request} onTab={onTab} onBack={onBack} />);
   await screen.findByLabelText("Headline figures");
   fireEvent.click(screen.getByRole("radio", { name: "Custom" }));
@@ -154,7 +301,11 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
   fireEvent.click(screen.getByRole("button", { name: "Apply" }));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
   const range = new URL(request.mock.calls[1][0], "http://localhost").searchParams;
-  expect(Object.fromEntries(range)).toEqual({ start: "2020-01-01T00:00:00.000Z", end: "2020-02-01T00:00:00.000Z", unit: "day" });
+  expect(Object.fromEntries(range)).toEqual({
+    start: "2020-01-01T00:00:00.000Z",
+    end: "2020-02-01T00:00:00.000Z",
+    unit: "day",
+  });
   expect(screen.getByText("2020-01-01 to 2020-01-31 · UTC")).toBeTruthy();
   fireEvent.click(screen.getByRole("radio", { name: "01-01 – 01-31" }));
   fireEvent.keyDown(window, { key: "Escape" });
@@ -172,13 +323,57 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
 });
 
 it("reconciles packet split shares, deleted children, and unallocated original pages", async () => {
-  const child = { id: "invoice", name: "Invoice", template: "Invoices", pages: 2, pageNumbers: [2, 5], deleted: true,
-    costs: { ...costs(0.6), split: costAmount(0.2, 1), auto_template: costAmount(0.1, 1), extraction: costAmount(0.3, 1) } };
-  const second = { ...child, id: "receipt", name: "Receipt", template: "Receipts", deleted: false, pages: 1, pageNumbers: [9], costs: { ...costs(0.2), split: costAmount(0.1, 1), extraction: costAmount(0.1, 1) } };
-  const packet = { id: "packet", kind: "packet", name: "Mixed packet.pdf", created_at: "2026-09-01T10:00:00.000Z", status: "processing_children",
-    documentCount: 2, pages: 5, pageNumbers: [2, 5, 9, 10, 12], excludedPages: 1, excludedPageNumbers: [10], children: [child, second],
-    costs: { ...costs(1), split: costAmount(0.5, 1), auto_template: costAmount(0.1, 1), extraction: costAmount(0.4, 2), excluded_pages_cost: costAmount(0.1, 1) } };
-  const request = vi.fn(async path => path.includes("/documents/packet") ? packet : { items: [packet], cursor: null });
+  const child = {
+    id: "invoice",
+    name: "Invoice",
+    template: "Invoices",
+    pages: 2,
+    pageNumbers: [2, 5],
+    deleted: true,
+    costs: {
+      ...costs(0.6),
+      split: costAmount(0.2, 1),
+      auto_template: costAmount(0.1, 1),
+      extraction: costAmount(0.3, 1),
+    },
+  };
+
+  const second = {
+    ...child,
+    id: "receipt",
+    name: "Receipt",
+    template: "Receipts",
+    deleted: false,
+    pages: 1,
+    pageNumbers: [9],
+    costs: { ...costs(0.2), split: costAmount(0.1, 1), extraction: costAmount(0.1, 1) },
+  };
+
+  const packet = {
+    id: "packet",
+    kind: "packet",
+    name: "Mixed packet.pdf",
+    created_at: "2026-09-01T10:00:00.000Z",
+    status: "processing_children",
+    documentCount: 2,
+    pages: 5,
+    pageNumbers: [2, 5, 9, 10, 12],
+    excludedPages: 1,
+    excludedPageNumbers: [10],
+    children: [child, second],
+    costs: {
+      ...costs(1),
+      split: costAmount(0.5, 1),
+      auto_template: costAmount(0.1, 1),
+      extraction: costAmount(0.4, 2),
+      excluded_pages_cost: costAmount(0.1, 1),
+    },
+  };
+
+  const request = vi.fn(async (path) =>
+    path.includes("/documents/packet") ? packet : { items: [packet], cursor: null },
+  );
+
   render(<WorkspaceCosts {...props} tab="documents" request={request} />);
   const detail = await screen.findByRole("region", { name: "Mixed packet.pdf cost" });
   const table = within(detail).getByRole("table");
@@ -205,18 +400,32 @@ it("refreshes only visible pages and clears previously loaded costs after access
   vi.useFakeTimers();
   let visibility = "visible";
   const visible = vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
-  const request = vi.fn().mockResolvedValueOnce(overview).mockRejectedValue(Object.assign(new Error("forbidden"), { status: 403 }));
+
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce(overview)
+    .mockRejectedValue(Object.assign(new Error("forbidden"), { status: 403 }));
+
   const hook = renderHook(() => useCostResource(request, "/costs"));
+
   try {
     await act(async () => {});
     expect(hook.result.current.data).toEqual(overview);
     visibility = "hidden";
-    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
     expect(request).toHaveBeenCalledTimes(1);
     visibility = "visible";
-    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
     expect(request).toHaveBeenCalledTimes(2);
     expect(hook.result.current.data).toBeNull();
     expect(hook.result.current.error).toContain("signed-in Workspace owners and admins");
-  } finally { hook.unmount(); visible.mockRestore(); vi.useRealTimers(); }
+  } finally {
+    hook.unmount();
+    visible.mockRestore();
+    vi.useRealTimers();
+  }
 });

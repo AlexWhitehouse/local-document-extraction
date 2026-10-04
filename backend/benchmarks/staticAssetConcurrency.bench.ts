@@ -1,3 +1,4 @@
+import { isNumber, isJsonObject, parseJson, type JsonValue } from "../../shared/json";
 import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -26,6 +27,7 @@ function percentile(samples: number[], quantile: number): number {
   const lowerIndex = Math.floor(position);
   const upperIndex = Math.ceil(position);
   const fraction = position - lowerIndex;
+
   return sorted[lowerIndex]! + (sorted[upperIndex]! - sorted[lowerIndex]!) * fraction;
 }
 
@@ -48,11 +50,12 @@ function renderStaticAssetBenchmark({
 }): string {
   const buffered = results.find((result) => result.mode === "buffered");
   const lazy = results.find((result) => result.mode === "lazy");
+
   if (!buffered || !lazy) throw new Error("Both buffered and lazy benchmark results are required");
   const rssDifference = buffered.peakRssBytes - lazy.peakRssBytes;
-  const rssPercent = buffered.peakRssBytes > 0
-    ? (rssDifference / buffered.peakRssBytes) * 100
-    : 0;
+
+  const rssPercent = buffered.peakRssBytes > 0 ? (rssDifference / buffered.peakRssBytes) * 100 : 0;
+
   const p95Difference = buffered.p95LatencyMs - lazy.p95LatencyMs;
 
   return [
@@ -84,15 +87,19 @@ async function runCoordinator(): Promise<void> {
 
   try {
     const asset = await open(assetPath, "w");
+
     try {
       await asset.truncate(assetBytes);
     } finally {
       await asset.close();
     }
-    const results = [] as StaticAssetBenchmarkResult[];
+
+    const results: StaticAssetBenchmarkResult[] = [];
+
     for (const mode of ["buffered", "lazy"] as const) {
       results.push(await measureMode({ assetBytes, assetPath, concurrency, mode, rounds }));
     }
+
     const markdown = renderStaticAssetBenchmark({
       assetBytes,
       bunRevision: Bun.revision,
@@ -102,6 +109,7 @@ async function runCoordinator(): Promise<void> {
       results,
       rounds,
     });
+
     const evidenceDirectory = resolve(repositoryRoot, ".scratch/bun-1-4-review/evidence");
     await mkdir(evidenceDirectory, { recursive: true });
     await writeFile(join(evidenceDirectory, "15-static-asset-concurrency.md"), markdown, "utf8");
@@ -127,22 +135,34 @@ async function measureMode({
   const worker = await startWorker({ assetPath, mode });
   const latencies: number[] = [];
   let wallTimeMs = 0;
+
   try {
     await consumeAsset(worker.origin, assetBytes);
+
     for (let round = 0; round < rounds; round += 1) {
       const roundStarted = performance.now();
-      await Promise.all(Array.from({ length: concurrency }, async () => {
-        const requestStarted = performance.now();
-        await consumeAsset(worker.origin, assetBytes);
-        latencies.push(performance.now() - requestStarted);
-      }));
+      await Promise.all(
+        Array.from({ length: concurrency }, async () => {
+          const requestStarted = performance.now();
+          await consumeAsset(worker.origin, assetBytes);
+          latencies.push(performance.now() - requestStarted);
+        }),
+      );
       wallTimeMs += performance.now() - roundStarted;
     }
+
     await Bun.sleep(25);
-    const metrics = await fetch(`${worker.origin}/metrics`).then((response) => {
+
+    const metrics = await fetch(`${worker.origin}/metrics`).then(async (response) => {
       if (!response.ok) throw new Error(`Metrics request failed with HTTP ${response.status}`);
-      return response.json() as Promise<WorkerMetrics>;
+
+      const value = parseJson(await response.text());
+
+      if (!isWorkerMetrics(value)) throw new Error("Invalid worker memory metrics");
+
+      return value;
     });
+
     return {
       currentRssBytes: metrics.currentRssBytes,
       mode,
@@ -159,8 +179,10 @@ async function measureMode({
 
 async function consumeAsset(origin: string, expectedBytes: number): Promise<void> {
   const response = await fetch(`${origin}/asset`);
+
   if (!response.ok) throw new Error(`Asset request failed with HTTP ${response.status}`);
   const bytes = await response.arrayBuffer();
+
   if (bytes.byteLength !== expectedBytes) {
     throw new Error(`Asset response contained ${bytes.byteLength} bytes, expected ${expectedBytes}`);
   }
@@ -173,52 +195,63 @@ async function startWorker({
   assetPath: string;
   mode: "buffered" | "lazy";
 }): Promise<{ origin: string; stop(): Promise<void> }> {
-  const child = Bun.spawn([
-    process.execPath,
-    import.meta.path,
-    `--worker=${mode}`,
-    `--asset=${assetPath}`,
-  ], {
+  const child = Bun.spawn([process.execPath, import.meta.path, `--worker=${mode}`, `--asset=${assetPath}`], {
     cwd: repositoryRoot,
     env: process.env,
     stderr: "pipe",
     stdout: "pipe",
   });
+
   let stderr = "";
   let stdout = "";
   let resolveReady!: (origin: string) => void;
   let rejectReady!: (error: Error) => void;
   let readySettled = false;
+
   const ready = new Promise<string>((resolvePromise, rejectPromise) => {
     resolveReady = resolvePromise;
     rejectReady = rejectPromise;
   });
-  const stdoutDone = captureStream(child.stdout, (text) => {
-    stdout += text;
-  }, (line) => {
-    const prefix = "STATIC_ASSET_BENCH_READY ";
-    if (!line.startsWith(prefix) || readySettled) return;
-    try {
-      const payload = JSON.parse(line.slice(prefix.length)) as { origin?: unknown };
-      const origin = new URL(String(payload.origin || ""));
-      if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || !origin.port) {
-        throw new Error("worker reported a non-loopback origin");
+
+  const stdoutDone = captureStream(
+    child.stdout,
+    (text) => {
+      stdout += text;
+    },
+    (line) => {
+      const prefix = "STATIC_ASSET_BENCH_READY ";
+
+      if (!line.startsWith(prefix) || readySettled) return;
+
+      try {
+        const payload = parseJson(line.slice(prefix.length));
+
+        if (!isJsonObject(payload)) throw new Error("Invalid worker readiness message");
+        const origin = new URL(String(payload.origin || ""));
+
+        if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || !origin.port) {
+          throw new Error("worker reported a non-loopback origin");
+        }
+
+        readySettled = true;
+        resolveReady(origin.origin);
+      } catch (error) {
+        readySettled = true;
+        rejectReady(error instanceof Error ? error : new Error(String(error)));
       }
-      readySettled = true;
-      resolveReady(origin.origin);
-    } catch (error) {
-      readySettled = true;
-      rejectReady(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
+    },
+  );
+
   const stderrDone = captureStream(child.stderr, (text) => {
     stderr += text;
   });
+
   void child.exited.then((exitCode) => {
     if (readySettled) return;
     readySettled = true;
     rejectReady(new Error(`worker exited with code ${exitCode} before readiness`));
   });
+
   const readinessTimeout = setTimeout(() => {
     if (readySettled) return;
     readySettled = true;
@@ -226,22 +259,27 @@ async function startWorker({
   }, 10_000);
 
   let origin: string;
+
   try {
     origin = await ready;
   } catch (error) {
     child.kill("SIGKILL");
     await child.exited;
     await Promise.all([stdoutDone, stderrDone]);
-    throw new Error([
-      `Static asset benchmark worker failed: ${errorMessage(error)}`,
-      `stdout:\n${stdout || "<empty>"}`,
-      `stderr:\n${stderr || "<empty>"}`,
-    ].join("\n"), { cause: error });
+    throw new Error(
+      [
+        `Static asset benchmark worker failed: ${errorMessage(error)}`,
+        `stdout:\n${stdout || "<empty>"}`,
+        `stderr:\n${stderr || "<empty>"}`,
+      ].join("\n"),
+      { cause: error },
+    );
   } finally {
     clearTimeout(readinessTimeout);
   }
 
   let stopPromise: Promise<void> | null = null;
+
   return {
     origin,
     stop: () => {
@@ -251,12 +289,15 @@ async function startWorker({
             child.kill("SIGTERM");
           });
         }
+
         const exitCode = await child.exited;
         await Promise.all([stdoutDone, stderrDone]);
+
         if (exitCode !== 0) {
           throw new Error(`Static asset benchmark worker exited with code ${exitCode}: ${stderr}`);
         }
       })();
+
       return stopPromise;
     },
   };
@@ -264,43 +305,53 @@ async function startWorker({
 
 async function runWorker(mode: "buffered" | "lazy", assetPath: string): Promise<void> {
   let peakRssBytes = process.memoryUsage().rss;
+
   const sample = setInterval(() => {
     peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
   }, 1);
+
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
       const pathname = new URL(request.url).pathname;
+
       if (pathname === "/asset") {
-        return mode === "buffered"
-          ? new Response(await readFile(assetPath))
-          : new Response(Bun.file(assetPath));
+        return mode === "buffered" ? new Response(await readFile(assetPath)) : new Response(Bun.file(assetPath));
       }
+
       if (pathname === "/metrics") {
         sampleRss();
+
         return Response.json({
           currentRssBytes: process.memoryUsage().rss,
           peakRssBytes,
         });
       }
+
       if (pathname === "/shutdown" && request.method === "POST") {
         setTimeout(() => {
           clearInterval(sample);
           void server.stop(true).finally(() => process.exit(0));
         }, 0);
+
         return new Response(null, { status: 202 });
       }
+
       return new Response("Not found", { status: 404 });
     },
   });
+
   const sampleRss = () => {
     peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
   };
-  console.log(`STATIC_ASSET_BENCH_READY ${JSON.stringify({
-    mode,
-    origin: `http://127.0.0.1:${server.port}`,
-  })}`);
+
+  console.log(
+    `STATIC_ASSET_BENCH_READY ${JSON.stringify({
+      mode,
+      origin: `http://127.0.0.1:${server.port}`,
+    })}`,
+  );
 }
 
 async function captureStream(
@@ -311,22 +362,28 @@ async function captureStream(
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let pending = "";
+
   try {
     while (true) {
       const { done, value } = await reader.read();
+
       if (done) break;
       const text = decoder.decode(value, { stream: true });
       onText(text);
       pending += text;
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() || "";
+
       for (const line of lines) onLine(line);
     }
+
     const finalText = decoder.decode();
+
     if (finalText) {
       onText(finalText);
       pending += finalText;
     }
+
     if (pending) onLine(pending);
   } finally {
     reader.releaseLock();
@@ -344,9 +401,11 @@ function formatMiB(bytes: number): string {
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number(value);
+
   if (!Number.isSafeInteger(parsed) || parsed < 1) {
     throw new Error("Static asset benchmark parameters must be positive integers");
   }
+
   return parsed;
 }
 
@@ -354,17 +413,24 @@ function argumentValue(prefix: string): string {
   return process.argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length) || "";
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 if (import.meta.main) {
   const workerMode = argumentValue("--worker=");
+
   if (workerMode === "buffered" || workerMode === "lazy") {
     const assetPath = argumentValue("--asset=");
+
     if (!assetPath) throw new Error("Static asset benchmark worker requires --asset");
     await runWorker(workerMode, assetPath);
   } else {
     await runCoordinator();
   }
+}
+
+/** Validate every field consumed across the benchmark process boundary. */
+function isWorkerMetrics(value: JsonValue | undefined): value is WorkerMetrics {
+  return isJsonObject(value) && isNumber(value.currentRssBytes) && isNumber(value.peakRssBytes);
 }

@@ -59,7 +59,9 @@ export function ApplicationAdminPage({ admin }) {
               </div>
               <div>
                 <dt>Created</dt>
-                <dd><code>{formatExactLocalDateTime(user.createdAt)}</code></dd>
+                <dd>
+                  <code>{formatExactLocalDateTime(user.createdAt)}</code>
+                </dd>
               </div>
             </dl>
           </section>
@@ -117,6 +119,7 @@ function getUserActions(admin, user) {
   const userId = String(user.id || "").trim();
   const isCurrentUser = userId && userId === String(admin.sessionUserId || "").trim();
   const disabled = admin.isLoading || admin.mutatingUserId === userId;
+
   const action = (label, run, className) => ({
     label,
     className,
@@ -125,19 +128,23 @@ function getUserActions(admin, user) {
   });
 
   const actions = [];
+
   if (!isCurrentUser && !isApplicationAdmin(user) && !user.banned) {
     actions.push(action("Impersonate user", admin.onStartImpersonation, "secondary"));
   }
+
   if (isApplicationAdmin(user)) {
     if (!isCurrentUser) actions.push(action("Remove admin", admin.onRemoveAdmin, "secondary"));
   } else {
     actions.push(action("Make admin", admin.onMakeAdmin, "secondary"));
   }
+
   if (user.banned) {
     actions.push(action("Unban user", admin.onOpenUnbanDialog, "secondary"));
   } else if (!isCurrentUser) {
     actions.push(action("Ban user", admin.onOpenBanDialog, "danger"));
   }
+
   return actions;
 }
 
@@ -145,7 +152,12 @@ function UnbanUserDialog({ admin, user }) {
   const email = safeText(user.email);
 
   return (
-    <ModalDialog className="admin-user-action-modal" label={`Unban ${email}`} initialFocus=".actions button" onClose={admin.onCloseUnbanDialog}>
+    <ModalDialog
+      className="admin-user-action-modal"
+      label={`Unban ${email}`}
+      initialFocus=".actions button"
+      onClose={admin.onCloseUnbanDialog}
+    >
       <ModalHeader
         title={`Unban ${email}`}
         description="Restoring access allows this Better Auth account to sign in again."
@@ -181,16 +193,19 @@ function BanUserDialog({ admin, user }) {
   const email = safeText(user.email);
 
   return (
-    <ModalDialog className="admin-user-action-modal" label={`Ban ${email}`} initialFocus="textarea" onClose={admin.onCloseBanDialog}>
+    <ModalDialog
+      className="admin-user-action-modal"
+      label={`Ban ${email}`}
+      initialFocus="textarea"
+      onClose={admin.onCloseBanDialog}
+    >
       <ModalHeader
         title={`Ban ${email}`}
         description="This permanently blocks Better Auth account access. Workspace data is unchanged."
         onClose={admin.onCloseBanDialog}
       />
       <form className="admin-user-action-form" onSubmit={admin.onConfirmBan}>
-        {isApplicationAdmin(user) ? (
-          <p className="form-warning">You are banning another Application admin.</p>
-        ) : null}
+        {isApplicationAdmin(user) ? <p className="form-warning">You are banning another Application admin.</p> : null}
         <label>
           Ban reason
           <textarea
@@ -200,7 +215,9 @@ function BanUserDialog({ admin, user }) {
           />
         </label>
         {admin.banReasonError ? (
-          <p className="form-error" role="alert">{admin.banReasonError}</p>
+          <p className="form-error" role="alert">
+            {admin.banReasonError}
+          </p>
         ) : null}
         <div className="actions">
           <button type="button" className="secondary" onClick={admin.onCloseBanDialog}>
@@ -217,15 +234,13 @@ function BanUserDialog({ admin, user }) {
 
 function formatExactLocalDateTime(value) {
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) {
     return "—";
   }
 
-  const parts = [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-  ];
+  const parts = [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())];
+
   return `${parts.join("-")} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 

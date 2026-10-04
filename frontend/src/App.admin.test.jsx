@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 let currentSession;
 
-const authClientMock = vi.hoisted(() => ({
+const authClientMock = {
   listUsers: vi.fn(),
   setRole: vi.fn(),
   banUser: vi.fn(),
@@ -14,46 +14,35 @@ const authClientMock = vi.hoisted(() => ({
   stopImpersonating: vi.fn(),
   refetchSession: vi.fn(),
   signOut: vi.fn(),
-}));
+};
 
-vi.mock("./lib/authClient", () => ({
-  createRuntimeAuthClient: () => ({
-    useSession: () => ({
-      data: currentSession,
-      isPending: false,
-      refetch: authClientMock.refetchSession,
-    }),
-    signIn: {
-      email: vi.fn(),
-      social: vi.fn(),
-    },
-    signUp: {
-      email: vi.fn(),
-    },
-    signOut: authClientMock.signOut,
-    admin: {
-      listUsers: authClientMock.listUsers,
-      setRole: authClientMock.setRole,
-      banUser: authClientMock.banUser,
-      unbanUser: authClientMock.unbanUser,
-      impersonateUser: authClientMock.impersonateUser,
-      stopImpersonating: authClientMock.stopImpersonating,
-    },
+const createAuthClient = () => ({
+  useSession: () => ({
+    data: currentSession,
+    isPending: false,
+    refetch: authClientMock.refetchSession,
   }),
-}));
-
-vi.mock("sonner", () => ({
-  Toaster: (props) => (
-    <div data-rich-colors={String(props.richColors)} data-testid="sonner-toaster" />
-  ),
-  toast: {
-    error: vi.fn(),
-    success: vi.fn(),
+  signIn: {
+    email: vi.fn(),
+    social: vi.fn(),
   },
-}));
+  signUp: {
+    email: vi.fn(),
+  },
+  signOut: authClientMock.signOut,
+  admin: {
+    listUsers: authClientMock.listUsers,
+    setRole: authClientMock.setRole,
+    banUser: authClientMock.banUser,
+    unbanUser: authClientMock.unbanUser,
+    impersonateUser: authClientMock.impersonateUser,
+    stopImpersonating: authClientMock.stopImpersonating,
+  },
+});
 
 import { App } from "./App.jsx";
-import { toast } from "sonner";
+
+const toast = { error: vi.fn(), success: vi.fn() };
 
 function accountList() {
   return within(screen.getByRole("region", { name: "Account list" }));
@@ -89,7 +78,7 @@ describe("Application admin page gate", () => {
   });
 
   it("does not show the Admin sidebar item to a regular user", async () => {
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toast} />);
 
     expect(await screen.findByRole("link", { name: /Workspaces/ })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Admin/ })).toBeNull();
@@ -100,7 +89,7 @@ describe("Application admin page gate", () => {
   it("shows Application admins an Admin sidebar item with no count badge", async () => {
     currentSession = sessionForRole("admin");
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toast} />);
 
     const adminButton = await screen.findByRole("link", { name: /^Admin$/ });
     expect(adminButton).toBeTruthy();
@@ -111,7 +100,7 @@ describe("Application admin page gate", () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toast} />);
 
     const adminButton = await screen.findByRole("link", { name: /^Admin$/ });
     currentSession = sessionForRole("user");
@@ -180,11 +169,13 @@ describe("Application admin page gate", () => {
     await user.type(screen.getByLabelText("Search users"), "Grace");
 
     await waitFor(() => {
-      expect(authClientMock.listUsers).toHaveBeenLastCalledWith(listUsersQuery({
-        searchValue: "Grace",
-        searchField: "name",
-        searchOperator: "contains",
-      }));
+      expect(authClientMock.listUsers).toHaveBeenLastCalledWith(
+        listUsersQuery({
+          searchValue: "Grace",
+          searchField: "name",
+          searchOperator: "contains",
+        }),
+      );
     });
     // Debouncing keeps keystrokes from each issuing a request.
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(2);
@@ -277,9 +268,7 @@ describe("Application admin page gate", () => {
     await clickUserAction(user, "alan@example.com", "Make admin");
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(
-        "Application role could not be updated. Please try again.",
-      );
+      expect(toast.error).toHaveBeenCalledWith("Application role could not be updated. Please try again.");
     });
     expect(accountList().getByText("alan@example.com")).toBeTruthy();
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
@@ -385,6 +374,7 @@ describe("Application admin page gate", () => {
     authClientMock.impersonateUser.mockResolvedValue({ data: {}, error: null });
     authClientMock.refetchSession.mockImplementation(() => {
       currentSession = impersonatedSession();
+
       return Promise.resolve();
     });
 
@@ -399,9 +389,7 @@ describe("Application admin page gate", () => {
     expect(screen.queryByRole("heading", { name: "Application admin" })).toBeNull();
     expect(screen.getByRole("status", { name: "Impersonation mode" })).toBeTruthy();
     await waitFor(() => {
-      expect(
-        globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces")),
-      ).toHaveLength(2);
+      expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(2);
     });
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
   });
@@ -420,9 +408,7 @@ describe("Application admin page gate", () => {
     await clickUserAction(user, "alan@example.com", "Impersonate user");
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(
-        "Impersonation could not be started. Please try again.",
-      );
+      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be started. Please try again.");
     });
     expect(accountDetails().getByRole("heading", { name: "Alan Turing" })).toBeTruthy();
     expect(accountList().getByText("alan@example.com")).toBeTruthy();
@@ -434,7 +420,7 @@ describe("Application admin page gate", () => {
   it("shows an impersonation indicator naming the impersonated user without exposing the original admin ID", async () => {
     currentSession = impersonatedSession();
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toast} />);
 
     const indicator = await screen.findByRole("status", { name: "Impersonation mode" });
     expect(within(indicator).getByText("Impersonating alan@example.com")).toBeTruthy();
@@ -448,7 +434,7 @@ describe("Application admin page gate", () => {
     const stopRequest = deferred();
     authClientMock.stopImpersonating.mockReturnValue(stopRequest.promise);
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toast} />);
 
     const stopButton = await screen.findByRole("button", { name: "Stop impersonating" });
     await user.click(stopButton);
@@ -469,10 +455,11 @@ describe("Application admin page gate", () => {
     authClientMock.stopImpersonating.mockResolvedValue({ data: {}, error: null });
     authClientMock.refetchSession.mockImplementation(() => {
       currentSession = sessionForRole("admin");
+
       return Promise.resolve();
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toast} />);
     await user.click(await screen.findByRole("button", { name: "Stop impersonating" }));
 
     await waitFor(() => {
@@ -482,9 +469,7 @@ describe("Application admin page gate", () => {
     expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
     expect(toast.success).toHaveBeenCalledWith("Impersonation stopped");
     await waitFor(() => {
-      expect(
-        globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces")),
-      ).toHaveLength(3);
+      expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(3);
     });
   });
 
@@ -496,13 +481,11 @@ describe("Application admin page gate", () => {
       error: { message: "Stop denied" },
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toast} />);
     await user.click(await screen.findByRole("button", { name: "Stop impersonating" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(
-        "Impersonation could not be stopped. Please try again.",
-      );
+      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be stopped. Please try again.");
     });
     expect(screen.getByRole("status", { name: "Impersonation mode" })).toBeTruthy();
     expect(screen.getByText("Impersonating alan@example.com")).toBeTruthy();
@@ -532,7 +515,7 @@ describe("Application admin page gate", () => {
         : mockWorkspaceFetch(input),
     );
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toast} />);
     expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
     await user.click(await screen.findByRole("link", { name: /^Admin$/ }));
 
@@ -560,7 +543,7 @@ describe("Application admin page gate", () => {
 });
 
 async function openAdminPage(user) {
-  render(<App />);
+  render(<App createAuthClient={createAuthClient} notifications={toast} />);
   await user.click(await screen.findByRole("link", { name: /^Admin$/ }));
 }
 
@@ -631,19 +614,19 @@ function impersonatedSession() {
 
 function deferred() {
   let resolve;
+
   const promise = new Promise((promiseResolve) => {
     resolve = promiseResolve;
   });
+
   return { promise, resolve };
 }
 
 function installLocalStorage() {
   const storage = new Map([
-    [
-      "documentextraction.workspace.v1",
-      JSON.stringify({ workspaceId: "ws_1", workspaceName: "Research Workspace" }),
-    ],
+    ["documentextraction.workspace.v1", JSON.stringify({ workspaceId: "ws_1", workspaceName: "Research Workspace" })],
   ]);
+
   Object.defineProperty(window, "localStorage", {
     configurable: true,
     value: {
@@ -659,14 +642,21 @@ function mockWorkspaceFetch(input) {
   const url = String(input);
 
   if (url.endsWith("/workspaces")) {
-    return Promise.resolve(jsonResponse({
-      workspaces: [{ id: "ws_1", name: "Research Workspace", role: "owner", created_at: "2026-01-01T00:00:00.000Z" }],
-    }));
+    return Promise.resolve(
+      jsonResponse({
+        workspaces: [{ id: "ws_1", name: "Research Workspace", role: "owner", created_at: "2026-01-01T00:00:00.000Z" }],
+      }),
+    );
   }
+
   if (url.endsWith("/invitations")) return Promise.resolve(jsonResponse({ invitations: [] }));
+
   if (url.endsWith("/templates")) return Promise.resolve(jsonResponse({ templates: [] }));
+
   if (url.includes("/jobs")) return Promise.resolve(jsonResponse({ jobs: [], next_cursor: null }));
+
   if (url.includes("/users")) return Promise.resolve(jsonResponse({ users: [] }));
+
   return Promise.resolve(jsonResponse({}));
 }
 

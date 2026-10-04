@@ -5,17 +5,22 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
   // Workspace that originated the request.
   const documentRequest = (path, options) => request(path, { ...options, recoverForbiddenAccess: false });
   const documentValidators = createByteBoundedCache({ maxBytes: cacheMaxBytes });
+
   function normalizedDocumentId(documentId) {
     const value = String(documentId || "").trim();
+
     if (!value) {
       throw new Error("Document ID is required");
     }
+
     return value;
   }
 
   async function listDocuments({ search = "", cursor = null, filters = {}, groupPackets = false } = {}) {
     const params = new URLSearchParams();
+
     if (groupPackets) params.set("group_packets", "true");
+
     for (const [name, value] of [
       ["search", search],
       ["date_from", filters.dateFrom],
@@ -24,22 +29,26 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
       ["cursor", cursor],
     ]) {
       const normalized = String(value || "").trim();
+
       if (normalized) params.set(name, normalized);
     }
-    const result = await documentRequest(
-      `/jobs${params.size ? `?${params.toString()}` : ""}`,
-      { method: "GET" },
-    );
+
+    const result = await documentRequest(`/jobs${params.size ? `?${params.toString()}` : ""}`, { method: "GET" });
+
     const jobs = Array.isArray(result?.jobs) ? result.jobs : [];
     const total = Number(result?.total);
-    return {
+
+    const page = {
       jobs,
-      ...(groupPackets ? { packets: Array.isArray(result?.packets) ? result.packets : [] } : {}),
       total: Number.isFinite(total) && total >= 0 ? total : jobs.length,
       status_counts: result?.status_counts,
       next_cursor: result?.next_cursor || null,
       has_more: Boolean(result?.has_more),
     };
+
+    if (groupPackets) page.packets = Array.isArray(result?.packets) ? result.packets : [];
+
+    return page;
   }
 
   return {
@@ -47,18 +56,29 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
       const result = await documentRequest("/jobs/counts", { method: "GET" });
       const counts = result?.status_counts;
       const values = ["queued", "processing", "completed", "failed"].map((status) => counts?.[status]);
+
       if (counts?.awaiting_template !== undefined) values.push(counts.awaiting_template);
-      if (values.some((value) => !Number.isSafeInteger(value) || value < 0)
-        || !Number.isSafeInteger(result?.total) || result.total !== values.reduce((sum, value) => sum + value, 0)) {
+
+      if (
+        values.some((value) => !Number.isSafeInteger(value) || value < 0) ||
+        !Number.isSafeInteger(result?.total) ||
+        result.total !== values.reduce((sum, value) => sum + value, 0)
+      ) {
         throw new Error("Document counts returned an invalid response");
       }
+
       return { total: result.total, status_counts: counts };
     },
     async getFilterOptions() {
       const result = await documentRequest("/jobs/filter-options", { method: "GET" });
+
       return {
         available_models: Array.isArray(result?.available_models)
-          ? result.available_models.map((model) => String(model)).filter(Boolean)
+          ? result.available_models.flatMap((model) => {
+              const name = String(model);
+
+              return name ? [name] : [];
+            })
           : [],
       };
     },
@@ -66,24 +86,32 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
       const normalizedId = normalizedDocumentId(documentId);
       const cached = documentValidators.get(normalizedId) || null;
       const headers = new Headers();
+
       if (cached?.etag) {
         headers.set("if-none-match", cached.etag);
       }
-      const result = await documentRequest(
-        `/jobs/${encodeURIComponent(normalizedId)}`,
-        { method: "GET", headers, responseType: "conditional-json" },
-      );
+
+      const result = await documentRequest(`/jobs/${encodeURIComponent(normalizedId)}`, {
+        method: "GET",
+        headers,
+        responseType: "conditional-json",
+      });
+
       if (result?.notModified) {
         if (!cached?.data) {
           throw new Error("Conditional Document response has no cached representation");
         }
+
         return cached.data;
       }
+
       const data = result?.data ?? result;
       const etag = result?.headers?.get?.("etag") || "";
+
       if (data && etag) {
         documentValidators.set(normalizedId, { data, etag });
       }
+
       return data;
     },
     listDocumentEntries(options = {}) {
@@ -93,45 +121,59 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
     /** Fetches a retained original into memory; errors carry `source_*` codes for availability messages. */
     async getOriginal(documentId, { signal } = {}) {
       const normalizedId = normalizedDocumentId(documentId);
-      const result = await documentRequest(
-        `/jobs/${encodeURIComponent(normalizedId)}/source`,
-        { method: "GET", cache: "no-store", responseType: "blob", signal },
-      );
+
+      const result = await documentRequest(`/jobs/${encodeURIComponent(normalizedId)}/source`, {
+        method: "GET",
+        cache: "no-store",
+        responseType: "blob",
+        signal,
+      });
+
       if (!result?.blob) {
         throw new Error("Original document returned an invalid response");
       }
+
       return { blob: result.blob, filename: responseFilename(result.headers) || "document" };
     },
     async deleteDocument(documentId) {
       const normalizedId = normalizedDocumentId(documentId);
-      const result = await documentRequest(
-        `/jobs/${encodeURIComponent(normalizedId)}`,
-        { method: "DELETE" },
-      );
+
+      const result = await documentRequest(`/jobs/${encodeURIComponent(normalizedId)}`, { method: "DELETE" });
+
       if (result?.deleted !== true || result.job_id !== normalizedId) {
         throw new Error("Document deletion returned an invalid response");
       }
+
       documentValidators.delete(normalizedId);
+
       return { deleted: true, job_id: normalizedId };
     },
     async exportDocuments(documentIds) {
-      const jobIds = Array.from(new Set(
-        (Array.isArray(documentIds) ? documentIds : [])
-          .map((documentId) => String(documentId || "").trim())
-          .filter(Boolean),
-      ));
+      const jobIds = Array.from(
+        new Set(
+          (Array.isArray(documentIds) ? documentIds : []).flatMap((documentId) => {
+            const id = String(documentId || "").trim();
+
+            return id ? [id] : [];
+          }),
+        ),
+      );
+
       if (!jobIds.length) {
         throw new Error("Select at least one job to export");
       }
+
       const result = await documentRequest("/jobs/export", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ job_ids: jobIds }),
         responseType: "blob",
       });
+
       if (!result?.blob) {
         throw new Error("Job export returned an invalid response");
       }
+
       return {
         blob: result.blob,
         filename: responseFilename(result.headers) || "job-export.xlsx",
@@ -141,11 +183,15 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
     },
     async resolveTemplate(documentId, templateId) {
       const id = normalizedDocumentId(documentId);
+
       const result = await documentRequest(`/jobs/${encodeURIComponent(id)}/template`, {
-        method: "POST", headers: { "content-type": "application/json" },
+        method: "POST",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ template_id: templateId }),
       });
+
       documentValidators.delete(id);
+
       return result;
     },
     listPackets({ cursor } = {}) {
@@ -156,7 +202,9 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
     },
     confirmPacketPlan(packetId, plan) {
       return documentRequest(`/packets/${encodeURIComponent(normalizedDocumentId(packetId))}/plan`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(plan),
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(plan),
       });
     },
     deletePacket(packetId) {
@@ -164,16 +212,29 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
     },
     async getPacketOriginal(packetId, { signal } = {}) {
       const result = await documentRequest(`/packets/${encodeURIComponent(normalizedDocumentId(packetId))}/source`, {
-        method: "GET", responseType: "blob", cache: "no-store", signal,
+        method: "GET",
+        responseType: "blob",
+        cache: "no-store",
+        signal,
       });
+
       if (!result?.blob) throw new Error("Packet source returned an invalid response");
+
       return { blob: result.blob, filename: responseFilename(result.headers) || "packet.pdf" };
     },
     async getPacketPagePreview(packetId, page, { signal } = {}) {
-      const result = await documentRequest(`/packets/${encodeURIComponent(normalizedDocumentId(packetId))}/pages/${page}/preview`, {
-        method: "GET", responseType: "blob", cache: "no-store", signal,
-      });
+      const result = await documentRequest(
+        `/packets/${encodeURIComponent(normalizedDocumentId(packetId))}/pages/${page}/preview`,
+        {
+          method: "GET",
+          responseType: "blob",
+          cache: "no-store",
+          signal,
+        },
+      );
+
       if (!result?.blob) throw new Error("Page preview returned an invalid response");
+
       return result.blob;
     },
     submitDocument(formData) {
@@ -186,6 +247,7 @@ function responseFilename(headers) {
   const contentDisposition = headers?.get?.("content-disposition") || "";
   // RFC 6266: prefer the UTF-8 `filename*` form, which carries non-ASCII names.
   const extended = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+
   if (extended?.[1]) {
     try {
       return decodeURIComponent(extended[1].trim());
@@ -193,15 +255,20 @@ function responseFilename(headers) {
       // Fall through to the plain filename.
     }
   }
+
   const quoted = contentDisposition.match(/filename="([^"]+)"/i);
+
   if (quoted?.[1]) {
     return quoted[1];
   }
+
   const unquoted = contentDisposition.match(/filename=([^;]+)/i);
+
   return unquoted?.[1]?.trim() || "";
 }
 
 function responseCount(headers, name) {
   const value = Number(headers?.get?.(name));
+
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }

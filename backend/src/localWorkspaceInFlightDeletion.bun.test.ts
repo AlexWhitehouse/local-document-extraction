@@ -1,3 +1,4 @@
+import { readUserResponse } from "./testing/responseFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,6 +18,7 @@ import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOp
 test("Workspace deletion aborts and drains in-flight extraction before hard erasure", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-in-flight-delete-"));
   const database = new Database(":memory:");
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -24,6 +26,7 @@ test("Workspace deletion aborts and drains in-flight extraction before hard eras
     mailSink: { capture: async () => undefined },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
   const workspaceProductOperations = createLocalWorkspaceProductOperations();
@@ -31,27 +34,39 @@ test("Workspace deletion aborts and drains in-flight extraction before hard eras
   const scheduledJobs: string[] = [];
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
   let extractionStarted: () => void = () => {};
+
   const extractionStartedPromise = new Promise<void>((resolve) => {
     extractionStarted = resolve;
   });
+
   let wasAborted = false;
 
   try {
-    const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const user = await signUp.json() as { user: { id: string; name: string } };
-    const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({ userId: user.user.id, userName: user.user.name })[0]!;
+    const signUp = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+      }),
+    );
+
+    const user = await readUserResponse(signUp);
+
+    const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({
+      userId: user.user.id,
+      userName: user.user.name,
+    })[0]!;
+
     workspaceControl.createWorkspace({ userId: user.user.id, name: "Remaining Workspace" });
     const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: deletedWorkspace.id });
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId: deletedWorkspace.id,
       jobId: "job_in_flight",
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
+
     productStore.createTemplate({
       templateId: "tpl_invoice",
       name: "Invoice",
@@ -74,11 +89,16 @@ test("Workspace deletion aborts and drains in-flight extraction before hard eras
     const runner = createLocalExtractionRunner({
       extract: async ({ signal }) => {
         extractionStarted();
+
         return new Promise((_, reject) => {
-          signal.addEventListener("abort", () => {
-            wasAborted = true;
-            reject(new DOMException("Workspace deletion cancelled extraction", "AbortError"));
-          }, { once: true });
+          signal.addEventListener(
+            "abort",
+            () => {
+              wasAborted = true;
+              reject(new DOMException("Workspace deletion cancelled extraction", "AbortError"));
+            },
+            { once: true },
+          );
         });
       },
       onJobLifecycleChange: (_workspaceId, job) => lifecycleUpdates.push(job),
@@ -94,6 +114,7 @@ test("Workspace deletion aborts and drains in-flight extraction before hard eras
       workspaceControl,
       workspaceProductOperations,
     });
+
     const running = runner.run({
       job_id: "job_in_flight",
       workspace_id: deletedWorkspace.id,
@@ -116,7 +137,9 @@ test("Workspace deletion aborts and drains in-flight extraction before hard eras
     expect(lifecycleUpdates.map((job) => job.status)).toEqual(["processing"]);
     expect(scheduledJobs).toEqual([]);
     expect(analyticsEvents).toEqual([]);
-    await expect(stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     database.close();
     await rm(stateDirectory, { recursive: true, force: true });

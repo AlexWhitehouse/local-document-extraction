@@ -20,13 +20,18 @@ type AccessFailure =
 
 /** Only failures to acquire access are translated; callback errors pass through. */
 export class LocalWorkspaceProductDataAccessError extends Error {
-  constructor(public readonly code: AccessFailure, message: string, options?: ErrorOptions) {
+  constructor(
+    public readonly code: AccessFailure,
+    message: string,
+    options?: ErrorOptions,
+  ) {
     super(message, options);
     this.name = "LocalWorkspaceProductDataAccessError";
   }
 }
 
 type AccessScope = { workspaceId: string; jobId?: string; mode: "create" | "existing" };
+
 type AccessContext<Store> = { store: Store; signal: AbortSignal };
 
 export type LocalWorkspaceProductDataAccess = {
@@ -59,6 +64,7 @@ export function createLocalWorkspaceProductDataAccess({
     let operation: LocalWorkspaceProductOperation | undefined;
     let lease: LocalWorkspaceProductStoreLease | null = null;
     let failed = false;
+
     try {
       try {
         operation = operations.acquire({ workspaceId: scope.workspaceId, jobId: scope.jobId });
@@ -67,11 +73,17 @@ export function createLocalWorkspaceProductDataAccess({
         if (cause instanceof LocalWorkspaceOperationError || cause instanceof LocalWorkspaceProductStoreRegistryError) {
           throw new LocalWorkspaceProductDataAccessError(cause.code, cause.message, { cause });
         }
+
         throw new LocalWorkspaceProductDataAccessError("unexpected", "Workspace product data access failed", { cause });
       }
+
       if (!lease && scope.mode === "create") {
-        throw new LocalWorkspaceProductDataAccessError("store_unavailable", "Local Workspace product storage is unavailable.");
+        throw new LocalWorkspaceProductDataAccessError(
+          "store_unavailable",
+          "Local Workspace product storage is unavailable.",
+        );
       }
+
       return await work({ store: lease?.store ?? null, signal: operation.signal });
     } catch (error) {
       failed = true;
@@ -81,7 +93,7 @@ export function createLocalWorkspaceProductDataAccess({
     }
   }
 
-  // The create-mode guard above supplies the stronger store type of that overload.
+  // SAFETY: create mode rejects a missing lease before invoking work; the overload may therefore expose a non-null store, while existing mode retains its nullable store contract.
   return { run } as LocalWorkspaceProductDataAccess;
 }
 

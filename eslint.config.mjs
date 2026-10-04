@@ -21,6 +21,7 @@ export default tseslint.config(
       "**/*.tsbuildinfo",
       ".claude/worktrees/**",
       ".scratch/**",
+      "tools/oxlint/anti-slop/**",
     ],
   },
   {

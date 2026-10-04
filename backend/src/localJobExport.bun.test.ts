@@ -1,3 +1,4 @@
+import { readUserResponse } from "./testing/responseFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 test("job export returns a best-effort authenticated workbook for terminal jobs", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-job-export-"));
   const database = new Database(":memory:");
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -20,12 +22,12 @@ test("job export returns a best-effort authenticated workbook for terminal jobs"
     mailSink: { capture: async () => undefined },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
 
   try {
-    const signUp = await auth.handler(new Request(
-      "http://127.0.0.1:8787/api/auth/sign-up/email",
-      {
+    const signUp = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -33,39 +35,52 @@ test("job export returns a best-effort authenticated workbook for terminal jobs"
           email: "ada@example.com",
           password: "Strong1!",
         }),
-      },
-    ));
-    const user = await signUp.json() as { user: { id: string; name: string } };
+      }),
+    );
+
+    const user = await readUserResponse(signUp);
+
     const workspace = workspaceControl.listAcceptedWorkspaces({
       userId: user.user.id,
       userName: user.user.name,
     })[0]!;
+
     seedJobs({ stateDirectory, workspaceId: workspace.id });
+
     const apiKey = workspaceControl.rotateApiKey({
       workspaceId: workspace.id,
       userId: user.user.id,
     }).api_key;
+
     const application = createLocalApplication({
       auth,
       stateDirectory,
       workspaceControl,
     });
-    const oversized = await application(exportRequest(apiKey, Array.from({ length: 501 }, (_, i) => `job_${i}`)));
+
+    const oversized = await application(
+      exportRequest(
+        apiKey,
+        Array.from({ length: 501 }, (_, i) => `job_${i}`),
+      ),
+    );
+
     expect(oversized.status).toBe(413);
     expect(await oversized.json()).toMatchObject({ error: { code: "export_too_large" } });
 
-    const detailResponse = await application(new Request(
-      "http://127.0.0.1:8787/v1/jobs/job_completed",
-      { headers: { authorization: `Bearer ${apiKey}` } },
-    ));
+    const detailResponse = await application(
+      new Request("http://127.0.0.1:8787/v1/jobs/job_completed", { headers: { authorization: `Bearer ${apiKey}` } }),
+    );
+
     expect(await detailResponse.json()).toMatchObject({
       job_id: "job_completed",
       model_name: "test-model",
     });
-    const listResponse = await application(new Request(
-      "http://127.0.0.1:8787/v1/jobs",
-      { headers: { authorization: `Bearer ${apiKey}` } },
-    ));
+
+    const listResponse = await application(
+      new Request("http://127.0.0.1:8787/v1/jobs", { headers: { authorization: `Bearer ${apiKey}` } }),
+    );
+
     expect(await listResponse.json()).toMatchObject({
       jobs: expect.arrayContaining([
         expect.objectContaining({
@@ -75,12 +90,10 @@ test("job export returns a best-effort authenticated workbook for terminal jobs"
       ]),
     });
 
-    const response = await application(exportRequest(apiKey, [
-      "job_completed",
-      "job_failed",
-      "job_queued",
-      "job_missing",
-    ]));
+    const response = await application(
+      exportRequest(apiKey, ["job_completed", "job_failed", "job_queued", "job_missing"]),
+    );
+
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -115,10 +128,8 @@ test("job export returns a best-effort authenticated workbook for terminal jobs"
       }),
     ]);
 
-    const noneResponse = await application(exportRequest(apiKey, [
-      "job_queued",
-      "job_missing",
-    ]));
+    const noneResponse = await application(exportRequest(apiKey, ["job_queued", "job_missing"]));
+
     expect(noneResponse.status).toBe(409);
     expect(await noneResponse.json()).toEqual({
       error: {
@@ -127,17 +138,17 @@ test("job export returns a best-effort authenticated workbook for terminal jobs"
       },
     });
 
-    const invalidResponse = await application(new Request(
-      "http://127.0.0.1:8787/v1/jobs/export",
-      {
+    const invalidResponse = await application(
+      new Request("http://127.0.0.1:8787/v1/jobs/export", {
         method: "POST",
         headers: {
           authorization: `Bearer ${apiKey}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ job_ids: [] }),
-      },
-    ));
+      }),
+    );
+
     expect(invalidResponse.status).toBe(400);
   } finally {
     database.close();
@@ -145,14 +156,9 @@ test("job export returns a best-effort authenticated workbook for terminal jobs"
   }
 });
 
-function seedJobs({
-  stateDirectory,
-  workspaceId,
-}: {
-  stateDirectory: string;
-  workspaceId: string;
-}): void {
+function seedJobs({ stateDirectory, workspaceId }: { stateDirectory: string; workspaceId: string }): void {
   const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+
   try {
     store.createTemplate({
       templateId: "tpl_invoice",
@@ -172,9 +178,7 @@ function seedJobs({
             "Invoice rows.",
             "[[OBJECT_SCHEMA]]",
             JSON.stringify({
-              columns: [
-                { key: "description", heading: "Description", data_type: "string" },
-              ],
+              columns: [{ key: "description", heading: "Description", data_type: "string" }],
             }),
             "[[/OBJECT_SCHEMA]]",
           ].join("\n"),
@@ -183,11 +187,8 @@ function seedJobs({
       ],
       createdAt: "2026-08-16T09:00:00.000Z",
     });
-    for (const [index, jobId] of [
-      "job_completed",
-      "job_failed",
-      "job_queued",
-    ].entries()) {
+
+    for (const [index, jobId] of ["job_completed", "job_failed", "job_queued"].entries()) {
       store.createQueuedExtractionJob({
         jobId,
         templateId: "tpl_invoice",
@@ -199,6 +200,7 @@ function seedJobs({
         submittedAt: `2026-08-16T09:0${index}:00.000Z`,
       });
     }
+
     store.claimExtractionJobForProcessing({
       jobId: "job_completed",
       attempt: 1,
@@ -259,13 +261,14 @@ function exportRequest(apiKey: string, jobIds: string[]): Request {
   });
 }
 
-function records(worksheet: ExcelJS.Worksheet): Array<Record<string, unknown>> {
-  const headings = (worksheet.getRow(1).values as unknown[]).slice(1).map(String);
+function records(worksheet: ExcelJS.Worksheet): Array<Record<string, ExcelJS.CellValue>> {
+  const headings = Array.from({ length: worksheet.getRow(1).cellCount }, (_, index) =>
+    String(worksheet.getCell(1, index + 1).value),
+  );
+
   return Array.from({ length: Math.max(worksheet.rowCount - 1, 0) }, (_, index) => {
-    const values = (worksheet.getRow(index + 2).values as unknown[]).slice(1);
-    return Object.fromEntries(headings.map((heading, valueIndex) => [
-      heading,
-      values[valueIndex] ?? null,
-    ]));
+    const values = headings.map((_, column) => worksheet.getCell(index + 2, column + 1).value);
+
+    return Object.fromEntries(headings.map((heading, valueIndex) => [heading, values[valueIndex] ?? null]));
   });
 }

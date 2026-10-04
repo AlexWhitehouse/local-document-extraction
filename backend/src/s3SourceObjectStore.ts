@@ -4,11 +4,18 @@ import type { S3SourceStorageConfiguration } from "./localConfiguration";
 
 /** A retained original is confirmed absent; every other failure is treated as unavailable. */
 export class SourceObjectMissingError extends Error {
-  constructor() { super("The retained original is missing from storage"); }
+  constructor() {
+    super("The retained original is missing from storage");
+  }
 }
 
 export class SourceObjectUnavailableError extends Error {
-  constructor(message: string, readonly cause?: unknown) { super(message); }
+  constructor(
+    message: string,
+    readonly cause?: unknown,
+  ) {
+    super(message);
+  }
 }
 
 export type SourceObjectStore = {
@@ -19,29 +26,62 @@ export type SourceObjectStore = {
   delete(key: string): Promise<void>;
 };
 
-const OBJECT_EXTENSIONS: Record<string, string> = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+const OBJECT_EXTENSIONS = new Map([
+  ["application/pdf", "pdf"],
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/webp", "webp"],
+]);
 
 /** Each upload attempt gets its own key, so a late-completing attempt never overwrites another. */
-export function retainedObjectKey({ prefix, namespace, workspaceId, jobId, mimeType, ownerKind = "job" }: {
-  prefix: string; namespace: string; workspaceId: string; jobId: string; mimeType: string; ownerKind?: "job" | "packet";
+export function retainedObjectKey({
+  prefix,
+  namespace,
+  workspaceId,
+  jobId,
+  mimeType,
+  ownerKind = "job",
+}: {
+  prefix: string;
+  namespace: string;
+  workspaceId: string;
+  jobId: string;
+  mimeType: string;
+  ownerKind?: "job" | "packet";
 }): string {
   for (const value of [namespace, workspaceId, jobId]) {
     if (!/^[a-zA-Z0-9_-]+$/.test(value)) throw new Error("Retained object keys accept only opaque identifiers");
   }
-  const extension = OBJECT_EXTENSIONS[mimeType];
+
+  const extension = OBJECT_EXTENSIONS.get(mimeType);
+
   if (!extension) throw new Error("Unsupported Source file MIME type");
+
   return `${prefix}${namespace}/workspaces/${workspaceId}/${ownerKind === "packet" ? "packets" : "jobs"}/${jobId}/${crypto.randomUUID()}.${extension}`;
 }
 
 /** Saved Evaluation document originals use their own namespace beside job originals. */
-export function evaluationDocumentObjectKey({ prefix, namespace, workspaceId, documentId, mimeType }: {
-  prefix: string; namespace: string; workspaceId: string; documentId: string; mimeType: string;
+export function evaluationDocumentObjectKey({
+  prefix,
+  namespace,
+  workspaceId,
+  documentId,
+  mimeType,
+}: {
+  prefix: string;
+  namespace: string;
+  workspaceId: string;
+  documentId: string;
+  mimeType: string;
 }): string {
   for (const value of [namespace, workspaceId, documentId]) {
     if (!/^[a-zA-Z0-9_-]+$/.test(value)) throw new Error("Retained object keys accept only opaque identifiers");
   }
-  const extension = OBJECT_EXTENSIONS[mimeType];
+
+  const extension = OBJECT_EXTENSIONS.get(mimeType);
+
   if (!extension) throw new Error("Unsupported Source file MIME type");
+
   return `${prefix}${namespace}/workspaces/${workspaceId}/evaluation-documents/${documentId}/${crypto.randomUUID()}.${extension}`;
 }
 
@@ -60,6 +100,7 @@ export function sourceObjectDestination(configuration: S3SourceStorageConfigurat
 }
 
 const DEFAULT_WRITE_DEADLINE_MS = 60_000;
+
 const DEFAULT_READ_DEADLINE_MS = 15_000;
 
 /**
@@ -84,10 +125,15 @@ export function createS3SourceObjectStore(
   return {
     put: async ({ key, file, mimeType }) => {
       // A part size above the file size keeps the upload to a single PUT, with no multipart state to recover.
-      await withDeadline("upload", client.write(key, file, { type: mimeType, partSize: Math.max(5 * 1024 * 1024, file.size + 1), retry: 0 }), writeDeadlineMs);
+      await withDeadline(
+        "upload",
+        client.write(key, file, { type: mimeType, partSize: Math.max(5 * 1024 * 1024, file.size + 1), retry: 0 }),
+        writeDeadlineMs,
+      );
     },
     open: async (key) => {
       const stat = await withDeadline("stat", client.stat(key), readDeadlineMs);
+
       return { size: stat.size, stream: () => client.file(key).stream() };
     },
     delete: async (key) => {
@@ -102,11 +148,15 @@ export function createS3SourceObjectStore(
 
 async function withDeadline<T>(operation: string, work: Promise<T>, deadlineMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   try {
     return await Promise.race([
       work,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new SourceObjectUnavailableError(`S3 ${operation} exceeded ${deadlineMs}ms`)), deadlineMs);
+        timer = setTimeout(
+          () => reject(new SourceObjectUnavailableError(`S3 ${operation} exceeded ${deadlineMs}ms`)),
+          deadlineMs,
+        );
       }),
     ]);
   } catch (error) {
@@ -116,9 +166,11 @@ async function withDeadline<T>(operation: string, work: Promise<T>, deadlineMs: 
   }
 }
 
-function classifyS3Error(operation: string, error: unknown): Error {
-  if (error instanceof SourceObjectMissingError || error instanceof SourceObjectUnavailableError) return error;
+function classifyS3Error(operation: string, cause: unknown): Error {
+  if (cause instanceof SourceObjectMissingError || cause instanceof SourceObjectUnavailableError) return cause;
+
   // Only a positive "no such key" is absence; access denied can hide a missing key and is not.
-  if ((error as { code?: string })?.code === "NoSuchKey") return new SourceObjectMissingError();
-  return new SourceObjectUnavailableError(`S3 ${operation} failed`, error);
+  if (cause instanceof Error && "code" in cause && cause.code === "NoSuchKey") return new SourceObjectMissingError();
+
+  return new SourceObjectUnavailableError(`S3 ${operation} failed`, cause);
 }

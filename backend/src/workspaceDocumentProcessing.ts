@@ -1,4 +1,5 @@
-import type { Database } from "bun:sqlite";
+import { isJsonObject, type JsonValue, isBoolean } from "../../shared/json";
+import type { SQLQueryBindings, Database } from "bun:sqlite";
 import { HttpError } from "./lib/http";
 
 export type WorkspaceDocumentProcessingSettings = {
@@ -20,34 +21,64 @@ export const DOCUMENT_PROCESSING_SETTINGS_SCHEMA = `
   );
 `;
 
-export function validateDocumentProcessingSettings(value: unknown): WorkspaceDocumentProcessingSettings {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidSettings();
-  const settings = value as Record<string, unknown>;
-  if (Object.keys(settings).some((key) => key !== "enable_smart_splitting" && key !== "exclude_blank_pages")
-    || typeof settings.enable_smart_splitting !== "boolean" || typeof settings.exclude_blank_pages !== "boolean") throw invalidSettings();
+export function validateDocumentProcessingSettings(value: JsonValue | undefined): WorkspaceDocumentProcessingSettings {
+  if (!isJsonObject(value)) throw invalidSettings();
+  const settings = value;
+
+  if (
+    Object.keys(settings).some((key) => key !== "enable_smart_splitting" && key !== "exclude_blank_pages") ||
+    !isBoolean(settings.enable_smart_splitting) ||
+    !isBoolean(settings.exclude_blank_pages)
+  )
+    throw invalidSettings();
+
   return { enable_smart_splitting: settings.enable_smart_splitting, exclude_blank_pages: settings.exclude_blank_pages };
 }
 
 function invalidSettings() {
-  return new HttpError(400, "invalid_document_processing_settings", "Provide enable_smart_splitting and exclude_blank_pages as true or false.");
+  return new HttpError(
+    400,
+    "invalid_document_processing_settings",
+    "Provide enable_smart_splitting and exclude_blank_pages as true or false.",
+  );
 }
 
 /** Capture at acceptance: blank-page removal is part of splitting, never an independent stage. */
-export function effectiveDocumentProcessingPolicy(settings: WorkspaceDocumentProcessingSettings): WorkspaceDocumentProcessingSettings {
-  return { enable_smart_splitting: settings.enable_smart_splitting, exclude_blank_pages: settings.enable_smart_splitting && settings.exclude_blank_pages };
+export function effectiveDocumentProcessingPolicy(
+  settings: WorkspaceDocumentProcessingSettings,
+): WorkspaceDocumentProcessingSettings {
+  return {
+    enable_smart_splitting: settings.enable_smart_splitting,
+    exclude_blank_pages: settings.enable_smart_splitting && settings.exclude_blank_pages,
+  };
 }
 
 export function createWorkspaceDocumentProcessingSettingsStore(database: Database) {
   return {
     getDocumentProcessingSettings(): WorkspaceDocumentProcessingSettings {
-      const row = database.query("SELECT enable_smart_splitting, exclude_blank_pages FROM workspace_document_processing_settings WHERE singleton = 1").get() as { enable_smart_splitting: number; exclude_blank_pages: number } | null;
-      return row ? { enable_smart_splitting: Boolean(row.enable_smart_splitting), exclude_blank_pages: Boolean(row.exclude_blank_pages) } : { ...DEFAULT_DOCUMENT_PROCESSING_SETTINGS };
+      const row = database
+        .query<{ enable_smart_splitting: number; exclude_blank_pages: number }, SQLQueryBindings[]>(
+          "SELECT enable_smart_splitting, exclude_blank_pages FROM workspace_document_processing_settings WHERE singleton = 1",
+        )
+        .get();
+
+      return row
+        ? {
+            enable_smart_splitting: Boolean(row.enable_smart_splitting),
+            exclude_blank_pages: Boolean(row.exclude_blank_pages),
+          }
+        : { ...DEFAULT_DOCUMENT_PROCESSING_SETTINGS };
     },
     putDocumentProcessingSettings(input: WorkspaceDocumentProcessingSettings): WorkspaceDocumentProcessingSettings {
       const settings = validateDocumentProcessingSettings(input);
-      database.query(`INSERT INTO workspace_document_processing_settings (singleton, enable_smart_splitting, exclude_blank_pages)
+      database
+        .query(
+          `INSERT INTO workspace_document_processing_settings (singleton, enable_smart_splitting, exclude_blank_pages)
         VALUES (1, ?, ?) ON CONFLICT(singleton) DO UPDATE SET
-        enable_smart_splitting = excluded.enable_smart_splitting, exclude_blank_pages = excluded.exclude_blank_pages`).run(Number(settings.enable_smart_splitting), Number(settings.exclude_blank_pages));
+        enable_smart_splitting = excluded.enable_smart_splitting, exclude_blank_pages = excluded.exclude_blank_pages`,
+        )
+        .run(Number(settings.enable_smart_splitting), Number(settings.exclude_blank_pages));
+
       return settings;
     },
   };

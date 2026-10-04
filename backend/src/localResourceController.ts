@@ -84,15 +84,16 @@ export function createLocalResourceController({
 }) {
   const cores = Math.max(1, cpus().length);
   const normalizedInitialPermits = positiveInteger(initialPermits, 16);
+
   const normalizedMaximumPermits = Math.max(
     normalizedInitialPermits,
     positiveInteger(maximumPermits, normalizedInitialPermits),
   );
+
   const normalizedSampleIntervalMs = positiveInteger(sampleIntervalMs, 5_000);
-  const normalizedLargeSubmissionBytes = positiveInteger(
-    memoryPressureLargeSubmissionBytes,
-    4 * 1024 * 1024,
-  );
+
+  const normalizedLargeSubmissionBytes = positiveInteger(memoryPressureLargeSubmissionBytes, 4 * 1024 * 1024);
+
   const totalMemoryBytes = totalmem();
   let currentPermits = normalizedInitialPermits;
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -110,8 +111,10 @@ export function createLocalResourceController({
   const completedAt: number[] = [];
   const gateway = { failed: 0, success: 0, throttled: 0, timeout: 0 };
   let gatewayWindow = { ...gateway };
+
   const readMemory = () => {
     const usage = process.memoryUsage();
+
     return {
       externalBytes: usage.external,
       heapUsedBytes: usage.heapUsed,
@@ -120,6 +123,7 @@ export function createLocalResourceController({
       totalBytes: totalMemoryBytes,
     };
   };
+
   const state: LocalResourceControllerSnapshot = {
     adaptive,
     completedJobs: 0,
@@ -159,6 +163,7 @@ export function createLocalResourceController({
 
   const updatePermits = (next: number, reason: string) => {
     const normalized = Math.max(0, Math.min(normalizedMaximumPermits, Math.trunc(next)));
+
     if (normalized === currentPermits) return;
     currentPermits = normalized;
     state.permits.current = normalized;
@@ -177,6 +182,7 @@ export function createLocalResourceController({
     expectedSampleAt = sampledAt + normalizedSampleIntervalMs;
 
     state.memory = readMemory();
+
     while (completedAt[0] !== undefined && completedAt[0] < sampledAt - 60_000) completedAt.shift();
     state.completedJobs = completedJobs;
     state.completedJobsPerSecond = completedAt.length / 60;
@@ -188,20 +194,22 @@ export function createLocalResourceController({
 
     const hardPressure = state.memory.ratio >= memoryLimitRatio || state.eventLoopLagMs >= 250;
     const resumePressure = state.memory.ratio < memoryLimitRatio * 0.9 && state.eventLoopLagMs < 100;
+
     if (state.memoryPressure.activeLevel) {
       if (hardPressure || !resumePressure) {
         state.memoryPressure.healthySamples = 0;
+
         if (hardPressure) {
           updatePermits(0, state.memory.ratio >= memoryLimitRatio ? "memory_limit" : "event_loop_limit");
         }
       } else {
         state.memoryPressure.healthySamples += 1;
+
         if (state.memoryPressure.healthySamples >= 3) {
           state.memoryPressure.activeLevel = null;
           state.memoryPressure.recoveredAt = new Date(sampledAt).toISOString();
-          state.memoryPressure.recoveryDurationMs = memoryPressureSignaledAtMs === null
-            ? null
-            : Math.max(0, sampledAt - memoryPressureSignaledAtMs);
+          state.memoryPressure.recoveryDurationMs =
+            memoryPressureSignaledAtMs === null ? null : Math.max(0, sampledAt - memoryPressureSignaledAtMs);
           updatePermits(memoryPressureRecoveryPermits, "os_memory_pressure_recovered");
         }
       }
@@ -223,10 +231,14 @@ export function createLocalResourceController({
       } else {
         const queue = getQueueSnapshot();
         const saturated = queue.pending + queue.deferred > 0 && queue.active >= currentPermits;
-        const hasHeadroom = state.cpuRatio < cpuLimitRatio * 0.88
-          && state.memory.ratio < memoryLimitRatio * 0.9
-          && state.eventLoopLagMs < 50;
+
+        const hasHeadroom =
+          state.cpuRatio < cpuLimitRatio * 0.88 &&
+          state.memory.ratio < memoryLimitRatio * 0.9 &&
+          state.eventLoopLagMs < 50;
+
         healthySamples = saturated && hasHeadroom ? healthySamples + 1 : 0;
+
         if (healthySamples >= 3 && currentPermits < normalizedMaximumPermits) {
           healthySamples = 0;
           updatePermits(currentPermits + 1, "sustained_resource_headroom");
@@ -242,6 +254,7 @@ export function createLocalResourceController({
     sampling = sample().finally(() => {
       sampling = null;
     });
+
     return sampling;
   };
 
@@ -251,18 +264,24 @@ export function createLocalResourceController({
     if (capacitySampling) return capacitySampling;
     capacitySampling = (async () => {
       const fileSystem = await statfs(stateDirectory).catch(() => null);
+
       if (fileSystem) state.disk.availableBytes = Number(fileSystem.bavail) * Number(fileSystem.bsize);
       capacitySampledAt = now();
-    })().finally(() => { capacitySampling = null; });
+    })().finally(() => {
+      capacitySampling = null;
+    });
+
     return capacitySampling;
   };
 
   const refreshStorageSample = async () => {
     await refreshDiskCapacity();
+
     const [sourceBytes, databaseBytes] = await Promise.all([
       directoryBytes(join(stateDirectory, "source-files")),
       databaseStorageBytes(join(stateDirectory, "data", "workspaces")),
     ]);
+
     state.disk.sourceBytes = sourceBytes;
     state.disk.sqliteBytes = databaseBytes.sqliteBytes;
     state.disk.walBytes = databaseBytes.walBytes;
@@ -272,14 +291,20 @@ export function createLocalResourceController({
   return {
     canReserveSubmission: async ({ requestBytes, reservedBytes }: { requestBytes: number; reservedBytes: number }) => {
       const pressureLevel = state.memoryPressure.activeLevel;
+
       if (pressureLevel === "critical") return false;
+
       if (pressureLevel === "warning" && requestBytes >= normalizedLargeSubmissionBytes) return false;
+
       if (capacitySampling || now() - capacitySampledAt >= 2_000) await refreshDiskCapacity();
       const usage = process.memoryUsage();
       const withinMemory = usage.rss + Math.max(0, requestBytes) < totalMemoryBytes * memoryLimitRatio;
       const availableBytes = state.disk.availableBytes;
-      const withinDisk = availableBytes === null
-        || availableBytes - Math.max(0, reservedBytes) - Math.max(0, requestBytes) >= state.disk.reserveBytes;
+
+      const withinDisk =
+        availableBytes === null ||
+        availableBytes - Math.max(0, reservedBytes) - Math.max(0, requestBytes) >= state.disk.reserveBytes;
+
       return withinMemory && withinDisk;
     },
     recordCompletedJob: () => {
@@ -292,12 +317,14 @@ export function createLocalResourceController({
     },
     handleMemoryPressure: async (level: LocalMemoryPressureLevel) => {
       const signaledAt = now();
+
       if (!state.memoryPressure.activeLevel) {
         memoryPressureRecoveryPermits = currentPermits;
       }
-      const effectiveLevel = state.memoryPressure.activeLevel === "critical" || level === "critical"
-        ? "critical"
-        : "warning";
+
+      const effectiveLevel =
+        state.memoryPressure.activeLevel === "critical" || level === "critical" ? "critical" : "warning";
+
       const permitBefore = currentPermits;
       const policyReason = `os_memory_pressure_${effectiveLevel}`;
       const evicted = effectiveLevel === "critical" ? evictIdleStores() : 0;
@@ -314,10 +341,7 @@ export function createLocalResourceController({
         recoveryDurationMs: null,
         signaledAt: new Date(signaledAt).toISOString(),
       };
-      updatePermits(
-        effectiveLevel === "critical" ? 0 : Math.max(1, Math.floor(currentPermits / 2)),
-        policyReason,
-      );
+      updatePermits(effectiveLevel === "critical" ? 0 : Math.max(1, Math.floor(currentPermits / 2)), policyReason);
       state.memoryPressure.permitAfter = currentPermits;
       await sampleNow();
     },
@@ -340,14 +364,17 @@ export function createLocalResourceController({
 async function directoryBytes(root: string): Promise<number> {
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   let bytes = 0;
+
   for (const entry of entries) {
     const path = join(root, entry.name);
+
     if (entry.isDirectory()) {
       bytes += await directoryBytes(path);
     } else if (entry.isFile()) {
       bytes += (await stat(path).catch(() => null))?.size ?? 0;
     }
   }
+
   return bytes;
 }
 
@@ -355,12 +382,15 @@ async function databaseStorageBytes(root: string): Promise<{ sqliteBytes: number
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   let sqliteBytes = 0;
   let walBytes = 0;
+
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const size = (await stat(join(root, entry.name)).catch(() => null))?.size ?? 0;
+
     if (entry.name.endsWith("-wal") || entry.name.endsWith("-shm")) walBytes += size;
     else if (entry.name.endsWith(".sqlite") || entry.name.endsWith("-journal")) sqliteBytes += size;
   }
+
   return { sqliteBytes, walBytes };
 }
 

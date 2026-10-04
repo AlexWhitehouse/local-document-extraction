@@ -18,8 +18,22 @@ type LocalLiveUpdateJob = {
   current_attempt: number;
   completed_attempt: number;
   last_failed_attempt: number;
-  [key: string]: unknown;
 };
+
+type LocalLiveUpdateEvent =
+  | {
+      type: "workspace_context_invalidated";
+      reason: "workspace_access" | "model_configuration_changed";
+      occurred_at: string;
+    }
+  | { type: "extraction_job_lifecycle"; job: LocalLiveUpdateJob }
+  | {
+      type: "evaluation_document_changed";
+      document_id: string;
+      revision: number | null;
+      deleted: boolean;
+      occurred_at: string;
+    };
 
 export type LocalLiveUpdateHub = ReturnType<typeof createLocalLiveUpdateHub>;
 
@@ -38,28 +52,37 @@ export function createLocalLiveUpdateHub() {
     } catch {
       // A failed access check must never leak the pending event.
     }
+
     unsubscribe({ workspaceId, socket });
     socket.close?.(1008, "Workspace access ended");
+
     return false;
   }
 
   function unsubscribe({ workspaceId, socket }: { workspaceId: string; socket: LocalLiveUpdateSocket }): void {
     const sockets = socketsByWorkspace.get(workspaceId);
+
     if (!sockets) return;
     sockets.delete(socket);
+
     if (sockets.size === 0) socketsByWorkspace.delete(workspaceId);
     pendingSockets.delete(socket);
+
     if (openSockets.delete(socket)) connectionsClosed += 1;
   }
 
-  function deliver(workspaceId: string, event: Record<string, unknown>): void {
+  function deliver(workspaceId: string, event: LocalLiveUpdateEvent): void {
     const sockets = socketsByWorkspace.get(workspaceId);
+
     if (!sockets?.size) return;
     const message = JSON.stringify({ version: 1, events: [event] });
+
     for (const socket of sockets) {
       if (!authorize(workspaceId, socket)) continue;
+
       try {
         const status = socket.send(message);
+
         if (status > 0) {
           delivery.delivered += 1;
         } else if (status === -1) {
@@ -79,7 +102,11 @@ export function createLocalLiveUpdateHub() {
   }
 
   return {
-    broadcastWorkspaceContextInvalidation: ({ workspaceId, reason, occurredAt }: {
+    broadcastWorkspaceContextInvalidation: ({
+      workspaceId,
+      reason,
+      occurredAt,
+    }: {
       workspaceId: string;
       reason: "workspace_access" | "model_configuration_changed";
       occurredAt: string;
@@ -107,7 +134,10 @@ export function createLocalLiveUpdateHub() {
       });
     },
     /** A freshness hint only: it names the changed entry and never carries its content. */
-    broadcastEvaluationDocument: (workspaceId: string, change: { documentId: string; revision: number | null; deleted: boolean; occurredAt: string }) => {
+    broadcastEvaluationDocument: (
+      workspaceId: string,
+      change: { documentId: string; revision: number | null; deleted: boolean; occurredAt: string },
+    ) => {
       deliver(workspaceId, {
         type: "evaluation_document_changed",
         document_id: change.documentId,
@@ -124,12 +154,14 @@ export function createLocalLiveUpdateHub() {
       openSockets.clear();
       pendingSockets.clear();
       connectionsClosed += sockets.size;
+
       for (const socket of sockets) {
         socket.close?.(1001, "Local Bun Runtime shutting down");
       }
     },
     diagnostics: () => {
       const subscriberCounts = [...socketsByWorkspace.values()].map((sockets) => sockets.size);
+
       return {
         connections: {
           closed: connectionsClosed,
@@ -152,16 +184,22 @@ export function createLocalLiveUpdateHub() {
     subscribe: ({ workspaceId, socket }: { workspaceId: string; socket: LocalLiveUpdateSocket }) => {
       if (closed) {
         socket.close?.(1001, "Local Bun Runtime shutting down");
+
         return () => {};
       }
+
       if (!authorize(workspaceId, socket)) return () => {};
+
       const sockets = socketsByWorkspace.get(workspaceId) ?? new Set<LocalLiveUpdateSocket>();
+
       if (!sockets.has(socket)) {
         sockets.add(socket);
         openSockets.add(socket);
         connectionsOpened += 1;
       }
+
       socketsByWorkspace.set(workspaceId, sockets);
+
       return () => unsubscribe({ workspaceId, socket });
     },
     unsubscribe,

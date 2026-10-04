@@ -1,3 +1,4 @@
+import { isJsonObject, isString } from "../../../../shared/json.ts";
 import React from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 
@@ -8,17 +9,24 @@ export function ExtractionJobStatusDisplay({ job }) {
   const isCompleted = job.status === "completed";
   const isProcessing = LIVE_DOCUMENT_STATUSES.has(job.status);
   const isHeld = job.status === "awaiting_template";
-  const statusLabel = isHeld ? "Template selection needs your attention." : job.routing_status === "assessing" ? "Choosing a template from the document" : isFailure
-    ? "This extraction finished with a failure status."
-    : isCompleted
-      ? "This extraction completed successfully."
-      : isProcessing
-        ? "The document is processing"
-        : "The document is queued";
+
+  const statusLabel = isHeld
+    ? "Template selection needs your attention."
+    : job.routing_status === "assessing"
+      ? "Choosing a template from the document"
+      : isFailure
+        ? "This extraction finished with a failure status."
+        : isCompleted
+          ? "This extraction completed successfully."
+          : isProcessing
+            ? "The document is processing"
+            : "The document is queued";
+
   const isTerminal = isCompleted || isFailure || isHeld;
   const currentAttempt = Number(job.current_attempt || 0);
   const completedAttempt = Number(job.completed_attempt || 0);
   const lastFailedAttempt = Number(job.last_failed_attempt || 0);
+
   const attemptLabel =
     currentAttempt > 0
       ? `Current attempt: ${currentAttempt}`
@@ -49,13 +57,13 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
   // Array.prototype.sort is stable, so this only moves object-array fields last.
   const rows = Array.isArray(job.results)
     ? [...job.results].sort(
-        (left, right) =>
-          (left?.data_type === "array<object>") - (right?.data_type === "array<object>"),
+        (left, right) => (left?.data_type === "array<object>") - (right?.data_type === "array<object>"),
       )
     : [];
 
   const structured = rows.filter(isStructuredResult);
   const scalar = rows.filter((result) => !isStructuredResult(result));
+
   return (
     <div className="studio-results" aria-busy={isLoading}>
       {isLoading && !rows.length ? (
@@ -70,10 +78,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
           aria-label="Extracted fields scroll area"
           tabIndex={0}
         >
-          <table
-            className="studio-table studio-results-table"
-            aria-label="Extracted fields"
-          >
+          <table className="studio-table studio-results-table" aria-label="Extracted fields">
             <thead>
               <tr>
                 <th scope="col">Field</th>
@@ -87,17 +92,13 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
                 <tr key={result.field_id}>
                   <th scope="row">{result.name || result.field_id}</th>
                   <td className="studio-extracted-value">
-                    {result.status === "not_found" ? (
-                      <span className="studio-not-found">Not found</span>
-                    ) : null}
+                    {result.status === "not_found" ? <span className="studio-not-found">Not found</span> : null}
                     {renderAnswer(result.answer)}
                   </td>
                   <td>
                     <ResultConfidence value={result.confidence} />
                   </td>
-                  <td className="studio-evidence">
-                    {result.evidence ? formatAnswerValue(result.evidence) : "—"}
-                  </td>
+                  <td className="studio-evidence">{result.evidence ? formatAnswerValue(result.evidence) : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -113,15 +114,9 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
             </div>
             <ResultConfidence value={result.confidence} />
           </div>
-          {result.status === "not_found" ? (
-            <span className="studio-not-found">Not found</span>
-          ) : null}
+          {result.status === "not_found" ? <span className="studio-not-found">Not found</span> : null}
           {renderAnswer(result.answer)}
-          {result.evidence ? (
-            <p className="studio-evidence">
-              {formatAnswerValue(result.evidence)}
-            </p>
-          ) : null}
+          {result.evidence ? <p className="studio-evidence">{formatAnswerValue(result.evidence)}</p> : null}
         </section>
       ))}
       {!rows.length && !isLoading ? (
@@ -144,18 +139,15 @@ function isStructuredResult(result) {
 }
 
 function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return isJsonObject(value);
 }
 
 function ResultConfidence({ value }) {
-  if (typeof value !== "number" || !Number.isFinite(value))
-    return <span className="muted">—</span>;
+  if (!Number.isFinite(value)) return <span className="muted">—</span>;
   const percent = Math.min(100, Math.max(0, value * 100));
+
   return (
-    <span
-      className={`studio-confidence ${confidenceTone(value)}`}
-      aria-label={`Confidence ${percent.toFixed(1)}%`}
-    >
+    <span className={`studio-confidence ${confidenceTone(value)}`} aria-label={`Confidence ${percent.toFixed(1)}%`}>
       <span className="studio-confidence-track" aria-hidden="true">
         <i style={{ width: `${percent}%` }} />
       </span>
@@ -176,6 +168,7 @@ function renderAnswer(answer) {
 
     if (answer.every(isPlainObject)) {
       const keys = [...new Set(answer.flatMap((row) => Object.keys(row)))];
+
       return <StructuredTable columns={keys.map((key) => ({ key, heading: key }))} rows={answer} />;
     }
 
@@ -193,18 +186,20 @@ function renderAnswer(answer) {
 
   if (isTableAnswer(answer)) {
     const columns = answer.columns.map((column, index) =>
-      typeof column === "string"
+      isString(column)
         ? { key: column, heading: column }
         : {
             key: column.key || String(index),
             heading: column.heading || column.key || `Column ${index + 1}`,
           },
     );
+
     return <StructuredTable columns={columns} rows={answer.rows} />;
   }
 
-  if (typeof answer === "object") {
+  if (Array.isArray(answer) || isJsonObject(answer)) {
     const entries = Object.entries(answer);
+
     if (!entries.length) {
       return <p className="muted">No values returned.</p>;
     }
@@ -226,12 +221,7 @@ function renderAnswer(answer) {
 
 function StructuredTable({ columns, rows }) {
   return (
-    <ScrollArea
-      className="table-scroll"
-      role="region"
-      aria-label="Structured result scroll area"
-      tabIndex={0}
-    >
+    <ScrollArea className="table-scroll" role="region" aria-label="Structured result scroll area" tabIndex={0}>
       <table className="studio-table">
         <thead>
           <tr>
@@ -258,16 +248,18 @@ function formatAnswerValue(value) {
   if (value === null || value === undefined) {
     return "—";
   }
-  if (typeof value === "object") {
+
+  if (Array.isArray(value) || isJsonObject(value)) {
     return JSON.stringify(value);
   }
+
   return String(value);
 }
 
 function isTableAnswer(value) {
   return (
     Boolean(value) &&
-    typeof value === "object" &&
+    (Array.isArray(value) || isJsonObject(value)) &&
     Array.isArray(value.columns) &&
     Array.isArray(value.rows)
   );
@@ -275,5 +267,6 @@ function isTableAnswer(value) {
 
 function confidenceTone(confidence) {
   const percent = confidence * 100;
+
   return percent > 90 ? "good" : percent >= 80 ? "pending" : "bad";
 }

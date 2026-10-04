@@ -15,15 +15,19 @@ const ACCOUNT = {
 const TEMPLATE = {
   name: "E2E Invoice",
   description: "Extract the visible invoice number.",
-  fields: [{
-    id: "invoice_number",
-    name: "Invoice Number",
-    description: "The invoice identifier printed on the source Document.",
-    data_type: "string",
-  }],
+  fields: [
+    {
+      id: "invoice_number",
+      name: "Invoice Number",
+      description: "The invoice identifier printed on the source Document.",
+      data_type: "string",
+    },
+  ],
 };
 
-test("a new user completes a Document Extraction job without email verification by default", async ({ page }, testInfo) => {
+test("a new user completes a Document Extraction job without email verification by default", async ({
+  page,
+}, testInfo) => {
   const evidence = await createBrowserEvidence(page);
   let harness: RuntimeHarness | undefined;
 
@@ -37,7 +41,9 @@ test("a new user completes a Document Extraction job without email verification 
 
     await saveModelGateway(page, harness, "browser/model");
     await expect(page.getByLabel("Gateway API key", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("article", { name: "Workspace Model gateway" }).getByText("browser/model", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("article", { name: "Workspace Model gateway" }).getByText("browser/model", { exact: true }),
+    ).toBeVisible();
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
@@ -47,10 +53,11 @@ test("a new user completes a Document Extraction job without email verification 
     await page.getByRole("button", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));
-    const templateCreated = page.waitForResponse((response) =>
-      new URL(response.url()).pathname === "/v1/templates" &&
-      response.request().method() === "POST",
+
+    const templateCreated = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
     );
+
     await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
     const createdResponse = await templateCreated;
     expect(createdResponse.status()).toBe(201);
@@ -58,10 +65,13 @@ test("a new user completes a Document Extraction job without email verification 
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
     await page.getByLabel("Description", { exact: true }).fill("Extract the visible invoice reference.");
-    const templateUpdated = page.waitForResponse((response) =>
-      new URL(response.url()).pathname === `/v1/templates/${encodeURIComponent(templateId)}` &&
-      response.request().method() === "PATCH",
+
+    const templateUpdated = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/v1/templates/${encodeURIComponent(templateId)}` &&
+        response.request().method() === "PATCH",
     );
+
     await page.getByRole("button", { name: "Save changes" }).click();
     expect((await templateUpdated).status()).toBe(200);
     // Creation and editing can leave identical success toasts on screen.
@@ -75,10 +85,11 @@ test("a new user completes a Document Extraction job without email verification 
       mimeType: "image/png",
       buffer: ONE_PIXEL_PNG,
     });
-    const extractionQueued = page.waitForResponse((response) =>
-      new URL(response.url()).pathname === "/v1/extract" &&
-      response.request().method() === "POST",
+
+    const extractionQueued = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/extract" && response.request().method() === "POST",
     );
+
     await uploadDialog.getByRole("button", { name: "Upload Documents" }).click();
     expect((await extractionQueued).status()).toBe(202);
     await expect(uploadDialog.getByText("Success", { exact: true })).toBeVisible();
@@ -116,10 +127,9 @@ test("a new user completes a Document Extraction job without email verification 
       try {
         if (!page.isClosed()) {
           const screenshot = await page.screenshot({ fullPage: true });
-          const screenshotPath = resolve(
-            process.cwd(),
-            ".scratch/ci/playwright/evidence/browser-final-state.png",
-          );
+
+          const screenshotPath = resolve(process.cwd(), ".scratch/ci/playwright/evidence/browser-final-state.png");
+
           await mkdir(dirname(screenshotPath), { recursive: true });
           await writeFile(screenshotPath, screenshot);
           await testInfo.attach("browser-final-state", {
@@ -131,6 +141,7 @@ test("a new user completes a Document Extraction job without email verification 
       } finally {
         const stateDirectory = harness?.stateDirectory;
         await harness?.stop();
+
         if (stateDirectory) {
           await expect(access(stateDirectory)).rejects.toThrow();
         }

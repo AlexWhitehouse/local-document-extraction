@@ -1,8 +1,6 @@
+import { type WorkbookJob, buildJobExportWorkbook } from "./jobExportWorkbook";
 import { describe, expect, it } from "bun:test";
 import ExcelJS from "exceljs";
-
-import { buildJobExportWorkbook } from "./jobExportWorkbook";
-import type { LocalWorkspaceExtractionJobExport } from "./localWorkspaceProductStore";
 
 describe("job export workbook", () => {
   it("creates typed header and table sheets grouped by template version", async () => {
@@ -13,18 +11,30 @@ describe("job export workbook", () => {
       field("approved", "Approved", "boolean", 3),
       field("supplier", "Supplier", "object", 4),
       field("references", "References", "array", 5),
-      field("line_items", "Line Items", "array<object>", 6, tableDescription([
-        { key: "description", heading: "Description", data_type: "string" },
-        { key: "quantity", heading: "Quantity", data_type: "number" },
-      ])),
+      field(
+        "line_items",
+        "Line Items",
+        "array<object>",
+        6,
+        tableDescription([
+          { key: "description", heading: "Description", data_type: "string" },
+          { key: "quantity", heading: "Quantity", data_type: "number" },
+        ]),
+      ),
     ];
+
     const v2Fields = [
       field("invoice_number", "Invoice Number", "string", 0),
-      field("line_items", "Line Items", "array<object>", 1, tableDescription([
-        { key: "description", heading: "Description", data_type: "string" },
-      ])),
+      field(
+        "line_items",
+        "Line Items",
+        "array<object>",
+        1,
+        tableDescription([{ key: "description", heading: "Description", data_type: "string" }]),
+      ),
     ];
-    const jobs: LocalWorkspaceExtractionJobExport[] = [
+
+    const jobs: WorkbookJob[] = [
       job({
         fields: v1Fields,
         job_id: "job_completed",
@@ -79,17 +89,17 @@ describe("job export workbook", () => {
     ];
 
     const generatedAt = new Date("2026-08-16T14:30:00.000Z");
+
     const exported = await buildJobExportWorkbook({
       generatedAt,
       jobs,
       workspaceName: "Clinical Workspace",
     });
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(exported.bytes as never);
 
-    expect(exported.filename).toBe(
-      "clinical-workspace-job-export-2026-08-16-1430.xlsx",
-    );
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(Uint8Array.from(exported.bytes).buffer);
+
+    expect(exported.filename).toBe("clinical-workspace-job-export-2026-08-16-1430.xlsx");
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual([
       "Invoice v1 — Headers",
       "Invoice v1 — Line Items",
@@ -166,6 +176,7 @@ describe("job export workbook", () => {
   it("preserves empty objects and shortens duplicate worksheet names safely", async () => {
     const longName = "A very long template name that exceeds Excel limits";
     const objectField = field("details", "Details", "object", 0);
+
     const jobs = [
       job({
         fields: [objectField],
@@ -188,8 +199,9 @@ describe("job export workbook", () => {
       jobs,
       workspaceName: "Åccounts / Europe",
     });
+
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(exported.bytes as never);
+    await workbook.xlsx.load(Uint8Array.from(exported.bytes).buffer);
 
     expect(exported.filename).toBe("accounts-europe-job-export-2026-08-16-0000.xlsx");
     expect(workbook.worksheets).toHaveLength(2);
@@ -200,13 +212,22 @@ describe("job export workbook", () => {
 
   it("exports names with boundary apostrophes and truncation collisions", async () => {
     const names = ["'Invoice", "Invoice", `${"A".repeat(30)}'truncated`, `${"A".repeat(30)}'collision`];
-    const exported = await buildJobExportWorkbook({ workspaceName: "Test", jobs: names.map((name, index) => job({
-      template_id: `tpl_${index}`, template_name: name,
-    })) });
+
+    const exported = await buildJobExportWorkbook({
+      workspaceName: "Test",
+      jobs: names.map((name, index) =>
+        job({
+          template_id: `tpl_${index}`,
+          template_name: name,
+        }),
+      ),
+    });
+
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(exported.bytes as never);
+    await workbook.xlsx.load(Uint8Array.from(exported.bytes).buffer);
     expect(workbook.worksheets).toHaveLength(names.length);
     expect(new Set(workbook.worksheets.map((sheet) => sheet.name.toLowerCase())).size).toBe(names.length);
+
     for (const sheet of workbook.worksheets) {
       expect(sheet.name).not.toMatch(/^'|'$/);
       expect(sheet.name.length).toBeLessThanOrEqual(31);
@@ -216,25 +237,29 @@ describe("job export workbook", () => {
   it("round-trips formula-like, Unicode, oversized, and malformed values safely", async () => {
     const formulaText = '=HYPERLINK("https://attacker.invalid","open")';
     const oversizedText = `Résumé 東京 🙂 ${"x".repeat(40_000)}`;
+
     const exported = await buildJobExportWorkbook({
-      jobs: [job({
-        fields: [
-          field("formula", "Formula Text", "string", 0),
-          field("large", "Large Unicode", "string", 1),
-          field("malformed", "Malformed Object", "object", 2),
-          field("malformed_array", "Malformed Array", "array", 3),
-        ],
-        results: [
-          result("formula", "Formula Text", "string", "ok", formulaText),
-          result("large", "Large Unicode", "string", "ok", oversizedText),
-          result("malformed", "Malformed Object", "object", "ok", { count: 1n }),
-          result("malformed_array", "Malformed Array", "array", "ok", [1n]),
-        ],
-      })],
+      jobs: [
+        job({
+          fields: [
+            field("formula", "Formula Text", "string", 0),
+            field("large", "Large Unicode", "string", 1),
+            field("malformed", "Malformed Object", "object", 2),
+            field("malformed_array", "Malformed Array", "array", 3),
+          ],
+          results: [
+            result("formula", "Formula Text", "string", "ok", formulaText),
+            result("large", "Large Unicode", "string", "ok", oversizedText),
+            result("malformed", "Malformed Object", "object", "ok", { count: 1n }),
+            result("malformed_array", "Malformed Array", "array", "ok", [1n]),
+          ],
+        }),
+      ],
       workspaceName: "Unicode Workspace",
     });
+
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(exported.bytes as never);
+    await workbook.xlsx.load(Uint8Array.from(exported.bytes).buffer);
     const worksheet = workbook.worksheets[0];
     const values = records(worksheet)[0];
     const formulaCell = worksheet.getCell(2, 13);
@@ -252,20 +277,20 @@ describe("job export workbook", () => {
 function field(
   id: string,
   name: string,
-  dataType: LocalWorkspaceExtractionJobExport["fields"][number]["data_type"],
+  dataType: WorkbookJob["fields"][number]["data_type"],
   position: number,
   description = `${name} value.`,
-): LocalWorkspaceExtractionJobExport["fields"][number] {
+): WorkbookJob["fields"][number] {
   return { id, name, data_type: dataType, description, position };
 }
 
 function result(
   fieldId: string,
   name: string,
-  dataType: LocalWorkspaceExtractionJobExport["results"][number]["data_type"],
+  dataType: WorkbookJob["results"][number]["data_type"],
   status: string,
-  answer: unknown,
-): LocalWorkspaceExtractionJobExport["results"][number] {
+  answer: WorkbookJob["results"][number]["answer"],
+): WorkbookJob["results"][number] {
   return {
     field_id: fieldId,
     name,
@@ -277,9 +302,7 @@ function result(
   };
 }
 
-function job(
-  overrides: Partial<LocalWorkspaceExtractionJobExport>,
-): LocalWorkspaceExtractionJobExport {
+function job(overrides: Partial<WorkbookJob>): WorkbookJob {
   return {
     job_id: "job_default",
     status: "completed",
@@ -306,7 +329,9 @@ function job(
   };
 }
 
-function tableDescription(columns: Array<Record<string, unknown>>): string {
+function tableDescription(
+  columns: Array<{ key?: string; heading: string; data_type: string; description?: string }>,
+): string {
   return [
     "Extract line items.",
     "[[OBJECT_SCHEMA]]",
@@ -315,15 +340,17 @@ function tableDescription(columns: Array<Record<string, unknown>>): string {
   ].join("\n");
 }
 
-function records(worksheet: ExcelJS.Worksheet): Array<Record<string, unknown>> {
-  const headings = (worksheet.getRow(1).values as unknown[]).slice(1).map(String);
-  const rows: Array<Record<string, unknown>> = [];
+function records(worksheet: ExcelJS.Worksheet): Array<Record<string, ExcelJS.CellValue>> {
+  const headings = Array.from({ length: worksheet.getRow(1).cellCount }, (_, index) =>
+    String(worksheet.getCell(1, index + 1).value),
+  );
+
+  const rows: Array<Record<string, ExcelJS.CellValue>> = [];
+
   for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
-    const values = (worksheet.getRow(rowNumber).values as unknown[]).slice(1);
-    rows.push(Object.fromEntries(headings.map((heading, index) => [
-      heading,
-      values[index] ?? null,
-    ])));
+    const values = headings.map((_, index) => worksheet.getCell(rowNumber, index + 1).value);
+    rows.push(Object.fromEntries(headings.map((heading, index) => [heading, values[index] ?? null])));
   }
+
   return rows;
 }

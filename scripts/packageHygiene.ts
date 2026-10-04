@@ -1,3 +1,4 @@
+import { isJsonObject, isString, parseJson, type JsonValue, type JsonObject } from "../shared/json";
 import { mkdir, writeFile } from "node:fs/promises";
 import { arch, platform, tmpdir } from "node:os";
 import { basename, resolve, sep } from "node:path";
@@ -8,11 +9,10 @@ export const PACKAGE_HYGIENE_COMMANDS = [
   { arguments: ["pm", "licenses", "--prod", "--json"], name: "production licenses" },
 ] as const;
 
-type LicenseEntry = {
+type LicenseEntry = JsonObject & {
   name: string;
   paths?: string[];
   versions?: string[];
-  [key: string]: unknown;
 };
 
 type LicenseInventory = Record<string, LicenseEntry[]>;
@@ -34,45 +34,84 @@ type CommandResult = {
 };
 
 const repositoryRoot = resolve(import.meta.dir, "..");
+
 const artifactDirectory = resolve(repositoryRoot, ".scratch/ci/package-hygiene");
 
-export function normalizeLicenseInventory(
-  inventory: LicenseInventory,
-  root: string,
-): LicenseInventory {
+export function normalizeLicenseInventory(inventory: LicenseInventory, root: string) {
   const normalized: LicenseInventory = {};
   const rootPrefix = `${root}${sep}`;
+
   for (const license of Object.keys(inventory).sort((left, right) => left.localeCompare(right))) {
     normalized[license] = [...(inventory[license] ?? [])]
-      .sort((left, right) => left.name.localeCompare(right.name)
-        || JSON.stringify(left.versions ?? []).localeCompare(JSON.stringify(right.versions ?? [])))
-      .map((entry) => ({
-        ...entry,
-        ...(entry.paths ? {
-          paths: [...entry.paths].sort().map((path) => path.startsWith(rootPrefix)
-            ? `<repo>/${path.slice(rootPrefix.length).split(sep).join("/")}`
-            : `<external>/${basename(path)}`),
-        } : {}),
-      }));
+      .sort(
+        (left, right) =>
+          left.name.localeCompare(right.name) ||
+          JSON.stringify(left.versions ?? []).localeCompare(JSON.stringify(right.versions ?? [])),
+      )
+      .map((entry) => {
+        const result = { ...entry };
+
+        if (entry.paths) {
+          result.paths = [...entry.paths]
+            .sort()
+            .map((path) =>
+              path.startsWith(rootPrefix)
+                ? `<repo>/${path.slice(rootPrefix.length).split(sep).join("/")}`
+                : `<external>/${basename(path)}`,
+            );
+        }
+
+        return result;
+      });
   }
+
   return normalized;
 }
 
-export function validateProductionAudit(json: string): { advisoryCount: number } {
-  let value: unknown;
+export function validateProductionAudit(json: string) {
+  let value: JsonValue;
+
   try {
-    value = JSON.parse(json);
+    value = parseJson(json);
   } catch (error) {
     throw new Error("Bun production audit did not return valid JSON", { cause: error });
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+
+  if (!isJsonObject(value)) {
     throw new Error("Bun production audit must return a JSON object");
   }
+
   const advisoryCount = Object.keys(value).length;
+
   if (advisoryCount > 0) {
     throw new Error(`${advisoryCount} production advisor${advisoryCount === 1 ? "y" : "ies"} require review`);
   }
+
   return { advisoryCount };
+}
+
+function isLicenseEntry(value: JsonValue): value is LicenseEntry {
+  return (
+    isJsonObject(value) &&
+    isString(value.name) &&
+    (value.paths === undefined || (Array.isArray(value.paths) && value.paths.every(isString))) &&
+    (value.versions === undefined || (Array.isArray(value.versions) && value.versions.every(isString)))
+  );
+}
+
+export function parseLicenseInventory(contents: string) {
+  const value = parseJson(contents);
+
+  if (!isJsonObject(value)) throw new Error("License inventory must be an object.");
+  const inventory: LicenseInventory = {};
+
+  for (const [license, entries] of Object.entries(value)) {
+    if (!Array.isArray(entries) || !entries.every(isLicenseEntry))
+      throw new Error(`Invalid license entries for ${license}.`);
+    inventory[license] = entries;
+  }
+
+  return inventory;
 }
 
 function renderPackageHygieneSummary(summary: PackageHygieneSummary): string {
@@ -104,39 +143,48 @@ function renderPackageHygieneSummary(summary: PackageHygieneSummary): string {
 async function runPackageHygiene(): Promise<void> {
   await mkdir(artifactDirectory, { recursive: true });
   const results = new Map<string, CommandResult>();
+
   for (const command of PACKAGE_HYGIENE_COMMANDS) {
     results.set(command.name, await runBun(command.arguments));
   }
+
   const audit = results.get("production audit")!;
   const dedupe = results.get("dedupe check")!;
   const licenses = results.get("production licenses")!;
   const failures: string[] = [];
 
   let auditAdvisories = 0;
+
   try {
     auditAdvisories = validateProductionAudit(audit.stdout).advisoryCount;
   } catch (error) {
     failures.push(error instanceof Error ? error.message : String(error));
   }
+
   if (audit.exitCode !== 0 && auditAdvisories === 0) {
     failures.push(`Production audit exited ${audit.exitCode}: ${boundDiagnostic(audit.stderr || audit.stdout)}`);
   }
+
   if (dedupe.exitCode !== 0) {
     failures.push(`Dedupe check found a lockfile change: ${boundDiagnostic(dedupe.stdout || dedupe.stderr)}`);
   }
 
   let normalizedLicenses: LicenseInventory = {};
+
   try {
-    normalizedLicenses = normalizeLicenseInventory(JSON.parse(licenses.stdout) as LicenseInventory, repositoryRoot);
+    normalizedLicenses = normalizeLicenseInventory(parseLicenseInventory(licenses.stdout), repositoryRoot);
   } catch (error) {
     failures.push(`Production license inventory failed: ${error instanceof Error ? error.message : String(error)}`);
   }
+
   if (licenses.exitCode !== 0) {
-    failures.push(`Production licenses exited ${licenses.exitCode}: ${boundDiagnostic(licenses.stderr || licenses.stdout)}`);
+    failures.push(
+      `Production licenses exited ${licenses.exitCode}: ${boundDiagnostic(licenses.stderr || licenses.stdout)}`,
+    );
   }
 
-  const licensePackageCount = Object.values(normalizedLicenses)
-    .reduce((count, entries) => count + entries.length, 0);
+  const licensePackageCount = Object.values(normalizedLicenses).reduce((count, entries) => count + entries.length, 0);
+
   const summary = renderPackageHygieneSummary({
     auditAdvisories,
     bunRevision: Bun.revision,
@@ -146,13 +194,27 @@ async function runPackageHygiene(): Promise<void> {
     licenseTypes: Object.keys(normalizedLicenses).length,
     platform: `${platform()} ${arch()}`,
   });
+
   await Promise.all([
-    writeFile(resolve(artifactDirectory, "production-audit.json"), prettyJsonOrDiagnostic(audit.stdout, audit.stderr), "utf8"),
-    writeFile(resolve(artifactDirectory, "production-licenses.json"), `${JSON.stringify(normalizedLicenses, null, 2)}\n`, "utf8"),
-    writeFile(resolve(artifactDirectory, "dedupe-check.txt"), `${boundDiagnostic(dedupe.stdout || dedupe.stderr)}\n`, "utf8"),
+    writeFile(
+      resolve(artifactDirectory, "production-audit.json"),
+      prettyJsonOrDiagnostic(audit.stdout, audit.stderr),
+      "utf8",
+    ),
+    writeFile(
+      resolve(artifactDirectory, "production-licenses.json"),
+      `${JSON.stringify(normalizedLicenses, null, 2)}\n`,
+      "utf8",
+    ),
+    writeFile(
+      resolve(artifactDirectory, "dedupe-check.txt"),
+      `${boundDiagnostic(dedupe.stdout || dedupe.stderr)}\n`,
+      "utf8",
+    ),
     writeFile(resolve(artifactDirectory, "package-hygiene-summary.md"), summary, "utf8"),
   ]);
   process.stdout.write(summary);
+
   if (failures.length > 0) throw new Error(failures.join("\n"));
 }
 
@@ -168,11 +230,13 @@ async function runBun(arguments_: readonly string[]): Promise<CommandResult> {
     stderr: "pipe",
     stdout: "pipe",
   });
+
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
+
   return { exitCode, stderr, stdout };
 }
 
@@ -186,6 +250,7 @@ function prettyJsonOrDiagnostic(stdout: string, stderr: string): string {
 
 function boundDiagnostic(value: string): string {
   const normalized = value.replaceAll(repositoryRoot, "<repo>").trim();
+
   return normalized.length > 8_000 ? `${normalized.slice(0, 8_000)}\n…diagnostic truncated…` : normalized;
 }
 

@@ -1,9 +1,6 @@
 import { createDocumentRequestAdapter } from "../features/documents/documentRequestAdapter.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createAppRuntimeCore,
-  createWorkspaceRequestLayer,
-} from "./appRuntime.js";
+import { createAppRuntimeCore, createWorkspaceRequestLayer } from "./appRuntime.js";
 
 describe("app runtime requests", () => {
   beforeEach(() => {
@@ -15,12 +12,14 @@ describe("app runtime requests", () => {
       apiBase: "/v1/",
       toast: { success: vi.fn(), error: vi.fn() },
     });
+
     const runtime = createWorkspaceRequestLayer({
       coreRequest: core.request,
       hasSession: true,
       workspaceId: " ws_1 ",
       onForbiddenWorkspaceAccess: vi.fn(),
     });
+
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ templates: [{ id: "tpl_1" }] }), {
         status: 200,
@@ -45,6 +44,7 @@ describe("app runtime requests", () => {
       apiBase: "/v1",
       toast: { success: vi.fn(), error: vi.fn() },
     });
+
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response("xlsx-bytes", {
         status: 200,
@@ -70,9 +70,10 @@ describe("app runtime requests", () => {
       apiBase: "/v1",
       toast: { success: vi.fn(), error: vi.fn() },
     });
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(null, { status: 304, headers: { etag: 'W/"job-v1-tag"' } }),
-    );
+
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 304, headers: { etag: 'W/"job-v1-tag"' } }));
 
     const result = await core.request("/jobs/job_1", {
       method: "GET",
@@ -84,24 +85,31 @@ describe("app runtime requests", () => {
   });
   it("lets Document reconciliation own forbidden-access effects", async () => {
     const onForbiddenWorkspaceAccess = vi.fn();
+
     const core = createAppRuntimeCore({
       apiBase: "/v1",
       toast: { success: vi.fn(), error: vi.fn() },
     });
+
     const runtime = createWorkspaceRequestLayer({
-      coreRequest: core.request, hasSession: true, workspaceId: "ws_1", onForbiddenWorkspaceAccess,
+      coreRequest: core.request,
+      hasSession: true,
+      workspaceId: "ws_1",
+      onForbiddenWorkspaceAccess,
     });
+
     const documents = createDocumentRequestAdapter({ request: runtime.request });
-    globalThis.fetch = vi.fn()
+    globalThis.fetch = vi
+      .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ jobs: [] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: "forbidden" }), { status: 403 }));
     await documents.listDocuments();
     await expect(documents.getDocument("job_1")).rejects.toMatchObject({ status: 403 });
     expect(onForbiddenWorkspaceAccess).not.toHaveBeenCalled();
+
     for (const [, options] of globalThis.fetch.mock.calls) {
       expect(options).not.toHaveProperty("recoverForbiddenAccess");
       expect(options.headers.get("x-workspace-id")).toBe("ws_1");
     }
   });
-
 });

@@ -3,8 +3,15 @@ import { validateTemplateJsonPayload } from "./templateFields.js";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 
 export function useTemplateGeneration({
-  request, workspaceId, sessionId, activePage, templateId, hasApiAccess,
-  maxSourceFileBytes = 10 * 1024 * 1024, hasUnsavedChanges, onApply,
+  request,
+  workspaceId,
+  sessionId,
+  activePage,
+  templateId,
+  hasApiAccess,
+  maxSourceFileBytes = 10 * 1024 * 1024,
+  hasUnsavedChanges,
+  onApply,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [createNew, setCreateNew] = useState(false);
@@ -31,7 +38,11 @@ export function useTemplateGeneration({
 
   useEffect(() => {
     cancel();
-    return () => { pending.current?.abort(); pending.current = null; };
+
+    return () => {
+      pending.current?.abort();
+      pending.current = null;
+    };
   }, [scope, cancel]);
 
   function open({ createNew = false } = {}) {
@@ -42,31 +53,57 @@ export function useTemplateGeneration({
 
   async function generate() {
     if (pending.current || !isOpen || !hasApiAccess) return;
-    if (!file) { setError("Select a sample file."); return; }
+
+    if (!file) {
+      setError("Select a sample file.");
+
+      return;
+    }
+
     if (!SOURCE_FILE_MIME_TYPES.includes(file.type)) {
-      setError("Choose a PDF, PNG, JPEG, or WebP file."); return;
+      setError("Choose a PDF, PNG, JPEG, or WebP file.");
+
+      return;
     }
+
     if (!file.size || file.size > maxSourceFileBytes) {
-      setError(`Choose a nonempty file no larger than ${maxSourceFileBytes / (1024 * 1024)} MiB.`); return;
+      setError(`Choose a nonempty file no larger than ${maxSourceFileBytes / (1024 * 1024)} MiB.`);
+
+      return;
     }
+
     if (new TextEncoder().encode(instructions).length > 8192) {
-      setError("Instructions must be at most 8 KiB. Please shorten them."); return;
+      setError("Instructions must be at most 8 KiB. Please shorten them.");
+
+      return;
     }
+
     if (hasUnsavedChanges && !confirmed) {
-      setError("Confirm replacement of your unsaved edits before generating."); return;
+      setError("Confirm replacement of your unsaved edits before generating.");
+
+      return;
     }
+
     const controller = new AbortController();
     pending.current = controller;
-    const isCurrent = () => pending.current === controller && !controller.signal.aborted && currentScope.current === scope;
+
+    const isCurrent = () =>
+      pending.current === controller && !controller.signal.aborted && currentScope.current === scope;
+
     setIsGenerating(true);
     setError("");
+
     try {
       const body = new FormData();
       body.append("document", file);
       body.append("instructions", instructions);
+
       const response = await request("/templates/generate", {
-        method: "POST", body, signal: controller.signal,
+        method: "POST",
+        body,
+        signal: controller.signal,
       });
+
       if (!isCurrent()) return;
       const payload = validateTemplateJsonPayload(response, { includeObjectSchema: true });
       onApply(payload, { createNew });
@@ -82,14 +119,26 @@ export function useTemplateGeneration({
   }
 
   return {
-    open, cancel,
+    open,
+    cancel,
     modal: {
-      isOpen, file, instructions, confirmed, isGenerating, error,
-      hasUnsavedChanges, hasApiAccess, maxSourceFileBytes,
-      onFileChange: (value) => { setFile(value); setError(""); },
+      isOpen,
+      file,
+      instructions,
+      confirmed,
+      isGenerating,
+      error,
+      hasUnsavedChanges,
+      hasApiAccess,
+      maxSourceFileBytes,
+      onFileChange: (value) => {
+        setFile(value);
+        setError("");
+      },
       onInstructionsChange: setInstructions,
       onConfirmedChange: setConfirmed,
-      onClose: cancel, onGenerate: generate,
+      onClose: cancel,
+      onGenerate: generate,
     },
   };
 }

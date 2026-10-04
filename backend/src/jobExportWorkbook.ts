@@ -1,17 +1,47 @@
+import { parseJson, isString, isNumber, isBoolean } from "../../shared/json";
 import ExcelJS from "exceljs";
 
 import type { DataType, FieldDefinition } from "./lib/types";
 import type {
-  LocalWorkspaceExtractionJobExport,
-  LocalWorkspaceExtractionResult,
+  LocalWorkspaceExtractionJobExport as StoredExtractionJobExport,
+  LocalWorkspaceExtractionResult as StoredExtractionResult,
 } from "./localWorkspaceProductStore";
 
+/** Spreadsheet exports also tolerate malformed in-memory values without losing other results. */
+export type WorkbookValue = string | number | boolean | bigint | null | undefined | WorkbookValue[] | WorkbookObject;
+
+type WorkbookObject = { [key: string]: WorkbookValue };
+
+type LocalWorkspaceExtractionResult = Omit<StoredExtractionResult, "answer"> & { answer: WorkbookValue };
+
+export type WorkbookJob = Omit<StoredExtractionJobExport, "results"> & { results: LocalWorkspaceExtractionResult[] };
+
+type LocalWorkspaceExtractionJobExport = WorkbookJob;
+
+function isWorkbookObject(value: WorkbookValue): value is WorkbookObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isWorkbookArray(value: WorkbookValue): value is WorkbookValue[] {
+  return Array.isArray(value);
+}
+
+function isBigInt(value: WorkbookValue): value is bigint {
+  return typeof value === "bigint";
+}
+
 const EXCEL_MAX_SHEET_NAME_LENGTH = 31;
+
 const OBJECT_SCHEMA_START = "[[OBJECT_SCHEMA]]";
+
 const OBJECT_SCHEMA_END = "[[/OBJECT_SCHEMA]]";
+
 const TABLE_DATA_TYPE = "array<object>";
+
 const HEADER_SEPARATOR = " — ";
+
 const EXCEL_MAX_CELL_TEXT_LENGTH = 32_767;
+
 const TRUNCATED_CELL_SUFFIX = "… [truncated]";
 
 type ExportField = FieldDefinition & { position: number };
@@ -40,7 +70,7 @@ type CompletedFieldResult = {
 
 type TableAnswer = {
   columns: ExportColumn[];
-  rows: Array<Record<string, unknown>>;
+  rows: WorkbookObject[];
 };
 
 export type JobExportWorkbook = {
@@ -70,8 +100,10 @@ export async function buildJobExportWorkbook({
   const usedSheetNames = new Set<string>();
 
   for (const group of groups) {
-    const hasSeveralVersions = groups.some((other) =>
-      other.templateId === group.templateId && other.templateVersion !== group.templateVersion);
+    const hasSeveralVersions = groups.some(
+      (other) => other.templateId === group.templateId && other.templateVersion !== group.templateVersion,
+    );
+
     const versionSuffix = hasSeveralVersions ? ` v${group.templateVersion}` : "";
     const groupLabel = `${group.templateName}${versionSuffix}`;
     addHeaderWorksheet({
@@ -83,38 +115,37 @@ export async function buildJobExportWorkbook({
     for (const field of group.fields) {
       if (field.data_type !== TABLE_DATA_TYPE) continue;
       const results = completedFieldResults(group.jobs, field.id);
+
       if (!results.length) continue;
       addTableWorksheet({
         field,
         results,
-        sheetName: uniqueSheetName(
-          `${groupLabel}${HEADER_SEPARATOR}${field.name}`,
-          usedSheetNames,
-        ),
+        sheetName: uniqueSheetName(`${groupLabel}${HEADER_SEPARATOR}${field.name}`, usedSheetNames),
         workbook,
       });
     }
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
+
   return {
     bytes: new Uint8Array(buffer),
     filename: exportFilename(workspaceName, generatedAt),
   };
 }
 
-function groupJobsByTemplateVersion(
-  jobs: LocalWorkspaceExtractionJobExport[],
-): TemplateGroup[] {
+function groupJobsByTemplateVersion(jobs: LocalWorkspaceExtractionJobExport[]): TemplateGroup[] {
   const groups = new Map<string, TemplateGroup>();
 
   for (const job of jobs) {
     const key = `${job.template_id}::${job.template_version}`;
     const existing = groups.get(key);
+
     if (existing) {
       existing.jobs.push(job);
       continue;
     }
+
     groups.set(key, {
       templateId: job.template_id,
       templateName: job.template_name || job.template_id,
@@ -125,16 +156,17 @@ function groupJobsByTemplateVersion(
   }
 
   for (const group of groups.values()) {
-    group.jobs.sort((left, right) =>
-      right.created_at.localeCompare(left.created_at) || right.job_id.localeCompare(left.job_id));
+    group.jobs.sort(
+      (left, right) => right.created_at.localeCompare(left.created_at) || right.job_id.localeCompare(left.job_id),
+    );
   }
 
   return [...groups.values()].sort((left, right) => {
     const nameOrder = left.templateName.localeCompare(right.templateName, undefined, {
       sensitivity: "base",
     });
-    return nameOrder || left.templateVersion - right.templateVersion ||
-      left.templateId.localeCompare(right.templateId);
+
+    return nameOrder || left.templateVersion - right.templateVersion || left.templateId.localeCompare(right.templateId);
   });
 }
 
@@ -150,7 +182,9 @@ function addHeaderWorksheet({
   const worksheet = workbook.addWorksheet(sheetName, {
     views: [{ state: "frozen", ySplit: 1 }],
   });
+
   const extractionColumns = collectHeaderExtractionColumns(group);
+
   const columns: ExportColumn[] = [
     { key: "meta:job-id", heading: "Job ID" },
     { key: "meta:source-filename", heading: "Source Filename" },
@@ -166,10 +200,12 @@ function addHeaderWorksheet({
     { key: "meta:error-message", heading: "Error Message" },
     ...extractionColumns,
   ];
+
   setWorksheetColumns(worksheet, columns);
 
   for (const job of group.jobs) {
-    const row: Record<string, unknown> = {
+    const row: WorkbookObject = {};
+    Object.assign(row, {
       "meta:job-id": job.job_id,
       "meta:source-filename": job.source_name,
       "meta:source-page-count": job.source_file_page_count,
@@ -182,12 +218,14 @@ function addHeaderWorksheet({
       "meta:completed-at": job.completed_at,
       "meta:error-code": job.error_code,
       "meta:error-message": job.error_message,
-    };
+    });
+
     const results = new Map(job.results.map((result) => [result.field_id, result]));
 
     for (const column of extractionColumns) {
       row[column.key] = headerCellValue(results.get(column.fieldId!), column);
     }
+
     worksheet.addRow(row);
   }
 
@@ -201,6 +239,7 @@ function collectHeaderExtractionColumns(group: TemplateGroup): ExportColumn[] {
     if (field.data_type === TABLE_DATA_TYPE) {
       continue;
     }
+
     if (field.data_type !== "object") {
       columns.push({
         key: `field:${field.id}`,
@@ -213,14 +252,17 @@ function collectHeaderExtractionColumns(group: TemplateGroup): ExportColumn[] {
     }
 
     const firstObjectColumnIndex = columns.length;
-    const resultValues = group.jobs
-      .map((job) => job.results.find((result) => result.field_id === field.id)?.answer)
-      .filter((answer) => answer !== null && answer !== undefined);
-    const discoveredPaths = new Map<
-      string,
-      { path: string[]; headingPath?: string[]; dataType?: DataType }
-    >();
+
+    const resultValues = group.jobs.flatMap((job) => {
+      const answer = job.results.find((result) => result.field_id === field.id)?.answer;
+
+      return answer !== null && answer !== undefined ? [answer] : [];
+    });
+
+    const discoveredPaths = new Map<string, { path: string[]; headingPath?: string[]; dataType?: DataType }>();
+
     const expectedColumns = readObjectSchemaColumns(field.description);
+
     for (const expected of expectedColumns) {
       const path = expected.path || [expected.key];
       discoveredPaths.set(pathKey(path), {
@@ -229,15 +271,18 @@ function collectHeaderExtractionColumns(group: TemplateGroup): ExportColumn[] {
         dataType: expected.dataType,
       });
     }
+
     let needsParentColumn = resultValues.length === 0;
 
     for (const value of resultValues) {
-      if (!isPlainObject(value) || Object.keys(value).length === 0) {
+      if (!isWorkbookObject(value) || Object.keys(value).length === 0) {
         needsParentColumn = true;
         continue;
       }
+
       for (const discovered of discoverObjectPaths(value)) {
         const key = pathKey(discovered.path);
+
         if (!discoveredPaths.has(key)) {
           discoveredPaths.set(key, discovered);
         }
@@ -253,20 +298,21 @@ function collectHeaderExtractionColumns(group: TemplateGroup): ExportColumn[] {
         path: [],
       });
     }
+
     for (const discovered of [...discoveredPaths.values()].sort((left, right) =>
-      pathKey(left.path).localeCompare(pathKey(right.path), undefined, { sensitivity: "base" })
+      pathKey(left.path).localeCompare(pathKey(right.path), undefined, { sensitivity: "base" }),
     )) {
       columns.push({
         key: `field:${field.id}:${pathKey(discovered.path)}`,
         fieldId: field.id,
-        heading: [
-          field.name,
-          ...(discovered.headingPath || discovered.path.map(readableObjectKey)),
-        ].join(HEADER_SEPARATOR),
+        heading: [field.name, ...(discovered.headingPath || discovered.path.map(readableObjectKey))].join(
+          HEADER_SEPARATOR,
+        ),
         dataType: discovered.dataType,
         path: discovered.path,
       });
     }
+
     if (columns[firstObjectColumnIndex]) {
       columns[firstObjectColumnIndex].statusTarget = true;
     }
@@ -275,24 +321,23 @@ function collectHeaderExtractionColumns(group: TemplateGroup): ExportColumn[] {
   return columns;
 }
 
-function headerCellValue(
-  result: LocalWorkspaceExtractionResult | undefined,
-  column: ExportColumn,
-): unknown {
+function headerCellValue(result: LocalWorkspaceExtractionResult | undefined, column: ExportColumn): WorkbookValue {
   if (!result) {
     return null;
   }
+
   if (result.answer === null || result.answer === undefined) {
     return column.statusTarget ? statusSentinel(result.status) : null;
   }
+
   if (!column.path) {
     return cellValue(result.answer, column.dataType);
   }
+
   if (column.path.length === 0) {
-    return isPlainObject(result.answer) && Object.keys(result.answer).length === 0
-      ? "{}"
-      : null;
+    return isWorkbookObject(result.answer) && Object.keys(result.answer).length === 0 ? "{}" : null;
   }
+
   return cellValue(readPath(result.answer, column.path), column.dataType);
 }
 
@@ -310,7 +355,9 @@ function addTableWorksheet({
   const worksheet = workbook.addWorksheet(sheetName, {
     views: [{ state: "frozen", ySplit: 1 }],
   });
+
   const tableColumns = collectTableColumns(results, field);
+
   const columns: ExportColumn[] = [
     { key: "meta:job-id", heading: "Job ID" },
     { key: "meta:source-filename", heading: "Source Filename" },
@@ -318,10 +365,12 @@ function addTableWorksheet({
     { key: "meta:table-status", heading: "Table Status" },
     ...tableColumns,
   ];
+
   setWorksheetColumns(worksheet, columns);
 
   for (const { job, result } of results) {
     const table = readTableAnswer(result.answer);
+
     if (table.rows.length === 0) {
       worksheet.addRow({
         "meta:job-id": job.job_id,
@@ -333,16 +382,19 @@ function addTableWorksheet({
     }
 
     table.rows.forEach((sourceRow, index) => {
-      const row: Record<string, unknown> = {
+      const row: WorkbookObject = {};
+      Object.assign(row, {
         "meta:job-id": job.job_id,
         "meta:source-filename": job.source_name,
         "meta:row-number": index + 1,
         "meta:table-status": null,
-      };
+      });
+
       for (const column of tableColumns) {
         const sourceKey = column.path?.[0] || "";
         row[column.key] = cellValue(sourceRow[sourceKey], column.dataType);
       }
+
       worksheet.addRow(row);
     });
   }
@@ -352,13 +404,16 @@ function addTableWorksheet({
 
 function completedFieldResults(jobs: LocalWorkspaceExtractionJobExport[], fieldId: string): CompletedFieldResult[] {
   return jobs.flatMap((job) => {
-    const result = job.status === "completed" ? job.results.find((candidate) => candidate.field_id === fieldId) : undefined;
+    const result =
+      job.status === "completed" ? job.results.find((candidate) => candidate.field_id === fieldId) : undefined;
+
     return result ? [{ job, result }] : [];
   });
 }
 
 function collectTableColumns(results: CompletedFieldResult[], field: ExportField): ExportColumn[] {
   const columns = new Map<string, ExportColumn>();
+
   for (const expected of readObjectSchemaColumns(field.description)) {
     columns.set(expected.key, {
       ...expected,
@@ -368,10 +423,13 @@ function collectTableColumns(results: CompletedFieldResult[], field: ExportField
   }
 
   const extras = new Set<string>();
+
   for (const { result } of results) {
     const table = readTableAnswer(result.answer);
+
     for (const answerColumn of table.columns) {
       const sourceKey = answerColumn.path?.[0] || answerColumn.key;
+
       if (!columns.has(sourceKey)) {
         columns.set(sourceKey, {
           ...answerColumn,
@@ -380,6 +438,7 @@ function collectTableColumns(results: CompletedFieldResult[], field: ExportField
         });
       }
     }
+
     for (const row of table.rows) {
       for (const sourceKey of Object.keys(row)) {
         if (!columns.has(sourceKey)) {
@@ -396,125 +455,156 @@ function collectTableColumns(results: CompletedFieldResult[], field: ExportField
       path: [sourceKey],
     });
   }
+
   return [...columns.values()];
 }
 
-function readTableAnswer(answer: unknown): TableAnswer {
-  if (Array.isArray(answer)) {
+function readTableAnswer(answer: WorkbookValue): TableAnswer {
+  if (isWorkbookArray(answer)) {
     return {
       columns: [],
-      rows: answer.filter(isPlainObject),
+      rows: answer.filter(isWorkbookObject),
     };
   }
-  if (!isPlainObject(answer)) {
+
+  if (!isWorkbookObject(answer)) {
     return { columns: [], rows: [] };
   }
-  const rows = Array.isArray(answer.rows) ? answer.rows.filter(isPlainObject) : [];
-  const rawColumns = Array.isArray(answer.columns) ? answer.columns : [];
+
+  const rows = isWorkbookArray(answer.rows) ? answer.rows.filter(isWorkbookObject) : [];
+  const rawColumns = isWorkbookArray(answer.columns) ? answer.columns : [];
+
   const columns = rawColumns.flatMap((rawColumn, index): ExportColumn[] => {
-    if (typeof rawColumn === "string" && rawColumn.trim()) {
-      return [{
-        key: rawColumn,
-        heading: rawColumn,
-        path: [rawColumn],
-      }];
+    if (isString(rawColumn) && rawColumn.trim()) {
+      return [
+        {
+          key: rawColumn,
+          heading: rawColumn,
+          path: [rawColumn],
+        },
+      ];
     }
+
     return schemaColumn(rawColumn, index);
   });
+
   return { columns, rows };
 }
 
 function readObjectSchemaColumns(description: string): ExportColumn[] {
   const start = description.indexOf(OBJECT_SCHEMA_START);
   const end = description.indexOf(OBJECT_SCHEMA_END);
+
   if (start < 0 || end <= start) {
     return [];
   }
+
   const rawJson = description.slice(start + OBJECT_SCHEMA_START.length, end).trim();
+
   try {
-    const schema = JSON.parse(rawJson) as { columns?: unknown };
-    if (!Array.isArray(schema.columns)) {
+    const schema = parseJson(rawJson);
+
+    if (!isWorkbookObject(schema) || !isWorkbookArray(schema.columns)) {
       return [];
     }
+
     return schema.columns.flatMap((value) => schemaColumn(value));
   } catch {
     return [];
   }
 }
 
-function schemaColumn(value: unknown, fallbackKey: string | number = ""): ExportColumn[] {
-  if (!isPlainObject(value)) return [];
+function schemaColumn(value: WorkbookValue, fallbackKey: string | number = ""): ExportColumn[] {
+  if (!isWorkbookObject(value)) return [];
   const key = String(value.key || fallbackKey).trim();
+
   if (!key) return [];
-  return [{
-    key,
-    heading: String(value.heading || key),
-    dataType: readDataType(value.data_type || value.type),
-    path: [key],
-  }];
+
+  return [
+    {
+      key,
+      heading: String(value.heading || key),
+      dataType: readDataType(value.data_type || value.type),
+      path: [key],
+    },
+  ];
 }
 
 function discoverObjectPaths(
-  value: Record<string, unknown>,
+  value: WorkbookObject,
   parent: string[] = [],
 ): Array<{ path: string[]; dataType?: DataType }> {
   const paths: Array<{ path: string[]; dataType?: DataType }> = [];
+
   for (const key of Object.keys(value).sort((left, right) => left.localeCompare(right))) {
     const child = value[key];
     const path = [...parent, key];
-    if (isPlainObject(child) && Object.keys(child).length > 0) {
+
+    if (isWorkbookObject(child) && Object.keys(child).length > 0) {
       paths.push(...discoverObjectPaths(child, path));
     } else {
       paths.push({ path });
     }
   }
+
   return paths;
 }
 
-function readPath(value: unknown, path: string[]): unknown {
+function readPath(value: WorkbookValue, path: string[]): WorkbookValue {
   let current = value;
+
   for (const key of path) {
-    if (!isPlainObject(current)) {
+    if (!isWorkbookObject(current)) {
       return null;
     }
+
     current = current[key];
   }
+
   return current;
 }
 
-function cellValue(value: unknown, dataType?: DataType): unknown {
+function cellValue(value: WorkbookValue, dataType?: DataType): WorkbookValue {
   if (value === null || value === undefined) {
     return null;
   }
-  if (Array.isArray(value) || isPlainObject(value)) {
+
+  if (Array.isArray(value) || isWorkbookObject(value)) {
     return limitCellText(safeStringify(value));
   }
-  if (dataType === "date" && typeof value === "string") {
+
+  if (dataType === "date" && isString(value)) {
     return limitCellText(isoDateText(value));
   }
-  if (typeof value === "number") {
+
+  if (isNumber(value)) {
     return Number.isFinite(value) ? value : String(value);
   }
-  if (typeof value === "boolean") {
+
+  if (isBoolean(value)) {
     return value;
   }
+
   return limitCellText(String(value));
 }
 
-function safeStringify(value: unknown): string {
+function safeStringify(value: WorkbookValue): string {
   const seen = new WeakSet<object>();
-  const serialized = JSON.stringify(value, (_key, nestedValue: unknown) => {
-    if (typeof nestedValue === "bigint") {
-      return nestedValue.toString();
-    }
-    if (nestedValue && typeof nestedValue === "object") {
+
+  const serialized = JSON.stringify(value, (_key, nestedValue: WorkbookValue) => {
+    if (isBigInt(nestedValue)) return nestedValue.toString();
+
+    if (isWorkbookObject(nestedValue) || isWorkbookArray(nestedValue)) {
       if (seen.has(nestedValue)) {
         return "[Circular]";
       }
+
       seen.add(nestedValue);
     }
+
     return nestedValue;
   });
+
   return serialized ?? String(value);
 }
 
@@ -522,22 +612,28 @@ function limitCellText(value: string): string {
   if (value.length <= EXCEL_MAX_CELL_TEXT_LENGTH) {
     return value;
   }
+
   const maximumPrefixLength = EXCEL_MAX_CELL_TEXT_LENGTH - TRUNCATED_CELL_SUFFIX.length;
   let prefix = value.slice(0, maximumPrefixLength);
   const finalCodeUnit = prefix.charCodeAt(prefix.length - 1);
+
   if (finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff) {
     prefix = prefix.slice(0, -1);
   }
+
   return `${prefix}${TRUNCATED_CELL_SUFFIX}`;
 }
 
 function isoDateText(value: string): string {
   const raw = value.trim();
   const dayFirst = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+
   if (dayFirst) {
     return `${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}`;
   }
+
   const isoDate = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
   return isoDate ? `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}` : raw;
 }
 
@@ -546,13 +642,11 @@ function statusSentinel(status: string): string {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "_");
+
   return `[${normalized || "not_found"}]`;
 }
 
-function setWorksheetColumns(
-  worksheet: ExcelJS.Worksheet,
-  columns: ExportColumn[],
-): void {
+function setWorksheetColumns(worksheet: ExcelJS.Worksheet, columns: ExportColumn[]): void {
   worksheet.columns = columns.map((column) => ({
     header: column.heading,
     key: column.key,
@@ -588,35 +682,41 @@ function finishWorksheet(worksheet: ExcelJS.Worksheet): void {
 }
 
 function uniqueSheetName(label: string, usedNames: Set<string>): string {
-  const cleaned = replaceControlCharacters(label)
-    .replace(/[\\/*?:[\]]/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/^[\s']+|[\s']+$/g, "") || "Export";
+  const cleaned =
+    replaceControlCharacters(label)
+      .replace(/[\\/*?:[\]]/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/^[\s']+|[\s']+$/g, "") || "Export";
+
   let candidate = cleaned.slice(0, EXCEL_MAX_SHEET_NAME_LENGTH).replace(/[\s']+$/g, "") || "Export";
   let suffixNumber = 2;
+
   while (usedNames.has(candidate.toLocaleLowerCase())) {
     const suffix = ` (${suffixNumber})`;
     candidate = `${cleaned.slice(0, EXCEL_MAX_SHEET_NAME_LENGTH - suffix.length).trim()}${suffix}`;
     suffixNumber += 1;
   }
+
   usedNames.add(candidate.toLocaleLowerCase());
+
   return candidate;
 }
 
 function replaceControlCharacters(value: string): string {
-  return [...value]
-    .map((character) => character.charCodeAt(0) < 32 ? " " : character)
-    .join("");
+  return [...value].map((character) => (character.charCodeAt(0) < 32 ? " " : character)).join("");
 }
 
 function exportFilename(workspaceName: string, generatedAt: Date): string {
-  const workspaceSlug = workspaceName
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "workspace";
+  const workspaceSlug =
+    workspaceName
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "workspace";
+
   const timestamp = generatedAt.toISOString().slice(0, 16).replace("T", "-").replace(":", "");
+
   return `${workspaceSlug}-job-export-${timestamp}.xlsx`;
 }
 
@@ -631,17 +731,23 @@ function readableObjectKey(value: string): string {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
+
   return words.map((word) => `${word[0]?.toUpperCase() || ""}${word.slice(1)}`).join(" ") || value;
 }
 
-function readDataType(value: unknown): DataType | undefined {
-  const normalized = String(value || "").trim() as DataType;
-  return ["string", "number", "boolean", "date", "object", "array", TABLE_DATA_TYPE]
-    .includes(normalized)
-    ? normalized
-    : undefined;
-}
+function readDataType(value: WorkbookValue): DataType | undefined {
+  const normalized = String(value || "").trim();
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  switch (normalized) {
+    case "string":
+    case "number":
+    case "boolean":
+    case "date":
+    case "object":
+    case "array":
+    case TABLE_DATA_TYPE:
+      return normalized;
+    default:
+      return undefined;
+  }
 }

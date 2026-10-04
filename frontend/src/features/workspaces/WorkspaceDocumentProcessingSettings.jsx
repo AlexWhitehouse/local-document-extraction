@@ -4,6 +4,7 @@ import { SettingToggle } from "./SettingToggle.jsx";
 export function WorkspaceDocumentProcessingSettings({ controller }) {
   const { settings, loading, saving, error, canManage } = controller;
   const splitting = settings?.enable_smart_splitting === true;
+
   return (
     <section className="studio-api-access" aria-label="Document processing">
       <div className="studio-section-heading">
@@ -12,7 +13,11 @@ export function WorkspaceDocumentProcessingSettings({ controller }) {
           <p>Applies to every new upload and API request in this Workspace.</p>
         </div>
       </div>
-      {loading && !settings ? <p role="status" className="studio-users-note">Loading document processing settings…</p> : null}
+      {loading && !settings ? (
+        <p role="status" className="studio-users-note">
+          Loading document processing settings…
+        </p>
+      ) : null}
       <div className="studio-setting-toggles">
         <SettingToggle
           label="Enable smart splitting"
@@ -30,7 +35,14 @@ export function WorkspaceDocumentProcessingSettings({ controller }) {
         />
       </div>
       {!canManage ? <p className="studio-users-note">An owner or admin manages these settings.</p> : null}
-      {error ? <p role="alert" className="form-error">{error}{" "}<button type="button" className="studio-text-button" onClick={controller.reload}>Reload settings</button></p> : null}
+      {error ? (
+        <p role="alert" className="form-error">
+          {error}{" "}
+          <button type="button" className="studio-text-button" onClick={controller.reload}>
+            Reload settings
+          </button>
+        </p>
+      ) : null}
     </section>
   );
 }

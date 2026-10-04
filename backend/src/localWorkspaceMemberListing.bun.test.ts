@@ -11,6 +11,7 @@ import { createFetchRequest, createSignedInUser } from "./testing/localAuthTestC
 test("the Workspace member-list adapter uses the real session-only HTTP interface", async () => {
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -18,11 +19,13 @@ test("the Workspace member-list adapter uses the real session-only HTTP interfac
     mailSink: {
       capture: async (message) => {
         const link = message.text.match(/https?:\/\/\S+/)?.[0];
+
         if (link) verificationLinks.push(link);
       },
     },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const application = createLocalApplication({ auth, workspaceControl });
 
@@ -34,6 +37,7 @@ test("the Workspace member-list adapter uses the real session-only HTTP interfac
       name: "Ada Lovelace",
       verificationLinks,
     });
+
     const member = await createSignedInUser({
       application,
       auth,
@@ -41,6 +45,7 @@ test("the Workspace member-list adapter uses the real session-only HTTP interfac
       name: "Grace Hopper",
       verificationLinks,
     });
+
     const stranger = await createSignedInUser({
       application,
       auth,
@@ -48,12 +53,18 @@ test("the Workspace member-list adapter uses the real session-only HTTP interfac
       name: "Linus Torvalds",
       verificationLinks,
     });
-    const workspace = workspaceControl.listAcceptedWorkspaces({ userId: owner.session.id, userName: owner.session.name })[0]!;
+
+    const workspace = workspaceControl.listAcceptedWorkspaces({
+      userId: owner.session.id,
+      userName: owner.session.name,
+    })[0]!;
+
     const invitation = workspaceControl.createInvitation({
       workspaceId: workspace.id,
       inviterUserId: owner.session.id,
       email: member.session.email,
     });
+
     workspaceControl.acceptInvitation({
       invitationId: invitation.id,
       userId: member.session.id,
@@ -62,39 +73,67 @@ test("the Workspace member-list adapter uses the real session-only HTTP interfac
     const memberAdapter = createWorkspaceRequestAdapter({ request: createFetchRequest(application, member.cookie) });
 
     await expect(memberAdapter.listWorkspaceUsers(workspace.id)).resolves.toEqual([
-      expect.objectContaining({ user_id: owner.session.id, name: "Ada Lovelace", email: "ada@example.com", role: "owner" }),
-      expect.objectContaining({ user_id: member.session.id, name: "Grace Hopper", email: "grace@example.com", role: "member" }),
+      expect.objectContaining({
+        user_id: owner.session.id,
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        role: "owner",
+      }),
+      expect.objectContaining({
+        user_id: member.session.id,
+        name: "Grace Hopper",
+        email: "grace@example.com",
+        role: "member",
+      }),
     ]);
 
-    const strangerAdapter = createWorkspaceRequestAdapter({ request: createFetchRequest(application, stranger.cookie) });
-    await expect(strangerAdapter.listWorkspaceUsers(workspace.id)).rejects.toMatchObject({ code: "forbidden", status: 403 });
+    const strangerAdapter = createWorkspaceRequestAdapter({
+      request: createFetchRequest(application, stranger.cookie),
+    });
+
+    await expect(strangerAdapter.listWorkspaceUsers(workspace.id)).rejects.toMatchObject({
+      code: "forbidden",
+      status: 403,
+    });
     const apiKey = workspaceControl.rotateApiKey({ workspaceId: workspace.id, userId: owner.session.id }).api_key;
-    const apiKeyResponse = await application(new Request(`http://127.0.0.1:8787/v1/workspaces/${workspace.id}/users`, {
-      headers: { authorization: `Bearer ${apiKey}` },
-    }));
+
+    const apiKeyResponse = await application(
+      new Request(`http://127.0.0.1:8787/v1/workspaces/${workspace.id}/users`, {
+        headers: { authorization: `Bearer ${apiKey}` },
+      }),
+    );
+
     expect(apiKeyResponse.status).toBe(401);
 
     const ownerAdapter = createWorkspaceRequestAdapter({ request: createFetchRequest(application, owner.cookie) });
-    await expect(ownerAdapter.applyWorkspaceMemberAction({
-      workspaceId: workspace.id,
-      targetUserId: member.session.id,
-      action: "make_admin",
-    })).resolves.toEqual({ workspace_id: workspace.id, user_id: member.session.id, action: "make_admin", role: "admin" });
-    await expect(ownerAdapter.applyWorkspaceMemberAction({
-      workspaceId: workspace.id,
-      targetUserId: member.session.id,
-      action: "make_owner",
-    })).resolves.toEqual({ workspace_id: workspace.id, user_id: member.session.id, action: "make_owner", role: "owner" });
-    await expect(memberAdapter.applyWorkspaceMemberAction({
-      workspaceId: workspace.id,
-      targetUserId: owner.session.id,
-      action: "remove_user",
-    })).resolves.toEqual({ workspace_id: workspace.id, user_id: owner.session.id, action: "remove_user", role: null });
-    await expect(strangerAdapter.applyWorkspaceMemberAction({
-      workspaceId: workspace.id,
-      targetUserId: member.session.id,
-      action: "remove_user",
-    })).rejects.toMatchObject({ code: "forbidden", status: 403 });
+    await expect(
+      ownerAdapter.applyWorkspaceMemberAction({
+        workspaceId: workspace.id,
+        targetUserId: member.session.id,
+        action: "make_admin",
+      }),
+    ).resolves.toEqual({ workspace_id: workspace.id, user_id: member.session.id, action: "make_admin", role: "admin" });
+    await expect(
+      ownerAdapter.applyWorkspaceMemberAction({
+        workspaceId: workspace.id,
+        targetUserId: member.session.id,
+        action: "make_owner",
+      }),
+    ).resolves.toEqual({ workspace_id: workspace.id, user_id: member.session.id, action: "make_owner", role: "owner" });
+    await expect(
+      memberAdapter.applyWorkspaceMemberAction({
+        workspaceId: workspace.id,
+        targetUserId: owner.session.id,
+        action: "remove_user",
+      }),
+    ).resolves.toEqual({ workspace_id: workspace.id, user_id: owner.session.id, action: "remove_user", role: null });
+    await expect(
+      strangerAdapter.applyWorkspaceMemberAction({
+        workspaceId: workspace.id,
+        targetUserId: member.session.id,
+        action: "remove_user",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden", status: 403 });
   } finally {
     database.close();
   }

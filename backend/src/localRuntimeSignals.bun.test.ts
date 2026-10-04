@@ -9,9 +9,8 @@ for (const watch of [false, true]) {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     test(`${signal} exits the real server${watch ? " in watch mode" : ""} and releases its port`, async () => {
       const stateDirectory = await mkdtemp(join(tmpdir(), "local-runtime-signals-"));
-      const child = Bun.spawn([
-        process.execPath, "--no-env-file", ...(watch ? ["--watch"] : []), entrypoint,
-      ], {
+
+      const child = Bun.spawn([process.execPath, "--no-env-file", ...(watch ? ["--watch"] : []), entrypoint], {
         cwd: stateDirectory,
         env: {
           PATH: process.env.PATH,
@@ -22,24 +21,33 @@ for (const watch of [false, true]) {
         stdout: "pipe",
         stderr: "pipe",
       });
+
       let output = "";
       let reportReady!: (origin: string) => void;
-      const ready = new Promise<string>((resolveReady) => { reportReady = resolveReady; });
+
+      const ready = new Promise<string>((resolveReady) => {
+        reportReady = resolveReady;
+      });
+
       const stdoutDone = (async () => {
         const decoder = new TextDecoder();
         const reader = child.stdout.getReader();
+
         try {
           while (true) {
             const { done, value } = await reader.read();
+
             if (done) break;
             output += decoder.decode(value, { stream: true });
             const match = output.match(/LOCAL_RUNTIME_READY (.+)\n/);
+
             if (match) reportReady(JSON.parse(match[1]!).origin);
           }
         } finally {
           reader.releaseLock();
         }
       })();
+
       const stderrDone = new Response(child.stderr).text();
 
       try {
@@ -50,12 +58,14 @@ for (const watch of [false, true]) {
 
         child.kill(signal);
         expect(await within(child.exited, 2_000, `process exit after ${signal}`)).toBe(0);
+
         // Prove the interrupted application no longer owns the listener.
         const replacement = Bun.serve({
           hostname: "127.0.0.1",
           port: Number(new URL(origin).port),
           fetch: () => new Response("replacement"),
         });
+
         await replacement.stop(true);
       } finally {
         if (child.exitCode === null) child.kill("SIGKILL");
@@ -69,6 +79,7 @@ for (const watch of [false, true]) {
 
 async function within<T>(promise: Promise<T>, timeoutMs: number, description: string): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
+
   try {
     return await Promise.race([
       promise,

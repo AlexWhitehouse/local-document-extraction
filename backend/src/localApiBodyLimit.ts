@@ -5,6 +5,7 @@ import { copyLocalAuthRequestPeerAddress } from "./localAuthClientAddress";
 export async function boundLocalApiBody(request: Request, maximumBytes: number): Promise<Request> {
   if (!request.body) return request;
   const declaredLength = request.headers.get("content-length");
+
   if (declaredLength !== null && /^\d+$/.test(declaredLength) && Number(declaredLength) > maximumBytes) {
     void request.body.cancel().catch(() => {});
     throw tooLarge(maximumBytes);
@@ -13,20 +14,25 @@ export async function boundLocalApiBody(request: Request, maximumBytes: number):
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
+
   try {
     while (true) {
       const { done, value } = await reader.read();
+
       if (done) break;
       length += value.byteLength;
+
       if (length > maximumBytes) {
         void reader.cancel().catch(() => {});
         throw tooLarge(maximumBytes);
       }
+
       chunks.push(value);
     }
   } finally {
     reader.releaseLock();
   }
+
   return copyLocalAuthRequestPeerAddress(request, new Request(request, { body: Buffer.concat(chunks, length) }));
 }
 

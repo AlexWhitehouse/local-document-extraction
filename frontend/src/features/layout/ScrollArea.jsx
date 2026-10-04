@@ -2,21 +2,19 @@ import React, { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from 
 import "./ScrollArea.css";
 
 // Keep the existing scroll element and semantics; only fade edges with hidden content.
-export const ScrollArea = forwardRef(function ScrollArea({
-  as: Element = "div",
-  className = "",
-  children,
-  ...props
-}, forwardedRef) {
+export const ScrollArea = forwardRef(function ScrollArea(
+  { as: Element = "div", className = "", children, ...props },
+  forwardedRef,
+) {
   const ref = useRef(null);
   useImperativeHandle(forwardedRef, () => ref.current, []);
 
   useLayoutEffect(() => {
     const element = ref.current;
+
     function updateEdges() {
-      const {
-        scrollTop, scrollLeft, scrollHeight, scrollWidth, clientHeight, clientWidth,
-      } = element;
+      const { scrollTop, scrollLeft, scrollHeight, scrollWidth, clientHeight, clientWidth } = element;
+
       // Allow for fractional scroll positions at the end of a container.
       element.dataset.scrollTop = String(scrollTop > 1);
       element.dataset.scrollBottom = String(scrollHeight - clientHeight - scrollTop > 1);
@@ -26,12 +24,14 @@ export const ScrollArea = forwardRef(function ScrollArea({
 
     updateEdges();
     element.addEventListener("scroll", updateEdges, { passive: true });
-    const observer = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(updateEdges);
+
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateEdges);
+
     observer?.observe(element);
+
     // Content can change height without changing the bounded viewport (or vice versa).
     for (const child of element.children) observer?.observe(child);
+
     return () => {
       element.removeEventListener("scroll", updateEdges);
       observer?.disconnect();

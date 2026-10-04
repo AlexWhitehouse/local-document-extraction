@@ -9,9 +9,11 @@ test("Local Bun Runtime shutdown drains active work before durable resources clo
   const server = Promise.withResolvers<void>();
   const analytics = Promise.withResolvers<void>();
   const analyticsStarted = Promise.withResolvers<void>();
+
   const shutdown = createLocalRuntimeShutdown({
     closeAdmission: () => {
       events.push("admission:closed");
+
       return admission.promise;
     },
     closeAuth: () => {
@@ -22,11 +24,13 @@ test("Local Bun Runtime shutdown drains active work before durable resources clo
     },
     closeQueue: () => {
       events.push("queue:closed");
+
       return extraction.promise;
     },
     flushAnalytics: () => {
       events.push("analytics:flushing");
       analyticsStarted.resolve();
+
       return analytics.promise;
     },
     stopRecurringWork: () => {
@@ -34,18 +38,14 @@ test("Local Bun Runtime shutdown drains active work before durable resources clo
     },
     stopServer: (force) => {
       events.push(force ? "server:forced" : "server:graceful");
+
       return server.promise;
     },
   });
 
   const completed = shutdown.request();
 
-  expect(events).toEqual([
-    "admission:closed",
-    "queue:closed",
-    "recurring:stopped",
-    "server:graceful",
-  ]);
+  expect(events).toEqual(["admission:closed", "queue:closed", "recurring:stopped", "server:graceful"]);
 
   admission.resolve();
   extraction.resolve();
@@ -72,6 +72,7 @@ test("a repeated shutdown request forces the server without duplicating cleanup"
   const events: string[] = [];
   const server = Promise.withResolvers<void>();
   let forceDeadline: (() => void) | undefined;
+
   const shutdown = createLocalRuntimeShutdown({
     cancelTimeout: () => {
       events.push("deadline:cancelled");
@@ -91,14 +92,17 @@ test("a repeated shutdown request forces the server without duplicating cleanup"
     scheduleTimeout: (handler, delayMs) => {
       events.push(`deadline:scheduled:${delayMs}`);
       forceDeadline = handler;
-      return Symbol("deadline");
+
+      return 1;
     },
     stopRecurringWork: () => {
       events.push("recurring:stopped");
     },
     stopServer: (force) => {
       events.push(force ? "server:forced" : "server:graceful");
+
       if (force) server.resolve();
+
       return server.promise;
     },
   });
@@ -107,12 +111,7 @@ test("a repeated shutdown request forces the server without duplicating cleanup"
   const second = shutdown.request();
 
   expect(second).toBe(first);
-  expect(events).toEqual([
-    "recurring:stopped",
-    "server:graceful",
-    "deadline:scheduled:250",
-    "server:forced",
-  ]);
+  expect(events).toEqual(["recurring:stopped", "server:graceful", "deadline:scheduled:250", "server:forced"]);
 
   await first;
   forceDeadline?.();
@@ -133,6 +132,7 @@ test("the shutdown deadline forces a stalled network stop", async () => {
   const events: string[] = [];
   const gracefulServer = Promise.withResolvers<void>();
   let forceDeadline: (() => void) | undefined;
+
   const shutdown = createLocalRuntimeShutdown({
     closeAdmission: async () => {},
     closeAuth: () => {},
@@ -142,11 +142,13 @@ test("the shutdown deadline forces a stalled network stop", async () => {
     forceAfterMs: 500,
     scheduleTimeout: (handler) => {
       forceDeadline = handler;
-      return Symbol("deadline");
+
+      return 1;
     },
     stopRecurringWork: () => {},
     stopServer: (force) => {
       events.push(force ? "server:forced" : "server:graceful");
+
       return force ? undefined : gracefulServer.promise;
     },
   });
@@ -163,6 +165,7 @@ test("the shutdown deadline releases every stalled draining barrier", async () =
   const stalled = Promise.withResolvers<void>();
   let forceDeadline: (() => void) | undefined;
   let settled = false;
+
   const shutdown = createLocalRuntimeShutdown({
     closeAdmission: () => stalled.promise,
     closeAuth: () => {
@@ -178,11 +181,13 @@ test("the shutdown deadline releases every stalled draining barrier", async () =
     forceAfterMs: 500,
     scheduleTimeout: (handler) => {
       forceDeadline = handler;
-      return Symbol("deadline");
+
+      return 1;
     },
     stopRecurringWork: () => stalled.promise,
     stopServer: (force) => {
       events.push(force ? "server:forced" : "server:graceful");
+
       return force ? undefined : stalled.promise;
     },
   });
@@ -190,23 +195,19 @@ test("the shutdown deadline releases every stalled draining barrier", async () =
   const completed = shutdown.request().then(() => {
     settled = true;
   });
+
   forceDeadline?.();
   await drainMicrotasks();
 
   expect(settled).toBe(true);
-  expect(events).toEqual([
-    "server:graceful",
-    "server:forced",
-    "analytics:flushed",
-    "auth:closed",
-    "stores:closed",
-  ]);
+  expect(events).toEqual(["server:graceful", "server:forced", "analytics:flushed", "auth:closed", "stores:closed"]);
   await completed;
 });
 
 test("shutdown waits for recurring runtime work before flushing analytics", async () => {
   const recurring = Promise.withResolvers<void>();
   let analyticsFlushed = false;
+
   const shutdown = createLocalRuntimeShutdown({
     closeAdmission: async () => {},
     closeAuth: () => {},
@@ -230,6 +231,7 @@ test("shutdown waits for recurring runtime work before flushing analytics", asyn
 
 test("shutdown attempts every durable cleanup and reports all failures", async () => {
   const events: string[] = [];
+
   const shutdown = createLocalRuntimeShutdown({
     closeAdmission: async () => {
       throw new Error("admission drain failed");
@@ -251,6 +253,7 @@ test("shutdown attempts every durable cleanup and reports all failures", async (
   });
 
   let failure: unknown;
+
   try {
     await shutdown.request();
   } catch (error) {
@@ -259,13 +262,16 @@ test("shutdown attempts every durable cleanup and reports all failures", async (
 
   expect(events).toEqual(["analytics:flushed", "auth:closed", "stores:closed"]);
   expect(failure).toBeInstanceOf(AggregateError);
-  expect((failure as AggregateError).errors.map((error) => (error as Error).message)).toEqual([
-    "admission drain failed",
-    "analytics flush failed",
-    "auth close failed",
-  ]);
-});
 
+  if (!(failure instanceof AggregateError)) throw new Error("Expected an aggregate shutdown failure");
+  expect(
+    failure.errors.map((error) => {
+      if (!(error instanceof Error)) throw new Error("Expected an Error in shutdown failures");
+
+      return error.message;
+    }),
+  ).toEqual(["admission drain failed", "analytics flush failed", "auth close failed"]);
+});
 
 async function drainMicrotasks(): Promise<void> {
   for (let index = 0; index < 10; index += 1) await Promise.resolve();

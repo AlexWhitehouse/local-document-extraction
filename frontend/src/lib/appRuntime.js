@@ -9,6 +9,7 @@ export function createAppRuntimeCore({ apiBase, toast }) {
 
   async function request(path, options = {}) {
     const { responseType, ...fetchOptions } = options;
+
     const response = await fetch(`${baseUrl}${path}`, {
       ...fetchOptions,
       credentials: "include",
@@ -38,11 +39,8 @@ export function createAppRuntimeCore({ apiBase, toast }) {
     const data = rawText ? tryParseJson(rawText) : null;
 
     if (!response.ok) {
-      const message =
-        data?.error?.message ||
-        data?.message ||
-        rawText ||
-        `Request failed (${response.status})`;
+      const message = data?.error?.message || data?.message || rawText || `Request failed (${response.status})`;
+
       const error = new Error(message);
       error.status = response.status;
       error.code = data?.error?.code || null;
@@ -58,39 +56,31 @@ export function createAppRuntimeCore({ apiBase, toast }) {
         status: response.status,
       };
     }
+
     return data;
   }
 
   return {
     request,
-    showActionToast: (action, outcome, options) =>
-      showNotification(getActionToast(action, outcome, options)),
+    showActionToast: (action, outcome, options) => showNotification(getActionToast(action, outcome, options)),
     showDocumentUploadToast: (options) => showNotification(getDocumentUploadToast(options)),
   };
 }
 
-export function createWorkspaceRequestLayer({
-  coreRequest,
-  hasSession,
-  workspaceId,
-  onForbiddenWorkspaceAccess,
-}) {
-  async function request(
-    path,
-    options = {},
-    authRequired = true,
-    workspaceRequired = true,
-  ) {
+export function createWorkspaceRequestLayer({ coreRequest, hasSession, workspaceId, onForbiddenWorkspaceAccess }) {
+  async function request(path, options = {}, authRequired = true, workspaceRequired = true) {
     const { recoverForbiddenAccess = true, ...requestOptions } = options;
     const headers = new Headers(requestOptions.headers || {});
 
     if (authRequired && !hasSession) {
       throw new Error("Sign in to continue");
     }
+
     if (authRequired && workspaceRequired) {
       if (!workspaceId.trim()) {
         throw new Error("Workspace ID is required");
       }
+
       headers.set("x-workspace-id", workspaceId.trim());
     }
 
@@ -103,6 +93,7 @@ export function createWorkspaceRequestLayer({
       if (error.status === 403 && recoverForbiddenAccess && authRequired && workspaceRequired) {
         await onForbiddenWorkspaceAccess();
       }
+
       throw error;
     }
   }

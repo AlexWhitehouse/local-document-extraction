@@ -7,11 +7,17 @@ import { canContinueTour } from "./tourSteps.js";
 
 function props(overrides = {}) {
   return {
-    userId: "first-user", ready: true, workspaceId: "original", busy: false,
+    userId: "first-user",
+    ready: true,
+    workspaceId: "original",
+    busy: false,
     workspace: { workspaceName: "Workspace", isWorkspaceNameDirty: false },
-    template: { templateFields: [] }, model: { ready: false },
+    template: { templateFields: [] },
+    model: { ready: false },
     upload: { sourceFiles: [], onClose: vi.fn() },
-    onStart: vi.fn(), onActiveChange: vi.fn(), ...overrides,
+    onStart: vi.fn(),
+    onActiveChange: vi.fn(),
+    ...overrides,
   };
 }
 
@@ -28,8 +34,12 @@ describe("first-use tour", () => {
   });
 
   it("supports unavailable local storage and restores interaction on Escape", () => {
-    vi.spyOn(window.localStorage, "getItem").mockImplementation(() => { throw new Error("blocked"); });
-    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    vi.spyOn(window.localStorage, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
     const options = props();
     render(<OnboardingTour {...options} />);
     fireEvent.click(screen.getByRole("button", { name: /Take a tour/ }));
@@ -58,11 +68,17 @@ describe("first-use tour", () => {
     const intended = vi.fn();
     const unrelated = vi.fn();
     const step = { id: "test-target", title: "Try this", text: "Only this button." };
-    const { unmount } = render(<>
-      <button data-tour="test-target" onClick={intended}>Target</button>
-      <button onClick={unrelated}>Unrelated</button>
-      <TourSpotlight step={step} index={0} total={1} onExit={vi.fn()} />
-    </>);
+
+    const { unmount } = render(
+      <>
+        <button data-tour="test-target" onClick={intended}>
+          Target
+        </button>
+        <button onClick={unrelated}>Unrelated</button>
+        <TourSpotlight step={step} index={0} total={1} onExit={vi.fn()} />
+      </>,
+    );
+
     fireEvent.click(screen.getByText("Unrelated"));
     expect(unrelated).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Target"));
@@ -80,16 +96,29 @@ describe("first-use tour", () => {
   });
 
   it("requires a valid object schema, ready model and selected files", () => {
-    const state = props({ template: {
-      templateName: "Invoice", templateDescription: "", templateFields: [
-        { name: "Invoice Number", data_type: "string", description: "The identifier" },
-        { name: "Line Items", data_type: "array<object>", description: "Every item", object_schema: { columns: [] } },
-      ],
-    } });
+    const state = props({
+      template: {
+        templateName: "Invoice",
+        templateDescription: "",
+        templateFields: [
+          { name: "Invoice Number", data_type: "string", description: "The identifier" },
+          { name: "Line Items", data_type: "array<object>", description: "Every item", object_schema: { columns: [] } },
+        ],
+      },
+    });
+
     expect(canContinueTour("schema", state)).toBe(false);
-    state.template.templateFields[1].object_schema.columns.push({ heading: "Item", data_type: "string", description: "Item name" });
+    state.template.templateFields[1].object_schema.columns.push({
+      heading: "Item",
+      data_type: "string",
+      description: "Item name",
+    });
     expect(canContinueTour("schema", state)).toBe(true);
-    state.template.templateFields[1].object_schema.columns.push({ heading: "Item", data_type: "string", description: "Duplicate" });
+    state.template.templateFields[1].object_schema.columns.push({
+      heading: "Item",
+      data_type: "string",
+      description: "Duplicate",
+    });
     expect(canContinueTour("schema", state)).toBe(false);
     expect(canContinueTour("model", state)).toBe(false);
     expect(canContinueTour("files", state)).toBe(false);

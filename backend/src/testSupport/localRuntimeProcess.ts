@@ -1,3 +1,5 @@
+import { isJsonObject, parseJson } from "../../../shared/json";
+
 type CapturedOutput = {
   stderr: string;
   stdout: string;
@@ -24,10 +26,12 @@ export async function startLocalRuntimeSmokeProcess({
   let lastHealthResult = "not attempted";
   let resolveOrigin!: (origin: string) => void;
   let rejectOrigin!: (error: Error) => void;
+
   const originReported = new Promise<string>((resolve, reject) => {
     resolveOrigin = resolve;
     rejectOrigin = reject;
   });
+
   const child = Bun.spawn([process.execPath, "--no-env-file", "src/server.ts"], {
     cwd: backendDirectory,
     env: {
@@ -37,39 +41,56 @@ export async function startLocalRuntimeSmokeProcess({
     stderr: "pipe",
     stdout: "pipe",
   });
+
   let stopped = false;
-  const stdoutDone = captureOutput(child.stdout, (text) => {
-    output.stdout += text;
-  }, (line) => {
-    const prefix = "LOCAL_RUNTIME_READY ";
-    if (!line.startsWith(prefix) || reportedOrigin) return;
-    try {
-      const payload = JSON.parse(line.slice(prefix.length)) as { origin?: unknown };
-      const origin = new URL(String(payload.origin || ""));
-      if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || origin.port === "") {
-        throw new Error("ready origin must be an explicit 127.0.0.1 HTTP listener");
+
+  const stdoutDone = captureOutput(
+    child.stdout,
+    (text) => {
+      output.stdout += text;
+    },
+    (line) => {
+      const prefix = "LOCAL_RUNTIME_READY ";
+
+      if (!line.startsWith(prefix) || reportedOrigin) return;
+
+      try {
+        const payload = parseJson(line.slice(prefix.length));
+
+        if (!isJsonObject(payload)) throw new Error("ready payload must be an object");
+        const origin = new URL(String(payload.origin || ""));
+
+        if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || origin.port === "") {
+          throw new Error("ready origin must be an explicit 127.0.0.1 HTTP listener");
+        }
+
+        reportedOrigin = origin.origin;
+        resolveOrigin(reportedOrigin);
+      } catch (error) {
+        rejectOrigin(new Error(`Invalid Local Bun Runtime ready event: ${errorMessage(error)}`));
       }
-      reportedOrigin = origin.origin;
-      resolveOrigin(reportedOrigin);
-    } catch (error) {
-      rejectOrigin(new Error(`Invalid Local Bun Runtime ready event: ${errorMessage(error)}`));
-    }
-  });
+    },
+  );
+
   const stderrDone = captureOutput(child.stderr, (text) => {
     output.stderr += text;
   });
+
   const stop = async (signal: NodeJS.Signals = "SIGTERM"): Promise<number> => {
     if (!stopped) {
       stopped = true;
       child.kill(signal);
     }
+
     const exitCode = await child.exited;
     await Promise.all([stdoutDone, stderrDone]);
+
     return exitCode;
   };
 
   try {
     const deadline = startedAt + timeoutMs;
+
     const origin = await Promise.race([
       originReported,
       child.exited.then((exitCode) => {
@@ -82,6 +103,7 @@ export async function startLocalRuntimeSmokeProcess({
       try {
         const response = await fetch(`${origin}/v1/health`);
         lastHealthResult = `HTTP ${response.status}`;
+
         if (response.ok) {
           return {
             origin,
@@ -92,20 +114,25 @@ export async function startLocalRuntimeSmokeProcess({
       } catch (error) {
         lastHealthResult = errorMessage(error);
       }
+
       await Bun.sleep(25);
     }
+
     throw new Error("health check did not become ready");
   } catch (error) {
     await stop("SIGKILL");
     const elapsedMs = performance.now() - startedAt;
-    throw new Error([
-      `Local Bun Runtime startup failed: ${errorMessage(error)}`,
-      `elapsed_ms=${elapsedMs.toFixed(1)}`,
-      `origin=${reportedOrigin || "not reported"}`,
-      `last_health=${lastHealthResult}`,
-      `stdout:\n${output.stdout || "<empty>"}`,
-      `stderr:\n${output.stderr || "<empty>"}`,
-    ].join("\n"), { cause: error });
+    throw new Error(
+      [
+        `Local Bun Runtime startup failed: ${errorMessage(error)}`,
+        `elapsed_ms=${elapsedMs.toFixed(1)}`,
+        `origin=${reportedOrigin || "not reported"}`,
+        `last_health=${lastHealthResult}`,
+        `stdout:\n${output.stdout || "<empty>"}`,
+        `stderr:\n${output.stderr || "<empty>"}`,
+      ].join("\n"),
+      { cause: error },
+    );
   }
 }
 
@@ -117,22 +144,28 @@ async function captureOutput(
   const decoder = new TextDecoder();
   const reader = stream.getReader();
   let pendingLine = "";
+
   try {
     while (true) {
       const { done, value } = await reader.read();
+
       if (done) break;
       const text = decoder.decode(value, { stream: true });
       onText(text);
       pendingLine += text;
       const lines = pendingLine.split(/\r?\n/);
       pendingLine = lines.pop() || "";
+
       for (const line of lines) onLine(line);
     }
+
     const finalText = decoder.decode();
+
     if (finalText) {
       onText(finalText);
       pendingLine += finalText;
     }
+
     if (pendingLine) onLine(pendingLine);
   } finally {
     reader.releaseLock();
@@ -145,8 +178,8 @@ function timeoutAt(deadline: number, message: string): Promise<never> {
   });
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export class AsyncCleanupStack {
@@ -162,6 +195,7 @@ export class AsyncCleanupStack {
     if (this.#disposed) return;
     this.#disposed = true;
     const failures: unknown[] = [];
+
     for (const cleanup of this.#cleanups.reverse()) {
       try {
         await cleanup();
@@ -169,6 +203,7 @@ export class AsyncCleanupStack {
         failures.push(error);
       }
     }
+
     if (failures.length) {
       throw new AggregateError(failures, "Smoke harness cleanup failed");
     }

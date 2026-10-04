@@ -1,13 +1,10 @@
+import { type SQLQueryBindings, Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
 
-import {
-  createLocalWorkspaceProductStore,
-  type LocalWorkspaceProductStore,
-} from "./localWorkspaceProductStore";
+import { createLocalWorkspaceProductStore, type LocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 import {
   createLocalWorkspaceProductStoreRegistry,
   LocalWorkspaceProductStoreRegistryError,
@@ -18,9 +15,11 @@ test("the Workspace product-store registry reuses one owner and evicts only idle
   let opened = 0;
   let closed = 0;
   let clock = 0;
+
   const createStore = (input: { stateDirectory: string; workspaceId: string }): LocalWorkspaceProductStore => {
     opened += 1;
     const store = createLocalWorkspaceProductStore(input);
+
     return {
       ...store,
       close: () => {
@@ -29,6 +28,7 @@ test("the Workspace product-store registry reuses one owner and evicts only idle
       },
     };
   };
+
   const registry = createLocalWorkspaceProductStoreRegistry({
     stateDirectory,
     maxOpenStores: 2,
@@ -63,10 +63,12 @@ test("the Workspace product-store registry reuses one owner and evicts only idle
 test("registry invalidation waits for leases, closes once, and prevents reopening", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-store-invalidation-"));
   let closed = 0;
+
   const registry = createLocalWorkspaceProductStoreRegistry({
     stateDirectory,
     createStore: (input) => {
       const store = createLocalWorkspaceProductStore(input);
+
       return {
         ...store,
         close: () => {
@@ -80,9 +82,11 @@ test("registry invalidation waits for leases, closes once, and prevents reopenin
   try {
     const lease = registry.acquire({ workspaceId: "workspace_delete" })!;
     let invalidated = false;
+
     const invalidation = registry.invalidate({ workspaceId: "workspace_delete" }).then(() => {
       invalidated = true;
     });
+
     await Promise.resolve();
     expect(invalidated).toBe(false);
     expect(closed).toBe(0);
@@ -103,10 +107,12 @@ test("registry invalidation waits for leases, closes once, and prevents reopenin
 test("critical pressure evicts idle owners without closing an actively leased store", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-store-pressure-"));
   const closedWorkspaces: string[] = [];
+
   const registry = createLocalWorkspaceProductStoreRegistry({
     stateDirectory,
     createStore: (input) => {
       const store = createLocalWorkspaceProductStore(input);
+
       return {
         ...store,
         close: () => {
@@ -141,6 +147,7 @@ test("Workspace product stores apply the safe SQLite policy and focused indexes"
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-store-policy-"));
   const workspaceId = "workspace_policy";
   const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+
   try {
     const diagnostics = store.diagnostics();
     // ADR-0009 permits WAL once SQLite includes the 3.51.3 WAL-reset fix.
@@ -157,14 +164,25 @@ test("Workspace product stores apply the safe SQLite policy and focused indexes"
   }
 
   const database = new Database(join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`));
+
   try {
     const indexes = new Set(
-      (database.query("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>)
+      database
+        .query<{ name: string }, SQLQueryBindings[]>("SELECT name FROM sqlite_master WHERE type = 'index'")
+        .all()
         .map((row) => row.name),
     );
-    for (const index of ["idx_jobs_active_updated_id", "idx_jobs_created_id", "idx_jobs_model_created_id", "idx_model_call_costs_owner", "idx_model_call_costs_packet"]) {
+
+    for (const index of [
+      "idx_jobs_active_updated_id",
+      "idx_jobs_created_id",
+      "idx_jobs_model_created_id",
+      "idx_model_call_costs_owner",
+      "idx_model_call_costs_packet",
+    ]) {
       expect(indexes.has(index)).toBe(true);
     }
+
     expect(indexes.has("idx_jobs_status_updated")).toBe(false);
     expect(indexes.has("idx_source_files_job")).toBe(false);
     expect(indexes.has("idx_job_results_job")).toBe(false);
@@ -178,7 +196,10 @@ test("Workspace product stores apply the safe SQLite policy and focused indexes"
       { version: 7 },
       { version: 8 },
       { version: 9 },
-      { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 },
+      { version: 10 },
+      { version: 11 },
+      { version: 12 },
+      { version: 13 },
     ]);
   } finally {
     database.close();

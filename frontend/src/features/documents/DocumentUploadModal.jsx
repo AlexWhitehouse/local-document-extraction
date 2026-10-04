@@ -60,8 +60,13 @@ export function DocumentUploadModal({
             </select>
           </label>
           {selectedTemplateId === "automatic" ? (
-            <UploadTagPicker tags={availableTags} templates={templates} selectedTags={selectedTags}
-              disabled={isUploadingDocuments} onChange={onSelectTags} />
+            <UploadTagPicker
+              tags={availableTags}
+              templates={templates}
+              selectedTags={selectedTags}
+              disabled={isUploadingDocuments}
+              onChange={onSelectTags}
+            />
           ) : null}
           <DocumentUploadPanel
             sourceFiles={sourceFiles}
@@ -83,7 +88,13 @@ export function DocumentUploadModal({
           <button
             type="button"
             data-tour="upload-submit"
-            disabled={isUploadingDocuments || !hasApiAccess || !sourceFiles.length || !selectedTemplateId || (selectedTemplateId === "automatic" && !selectedTags.length)}
+            disabled={
+              isUploadingDocuments ||
+              !hasApiAccess ||
+              !sourceFiles.length ||
+              !selectedTemplateId ||
+              (selectedTemplateId === "automatic" && !selectedTags.length)
+            }
             onClick={onSubmit}
           >
             {isUploadingDocuments ? "Uploading…" : "Upload Documents"}
@@ -98,6 +109,7 @@ export function DocumentUploadModal({
 function UploadTagPicker({ tags, templates, selectedTags, disabled, onChange }) {
   const templatesWithTag = (tag) => templates.filter((template) => template.tags?.includes(tag));
   const candidates = templates.filter((template) => template.tags?.some((tag) => selectedTags.includes(tag)));
+
   return (
     <fieldset className="upload-tag-picker" disabled={disabled}>
       <legend className="upload-tag-picker-head">
@@ -105,7 +117,9 @@ function UploadTagPicker({ tags, templates, selectedTags, disabled, onChange }) 
         {selectedTags.length ? (
           <span className="upload-tag-picker-count">
             {selectedTags.length} selected
-            <button type="button" className="studio-text-button" onClick={() => onChange([])}>Clear</button>
+            <button type="button" className="studio-text-button" onClick={() => onChange([])}>
+              Clear
+            </button>
           </span>
         ) : null}
       </legend>
@@ -114,11 +128,23 @@ function UploadTagPicker({ tags, templates, selectedTags, disabled, onChange }) 
           {tags.map((tag) => {
             const isSelected = selectedTags.includes(tag);
             const count = templatesWithTag(tag).length;
+
             return (
-              <label key={tag} className={`upload-tag-option${isSelected ? " selected" : ""}`}
-                title={`${count} ${count === 1 ? "template" : "templates"} tagged ${tag}`}>
-                <input type="checkbox" aria-label={tag} checked={isSelected}
-                  onChange={(event) => onChange(event.target.checked ? [...selectedTags, tag] : selectedTags.filter((value) => value !== tag))} />
+              <label
+                key={tag}
+                className={`upload-tag-option${isSelected ? " selected" : ""}`}
+                title={`${count} ${count === 1 ? "template" : "templates"} tagged ${tag}`}
+              >
+                <input
+                  type="checkbox"
+                  aria-label={tag}
+                  checked={isSelected}
+                  onChange={(event) =>
+                    onChange(
+                      event.target.checked ? [...selectedTags, tag] : selectedTags.filter((value) => value !== tag),
+                    )
+                  }
+                />
                 <span className="upload-tag-option-name">{tag}</span>
                 <span className="upload-tag-option-count">{count}</span>
               </label>
@@ -129,11 +155,21 @@ function UploadTagPicker({ tags, templates, selectedTags, disabled, onChange }) 
         <p className="upload-tag-picker-note">No tags yet. Add tags to templates on the Templates page.</p>
       )}
       <p className="upload-tag-picker-note">
-        {selectedTags.length
-          ? candidates.length
-            ? <>Each document is matched to one of <strong>{candidates.length} {candidates.length === 1 ? "template" : "templates"}</strong>: {candidates.map((template) => template.name).join(", ")}</>
-            : "No templates carry the selected tags."
-          : "Choose at least one tag. Each document is matched to a template carrying any selected tag."}
+        {selectedTags.length ? (
+          candidates.length ? (
+            <>
+              Each document is matched to one of{" "}
+              <strong>
+                {candidates.length} {candidates.length === 1 ? "template" : "templates"}
+              </strong>
+              : {candidates.map((template) => template.name).join(", ")}
+            </>
+          ) : (
+            "No templates carry the selected tags."
+          )
+        ) : (
+          "Choose at least one tag. Each document is matched to a template carrying any selected tag."
+        )}
       </p>
     </fieldset>
   );

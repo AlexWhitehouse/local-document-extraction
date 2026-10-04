@@ -14,12 +14,14 @@ const ACCOUNT = {
 const TEMPLATE = {
   name: "E2E Evaluation Invoice",
   description: "Extract the visible invoice number.",
-  fields: [{
-    id: "invoice_number",
-    name: "Invoice Number",
-    description: "The invoice identifier printed on the source Document.",
-    data_type: "string",
-  }],
+  fields: [
+    {
+      id: "invoice_number",
+      name: "Invoice Number",
+      description: "The invoice identifier printed on the source Document.",
+      data_type: "string",
+    },
+  ],
 };
 
 const DOCUMENT = {
@@ -49,7 +51,9 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
 
     await navigation.getByRole("link", { name: /Evaluations/ }).click();
     const evaluations = page.getByRole("region", { name: "Evaluations" });
-    await expect(evaluations.getByRole("heading", { name: "Compare extraction results on your documents" })).toBeVisible();
+    await expect(
+      evaluations.getByRole("heading", { name: "Compare extraction results on your documents" }),
+    ).toBeVisible();
     await expect(evaluations.getByText("Workspace model", { exact: true })).toHaveCount(0);
     await evaluations.getByRole("radio", { name: /Template versions/ }).click();
     await expect(evaluations.getByText("Workspace model", { exact: true })).toBeVisible();
@@ -77,13 +81,17 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
     await expect(evaluations.getByText("1 of 1 verified", { exact: true })).toBeVisible();
 
     await matrix.getByRole("button", { name: "Inspect Invoice Number for Candidate 2" }).click();
-    await expect(evaluations.getByRole("complementary", { name: "Answer inspector" }).getByText("browser/model-b")).toBeVisible();
+    await expect(
+      evaluations.getByRole("complementary", { name: "Answer inspector" }).getByText("browser/model-b"),
+    ).toBeVisible();
 
     await evaluations.getByRole("button", { name: /^Clear Evaluation/ }).click();
     const clearDialog = page.getByRole("dialog", { name: "Clear Evaluation" });
     await expect(clearDialog.getByText("· new upload, not saved to the library")).toBeVisible();
     await clearDialog.getByRole("button", { name: "Clear Evaluation" }).click();
-    await expect(evaluations.getByRole("heading", { name: "Compare extraction results on your documents" })).toBeVisible();
+    await expect(
+      evaluations.getByRole("heading", { name: "Compare extraction results on your documents" }),
+    ).toBeVisible();
     expect(evidence.externalWebSockets()).toEqual([]);
   } finally {
     try {
@@ -92,6 +100,7 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
       if (!page.isClosed()) await page.close();
       const stateDirectory = harness?.stateDirectory;
       await harness?.stop();
+
       if (stateDirectory) await expect(access(stateDirectory)).rejects.toThrow();
     }
   }

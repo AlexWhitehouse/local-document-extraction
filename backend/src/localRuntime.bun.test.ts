@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, mock } from "bun:test";
 
-import {
-  createLocalRuntimeFetchHandler,
-  ensureLocalStateDirectories,
-} from "./localRuntime";
+import { createLocalRuntimeFetchHandler, ensureLocalStateDirectories } from "./localRuntime";
 import { createLocalApplication } from "./localApplication";
 
 const temporaryDirectories: string[] = [];
@@ -18,6 +15,7 @@ afterEach(async () => {
 async function createTemporaryDirectory(prefix: string): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), prefix));
   temporaryDirectories.push(directory);
+
   return directory;
 }
 
@@ -37,16 +35,13 @@ describe("local Bun runtime", () => {
 
     await ensureLocalStateDirectories(stateDirectory);
 
-    const directories = [
-      "data",
-      "data/workspaces",
-      "source-files/workspaces",
-      "mail",
-      "analytics",
-    ];
-    await Promise.all(directories.map(async (directory) => {
-      expect((await stat(join(stateDirectory, directory))).isDirectory()).toBe(true);
-    }));
+    const directories = ["data", "data/workspaces", "source-files/workspaces", "mail", "analytics"];
+
+    await Promise.all(
+      directories.map(async (directory) => {
+        expect((await stat(join(stateDirectory, directory))).isDirectory()).toBe(true);
+      }),
+    );
   });
 
   it("routes API Requests to the Fetch-style application handler", async () => {
@@ -101,12 +96,14 @@ describe("local Bun runtime", () => {
       const notModifiedByTag = await fetch(assetUrl, {
         headers: { "if-none-match": etag! },
       });
+
       expect(notModifiedByTag.status).toBe(304);
       await expect(notModifiedByTag.text()).resolves.toBe("");
 
       const notModifiedByDate = await fetch(assetUrl, {
         headers: { "if-modified-since": lastModified! },
       });
+
       expect(notModifiedByDate.status).toBe(304);
 
       const range = await fetch(assetUrl, { headers: { range: "bytes=0-6" } });
@@ -118,6 +115,7 @@ describe("local Bun runtime", () => {
       const unsatisfiableRange = await fetch(assetUrl, {
         headers: { range: "bytes=999-" },
       });
+
       expect(unsatisfiableRange.status).toBe(416);
       expect(unsatisfiableRange.headers.get("content-range")).toBe("bytes */20");
       await expect(unsatisfiableRange.text()).resolves.toBe("");
@@ -125,15 +123,18 @@ describe("local Bun runtime", () => {
       const staleIfRange = await fetch(assetUrl, {
         headers: { range: "bytes=0-6", "if-range": '"stale"' },
       });
+
       expect(staleIfRange.status).toBe(200);
       expect(staleIfRange.headers.get("content-range")).toBeNull();
       await expect(staleIfRange.text()).resolves.toBe("console.log('ready')");
 
       const head = await fetch(assetUrl, { method: "HEAD" });
       expect(head.status).toBe(200);
+
       for (const name of ["content-type", "content-length", "etag", "last-modified"]) {
         expect(head.headers.get(name)).toBe(asset.headers.get(name));
       }
+
       await expect(head.text()).resolves.toBe("");
     } finally {
       await server.stop(true);
@@ -175,10 +176,12 @@ describe("local Bun runtime", () => {
     await writeFile(join(assetsDirectory, "index.html"), "<main>Safe SPA</main>");
     await writeFile(join(stateDirectory, "sentinel.txt"), "PRIVATE_LOCAL_STATE");
     await symlink(join(stateDirectory, "sentinel.txt"), join(assetsDirectory, "linked-state.txt"));
+
     const handler = createLocalRuntimeFetchHandler({
       assetsDirectory,
       api: async () => new Response(null, { status: 404 }),
     });
+
     const probes = [
       "/../.local/sentinel.txt",
       "/%2e%2e/.local/sentinel.txt",
@@ -196,10 +199,8 @@ describe("local Bun runtime", () => {
   });
 
   it("retains the unavailable response when the frontend build is missing", async () => {
-    const assetsDirectory = join(
-      await createTemporaryDirectory("document-extraction-assets-missing-"),
-      "dist",
-    );
+    const assetsDirectory = join(await createTemporaryDirectory("document-extraction-assets-missing-"), "dist");
+
     const handler = createLocalRuntimeFetchHandler({
       assetsDirectory,
       api: async () => new Response(null, { status: 404 }),

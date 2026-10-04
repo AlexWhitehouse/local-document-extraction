@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 export const DOCUMENT_LAYOUTS = Object.freeze(["results", "side-by-side"]);
+
 const DEFAULT_LAYOUT = "results";
 
 export function documentViewingPreferenceKey(userId) {
@@ -9,8 +10,10 @@ export function documentViewingPreferenceKey(userId) {
 
 function readStoredLayout(userId) {
   if (!userId) return DEFAULT_LAYOUT;
+
   try {
     const stored = window.localStorage.getItem(documentViewingPreferenceKey(userId));
+
     return DOCUMENT_LAYOUTS.includes(stored) ? stored : DEFAULT_LAYOUT;
   } catch {
     return DEFAULT_LAYOUT;
@@ -29,16 +32,21 @@ export function useDocumentViewingPreference({ userId, readOnly = false }) {
     setState({ userId, layout: readStoredLayout(userId) });
   }, [userId]);
 
-  const setLayout = useCallback((next) => {
-    if (!DOCUMENT_LAYOUTS.includes(next)) return;
-    setState({ userId, layout: next });
-    if (readOnly || !userId) return;
-    try {
-      window.localStorage.setItem(documentViewingPreferenceKey(userId), next);
-    } catch {
-      // Storage can be unavailable (private windows, blocked site data); the choice still applies here.
-    }
-  }, [readOnly, userId]);
+  const setLayout = useCallback(
+    (next) => {
+      if (!DOCUMENT_LAYOUTS.includes(next)) return;
+      setState({ userId, layout: next });
+
+      if (readOnly || !userId) return;
+
+      try {
+        window.localStorage.setItem(documentViewingPreferenceKey(userId), next);
+      } catch {
+        // Storage can be unavailable (private windows, blocked site data); the choice still applies here.
+      }
+    },
+    [readOnly, userId],
+  );
 
   return [layout, setLayout];
 }
@@ -46,7 +54,9 @@ export function useDocumentViewingPreference({ userId, readOnly = false }) {
 /** Maps retrieval failures to the Document pane's availability states. */
 export function originalAvailability(error) {
   if (error?.code === "source_not_retained") return "not_retained";
+
   if (error?.code === "source_missing") return "missing";
+
   return "unavailable";
 }
 
@@ -75,13 +85,16 @@ export function useDocumentOriginal({ documentId, enabled, loadOriginal }) {
         setState({ key, status: originalAvailability(error), url: "", mimeType: "" });
       },
     );
+
     return () => {
       controller.abort();
+
       if (url) URL.revokeObjectURL(url);
     };
   }, [documentId, key, loadOriginal]);
 
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
   const visible = state.key === key ? state : { status: key ? "loading" : "idle", url: "", mimeType: "" };
+
   return { ...visible, retry };
 }

@@ -6,10 +6,7 @@ import { appPath } from "./lib/appRoutes";
 import { useAppNavigation } from "./lib/useAppNavigation";
 import { createAppRuntimeCore, createWorkspaceRequestLayer } from "./lib/appRuntime";
 import { AuthScreen } from "./features/auth/AuthScreen.jsx";
-import {
-  ACCOUNT_PASSWORD_REQUIREMENTS,
-  useAuthProfileController,
-} from "./features/auth/useAuthProfileController.js";
+import { ACCOUNT_PASSWORD_REQUIREMENTS, useAuthProfileController } from "./features/auth/useAuthProfileController.js";
 import { ApplicationAdminPage } from "./features/admin/ApplicationAdminPage.jsx";
 import { AdminContextFooter, AdminContextList } from "./features/admin/AdminContextList.jsx";
 import { useApplicationAdminController } from "./features/admin/useApplicationAdminController.js";
@@ -45,7 +42,6 @@ import "./features/layout/StudioLayouts.css";
 
 const API_BASE = "/v1";
 
-
 const PAGE_DESCRIPTIONS = {
   workspace: "Your extraction environment, connections and people.",
   templates: "Define what Studio should look for in each document.",
@@ -58,30 +54,43 @@ const CONTEXT_SIDEBAR_TITLES = {
   workspace: "Workspaces",
 };
 
-export function App({ configuration = DEFAULT_RUNTIME_CONFIGURATION }) {
+export function App({
+  configuration = DEFAULT_RUNTIME_CONFIGURATION,
+  createAuthClient = createRuntimeAuthClient,
+  notifications = toast,
+}) {
   const navigation = useAppNavigation();
-  const resetPasswordRoute = navigation.route.page === "reset-password" ? getAccountPasswordResetRoute(window.location) : null;
+
+  const resetPasswordRoute =
+    navigation.route.page === "reset-password" ? getAccountPasswordResetRoute(window.location) : null;
+
   if (resetPasswordRoute) {
     return (
       <AccountPasswordResetRoute
         authOptions={configuration.auth}
+        createAuthClient={createAuthClient}
+        toast={notifications}
         resetState={resetPasswordRoute}
         onResetComplete={() => navigation.navigate("/", { replace: true, force: true })}
       />
     );
   }
 
-  return <AuthenticatedApp configuration={configuration} navigation={navigation} />;
+  return (
+    <AuthenticatedApp
+      configuration={configuration}
+      navigation={navigation}
+      createAuthClient={createAuthClient}
+      toast={notifications}
+    />
+  );
 }
 
-function AuthenticatedApp({ configuration, navigation }) {
+function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }) {
   const { route, navigate } = navigation;
-  const authClient = useMemo(() => createRuntimeAuthClient(), []);
-  const {
-    data: session,
-    isPending: isSessionPending,
-    refetch: refetchSession,
-  } = authClient.useSession();
+  const authClient = useMemo(() => createAuthClient(), [createAuthClient]);
+
+  const { data: session, isPending: isSessionPending, refetch: refetchSession } = authClient.useSession();
 
   const [busy, setBusy] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
@@ -101,15 +110,18 @@ function AuthenticatedApp({ configuration, navigation }) {
   const visiblePage = activePage === "admin" && !isApplicationAdmin ? "workspace" : activePage;
   const maxSourceFileBytes = configuration.limits.maxSourceFileBytes;
   const sourceStorageConfigured = configuration.sourceStorage?.configured === true;
+
   const [documentViewingLayout, setDocumentViewingLayout] = useDocumentViewingPreference({
     userId: sessionUserId,
     readOnly: isImpersonating,
   });
 
-  const { request: coreRequest, showActionToast, showDocumentUploadToast } = useMemo(
-    () => createAppRuntimeCore({ apiBase: API_BASE, toast }),
-    [],
-  );
+  const {
+    request: coreRequest,
+    showActionToast,
+    showDocumentUploadToast,
+  } = useMemo(() => createAppRuntimeCore({ apiBase: API_BASE, toast }), [toast]);
+
   const workspaceController = useWorkspaceController({
     coreRequest,
     showActionToast,
@@ -121,7 +133,8 @@ function AuthenticatedApp({ configuration, navigation }) {
     onActivePageChange: setActivePage,
     requestedWorkspaceId: route.workspaceId,
     requestedInvitationId: route.invitationId,
-    onWorkspaceNavigation: (id, options = {}) => navigate(appPath({ workspaceId: id, invitationId: options.invitationId }), options),
+    onWorkspaceNavigation: (id, options = {}) =>
+      navigate(appPath({ workspaceId: id, invitationId: options.invitationId }), options),
     beforeWorkspaceSelection: () => evaluation.confirmDiscard(),
     onClearWorkspaceScopedData: (options) => {
       evaluation.clear();
@@ -129,12 +142,15 @@ function AuthenticatedApp({ configuration, navigation }) {
       documentController.actions.clearWorkspaceScopedDocuments(options);
     },
   });
+
   const workspaceContext = workspaceController.context;
-  const { workspaceId, hasWorkspaceApiAccess, isWorkspaceInvitationSelected } =
-    workspaceContext;
+
+  const { workspaceId, hasWorkspaceApiAccess, isWorkspaceInvitationSelected } = workspaceContext;
+
   const hasApiAccess = workspaceContext.hasApiAccess;
-  const { recoverForbiddenWorkspaceAccess, refreshSelectedWorkspaceContext } =
-    workspaceController.actions;
+
+  const { recoverForbiddenWorkspaceAccess, refreshSelectedWorkspaceContext } = workspaceController.actions;
+
   const workspaceToolbar = workspaceController.toolbar;
 
   const documentRequests = useMemo(() => {
@@ -144,8 +160,10 @@ function AuthenticatedApp({ configuration, navigation }) {
       workspaceId,
       onForbiddenWorkspaceAccess: recoverForbiddenWorkspaceAccess,
     });
+
     return { request, documents: createDocumentRequestAdapter({ request }) };
   }, [coreRequest, hasSession, recoverForbiddenWorkspaceAccess, workspaceId]);
+
   const workspaceModel = useWorkspaceModelConfiguration({
     coreRequest,
     showActionToast,
@@ -154,11 +172,16 @@ function AuthenticatedApp({ configuration, navigation }) {
     role: workspaceContext.selectedWorkspaceRole,
     enabled: hasApiAccess && !isWorkspaceInvitationSelected,
   });
+
   const workspaceDocumentProcessing = useWorkspaceDocumentProcessingSettings({
-    coreRequest, showActionToast, workspaceId, sessionUserId,
+    coreRequest,
+    showActionToast,
+    workspaceId,
+    sessionUserId,
     role: workspaceContext.selectedWorkspaceRole,
     enabled: hasApiAccess && !isWorkspaceInvitationSelected,
   });
+
   const workspaceSourceRetention = useWorkspaceSourceRetention({
     coreRequest,
     showActionToast,
@@ -167,6 +190,7 @@ function AuthenticatedApp({ configuration, navigation }) {
     role: workspaceContext.selectedWorkspaceRole,
     enabled: hasApiAccess && !isWorkspaceInvitationSelected,
   });
+
   const templateController = useTemplateController({
     maxSourceFileBytes,
     request: documentRequests.request,
@@ -177,11 +201,19 @@ function AuthenticatedApp({ configuration, navigation }) {
     activePage,
     onActivePageChange: setActivePage,
     routeTemplateId: activePage === "templates" ? route.templateId || "" : undefined,
-    onTemplateNavigation: (templateId, options) => options?.force && activePage !== "templates"
-      ? true : navigate(appPath({ workspaceId, page: "templates", templateId }), options),
+    onTemplateNavigation: (templateId, options) =>
+      options?.force && activePage !== "templates"
+        ? true
+        : navigate(appPath({ workspaceId, page: "templates", templateId }), options),
   });
+
   const templates = templateController.templates;
-  const navigateDocument = useCallback((selection, options) => navigate(appPath({ workspaceId, page: "documents", ...selection }), options), [navigate, workspaceId]);
+
+  const navigateDocument = useCallback(
+    (selection, options) => navigate(appPath({ workspaceId, page: "documents", ...selection }), options),
+    [navigate, workspaceId],
+  );
+
   const documentController = useDocumentController({
     maxSourceFileBytes,
     apiBase: API_BASE,
@@ -210,6 +242,7 @@ function AuthenticatedApp({ configuration, navigation }) {
     routePacketId: activePage === "documents" ? route.packetId : "",
     onDocumentNavigation: navigateDocument,
   });
+
   const evaluation = useEvaluations({
     workspaceId,
     sessionId,
@@ -217,60 +250,136 @@ function AuthenticatedApp({ configuration, navigation }) {
     active: activePage === "evaluations",
     onForbidden: recoverForbiddenWorkspaceAccess,
   });
+
   evaluationRef.current = evaluation;
   const documentToolbar = documentController.toolbar;
   const documentStatusCounts = documentController.statusCounts;
 
   function pagePath(page) {
-    return appPath({ page, workspaceId: hasApiAccess ? workspaceId : route.workspaceId,
-      ...(page === "workspace" && route.invitationId ? { invitationId: route.invitationId } : {}),
-      ...(hasApiAccess && page === "templates" ? { templateId: templateController.toolbar.selectedTemplateId || (templateController.navigation.isDraft ? "new" : "") } : {}),
-      ...(hasApiAccess && page === "documents" ? documentController.documentPage.selectedPacketId
-        ? { packetId: documentController.documentPage.selectedPacketId, documentId: documentController.documentPage.isSingleDocument ? "" : documentController.documentPage.packetPage.activeDocumentId }
-        : { documentId: documentController.documentPage.selectedDocument?.job_id } : {}),
-    });
+    const target = { page, workspaceId: hasApiAccess ? workspaceId : route.workspaceId };
+
+    if (page === "workspace" && route.invitationId) target.invitationId = route.invitationId;
+
+    if (hasApiAccess && page === "templates") {
+      target.templateId =
+        templateController.toolbar.selectedTemplateId || (templateController.navigation.isDraft ? "new" : "");
+    }
+
+    if (hasApiAccess && page === "documents") {
+      const documentPage = documentController.documentPage;
+
+      if (documentPage.selectedPacketId) {
+        target.packetId = documentPage.selectedPacketId;
+        target.documentId = documentPage.isSingleDocument ? "" : documentPage.packetPage.activeDocumentId;
+      } else {
+        target.documentId = documentPage.selectedDocument?.job_id;
+      }
+    }
+
+    return appPath(target);
   }
-  function setActivePage(page) { return navigate(pagePath(page)); }
+
+  function setActivePage(page) {
+    return navigate(pagePath(page));
+  }
 
   navigation.guard.current = (next) => {
-    const changingWorkspace = Boolean((next.workspaceId && next.workspaceId !== workspaceId) ||
-      next.invitationId !== route.invitationId && next.invitationId || next.root);
-    const changingTemplate = next.page === "templates" && next.templateId !==
-      (templateController.toolbar.selectedTemplateId || (templateController.navigation.isDraft ? "new" : ""));
+    const changingWorkspace = Boolean(
+      (next.workspaceId && next.workspaceId !== workspaceId) ||
+      (next.invitationId !== route.invitationId && next.invitationId) ||
+      next.root,
+    );
+
+    const changingTemplate =
+      next.page === "templates" &&
+      next.templateId !==
+        (templateController.toolbar.selectedTemplateId || (templateController.navigation.isDraft ? "new" : ""));
+
     // Evaluation dialogs hold unapplied local form state, while accepted inputs
     // and results live in the controller and survive section navigation.
-    if (activePage === "evaluations" && (next.page !== "evaluations" || changingWorkspace) &&
+    if (
+      activePage === "evaluations" &&
+      (next.page !== "evaluations" || changingWorkspace) &&
       document.querySelector('[role="dialog"]') &&
-      !window.confirm("Leave Evaluations and discard unapplied changes in the open dialog?")) return false;
+      !window.confirm("Leave Evaluations and discard unapplied changes in the open dialog?")
+    )
+      return false;
+
     if ((changingWorkspace || changingTemplate) && !templateController.navigation.confirmDiscard()) return false;
+
     if (changingWorkspace && !evaluation.confirmDiscard()) return false;
     templateController.navigation.invalidatePendingLoad();
+
     return true;
   };
-  navigation.hasUnsavedChanges.current = hasSession && (templateController.navigation.hasUnsavedChanges ||
-    Boolean(evaluation.state.documents.length || evaluation.state.candidates.length));
+
+  navigation.hasUnsavedChanges.current =
+    hasSession &&
+    (templateController.navigation.hasUnsavedChanges ||
+      Boolean(evaluation.state.documents.length || evaluation.state.candidates.length));
   const navigationGuard = navigation.guard;
   const navigationUnsaved = navigation.hasUnsavedChanges;
-  useEffect(() => () => {
-    navigationGuard.current = null;
-    navigationUnsaved.current = false;
-  }, [navigationGuard, navigationUnsaved]);
+  useEffect(
+    () => () => {
+      navigationGuard.current = null;
+      navigationUnsaved.current = false;
+    },
+    [navigationGuard, navigationUnsaved],
+  );
 
   useEffect(() => {
     if (!hasSession || !hasApiAccess || isWorkspaceInvitationSelected) return;
-    if (route.root) { navigate(appPath({ workspaceId }), { replace: true, force: true }); return; }
+
+    if (route.root) {
+      navigate(appPath({ workspaceId }), { replace: true, force: true });
+
+      return;
+    }
+
     if (activePage === "templates" && !route.templateId) {
-      const templateId = templateController.toolbar.selectedTemplateId ||
-        (templateController.navigation.hasUnsavedChanges || templateController.navigation.isDraft ? "new" : templates[0]?.id);
+      const templateId =
+        templateController.toolbar.selectedTemplateId ||
+        (templateController.navigation.hasUnsavedChanges || templateController.navigation.isDraft
+          ? "new"
+          : templates[0]?.id);
+
       if (templateId) navigate(appPath({ workspaceId, page: "templates", templateId }), { replace: true, force: true });
     }
-    if (activePage === "documents" && !route.documentId && !route.packetId && documentController.documentPage.selectedDocument?.job_id) {
-      navigateDocument({ documentId: documentController.documentPage.selectedDocument.job_id }, { replace: true, force: true });
+
+    if (
+      activePage === "documents" &&
+      !route.documentId &&
+      !route.packetId &&
+      documentController.documentPage.selectedDocument?.job_id
+    ) {
+      navigateDocument(
+        { documentId: documentController.documentPage.selectedDocument.job_id },
+        { replace: true, force: true },
+      );
     }
-  }, [hasSession, hasApiAccess, isWorkspaceInvitationSelected, route.root, route.templateId, route.documentId, route.packetId, activePage, workspaceId, templates, templateController.toolbar.selectedTemplateId, templateController.navigation.hasUnsavedChanges, templateController.navigation.isDraft, documentController.documentPage.selectedDocument?.job_id, navigate, navigateDocument]);
+  }, [
+    hasSession,
+    hasApiAccess,
+    isWorkspaceInvitationSelected,
+    route.root,
+    route.templateId,
+    route.documentId,
+    route.packetId,
+    activePage,
+    workspaceId,
+    templates,
+    templateController.toolbar.selectedTemplateId,
+    templateController.navigation.hasUnsavedChanges,
+    templateController.navigation.isDraft,
+    documentController.documentPage.selectedDocument?.job_id,
+    navigate,
+    navigateDocument,
+  ]);
 
   const dismissApiKey = workspaceController.actions.dismissApiKey;
-  useEffect(() => { if (activePage !== "workspace") dismissApiKey(); }, [activePage, dismissApiKey]);
+  useEffect(() => {
+    if (activePage !== "workspace") dismissApiKey();
+  }, [activePage, dismissApiKey]);
 
   async function handleImpersonationStarted() {
     workspaceController.actions.clearSessionWorkspaceData();
@@ -280,12 +389,15 @@ function AuthenticatedApp({ configuration, navigation }) {
 
   async function handleStopImpersonating() {
     setIsStoppingImpersonation(true);
+
     try {
       documentController.actions.cancelPendingSubmissions();
       const result = await authClient.admin.stopImpersonating();
+
       if (result?.error) {
         throw new Error(result.error.message || "Unable to stop impersonating.");
       }
+
       workspaceController.actions.clearSessionWorkspaceData();
       await refetchSession();
       navigate("/admin", { replace: true, force: true });
@@ -305,7 +417,9 @@ function AuthenticatedApp({ configuration, navigation }) {
     onImpersonationStarted: handleImpersonationStarted,
     onImpersonationStarting: documentController.actions.cancelPendingSubmissions,
   });
+
   const { authScreen, profileMenu } = useAuthProfileController({
+    toast,
     authOptions: configuration.auth,
     authClient,
     refetchSession,
@@ -326,6 +440,7 @@ function AuthenticatedApp({ configuration, navigation }) {
   function handleSidebarNavigation(pageId) {
     if (pageId === "admin" && !isApplicationAdmin) {
       setActivePage("workspace");
+
       return;
     }
 
@@ -341,37 +456,83 @@ function AuthenticatedApp({ configuration, navigation }) {
   }
 
   const workspaceUnavailable = activePage !== "admin" && !route.root && workspaceContext.unavailableRoute;
-  const workspaceResolutionFailed = activePage !== "admin" && !route.root && workspaceContext.hasWorkspaceResolutionError;
+
+  const workspaceResolutionFailed =
+    activePage !== "admin" && !route.root && workspaceContext.hasWorkspaceResolutionError;
+
   const templateLoad = templateController.navigation.load;
   const requestedTemplate = activePage === "templates" && route.templateId && route.templateId !== "new";
-  const templateUnavailable = requestedTemplate && templateLoad.id === route.templateId && ["missing", "error"].includes(templateLoad.status);
-  const templateLoading = requestedTemplate && !templateUnavailable && templateController.toolbar.selectedTemplateId !== route.templateId;
+
+  const templateUnavailable =
+    requestedTemplate && templateLoad.id === route.templateId && ["missing", "error"].includes(templateLoad.status);
+
+  const templateLoading =
+    requestedTemplate && !templateUnavailable && templateController.toolbar.selectedTemplateId !== route.templateId;
+
   const documentUnavailable = activePage === "documents" && route.documentId && documentController.navigation.error;
   const packetUnavailable = activePage === "documents" && route.packetId && documentController.navigation.packetError;
-  const documentLoading = activePage === "documents" && route.documentId && !documentUnavailable &&
+
+  const documentLoading =
+    activePage === "documents" &&
+    route.documentId &&
+    !documentUnavailable &&
     documentController.documentPage.selectedDocument?.job_id !== route.documentId;
-  const routeMessage = activePage === "not-found" ? "Page not found."
-    : activePage === "admin" && !isApplicationAdmin ? "This page is not available to your account."
-    : workspaceUnavailable ? "This Workspace or invitation is unavailable. It may have been removed, or you may no longer have access."
-    : workspaceResolutionFailed ? "Workspace could not be loaded. Try again."
-    : packetUnavailable ? packetUnavailable === "missing" ? "This Document packet is unavailable. It may have been deleted." : "Document packet could not be loaded. Try again."
-    : templateUnavailable ? templateLoad.status === "missing" ? "This Template is unavailable. It may have been deleted." : "Template could not be loaded. Try again."
-    : documentUnavailable ? documentUnavailable === "missing" ? "This Document is unavailable. It may have been deleted." : "Document could not be loaded. Try again." : "";
-  const packetLoading = activePage === "documents" && route.packetId && documentController.documentPage.packetPage.packet?.packet_id !== route.packetId;
-  const routeLoading = !routeMessage && !route.root && activePage !== "admin" && (workspaceContext.isWorkspaceContextLoading || templateLoading || documentLoading || packetLoading);
+
+  const routeMessage =
+    activePage === "not-found"
+      ? "Page not found."
+      : activePage === "admin" && !isApplicationAdmin
+        ? "This page is not available to your account."
+        : workspaceUnavailable
+          ? "This Workspace or invitation is unavailable. It may have been removed, or you may no longer have access."
+          : workspaceResolutionFailed
+            ? "Workspace could not be loaded. Try again."
+            : packetUnavailable
+              ? packetUnavailable === "missing"
+                ? "This Document packet is unavailable. It may have been deleted."
+                : "Document packet could not be loaded. Try again."
+              : templateUnavailable
+                ? templateLoad.status === "missing"
+                  ? "This Template is unavailable. It may have been deleted."
+                  : "Template could not be loaded. Try again."
+                : documentUnavailable
+                  ? documentUnavailable === "missing"
+                    ? "This Document is unavailable. It may have been deleted."
+                    : "Document could not be loaded. Try again."
+                  : "";
+
+  const packetLoading =
+    activePage === "documents" &&
+    route.packetId &&
+    documentController.documentPage.packetPage.packet?.packet_id !== route.packetId;
+
+  const routeLoading =
+    !routeMessage &&
+    !route.root &&
+    activePage !== "admin" &&
+    (workspaceContext.isWorkspaceContextLoading || templateLoading || documentLoading || packetLoading);
+
   const hideRouteContent = Boolean(routeMessage || routeLoading);
 
   const selectedDocument = documentController.documentPage.selectedDocument;
+
   const pageTitle =
     visiblePage === "workspace"
       ? workspaceToolbar.workspaceLabel
       : visiblePage === "templates"
         ? templateController.templatePage.templateName || "Create Template"
-        : documentController.documentPage.selectedPacketId ? documentController.documentPage.packetPage.packet?.source_name || "Document packet" : selectedDocument?.source_name || "Documents";
+        : documentController.documentPage.selectedPacketId
+          ? documentController.documentPage.packetPage.packet?.source_name || "Document packet"
+          : selectedDocument?.source_name || "Documents";
+
   const pageDescription =
     PAGE_DESCRIPTIONS[visiblePage] ||
     documentController.documentPage.selectedDocumentTemplateName ||
-    (documentController.documentPage.selectedPacketId ? documentController.documentPage.isSingleDocument ? "Processing document" : "Smart splitting" : "") ||
+    (documentController.documentPage.selectedPacketId
+      ? documentController.documentPage.isSingleDocument
+        ? "Processing document"
+        : "Smart splitting"
+      : "") ||
     "Select a document to see its extraction results.";
 
   return (
@@ -449,17 +610,21 @@ function AuthenticatedApp({ configuration, navigation }) {
             <ContextSidebar
               title={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage]}
               footer={
-                visiblePage === "admin" ? <AdminContextFooter admin={adminController} /> : visiblePage === "documents" ? (
+                visiblePage === "admin" ? (
+                  <AdminContextFooter admin={adminController} />
+                ) : visiblePage === "documents" ? (
                   <>
                     {documentToolbar.selectedDocumentCount ? (
-                      <span className="status-chip good">
-                        Selected {documentToolbar.selectedDocumentCount}
-                      </span>
+                      <span className="status-chip good">Selected {documentToolbar.selectedDocumentCount}</span>
                     ) : null}
                     <span className="status-chip" title="All queued documents in this workspace">
                       Queued {documentStatusCounts.queued}
                     </span>
-                    {documentStatusCounts.awaiting_template ? <span className="status-chip" title="Documents awaiting a template choice">Needs template {documentStatusCounts.awaiting_template}</span> : null}
+                    {documentStatusCounts.awaiting_template ? (
+                      <span className="status-chip" title="Documents awaiting a template choice">
+                        Needs template {documentStatusCounts.awaiting_template}
+                      </span>
+                    ) : null}
                     <span className="status-chip good" title="All completed documents in this workspace">
                       Completed {documentStatusCounts.completed}
                     </span>
@@ -479,7 +644,11 @@ function AuthenticatedApp({ configuration, navigation }) {
               {visiblePage === "admin" ? (
                 <AdminContextList admin={adminController} />
               ) : !hasApiAccess && ["documents", "templates"].includes(visiblePage) ? (
-                <p className="muted">{workspaceContext.isWorkspaceContextLoading ? "Loading workspace context…" : "Choose an accessible Workspace."}</p>
+                <p className="muted">
+                  {workspaceContext.isWorkspaceContextLoading
+                    ? "Loading workspace context…"
+                    : "Choose an accessible Workspace."}
+                </p>
               ) : visiblePage === "documents" ? (
                 <DocumentContextList {...documentController.contextList} workspaceId={workspaceId} />
               ) : visiblePage === "templates" ? (
@@ -499,95 +668,148 @@ function AuthenticatedApp({ configuration, navigation }) {
           </>
         }
       >
-        {routeMessage ? <section className="panel" role="alert">
-          <h1>{routeMessage}</h1>
-          <button type="button" onClick={() => navigate(appPath({ workspaceId: workspaceUnavailable ? "" : workspaceId, page: templateUnavailable ? "templates" : documentUnavailable || packetUnavailable ? "documents" : "workspace" }))}>
-            {templateUnavailable ? "Back to Templates" : documentUnavailable || packetUnavailable ? "Back to Documents" : "Back to Workspaces"}
-          </button>
-          {templateLoad.status === "error" && templateUnavailable ? <button type="button" onClick={templateController.navigation.retry}>Retry</button> : null}
-          {documentUnavailable === "error" ? <button type="button" onClick={documentController.navigation.retry}>Retry</button> : null}
-          {packetUnavailable === "error" ? <button type="button" onClick={documentController.navigation.retryPacket}>Retry</button> : null}
-          {workspaceResolutionFailed ? <button type="button" onClick={workspaceController.sidebar.onRetryResolution}>Retry Workspace</button> : null}
-        </section> : routeLoading ? <p role="status">Loading linked page…</p> : null}
-        {!hideRouteContent ? <>
-        {visiblePage !== "admin" && visiblePage !== "evaluations" && visiblePage !== "costs" ? (
-          <WorkspaceToolbar
-            activePage={visiblePage}
-            pageTitle={pageTitle}
-            pageDescription={pageDescription}
-            workspaceLabel={workspaceToolbar.workspaceLabel}
-            isWorkspaceInvitationSelected={isWorkspaceInvitationSelected}
-            hasApiAccess={hasApiAccess}
-            workspaceId={workspaceToolbar.workspaceId}
-            workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
-            isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
-            isWorkspaceBusy={busy}
-            isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
-            isDeletingDocument={documentToolbar.isDeletingDocument}
-            isExportingDocuments={documentToolbar.isExportingDocuments}
-            selectedDocumentId={documentToolbar.selectedDocumentId}
-            selectedDocumentCount={documentToolbar.selectedDocumentCount}
-            exportableDocumentCount={documentToolbar.exportableDocumentCount}
-            updateTemplateId={templateController.toolbar.selectedTemplateId}
-            onAutoGenerateTemplate={templateController.toolbar.onAutoGenerateTemplate}
-            onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
-            onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
-            onViewCosts={hasApiAccess && !isWorkspaceInvitationSelected && ["owner", "admin"].includes(workspaceContext.selectedWorkspaceRole)
-              ? () => navigate(appPath({ workspaceId, page: "costs" })) : undefined}
-            onExportDocuments={documentToolbar.onExportDocuments}
-            onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
-            onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
-            onDeleteDocument={documentToolbar.onDeleteDocument}
-            canDownloadOriginal={documentToolbar.canDownloadOriginal}
-            isDownloadingOriginal={documentToolbar.isDownloadingOriginal}
-            onDownloadOriginal={documentToolbar.onDownloadOriginal}
-          />
+        {routeMessage ? (
+          <section className="panel" role="alert">
+            <h1>{routeMessage}</h1>
+            <button
+              type="button"
+              onClick={() =>
+                navigate(
+                  appPath({
+                    workspaceId: workspaceUnavailable ? "" : workspaceId,
+                    page: templateUnavailable
+                      ? "templates"
+                      : documentUnavailable || packetUnavailable
+                        ? "documents"
+                        : "workspace",
+                  }),
+                )
+              }
+            >
+              {templateUnavailable
+                ? "Back to Templates"
+                : documentUnavailable || packetUnavailable
+                  ? "Back to Documents"
+                  : "Back to Workspaces"}
+            </button>
+            {templateLoad.status === "error" && templateUnavailable ? (
+              <button type="button" onClick={templateController.navigation.retry}>
+                Retry
+              </button>
+            ) : null}
+            {documentUnavailable === "error" ? (
+              <button type="button" onClick={documentController.navigation.retry}>
+                Retry
+              </button>
+            ) : null}
+            {packetUnavailable === "error" ? (
+              <button type="button" onClick={documentController.navigation.retryPacket}>
+                Retry
+              </button>
+            ) : null}
+            {workspaceResolutionFailed ? (
+              <button type="button" onClick={workspaceController.sidebar.onRetryResolution}>
+                Retry Workspace
+              </button>
+            ) : null}
+          </section>
+        ) : routeLoading ? (
+          <p role="status">Loading linked page…</p>
         ) : null}
+        {!hideRouteContent ? (
+          <>
+            {visiblePage !== "admin" && visiblePage !== "evaluations" && visiblePage !== "costs" ? (
+              <WorkspaceToolbar
+                activePage={visiblePage}
+                pageTitle={pageTitle}
+                pageDescription={pageDescription}
+                workspaceLabel={workspaceToolbar.workspaceLabel}
+                isWorkspaceInvitationSelected={isWorkspaceInvitationSelected}
+                hasApiAccess={hasApiAccess}
+                workspaceId={workspaceToolbar.workspaceId}
+                workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
+                isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
+                isWorkspaceBusy={busy}
+                isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
+                isDeletingDocument={documentToolbar.isDeletingDocument}
+                isExportingDocuments={documentToolbar.isExportingDocuments}
+                selectedDocumentId={documentToolbar.selectedDocumentId}
+                selectedDocumentCount={documentToolbar.selectedDocumentCount}
+                exportableDocumentCount={documentToolbar.exportableDocumentCount}
+                updateTemplateId={templateController.toolbar.selectedTemplateId}
+                onAutoGenerateTemplate={templateController.toolbar.onAutoGenerateTemplate}
+                onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
+                onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
+                onViewCosts={
+                  hasApiAccess &&
+                  !isWorkspaceInvitationSelected &&
+                  ["owner", "admin"].includes(workspaceContext.selectedWorkspaceRole)
+                    ? () => navigate(appPath({ workspaceId, page: "costs" }))
+                    : undefined
+                }
+                onExportDocuments={documentToolbar.onExportDocuments}
+                onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
+                onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
+                onDeleteDocument={documentToolbar.onDeleteDocument}
+                canDownloadOriginal={documentToolbar.canDownloadOriginal}
+                isDownloadingOriginal={documentToolbar.isDownloadingOriginal}
+                onDownloadOriginal={documentToolbar.onDownloadOriginal}
+              />
+            ) : null}
 
-        {visiblePage === "admin" ? <ApplicationAdminPage admin={adminController} /> : null}
+            {visiblePage === "admin" ? <ApplicationAdminPage admin={adminController} /> : null}
 
-        {visiblePage === "costs" ? <WorkspaceCosts key={`${sessionUserId}:${workspaceId}`}
-          workspaceId={workspaceId} workspaceName={workspaceToolbar.workspaceLabel} role={hasApiAccess ? workspaceContext.selectedWorkspaceRole : null}
-          request={coreRequest} tab={route.costTab} onTab={costTab => navigate(appPath({ workspaceId, page: "costs", costTab }))}
-          onBack={() => navigate(appPath({ workspaceId }))} /> : null}
+            {visiblePage === "costs" ? (
+              <WorkspaceCosts
+                key={`${sessionUserId}:${workspaceId}`}
+                workspaceId={workspaceId}
+                workspaceName={workspaceToolbar.workspaceLabel}
+                role={hasApiAccess ? workspaceContext.selectedWorkspaceRole : null}
+                request={coreRequest}
+                tab={route.costTab}
+                onTab={(costTab) => navigate(appPath({ workspaceId, page: "costs", costTab }))}
+                onBack={() => navigate(appPath({ workspaceId }))}
+              />
+            ) : null}
 
-        {visiblePage === "workspace" ? (
-          isWorkspaceInvitationSelected && workspaceContext.selectedWorkspaceInvitation ? (
-            <WorkspaceInvitationPage {...workspaceController.invitationPage} />
-          ) : (
-            <AcceptedWorkspacePage
-              {...workspaceController.acceptedPage}
-              workspaceId={workspaceId}
-              workspaceRole={workspaceContext.selectedWorkspaceRole}
-              modelConfiguration={workspaceModel}
-              sourceRetention={workspaceSourceRetention}
-              processingSettings={workspaceDocumentProcessing}
-              modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
-            />
-          )
+            {visiblePage === "workspace" ? (
+              isWorkspaceInvitationSelected && workspaceContext.selectedWorkspaceInvitation ? (
+                <WorkspaceInvitationPage {...workspaceController.invitationPage} />
+              ) : (
+                <AcceptedWorkspacePage
+                  {...workspaceController.acceptedPage}
+                  workspaceId={workspaceId}
+                  workspaceRole={workspaceContext.selectedWorkspaceRole}
+                  modelConfiguration={workspaceModel}
+                  sourceRetention={workspaceSourceRetention}
+                  processingSettings={workspaceDocumentProcessing}
+                  modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
+                />
+              )
+            ) : null}
+
+            {visiblePage === "templates" ? <TemplatePage {...templateController.templatePage} /> : null}
+            {visiblePage === "evaluations" ? (
+              <EvaluationsPage
+                evaluation={evaluation}
+                templates={templates}
+                enabled={hasApiAccess}
+                onTemplateSaved={templateController.actions.listTemplates}
+                maxSourceFileBytes={maxSourceFileBytes}
+                suggestedModels={documentController.contextList.availableModels}
+                workspaceLabel={workspaceToolbar.workspaceLabel}
+              />
+            ) : null}
+            {visiblePage === "documents" ? (
+              <DocumentPage
+                {...documentController.documentPage}
+                viewingLayout={documentViewingLayout}
+                onViewingLayoutChange={setDocumentViewingLayout}
+                sourceStorageConfigured={sourceStorageConfigured}
+              />
+            ) : null}
+          </>
         ) : null}
-
-        {visiblePage === "templates" ? <TemplatePage {...templateController.templatePage} /> : null}
-        {visiblePage === "evaluations" ? (
-          <EvaluationsPage
-            evaluation={evaluation}
-            templates={templates}
-            enabled={hasApiAccess}
-            onTemplateSaved={templateController.actions.listTemplates}
-            maxSourceFileBytes={maxSourceFileBytes}
-            suggestedModels={documentController.contextList.availableModels}
-            workspaceLabel={workspaceToolbar.workspaceLabel}
-          />
-        ) : null}
-        {visiblePage === "documents" ? (
-          <DocumentPage
-            {...documentController.documentPage}
-            viewingLayout={documentViewingLayout}
-            onViewingLayoutChange={setDocumentViewingLayout}
-            sourceStorageConfigured={sourceStorageConfigured}
-          />
-        ) : null}
-        </> : null}
       </MainLayout>
     </>
   );
@@ -601,6 +823,7 @@ function WorkspaceSidebarFooter({ context }) {
     isWorkspaceContextLoading,
     isWorkspaceInvitationSelected,
   } = context;
+
   const status = isWorkspaceContextLoading
     ? "Loading…"
     : hasWorkspaceResolutionError
@@ -612,23 +835,26 @@ function WorkspaceSidebarFooter({ context }) {
   return (
     <>
       <span className="status-chip">
-        Workspaces{" "}
-        {isWorkspaceContextLoading || hasWorkspaceResolutionError ? 0 : availableWorkspaces.length}
+        Workspaces {isWorkspaceContextLoading || hasWorkspaceResolutionError ? 0 : availableWorkspaces.length}
       </span>
-      <span className={`status-chip ${hasWorkspaceApiAccess ? "good" : hasWorkspaceResolutionError ? "bad" : "warn"}`}>{status}</span>
+      <span className={`status-chip ${hasWorkspaceApiAccess ? "good" : hasWorkspaceResolutionError ? "bad" : "warn"}`}>
+        {status}
+      </span>
     </>
   );
 }
 
-function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions }) {
+function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, createAuthClient, toast }) {
   const [isRequestingNewLink, setIsRequestingNewLink] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
-  const authClient = useMemo(() => createRuntimeAuthClient(), []);
+  const authClient = useMemo(() => createAuthClient(), [createAuthClient]);
+
   const authProfileController = useAuthProfileController({
+    toast,
     authOptions,
     authClient,
     refetchSession: async () => {},
@@ -648,12 +874,13 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
   }
 
   if (resetState.token) {
-    const unmetPasswordRequirements = ACCOUNT_PASSWORD_REQUIREMENTS
-      .filter((requirement) => !requirement.test(newPassword))
-      .map((requirement) => requirement.label);
+    const unmetPasswordRequirements = ACCOUNT_PASSWORD_REQUIREMENTS.flatMap((requirement) =>
+      requirement.test(newPassword) ? [] : [requirement.label],
+    );
+
     const shouldShowPasswordRequirements = passwordTouched || submitAttempted;
-    const hasPasswordMismatch =
-      confirmNewPassword.length > 0 && newPassword !== confirmNewPassword;
+
+    const hasPasswordMismatch = confirmNewPassword.length > 0 && newPassword !== confirmNewPassword;
 
     async function submitNewPassword(event) {
       event.preventDefault();
@@ -661,26 +888,34 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
 
       if (unmetPasswordRequirements.length > 0) {
         toast.error("Password must meet all complexity requirements.");
+
         return;
       }
+
       if (!confirmNewPassword.trim()) {
         toast.error("Confirm password is required.");
+
         return;
       }
+
       if (hasPasswordMismatch) {
         toast.error("Passwords do not match.");
+
         return;
       }
 
       setBusy(true);
+
       try {
         const result = await authClient.resetPassword({
           newPassword,
           token: resetState.token,
         });
+
         if (result?.error) {
           throw new Error(result.error.message || "Account password reset failed");
         }
+
         setNewPassword("");
         setConfirmNewPassword("");
         setPasswordTouched(false);
@@ -705,9 +940,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
             </div>
             <form className="panel auth-panel" onSubmit={submitNewPassword}>
               <h2>Set new password</h2>
-              <p className="muted">
-                Your new password must meet the Account password policy.
-              </p>
+              <p className="muted">Your new password must meet the Account password policy.</p>
               <div className="row auth-form-grid">
                 <label>
                   New password
@@ -735,9 +968,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
                   />
                 </label>
               </div>
-              {hasPasswordMismatch ? (
-                <p className="auth-password-mismatch">Passwords do not match.</p>
-              ) : null}
+              {hasPasswordMismatch ? <p className="auth-password-mismatch">Passwords do not match.</p> : null}
               {shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0 ? (
                 <ul className="auth-password-requirements">
                   {unmetPasswordRequirements.map((requirement) => (
@@ -768,11 +999,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions })
             <p>Use Account password reset to recover access to your account.</p>
           </div>
           <div className="panel auth-verification-prompt" role="status">
-            <h2>
-              {isTokenError
-                ? "Reset link has expired or is invalid"
-                : "Reset link is missing or invalid"}
-            </h2>
+            <h2>{isTokenError ? "Reset link has expired or is invalid" : "Reset link is missing or invalid"}</h2>
             <p>
               {isTokenError
                 ? "This Account password reset link can no longer be used."
@@ -799,10 +1026,13 @@ function getAccountPasswordResetRoute(location) {
   }
 
   const params = new URLSearchParams(location.search);
+
   if (params.has("error")) {
     return { error: "token" };
   }
+
   const token = params.get("token");
+
   return token ? { token } : { error: "missing-token" };
 }
 
@@ -811,5 +1041,6 @@ function getAccountPasswordResetRoute(location) {
 function packetContentSelection({ selectedPacketId, packetPage }) {
   if (!selectedPacketId) return "";
   const tab = packetPage.isOpeningDocument ? packetPage.pendingDocumentId : packetPage.activeDocumentId;
+
   return `${selectedPacketId}:${tab || "overview"}`;
 }

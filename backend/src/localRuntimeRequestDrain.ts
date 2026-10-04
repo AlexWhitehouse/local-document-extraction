@@ -11,12 +11,14 @@ export function createLocalRuntimeRequestDrain(): LocalRuntimeRequestDrain {
 
   const settleClose = () => {
     if (accepting || active !== 0) return;
+
     for (const resolve of closeWaiters.splice(0)) resolve();
   };
 
   return {
     close: async () => {
       accepting = false;
+
       if (active === 0) return;
       await new Promise<void>((resolve) => closeWaiters.push(resolve));
     },
@@ -37,6 +39,7 @@ export function createLocalRuntimeRequestDrain(): LocalRuntimeRequestDrain {
       }
 
       active += 1;
+
       try {
         return await handle();
       } finally {

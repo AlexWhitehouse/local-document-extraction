@@ -1,3 +1,12 @@
+import {
+  isString,
+  isNumber,
+  isJsonObject,
+  isJsonArray,
+  parseJson,
+  type JsonValue,
+  type JsonObject,
+} from "../../../shared/json";
 import type { FieldDefinition } from "../lib/types";
 import type { ModelFieldResult } from "./modelResultNormalizer";
 import { iteratePdfPagesToPng, MAX_RENDERED_PDF_BYTES, PdfPreparationLimitError } from "./pdfPageRenderer";
@@ -9,20 +18,22 @@ export class RetryableError extends Error {
   readonly retryAfterMs: number | null;
   readonly status: number | null;
 
-  constructor(
-    message: string,
-    options: { retryAfterMs?: number | null; status?: number | null } = {},
-  ) {
+  constructor(message: string, options: { retryAfterMs?: number | null; status?: number | null } = {}) {
     super(message);
     this.retryAfterMs = options.retryAfterMs ?? null;
     this.status = options.status ?? null;
   }
 }
+
 export class ModelGatewayRequestError extends Error {
-  constructor(message: string, public readonly status: number | null = null) {
+  constructor(
+    message: string,
+    public readonly status: number | null = null,
+  ) {
     super(message);
   }
 }
+
 export class ExtractionCancelledError extends Error {}
 
 const DEFAULT_MODEL_GATEWAY_REQUEST_TIMEOUT_MS = 300_000;
@@ -39,13 +50,24 @@ export type ModelGatewayConfiguration = {
   modelCallObserver?: ModelCallObserver;
 };
 
+export type ModelContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "file"; file: { file_data: string; format: string } };
+
+export type ModelMessage = { role: "system" | "user" | "assistant"; content: string | ModelContentPart[] };
+
+export type ModelRequest = { model: string; messages: ModelMessage[]; response_format?: JsonObject };
+
 const sequentialModelCallTails = new Map<string, Promise<void>>();
+
 const preparationBudget = createByteBudget(localMemoryLimits.preparationMaxBytes);
 
 export const getModelPreparationSnapshot = preparationBudget.snapshot;
 
 export function getExtractionModelName(env: ModelGatewayConfiguration): string {
   if (!env.AI_MODEL) throw new ModelGatewayRequestError("Workspace model is not configured");
+
   return env.AI_MODEL;
 }
 
@@ -54,10 +76,7 @@ export function getModelGatewayRouteLabel(env: ModelGatewayConfiguration): strin
 }
 
 export function getModelGatewayRequestTimeoutMs(env: ModelGatewayConfiguration): number {
-  const configured = Number(
-    env.MODEL_GATEWAY_REQUEST_TIMEOUT_MS ||
-      DEFAULT_MODEL_GATEWAY_REQUEST_TIMEOUT_MS,
-  );
+  const configured = Number(env.MODEL_GATEWAY_REQUEST_TIMEOUT_MS || DEFAULT_MODEL_GATEWAY_REQUEST_TIMEOUT_MS);
 
   if (!Number.isFinite(configured) || configured <= 0) {
     return DEFAULT_MODEL_GATEWAY_REQUEST_TIMEOUT_MS;
@@ -72,11 +91,20 @@ export async function withPreparedModelSource<T>(
   source: ArrayBuffer | Blob,
   sourceMimeType: string,
   signal: AbortSignal | undefined,
-  work: (parts: Record<string, unknown>[], onPrepared: (characters: number) => void) => Promise<T>,
+  work: (parts: ModelContentPart[], onPrepared: (characters: number) => void) => Promise<T>,
   additionalContextCharacters = 0,
 ): Promise<T> {
   const sourceSize = source instanceof Blob ? source.size : source.byteLength;
-  return withPreparedModelSourceFactory(env, sourceSize, sourceMimeType, signal, async () => source, work, additionalContextCharacters);
+
+  return withPreparedModelSourceFactory(
+    env,
+    sourceSize,
+    sourceMimeType,
+    signal,
+    async () => source,
+    work,
+    additionalContextCharacters,
+  );
 }
 
 /** Source derivatives are created only after shared memory and sequencing admission. */
@@ -86,52 +114,109 @@ export async function withPreparedModelSourceFactory<T>(
   sourceMimeType: string,
   signal: AbortSignal | undefined,
   prepareSource: () => Promise<ArrayBuffer | Blob>,
-  work: (parts: Record<string, unknown>[], onPrepared: (characters: number) => void) => Promise<T>,
+  work: (parts: ModelContentPart[], onPrepared: (characters: number) => void) => Promise<T>,
   additionalContextCharacters = 0,
 ): Promise<T> {
   const sourceSize = sourceSizeUpperBound;
-  if (!Number.isSafeInteger(sourceSize) || sourceSize < 0) throw new ModelGatewayRequestError("Invalid model source size");
+
+  if (!Number.isSafeInteger(sourceSize) || sourceSize < 0)
+    throw new ModelGatewayRequestError("Invalid model source size");
   const rendered = sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
-  const reservation = Math.max(1024 * 1024, rendered
-    ? MAX_RENDERED_PDF_BYTES * 3 + sourceSize + 16 * 1024 * 1024
-    : sourceSize * 4) + additionalContextCharacters * 6;
-  if (reservation > localMemoryLimits.preparationMaxBytes) throw new ModelGatewayRequestError("Source exceeds the local model preparation budget");
-  return scheduleModelCall(env, () => preparationBudget.run(reservation, async (lease) => {
-    if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
-    const source = await prepareSource();
-    const actualSize = source instanceof Blob ? source.size : source.byteLength;
-    if (actualSize > sourceSize) throw new ModelGatewayRequestError("Prepared source exceeds its model preparation reservation");
-    // A derivative reserves its worst-case output while it is built. Once its
-    // actual size is known, free that unused allowance before model preparation.
-    const actualReservation = Math.max(1024 * 1024, rendered
-      ? MAX_RENDERED_PDF_BYTES * 3 + actualSize + 16 * 1024 * 1024
-      : actualSize * 4) + additionalContextCharacters * 6;
-    lease.shrinkTo(actualReservation);
-    const sourceBytes = source instanceof Blob ? await source.arrayBuffer() : source;
-    const parts = await prepareSourceContent(sourceBytes, sourceMimeType, rendered, signal);
-    return work(parts, (characters) => {
-      const retainedBytes = actualSize + characters * 6 + 16 * 1024 * 1024;
-      lease.shrinkTo(Math.min(actualReservation, retainedBytes));
-    });
-  }, signal), signal).catch((error) => {
+
+  const reservation =
+    Math.max(1024 * 1024, rendered ? MAX_RENDERED_PDF_BYTES * 3 + sourceSize + 16 * 1024 * 1024 : sourceSize * 4) +
+    additionalContextCharacters * 6;
+
+  if (reservation > localMemoryLimits.preparationMaxBytes)
+    throw new ModelGatewayRequestError("Source exceeds the local model preparation budget");
+
+  return scheduleModelCall(
+    env,
+    () =>
+      preparationBudget.run(
+        reservation,
+        async (lease) => {
+          if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
+          const source = await prepareSource();
+          const actualSize = source instanceof Blob ? source.size : source.byteLength;
+
+          if (actualSize > sourceSize)
+            throw new ModelGatewayRequestError("Prepared source exceeds its model preparation reservation");
+
+          // A derivative reserves its worst-case output while it is built. Once its
+          // actual size is known, free that unused allowance before model preparation.
+          const actualReservation =
+            Math.max(
+              1024 * 1024,
+              rendered ? MAX_RENDERED_PDF_BYTES * 3 + actualSize + 16 * 1024 * 1024 : actualSize * 4,
+            ) +
+            additionalContextCharacters * 6;
+
+          lease.shrinkTo(actualReservation);
+          const sourceBytes = source instanceof Blob ? await source.arrayBuffer() : source;
+          const parts = await prepareSourceContent(sourceBytes, sourceMimeType, rendered, signal);
+
+          return work(parts, (characters) => {
+            const retainedBytes = actualSize + characters * 6 + 16 * 1024 * 1024;
+            lease.shrinkTo(Math.min(actualReservation, retainedBytes));
+          });
+        },
+        signal,
+      ),
+    signal,
+  ).catch((error) => {
     if (signal?.aborted) throw new ExtractionCancelledError("Model preparation cancelled");
     throw error;
   });
 }
 
 /** Hold derived-artifact memory through persistence; do not nest another preparation lease inside work. */
-export async function withDocumentProcessingMemory<T>(reservationBytes: number, signal: AbortSignal, work: (lease: { shrinkTo(bytes: number): void }) => Promise<T>): Promise<T> {
-  if (!Number.isSafeInteger(reservationBytes) || reservationBytes < 0 || reservationBytes > localMemoryLimits.preparationMaxBytes) throw new ModelGatewayRequestError("Document processing exceeds the local model preparation budget");
-  return preparationBudget.run(reservationBytes, async (lease) => { signal.throwIfAborted(); return work(lease); }, signal);
+export async function withDocumentProcessingMemory<T>(
+  reservationBytes: number,
+  signal: AbortSignal,
+  work: (lease: { shrinkTo(bytes: number): void }) => Promise<T>,
+): Promise<T> {
+  if (
+    !Number.isSafeInteger(reservationBytes) ||
+    reservationBytes < 0 ||
+    reservationBytes > localMemoryLimits.preparationMaxBytes
+  )
+    throw new ModelGatewayRequestError("Document processing exceeds the local model preparation budget");
+
+  return preparationBudget.run(
+    reservationBytes,
+    async (lease) => {
+      signal.throwIfAborted();
+
+      return work(lease);
+    },
+    signal,
+  );
 }
 
 /** Source-free assistance shares the extraction scheduler and preparation memory budget. */
-export async function withModelTextAdmission<T>(env: ModelGatewayConfiguration, characters: number, signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+export async function withModelTextAdmission<T>(
+  env: ModelGatewayConfiguration,
+  characters: number,
+  signal: AbortSignal,
+  work: () => Promise<T>,
+): Promise<T> {
   const reservation = Math.max(1024 * 1024, characters * 6);
-  return scheduleModelCall(env, () => preparationBudget.run(reservation, async () => {
-    if (signal.aborted) throw new ExtractionCancelledError("Model request cancelled");
-    return work();
-  }, signal), signal).catch((error) => {
+
+  return scheduleModelCall(
+    env,
+    () =>
+      preparationBudget.run(
+        reservation,
+        async () => {
+          if (signal.aborted) throw new ExtractionCancelledError("Model request cancelled");
+
+          return work();
+        },
+        signal,
+      ),
+    signal,
+  ).catch((error) => {
     if (signal.aborted) throw new ExtractionCancelledError("Model request cancelled");
     throw error;
   });
@@ -142,24 +227,31 @@ async function prepareSourceContent(
   sourceMimeType: string,
   renderPdfAsImages: boolean,
   signal?: AbortSignal,
-): Promise<Record<string, unknown>[]> {
+): Promise<ModelContentPart[]> {
   if (!renderPdfAsImages) return [buildInlineSourceContentPart(sourceBytes, sourceMimeType)];
-  const parts: Record<string, unknown>[] = [];
+  const parts: ModelContentPart[] = [];
+
   try {
     for await (const pageBytes of iteratePdfPagesToPng(sourceBytes, signal)) {
       parts.push(buildInlineImageContentPart(pageBytes, "image/png"));
     }
   } catch (error) {
     if (signal?.aborted) throw new ExtractionCancelledError("PDF page rendering cancelled");
+
     if (error instanceof PdfPreparationLimitError) throw new ModelGatewayRequestError(error.message);
     throw new RetryableError(
       `PDF Source file could not be prepared for the model: ${error instanceof Error ? error.message : "unknown error"}`,
     );
   }
+
   return parts;
 }
 
-export type ExtractionUsage = { input_tokens: number | null; output_tokens: number | null; scope: "successful attempt" };
+export type ExtractionUsage = {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  scope: "successful attempt";
+};
 
 export async function runExtraction(
   env: ModelGatewayConfiguration,
@@ -171,56 +263,78 @@ export async function runExtraction(
 ): Promise<ModelFieldResult[]> {
   return withPreparedModelSource(env, source, sourceMimeType, signal, async (sourceContentParts, onPrepared) => {
     const model = getExtractionModelName(env);
-    const renderPdfAsImages = sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
-    const requestBody = JSON.stringify({
+
+    const renderPdfAsImages =
+      sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
+
+    const request: ModelRequest = {
       model,
       messages: [
         {
           role: "system",
-          content: "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.",
+          content:
+            "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.",
         },
         {
           role: "user",
-          content: [{ type: "text", text: buildPrompt(fields, sourceMimeType, renderPdfAsImages) }, ...sourceContentParts],
+          content: [
+            { type: "text", text: buildPrompt(fields, sourceMimeType, renderPdfAsImages) },
+            ...sourceContentParts,
+          ],
         },
       ],
-      ...(readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT)
-        ? { response_format: buildResponseFormat(model, fields) }
-        : {}),
-    });
+    };
+
+    if (readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT))
+      request.response_format = buildResponseFormat(model, fields);
+    const requestBody = JSON.stringify(request);
+
     onPrepared(requestBody.length);
     const runResult = await runViaModelGateway(env, requestBody, signal);
     const content = readRunResultContent(runResult);
-    const usage = runResult && typeof runResult === "object" ? (runResult as { usage?: Record<string, unknown> }).usage : undefined;
-    const tokens = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
-    if (usage && typeof usage === "object") onUsage?.({ input_tokens: tokens(usage.prompt_tokens ?? usage.input_tokens), output_tokens: tokens(usage.completion_tokens ?? usage.output_tokens), scope: "successful attempt" });
+    const usage = isJsonObject(runResult) ? runResult.usage : undefined;
 
-    let parsed: unknown;
+    const tokens = (value: JsonValue | undefined) =>
+      isNumber(value) && Number.isSafeInteger(value) && value >= 0 ? value : null;
+
+    if (isJsonObject(usage))
+      onUsage?.({
+        input_tokens: tokens(usage.prompt_tokens ?? usage.input_tokens),
+        output_tokens: tokens(usage.completion_tokens ?? usage.output_tokens),
+        scope: "successful attempt",
+      });
+
+    let parsed: JsonValue | undefined;
+
     try {
-      parsed = JSON.parse(content);
+      parsed = parseJson(content);
     } catch {
       throw new RetryableError("Model response content was not valid JSON");
     }
 
-    const results = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as { results?: unknown }).results
-      : undefined;
-    if (!Array.isArray(results)) {
+    const results = isJsonObject(parsed) ? parsed.results : undefined;
+
+    if (!isJsonArray(results)) {
       throw new RetryableError("Model JSON missing results array");
     }
-    if (results.some((row) => !row || typeof row !== "object" || Array.isArray(row) ||
-      typeof row.field_id !== "string" || !row.field_id.trim() || typeof row.status !== "string" || !("answer" in row))) {
-      throw new RetryableError("Model JSON contains invalid result entries");
-    }
 
-    return results as ModelFieldResult[];
+    return results.map((row): ModelFieldResult => {
+      if (
+        !isJsonObject(row) ||
+        !isString(row.field_id) ||
+        !row.field_id.trim() ||
+        !isString(row.status) ||
+        !("answer" in row)
+      ) {
+        throw new RetryableError("Model JSON contains invalid result entries");
+      }
+
+      return { ...row, field_id: row.field_id, status: row.status, answer: row.answer };
+    });
   });
 }
 
-function buildResponseFormat(
-  model: string,
-  fields: FieldDefinition[],
-): Record<string, unknown> {
+function buildResponseFormat(model: string, fields: FieldDefinition[]): JsonObject {
   return buildModelResponseFormat(model, "extraction_results", {
     type: "object",
     properties: {
@@ -232,25 +346,13 @@ function buildResponseFormat(
             field_id: { type: "string" },
             status: {
               type: "string",
-              enum: [
-                "ok",
-                "not_found",
-                "invalid_type",
-                "unreadable",
-                "error",
-              ],
+              enum: ["ok", "not_found", "invalid_type", "unreadable", "error"],
             },
             answer: buildAnswerSchema(fields),
             confidence: { type: ["number", "null"] },
             evidence: { type: ["string", "null"] },
           },
-          required: [
-            "field_id",
-            "status",
-            "answer",
-            "confidence",
-            "evidence",
-          ],
+          required: ["field_id", "status", "answer", "confidence", "evidence"],
           additionalProperties: false,
         },
       },
@@ -260,26 +362,29 @@ function buildResponseFormat(
   });
 }
 
-export function buildModelResponseFormat(model: string, name: string, schema: Record<string, unknown>): Record<string, unknown> {
+export function buildModelResponseFormat(model: string, name: string, schema: JsonObject): JsonObject {
   const normalizedModel = model.toLowerCase();
-  const supportsJsonSchema = normalizedModel.includes("gemma-4")
-    || normalizedModel.includes("qwen3-vl")
-    || /qwen3\.(?:5|6|8)/.test(normalizedModel);
+
+  const supportsJsonSchema =
+    normalizedModel.includes("gemma-4") ||
+    normalizedModel.includes("qwen3-vl") ||
+    /qwen3\.(?:5|6|8)/.test(normalizedModel);
+
   if (!supportsJsonSchema) return { type: "json_object" };
+
   return { type: "json_schema", json_schema: { name, strict: true, schema } };
 }
 
-function buildAnswerSchema(fields: FieldDefinition[]): Record<string, unknown> {
+function buildAnswerSchema(fields: FieldDefinition[]): JsonObject {
   const schemas = fields.map(buildFieldAnswerSchema);
   schemas.push({ type: "null" });
 
-  const uniqueSchemas = [
-    ...new Map(schemas.map((schema) => [JSON.stringify(schema), schema])).values(),
-  ];
+  const uniqueSchemas = [...new Map(schemas.map((schema) => [JSON.stringify(schema), schema])).values()];
+
   return { anyOf: uniqueSchemas };
 }
 
-function buildFieldAnswerSchema(field: FieldDefinition): Record<string, unknown> {
+function buildFieldAnswerSchema(field: FieldDefinition): JsonObject {
   switch (field.data_type) {
     case "string":
     case "date":
@@ -292,12 +397,7 @@ function buildFieldAnswerSchema(field: FieldDefinition): Record<string, unknown>
       return {
         type: "array",
         items: {
-          anyOf: [
-            { type: "string" },
-            { type: "number" },
-            { type: "boolean" },
-            { type: "null" },
-          ],
+          anyOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }, { type: "null" }],
         },
       };
     case "object":
@@ -306,8 +406,9 @@ function buildFieldAnswerSchema(field: FieldDefinition): Record<string, unknown>
   }
 }
 
-function buildObjectAnswerSchema(field: FieldDefinition): Record<string, unknown> {
+function buildObjectAnswerSchema(field: FieldDefinition): JsonObject {
   const columns = readObjectSchemaColumns(field.description);
+
   if (columns.length === 0) {
     const emptyObjectSchema = {
       type: "object",
@@ -315,9 +416,8 @@ function buildObjectAnswerSchema(field: FieldDefinition): Record<string, unknown
       required: [],
       additionalProperties: false,
     };
-    return field.data_type === "array<object>"
-      ? { type: "array", items: emptyObjectSchema }
-      : emptyObjectSchema;
+
+    return field.data_type === "array<object>" ? { type: "array", items: emptyObjectSchema } : emptyObjectSchema;
   }
 
   const rowProperties = Object.fromEntries(
@@ -326,6 +426,7 @@ function buildObjectAnswerSchema(field: FieldDefinition): Record<string, unknown
       { type: [column.dataType === "number" || column.dataType === "boolean" ? column.dataType : "string", "null"] },
     ]),
   );
+
   return {
     type: "object",
     properties: {
@@ -348,34 +449,32 @@ function buildObjectAnswerSchema(field: FieldDefinition): Record<string, unknown
 function readObjectSchemaColumns(
   description: string,
 ): Array<{ key: string; dataType: "string" | "number" | "boolean" | "date" }> {
-  const match = description.match(
-    /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/,
-  );
+  const match = description.match(/\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/);
+
   if (!match?.[1]) {
     return [];
   }
 
   try {
-    const schema = JSON.parse(match[1]) as { columns?: unknown };
-    if (!Array.isArray(schema.columns)) {
+    const schema = parseJson(match[1]);
+
+    if (!isJsonObject(schema) || !isJsonArray(schema.columns)) {
       return [];
     }
+
     return schema.columns.flatMap((value) => {
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
+      if (!isJsonObject(value)) {
         return [];
       }
-      const column = value as Record<string, unknown>;
-      const key = typeof column.key === "string" ? column.key : "";
+
+      const column = value;
+      const key = isString(column.key) ? column.key : "";
       const dataType = column.data_type;
-      if (
-        !key ||
-        (dataType !== "string" &&
-          dataType !== "number" &&
-          dataType !== "boolean" &&
-          dataType !== "date")
-      ) {
+
+      if (!key || (dataType !== "string" && dataType !== "number" && dataType !== "boolean" && dataType !== "date")) {
         return [];
       }
+
       return [{ key, dataType }];
     });
   } catch {
@@ -383,10 +482,7 @@ function readObjectSchemaColumns(
   }
 }
 
-function buildInlineSourceContentPart(
-  sourceBytes: ArrayBuffer,
-  sourceMimeType: string,
-): Record<string, unknown> {
+function buildInlineSourceContentPart(sourceBytes: ArrayBuffer, sourceMimeType: string): ModelContentPart {
   if (sourceMimeType === "application/pdf") {
     return {
       type: "file",
@@ -400,10 +496,7 @@ function buildInlineSourceContentPart(
   return buildInlineImageContentPart(sourceBytes, sourceMimeType);
 }
 
-function buildInlineImageContentPart(
-  sourceBytes: ArrayBuffer,
-  sourceMimeType: string,
-): Record<string, unknown> {
+function buildInlineImageContentPart(sourceBytes: ArrayBuffer, sourceMimeType: string): ModelContentPart {
   return {
     type: "image_url",
     image_url: {
@@ -427,18 +520,28 @@ function scheduleModelCall<T>(
   // A cancelled waiter must not let later work overtake the call already running.
   const tail = Promise.allSettled([previous, result]).then(() => undefined);
   sequentialModelCallTails.set(scope, tail);
-  void tail.then(() => { if (sequentialModelCallTails.get(scope) === tail) sequentialModelCallTails.delete(scope); });
+  void tail.then(() => {
+    if (sequentialModelCallTails.get(scope) === tail) sequentialModelCallTails.delete(scope);
+  });
+
   return result;
 }
 
 function waitForModelTurn(previous: Promise<void>, signal?: AbortSignal): Promise<void> {
   if (!signal) return previous;
+
   return new Promise((resolve, reject) => {
     const aborted = () => {
       signal.removeEventListener("abort", aborted);
       reject(new ExtractionCancelledError("Queued model call cancelled"));
     };
-    if (signal.aborted) { aborted(); return; }
+
+    if (signal.aborted) {
+      aborted();
+
+      return;
+    }
+
     signal.addEventListener("abort", aborted, { once: true });
     void previous.then(() => {
       signal.removeEventListener("abort", aborted);
@@ -449,11 +552,15 @@ function waitForModelTurn(previous: Promise<void>, signal?: AbortSignal): Promis
 
 function retryAfterDelayMs(value: string | null, now = Date.now()): number | null {
   const normalized = value?.trim();
+
   if (!normalized) return null;
+
   if (/^\d+$/.test(normalized)) {
     return Math.max(0, Number(normalized) * 1_000);
   }
+
   const retryAt = Date.parse(normalized);
+
   return Number.isFinite(retryAt) ? Math.max(0, retryAt - now) : null;
 }
 
@@ -461,11 +568,7 @@ export function readBooleanConfiguration(value: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() || "");
 }
 
-function buildPrompt(
-  fields: FieldDefinition[],
-  sourceMimeType: string,
-  pdfRenderedAsImages: boolean,
-): string {
+function buildPrompt(fields: FieldDefinition[], sourceMimeType: string, pdfRenderedAsImages: boolean): string {
   const serializedFields = fields.map((field) => ({
     id: field.id,
     name: field.name,
@@ -489,33 +592,38 @@ function buildPrompt(
   ].join("\n");
 }
 
-export function readRunResultContent(payload: unknown): string {
-  if (!payload || typeof payload !== "object") {
+export function readRunResultContent(payload: JsonValue | undefined): string {
+  if (!isJsonObject(payload) && !isJsonArray(payload)) {
     throw new RetryableError("Model gateway returned empty response");
   }
 
-  const record = payload as Record<string, unknown>;
-  const choices = record.choices as Array<Record<string, unknown>> | undefined;
-  const message = choices?.[0]?.message as Record<string, unknown> | undefined;
+  const record = isJsonObject(payload) ? payload : {};
+  const choice = isJsonArray(record.choices) ? record.choices[0] : undefined;
+  const candidateMessage = isJsonObject(choice) ? choice.message : undefined;
+  const message = isJsonObject(candidateMessage) ? candidateMessage : undefined;
+
   for (const candidate of [record.output_text, record.text, message?.content, message?.reasoning_content]) {
     const content = readContentValue(candidate);
+
     if (content) return content;
   }
+
   throw new RetryableError("Model response did not include readable text content");
 }
 
-function readContentValue(value: unknown): string | null {
-  if (typeof value === "string" && value.trim().length > 0) {
+function readContentValue(value: JsonValue | undefined): string | null {
+  if (isString(value) && value.trim().length > 0) {
     return value;
   }
 
-  if (!Array.isArray(value)) {
+  if (!isJsonArray(value)) {
     return null;
   }
 
   for (const part of value) {
-    const text = (part as Record<string, unknown>).text;
-    if (typeof text === "string" && text.trim().length > 0) {
+    const text = isJsonObject(part) ? part.text : undefined;
+
+    if (isString(text) && text.trim().length > 0) {
       return text;
     }
   }
@@ -528,7 +636,7 @@ export async function runViaModelGateway(
   requestBody: string,
   signal?: AbortSignal,
   maximumResponseBytes?: number,
-): Promise<unknown> {
+): Promise<JsonValue> {
   if (!env.LITELLM_KEY) {
     throw new ModelGatewayRequestError("Model gateway key is not configured");
   }
@@ -536,17 +644,22 @@ export async function runViaModelGateway(
   if (signal?.aborted) throw new ExtractionCancelledError("Model gateway request cancelled");
   // Persist the pending receipt before transport. An interrupted call remains unknown.
   let callId: string | undefined;
-  try { callId = env.modelCallObserver?.started(); }
-  catch { throw new ModelGatewayRequestError("Model call accounting is temporarily unavailable"); }
+
+  try {
+    callId = env.modelCallObserver?.started();
+  } catch {
+    throw new ModelGatewayRequestError("Model call accounting is temporarily unavailable");
+  }
+
   let responseHeaders = new Headers();
-  let responseBody: unknown;
+  let responseBody: JsonValue | undefined;
 
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    getModelGatewayRequestTimeoutMs(env),
-  );
+
+  const timeout = setTimeout(() => controller.abort(), getModelGatewayRequestTimeoutMs(env));
+
   const abortForWorkspaceDeletion = () => controller.abort();
+
   if (signal?.aborted) {
     controller.abort();
   } else {
@@ -564,27 +677,35 @@ export async function runViaModelGateway(
       body: requestBody,
       signal: controller.signal,
     });
+
     responseHeaders = response.headers;
+
     if (!response.ok) {
       // Do not consume or surface upstream error bodies, including redirect destinations.
       await response.body?.cancel().catch(() => {});
       const message = `Model gateway request failed with HTTP ${response.status}`;
+
       if (response.status === 408 || response.status === 429 || response.status >= 500) {
         throw new RetryableError(message, {
           retryAfterMs: retryAfterDelayMs(response.headers.get("retry-after")),
           status: response.status,
         });
       }
+
       throw new ModelGatewayRequestError(message, response.status);
     }
 
-    const bodyText = maximumResponseBytes ? await readBoundedGatewayResponse(response, maximumResponseBytes, controller.signal) : await response.text();
+    const bodyText = maximumResponseBytes
+      ? await readBoundedGatewayResponse(response, maximumResponseBytes, controller.signal)
+      : await response.text();
+
     if (!bodyText.trim()) {
       throw new RetryableError("Model gateway returned empty response");
     }
 
     try {
-      responseBody = JSON.parse(bodyText);
+      responseBody = parseJson(bodyText);
+
       return responseBody;
     } catch {
       throw new RetryableError("Model gateway returned invalid JSON");
@@ -593,19 +714,26 @@ export async function runViaModelGateway(
     if (signal?.aborted) {
       throw new ExtractionCancelledError("Model gateway request cancelled");
     }
+
     if (error instanceof RetryableError || error instanceof ModelGatewayRequestError) {
       throw error;
     }
+
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new RetryableError("Model gateway request timed out");
     }
+
     throw new RetryableError("Model gateway request failed");
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", abortForWorkspaceDeletion);
+
     if (callId) {
-      try { env.modelCallObserver?.finished(callId, readModelCallUsage(responseBody, responseHeaders)); }
-      catch { /* Keep the pending receipt unknown; an accounting error must not repeat a billable call. */ }
+      try {
+        env.modelCallObserver?.finished(callId, readModelCallUsage(responseBody, responseHeaders));
+      } catch {
+        /* Keep the pending receipt JsonValue | undefined; an accounting error must not repeat a billable call. */
+      }
     }
   }
 }
@@ -614,6 +742,7 @@ export function buildChatCompletionsUrl(env: ModelGatewayConfiguration): string 
   try {
     const baseUrl = getModelGatewayBaseUrl(env);
     const normalized = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+
     return new URL("chat/completions", normalized).toString();
   } catch {
     throw new RetryableError("Model gateway URL is not valid");
@@ -622,31 +751,47 @@ export function buildChatCompletionsUrl(env: ModelGatewayConfiguration): string 
 
 function getModelGatewayBaseUrl(env: ModelGatewayConfiguration): string {
   if (!env.MODEL_GATEWAY_URL) throw new ModelGatewayRequestError("Workspace gateway is not configured");
+
   return env.MODEL_GATEWAY_URL;
 }
 
 /** Bound the transport envelope before JSON parsing, including providers returning huge error-like payloads. */
-async function readBoundedGatewayResponse(response: Response, maximumBytes: number, signal: AbortSignal): Promise<string> {
+async function readBoundedGatewayResponse(
+  response: Response,
+  maximumBytes: number,
+  signal: AbortSignal,
+): Promise<string> {
   if (Number(response.headers.get("content-length")) > maximumBytes) {
     await response.body?.cancel().catch(() => {});
     throw new ModelGatewayRequestError("Model response exceeds the assistance response limit");
   }
+
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
-  const abort = () => { void reader.cancel().catch(() => {}); };
+
+  const abort = () => {
+    void reader.cancel().catch(() => {});
+  };
+
   signal.addEventListener("abort", abort, { once: true });
+
   try {
     for (;;) {
       signal.throwIfAborted();
       const { done, value } = await reader.read();
+
       if (done) break;
       size += value.byteLength;
-      if (size > maximumBytes) throw new ModelGatewayRequestError("Model response exceeds the assistance response limit");
+
+      if (size > maximumBytes)
+        throw new ModelGatewayRequestError("Model response exceeds the assistance response limit");
       chunks.push(value);
     }
+
     signal.throwIfAborted();
+
     return Buffer.concat(chunks).toString("utf8");
   } finally {
     signal.removeEventListener("abort", abort);

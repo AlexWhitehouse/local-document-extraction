@@ -1,3 +1,4 @@
+import { readUserResponse } from "./testing/responseFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import { createLocalWorkspaceControl } from "./localWorkspaceControl";
 test("Workspace deletion emits a privacy-safe Workspace access invalidation after revocation", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-delete-invalidation-"));
   const database = new Database(":memory:");
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -20,18 +22,27 @@ test("Workspace deletion emits a privacy-safe Workspace access invalidation afte
     mailSink: { capture: async () => undefined },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const liveUpdateHub = createLocalLiveUpdateHub();
   const messages: string[] = [];
 
   try {
-    const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const user = await signUp.json() as { user: { id: string; name: string } };
-    const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({ userId: user.user.id, userName: user.user.name })[0]!;
+    const signUp = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+      }),
+    );
+
+    const user = await readUserResponse(signUp);
+
+    const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({
+      userId: user.user.id,
+      userName: user.user.name,
+    })[0]!;
+
     workspaceControl.createWorkspace({ userId: user.user.id, name: "Remaining Workspace" });
     liveUpdateHub.subscribe({
       workspaceId: deletedWorkspace.id,

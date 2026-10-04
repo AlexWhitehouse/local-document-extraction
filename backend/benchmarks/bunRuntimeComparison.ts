@@ -1,3 +1,4 @@
+import { isString, isNumber, isJsonObject, parseJson, type JsonValue } from "../../shared/json";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, tmpdir, totalmem } from "node:os";
@@ -131,39 +132,48 @@ type PrototypeResult = {
 };
 
 const resultPrefix = "PROTOTYPE_RESULT ";
+
 const repositoryRoot = resolve(import.meta.dir, "../..");
+
 const prototypePath = resolve(import.meta.dir, "throughput.ts");
+
 const rawRoot = resolve(repositoryRoot, ".scratch/bun-1-4-review/raw/19-bun-runtime-comparison");
+
 const evidenceRoot = resolve(repositoryRoot, ".scratch/bun-1-4-review/evidence");
+
 const sharedCommand = "bunx bun@1.4.2 run --cwd backend benchmark:bun-runtime";
 
 export function parsePrototypeResult(stdout: string): PrototypeResult {
   const resultLines = stdout.split(/\r?\n/).filter((line) => line.startsWith(resultPrefix));
+
   if (resultLines.length === 0) {
     throw new Error("Prototype output did not contain a PROTOTYPE_RESULT record");
   }
+
   if (resultLines.length !== 1) {
-    throw new Error(`Prototype output must contain exactly one PROTOTYPE_RESULT record; received ${resultLines.length}`);
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(resultLines[0]!.slice(resultPrefix.length));
-  } catch (error) {
     throw new Error(
-      `Prototype result is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
+      `Prototype output must contain exactly one PROTOTYPE_RESULT record; received ${resultLines.length}`,
     );
   }
-  if (!parsed || typeof parsed !== "object") throw new Error("Prototype result must be an object");
-  const candidate = parsed as Partial<PrototypeResult>;
-  if (!candidate.configuration || !Array.isArray(candidate.results)) {
-    throw new Error("Prototype result is missing configuration or results");
+
+  let parsed: JsonValue;
+
+  try {
+    parsed = parseJson(resultLines[0]!.slice(resultPrefix.length));
+  } catch (error) {
+    throw new Error(`Prototype result is not valid JSON: ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    });
   }
-  return candidate as PrototypeResult;
+
+  if (!isPrototypeResult(parsed)) throw new Error("Prototype result is missing valid configuration or results");
+
+  return parsed;
 }
 
 export function aggregateRuntimeRuns(runs: BunRuntimeRun[]): BunRuntimeAggregate {
   if (runs.length === 0) throw new Error("At least one steady runtime repetition is required");
+
   return {
     completedTotal: sum(runs.map((run) => run.completed)),
     failedTotal: sum(runs.map((run) => run.failed)),
@@ -184,47 +194,58 @@ export function evaluateRuntimeRegression(
   candidate: BunRuntimeAggregate,
 ): RegressionAssessment {
   const checks: RegressionCheck[] = [];
-  checks.push(lowerBoundCheck(
-    "Throughput",
-    candidate.throughputJobsPerSecond.mean,
-    baseline.throughputJobsPerSecond.mean * 0.9,
-    "Bun 1.4.2 mean must be at least 90% of Bun 1.3.14",
-    " jobs/s",
-  ));
-  checks.push(upperBoundCheck(
-    "Lifecycle p95",
-    candidate.lifecycleP95Ms.mean,
-    baseline.lifecycleP95Ms.mean * 1.15,
-    "Bun 1.4.2 mean must be no more than 115% of Bun 1.3.14",
-    " ms",
-  ));
-  checks.push(upperBoundCheck(
-    "Peak RSS",
-    candidate.peakRssBytes.mean,
-    baseline.peakRssBytes.mean + Math.max(32 * 1024 ** 2, baseline.peakRssBytes.mean * 0.15),
-    "Bun 1.4.2 mean must be within +15% or a 32 MiB noise floor",
-    " bytes",
-  ));
-  checks.push(upperBoundCheck(
-    "Normalized CPU",
-    candidate.normalizedCpuFraction.mean,
-    baseline.normalizedCpuFraction.mean + Math.max(0.02, baseline.normalizedCpuFraction.mean * 0.15),
-    "Bun 1.4.2 mean must be within +15 percentage-relative or a 2-point noise floor",
-    "",
-  ));
-  checks.push(upperBoundCheck(
-    "Maximum event-loop lag",
-    candidate.maxEventLoopLagMs.mean,
-    baseline.maxEventLoopLagMs.mean + Math.max(10, baseline.maxEventLoopLagMs.mean * 0.15),
-    "Bun 1.4.2 mean must be within +15% or a 10 ms noise floor",
-    " ms",
-  ));
+  checks.push(
+    lowerBoundCheck(
+      "Throughput",
+      candidate.throughputJobsPerSecond.mean,
+      baseline.throughputJobsPerSecond.mean * 0.9,
+      "Bun 1.4.2 mean must be at least 90% of Bun 1.3.14",
+      " jobs/s",
+    ),
+  );
+  checks.push(
+    upperBoundCheck(
+      "Lifecycle p95",
+      candidate.lifecycleP95Ms.mean,
+      baseline.lifecycleP95Ms.mean * 1.15,
+      "Bun 1.4.2 mean must be no more than 115% of Bun 1.3.14",
+      " ms",
+    ),
+  );
+  checks.push(
+    upperBoundCheck(
+      "Peak RSS",
+      candidate.peakRssBytes.mean,
+      baseline.peakRssBytes.mean + Math.max(32 * 1024 ** 2, baseline.peakRssBytes.mean * 0.15),
+      "Bun 1.4.2 mean must be within +15% or a 32 MiB noise floor",
+      " bytes",
+    ),
+  );
+  checks.push(
+    upperBoundCheck(
+      "Normalized CPU",
+      candidate.normalizedCpuFraction.mean,
+      baseline.normalizedCpuFraction.mean + Math.max(0.02, baseline.normalizedCpuFraction.mean * 0.15),
+      "Bun 1.4.2 mean must be within +15 percentage-relative or a 2-point noise floor",
+      "",
+    ),
+  );
+  checks.push(
+    upperBoundCheck(
+      "Maximum event-loop lag",
+      candidate.maxEventLoopLagMs.mean,
+      baseline.maxEventLoopLagMs.mean + Math.max(10, baseline.maxEventLoopLagMs.mean * 0.15),
+      "Bun 1.4.2 mean must be within +15% or a 10 ms noise floor",
+      " ms",
+    ),
+  );
   checks.push({
     actual: `${candidate.failedTotal} failed, ${candidate.sqliteBusyOutcomes} SQLite busy outcomes`,
     metric: "Completion and SQLite integrity",
     passed: candidate.failedTotal === 0 && candidate.sqliteBusyOutcomes === 0,
     threshold: "No failed jobs and no observed SQLITE_BUSY outcome",
   });
+
   return { checks, passed: checks.every((check) => check.passed) };
 }
 
@@ -233,23 +254,33 @@ export function sanitizeBunProfileMarkdown(
   options: { repositoryRoot: string; temporaryRoots?: string[] },
 ): string {
   let sanitized = markdown;
+
   const replacements = [
     { label: "<repo>", value: options.repositoryRoot },
     ...(options.temporaryRoots ?? []).map((value) => ({ label: "<temp>", value })),
   ].sort((left, right) => right.value.length - left.value.length);
+
   for (const replacement of replacements) {
     if (replacement.value) {
       sanitized = sanitized.replaceAll(replacement.value, replacement.label);
     }
   }
+
   sanitized = sanitized
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer <redacted>")
     .replace(/\b(?:key|lsk|sk|pk|sess|session)_[A-Za-z0-9._-]{8,}\b/gi, "<redacted-credential>")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "<redacted-email>")
-    .replace(/\b(?:api[_-]?key|authorization|cookie|password|secret|session|token)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,|}]+)/gi, (_match, separator: string) => `<redacted-key>${separator}<redacted>`)
+    .replace(
+      /\b(?:api[_-]?key|authorization|cookie|password|secret|session|token)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,|}]+)/gi,
+      (_match, separator: string) => `<redacted-key>${separator}<redacted>`,
+    )
     .replace(/\b(?:prototype-only-012345678901234567|Strong1!)\b/g, "<redacted>")
     .replace(/[A-Za-z0-9+/]{80,}={0,2}/g, "<redacted-long-data>")
-    .replace(/(?:\/Users\/[^\s`|)]+|\/home\/[^\s`|)]+|\/private\/var\/folders\/[^\s`|)]+|\/tmp\/[^\s`|)]+)/g, "<absolute-path>");
+    .replace(
+      /(?:\/Users\/[^\s`|)]+|\/home\/[^\s`|)]+|\/private\/var\/folders\/[^\s`|)]+|\/tmp\/[^\s`|)]+)/g,
+      "<absolute-path>",
+    );
+
   return sanitized;
 }
 
@@ -261,19 +292,24 @@ export function condenseBunProfileMarkdown(markdown: string, kind: "cpu" | "heap
     "> Sanitized decision-rich excerpt. The complete native Bun Markdown profile remains in ignored raw scratch state; exhaustive object, edge, string, and function-detail tables are intentionally not copied into agent-facing evidence.",
     "",
   ].join("\n");
+
   if (kind === "heap") {
     const graphStart = markdown.indexOf("\n## GC Roots");
     const useful = graphStart >= 0 ? markdown.slice(0, graphStart) : markdown;
+
     return `${useful.trimEnd()}${note}`;
   }
+
   const hotStart = markdown.indexOf("## Hot Functions (Self Time)");
   const treeStart = markdown.indexOf("## Call Tree (Total Time)");
+
   if (hotStart < 0 || treeStart < 0) return `${markdown.trimEnd()}${note}`;
   const introduction = markdown.slice(0, hotStart).trimEnd();
   const hot = markdown.slice(hotStart, treeStart).trim().split(/\r?\n/).slice(0, 31).join("\n");
   const treeEnd = markdown.indexOf("\n## Function Details", treeStart);
   const fullTree = markdown.slice(treeStart, treeEnd >= 0 ? treeEnd : undefined).trim();
   const tree = fullTree.split(/\r?\n/).slice(0, 61).join("\n");
+
   return `${introduction}\n\n${hot}\n\n${tree}${note}`;
 }
 
@@ -282,6 +318,7 @@ function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): str
   const baseline = evidence.runtimes[0]!;
   const candidate = evidence.runtimes[1]!;
   const assessment = evaluateRuntimeRegression(baseline.aggregate, candidate.aggregate);
+
   const lines = [
     `# Bounded extraction: Bun ${baseline.version} versus ${candidate.version}`,
     "",
@@ -299,7 +336,9 @@ function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): str
     "",
     "| Fixture | Pages | Bytes | SHA-256 |",
     "| ---: | ---: | ---: | --- |",
-    ...evidence.fixtureIdentities.map((fixture, index) => `| ${index + 1} | ${fixture.pageCount} | ${fixture.bytes} | \`${fixture.sha256}\` |`),
+    ...evidence.fixtureIdentities.map(
+      (fixture, index) => `| ${index + 1} | ${fixture.pageCount} | ${fixture.bytes} | \`${fixture.sha256}\` |`,
+    ),
     "",
     "| Control | Value |",
     "| --- | ---: |",
@@ -317,6 +356,7 @@ function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): str
     ...evidence.runtimes.map((runtime) => {
       const first = runtime.runs[0]!;
       const aggregate = runtime.aggregate;
+
       return `| Bun ${runtime.version} | \`${first.bunRevision}\` | ${aggregate.completedTotal} | ${aggregate.failedTotal} | ${formatNumber(aggregate.throughputJobsPerSecond.mean)} (${formatPercent(aggregate.throughputJobsPerSecond.coefficientOfVariation)}) | ${formatNumber(aggregate.lifecycleP50Ms.mean)} ms | ${formatNumber(aggregate.lifecycleP95Ms.mean)} ms | ${formatBytes(aggregate.peakRssBytes.mean)} | ${formatPercent(aggregate.normalizedCpuFraction.mean)} | ${formatNumber(aggregate.maxEventLoopLagMs.mean)} ms | ${aggregate.sqliteBusyOutcomes}/${aggregate.sqliteBusyRetries} |`;
     }),
     "",
@@ -324,7 +364,12 @@ function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): str
     "",
     "| Runtime | Rep | Completed/failed | Jobs/s | Lifecycle p50/p95 | Peak/baseline RSS | CPU | Max lag | Admission rejected/retried | Runner/queue/gateway peak | SQLite busy/retry |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ...evidence.runtimes.flatMap((runtime) => runtime.runs.map((run) => `| Bun ${runtime.version} | ${run.repetition} | ${run.completed}/${run.failed} | ${formatNumber(run.completed / (run.elapsedMs / 1_000))} | ${formatNumber(percentile(run.lifecycleLatencyMs, 0.5))}/${formatNumber(percentile(run.lifecycleLatencyMs, 0.95))} ms | ${formatBytes(run.peakRssBytes)}/${formatBytes(run.baselineRssBytes)} | ${formatPercent(run.normalizedCpuFraction)} | ${formatNumber(run.maxEventLoopLagMs)} ms | ${run.admissionRejected}/${run.admissionRetries} | ${run.runnerPeak}/${run.queuePeak}/${run.gatewayPeakActive} | ${run.sqliteBusyOutcomes}/${run.sqliteBusyRetries} |`)),
+    ...evidence.runtimes.flatMap((runtime) =>
+      runtime.runs.map(
+        (run) =>
+          `| Bun ${runtime.version} | ${run.repetition} | ${run.completed}/${run.failed} | ${formatNumber(run.completed / (run.elapsedMs / 1_000))} | ${formatNumber(percentile(run.lifecycleLatencyMs, 0.5))}/${formatNumber(percentile(run.lifecycleLatencyMs, 0.95))} ms | ${formatBytes(run.peakRssBytes)}/${formatBytes(run.baselineRssBytes)} | ${formatPercent(run.normalizedCpuFraction)} | ${formatNumber(run.maxEventLoopLagMs)} ms | ${run.admissionRejected}/${run.admissionRetries} | ${run.runnerPeak}/${run.queuePeak}/${run.gatewayPeakActive} | ${run.sqliteBusyOutcomes}/${run.sqliteBusyRetries} |`,
+      ),
+    ),
     "",
     "### Aggregate range and variance",
     "",
@@ -338,7 +383,9 @@ function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): str
     "",
     "| Check | Actual | Threshold | Result |",
     "| --- | --- | --- | --- |",
-    ...assessment.checks.map((check) => `| ${check.metric} | ${check.actual} | ${check.threshold} | ${check.passed ? "PASS" : "FAIL"} |`),
+    ...assessment.checks.map(
+      (check) => `| ${check.metric} | ${check.actual} | ${check.threshold} | ${check.passed ? "PASS" : "FAIL"} |`,
+    ),
     "",
     "## Bun 1.4.2 native Markdown profiles",
     "",
@@ -346,15 +393,21 @@ function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): str
     "",
     "### CPU profile findings",
     "",
-    ...(evidence.profileSummary.cpuHotFunctions.length > 0 ? evidence.profileSummary.cpuHotFunctions.map(bullet) : ["- No hot-function rows were available."]),
+    ...(evidence.profileSummary.cpuHotFunctions.length > 0
+      ? evidence.profileSummary.cpuHotFunctions.map(bullet)
+      : ["- No hot-function rows were available."]),
     "",
     "### Largest retained objects",
     "",
-    ...(evidence.profileSummary.heapLargestObjects.length > 0 ? evidence.profileSummary.heapLargestObjects.map(bullet) : ["- No retained-object rows were available."]),
+    ...(evidence.profileSummary.heapLargestObjects.length > 0
+      ? evidence.profileSummary.heapLargestObjects.map(bullet)
+      : ["- No retained-object rows were available."]),
     "",
     "### Heap retention paths",
     "",
-    ...(evidence.profileSummary.heapRetentionPaths.length > 0 ? evidence.profileSummary.heapRetentionPaths.map(bullet) : ["- No retainer-chain entries were available."]),
+    ...(evidence.profileSummary.heapRetentionPaths.length > 0
+      ? evidence.profileSummary.heapRetentionPaths.map(bullet)
+      : ["- No retainer-chain entries were available."]),
     "",
     "## Reproduction and safety",
     "",
@@ -365,6 +418,7 @@ function renderBunRuntimeComparison(evidence: BunRuntimeComparisonEvidence): str
     "The command launches both exact Bun versions with `--no-env-file` and a minimal environment, creates only synthetic PDF attachments, uses a loopback fake Model gateway, resets application state for every repetition, keeps raw artifacts in ignored scratch state, and sanitizes the Markdown copies before publishing them. No Source file content, account identity, session/auth value, or Model gateway credential is intentionally read.",
     "",
   ];
+
   return lines.join("\n");
 }
 
@@ -379,17 +433,22 @@ async function runCoordinator(): Promise<void> {
     mkdir(shareableProfileDirectory, { recursive: true }),
   ]);
   const fixtureIdentities = await createSharedFixtures(fixtureDirectory);
-  const runtimes = [] as BunRuntimeComparisonEvidence["runtimes"];
+  const runtimes: BunRuntimeComparisonEvidence["runtimes"] = [];
+
   for (const version of ["1.3.14", "1.4.2"]) {
     process.stdout.write(`Warming Bun ${version}...\n`);
+
     for (let repetition = 0; repetition < settings.warmupRepetitions; repetition += 1) {
       await runRuntimeInvocation({ fixtureDirectory, fixtureIdentities, repetition: 0, settings, version });
     }
+
     const runs: BunRuntimeRun[] = [];
+
     for (let repetition = 1; repetition <= settings.steadyRepetitions; repetition += 1) {
       process.stdout.write(`Measuring Bun ${version}, repetition ${repetition}/${settings.steadyRepetitions}...\n`);
       runs.push(await runRuntimeInvocation({ fixtureDirectory, fixtureIdentities, repetition, settings, version }));
     }
+
     runtimes.push({ aggregate: aggregateRuntimeRuns(runs), runs, version });
   }
 
@@ -400,21 +459,27 @@ async function runCoordinator(): Promise<void> {
     repetition: 0,
     serverRuntimeFlags: [
       "--cpu-prof-md",
-      "--cpu-prof-name", "server-cpu.md",
-      "--cpu-prof-dir", profileDirectory,
+      "--cpu-prof-name",
+      "server-cpu.md",
+      "--cpu-prof-dir",
+      profileDirectory,
       "--heap-prof-md",
-      "--heap-prof-name", "server-heap.md",
-      "--heap-prof-dir", profileDirectory,
+      "--heap-prof-name",
+      "server-heap.md",
+      "--heap-prof-dir",
+      profileDirectory,
     ],
     settings,
     version: "1.4.2",
   });
   const rawCpu = await readFile(join(profileDirectory, "server-cpu.md"), "utf8");
   const rawHeap = await readFile(join(profileDirectory, "server-heap.md"), "utf8");
+
   const sanitizationOptions = {
     repositoryRoot,
     temporaryRoots: [fixtureDirectory, profileDirectory, rawRoot, tmpdir()],
   };
+
   const cpu = sanitizeBunProfileMarkdown(condenseBunProfileMarkdown(rawCpu, "cpu"), sanitizationOptions);
   const heap = sanitizeBunProfileMarkdown(condenseBunProfileMarkdown(rawHeap, "heap"), sanitizationOptions);
   await Promise.all([
@@ -438,10 +503,12 @@ async function runCoordinator(): Promise<void> {
     runtimes,
     settings,
   };
+
   const markdown = renderBunRuntimeComparison(evidence);
   await writeFile(join(evidenceRoot, "19-bun-runtime-comparison.md"), markdown, "utf8");
   process.stdout.write(markdown);
   const assessment = evaluateRuntimeRegression(runtimes[0]!.aggregate, runtimes[1]!.aggregate);
+
   if (!assessment.passed) process.exitCode = 1;
 }
 
@@ -460,7 +527,7 @@ async function runRuntimeInvocation({
   settings: BunRuntimeComparisonSettings;
   version: string;
 }): Promise<BunRuntimeRun> {
-  const environment: Record<string, string> = {
+  const environment = {
     NO_COLOR: "1",
     PATH: process.env.PATH ?? "",
     PROTOTYPE_ADMISSION_CONCURRENCY: String(settings.boundedAdmissionConcurrency),
@@ -476,37 +543,52 @@ async function runRuntimeInvocation({
     PROTOTYPE_WORKERS: String(settings.workers),
     TMPDIR: tmpdir(),
   };
+
   const child = Bun.spawn(["bunx", `bun@${version}`, "--no-env-file", prototypePath], {
     cwd: repositoryRoot,
     env: environment,
     stderr: "pipe",
     stdout: "pipe",
   });
+
   const timeout = setTimeout(() => child.kill(), 120_000);
+
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]).finally(() => clearTimeout(timeout));
+
   if (exitCode !== 0) {
-    throw new Error([
-      `Bun ${version} prototype invocation exited with code ${exitCode}`,
-      `stdout: ${stdout.slice(-4_000) || "<empty>"}`,
-      `stderr: ${stderr.slice(-4_000) || "<empty>"}`,
-    ].join("\n"));
+    throw new Error(
+      [
+        `Bun ${version} prototype invocation exited with code ${exitCode}`,
+        `stdout: ${stdout.slice(-4_000) || "<empty>"}`,
+        `stderr: ${stderr.slice(-4_000) || "<empty>"}`,
+      ].join("\n"),
+    );
   }
+
   const parsed = parsePrototypeResult(stdout);
+
   if (parsed.bunVersion !== version) {
     throw new Error(`Requested Bun ${version}, but the prototype reported Bun ${parsed.bunVersion}`);
   }
+
   const expectedFixtureBytes = fixtureIdentities.map((fixture) => fixture.bytes);
   const expectedFixtureSha256 = fixtureIdentities.map((fixture) => fixture.sha256);
-  if (JSON.stringify(parsed.fixtureBytes) !== JSON.stringify(expectedFixtureBytes)
-    || JSON.stringify(parsed.fixtureSha256) !== JSON.stringify(expectedFixtureSha256)) {
+
+  if (
+    JSON.stringify(parsed.fixtureBytes) !== JSON.stringify(expectedFixtureBytes) ||
+    JSON.stringify(parsed.fixtureSha256) !== JSON.stringify(expectedFixtureSha256)
+  ) {
     throw new Error(`Bun ${version} did not use the coordinator's shared fixture identities`);
   }
+
   const bounded = parsed.results.find((result) => result.profile === "bounded");
+
   if (!bounded) throw new Error(`Bun ${version} returned no bounded prototype result`);
+
   return {
     admissionRejected: bounded.server.admissionRejected,
     admissionRetries: bounded.client.submissionRetries,
@@ -535,11 +617,14 @@ async function createSharedFixtures(directory: string): Promise<BunRuntimeCompar
     { attachmentBytes: Math.floor(4.8 * 1024 * 1024), pageCount: 4, seed: 0x140002 },
     { attachmentBytes: Math.floor(9.5 * 1024 * 1024), pageCount: 8, seed: 0x140003 },
   ];
-  const identities = [] as BunRuntimeComparisonEvidence["fixtureIdentities"];
+
+  const identities: BunRuntimeComparisonEvidence["fixtureIdentities"] = [];
+
   for (const [index, definition] of definitions.entries()) {
     const document = await PDFDocument.create();
     document.setCreationDate(new Date("2026-01-01T00:00:00.000Z"));
     document.setModificationDate(new Date("2026-01-01T00:00:00.000Z"));
+
     for (let page = 0; page < definition.pageCount; page += 1) document.addPage([612, 792]);
     await document.attach(deterministicBytes(definition.attachmentBytes, definition.seed), "synthetic-payload.bin", {
       description: "Deterministic synthetic benchmark payload",
@@ -553,18 +638,21 @@ async function createSharedFixtures(directory: string): Promise<BunRuntimeCompar
       sha256: createHash("sha256").update(bytes).digest("hex"),
     });
   }
+
   return identities;
 }
 
 function deterministicBytes(length: number, seed: number): Uint8Array {
   const bytes = new Uint8Array(length);
   let state = seed >>> 0;
+
   for (let index = 0; index < bytes.length; index += 1) {
     state ^= state << 13;
     state ^= state >>> 17;
     state ^= state << 5;
     bytes[index] = state & 0xff;
   }
+
   return bytes;
 }
 
@@ -578,21 +666,32 @@ function summarizeBunProfiles(cpu: string, heap: string): BunRuntimeComparisonEv
 
 function markdownTableRows(markdown: string, heading: string, limit: number): string[] {
   const start = markdown.indexOf(heading);
+
   if (start < 0) return [];
   const section = markdown.slice(start + heading.length).split(/\n## /, 1)[0] ?? "";
-  return section.split(/\r?\n/)
+
+  return section
+    .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.startsWith("|") && !line.includes("---") && !line.includes("Rank |") && !line.includes("Self% |"))
+    .filter(
+      (line) => line.startsWith("|") && !line.includes("---") && !line.includes("Rank |") && !line.includes("Self% |"),
+    )
     .slice(0, limit);
 }
 
 function retainerChainSummaries(markdown: string, limit: number): string[] {
   const section = markdown.split("## Retainer Chains")[1]?.split("\n## ")[0] ?? "";
-  const blocks = section.split(/\n(?=### \d+\.)/).filter((block) => block.startsWith("### ")).slice(0, limit);
+
+  const blocks = section
+    .split(/\n(?=### \d+\.)/)
+    .filter((block) => block.startsWith("### "))
+    .slice(0, limit);
+
   return blocks.map((block) => {
     const lines = block.split(/\r?\n/).filter((line) => line && line !== "```");
     const heading = lines.shift()!.replace(/^###\s+/, "");
     const path = lines.join(" ").replace(/\s+/g, " ").trim();
+
     return path ? `${heading}: ${path}` : heading;
   });
 }
@@ -612,21 +711,26 @@ function readSettings(): BunRuntimeComparisonSettings {
 
 function positiveEnvironmentInteger(name: string, fallback: number): number {
   const raw = process.env[name];
+
   if (!raw) return fallback;
   const value = Number(raw);
+
   if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
+
   return value;
 }
 
 async function repositoryIdentity(): Promise<{ dirty: boolean; revision: string }> {
   const revision = await gitOutput(["rev-parse", "--short=12", "HEAD"]);
   const status = await gitOutput(["status", "--porcelain"]);
+
   return { dirty: status.length > 0, revision: revision || "unavailable" };
 }
 
 async function gitOutput(arguments_: string[]): Promise<string> {
   const child = Bun.spawn(["git", ...arguments_], { cwd: repositoryRoot, stderr: "ignore", stdout: "pipe" });
   const [output, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+
   return code === 0 ? output.trim() : "";
 }
 
@@ -634,6 +738,7 @@ function summarize(values: number[]): MetricSummary {
   if (values.length === 0) throw new Error("Cannot summarize an empty metric");
   const mean = sum(values) / values.length;
   const variance = sum(values.map((value) => (value - mean) ** 2)) / values.length;
+
   return {
     coefficientOfVariation: mean === 0 ? 0 : Math.sqrt(variance) / Math.abs(mean),
     maximum: Math.max(...values),
@@ -645,9 +750,11 @@ function summarize(values: number[]): MetricSummary {
 function percentile(values: number[], fraction: number): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((left, right) => left - right);
+
   if (fraction === 0.5 && sorted.length % 2 === 0) {
     return (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2;
   }
+
   return sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)]!;
 }
 
@@ -670,7 +777,9 @@ function metricRow(
   bytes = false,
   percent = false,
 ): string {
-  const display = (value: number) => bytes ? formatBytes(value) : percent ? formatPercent(value) : `${formatNumber(value)}${suffix}`;
+  const display = (value: number) =>
+    bytes ? formatBytes(value) : percent ? formatPercent(value) : `${formatNumber(value)}${suffix}`;
+
   return `| Bun ${version} | ${name} | ${display(metric.minimum)} | ${display(metric.mean)} | ${display(metric.maximum)} | ${formatPercent(metric.coefficientOfVariation)} |`;
 }
 
@@ -681,7 +790,12 @@ function lowerBoundCheck(
   thresholdText: string,
   suffix: string,
 ): RegressionCheck {
-  return { actual: `${formatNumber(actual)}${suffix}`, metric, passed: actual >= threshold, threshold: `${thresholdText} (≥ ${formatNumber(threshold)}${suffix})` };
+  return {
+    actual: `${formatNumber(actual)}${suffix}`,
+    metric,
+    passed: actual >= threshold,
+    threshold: `${thresholdText} (≥ ${formatNumber(threshold)}${suffix})`,
+  };
 }
 
 function upperBoundCheck(
@@ -691,7 +805,12 @@ function upperBoundCheck(
   thresholdText: string,
   suffix: string,
 ): RegressionCheck {
-  return { actual: `${formatNumber(actual)}${suffix}`, metric, passed: actual <= threshold, threshold: `${thresholdText} (≤ ${formatNumber(threshold)}${suffix})` };
+  return {
+    actual: `${formatNumber(actual)}${suffix}`,
+    metric,
+    passed: actual <= threshold,
+    threshold: `${thresholdText} (≤ ${formatNumber(threshold)}${suffix})`,
+  };
 }
 
 function row(label: string, value: string | number): string {
@@ -719,3 +838,49 @@ function sum(values: number[]): number {
 }
 
 if (import.meta.main) await runCoordinator();
+
+/** Validate every field consumed across the benchmark process boundary. */
+function isPrototypeResult(value: JsonValue | undefined): value is PrototypeResult {
+  return (
+    isJsonObject(value) &&
+    isString(value.bunRevision) &&
+    isString(value.bunVersion) &&
+    isJsonObject(value.configuration) &&
+    Object.values(value.configuration).every((entry1) => isNumber(entry1)) &&
+    Array.isArray(value.fixtureBytes) &&
+    value.fixtureBytes.every((entry1) => isNumber(entry1)) &&
+    Array.isArray(value.fixtureSha256) &&
+    value.fixtureSha256.every((entry1) => isString(entry1)) &&
+    Array.isArray(value.results) &&
+    value.results.every(
+      (entry1) =>
+        isJsonObject(entry1) &&
+        isJsonObject(entry1.client) &&
+        isNumber(entry1.client.completed) &&
+        isNumber(entry1.client.elapsedMs) &&
+        isNumber(entry1.client.failed) &&
+        Array.isArray(entry1.client.lifecycleLatencyMs) &&
+        entry1.client.lifecycleLatencyMs.every((entry4) => isNumber(entry4)) &&
+        isNumber(entry1.client.submissionRetries) &&
+        (entry1.profile === "baseline" || entry1.profile === "bounded") &&
+        isJsonObject(entry1.server) &&
+        isNumber(entry1.server.admissionRejected) &&
+        isNumber(entry1.server.baselineRssBytes) &&
+        isNumber(entry1.server.completed) &&
+        isNumber(entry1.server.gatewayPeakActive) &&
+        isNumber(entry1.server.maxEventLoopLagMs) &&
+        isNumber(entry1.server.normalizedCpuFraction) &&
+        isNumber(entry1.server.peakRssBytes) &&
+        isJsonObject(entry1.server.queue) &&
+        isNumber(entry1.server.queue.peakActive) &&
+        isNumber(entry1.server.queue.peakPending) &&
+        isNumber(entry1.server.sqliteBusyOutcomes) &&
+        isNumber(entry1.server.sqliteBusyRetries) &&
+        isJsonObject(entry1.server.timing) &&
+        Array.isArray(entry1.server.timing.lifecycleLatencyMs) &&
+        entry1.server.timing.lifecycleLatencyMs.every((entry5) => isNumber(entry5)) &&
+        isNumber(entry1.server.timing.measurementElapsedMs) &&
+        isNumber(entry1.server.timing.throughputJobsPerSecond),
+    )
+  );
+}

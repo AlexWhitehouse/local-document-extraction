@@ -7,7 +7,10 @@ import { Database } from "bun:sqlite";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
-import { createConfiguredTestProductStore as createLocalWorkspaceProductStore, configureTestWorkspace } from "./testing/workspaceModelFixture";
+import {
+  createConfiguredTestProductStore as createLocalWorkspaceProductStore,
+  configureTestWorkspace,
+} from "./testing/workspaceModelFixture";
 
 test("the local extraction runner completes a queued job with normalized results and Source file cleanup", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-local-runner-"));
@@ -20,17 +23,17 @@ test("the local extraction runner completes a queued job with normalized results
       templateId: "tpl_invoice",
       name: "Invoice",
       description: "Extract invoice details.",
-      fields: [
-        { id: "total_amount", name: "Total Amount", description: "Invoice total.", data_type: "number" },
-      ],
+      fields: [{ id: "total_amount", name: "Total Amount", description: "Invoice total.", data_type: "number" }],
       createdAt: "2026-07-09T12:00:00.000Z",
     });
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId,
       jobId: "job_invoice",
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
+
     productStore.createQueuedExtractionJob({
       jobId: "job_invoice",
       templateId: "tpl_invoice",
@@ -49,6 +52,7 @@ test("the local extraction runner completes a queued job with normalized results
       sourceFileStore: sourceFiles,
       stateDirectory,
     });
+
     await runner.run({
       job_id: "job_invoice",
       workspace_id: workspaceId,
@@ -86,24 +90,29 @@ test("the local extraction runner resolves current model settings for each extra
   const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
-  configureTestWorkspace({ stateDirectory, workspaceId, modelName: "initial/model", gatewayUrl: "https://initial-gateway.example/v1" });
+  configureTestWorkspace({
+    stateDirectory,
+    workspaceId,
+    modelName: "initial/model",
+    gatewayUrl: "https://initial-gateway.example/v1",
+  });
 
   try {
     productStore.createTemplate({
       templateId: "tpl_dynamic",
       name: "Dynamic model",
       description: null,
-      fields: [
-        { id: "reference", name: "Reference", description: "Document reference.", data_type: "string" },
-      ],
+      fields: [{ id: "reference", name: "Reference", description: "Document reference.", data_type: "string" }],
       createdAt: "2026-07-09T12:00:00.000Z",
     });
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId,
       jobId: "job_dynamic",
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
+
     productStore.createQueuedExtractionJob({
       jobId: "job_dynamic",
       templateId: "tpl_dynamic",
@@ -116,9 +125,7 @@ test("the local extraction runner resolves current model settings for each extra
     });
 
     const runner = createLocalExtractionRunner({
-      extract: async () => [
-        { field_id: "reference", status: "ok", answer: "REF-1", confidence: 1, evidence: "REF-1" },
-      ],
+      extract: async () => [{ field_id: "reference", status: "ok", answer: "REF-1", confidence: 1, evidence: "REF-1" }],
       productAnalytics: {
         flush: async () => {},
         record: (event) => analyticsEvents.push(event),
@@ -127,7 +134,12 @@ test("the local extraction runner resolves current model settings for each extra
       stateDirectory,
     });
 
-    configureTestWorkspace({ stateDirectory, workspaceId, modelName: "updated/model", gatewayUrl: "http://127.0.0.1:11434/v1" });
+    configureTestWorkspace({
+      stateDirectory,
+      workspaceId,
+      modelName: "updated/model",
+      gatewayUrl: "http://127.0.0.1:11434/v1",
+    });
     await runner.run({
       job_id: "job_dynamic",
       workspace_id: workspaceId,
@@ -146,14 +158,15 @@ test("the local extraction runner resolves current model settings for each extra
     expect(productStore.getExtractionJob("job_dynamic")).toMatchObject({
       model_name: "updated/model",
     });
-    const database = new Database(
-      join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`),
-      { readonly: true },
-    );
+
+    const database = new Database(join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`), {
+      readonly: true,
+    });
+
     try {
-      expect(database.query(
-        "SELECT model_name, model_gateway_route FROM jobs WHERE id = ?",
-      ).get("job_dynamic")).toEqual({
+      expect(
+        database.query("SELECT model_name, model_gateway_route FROM jobs WHERE id = ?").get("job_dynamic"),
+      ).toEqual({
         model_name: "updated/model",
         model_gateway_route: "127.0.0.1",
       });
@@ -172,6 +185,7 @@ test("the local extraction runner records durable failures for missing Source fi
   const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
+
   const productAnalytics: LocalProductAnalytics = {
     flush: async () => {},
     record: (event) => analyticsEvents.push(event),
@@ -182,9 +196,7 @@ test("the local extraction runner records durable failures for missing Source fi
       templateId: "tpl_invoice",
       name: "Invoice",
       description: "Extract invoice details.",
-      fields: [
-        { id: "total_amount", name: "Total Amount", description: "Invoice total.", data_type: "number" },
-      ],
+      fields: [{ id: "total_amount", name: "Total Amount", description: "Invoice total.", data_type: "number" }],
       createdAt: "2026-07-09T12:00:00.000Z",
     });
     productStore.createQueuedExtractionJob({
@@ -197,12 +209,14 @@ test("the local extraction runner records durable failures for missing Source fi
       sourceFilePageCount: null,
       submittedAt: "2026-07-09T12:01:00.000Z",
     });
+
     const modelSourceFileKey = await sourceFiles.write({
       workspaceId,
       jobId: "job_model_failure",
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
+
     productStore.createQueuedExtractionJob({
       jobId: "job_model_failure",
       templateId: "tpl_invoice",
@@ -214,7 +228,13 @@ test("the local extraction runner records durable failures for missing Source fi
       submittedAt: "2026-07-09T12:02:00.000Z",
     });
 
-    configureTestWorkspace({ stateDirectory, workspaceId, modelName: "failure/model", gatewayUrl: "https://failure-gateway.example/v1" });
+    configureTestWorkspace({
+      stateDirectory,
+      workspaceId,
+      modelName: "failure/model",
+      gatewayUrl: "https://failure-gateway.example/v1",
+    });
+
     const runner = createLocalExtractionRunner({
       extract: async () => {
         throw new Error("LiteLLM is unavailable");
@@ -223,6 +243,7 @@ test("the local extraction runner records durable failures for missing Source fi
       sourceFileStore: sourceFiles,
       stateDirectory,
     });
+
     await runner.run({
       job_id: "job_missing_source",
       workspace_id: workspaceId,
@@ -284,17 +305,17 @@ test("a Source file cleanup failure leaves completed results intact", async () =
       templateId: "tpl_invoice",
       name: "Invoice",
       description: "Extract invoice details.",
-      fields: [
-        { id: "total_amount", name: "Total Amount", description: "Invoice total.", data_type: "number" },
-      ],
+      fields: [{ id: "total_amount", name: "Total Amount", description: "Invoice total.", data_type: "number" }],
       createdAt: "2026-07-09T12:00:00.000Z",
     });
+
     const sourceFileKey = await sourceFiles.write({
       workspaceId,
       jobId: "job_cleanup_failure",
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
+
     productStore.createQueuedExtractionJob({
       jobId: "job_cleanup_failure",
       templateId: "tpl_invoice",
@@ -307,9 +328,7 @@ test("a Source file cleanup failure leaves completed results intact", async () =
     });
 
     const runner = createLocalExtractionRunner({
-      extract: async () => [
-        { field_id: "total_amount", status: "ok", answer: 12.5 },
-      ],
+      extract: async () => [{ field_id: "total_amount", status: "ok", answer: 12.5 }],
       sourceFileStore: {
         delete: async () => {
           throw new Error("Disk unavailable");
@@ -320,6 +339,7 @@ test("a Source file cleanup failure leaves completed results intact", async () =
       },
       stateDirectory,
     });
+
     await runner.run({
       job_id: "job_cleanup_failure",
       workspace_id: workspaceId,
