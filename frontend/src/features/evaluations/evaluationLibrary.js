@@ -238,13 +238,6 @@ export function documentChips(document, fields) {
   return chips;
 }
 
-// A starting draft for a saved answer whose field type changed; it still has to be verified.
-export const reviewDraft = (reference) => ({
-  value: isString(reference?.value) || isNumber(reference?.value) ? String(reference.value) : "",
-  absent: false,
-  exact: false,
-});
-
 // Template fields a saved answer can be linked to: same type, and no verified answer of their own.
 // Links are always chosen by the user, never inferred from names or positions.
 export function linkableFields(document, fields, savedIdentity) {

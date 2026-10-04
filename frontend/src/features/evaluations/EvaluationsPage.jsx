@@ -524,6 +524,7 @@ export function EvaluationsPage({
               runFor={runFor}
               onAddCandidate={addCandidate}
               filter={filter}
+              onFilterChange={setFilter}
             />
           ) : (
             <div className="evaluation-dropzone">

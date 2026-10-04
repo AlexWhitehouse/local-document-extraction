@@ -106,6 +106,14 @@ A saved document supplies a working copy of its answers. Edits affect the curren
 
 Saved answers match fields by name and type. A changed field type shows **Needs review** until you verify the answer again. Answers for fields absent from the template remain visible and count toward coverage.
 
+Select **Review template changes** or the **Template changes** filter to find changed fields, fields without saved answers, and saved fields no longer requested. Field type changes show the old and new types. Name and instruction changes are also identified.
+
+Changed table columns also show **Needs review**, with **Review updated table** opening the candidate’s column names and types. The editor carries forward existing rows, compatible values, cell states, and row matching. Clear conversions between text, numbers, and Yes/No are filled in for review; dates retain their date-format controls. Values that cannot be converted still need correction.
+
+The editor lists added, removed, renamed, reordered, and retyped columns, plus changes to column instructions. Added columns need values, explicit absence, or **Ignore for scoring**. If a renamed column no longer matches automatically, use **Renamed column? Reuse previous answers** to copy its previous values and cell states across all rows. Removed columns leave the expected table only when you verify it. If the row identifier was removed, link its renamed replacement, choose another column, or match by row position. When candidates use different schemas, **Expected answer Template** selects which one to verify; each choice keeps its own draft while the editor is open. Reviewing a candidate’s answer starts with that candidate’s schema and values.
+
+Cancel leaves the existing answers unchanged. Verification updates the working copy; **Update saved answers…** is still required to update the shared library. New top-level fields start unverified, and removed fields keep their saved answers for reuse with other templates. Use **Remove expected answer** on an unrequested field to remove it from the working copy; saving that removal to the library remains explicit.
+
 Link renamed fields manually. For example, if **Total** becomes **Invoice total**, select **Renamed? Link it to** beside the saved answer. Eligible fields have the same type and no verified answer of their own. The link applies only to this document in this Evaluation. It does not change saved answers. Select **Unlink** to remove it; the app never infers renamed-field links.
 
 Select **Manage library** to open the centered management modal. Any Workspace member can rename or delete saved documents. Long names and details use ellipses; hover to read the full text. The document list scrolls when necessary.

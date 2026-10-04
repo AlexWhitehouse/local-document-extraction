@@ -1,6 +1,6 @@
 import { isJsonObject } from "../../../../shared/json.ts";
 import React, { useState } from "react";
-import { getDataTypeLabel } from "../templates/templateFields.js";
+import { getDataTypeLabel, hydrateFieldFromTemplate } from "../templates/templateFields.js";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ReferenceModal } from "./ReferenceModal.jsx";
@@ -9,7 +9,8 @@ import { CandidateMenu, ExpectedInline, Mark, Meter, StatusLine } from "./Evalua
 import { LinkSavedAnswer, LinkedNote, ReviewPrompt } from "./EvaluationLibrary.jsx";
 import { display, percent } from "./evaluationFormat.js";
 import { MAX_CANDIDATES, candidateBusy } from "./useEvaluations.js";
-import { linkableFields, reviewDraft } from "./evaluationLibrary.js";
+import { linkableFields } from "./evaluationLibrary.js";
+import { adaptReferenceDraft } from "./referenceDraft.js";
 import {
   answerSignature,
   bestCandidateId,
@@ -20,6 +21,7 @@ import {
   scoreCandidate,
   tableAnswerRows,
   tableColumns,
+  tableSchemaChanges,
   validateReference,
 } from "./evaluationScoring.js";
 
@@ -30,6 +32,7 @@ const FILTERS = [
   ["differ", "Candidates differ"],
   ["mismatch", "Has mismatch"],
   ["unverified", "Unverified"],
+  ["changes", "Template changes"],
 ];
 
 const baseName = (identity) => identity.slice(0, identity.lastIndexOf(":"));
@@ -106,6 +109,7 @@ export function DocumentMatrix({
   runFor,
   onAddCandidate,
   filter = "all",
+  onFilterChange,
 }) {
   const { state } = evaluation;
   const [referenceEditor, setReferenceEditor] = useState(null);
@@ -140,12 +144,25 @@ export function DocumentMatrix({
     if (!rows.has(identity)) rows.set(identity, { identity, field, candidates: {}, omitted: true });
   const requested = new Set([...rows.values()].flatMap((row) => (row.omitted ? [] : [row.identity])));
 
+  const changedTableCandidate = (row, needsReview = false) =>
+    row.field.data_type === "array<object>" &&
+    candidates.find(
+      (candidate) =>
+        row.candidates[candidate.id] &&
+        tableSchemaChanges(row.field, row.candidates[candidate.id])[needsReview ? "needsReview" : "hasChanges"],
+    );
+
   const reviewFrom = (row) =>
-    !row.omitted && !references[row.identity]?.verified
-      ? Object.keys(references).find(
-          (id) => references[id]?.verified && !requested.has(id) && baseName(id) === baseName(row.identity),
-        )
-      : undefined;
+    !row.omitted &&
+    references[row.identity]?.verified &&
+    !references[row.identity].absent &&
+    changedTableCandidate(row, true)
+      ? row.identity
+      : !row.omitted && !references[row.identity]?.verified
+        ? Object.keys(references).find(
+            (id) => references[id]?.verified && !requested.has(id) && baseName(id) === baseName(row.identity),
+          )
+        : undefined;
 
   const reviewedBy = (identity) => [...rows.values()].find((row) => reviewFrom(row) === identity);
 
@@ -164,36 +181,93 @@ export function DocumentMatrix({
   const bestId = bestCandidateId(candidates, scores);
   const rawFor = (row, candidate) => candidate.result?.raw.find((r) => r.field_id === row.candidates[candidate.id]?.id);
   const allRows = [...rows.values()];
+  const hasSavedFields = Object.keys(saved).length > 0;
+  const changes = new Map();
+
+  for (const row of allRows) {
+    if (!hasSavedFields || (row.omitted && reviewedBy(row.identity))) continue;
+    const from = reviewFrom(row);
+
+    if (from && from !== row.identity)
+      changes.set(
+        row.identity,
+        `${getDataTypeLabel(saved[from].data_type)} → ${getDataTypeLabel(row.field.data_type)}`,
+      );
+    else if (row.omitted) changes.set(row.identity, "Not requested · saved answer kept");
+    else if (!saved[row.identity]) changes.set(row.identity, "No saved answer · verify this field");
+    else if (changedTableCandidate(row)) changes.set(row.identity, "Table columns updated");
+    else if (
+      Object.values(row.candidates).some(
+        (field) =>
+          field.name !== row.field.name ||
+          hydrateFieldFromTemplate(field).description !== hydrateFieldFromTemplate(row.field).description,
+      )
+    )
+      changes.set(row.identity, "Field name or instructions updated");
+  }
 
   const visible = allRows.filter((row) =>
     filter === "all"
       ? true
-      : filter === "differ"
-        ? new Set(
-            candidates.flatMap((c) =>
-              c.result && row.candidates[c.id] ? [answerSignature(row.candidates[c.id], rawFor(row, c))] : [],
-            ),
-          ).size > 1
-        : filter === "mismatch"
-          ? candidates.some(
-              (c) => row.candidates[c.id] && scores[c.id].byField[row.candidates[c.id].id]?.state === "Mismatch",
-            )
-          : !references[row.identity]?.verified,
+      : filter === "changes"
+        ? changes.has(row.identity)
+        : filter === "differ"
+          ? new Set(
+              candidates.flatMap((c) =>
+                c.result && row.candidates[c.id] ? [answerSignature(row.candidates[c.id], rawFor(row, c))] : [],
+              ),
+            ).size > 1
+          : filter === "mismatch"
+            ? candidates.some(
+                (c) => row.candidates[c.id] && scores[c.id].byField[row.candidates[c.id].id]?.state === "Mismatch",
+              )
+            : !references[row.identity]?.verified || !!reviewFrom(row),
   );
 
   const saveReference = (row, value) => evaluation.setReference(document.key, row.identity, value, row.field);
 
   const reference = (row, candidate) => {
     const raw = candidate && rawFor(row, candidate);
-    const existing = references[row.identity];
+    const from = reviewFrom(row);
+    const existing = references[from || row.identity];
+    const previousField = saved[from || row.identity] || row.field;
+    const preferred = candidate || changedTableCandidate(row, true) || changedTableCandidate(row);
+    const ordered = preferred ? [preferred, ...candidates.filter((c) => c !== preferred)] : candidates;
+    const schemas = [];
+    const seen = new Set();
+
+    for (const current of ordered) {
+      const field = row.candidates[current.id];
+
+      if (!field) continue;
+
+      const signature = JSON.stringify([
+        field.data_type,
+        hydrateFieldFromTemplate(field).description,
+        tableColumns(field),
+      ]);
+
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+      schemas.push({
+        field: { ...field, name: row.field.name },
+        label: `Candidate ${candidates.indexOf(current) + 1} · ${current.template.name}`,
+      });
+    }
+
+    if (!schemas.length) schemas.push({ field: row.field, label: "saved answer fields" });
     setReferenceEditor({
       row,
+      from,
+      previousField,
+      sourceField: candidate ? row.candidates[candidate.id] : previousField,
+      schemas,
       initial: candidate
         ? {
             value: raw?.answer,
             absent: raw?.status === "not_found",
             exact: existing?.exact || false,
-            rows: existing?.rows,
+            rows: existing && adaptReferenceDraft(existing, previousField, row.candidates[candidate.id]).rows,
             verified: existing?.verified,
           }
         : existing || { value: "", absent: false, exact: false },
@@ -216,7 +290,10 @@ export function DocumentMatrix({
       return;
     }
 
-    saveReference(row, next);
+    const from = reviewFrom(row);
+
+    if (from) evaluation.reviewReference(document.key, from, row.identity, next, row.field);
+    else saveReference(row, next);
   };
 
   const compact = (field, raw) => {
@@ -369,6 +446,23 @@ export function DocumentMatrix({
 
   return (
     <>
+      {changes.size > 0 && (
+        <div className="evaluation-banner warn">
+          <span>
+            {changes.size} {changes.size === 1 ? "field differs" : "fields differ"} from the saved answers. Review
+            changed fields, enter new answers, or link renamed fields.
+          </span>
+          {onFilterChange && (
+            <button
+              type="button"
+              className="studio-text-button"
+              onClick={() => onFilterChange(filter === "changes" ? "all" : "changes")}
+            >
+              {filter === "changes" ? "Show all fields" : "Review template changes"}
+            </button>
+          )}
+        </div>
+      )}
       <div className={`evaluation-body ${inspected ? "inspecting" : ""}`}>
         <ScrollArea className="evaluation-comparison-scroll" tabIndex={0} role="region" aria-label="Comparison matrix">
           <table className="evaluation-matrix" style={{ minWidth: 390 + candidates.length * 220 + 160 }}>
@@ -455,6 +549,9 @@ export function DocumentMatrix({
                     <th className="evaluation-field-col">
                       <strong>{row.linked ? row.linked.field.name : row.field.name}</strong>
                       <small className="evaluation-type">{getDataTypeLabel(row.field.data_type)}</small>
+                      {changes.has(row.identity) && !row.omitted && (
+                        <small className="evaluation-warn-text evaluation-block">{changes.get(row.identity)}</small>
+                      )}
                       {row.linked && (
                         <LinkedNote
                           savedName={row.field.name}
@@ -476,6 +573,18 @@ export function DocumentMatrix({
                           onLink={(own) => evaluation.linkField(document.key, own, row.identity)}
                         />
                       )}
+                      {row.omitted && !reviewing && (
+                        <button type="button" className="studio-text-button evaluation-compare-link"
+                          aria-label={`Remove expected answer for ${row.field.name}`}
+                          onClick={() => evaluation.removeReference(document.key, row.identity)}>
+                          Remove expected answer
+                        </button>
+                      )}
+                      {!row.omitted && !from && saved[row.identity] && changes.has(row.identity) && (
+                        <button type="button" className="studio-text-button evaluation-compare-link" onClick={() => reference(row)}>
+                          Review field changes
+                        </button>
+                      )}
                       {COMPARABLE_TYPES.includes(row.field.data_type) && answered > 0 && (
                         <button
                           type="button"
@@ -491,10 +600,10 @@ export function DocumentMatrix({
                     <td className="evaluation-expected-col">
                       {from ? (
                         <ReviewPrompt
-                          field={row.field}
+                          field={row.candidates[changedTableCandidate(row, true)?.id] || row.field}
                           definition={saved[from]}
                           reference={references[from]}
-                          onReview={() => setReferenceEditor({ row, from, initial: reviewDraft(references[from]) })}
+                          onReview={() => reference(row)}
                         />
                       ) : (
                         <ExpectedInline
@@ -641,16 +750,26 @@ export function DocumentMatrix({
         <ReferenceModal
           {...referenceEditor}
           onClose={() => setReferenceEditor(null)}
-          onSave={(value) => {
+          onRemoveVerification={() => {
+            const identity = referenceEditor.from || referenceEditor.row.identity;
+            evaluation.setReference(
+              document.key,
+              identity,
+              { ...references[identity], verified: false },
+              referenceEditor.previousField,
+            );
+            setReferenceEditor(null);
+          }}
+          onSaveField={(value, field) => {
             if (referenceEditor.from)
               evaluation.reviewReference(
                 document.key,
                 referenceEditor.from,
                 referenceEditor.row.identity,
                 value,
-                referenceEditor.row.field,
+                field,
               );
-            else saveReference(referenceEditor.row, value);
+            else saveReference({ ...referenceEditor.row, field }, value);
             setReferenceEditor(null);
           }}
         />

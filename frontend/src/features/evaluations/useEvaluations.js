@@ -966,6 +966,17 @@ export function useEvaluations({
         },
       }));
     },
+    removeReference(docKey, identity) {
+      updateDocument(docKey, (d) => {
+        const references = { ...d.reference.references },
+          definitions = { ...d.reference.definitions };
+
+        delete references[identity];
+        delete definitions[identity];
+
+        return { reference: { references, definitions } };
+      });
+    },
     // Replaces a saved answer of an older field type with one reviewed for the current type.
     reviewReference(docKey, fromIdentity, identity, value, definition) {
       updateDocument(docKey, (d) => {

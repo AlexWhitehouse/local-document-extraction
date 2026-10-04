@@ -1,16 +1,19 @@
 import { isJsonObject } from "../../../../shared/json.ts";
-import React, { useId, useState } from "react";
+import React, { useId, useRef, useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
-import { getDataTypeLabel } from "../templates/templateFields.js";
+import { getDataTypeLabel, hydrateFieldFromTemplate } from "../templates/templateFields.js";
 import {
   normalizeReferenceDates,
   referenceProblem,
   scalarValue,
   tableAnswerRows,
   tableColumns,
+  tableSchemaChanges,
 } from "./evaluationScoring.js";
 import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
+import { adaptReferenceDraft, draftValue } from "./referenceDraft.js";
+import { display } from "./evaluationFormat.js";
 
 function AnswerInput({ type, value, onChange, label, multiline = false, error, errorId, dateOrder }) {
   const validation = { "aria-invalid": error ? true : undefined, "aria-describedby": error ? errorId : undefined };
@@ -19,16 +22,21 @@ function AnswerInput({ type, value, onChange, label, multiline = false, error, e
     const normalized = scalarValue(value, "boolean");
 
     return (
-      <select
-        aria-label={label}
-        {...validation}
-        value={normalized.valid ? String(normalized.value) : ""}
-        onChange={(event) => onChange(event.target.value === "" ? "" : event.target.value === "true")}
-      >
-        <option value="">Choose Yes or No</option>
-        <option value="true">Yes</option>
-        <option value="false">No</option>
-      </select>
+      <>
+        <select
+          aria-label={label}
+          {...validation}
+          value={normalized.valid ? String(normalized.value) : ""}
+          onChange={(event) => onChange(event.target.value === "" ? "" : event.target.value === "true")}
+        >
+          <option value="">Choose Yes or No</option>
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+        {!normalized.valid && value !== "" && value != null && (
+          <small className="evaluation-input-hint">Previous value: {display(value)}. Choose Yes or No.</small>
+        )}
+      </>
     );
   }
 
@@ -57,9 +65,66 @@ function AnswerInput({ type, value, onChange, label, multiline = false, error, e
   );
 }
 
-export function ReferenceModal({ row, initial, onSave, onClose }) {
+export function ReferenceModal({
+  row,
+  initial,
+  sourceField = row.field,
+  previousField = row.field,
+  schemas = [{ field: row.field, label: "Template" }],
+  onSave,
+  onSaveField,
+  onRemoveVerification,
+  onClose,
+}) {
+  const [schema, setSchema] = useState(0);
+  const drafts = useRef(new Map());
+  const field = schemas[schema].field;
+
+  return (
+    <ReferenceEditor
+      key={schema}
+      row={{ ...row, field }}
+      initial={drafts.current.get(schema) || adaptReferenceDraft(initial, sourceField, field, true)}
+      sourceField={sourceField}
+      sourceRows={initial.rows}
+      previousField={previousField}
+      schemas={schemas}
+      schema={schema}
+      onSchemaChange={(index, draft) => {
+        drafts.current.set(schema, draft);
+        setSchema(index);
+      }}
+      onSave={(answer) => (onSaveField ? onSaveField(answer, field) : onSave(answer))}
+      onRemoveVerification={
+        initial.verified
+          ? () => (onRemoveVerification ? onRemoveVerification() : onSave({ ...initial, verified: false }))
+          : null
+      }
+      onClose={onClose}
+    />
+  );
+}
+
+function ReferenceEditor({
+  row,
+  initial,
+  previousField,
+  sourceField,
+  sourceRows,
+  schemas,
+  schema,
+  onSchemaChange,
+  onSave,
+  onRemoveVerification,
+  onClose,
+}) {
   const table = row.field.data_type === "array<object>";
   const columns = tableColumns(row.field);
+  const changes = tableSchemaChanges(previousField, row.field);
+  const sourceChanges = tableSchemaChanges(sourceField, row.field);
+  const previousDescription = hydrateFieldFromTemplate(previousField).description || "";
+  const description = hydrateFieldFromTemplate(row.field).description || "";
+  const [columnMappings, setColumnMappings] = useState(initial.columnMappings || {});
 
   const [value, setValue] = useState(() =>
     table
@@ -77,8 +142,8 @@ export function ReferenceModal({ row, initial, onSave, onClose }) {
     table ? structuredClone(initial.cellStates || (tableAnswerRows(initial.value) ?? [{}]).map(() => ({}))) : [],
   );
 
-  const [dateOrder, setDateOrder] = useState("dmy");
-  const [selected, setSelected] = useState(0);
+  const [dateOrder, setDateOrder] = useState(initial.dateOrder || "dmy");
+  const [selected, setSelected] = useState(initial.selected || 0);
   const [error, setError] = useState(null);
   const errorId = useId();
   const clearError = () => setError(null);
@@ -103,6 +168,29 @@ export function ReferenceModal({ row, initial, onSave, onClose }) {
     );
   };
 
+  const linkColumn = (column, previousKey) => {
+    clearError();
+    setColumnMappings({ ...columnMappings, [column.key]: previousKey });
+    setValue((records) =>
+      records.map((record) => ({
+        ...record,
+        [column.key]: previousKey ? draftValue(record[previousKey], column.data_type) : "",
+      })),
+    );
+    setCellStates((records) =>
+      records.map((record) => {
+        const next = { ...record };
+
+        if (previousKey && record[previousKey]) next[column.key] = record[previousKey];
+        else delete next[column.key];
+
+        return next;
+      }),
+    );
+
+    if (rows.mode === "key" && !rows.key && sourceRows?.key === previousKey) setRows({ mode: "key", key: column.key });
+  };
+
   const addRow = () => {
     clearError();
     setValue([...value, Object.fromEntries(columns.map((c) => [c.key, ""]))]);
@@ -121,7 +209,8 @@ export function ReferenceModal({ row, initial, onSave, onClose }) {
     const draft = { verified: true, absent, exact, value, rows };
 
     if (table) draft.cellStates = cellStates;
-    const reference = normalizeReferenceDates(row.field, draft, dateOrder);
+    const projected = table ? { ...adaptReferenceDraft(draft, row.field, row.field), verified: true } : draft;
+    const reference = normalizeReferenceDates(row.field, projected, dateOrder);
     const problem = referenceProblem(row.field, reference, dateOrder);
 
     if (problem) {
@@ -170,6 +259,82 @@ export function ReferenceModal({ row, initial, onSave, onClose }) {
         </button>
       </div>
       <div className="evaluation-reference-body">
+        {schemas.length > 1 ? (
+          <label>
+            Expected answer Template
+            <select
+              aria-label="Expected answer Template"
+              value={schema}
+              onChange={(event) =>
+                onSchemaChange(Number(event.target.value), {
+                  value,
+                  absent,
+                  exact,
+                  rows,
+                  cellStates,
+                  dateOrder,
+                  selected,
+                  columnMappings,
+                })
+              }
+            >
+              {schemas.map((option, index) => (
+                <option key={index} value={index}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <small>Candidates use different fields. Choose the Template to verify against.</small>
+          </label>
+        ) : (
+          <p className="evaluation-muted">Using {schemas[schema].label}</p>
+        )}
+        {description !== previousDescription && (
+          <details className="evaluation-schema-notice">
+            <summary>Field instructions changed</summary>
+            <p><strong>Previous:</strong> {previousDescription || "No instructions"}</p>
+            <p><strong>Current:</strong> {description || "No instructions"}</p>
+          </details>
+        )}
+        {previousField.data_type !== row.field.data_type && (
+          <div className="evaluation-schema-notice" role="status">
+            <strong>
+              Field type changed: {getDataTypeLabel(previousField.data_type)} → {getDataTypeLabel(row.field.data_type)}
+            </strong>
+            <p>Review the existing answer using the new type before verifying.</p>
+          </div>
+        )}
+        {table && changes.hasChanges && (
+          <div className="evaluation-schema-notice" role="status">
+            <strong>Template columns changed</strong>
+            <p>Existing answers are carried forward where possible. Review the changes before verifying.</p>
+            <ul>
+              {changes.changed.map(([column, old]) => (
+                <li key={column.key}>
+                  {column.heading}: {getDataTypeLabel(old.data_type)} → {getDataTypeLabel(column.data_type)}
+                </li>
+              ))}
+              {changes.added.map((column) => (
+                <li key={column.key}>Added: {column.heading}. Enter a value, mark it absent, or ignore it.</li>
+              ))}
+              {changes.renamed.map(([column, old]) => (
+                <li key={`name:${column.key}`}>
+                  Renamed: {old.heading} → {column.heading}. Existing answers are kept.
+                </li>
+              ))}
+              {changes.updated.map(([column]) => (
+                <li key={`instructions:${column.key}`}>Instructions updated: {column.heading}.</li>
+              ))}
+              {changes.reordered && <li>Column order changed. Existing answers stay with their columns.</li>}
+              {changes.removed.map((column) => (
+                <li key={column.key}>Removed: {column.heading}. It will be left out of this expected table.</li>
+              ))}
+            </ul>
+            {initial.rows?.mode === "key" && !initial.rows.key && (
+              <p>The row identifier was removed. Choose how to compare rows below.</p>
+            )}
+          </div>
+        )}
         <div className="evaluation-reference-options">
           <label>
             <input
@@ -276,6 +441,31 @@ export function ReferenceModal({ row, initial, onSave, onClose }) {
                             <td>
                               <strong>{column.heading}</strong>
                               {column.description && <p>{column.description}</p>}
+                              {sourceChanges.added.some((added) => added.key === column.key) &&
+                                sourceChanges.removed.length > 0 && (
+                                  <label className="evaluation-link-field">
+                                    Renamed column? Reuse previous answers
+                                    <select
+                                      aria-label={`Use previous column for ${column.heading}`}
+                                      value={columnMappings[column.key] || ""}
+                                      onChange={(event) => linkColumn(column, event.target.value)}
+                                    >
+                                      <option value="">New column · enter answers</option>
+                                      {sourceChanges.removed
+                                        .filter(
+                                          (old) =>
+                                            !Object.entries(columnMappings).some(
+                                              ([key, value]) => key !== column.key && value === old.key,
+                                            ),
+                                        )
+                                        .map((old) => (
+                                          <option key={old.key} value={old.key}>
+                                            {old.heading} · {getDataTypeLabel(old.data_type)}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </label>
+                                )}
                             </td>
                             <td>{getDataTypeLabel(column.data_type)}</td>
                             <td>
@@ -373,8 +563,8 @@ export function ReferenceModal({ row, initial, onSave, onClose }) {
           <button type="button" className="secondary" onClick={onClose}>
             Cancel
           </button>
-          {initial.verified && (
-            <button type="button" className="secondary" onClick={() => onSave({ ...initial, verified: false })}>
+          {onRemoveVerification && (
+            <button type="button" className="secondary" onClick={onRemoveVerification}>
               Remove verification
             </button>
           )}

@@ -163,3 +163,121 @@ it("normalizes expected dates inside table cells", () => {
   verify();
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ value: [{ date: "1871-09-08" }] }));
 });
+
+it("shows an incompatible previous boolean value until the user chooses an answer", () => {
+  const onSave = vi.fn();
+  render(
+    <ReferenceModal
+      row={{ field: { name: "Dose", data_type: "boolean" } }}
+      initial={{ value: "As required" }}
+      onSave={onSave}
+      onClose={() => {}}
+    />,
+  );
+  expect(screen.getByText("Previous value: As required. Choose Yes or No.")).toBeTruthy();
+  verify();
+  expect(onSave).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("combobox", { name: "Expected value" }), { target: { value: "false" } });
+  verify();
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ value: false, verified: true }));
+});
+
+it("retains separate drafts when choosing between candidate schemas and keeps cancel non-destructive", () => {
+  const updated = {
+    ...table,
+    object_schema: {
+      columns: [
+        { key: "sku", heading: "SKU", data_type: "string" },
+        { key: "active", heading: "Active", data_type: "boolean" },
+      ],
+    },
+  };
+
+  const initial = { verified: true, value: [{ sku: "A", qty: 2 }], rows: { mode: "key", key: "sku" } };
+  const onSave = vi.fn();
+  const onClose = vi.fn();
+  render(
+    <ReferenceModal
+      row={{ field: table }}
+      initial={initial}
+      schemas={[
+        { field: table, label: "Original" },
+        { field: updated, label: "Updated" },
+      ]}
+      onSave={onSave}
+      onClose={onClose}
+    />,
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Expected row 1 SKU" }), {
+    target: { value: "Edited" },
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer Template" }), {
+    target: { value: "1" },
+  });
+  expect(screen.getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("A");
+  expect(screen.queryByRole("textbox", { name: "Expected row 1 Quantity" })).toBeNull();
+  expect(screen.getByText(/Added: Active/)).toBeTruthy();
+  expect(screen.getByText(/Removed: Quantity/)).toBeTruthy();
+  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer Template" }), {
+    target: { value: "0" },
+  });
+  expect(screen.getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("Edited");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(onClose).toHaveBeenCalled();
+  expect(onSave).not.toHaveBeenCalled();
+  expect(initial.value).toEqual([{ sku: "A", qty: 2 }]);
+});
+
+it("links renamed columns across remaining rows, carrying values, cell states and the row identifier", () => {
+  const updated = {
+    ...table,
+    object_schema: {
+      columns: [
+        { key: "code", heading: "Product code", data_type: "string" },
+        { key: "count", heading: "Count", data_type: "number" },
+      ],
+    },
+  };
+
+  const onSave = vi.fn();
+
+  const initial = {
+    verified: true,
+    value: [
+      { sku: "A", qty: 1 },
+      { sku: "B", qty: "" },
+    ],
+    cellStates: [{}, { qty: "absent" }],
+    rows: { mode: "key", key: "sku" },
+  };
+
+  render(
+    <ReferenceModal
+      row={{ field: table }}
+      initial={initial}
+      schemas={[{ field: updated, label: "Updated" }]}
+      onSave={onSave}
+      onClose={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Remove row 1" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Use previous column for Product code" }), {
+    target: { value: "sku" },
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "Use previous column for Count" }), {
+    target: { value: "qty" },
+  });
+  expect(screen.getByRole("textbox", { name: "Expected row 1 Product code" }).value).toBe("B");
+  expect(screen.getByRole("combobox", { name: "Expected row 1 Count status" }).value).toBe("absent");
+  expect(screen.getByRole("combobox", { name: "Compare rows" }).value).toBe("code");
+  verify();
+  expect(onSave).toHaveBeenCalledWith(
+    expect.objectContaining({
+      verified: true,
+      value: [{ code: "B", count: "" }],
+      cellStates: [{ count: "absent" }],
+      rows: { mode: "key", key: "code" },
+    }),
+  );
+  expect(initial.value).toHaveLength(2);
+});

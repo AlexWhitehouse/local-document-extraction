@@ -773,10 +773,18 @@ export function ReviewPrompt({ field, definition, reference, onReview }) {
         !
       </span>
       <span>
-        Needs review · saved as {getDataTypeLabel(definition?.data_type)} “{refText(reference, definition)}”
+        {field.data_type === "array<object>" && definition?.data_type === "array<object>" ? (
+          "Needs review · Template columns changed"
+        ) : (
+          <>
+            Needs review · saved as {getDataTypeLabel(definition?.data_type)} “{refText(reference, definition)}”
+          </>
+        )}
       </span>
       <button type="button" className="studio-text-button" onClick={onReview}>
-        Review as {getDataTypeLabel(field.data_type)}
+        {field.data_type === "array<object>"
+          ? "Review updated table"
+          : `Review as ${getDataTypeLabel(field.data_type)}`}
       </button>
     </div>
   );

@@ -23,6 +23,25 @@ const props = {
 const calls = (method, path) =>
   fetch.mock.calls.filter(([url, options = {}]) => (options.method || "GET") === method && url === `/v1${path}`);
 
+it("removes an obsolete answer only from the working copy and keeps the saved original", async () => {
+  const reference = {
+    version: 1,
+    definitions: { "total:number": template.fields[0] },
+    references: { "total:number": { verified: true, value: 10 } },
+  };
+
+  overrides["GET /evaluations/documents/evd_a"] = () => Response.json({ document: { id: "evd_a", name: "A", revision: 1 }, reference });
+  const { result } = await initialized({ documents: 0 });
+
+  await act(async () => { await result.current.addSaved([{ id: "evd_a" }]); });
+  const doc = result.current.state.documents[0].key;
+
+  act(() => result.current.removeReference(doc, "total:number"));
+  expect(result.current.state.documents[0].reference).toEqual({ definitions: {}, references: {} });
+  expect(result.current.state.documents[0].base.references["total:number"]).toEqual({ verified: true, value: 10 });
+  expect(calls("PATCH", "/evaluations/documents/evd_a")).toHaveLength(0);
+});
+
 beforeEach(() => {
   setup = {
     configured: true,
