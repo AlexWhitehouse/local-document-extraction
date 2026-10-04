@@ -1062,6 +1062,7 @@ function ensureStarterTemplate(workspaceControl: LocalWorkspaceControl, store: L
 function extractionJobEntityTag(workspaceId: string, job: LocalWorkspaceExtractionJobSummary): string {
   const visibleRepresentation = JSON.stringify([
     "job-v1",
+    job.costs,
     workspaceId,
     job.job_id,
     job.status,

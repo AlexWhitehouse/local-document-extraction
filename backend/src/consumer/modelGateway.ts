@@ -3,6 +3,7 @@ import type { ModelFieldResult } from "./modelResultNormalizer";
 import { iteratePdfPagesToPng, MAX_RENDERED_PDF_BYTES, PdfPreparationLimitError } from "./pdfPageRenderer";
 import { createByteBudget } from "../lib/byteBudget";
 import { localMemoryLimits } from "../localMemoryLimits";
+import { readModelCallUsage, type ModelCallObserver } from "./modelUsage";
 
 export class RetryableError extends Error {
   readonly retryAfterMs: number | null;
@@ -35,6 +36,7 @@ export type ModelGatewayConfiguration = {
   MODEL_GATEWAY_URL?: string;
   MODEL_SUPPORTS_PDF_INPUT?: string;
   MODEL_SUPPORTS_STRUCTURED_OUTPUT?: string;
+  modelCallObserver?: ModelCallObserver;
 };
 
 const sequentialModelCallTails = new Map<string, Promise<void>>();
@@ -531,6 +533,14 @@ export async function runViaModelGateway(
     throw new ModelGatewayRequestError("Model gateway key is not configured");
   }
 
+  if (signal?.aborted) throw new ExtractionCancelledError("Model gateway request cancelled");
+  // Persist the pending receipt before transport. An interrupted call remains unknown.
+  let callId: string | undefined;
+  try { callId = env.modelCallObserver?.started(); }
+  catch { throw new ModelGatewayRequestError("Model call accounting is temporarily unavailable"); }
+  let responseHeaders = new Headers();
+  let responseBody: unknown;
+
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -554,6 +564,7 @@ export async function runViaModelGateway(
       body: requestBody,
       signal: controller.signal,
     });
+    responseHeaders = response.headers;
     if (!response.ok) {
       // Do not consume or surface upstream error bodies, including redirect destinations.
       await response.body?.cancel().catch(() => {});
@@ -573,7 +584,8 @@ export async function runViaModelGateway(
     }
 
     try {
-      return JSON.parse(bodyText);
+      responseBody = JSON.parse(bodyText);
+      return responseBody;
     } catch {
       throw new RetryableError("Model gateway returned invalid JSON");
     }
@@ -591,6 +603,10 @@ export async function runViaModelGateway(
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", abortForWorkspaceDeletion);
+    if (callId) {
+      try { env.modelCallObserver?.finished(callId, readModelCallUsage(responseBody, responseHeaders)); }
+      catch { /* Keep the pending receipt unknown; an accounting error must not repeat a billable call. */ }
+    }
   }
 }
 

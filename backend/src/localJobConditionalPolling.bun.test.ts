@@ -13,6 +13,7 @@ import {
   type LocalWorkspaceProductStore,
 } from "./localWorkspaceProductStore";
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
+import { readModelCallUsage } from "./consumer/modelUsage";
 
 test("individual job reads use validators and hydrate results only for changed completed jobs", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-conditional-poll-"));
@@ -132,6 +133,17 @@ test("individual job reads use validators and hydrate results only for changed c
     expect(terminalUnchanged.headers.get("etag")).toBe(completedTag);
     expect(terminalUnchanged.headers.get("retry-after")).toBeNull();
     expect(resultHydrations).toBe(1);
+
+    const costLease = registry.acquire({ workspaceId: workspace.id })!;
+    const receipt = costLease.store.modelCallObserver({ ownerId: "job_poll", stage: "extraction", model: "prototype/model", configurationRevision: 1, now: () => "2026-08-16T12:03:00.000Z" });
+    receipt.finished(receipt.started(), readModelCallUsage({ usage: { cost: 0.0022842 } }));
+    costLease.release();
+    const costChanged = await application(new Request("http://127.0.0.1:8787/v1/jobs/job_poll", {
+      headers: { ...headers, "if-none-match": completedTag },
+    }));
+    expect(costChanged.status).toBe(200);
+    expect(costChanged.headers.get("etag")).not.toBe(completedTag);
+    await expect(costChanged.json()).resolves.toMatchObject({ costs: { currency: "USD", total: { amount: 0.0022842, complete: true } } });
 
     const unauthorized = await application(new Request("http://127.0.0.1:8787/v1/jobs/job_poll", {
       headers: { "if-none-match": completedTag },

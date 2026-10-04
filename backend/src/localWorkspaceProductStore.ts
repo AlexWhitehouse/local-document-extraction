@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { Database, constants as sqliteConstants } from "bun:sqlite";
 
 import { createDocumentProcessingStore, initializeDocumentProcessingSchema, type DocumentProcessingStore, type DocumentRouting } from "./localDocumentProcessingStore";
+import { createModelCostStore, initializeModelCostSchema } from "./localModelCosts";
+import type { ProcessingCosts } from "../../shared/processingCosts";
 import { createWorkspaceDocumentProcessingSettingsStore, DOCUMENT_PROCESSING_SETTINGS_SCHEMA } from "./workspaceDocumentProcessing";
 import type { FieldDefinition } from "./lib/types";
 import { normalizeTemplateTagName, normalizeTemplateTags } from "../../shared/templateTags";
@@ -46,6 +48,7 @@ export type LocalQueuedExtractionJob = {
 };
 
 export type LocalWorkspaceExtractionJobSummary = Partial<Pick<DocumentRouting, "template_tags" | "selection_mode" | "routing_status" | "selection_reason" | "routing_rounds" | "parent_packet_id" | "source_pages">> & {
+  costs?: ProcessingCosts;
   job_id: string;
   status: "queued" | "processing" | "completed" | "failed" | "awaiting_template";
   source_name: string | null;
@@ -173,7 +176,7 @@ export type LocalEvaluationDocumentDeletionIntent = {
 
 type EvaluationDocumentAuthor = { userId: string; name: string };
 
-export type LocalWorkspaceProductStore = DocumentProcessingStore & ReturnType<typeof createWorkspaceDocumentProcessingSettingsStore> & {
+export type LocalWorkspaceProductStore = DocumentProcessingStore & ReturnType<typeof createModelCostStore> & ReturnType<typeof createWorkspaceDocumentProcessingSettingsStore> & {
   close(): void;
   /** Commits a complete save and its receipt together; an existing receipt wins and nothing is inserted. */
   insertEvaluationDocument(input: {
@@ -435,8 +438,10 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   ensureProductSchemaColumns(database);
   migrateProductSchema(database);
   initializeDocumentProcessingSchema(database);
+  initializeModelCostSchema(database);
   database.exec(DOCUMENT_PROCESSING_SETTINGS_SCHEMA.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS "));
   const processing = createDocumentProcessingStore(database, () => store);
+  const modelCosts = createModelCostStore(database);
 
   const readModelConfiguration = (): StoredWorkspaceModelConfiguration | null => {
     const row = database.query(`SELECT gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output,
@@ -479,10 +484,11 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   ).all(templateId, version) as PositionedField[];
 
   const withRouting = (row: JobSummaryRow): LocalWorkspaceExtractionJobSummary => {
+    const costed = { ...withRetainedFlag(row), costs: modelCosts.getDocumentCosts(row.job_id) };
     const routing = processing.getDocumentRouting(row.job_id);
-    if (!routing) return withRetainedFlag(row);
+    if (!routing) return costed;
     const { template_tags, selection_mode, routing_status, selection_reason, routing_rounds, parent_packet_id, source_pages } = routing;
-    return { ...withRetainedFlag(row), template_tags, selection_mode, routing_status, selection_reason, routing_rounds, parent_packet_id, source_pages };
+    return { ...costed, template_tags, selection_mode, routing_status, selection_reason, routing_rounds, parent_packet_id, source_pages };
   };
 
   const readJobSummary = (jobId: string) => {
@@ -561,6 +567,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
 
   const store: LocalWorkspaceProductStore = {
     ...processing,
+    ...modelCosts,
     ...createWorkspaceDocumentProcessingSettingsStore(database),
     close: () => database.close(),
     insertEvaluationDocument: ({ document, author, operationId, digest }) => database.transaction(() => {
@@ -985,6 +992,8 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       database.query("DELETE FROM source_files WHERE job_id = ?").run(job.job_id);
       database.query("UPDATE document_packet_children SET state='deleted' WHERE job_id=?").run(job.job_id);
       database.query("DELETE FROM document_routing WHERE job_id=?").run(job.job_id);
+      // A deleted packet child keeps its incurred spend in the packet total.
+      database.query("DELETE FROM model_call_costs WHERE owner_id=? AND packet_id IS NULL").run(job.job_id);
       database.query("DELETE FROM jobs WHERE id = ?").run(job.job_id);
       return job;
     })(),

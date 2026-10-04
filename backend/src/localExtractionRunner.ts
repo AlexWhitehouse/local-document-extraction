@@ -233,6 +233,7 @@ export function createLocalExtractionRunner({
             MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(configuration.supports_structured_output),
             MODEL_GATEWAY_REQUEST_TIMEOUT_MS: modelGatewayRequestTimeoutMs,
             MODEL_GATEWAY_WORKSPACE_ID: job.workspace_id,
+            modelCallObserver: productStore.modelCallObserver({ ownerId: claimed.job_id, stage: "extraction", model: configuration.model_name, configurationRevision: configuration.revision, now }),
           };
           const sourceBytes = await localSourceFileStore.read(claimed.source_file_key);
           if (!sourceBytes) throw new MissingSourceFileError();

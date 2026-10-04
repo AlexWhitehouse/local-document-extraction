@@ -94,6 +94,8 @@ function sanitizeCompletedDocument(document) {
     }
   }
 
+  if (document.costs !== undefined) sanitized.costs = structuredClone(document.costs);
+
   return sanitized;
 }
 
