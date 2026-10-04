@@ -138,3 +138,21 @@ Both installations matched the published archive checksum and tagged revision. B
 These published-download checks used noninteractive defaults on an existing Linux host. They did not qualify fresh machines, published downloads on macOS, Intel macOS, older operating systems, or live model routes. Live Google sign-in and Cloudflare email delivery were not tested. CI separately qualified its three listed runners.
 
 Local logs and verification results remain in `.scratch/release-v1.2.1/`. They are not distributed.
+
+## v1.3.0 release qualification (2026-10-04)
+
+[v1.3.0](https://github.com/AlexWhitehouse/local-document-extraction/releases/tag/v1.3.0) was published from `634d6bf8a1b66c8697ea628830e865edeb0c13ad`. [Release workflow 37244864145](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/37244864145) passed for that exact commit with Bun 1.4.2. Platform verification covered quality, dependency hygiene, coverage, build, native PDF rendering, and installer tests on Ubuntu 24.04 x64 and arm64, and macOS 15 arm64. Linux Chromium journeys, the complete-history secret scan, the license gate, and packaging passed. The scheduled/manual randomized backend lane was skipped as configured.
+
+A clean detached checkout without local configuration or state passed frozen dependency installation, typechecks, lint, 598 backend tests, the runtime smoke test, all 598 frontend tests, the frontend coverage gate, and the production build with Bun 1.4.2. The lockfile remained unchanged. Versioned packaging passed with clean release metadata, and the temporary checkout was removed.
+
+All three published assets downloaded without GitHub authentication. The archive SHA256 was `88213c8f40763b4d1b55f8441983dc8e77007c26668c14cfc65cc1eeea294cd9`. Its 592 entries included the project license and clean metadata identifying v1.3.0 and the tagged commit. The archive excluded private configuration, runtime state, dependencies, and scratch files. The published installer matched the copy inside the archive.
+
+The exact README installation command passed on the existing Ubuntu 26.04.1 x64 host, using empty isolated XDG directories with spaces, an ephemeral loopback port, and a PATH without Bun. Health, SPA fallback, native PDF rendering, private configuration and state permissions, shutdown, and restart passed.
+
+A separate installation downloaded published v1.2.1 and upgraded through its installed `document-extraction update v1.3.0` command. Configuration bytes, account login, Workspace membership, a saved Template, a completed Document and its extraction result, and both generated secrets survived. The synthetic model credential remained decryptable. Migration 14 repaired a seeded stale **Unassigned** cost label to the saved Template name while preserving the Document's reported USD 0.25 cost. All four pre-upgrade state files matched the pre-migration backup. Health, SPA fallback, native PDF rendering, shutdown, and restart passed.
+
+Both installations matched the published archive checksum and tagged revision. Both were stopped, and their temporary application, configuration, and state directories were removed.
+
+These published-download checks used noninteractive defaults on an existing Linux host. They did not qualify fresh machines, published downloads on macOS, Intel macOS, older operating systems, or live model routes. Live Google sign-in and Cloudflare email delivery were not tested. CI separately qualified its three listed runners.
+
+Local logs and verification results remain in `.scratch/release-v1.3.0/`. They are not distributed.
