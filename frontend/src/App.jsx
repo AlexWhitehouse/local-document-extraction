@@ -792,6 +792,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             {visiblePage === "evaluations" ? (
               <EvaluationsPage
                 evaluation={evaluation}
+                toast={toast}
                 templates={templates}
                 enabled={hasApiAccess}
                 onTemplateSaved={templateController.actions.listTemplates}

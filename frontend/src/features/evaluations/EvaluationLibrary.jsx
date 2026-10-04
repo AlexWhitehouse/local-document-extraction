@@ -823,7 +823,7 @@ export function ReviewPrompt({ field, definition, reference, onReview }) {
   );
 }
 
-export function DocumentBanner({ evaluation, document, onNotice }) {
+export function DocumentBanner({ evaluation, document, toast }) {
   const [retrying, setRetrying] = useState(false);
 
   const retry = async () => {
@@ -831,9 +831,9 @@ export function DocumentBanner({ evaluation, document, onNotice }) {
 
     try {
       await evaluation.retrySource(document.key);
-      onNotice?.("The saved original is available again. Run it when you’re ready.");
+      toast.success("The saved original is available again. Run it when you’re ready.");
     } catch (error) {
-      onNotice?.(error.message);
+      toast.error(error.message);
     } finally {
       setRetrying(false);
     }
@@ -863,7 +863,7 @@ export function DocumentBanner({ evaluation, document, onNotice }) {
         <button
           type="button"
           className="studio-text-button"
-          onClick={() => evaluation.loadLatest(document.key).catch((error) => onNotice?.(error.message))}
+          onClick={() => evaluation.loadLatest(document.key).catch((error) => toast.error(error.message))}
         >
           Load latest
         </button>

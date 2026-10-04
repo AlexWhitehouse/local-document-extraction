@@ -80,7 +80,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     const saveDialog = page.getByRole("dialog", { name: "Save to Evaluation library" });
     await expect(saveDialog.getByText(/1 of 1 answers verified/)).toBeVisible();
     await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(evaluations.getByText("Saved “library-invoice” to the Workspace library.")).toBeVisible();
+    await expect(page.getByText("Saved “library-invoice” to the Workspace library.")).toBeVisible();
 
     await evaluations.getByRole("button", { name: /^Clear Evaluation/ }).click();
     const clearDialog = page.getByRole("dialog", { name: "Clear Evaluation" });
@@ -119,7 +119,8 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     const review = page.getByRole("dialog", { name: "Review saved answer update" });
     await expect(review.getByText(/INV-E2E-999/)).toBeVisible();
     await review.getByRole("button", { name: "Update saved answers" }).click();
-    await expect(evaluations.getByText("Saved answers updated for the Workspace.")).toBeVisible();
+    await expect(review).toBeHidden();
+    await expect(page.getByText("Saved answers updated for the Workspace.").last()).toBeVisible();
 
     // Refresh discards the private Evaluation; the saved document stays in the library.
     await page.reload();
@@ -148,7 +149,8 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await editorMatrix.getByRole("button", { name: "Verify" }).click();
     await evaluations.getByRole("button", { name: "Update saved answers…" }).click();
     await page.getByRole("dialog", { name: "Review saved answer update" }).getByRole("button", { name: "Update saved answers" }).click();
-    await expect(evaluations.getByText("Saved answers updated for the Workspace.")).toBeVisible();
+    await expect(review).toBeHidden();
+    await expect(page.getByText("Saved answers updated for the Workspace.").last()).toBeVisible();
     await page.reload();
     await evaluations.getByRole("button", { name: "Manage library" }).click();
     await library.getByRole("button", { name: "Edit library-invoice" }).click();
@@ -206,7 +208,8 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await editorMatrix.getByRole("button", { name: "Verify" }).click();
     await evaluations.getByRole("button", { name: "Update saved answers…" }).click();
     await page.getByRole("dialog", { name: "Review saved answer update" }).getByRole("button", { name: "Update saved answers" }).click();
-    await expect(evaluations.getByText("Saved answers updated for the Workspace.")).toBeVisible();
+    await expect(review).toBeHidden();
+    await expect(page.getByText("Saved answers updated for the Workspace.").last()).toBeVisible();
     await page.reload();
     await evaluations.getByRole("button", { name: "Manage library" }).click();
     await library.getByRole("button", { name: "Edit library-invoice" }).click();

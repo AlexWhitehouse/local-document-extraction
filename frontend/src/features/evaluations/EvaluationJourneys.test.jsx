@@ -32,6 +32,8 @@ const reference = (value) => ({
 
 let database, streams, overrides, library;
 
+const toast = { success: vi.fn(), error: vi.fn() };
+
 async function server(url, options = {}) {
   const path = url.replace(/^\/v1/, ""),
     method = options.method || "GET";
@@ -109,6 +111,7 @@ function Harness({ templates = [{ id: "invoice", name: "Invoice", current_versio
   return (
     <EvaluationsPage
       evaluation={evaluation}
+      toast={toast}
       templates={templates}
       onTemplateSaved={onTemplateSaved}
       enabled
@@ -194,7 +197,7 @@ it("edits saved answers from Manage library without configuring or running a mod
   const review = screen.getByRole("dialog", { name: "Review saved answer update" });
   expect(within(review).getByText("3500 ✓")).toBeTruthy();
   fireEvent.click(within(review).getByRole("button", { name: "Update saved answers" }));
-  await screen.findByText("Saved answers updated for the Workspace.");
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated for the Workspace."));
   expect(library.evd_a.reference.references["total:number"].value).toBe("3500");
   expect(streams).toHaveLength(0);
   expect(fetch.mock.calls.some(([url]) => url === "/v1/evaluations/actions")).toBe(false);
@@ -278,7 +281,7 @@ it("loads the latest Template into the library editor and saves reviewed changes
   expect(library.evd_a.reference).toEqual(saved);
   fireEvent.click(screen.getByRole("button", { name: "Update saved answers…" }));
   fireEvent.click(within(screen.getByRole("dialog", { name: "Review saved answer update" })).getByRole("button", { name: "Update saved answers" }));
-  await screen.findByText("Saved answers updated for the Workspace.");
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated for the Workspace."));
   expect(library.evd_a.reference.references["total:number"]).toEqual(saved.references["total:number"]);
   expect(library.evd_a.reference.references["items:array<object>"].value).toEqual([{ quantity: 7 }]);
   expect(library.evd_a.reference.definitions["items:array<object>"].object_schema.columns[0].data_type).toBe("number");
@@ -361,6 +364,7 @@ it.each(["", "1"])("saves edits to the selected library Template version '%s', w
     { fields: [{ name: "Total", description: "Amount payable", data_type: "string" }, { name: "Supplier", description: "Issuer", data_type: "string" }] },
   ]);
   expect(onTemplateSaved).toHaveBeenCalledTimes(1);
+  expect(toast.success).toHaveBeenCalledWith("Template saved: Invoice");
   expect(screen.getAllByRole("rowheader", { name: /^Total/ })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Review as Text" })).toBeTruthy();
   expect(library.evd_a.reference).toEqual(savedAnswers);

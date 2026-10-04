@@ -14,6 +14,7 @@ import {
 } from "./EvaluationLibrary.jsx";
 import { Meter } from "./EvaluationParts.jsx";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { toast as defaultToast } from "sonner";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
 import { validateTemplateJsonPayload } from "../templates/templateFields.js";
 import { templateLabel } from "./evaluationFormat.js";
@@ -32,6 +33,7 @@ export function EvaluationsPage({
   maxSourceFileBytes,
   suggestedModels,
   onTemplateSaved,
+  toast = defaultToast,
 }) {
   const { state, patch, edit, api } = evaluation;
   const [editor, setEditor] = useState(null);
@@ -41,7 +43,6 @@ export function EvaluationsPage({
   const [autoRun, setAutoRun] = useState(null);
   const [replacement, setReplacement] = useState(null);
   const [localError, setLocalError] = useState("");
-  const [notice, setNotice] = useState("");
   const [dialog, setDialog] = useState(null);
   const [view, setView] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -53,7 +54,6 @@ export function EvaluationsPage({
     setUploadOpen(false);
     setPreview(null);
     setAutoRun(null);
-    setNotice("");
     setLocalError("");
     setDialog(null);
     setView(null);
@@ -219,7 +219,7 @@ export function EvaluationsPage({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      setNotice("New Template saved. Your Evaluation draft and original Template are unchanged.");
+      toast.success(`Template saved: ${payload.name}`);
       await onTemplateSaved?.();
     } else if (editor.documentKey && editor.initial.source) {
       const initial = editor.initial;
@@ -249,7 +249,7 @@ export function EvaluationsPage({
         current_version: saved.version,
         source: { id: initial.source.id, version: changes.fields ? saved.version : initial.source.version },
       }, editor.documentKey);
-      setNotice("Template saved. Review changed Expected answers, then use Update saved answers to save them to the library.");
+      toast.success(`Template saved: ${payload.name}`);
       await onTemplateSaved?.();
     } else if (editor.documentKey) {
       const next = { ...payload };
@@ -359,14 +359,6 @@ export function EvaluationsPage({
           </>
         }
       />
-      {notice && (
-        <p role="status" className="evaluation-notice">
-          {notice}{" "}
-          <button type="button" className="studio-text-button" onClick={() => setNotice("")}>
-            Dismiss
-          </button>
-        </p>
-      )}
       {state.cacheError && (
         <div role="alert" className="evaluation-banner bad evaluation-cache-error">
           <span>
@@ -402,12 +394,6 @@ export function EvaluationsPage({
           {((!editingLibrary && state.error) || localError) && !uploadOpen && (
             <p role="alert" className="evaluation-page-alert">
               {(!editingLibrary && state.error) || localError}
-            </p>
-          )}
-          {editingLibrary && (
-            <p className="evaluation-notice">
-              Edit this document’s saved fields and Expected answers. Review your changes with Update saved answers
-              to save them to the Workspace library.
             </p>
           )}
           <div className="evaluation-contextbar">
@@ -567,7 +553,7 @@ export function EvaluationsPage({
               )}
             </div>
           </div>
-          {document && <DocumentBanner evaluation={evaluation} document={document} onNotice={setNotice} />}
+          {document && <DocumentBanner evaluation={evaluation} document={document} toast={toast} />}
           {document && (
             <div className="evaluation-toolbar-row">
               <FieldFilters value={filter} onChange={setFilter} editing={editingLibrary} />
@@ -706,7 +692,7 @@ export function EvaluationsPage({
           evaluation={evaluation}
           document={dialogDocument}
           fields={dialogFields}
-          onSaved={setNotice}
+          onSaved={toast.success}
           onClose={() => setDialog(null)}
         />
       )}
@@ -714,7 +700,7 @@ export function EvaluationsPage({
         <UpdateReview
           evaluation={evaluation}
           document={dialogDocument}
-          onDone={setNotice}
+          onDone={toast.success}
           onClose={() => setDialog(null)}
         />
       )}
