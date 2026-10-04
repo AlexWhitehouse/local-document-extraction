@@ -37,7 +37,6 @@ export function PacketPage({
 
   return (
     <section className="packet-page" aria-label="Document packet">
-      <PacketSummary packet={packet} documents={children} />
       <div className="packet-tabs" role="tablist" aria-label="Documents in this packet">
         <OverviewTab
           packet={packet}
@@ -95,7 +94,7 @@ export function PacketPage({
   );
 }
 
-/** Packet-wide status, counts, and cost; shown above the tabs so it stays put across them. */
+/** Packet-wide status, counts, and cost, in the same place a document tab shows its own summary. */
 function PacketSummary({ packet, documents }) {
   const exclusions = packet.plan?.exclusions || [];
   const pages = packet.selected_pages || [];
@@ -214,6 +213,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
 
   return (
     <div className="packet-overview">
+      <PacketSummary packet={packet} documents={documents} />
       {error ? (
         <p role="alert" className="packet-message is-error">
           {error}
