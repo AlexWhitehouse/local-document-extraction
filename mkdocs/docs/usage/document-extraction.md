@@ -18,6 +18,8 @@ An owner or admin can enable **Smart splitting** under **Workspaces → Document
 
 Splitting and **Exclude blank pages** default to off. Blank exclusion requires splitting. Nonblank covers remain. Excluded pages retain their original page numbers and exclusion reasons.
 
+A PDF uploaded with only one page skips splitting and blank-page checks, even when enabled. It proceeds to template selection or extraction as a single document. Multi-page uploads still follow Workspace settings, including when an API client selects only one page.
+
 A one-page PDF or accepted one-document split appears as a normal document and opens directly in results. Exclusion reasons remain visible. Multiple documents appear in a packet overview with progress, original-page groups, and one tab per child document. Unresolved boundaries also require the packet overview. Deleting children does not convert a multi-document packet to a single-document view.
 
 Splitting also runs with an explicit template. All resulting documents use its fixed version. With automatic selection, each document selects independently from templates that match the supplied tags.

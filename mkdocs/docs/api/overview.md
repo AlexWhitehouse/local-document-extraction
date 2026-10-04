@@ -1,6 +1,6 @@
 # Workspace API specification
 
-Use the Workspace API to define templates, submit PDFs and images, and retrieve structured data. Scripts, applications, and automated workflows can use these operations. Processing is asynchronous. Submission returns a job ID or, for PDFs with Smart splitting enabled, a packet ID. Poll the returned location, then read completed jobs for results.
+Use the Workspace API to define templates, submit PDFs and images, and retrieve structured data. Scripts, applications, and automated workflows can use these operations. Processing is asynchronous. Submission returns a job ID or, for multi-page PDF uploads with Smart splitting enabled, a packet ID. Poll the returned location, then read completed jobs for results.
 
 This reference covers Workspace API-key endpoints. For browser procedures, see [Accounts and Workspaces](../usage/accounts-and-workspaces.md), [Templates](../usage/templates.md), and [Document extraction](../usage/document-extraction.md).
 
@@ -77,7 +77,7 @@ All endpoints below except health require a Workspace API key. The health endpoi
 
 ## Quickstart: document to structured data
 
-These Bash examples require `curl` and `jq`. Set `WORKSPACE_API_KEY` in the environment. Replace `./invoice.pdf` with your document. The examples use explicit template selection and the default disabled Smart splitting setting. With splitting enabled, use the [packet response contract](#document-packets-and-review).
+These Bash examples require `curl` and `jq`. Set `WORKSPACE_API_KEY` in the environment. Replace `./invoice.pdf` with your document. The examples use explicit template selection and the default disabled Smart splitting setting. For multi-page uploads with splitting enabled, use the [packet response contract](#document-packets-and-review).
 
 ### 1. Create a template
 
@@ -397,7 +397,7 @@ Cache-Control: no-store
 
 `202` confirms acceptance, not successful extraction. Automatic jobs initially have null `template_id` and `template_version`. Binding a suitable Template version sets both values. Save the identifier and poll `Location`.
 
-Repeated uploads create independent work. Submission has no idempotency-key support. With PDF splitting enabled, submission returns a packet as described below.
+Repeated uploads create independent work. Submission has no idempotency-key support. With PDF splitting enabled, multi-page uploads return a packet as described below. One-page PDF uploads skip splitting and blank-page checks and return a job.
 
 ### Read effective processing settings
 
@@ -413,7 +413,7 @@ Submission records the effective values at acceptance. A concurrent settings cha
 
 ## Document packets and review
 
-With Smart splitting enabled, PDF acceptance returns `202`, `Location: /v1/packets/{packet_id}`, `Retry-After: 2`, and a packet representation. The packet owns the original file and selected physical pages. It is not an extraction result.
+With Smart splitting enabled, acceptance of a PDF uploaded with more than one page returns `202`, `Location: /v1/packets/{packet_id}`, `Retry-After: 2`, and a packet representation. Eligibility uses the original page count, even if `pages` selects only one page. The packet owns the original file and selected physical pages. It is not an extraction result.
 
 An explicit Template fixes the version for all children at admission. Later edits or deletion do not change that binding. Automatic children inherit the supplied tags. Each classifies independently after its page boundaries are committed.
 
@@ -444,7 +444,7 @@ With blank exclusion enabled, automatic omission requires independent verificati
 
 ### Follow the packet and child request chain
 
-One-page PDFs and accepted one-document plans still return packets. The browser presents them as ordinary documents. API clients use the packet contract for all child counts.
+Accepted one-document plans from multi-page uploads still return packets. The browser presents them as ordinary documents. API clients use the packet contract for all child counts. One-page PDF uploads return ordinary jobs instead.
 
 This example requires Smart splitting and suitable templates tagged `invoice` or `prescription`. The JSON examples are abbreviated. IDs and results are illustrative.
 

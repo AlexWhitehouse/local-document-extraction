@@ -483,6 +483,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Local runtime state is grouped under one local state directory so reset and backup behavior is explicit.
 - A **Source file page count** applies only to PDF **Source files** and is absent for non-PDF **Source files**.
 - PDF submissions require a **Source file page count**. An unknown count rejects the submission.
+- A PDF uploaded with exactly one page creates one **Extraction job** and bypasses **Smart splitting** and blank-page exclusion, even when enabled. PDFs uploaded with more than one page follow the captured Workspace settings, including when only one original page is selected. Automatic Template selection still applies to single-page uploads when requested.
 - PDF page-count inspection runs outside the API process for Document submission and Template generation. It has bounded admission, a cancellable deadline, and pre-allocation decoded-buffer and parser-structure limits. Exceeding **Product safety limits** rejects the Source before promotion, job creation, or a Model gateway call.
 - A **Source file page count** is internal Source file metadata until a product feature requires exposing or enforcing it.
 - Existing **Source files** are not backfilled with a **Source file page count** because their original binary may already have been cleaned up.

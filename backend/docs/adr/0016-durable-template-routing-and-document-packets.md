@@ -8,6 +8,8 @@ The stored candidate snapshot also records the current version and tag membershi
 
 Splitting and blank exclusion are authoritative Workspace settings. Both default to disabled, and accepted work captures their values. Exclusion runs only as part of splitting. Every selected physical page must belong to a group or an explicit exclusion.
 
+PDFs uploaded with exactly one page bypass both splitting and blank exclusion and create an ordinary Extraction job. There is no page boundary to assess, and a blank single-page upload follows normal extraction. Eligibility uses the uploaded file's page count before page selection: a multi-page original still follows Workspace settings when only one page is selected. Automatic template selection remains independent.
+
 Automatic blank exclusion requires independent verification that finds no extracted text, annotations, or nonwhite rendered pixels. An all-blank packet completes without child jobs. Manual review requires the current revision. The server must still verify an empty manual plan.
 
 Each split decision and each child's classification gets one initial assessment and at most two targeted reassessments. Used rounds survive restarts and configuration changes. Transport retries have separate limits. The Document classification & splitting role inherits Extraction unless explicitly configured. It uses the Workspace gateway, credential, capability flags, and sequential policy. Final field extraction uses Extraction.
