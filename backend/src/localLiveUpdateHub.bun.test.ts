@@ -13,6 +13,7 @@ test("the local live update hub isolates Workspace broadcasts and strips private
 
   hub.broadcastJob("workspace_research", {
     job_id: "job_invoice",
+    parent_packet_id: "packet_invoices",
     status: "completed",
     source_name: "private-invoice.png",
     source_mime_type: "image/png",
@@ -42,6 +43,7 @@ test("the local live update hub isolates Workspace broadcasts and strips private
         type: "extraction_job_lifecycle",
         job: {
           job_id: "job_invoice",
+          parent_packet_id: "packet_invoices",
           status: "completed",
           template_id: "tpl_invoice",
           template_version: 1,

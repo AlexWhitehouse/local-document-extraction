@@ -6,6 +6,7 @@ export type LocalLiveUpdateSocket = {
 
 type LocalLiveUpdateJob = {
   job_id: string;
+  parent_packet_id?: string | null;
   status: string;
   template_id: string | null;
   template_version: number | null;
@@ -90,6 +91,7 @@ export function createLocalLiveUpdateHub() {
         type: "extraction_job_lifecycle",
         job: {
           job_id: job.job_id,
+          parent_packet_id: job.parent_packet_id,
           status: job.status,
           template_id: job.template_id,
           template_version: job.template_version,

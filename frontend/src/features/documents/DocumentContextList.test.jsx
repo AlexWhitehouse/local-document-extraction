@@ -5,6 +5,17 @@ import { DocumentContextList } from "./DocumentContextList.jsx";
 import { isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
 
 describe("DocumentContextList", () => {
+  it("hides child lifecycle updates before their packet or its child list arrives", () => {
+    const child = { job_id: "child_live", parent_packet_id: "packet_live", status: "queued" };
+    const ordinary = { job_id: "ordinary", source_name: "ordinary.pdf", status: "completed" };
+    const props = { search: "", documents: [child, ordinary], onSearchChange: vi.fn(), onSelectDocument: vi.fn() };
+    const { container, rerender } = render(<DocumentContextList {...props} />);
+    expect(within(container).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(container).queryByText("child_live")).toBeNull();
+    rerender(<DocumentContextList {...props} packets={[{ packet_id: "packet_live", source_name: "bundle.pdf", status: "materializing", children: [] }]} />);
+    expect(within(container).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(container).queryByText("child_live")).toBeNull();
+  });
   it.each([{ pages: [1] }, { pages: [1, 2, 3] }])("shows an accepted one-document split as a normal document for pages $pages", ({ pages }) => {
     const child = { job_id: "child_single", status: "completed", source_pages: pages };
     const packet = { packet_id: "packet_single", source_name: "invoice.pdf", status: "completed", selected_pages: pages, plan_accepted: true, plan: { groups: [{ pages }] }, children: [child] };

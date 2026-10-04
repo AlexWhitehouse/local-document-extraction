@@ -327,7 +327,7 @@ describe("Workspace action toast feedback", () => {
     const user = userEvent.setup();
     let renamed = false;
     routeFetch((url, method) => {
-      if (url.endsWith("/jobs") && method === "GET") return jobList(failedDocument());
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(failedDocument());
       if (url.endsWith("/workspaces/ws_1") && method === "PATCH") {
         renamed = true;
         return jsonResponse({ id: "ws_1", name: "Clinical Workspace" });
@@ -463,7 +463,7 @@ describe("Workspace action toast feedback", () => {
     const secondWorkspaceJobs = deferred();
     routeFetch((url, method, options) => {
       if (url.endsWith("/workspaces")) return twoWorkspaceList();
-      if (url.endsWith("/jobs") && method === "GET") {
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET") {
         if (new Headers(options.headers).get("x-workspace-id") === "ws_2") {
           return secondWorkspaceJobs.promise;
         }
@@ -1000,7 +1000,7 @@ describe("Workspace action toast feedback", () => {
     vi.stubGlobal("WebSocket", undefined);
     const timeoutSpy = vi.spyOn(window, "setTimeout");
     routeFetch((url, method) => {
-      if (url.endsWith("/jobs") && method === "GET") {
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET") {
         return jobList({
           job_id: "job_processing_1",
           status: "processing",
@@ -1030,7 +1030,7 @@ describe("Workspace action toast feedback", () => {
     const intervalSpy = vi.spyOn(window, "setInterval").mockReturnValue(123);
     vi.spyOn(window, "clearInterval").mockImplementation(() => {});
     routeFetch((url) => {
-      if (url.endsWith("/jobs")) return jobList(legacyJob);
+      if (url.endsWith("/jobs?group_packets=true")) return jobList(legacyJob);
       if (url.endsWith("/jobs/job_legacy_unknown_1")) return jsonResponse(legacyJob);
     });
 
@@ -1047,7 +1047,7 @@ describe("Workspace action toast feedback", () => {
 
   it("stores completed Extraction job details after the Document details load", async () => {
     routeFetch((url, method) => {
-      if (url.endsWith("/jobs") && method === "GET") return jobList(completedDocument({ results: [] }));
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(completedDocument({ results: [] }));
       if (url.endsWith("/jobs/job_completed_1")) {
         return jsonResponse(completedDocument({
           source_preview_url: "blob:http://localhost/source-preview",
@@ -1080,7 +1080,7 @@ describe("Workspace action toast feedback", () => {
       },
     );
     routeFetch((url, method) => {
-      if (url.endsWith("/jobs") && method === "GET") return jobList(completedDocument({ results: [] }));
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(completedDocument({ results: [] }));
       if (url.endsWith("/jobs/job_completed_1")) return new Promise(() => {});
     });
 
@@ -1104,7 +1104,7 @@ describe("Workspace action toast feedback", () => {
     });
     let originalRequests = 0;
     routeFetch((url) => {
-      if (url.endsWith("/jobs")) return jobList(document);
+      if (url.endsWith("/jobs?group_packets=true")) return jobList(document);
       if (url.endsWith("/jobs/job_completed_1")) return jsonResponse(document);
       if (url.endsWith("/jobs/job_completed_1/source")) {
         originalRequests += 1;
@@ -1141,7 +1141,7 @@ describe("Workspace action toast feedback", () => {
     async function deleteOpenDocument(deleteResponse) {
       const user = userEvent.setup();
       routeFetch((url, method) => {
-        if (url.endsWith("/jobs") && method === "GET") return jobList(failedDocument());
+        if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(failedDocument());
         if (url.endsWith("/jobs/job_failed_1") && method === "DELETE") return deleteResponse;
       });
 
@@ -1187,7 +1187,7 @@ describe("Workspace action toast feedback", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const deletedDocumentIds = [];
     routeFetch((url, method) => {
-      if (url.endsWith("/jobs") && method === "GET") {
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET") {
         return jobList(failedDocument(), failedDocument({ job_id: "job_failed_2", source_name: "receipt.pdf" }));
       }
       const deletedDocumentId = ["job_failed_1", "job_failed_2"].find(
@@ -1226,7 +1226,7 @@ describe("Workspace action toast feedback", () => {
         requestedIds.push(...JSON.parse(options.body).job_ids);
         return new Response("xlsx", { headers: { "x-exported-job-count": "1" } });
       }
-      if (url.endsWith("/jobs")) return jobList(completedDocument());
+      if (url.endsWith("/jobs?group_packets=true")) return jobList(completedDocument());
       if (url.endsWith("/jobs/job_completed_1")) return jsonResponse(completedDocument());
     });
 
@@ -1253,7 +1253,7 @@ describe("Workspace action toast feedback", () => {
         requestedExportIds.push(...JSON.parse(options.body).job_ids);
         return exportResponse.promise;
       }
-      if (url.endsWith("/jobs") && method === "GET") {
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET") {
         return jobList(
           completedDocument(),
           completedDocument({
@@ -1325,7 +1325,7 @@ describe("Workspace action toast feedback", () => {
   it("does not toast for background document listing", async () => {
     const user = userEvent.setup();
     routeFetch((url, method) => {
-      if (url.endsWith("/jobs") && method === "GET") return jobList(failedDocument());
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(failedDocument());
     });
 
     render(<App />);

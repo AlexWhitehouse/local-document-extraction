@@ -37,6 +37,49 @@ function setup(options = {}) {
 const entries = () => ["first", "second"].map((id) => ({ id, file: new File([id], `${id}.png`, { type: "image/png" }) }));
 
 describe("Document reconciliation", () => {
+  it("pages packets and documents together, preserves loaded entries on refresh, and resets the range for filters", async () => {
+    const { module, requests, snapshot } = setup();
+    const children = Array.from({ length: 50 }, (_, i) => job(`child_${i}`, { parent_packet_id: "packet", status: "completed" }));
+    const packet = { packet_id: "packet", created_at: "2026-09-02T00:00:00Z", children };
+    const ordinary = Array.from({ length: 50 }, (_, i) => job(`ordinary_${String(i).padStart(2, "0")}`, { status: "completed" }));
+    const first = { jobs: ordinary.slice(1), packets: [packet], total: 100, status_counts: { completed: 100 }, has_more: true, next_cursor: "next" };
+    requests.listDocumentEntries = vi.fn(async ({ cursor }) => cursor
+      ? { jobs: ordinary.slice(0, 1), packets: [], total: 100, has_more: false }
+      : first);
+    await module.refresh();
+    expect(snapshot().packets).toEqual([packet]);
+    expect(snapshot().documents.filter(job => !job.parent_packet_id)).toHaveLength(49);
+    expect(snapshot().totalDocuments).toBe(100);
+    expect(snapshot().statusCounts.completed).toBe(100);
+    await module.refresh({ append: true });
+    expect(snapshot().documents.filter(job => !job.parent_packet_id)).toHaveLength(50);
+    await module.refresh();
+    expect(snapshot().documents.filter(job => !job.parent_packet_id)).toHaveLength(50);
+    expect(requests.listDocumentEntries).toHaveBeenCalledTimes(4);
+    requests.listDocumentEntries.mockResolvedValue({ jobs: [], packets: [], total: 100 });
+    module.setFilters({ model: "other" });
+    await Promise.resolve();
+    expect(snapshot().packets).toEqual([]);
+    expect(snapshot().documents).toEqual([]);
+    expect(requests.listDocuments).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite packet admissions or resurrect packet deletions with an overlapping list", async () => {
+    const { module, requests, snapshot } = setup();
+    const old = { packet_id: "old", children: [] };
+    const admitted = { packet_id: "admitted", children: [] };
+    requests.listDocumentEntries = vi.fn(async () => ({ jobs: [], packets: [old] }));
+    await module.refresh();
+    const pending = deferred();
+    requests.listDocumentEntries.mockReturnValueOnce(pending.promise);
+    const refresh = module.refresh();
+    module.receivePackets([admitted]);
+    module.removePackets([old.packet_id]);
+    pending.resolve({ jobs: [], packets: [old] });
+    await refresh;
+    expect(snapshot().packets.map(packet => packet.packet_id)).toEqual(["admitted"]);
+  });
+
   it("keeps an explicit Document outside list pages and filters, then confirms remote deletion by detail", async () => {
     const { module, requests, snapshot, configure } = setup();
     configure({ routeDocumentId: "linked" });

@@ -13,6 +13,35 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
     return value;
   }
 
+  async function listDocuments({ search = "", cursor = null, filters = {}, groupPackets = false } = {}) {
+    const params = new URLSearchParams();
+    if (groupPackets) params.set("group_packets", "true");
+    for (const [name, value] of [
+      ["search", search],
+      ["date_from", filters.dateFrom],
+      ["date_to", filters.dateTo],
+      ["model", filters.model],
+      ["cursor", cursor],
+    ]) {
+      const normalized = String(value || "").trim();
+      if (normalized) params.set(name, normalized);
+    }
+    const result = await documentRequest(
+      `/jobs${params.size ? `?${params.toString()}` : ""}`,
+      { method: "GET" },
+    );
+    const jobs = Array.isArray(result?.jobs) ? result.jobs : [];
+    const total = Number(result?.total);
+    return {
+      jobs,
+      ...(groupPackets ? { packets: Array.isArray(result?.packets) ? result.packets : [] } : {}),
+      total: Number.isFinite(total) && total >= 0 ? total : jobs.length,
+      status_counts: result?.status_counts,
+      next_cursor: result?.next_cursor || null,
+      has_more: Boolean(result?.has_more),
+    };
+  }
+
   return {
     async getDocumentCounts() {
       const result = await documentRequest("/jobs/counts", { method: "GET" });
@@ -57,32 +86,10 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
       }
       return data;
     },
-    async listDocuments({ search = "", cursor = null, filters = {} } = {}) {
-      const params = new URLSearchParams();
-      for (const [name, value] of [
-        ["search", search],
-        ["date_from", filters.dateFrom],
-        ["date_to", filters.dateTo],
-        ["model", filters.model],
-        ["cursor", cursor],
-      ]) {
-        const normalized = String(value || "").trim();
-        if (normalized) params.set(name, normalized);
-      }
-      const result = await documentRequest(
-        `/jobs${params.size ? `?${params.toString()}` : ""}`,
-        { method: "GET" },
-      );
-      const jobs = Array.isArray(result?.jobs) ? result.jobs : [];
-      const total = Number(result?.total);
-      return {
-        jobs,
-        total: Number.isFinite(total) && total >= 0 ? total : jobs.length,
-        status_counts: result?.status_counts,
-        next_cursor: result?.next_cursor || null,
-        has_more: Boolean(result?.has_more),
-      };
+    listDocumentEntries(options = {}) {
+      return listDocuments({ ...options, groupPackets: true });
     },
+    listDocuments,
     /** Fetches a retained original into memory; errors carry `source_*` codes for availability messages. */
     async getOriginal(documentId, { signal } = {}) {
       const normalizedId = normalizedDocumentId(documentId);

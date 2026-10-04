@@ -13,7 +13,7 @@ function reachesLoadedBoundary(packet, boundary) {
 }
 
 /** Packet parents have their own lifecycle; they never become extraction rows or cached results. */
-export function usePacketController({ requests, sessionId, workspaceId, enabled, onAccessDenied, onJobsChanged }) {
+export function usePacketController({ requests, sessionId, workspaceId, enabled, onAccessDenied, onJobsChanged, listing }) {
   const [state, setState] = useState(emptyState);
   const context = useRef(null);
   const requestsRef = useRef(requests);
@@ -23,7 +23,10 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
   const key = enabled ? `${sessionId}\0${workspaceId}` : "";
   if (context.current?.key === key) context.current.requests = requests;
   const stateRef = useRef(state);
-  stateRef.current = state;
+  const listingRef = useRef(listing);
+  listingRef.current = listing;
+  const currentState = listing ? { ...state, packets: listing.packets, loading: listing.loading } : state;
+  stateRef.current = currentState;
   const apply = useCallback((ctx, patch) => {
     if (context.current === ctx && ctx?.active) setState((current) => ({ ...current, ...patch }));
   }, []);
@@ -35,6 +38,7 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
 
   const refresh = useCallback(async ({ append = false } = {}) => {
     const ctx = context.current;
+    if (ctx?.active && listingRef.current) return listingRef.current.refresh({ append });
     if (!ctx?.active || !ctx.requests.listPackets) return;
     const revision = ++ctx.listRevision;
     const boundary = append ? null : stateRef.current.packets.at(-1);
@@ -83,11 +87,11 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
     const ctx = { key, active: Boolean(key), requests: requestsRef.current, listRevision: 0, detailRevision: 0, selectedId: "" };
     context.current = ctx;
     setState(emptyState());
-    if (ctx.active && ctx.requests.listPackets) void refresh();
+    if (ctx.active && ctx.requests.listPackets && !listingRef.current) void refresh();
     return () => { ctx.active = false; };
   }, [key, refresh]);
 
-  const hasActivePackets = state.packets.some((packet) => !TERMINAL.has(packet.status));
+  const hasActivePackets = currentState.packets.some((packet) => !TERMINAL.has(packet.status));
   useEffect(() => {
     if (!key || !requestsRef.current.listPackets) return undefined;
     let cancelled = false;
@@ -121,6 +125,7 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
     ctx.selectedId = packet.packet_id;
     ++ctx.listRevision;
     apply(ctx, { packets: [packet, ...stateRef.current.packets.filter((row) => row.packet_id !== packet.packet_id)], selectedId: packet.packet_id, selectedPacket: packet });
+    listingRef.current?.receivePackets([packet]);
     void loadPacket(packet.packet_id);
     void refresh();
   }, [apply, loadPacket, refresh]);
@@ -134,7 +139,7 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
       if (context.current !== ctx || !ctx.active) return false;
       await loadPacket(id);
       await refresh();
-      callbacks.current.onJobsChanged?.();
+      if (!listingRef.current) callbacks.current.onJobsChanged?.();
       return true;
     } catch (error) { if (error.status === 409) await loadPacket(id); fail(ctx, error); return false; }
     finally { apply(ctx, { busy: false }); }
@@ -157,7 +162,8 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
       const gone = new Set(removed);
       if (gone.has(ctx.selectedId)) { ctx.selectedId = ""; apply(ctx, { selectedId: "", selectedPacket: null, detailStatus: "missing" }); }
       apply(ctx, { packets: stateRef.current.packets.filter((packet) => !gone.has(packet.packet_id)) });
-      if (removed.length) callbacks.current.onJobsChanged?.();
+      listingRef.current?.removePackets(removed);
+      if (removed.length && !listingRef.current) callbacks.current.onJobsChanged?.();
       await refresh();
       return removed;
     } finally { apply(ctx, { busy: false }); }
@@ -177,7 +183,7 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
   }, [key]);
 
   return {
-    ...(context.current?.key === key ? state : emptyState()), refresh, select, admitted, confirmPlan, remove, removeMany,
+    ...(context.current?.key === key ? currentState : emptyState()), refresh, select, admitted, confirmPlan, remove, removeMany,
     loadOriginal, loadPagePreview,
     clear: () => { if (context.current) context.current.active = false; setState(emptyState()); },
   };

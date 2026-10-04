@@ -14,6 +14,8 @@ async function setup(initialPacket = finished, initialDocuments = []) {
   let packets = [initialPacket];
   const requests = {
     listDocuments: vi.fn(async () => ({ jobs: initialDocuments, total: initialDocuments.length })),
+    listDocumentEntries: vi.fn(async () => ({ jobs: initialDocuments.filter(document => !document.parent_packet_id), packets,
+      total: initialDocuments.length + packets.flatMap(packet => packet.children || []).length })),
     getFilterOptions: vi.fn(async () => ({ available_models: [] })),
     listPackets: vi.fn(async () => ({ packets })),
     getPacket: vi.fn(async (id) => packets.find((packet) => packet.packet_id === id)),
