@@ -185,7 +185,7 @@ it("replaces a comparison candidate with a historical Template without running i
   fireEvent.change(picker.getByRole("combobox", { name: "Field version" }), { target: { value: "2" } });
   fireEvent.click(picker.getByRole("button", { name: "Replace candidate Template" }));
   await waitFor(() => expect(evaluation.edit).toHaveBeenCalledWith("a", {
-    template: expect.objectContaining({ source: { id: "saved", version: 2 }, name: "Invoice · fields v2" }),
+    template: expect.objectContaining({ source: { id: "saved", version: 2 }, name: "Invoice" }),
   }));
   expect(evaluation.run).not.toHaveBeenCalled();
 });
@@ -369,7 +369,7 @@ it("starts a model comparison from a saved historical field version with the cho
   const [mode, entries] = evaluation.start.mock.calls[0];
   expect(mode).toBe("models");
   expect(entries.map((entry) => entry.model)).toEqual(["model", "other-model"]);
-  expect(entries[0].template).toMatchObject({ source: { id: "saved", version: 2 }, name: "Invoice · fields v2" });
+  expect(entries[0].template).toMatchObject({ source: { id: "saved", version: 2 }, name: "Invoice" });
   expect(evaluation.api).toHaveBeenCalledWith("/evaluations/templates/saved?version=2");
   expect(evaluation.run).not.toHaveBeenCalled();
 });
@@ -826,6 +826,14 @@ it("finds added, removed and retyped fields together and preserves unchanged ans
     ],
   });
 
+  expect(screen.getAllByRole("rowheader", { name: /^Total/ })).toHaveLength(1);
+  expect(screen.getByText('Previously saved as Text: “123”')).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Edit expected Total" })).toBeNull();
+  const removedRow = screen.getByRole("rowheader", { name: /^Old code/ }).closest("tr");
+  expect(removedRow.classList.contains("evaluation-omitted-row")).toBe(true);
+  expect(within(removedRow).getByText("A")).toBeTruthy();
+  expect(within(removedRow).queryByRole("button", { name: "Edit expected Old code" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Edit expected Name" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Review template changes" }));
   const matrix = within(screen.getByRole("region", { name: "Comparison matrix" }));
   expect(matrix.queryByRole("button", { name: "Edit expected Name" })).toBeNull();

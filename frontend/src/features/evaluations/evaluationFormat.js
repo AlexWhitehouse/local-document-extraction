@@ -14,3 +14,6 @@ export const display = (value) =>
 export const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
 
 export const percent = (ratio) => (ratio === null || ratio === undefined ? "—" : `${Math.round(ratio * 100)}%`);
+
+export const templateLabel = (template) =>
+  `${template.name}${template.source ? ` · fields v${template.source.version}` : ""}${template.source?.modified ? " · edited" : ""}`;

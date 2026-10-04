@@ -807,7 +807,10 @@ export function ReviewPrompt({ field, definition, reference, onReview }) {
           "Needs review · Template columns changed"
         ) : (
           <>
-            Needs review · saved as {getDataTypeLabel(definition?.data_type)} “{refText(reference, definition)}”
+            Needs review
+            <span className="evaluation-muted evaluation-block">
+              Previously saved as {getDataTypeLabel(definition?.data_type)}: “{refText(reference, definition)}”
+            </span>
           </>
         )}
       </span>

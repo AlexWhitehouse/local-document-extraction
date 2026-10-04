@@ -7,9 +7,9 @@ import { ReferenceModal } from "./ReferenceModal.jsx";
 import { TableComparison } from "./TableComparison.jsx";
 import { CandidateMenu, ExpectedInline, Mark, Meter, StatusLine } from "./EvaluationParts.jsx";
 import { LinkSavedAnswer, LinkedNote, ReviewPrompt } from "./EvaluationLibrary.jsx";
-import { display, percent } from "./evaluationFormat.js";
+import { display, percent, templateLabel } from "./evaluationFormat.js";
 import { MAX_CANDIDATES, candidateBusy } from "./useEvaluations.js";
-import { linkableFields } from "./evaluationLibrary.js";
+import { linkableFields, refText } from "./evaluationLibrary.js";
 import { adaptReferenceDraft } from "./referenceDraft.js";
 import {
   answerSignature,
@@ -77,7 +77,7 @@ export function CandidateHead({
             onChange={(event) => onModelChange(event.target.value)}
           />
         ) : (
-          <strong title={candidate.template.name}>{candidate.template.name}</strong>
+          <strong title={templateLabel(candidate.template)}>{templateLabel(candidate.template)}</strong>
         )}
         <CandidateMenu label={label} candidate={menuCandidate} {...menu} />
       </div>
@@ -143,7 +143,7 @@ export function DocumentMatrix({
     }
   }
 
-  // Saved answers no candidate requests stay visible, as coverage requires.
+  // Retain unrequested saved answers for coverage and explicit removal or review.
   for (const [identity, field] of Object.entries(saved))
     if (!rows.has(identity)) rows.set(identity, { identity, field, candidates: {}, omitted: true });
   const requested = new Set([...rows.values()].flatMap((row) => (row.omitted ? [] : [row.identity])));
@@ -210,8 +210,11 @@ export function DocumentMatrix({
       changes.set(row.identity, "Field name or instructions updated");
   }
 
-  const visible = allRows.filter((row) =>
-    filter === "all"
+  const visible = allRows.filter((row) => {
+    // A replaced type's old value is already shown beside its current field.
+    if (row.omitted && reviewedBy(row.identity)) return false;
+
+    return filter === "all"
       ? true
       : filter === "changes"
         ? changes.has(row.identity)
@@ -225,8 +228,8 @@ export function DocumentMatrix({
             ? candidates.some(
                 (c) => row.candidates[c.id] && scores[c.id].byField[row.candidates[c.id].id]?.state === "Mismatch",
               )
-            : !references[row.identity]?.verified || !!reviewFrom(row),
-  );
+            : !references[row.identity]?.verified || !!reviewFrom(row);
+  });
 
   const saveReference = (row, value) => evaluation.setReference(document.key, row.identity, value, row.field);
 
@@ -255,7 +258,7 @@ export function DocumentMatrix({
       seen.add(signature);
       schemas.push({
         field: { ...field, name: row.field.name },
-        label: template ? "Template draft" : `Candidate ${candidates.indexOf(current) + 1} · ${current.template.name}`,
+        label: template ? "Template draft" : `Candidate ${candidates.indexOf(current) + 1} · ${templateLabel(current.template)}`,
       });
     }
 
@@ -547,8 +550,7 @@ export function DocumentMatrix({
               {visible.map((row) => {
                 const answered = candidates.filter((c) => c.result && row.candidates[c.id]).length;
 
-                const from = reviewFrom(row),
-                  reviewing = row.omitted && reviewedBy(row.identity);
+                const from = reviewFrom(row);
 
                 return (
                   <tr key={row.identity} className={row.omitted ? "evaluation-omitted-row" : undefined}>
@@ -566,22 +568,20 @@ export function DocumentMatrix({
                         />
                       )}
                       {row.omitted && references[row.identity]?.verified && (
-                        <small className="evaluation-warn-text evaluation-block">
-                          {reviewing
-                            ? `Saved as ${getDataTypeLabel(row.field.data_type)}; the Template now expects ${getDataTypeLabel(reviewing.field.data_type)}.`
-                            : template
-                              ? "Removed from the Template draft · saved answer kept"
-                              : "Saved answer not requested by any candidate · shown in coverage"}
+                        <small className="evaluation-muted evaluation-block">
+                          {template
+                            ? "Removed from the Template draft · saved answer kept"
+                            : "Saved answer not requested by any candidate · shown in coverage"}
                         </small>
                       )}
-                      {row.omitted && references[row.identity]?.verified && !reviewing && (
+                      {row.omitted && references[row.identity]?.verified && (
                         <LinkSavedAnswer
                           name={row.field.name}
                           options={linkableFields(document, templateFields, row.identity)}
                           onLink={(own) => evaluation.linkField(document.key, own, row.identity)}
                         />
                       )}
-                      {row.omitted && !reviewing && (
+                      {row.omitted && (
                         <button type="button" className="studio-text-button evaluation-compare-link"
                           aria-label={`Remove expected answer for ${row.field.name}`}
                           onClick={() => evaluation.removeReference(document.key, row.identity)}>
@@ -606,7 +606,9 @@ export function DocumentMatrix({
                       )}
                     </th>
                     <td className="evaluation-expected-col">
-                      {from ? (
+                      {row.omitted ? (
+                        <span className="evaluation-muted">{refText(references[row.identity], row.field)}</span>
+                      ) : from ? (
                         <ReviewPrompt
                           field={row.candidates[changedTableCandidate(row, true)?.id] || row.field}
                           definition={saved[from]}

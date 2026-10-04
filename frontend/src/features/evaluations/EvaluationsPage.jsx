@@ -15,6 +15,8 @@ import {
 import { Meter } from "./EvaluationParts.jsx";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
+import { validateTemplateJsonPayload } from "../templates/templateFields.js";
+import { templateLabel } from "./evaluationFormat.js";
 import { TemplateVersionDialog } from "./TemplateVersionDialog.jsx";
 import { MAX_CANDIDATES, documentRunnable, pairBusy } from "./useEvaluations.js";
 import { documentCompatibility } from "./evaluationScoring.js";
@@ -89,7 +91,7 @@ export function EvaluationsPage({
   const labelFor = (candidate) =>
     state.mode === "models"
       ? candidate.model || `Candidate ${state.candidates.indexOf(candidate) + 1}`
-      : candidate.template.name;
+      : templateLabel(candidate.template);
 
   // The selected document's view of each candidate: its pair status plus the displayed result details.
   const shown = (pair) => pair?.result || pair?.previous || null;
@@ -160,7 +162,7 @@ export function EvaluationsPage({
 
       const tested = Number(fieldVersion || template.current_version);
 
-      return { ...template, source: { id, version: tested }, name: `${template.name} · fields v${tested}` };
+      return { ...template, source: { id, version: tested } };
     },
     [api],
   );
@@ -209,6 +211,8 @@ export function EvaluationsPage({
   const modifiedSource = (source) => (source ? { ...source, modified: true } : undefined);
 
   const applyTemplate = async (payload) => {
+    const owner = lifetime.current;
+
     if (editor.save) {
       await api("/templates", {
         method: "POST",
@@ -217,11 +221,40 @@ export function EvaluationsPage({
       });
       setNotice("New Template saved. Your Evaluation draft and original Template are unchanged.");
       await onTemplateSaved?.();
-    } else if (editingLibrary) {
+    } else if (editor.documentKey && editor.initial.source) {
+      const initial = editor.initial;
+      const baseline = validateTemplateJsonPayload(initial);
+
+      // Match the main Template editor: unchanged fields do not create a version,
+      // and unchanged tags cannot undo another member's shared tag edits.
+      const changes = Object.fromEntries(
+        Object.entries(payload).filter(([key, value]) => JSON.stringify(baseline[key]) !== JSON.stringify(value)),
+      );
+
+      if (!Object.keys(changes).length) return;
+
+      const response = await api(`/templates/${encodeURIComponent(initial.source.id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(changes),
+      });
+
+      const saved = await response.json();
+
+      if (owner !== lifetime.current) return;
+      evaluation.editLibraryTemplate({
+        ...initial,
+        ...payload,
+        fields: validateTemplateJsonPayload(payload, { includeFieldIds: true }).fields,
+        current_version: saved.version,
+        source: { id: initial.source.id, version: changes.fields ? saved.version : initial.source.version },
+      }, editor.documentKey);
+      setNotice("Template saved. Review changed Expected answers, then use Update saved answers to save them to the library.");
+      await onTemplateSaved?.();
+    } else if (editor.documentKey) {
       const next = { ...payload };
 
-      if (template.source) next.source = modifiedSource(template.source);
-      evaluation.editLibraryTemplate(next);
+      evaluation.editLibraryTemplate(next, editor.documentKey);
     } else if (state.mode === "models") {
       patch({
         candidates: state.candidates.map((c) => ({
@@ -459,8 +492,8 @@ export function EvaluationsPage({
             {editingLibrary ? (
               <div className="evaluation-context-item">
                 <small>Template</small>
-                <span className="evaluation-context-value" title={template.source ? template.name : "Saved fields"}>
-                  {template.source ? template.name : "Saved fields"}{template.source?.modified ? " · edited" : ""}
+                <span className="evaluation-context-value" title={template.source ? templateLabel(template) : "Saved fields"}>
+                  {template.source ? templateLabel(template) : "Saved fields"}
                   {" · "}{fields.length} {fields.length === 1 ? "field" : "fields"}
                 </span>
                 <span className="evaluation-context-actions">
@@ -477,8 +510,11 @@ export function EvaluationsPage({
                     onClick={() =>
                       setEditor({
                         candidateId: "library-template",
+                        documentKey: document.key,
                         initial: template,
-                        notice: "Changes apply to this document’s draft. Review the Expected answers, then use Update saved answers to save them.",
+                        notice: template.source
+                          ? "Saves changes to the selected Workspace Template. Changed fields become its latest version and are used here immediately. Review the Expected answers, then use Update saved answers to save them."
+                          : "Changes apply to this document’s draft. Choose a Template/version to edit a saved Workspace Template. Review the Expected answers, then use Update saved answers to save them.",
                       })
                     }
                   >
@@ -489,8 +525,8 @@ export function EvaluationsPage({
             ) : state.mode === "models" ? (
               <div className="evaluation-context-item">
                 <small>Shared Template</small>
-                <span className="evaluation-context-value" title={state.candidates[0].template.name}>
-                  {state.candidates[0].template.name} · {fields.length} {fields.length === 1 ? "field" : "fields"}
+                <span className="evaluation-context-value" title={templateLabel(template)}>
+                  {templateLabel(template)} · {fields.length} {fields.length === 1 ? "field" : "fields"}
                 </span>
                 <span className="evaluation-context-actions">
                   <button type="button" className="studio-text-button" onClick={() => openEditor(state.candidates[0])}>
@@ -653,7 +689,7 @@ export function EvaluationsPage({
           key={`${editor.candidateId}:${editor.save}`}
           {...editor}
           title={editor.save ? "Save as new Template" : "Edit Template"}
-          action={editor.save ? "Save new Template" : "Apply changes"}
+          action={editor.save ? "Save new Template" : editor.documentKey && editor.initial.source ? "Save Template" : "Apply changes"}
           onSubmit={applyTemplate}
           onClose={() => setEditor(null)}
         />

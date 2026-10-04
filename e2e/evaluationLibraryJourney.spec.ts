@@ -180,6 +180,27 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await versions.getByRole("button", { name: "Use Template version" }).click();
     await expect(evaluations.getByTitle(`${TEMPLATE.name} · fields v2`)).toBeVisible();
     await expect(editorMatrix.getByText("INV-EDITED", { exact: true })).toBeVisible();
+
+    // Editing here saves the selected Template and uses its new version immediately.
+    await evaluations.getByRole("button", { name: "Edit Template" }).click();
+    const templateEditor = page.getByRole("dialog", { name: "Edit Template" });
+    await expect(templateEditor.getByRole("textbox", { name: "Template name" })).toHaveValue(TEMPLATE.name);
+    await templateEditor.getByRole("combobox", { name: "Type", exact: true }).selectOption("number");
+    await templateEditor.getByRole("button", { name: "Save Template", exact: true }).click();
+    await expect(templateEditor).toHaveCount(0);
+    await expect(evaluations.getByTitle(`${TEMPLATE.name} · fields v3`)).toBeVisible();
+    await expect(editorMatrix.getByRole("rowheader", { name: /^Invoice Number/ })).toHaveCount(1);
+    await expect(editorMatrix.getByRole("button", { name: "Edit expected Invoice Number" })).toHaveCount(0);
+    await expect(editorMatrix.getByText('Previously saved as Text: “INV-EDITED”')).toBeVisible();
+    const persisted = await page.request.get(`${harness.origin}/v1/templates/${templateId}`, { headers });
+    expect(await persisted.json()).toMatchObject({ name: TEMPLATE.name, current_version: 3, fields: [{ ...TEMPLATE.fields[0], data_type: "number" }, { name: "Reviewed" }] });
+    const previous = await page.request.get(`${harness.origin}/v1/evaluations/templates/${templateId}?version=2`, { headers });
+    expect((await previous.json()).fields[0].data_type).toBe("string");
+    await editorMatrix.getByRole("button", { name: "Review as Number" }).click();
+    const expected = page.getByRole("dialog", { name: "Verify expected answer" });
+    await expected.getByRole("textbox", { name: "Expected value", exact: true }).fill("1001");
+    await expected.getByRole("button", { name: "Use as expected answer" }).click();
+
     await editorMatrix.getByRole("button", { name: "Add expected Reviewed" }).click();
     await editorMatrix.getByRole("combobox", { name: "Expected Reviewed", exact: true }).selectOption("false");
     await editorMatrix.getByRole("button", { name: "Verify" }).click();
@@ -190,6 +211,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await evaluations.getByRole("button", { name: "Manage library" }).click();
     await library.getByRole("button", { name: "Edit library-invoice" }).click();
     await expect(editorMatrix.getByRole("button", { name: "Edit expected Reviewed" })).toContainText("No");
+    await expect(editorMatrix.getByRole("button", { name: "Edit expected Invoice Number" })).toContainText("1001");
     expect(modelRequests).toEqual([]);
     expect(evidence.externalWebSockets()).toEqual([]);
   } finally {

@@ -942,8 +942,8 @@ export function useEvaluations({
 
       return true;
     },
-    editLibraryTemplate(template) {
-      patchDocument(stateRef.current.libraryEditor, { editingTemplate: structuredClone(template) });
+    editLibraryTemplate(template, documentKey = stateRef.current.libraryEditor) {
+      patchDocument(documentKey, { editingTemplate: structuredClone(template) });
     },
     // Bounded per-entry reads: each selected entry brings a private working copy of its answers.
     async addSaved(entries, onProgress) {

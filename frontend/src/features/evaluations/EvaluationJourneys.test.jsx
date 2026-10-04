@@ -97,7 +97,7 @@ beforeEach(() => {
 
 const createCache = () => createResultCache({ indexedDB: database, keyRange: FakeKeyRange });
 
-function Harness({ templates = [{ id: "invoice", name: "Invoice", current_version: 1 }] }) {
+function Harness({ templates = [{ id: "invoice", name: "Invoice", current_version: 1 }], onTemplateSaved }) {
   const evaluation = useEvaluations({
     workspaceId: "workspace",
     sessionId: "session",
@@ -110,6 +110,7 @@ function Harness({ templates = [{ id: "invoice", name: "Invoice", current_versio
     <EvaluationsPage
       evaluation={evaluation}
       templates={templates}
+      onTemplateSaved={onTemplateSaved}
       enabled
       maxSourceFileBytes={10000}
     />
@@ -299,12 +300,6 @@ it("chooses a historical library Template version and ignores a later load after
   fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
   await screen.findByTitle("Invoice · fields v1");
   expect(screen.queryByRole("button", { name: "Add expected Supplier" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
-  const draft = within(screen.getByRole("dialog", { name: "Edit Template" }));
-  fireEvent.change(draft.getByRole("textbox", { name: "Extraction instructions" }), { target: { value: "Updated instructions" } });
-  fireEvent.click(draft.getByRole("button", { name: "Apply changes" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Template" })).toBeNull());
-  expect(screen.getByTitle("Invoice · fields v1").textContent).toContain("edited");
   fireEvent.click(screen.getByRole("button", { name: "Choose Template/version" }));
   picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
   expect(picker.getByRole("combobox", { name: "Template", exact: true }).value).toBe("invoice");
@@ -317,6 +312,77 @@ it("chooses a historical library Template version and ignores a later load after
   expect(screen.getByTitle("Invoice · fields v1")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Add expected Supplier" })).toBeNull();
   expect(streams).toHaveLength(0);
+});
+
+it.each(["", "1"])("saves edits to the selected library Template version '%s', with cancellation and retry", async (version) => {
+  const savedAnswers = structuredClone(library.evd_a.reference);
+  const onTemplateSaved = vi.fn();
+  const updates = [];
+  const selected = { name: "Invoice", description: "Invoice fields", tags: ["Finance"], current_version: 3, fields };
+  overrides[`GET /evaluations/templates/invoice${version ? `?version=${version}` : ""}`] = () => Response.json(selected);
+  overrides["PATCH /templates/invoice"] = (options) => {
+    updates.push(JSON.parse(options.body));
+
+    return updates.length === 1
+      ? Response.json({ error: { message: "Could not save Template. Try again." } }, { status: 503 })
+      : Response.json({ template_id: "invoice", version: 4, status: "active" });
+  };
+
+  render(<Harness templates={[{ id: "invoice", name: "Invoice", current_version: 3 }]} onTemplateSaved={onTemplateSaved} />);
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Choose Template/version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
+  fireEvent.change(picker.getByRole("combobox", { name: "Field version" }), { target: { value: version } });
+  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
+  await screen.findByTitle(`Invoice · fields v${version || 3}`);
+
+  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
+  let editor = within(screen.getByRole("dialog", { name: "Edit Template" }));
+  expect(editor.getByRole("textbox", { name: "Template name" }).value).toBe("Invoice");
+  fireEvent.change(editor.getByRole("combobox", { name: "Type" }), { target: { value: "string" } });
+  fireEvent.click(editor.getByRole("button", { name: "Cancel" }));
+  expect(updates).toEqual([]);
+  expect(screen.getByRole("button", { name: "Edit expected Total" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
+  editor = within(screen.getByRole("dialog", { name: "Edit Template" }));
+  fireEvent.change(editor.getByRole("combobox", { name: "Type" }), { target: { value: "string" } });
+  fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
+  await editor.findByText("Could not save Template. Try again.");
+  expect(screen.getByTitle(`Invoice · fields v${version || 3}`)).toBeTruthy();
+  expect(library.evd_a.reference).toEqual(savedAnswers);
+  fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
+  await screen.findByTitle("Invoice · fields v4");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Template" })).toBeNull());
+  expect(updates).toEqual([
+    { fields: [{ name: "Total", description: "Amount payable", data_type: "string" }, { name: "Supplier", description: "Issuer", data_type: "string" }] },
+    { fields: [{ name: "Total", description: "Amount payable", data_type: "string" }, { name: "Supplier", description: "Issuer", data_type: "string" }] },
+  ]);
+  expect(onTemplateSaved).toHaveBeenCalledTimes(1);
+  expect(screen.getAllByRole("rowheader", { name: /^Total/ })).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "Review as Text" })).toBeTruthy();
+  expect(library.evd_a.reference).toEqual(savedAnswers);
+  expect(screen.queryByRole("button", { name: "Update saved answers…" })).toBeNull();
+
+  // An unchanged save creates no version; a name edit updates metadata only.
+  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
+  editor = within(screen.getByRole("dialog", { name: "Edit Template" }));
+  expect(editor.getByRole("textbox", { name: "Template name" }).value).toBe("Invoice");
+  fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Template" })).toBeNull());
+  expect(updates).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
+  editor = within(screen.getByRole("dialog", { name: "Edit Template" }));
+  fireEvent.change(editor.getByRole("textbox", { name: "Template name" }), { target: { value: "Updated invoice" } });
+  fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
+  await screen.findByTitle("Updated invoice · fields v4");
+  expect(updates[2]).toEqual({ name: "Updated invoice" });
+  expect(onTemplateSaved).toHaveBeenCalledTimes(2);
+  expect(library.evd_a.reference).toEqual(savedAnswers);
+  expect(streams).toHaveLength(0);
+  expect(fetch.mock.calls.some(([url]) => url === "/v1/evaluations/actions")).toBe(false);
 });
 
 it("keeps the library draft after a Template load failure and allows retry", async () => {
