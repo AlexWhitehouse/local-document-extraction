@@ -94,6 +94,8 @@ const JOB = `SELECT j.id,j.source_name,j.source_mime_type,j.created_at,j.status,
   LEFT JOIN document_routing r ON r.job_id=j.id`;
 
 export function createCostProjection(db: Database) {
+  const templateNameQuery = db.query<{ name: string }, SQLQueryBindings[]>("SELECT name FROM templates WHERE id=?");
+
   function refresh(id: string): void {
     const old = db
       .query<{ data: string; metrics: string }, SQLQueryBindings[]>("SELECT data,metrics FROM cost_uploads WHERE id=?")
@@ -211,15 +213,20 @@ export function createCostProjection(db: Database) {
 
       costs.total = sumCosts(COST_STAGES.map((stage) => costs[stage]));
 
+      const templateId = live?.template_id ?? before?.templateId ?? packet?.template_id ?? null;
+
+      // Keep resolved historical names, but replace placeholders captured before a child job existed.
+      const template =
+        before && before.templateId === templateId && before.template !== "Unassigned"
+          ? before.template
+          : (live?.template_name ?? (templateId ? templateNameQuery.get(templateId)?.name : null) ?? "Unassigned");
+
       return {
         id: slot.job_id,
         kind: "document",
         name: (live?.source_name ?? before?.name ?? upload.name).slice(0, 1000),
-        templateId: live?.template_id ?? before?.templateId ?? packet?.template_id ?? null,
-        template: (before && before.templateId === live?.template_id
-          ? before.template
-          : (live?.template_name ?? before?.template ?? "Unassigned")
-        ).slice(0, 1000),
+        templateId,
+        template: template.slice(0, 1000),
         pages: pages.length,
         pageNumbers: pages,
         created_at,
@@ -395,7 +402,8 @@ export function createCostProjection(db: Database) {
             .get()!;
 
           if (state.phase !== "done" && processed < maximum && performance.now() < deadline) {
-            const table = state.phase === "packets" ? "document_packets" : "jobs";
+            const table =
+              state.phase === "uploads" ? "cost_uploads" : state.phase === "packets" ? "document_packets" : "jobs";
 
             const rows = db
               .query<{ rowid: number; id: string }, SQLQueryBindings[]>(
@@ -411,7 +419,7 @@ export function createCostProjection(db: Database) {
             }
 
             if (!rows.length) {
-              state.phase = state.phase === "packets" ? "jobs" : "done";
+              state.phase = state.phase === "uploads" ? "packets" : state.phase === "packets" ? "jobs" : "done";
               state.cursor = 0;
             }
 

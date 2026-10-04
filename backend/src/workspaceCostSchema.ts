@@ -55,4 +55,12 @@ export function initializeWorkspaceCostSchema(db: Database): void {
     `);
     db.query("INSERT INTO product_schema_version(version,applied_at) VALUES(13,?)").run(new Date().toISOString());
   }).immediate();
+
+  db.transaction(() => {
+    if (db.query("SELECT 1 FROM product_schema_version WHERE version=14").get()) return;
+
+    // Repair cached Template placeholders in bounded background batches, including retained deleted uploads.
+    db.exec("UPDATE cost_backfill SET phase='uploads',cursor=0 WHERE singleton=1");
+    db.query("INSERT INTO product_schema_version(version,applied_at) VALUES(14,?)").run(new Date().toISOString());
+  }).immediate();
 }

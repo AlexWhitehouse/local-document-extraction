@@ -191,6 +191,76 @@ function packet(store: LocalWorkspaceProductStore) {
   store.claimPacketRound({ packetId: "packet", updatedAt: later, configurationSnapshot: {} });
 }
 
+test("split children retain resolved template names when costs were projected before materialization", () => {
+  const f = fixture();
+  packet(f.store);
+
+  const planned = f.store.acceptDocumentPacketPlan({
+    packetId: "packet",
+    revision: 1,
+    expectedRound: 1,
+    groups: [[2, 3], [5, 8]],
+    exclusions: [],
+    updatedAt: later,
+  })!;
+
+  drain(f.store);
+
+  for (const slot of planned.child_slots) {
+    f.store.materializePacketChild({
+      packetId: "packet",
+      jobId: slot.job_id,
+      sourceFileKey: `${slot.job_id}/source.pdf`,
+      sourceFilePageCount: slot.pages.length,
+      updatedAt: later,
+    });
+    charge(f.store, slot.job_id, 0.2);
+    finish(f.store, slot.job_id);
+    drain(f.store);
+  }
+
+  expect(f.store.getCostOverview(range).samples.map((document) => document.template)).toEqual(["Invoice", "Invoice"]);
+  f.store.updateTemplate({ templateId: "tpl", name: "Renamed invoice", updatedAt: later });
+  f.store.deleteDocumentPacket({ packetId: "packet" });
+  drain(f.store);
+  expect(f.store.getCostUpload("packet")!.children.map((document) => document.template)).toEqual(["Invoice", "Invoice"]);
+});
+
+test("template label repair is incremental, resumes after restart and includes deleted documents", () => {
+  const f = fixture();
+
+  for (const id of ["live", "deleted", "preserved"]) {
+    job(f.store, id);
+    charge(f.store, id, 0.25);
+    finish(f.store, id);
+  }
+
+  drain(f.store);
+  f.store.deleteExtractionJob({ jobId: "deleted" });
+  drain(f.store);
+  const totals = f.store.getCostOverview(range).totals;
+  f.store.updateTemplate({ templateId: "tpl", name: "Renamed invoice", updatedAt: later });
+  const db = new Database(f.path);
+  db.exec(`
+    UPDATE cost_documents SET data=json_set(data,'$.template','Unassigned') WHERE id IN ('live','deleted');
+    DELETE FROM product_schema_version WHERE version=14;
+  `);
+  db.close();
+  f.reopen();
+  expect(f.store.getCostOverview(range).historyBuilding).toBe(true);
+  expect(f.store.getCostUpload("live")!.children[0]!.template).toBe("Unassigned");
+  f.store.processCostUpdates(1, 1000);
+  expect(f.store.getCostUpload("live")!.children[0]!.template).toBe("Renamed invoice");
+  expect(f.store.getCostUpload("deleted")!.children[0]!.template).toBe("Unassigned");
+  f.reopen();
+  drain(f.store);
+  expect(f.store.getCostUpload("deleted")!.children[0]).toMatchObject({ template: "Renamed invoice", deleted: true });
+  expect(f.store.getCostUpload("preserved")!.children[0]!.template).toBe("Invoice");
+  expect(f.store.getCostOverview(range)).toMatchObject({ historyBuilding: false, totals });
+  f.reopen();
+  expect(f.store.getCostOverview(range).historyBuilding).toBe(false);
+});
+
 test("packet totals reconcile after child and parent deletion, retain original pages, and exclude overhead from averages", () => {
   const f = fixture();
   packet(f.store);
