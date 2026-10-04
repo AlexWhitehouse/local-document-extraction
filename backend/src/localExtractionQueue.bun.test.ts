@@ -7,9 +7,11 @@ test("the local extraction queue notifies asynchronous handlers without delaying
   let started = false;
   let releaseHandler: (() => void) | undefined;
   let completedHandler: (() => void) | undefined;
+
   const handlerFinished = new Promise<void>((resolve) => {
     completedHandler = resolve;
   });
+
   const handlerGate = new Promise<void>((resolve) => {
     releaseHandler = resolve;
   });
@@ -37,13 +39,17 @@ test("the local extraction queue does not dispatch a retry before its not-before
   let dispatchTimer: (() => void) | undefined;
   let scheduledDelayMs: number | undefined;
   let started = false;
+
   const queue = createLocalExtractionQueue({
     now: () => Date.parse("2026-07-10T20:00:00.000Z"),
     scheduleTimer: (handler, delayMs) => {
       dispatchTimer = handler;
       scheduledDelayMs = delayMs;
+
+      return 1;
     },
   });
+
   queue.subscribe(() => {
     started = true;
   });
@@ -67,25 +73,29 @@ test("the local extraction queue does not dispatch a retry before its not-before
 test.each([
   ["default", undefined, 16],
   ["configured", 2, 2],
-] as const)("the local extraction queue bounds active handlers at its %s limit and keeps only metadata pending", async (_name, maxConcurrent, expectedLimit) => {
-  const queue = createLocalExtractionQueue({ maxConcurrent });
-  const releases: Array<() => void> = [];
-  queue.subscribe(async () => {
-    await new Promise<void>((resolve) => releases.push(resolve));
-  });
+] as const)(
+  "the local extraction queue bounds active handlers at its %s limit and keeps only metadata pending",
+  async (_name, maxConcurrent, expectedLimit) => {
+    const queue = createLocalExtractionQueue({ maxConcurrent });
+    const releases: Array<() => void> = [];
+    queue.subscribe(async () => {
+      await new Promise<void>((resolve) => releases.push(resolve));
+    });
 
-  await Promise.all(Array.from({ length: expectedLimit + 1 }, (_, index) =>
-    queue.schedule(job(`job_${index + 1}`, "workspace_one")),
-  ));
+    await Promise.all(
+      Array.from({ length: expectedLimit + 1 }, (_, index) => queue.schedule(job(`job_${index + 1}`, "workspace_one"))),
+    );
 
-  expect(queue.snapshot()).toMatchObject({ active: expectedLimit, maxConcurrent: expectedLimit, pending: 1 });
-  releases.shift()?.();
-  await waitFor(() => queue.snapshot().pending === 0);
-  expect(queue.snapshot().active).toBe(expectedLimit);
-  for (const release of releases.splice(0)) release();
-  await queue.waitForIdle();
-  expect(queue.snapshot()).toMatchObject({ active: 0, pending: 0 });
-});
+    expect(queue.snapshot()).toMatchObject({ active: expectedLimit, maxConcurrent: expectedLimit, pending: 1 });
+    releases.shift()?.();
+    await waitFor(() => queue.snapshot().pending === 0);
+    expect(queue.snapshot().active).toBe(expectedLimit);
+
+    for (const release of releases.splice(0)) release();
+    await queue.waitForIdle();
+    expect(queue.snapshot()).toMatchObject({ active: 0, pending: 0 });
+  },
+);
 
 test("the local extraction queue rotates Workspaces while preserving FIFO inside each Workspace", async () => {
   const queue = createLocalExtractionQueue({ maxConcurrent: 1 });
@@ -171,9 +181,11 @@ test("closing the local extraction queue stops new claims and waits only for act
   expect(started).toEqual(["job_active"]);
 
   let closed = false;
+
   const closing = queue.close().then(() => {
     closed = true;
   });
+
   expect(queue.snapshot()).toMatchObject({
     accepting: false,
     active: 1,
@@ -212,6 +224,7 @@ test("gateway eligibility keeps serial waiters out of global permits and lets an
     started.push(queued.job_id);
     await new Promise<void>((resolve) => releases.push(resolve));
   });
+
   for (let i = 0; i < 8; i++) await queue.schedule(job(`a_${i}`, "workspace_a"));
   await queue.schedule(job("b_0", "workspace_b"));
   expect(started).toEqual(["a_0", "b_0"]);
@@ -220,13 +233,20 @@ test("gateway eligibility keeps serial waiters out of global permits and lets an
   queue.setMaxConcurrent(8);
   expect(started).toEqual(["a_0", "b_0", "a_1"]);
   const closing = queue.close();
+
   for (const release of releases) release();
   await closing;
 });
 
 test("drained Workspaces request targeted durable refill", async () => {
   const refilled: string[] = [];
-  const queue = createLocalExtractionQueue({ onWorkspaceIdle: (id) => { refilled.push(id); } });
+
+  const queue = createLocalExtractionQueue({
+    onWorkspaceIdle: (id) => {
+      refilled.push(id);
+    },
+  });
+
   queue.subscribe(async () => {});
   await queue.schedule(job("one", "workspace_a"));
   await waitFor(() => refilled.length > 0);
@@ -239,17 +259,22 @@ async function waitFor(condition: () => boolean): Promise<void> {
     if (condition()) return;
     await Bun.sleep(1);
   }
+
   throw new Error("Timed out waiting for queue state");
 }
-
 
 test("packet backlog and extraction alternate without starving either stage or reordering a stage", async () => {
   const queue = createLocalExtractionQueue({ maxConcurrent: 1 });
   queue.setMaxConcurrent(0);
-  for (let index = 1; index <= 3; index++) await queue.schedule({ ...job(`packet_${index}`, "workspace_one"), kind: "packet" });
+
+  for (let index = 1; index <= 3; index++)
+    await queue.schedule({ ...job(`packet_${index}`, "workspace_one"), kind: "packet" });
+
   for (let index = 1; index <= 3; index++) await queue.schedule(job(`child_${index}`, "workspace_one"));
   const order: string[] = [];
-  queue.subscribe((item) => { order.push(item.job_id); });
+  queue.subscribe((item) => {
+    order.push(item.job_id);
+  });
   queue.setMaxConcurrent(1);
   await queue.waitForIdle();
   expect(order).toEqual(["packet_1", "child_1", "packet_2", "child_2", "packet_3", "child_3"]);

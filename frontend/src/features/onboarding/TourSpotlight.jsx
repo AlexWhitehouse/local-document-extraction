@@ -1,7 +1,9 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]';
+const FOCUSABLE =
+  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]';
+
 const GLIDE_MS = 240;
 
 export function TourSpotlight({ step, index, total, canContinue, onNext, onExit, onTargetClick }) {
@@ -19,27 +21,47 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
     let frame;
     let previousLayout = "";
     let restoreInert = () => {};
+
     let previousDescription;
     let glide = null;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
     function allowed(node) {
-      return node instanceof Node && (card.contains(node) || (target?.contains(node) && !(step.exclude && node.closest?.(step.exclude))));
+      return (
+        node instanceof Node &&
+        (card.contains(node) || (target?.contains(node) && !(step.exclude && node.closest?.(step.exclude))))
+      );
     }
+
     function focusables() {
-      return [...(target ? [target, ...target.querySelectorAll(FOCUSABLE)] : []), ...card.querySelectorAll(FOCUSABLE)]
-        .filter((node) => node.matches(FOCUSABLE) && !node.disabled && !node.closest("[inert]") && node.getClientRects().length && getComputedStyle(node).visibility !== "hidden");
+      return [
+        ...(target ? [target, ...target.querySelectorAll(FOCUSABLE)] : []),
+        ...card.querySelectorAll(FOCUSABLE),
+      ].filter(
+        (node) =>
+          node.matches(FOCUSABLE) &&
+          !node.disabled &&
+          !node.closest("[inert]") &&
+          node.getClientRects().length &&
+          getComputedStyle(node).visibility !== "hidden",
+      );
     }
+
     function guard(event) {
       if (!allowed(event.target)) {
         event.preventDefault();
         event.stopImmediatePropagation();
+
         if (event.type === "focusin") card.focus({ preventScroll: true });
+
         return;
       }
+
       if (event.type === "click" && target?.contains(event.target) && !event.target.closest(":disabled")) {
         callbacks.current.onTargetClick?.();
       }
     }
+
     function keyboard(event) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -50,25 +72,35 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
         event.stopImmediatePropagation();
         const nodes = focusables();
         const current = nodes.indexOf(document.activeElement);
-        const next = current < 0
-          ? event.shiftKey ? nodes.length - 1 : 0
-          : (current + (event.shiftKey ? -1 : 1) + nodes.length) % nodes.length;
+
+        const next =
+          current < 0
+            ? event.shiftKey
+              ? nodes.length - 1
+              : 0
+            : (current + (event.shiftKey ? -1 : 1) + nodes.length) % nodes.length;
+
         (nodes[next] || card).focus({ preventScroll: true });
       } else {
         guard(event);
       }
     }
+
     function restoreDescription() {
       if (!target) return;
+
       if (previousDescription === null) target.removeAttribute("aria-describedby");
       else target.setAttribute("aria-describedby", previousDescription);
     }
+
     function makeBackgroundInert() {
       restoreInert();
       const changes = [];
+
       function visit(parent) {
         for (const child of parent.children) {
           if (child === target || child === card || child.classList.contains("tour-mask")) continue;
+
           if (child.contains(target) || child.contains(card)) visit(child);
           else if (!child.hasAttribute("inert")) {
             child.setAttribute("inert", "");
@@ -76,7 +108,9 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
           }
         }
       }
+
       visit(document.body);
+
       if (target && step.exclude) {
         for (const excluded of target.querySelectorAll(step.exclude)) {
           if (!excluded.hasAttribute("inert")) {
@@ -85,39 +119,77 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
           }
         }
       }
+
       restoreInert = () => changes.forEach((node) => node.removeAttribute("inert"));
     }
+
     function measure() {
-      const nextTarget = step.id === "complete" ? null : document.querySelector(`[data-tour="${step.target || step.id}"]`);
+      const nextTarget =
+        step.id === "complete" ? null : document.querySelector(`[data-tour="${step.target || step.id}"]`);
+
       if (nextTarget !== target) {
         restoreDescription();
         target = nextTarget;
+
         if (target) {
           previousDescription = target.getAttribute("aria-describedby");
           target.setAttribute("aria-describedby", `${previousDescription || ""} tour-description`.trim());
           target.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "instant" });
         }
+
         makeBackgroundInert();
         glide = reduceMotion || !lastShown.current ? null : { from: lastShown.current, start: performance.now() };
       }
+
       const width = window.innerWidth;
       const height = window.innerHeight;
       const rect = target?.getBoundingClientRect();
-      const hole = rect && rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 && rect.left < width && rect.top < height ? {
-        left: Math.max(0, rect.left - 5), top: Math.max(0, rect.top - 5),
-        right: Math.min(width, rect.right + 5), bottom: Math.min(height, rect.bottom + 5),
-      } : null;
+
+      const hole =
+        rect &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.right > 0 &&
+        rect.bottom > 0 &&
+        rect.left < width &&
+        rect.top < height
+          ? {
+              left: Math.max(0, rect.left - 5),
+              top: Math.max(0, rect.top - 5),
+              right: Math.min(width, rect.right + 5),
+              bottom: Math.min(height, rect.bottom + 5),
+            }
+          : null;
+
       const cardWidth = card.offsetWidth;
       const cardHeight = card.offsetHeight;
       let left = (width - cardWidth) / 2;
       let top = (height - cardHeight) / 2;
+
       if (hole) {
-        if (width - hole.right >= cardWidth + 24) { left = hole.right + 16; top = hole.top; }
-        else if (hole.left >= cardWidth + 24) { left = hole.left - cardWidth - 16; top = hole.top; }
-        else if (height - hole.bottom >= cardHeight + 24) { left = hole.left; top = hole.bottom + 16; }
-        else { left = hole.left; top = hole.top - cardHeight - 16; }
+        if (width - hole.right >= cardWidth + 24) {
+          left = hole.right + 16;
+          top = hole.top;
+        } else if (hole.left >= cardWidth + 24) {
+          left = hole.left - cardWidth - 16;
+          top = hole.top;
+        } else if (height - hole.bottom >= cardHeight + 24) {
+          left = hole.left;
+          top = hole.bottom + 16;
+        } else {
+          left = hole.left;
+          top = hole.top - cardHeight - 16;
+        }
       }
-      let value = { hole, width, height, left: Math.max(12, Math.min(left, width - cardWidth - 12)), top: Math.max(12, Math.min(top, height - cardHeight - 12)) };
+
+      let value = {
+        hole,
+        width,
+        height,
+        left: Math.max(12, Math.min(left, width - cardWidth - 12)),
+        top: Math.max(12, Math.min(top, height - cardHeight - 12)),
+      };
+
       if (glide && hole) {
         const progress = Math.min(1, (performance.now() - glide.start) / GLIDE_MS);
         const eased = 1 - (1 - progress) ** 3;
@@ -127,15 +199,28 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
           ...value,
           left: mix(from.left, value.left),
           top: mix(from.top, value.top),
-          hole: { left: mix(from.hole.left, hole.left), top: mix(from.hole.top, hole.top), right: mix(from.hole.right, hole.right), bottom: mix(from.hole.bottom, hole.bottom) },
+          hole: {
+            left: mix(from.hole.left, hole.left),
+            top: mix(from.hole.top, hole.top),
+            right: mix(from.hole.right, hole.right),
+            bottom: mix(from.hole.bottom, hole.bottom),
+          },
         };
+
         if (progress === 1) glide = null;
       }
+
       if (value.hole) lastShown.current = value;
       const serialized = JSON.stringify(value);
-      if (serialized !== previousLayout) { previousLayout = serialized; setLayout(value); }
+
+      if (serialized !== previousLayout) {
+        previousLayout = serialized;
+        setLayout(value);
+      }
+
       frame = requestAnimationFrame(measure);
     }
+
     const events = ["pointerdown", "click", "dblclick", "contextmenu", "focusin", "submit", "dragover", "drop"];
     events.forEach((name) => document.addEventListener(name, guard, true));
     document.addEventListener("keydown", keyboard, true);
@@ -144,6 +229,7 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
     makeBackgroundInert();
     measure();
     card.focus({ preventScroll: true });
+
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
@@ -151,33 +237,67 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
       document.removeEventListener("keydown", keyboard, true);
       restoreInert();
       restoreDescription();
+
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
   }, [step]);
 
   const hole = layout?.hole;
-  const maskPath = layout ? `M0 0H${layout.width}V${layout.height}H0Z ${hole ? `M${hole.left} ${hole.top}V${hole.bottom}H${hole.right}V${hole.top}Z` : ""}` : "";
+
+  const maskPath = layout
+    ? `M0 0H${layout.width}V${layout.height}H0Z ${hole ? `M${hole.left} ${hole.top}V${hole.bottom}H${hole.right}V${hole.top}Z` : ""}`
+    : "";
+
   return createPortal(
     <>
       <svg className="tour-mask" aria-hidden="true" width="100%" height="100%">
         <path d={maskPath} fillRule="evenodd" />
-        {hole ? <rect x={hole.left} y={hole.top} width={Math.max(0, hole.right - hole.left)} height={Math.max(0, hole.bottom - hole.top)} rx="6" /> : null}
+        {hole ? (
+          <rect
+            x={hole.left}
+            y={hole.top}
+            width={Math.max(0, hole.right - hole.left)}
+            height={Math.max(0, hole.bottom - hole.top)}
+            rx="6"
+          />
+        ) : null}
       </svg>
-      <section ref={cardRef} className="tour-popover" role="dialog" aria-labelledby="tour-title" aria-describedby="tour-description" tabIndex={-1}
-        style={{ left: layout?.left ?? 12, top: layout?.top ?? 12 }}>
-        <div className="tour-progress"><span>STUDIO / GETTING STARTED</span><span>{index + 1} / {total}</span></div>
+      <section
+        ref={cardRef}
+        className="tour-popover"
+        role="dialog"
+        aria-labelledby="tour-title"
+        aria-describedby="tour-description"
+        tabIndex={-1}
+        style={{ left: layout?.left ?? 12, top: layout?.top ?? 12 }}
+      >
+        <div className="tour-progress">
+          <span>STUDIO / GETTING STARTED</span>
+          <span>
+            {index + 1} / {total}
+          </span>
+        </div>
         <progress max={total} value={index + 1} aria-label="Tour progress" />
         <div key={step.id} className="tour-step-copy">
           <h2 id="tour-title">{step.title}</h2>
           <p id="tour-description">{step.text}</p>
-          {step.id !== "complete" && !hole ? <p className="tour-hint">Waiting for this control to appear. You can exit the tour at any time.</p> : null}
+          {step.id !== "complete" && !hole ? (
+            <p className="tour-hint">Waiting for this control to appear. You can exit the tour at any time.</p>
+          ) : null}
         </div>
         <div className="tour-actions">
-          <button type="button" className="ghost" onClick={onExit}>{step.id === "complete" ? "Finish tour" : "Exit tour"}</button>
-          {step.check ? <button type="button" disabled={!canContinue} onClick={onNext}>Continue</button> : null}
+          <button type="button" className="ghost" onClick={onExit}>
+            {step.id === "complete" ? "Finish tour" : "Exit tour"}
+          </button>
+          {step.check ? (
+            <button type="button" disabled={!canContinue} onClick={onNext}>
+              Continue
+            </button>
+          ) : null}
           {step.click || step.action ? <span className="tour-hint">Use the highlighted control</span> : null}
         </div>
       </section>
-    </>, document.body,
+    </>,
+    document.body,
   );
 }

@@ -13,18 +13,23 @@ const ACCOUNT = {
 const TEMPLATE = {
   name: "E2E Library Invoice",
   description: "Extract the visible invoice number.",
-  fields: [{
-    id: "invoice_number",
-    name: "Invoice Number",
-    description: "The invoice identifier printed on the source Document.",
-    data_type: "string",
-  }],
+  fields: [
+    {
+      id: "invoice_number",
+      name: "Invoice Number",
+      description: "The invoice identifier printed on the source Document.",
+      data_type: "string",
+    },
+  ],
 };
 
 const SAVED = { name: "library-invoice.png", mimeType: "image/png", buffer: ONE_PIXEL_PNG };
+
 const FRESH = { name: "fresh-invoice.png", mimeType: "image/png", buffer: ONE_PIXEL_PNG };
 
-test("a user saves a verified document to the library and reuses it in a Batch Evaluation", async ({ page }, testInfo) => {
+test("a user saves a verified document to the library and reuses it in a Batch Evaluation", async ({
+  page,
+}, testInfo) => {
   const evidence = await createBrowserEvidence(page);
   let harness: RuntimeHarness | undefined;
 
@@ -44,6 +49,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
     const evaluations = page.getByRole("region", { name: "Evaluations" });
+
     const setUp = async () => {
       await evaluations.getByRole("combobox", { name: "Template", exact: true }).selectOption({ label: TEMPLATE.name });
       await expect(evaluations.getByRole("textbox", { name: "Candidate 1 model" })).toHaveValue("browser/model");
@@ -110,7 +116,9 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     // Refresh discards the private Evaluation; the saved document stays in the library.
     await page.reload();
     await navigation.getByRole("link", { name: /Evaluations/ }).click();
-    await expect(evaluations.getByRole("heading", { name: "Compare extraction results on your documents" })).toBeVisible();
+    await expect(
+      evaluations.getByRole("heading", { name: "Compare extraction results on your documents" }),
+    ).toBeVisible();
     await expect(evaluations.getByRole("navigation", { name: "Documents in this Evaluation" })).toHaveCount(0);
     await evaluations.getByRole("button", { name: "Manage library" }).first().click();
     const library = page.getByRole("dialog", { name: "Manage library" });

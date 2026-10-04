@@ -9,10 +9,19 @@ describe("useDocumentController Workspace live updates", () => {
   it("shows workspace status totals when only the first 50 documents are loaded", async () => {
     installWebSocketStub();
     const jobs = Array.from({ length: 50 }, (_, i) => ({ job_id: `job_${i}`, status: "completed" }));
-    const request = vi.fn(async (path) => path === "/jobs?group_packets=true" ? {
-      jobs, total: 137, status_counts: { queued: 7, processing: 5, completed: 120, failed: 5 },
-      has_more: true, next_cursor: "next",
-    } : { available_models: [] });
+
+    const request = vi.fn(async (path) =>
+      path === "/jobs?group_packets=true"
+        ? {
+            jobs,
+            total: 137,
+            status_counts: { queued: 7, processing: 5, completed: 120, failed: 5 },
+            has_more: true,
+            next_cursor: "next",
+          }
+        : { available_models: [] },
+    );
+
     const { controller } = renderController({ documentRequests: createDocumentRequestAdapter({ request }) });
     await waitFor(() => expect(controller().contextList.documents).toHaveLength(50));
     expect(controller().statusCounts).toEqual({ queued: 7, processing: 5, completed: 120, failed: 5 });
@@ -20,23 +29,60 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("renders 50 combined entries, loads the next entry, and never flashes unlisted packet children", async () => {
     const sockets = installWebSocketStub();
-    const jobs = Array.from({ length: 50 }, (_, i) => ({ job_id: `ordinary_${i}`, source_name: `ordinary-${i}.pdf`, status: "completed" }));
-    const children = Array.from({ length: 50 }, (_, i) => ({ job_id: `child_${i}`, parent_packet_id: "packet", status: "completed" }));
+
+    const jobs = Array.from({ length: 50 }, (_, i) => ({
+      job_id: `ordinary_${i}`,
+      source_name: `ordinary-${i}.pdf`,
+      status: "completed",
+    }));
+
+    const children = Array.from({ length: 50 }, (_, i) => ({
+      job_id: `child_${i}`,
+      parent_packet_id: "packet",
+      status: "completed",
+    }));
+
     const packet = { packet_id: "packet", source_name: "bundle.pdf", status: "completed", children };
+
     const request = vi.fn(async (path) => {
-      if (path.startsWith("/jobs?group_packets=true")) return path.includes("cursor=next")
-        ? { jobs: jobs.slice(49), packets: [], total: 100, has_more: false }
-        : { jobs: jobs.slice(0, 49), packets: [packet], total: 100, status_counts: { completed: 100 }, has_more: true, next_cursor: "next" };
-      if (path.startsWith("/jobs/ordinary_")) return jobs.find(job => path.endsWith(job.job_id));
+      if (path.startsWith("/jobs?group_packets=true"))
+        return path.includes("cursor=next")
+          ? { jobs: jobs.slice(49), packets: [], total: 100, has_more: false }
+          : {
+              jobs: jobs.slice(0, 49),
+              packets: [packet],
+              total: 100,
+              status_counts: { completed: 100 },
+              has_more: true,
+              next_cursor: "next",
+            };
+
+      if (path.startsWith("/jobs/ordinary_")) return jobs.find((job) => path.endsWith(job.job_id));
+
       return { available_models: [] };
     });
-    const { getAllByRole, getByRole, controller } = renderController({ showList: true, documentRequests: createDocumentRequestAdapter({ request }) });
+
+    const { getAllByRole, getByRole, controller } = renderController({
+      showList: true,
+      documentRequests: createDocumentRequestAdapter({ request }),
+    });
+
     await waitFor(() => expect(getAllByRole("listitem")).toHaveLength(50));
     expect(controller().toolbar.documentCount).toBe(100);
     expect(controller().statusCounts.completed).toBe(100);
-    act(() => sockets.instances[0].onmessage({ data: JSON.stringify({ version: 1, events: [{
-      type: "extraction_job_lifecycle", job: { job_id: "new_child", parent_packet_id: "not_loaded_packet", status: "processing" },
-    }] }) }));
+    act(() =>
+      sockets.instances[0].onmessage({
+        data: JSON.stringify({
+          version: 1,
+          events: [
+            {
+              type: "extraction_job_lifecycle",
+              job: { job_id: "new_child", parent_packet_id: "not_loaded_packet", status: "processing" },
+            },
+          ],
+        }),
+      }),
+    );
     expect(getAllByRole("listitem")).toHaveLength(50);
     fireEvent.click(getByRole("button", { name: /Load more Documents/ }));
     await waitFor(() => expect(getAllByRole("listitem")).toHaveLength(51));
@@ -81,19 +127,24 @@ describe("useDocumentController Workspace live updates", () => {
     vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args) => {
       if (delay >= 5000) {
         polls.push({ callback, delay });
+
         return 123;
       }
+
       return nativeSetTimeout(callback, delay, ...args);
     });
     const processingDetails = processingJob();
     let failDetailRequest = false;
+
     const request = vi.fn(async (path) => {
       if (path === "/jobs/job_processing_1") {
         if (failDetailRequest) {
           throw new TypeError("Temporary network failure");
         }
+
         return processingDetails;
       }
+
       return jobList([processingDetails]);
     });
 
@@ -117,6 +168,7 @@ describe("useDocumentController Workspace live updates", () => {
   it("hydrates selected document details when a live lifecycle update completes", async () => {
     const WebSocketStub = installWebSocketStub();
     const processingDetails = processingJob({ template_version: 1 });
+
     const completedDetails = {
       ...processingDetails,
       status: "completed",
@@ -124,11 +176,14 @@ describe("useDocumentController Workspace live updates", () => {
       completed_at: "2026-05-06T12:02:00.000Z",
       results: [{ field_id: "invoice_total", name: "Invoice Total", answer: "$42.00", confidence: 0.99 }],
     };
+
     let shouldReturnCompletedDetails = false;
+
     const request = vi.fn(async (path) => {
       if (path === "/jobs/job_processing_1") {
         return shouldReturnCompletedDetails ? completedDetails : processingDetails;
       }
+
       return jobList([]);
     });
 
@@ -141,17 +196,21 @@ describe("useDocumentController Workspace live updates", () => {
 
     shouldReturnCompletedDetails = true;
     act(() => {
-      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle({
-        ...processingDetails,
-        status: "completed",
-        error_code: null,
-        error_message: null,
-        updated_at: "2026-05-06T12:02:00.000Z",
-        completed_at: "2026-05-06T12:02:00.000Z",
-        current_attempt: 1,
-        completed_attempt: 1,
-        last_failed_attempt: 0,
-      })));
+      WebSocketStub.instances[0].onmessage(
+        liveMessage(
+          lifecycle({
+            ...processingDetails,
+            status: "completed",
+            error_code: null,
+            error_message: null,
+            updated_at: "2026-05-06T12:02:00.000Z",
+            completed_at: "2026-05-06T12:02:00.000Z",
+            current_attempt: 1,
+            completed_attempt: 1,
+            last_failed_attempt: 0,
+          }),
+        ),
+      );
     });
 
     await waitFor(() => {
@@ -170,13 +229,16 @@ describe("useDocumentController Workspace live updates", () => {
   it("deduplicates selected completed detail hydration while live updates are active", async () => {
     const WebSocketStub = installWebSocketStub();
     const completedSummary = completedJob({ template_version: 1, results: [] });
+
     const completedDetails = {
       ...completedSummary,
       results: [{ field_id: "invoice_total", name: "Invoice Total", answer: "$42.00", confidence: 0.99 }],
     };
+
     const request = vi.fn(async (path) =>
       path === "/jobs/job_completed_1" ? completedDetails : jobList([completedSummary]),
     );
+
     const detailRequests = () => request.mock.calls.filter(([path]) => path === "/jobs/job_completed_1");
 
     renderController({ request, initialWorkspace: seeded(completedSummary) });
@@ -194,10 +256,12 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("does not select a background document when its live lifecycle update completes", async () => {
     const WebSocketStub = installWebSocketStub();
+
     const jobs = [
       completedJob({ job_id: "job_reviewing_1", source_name: "selected.pdf" }),
       processingJob({ source_name: "background.pdf", created_at: "2026-05-06T12:01:00.000Z" }),
     ];
+
     const request = vi.fn(async (path) =>
       path === "/jobs" ? jobList(jobs) : jobs.find((job) => path === `/jobs/${job.job_id}`) || jobs[0],
     );
@@ -211,11 +275,17 @@ describe("useDocumentController Workspace live updates", () => {
     request.mockClear();
 
     act(() => {
-      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(completedUpdate("2026-05-06T12:03:00.000Z", {
-        source_name: "background.pdf",
-        error_code: null,
-        error_message: null,
-      }))));
+      WebSocketStub.instances[0].onmessage(
+        liveMessage(
+          lifecycle(
+            completedUpdate("2026-05-06T12:03:00.000Z", {
+              source_name: "background.pdf",
+              error_code: null,
+              error_message: null,
+            }),
+          ),
+        ),
+      );
     });
 
     await waitFor(() => {
@@ -276,11 +346,15 @@ describe("useDocumentController Workspace live updates", () => {
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle({
-        ...liveJob,
-        status: "processing",
-        updated_at: "2026-05-06T12:01:00.000Z",
-      })));
+      WebSocketStub.instances[0].onmessage(
+        liveMessage(
+          lifecycle({
+            ...liveJob,
+            status: "processing",
+            updated_at: "2026-05-06T12:01:00.000Z",
+          }),
+        ),
+      );
     });
 
     expect(controller().toolbar.documentCount).toBe(1);
@@ -345,9 +419,11 @@ describe("useDocumentController Workspace live updates", () => {
   it("blocks useful live update effects until Workspace access revalidation succeeds", async () => {
     const WebSocketStub = installWebSocketStub();
     let resolveAccessRevalidation;
+
     const accessRevalidation = new Promise((resolve) => {
       resolveAccessRevalidation = resolve;
     });
+
     const onWorkspaceCapacityRefresh = vi.fn(() => accessRevalidation);
     const job = processingJob();
 
@@ -407,11 +483,13 @@ describe("useDocumentController Workspace live updates", () => {
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage(liveMessage(
-        invalidation(""),
-        { type: "future_event", payload: { value: "ignored" } },
-        lifecycle(completedUpdate("2026-05-06T12:03:00.000Z")),
-      ));
+      WebSocketStub.instances[0].onmessage(
+        liveMessage(
+          invalidation(""),
+          { type: "future_event", payload: { value: "ignored" } },
+          lifecycle(completedUpdate("2026-05-06T12:03:00.000Z")),
+        ),
+      );
     });
 
     await waitFor(() => {
@@ -428,10 +506,12 @@ describe("useDocumentController Workspace live updates", () => {
     vi.useFakeTimers();
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
-    const advance = (ms) => act(async () => {
-      vi.advanceTimersByTime(ms);
-      await Promise.resolve();
-    });
+
+    const advance = (ms) =>
+      act(async () => {
+        vi.advanceTimersByTime(ms);
+        await Promise.resolve();
+      });
 
     try {
       renderController({ onWorkspaceCapacityRefresh });
@@ -446,10 +526,12 @@ describe("useDocumentController Workspace live updates", () => {
       expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
 
       act(() => {
-        WebSocketStub.instances[0].onmessage(liveMessage(
-          invalidation("workspace_product_changed", "2026-05-06T12:02:01.000Z"),
-          invalidation("template_shape_changed", "2026-05-06T12:02:02.000Z"),
-        ));
+        WebSocketStub.instances[0].onmessage(
+          liveMessage(
+            invalidation("workspace_product_changed", "2026-05-06T12:02:01.000Z"),
+            invalidation("template_shape_changed", "2026-05-06T12:02:02.000Z"),
+          ),
+        );
       });
 
       await advance(2999);
@@ -466,10 +548,12 @@ describe("useDocumentController Workspace live updates", () => {
     vi.useFakeTimers();
     const WebSocketStub = installWebSocketStub();
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
-    const advance = (ms) => act(async () => {
-      vi.advanceTimersByTime(ms);
-      await Promise.resolve();
-    });
+
+    const advance = (ms) =>
+      act(async () => {
+        vi.advanceTimersByTime(ms);
+        await Promise.resolve();
+      });
 
     try {
       const { rerender } = render(
@@ -498,7 +582,9 @@ describe("useDocumentController Workspace live updates", () => {
       expect(onWorkspaceCapacityRefresh).not.toHaveBeenCalled();
 
       act(() => {
-        WebSocketStub.instances[1].onmessage(liveMessage(invalidation("workspace_product_changed", "2026-05-06T12:03:00.000Z")));
+        WebSocketStub.instances[1].onmessage(
+          liveMessage(invalidation("workspace_product_changed", "2026-05-06T12:03:00.000Z")),
+        );
       });
 
       await advance(150);
@@ -512,7 +598,7 @@ describe("useDocumentController Workspace live updates", () => {
     const onWorkspaceCapacityRefresh = vi.fn(async () => {});
     const timeoutSpy = vi.spyOn(window, "setTimeout");
     const job = completedJob({ results: [] });
-    const request = vi.fn(async (path) => path === "/jobs/job_completed_1" ? job : jobList([job]));
+    const request = vi.fn(async (path) => (path === "/jobs/job_completed_1" ? job : jobList([job])));
 
     renderController({ request, onWorkspaceCapacityRefresh, initialWorkspace: seeded(job) });
 
@@ -526,6 +612,7 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("preserves document list order when a live lifecycle update omits the created timestamp", async () => {
     const WebSocketStub = installWebSocketStub();
+
     const jobs = [
       completedJob({
         job_id: "job_newer_1",
@@ -545,12 +632,17 @@ describe("useDocumentController Workspace live updates", () => {
         updated_at: "2026-05-06T12:01:30.000Z",
       }),
     ];
+
     const completedProcessingJob = completedUpdate("2026-05-06T12:05:00.000Z", { source_name: "processing.pdf" });
+
     const request = vi.fn(async (path) => {
       if (path === "/jobs") return jobList(jobs);
+
       if (path === "/jobs/job_processing_1") return completedProcessingJob;
+
       return jobs.find((job) => path === `/jobs/${job.job_id}`) || jobs[0];
     });
+
     const documentIds = () => controller().contextList.documents.map((job) => job.job_id);
 
     const { controller } = renderController({ request, initialWorkspace: seeded(...jobs) });
@@ -591,11 +683,15 @@ describe("useDocumentController Workspace live updates", () => {
       });
 
       expect(WebSocketStub.instances).toHaveLength(2);
-      act(() => { WebSocketStub.instances[1].onopen(); });
+      act(() => {
+        WebSocketStub.instances[1].onopen();
+      });
       expect(request).toHaveBeenCalledWith("/jobs", { method: "GET" });
       expect(onModelConfigurationInvalidation).toHaveBeenCalledTimes(1);
       act(() => {
-        WebSocketStub.instances[1].onmessage(liveMessage(invalidation("model_configuration_changed", "2026-09-03T00:00:00.000Z")));
+        WebSocketStub.instances[1].onmessage(
+          liveMessage(invalidation("model_configuration_changed", "2026-09-03T00:00:00.000Z")),
+        );
       });
       expect(onModelConfigurationInvalidation).toHaveBeenCalledTimes(2);
     } finally {
@@ -646,6 +742,7 @@ describe("useDocumentController Workspace live updates", () => {
   it("reloads paginated Documents with applied advanced filters and exposes model choices", async () => {
     const WebSocketStub = installWebSocketStub();
     const listDocuments = vi.fn(async () => jobList([], { total: 4 }));
+
     const getFilterOptions = vi.fn(async () => ({
       available_models: ["provider/model-b", "provider/model-a", "provider/model-a"],
     }));
@@ -674,13 +771,19 @@ describe("useDocumentController Workspace live updates", () => {
     });
 
     act(() => {
-      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle(completedJob({
-        job_id: "job_new_model",
-        source_name: "new-model.pdf",
-        model_name: "provider/model-c",
-        created_at: "2026-08-16T12:00:00.000Z",
-        updated_at: "2026-08-16T12:01:00.000Z",
-      }))));
+      WebSocketStub.instances[0].onmessage(
+        liveMessage(
+          lifecycle(
+            completedJob({
+              job_id: "job_new_model",
+              source_name: "new-model.pdf",
+              model_name: "provider/model-c",
+              created_at: "2026-08-16T12:00:00.000Z",
+              updated_at: "2026-08-16T12:01:00.000Z",
+            }),
+          ),
+        ),
+      );
     });
     expect(controller().contextList.availableModels).toEqual([
       "provider/model-a",
@@ -692,19 +795,24 @@ describe("useDocumentController Workspace live updates", () => {
 
   it("appends a cursor page without duplicates while retaining the selected Document", async () => {
     installWebSocketStub();
-    const page = (id, minute) => completedJob({
-      job_id: id,
-      source_name: `${id}.pdf`,
-      created_at: `2026-05-06T12:0${minute}:00.000Z`,
-      updated_at: `2026-05-06T12:0${minute}:00.000Z`,
-    });
+
+    const page = (id, minute) =>
+      completedJob({
+        job_id: id,
+        source_name: `${id}.pdf`,
+        created_at: `2026-05-06T12:0${minute}:00.000Z`,
+        updated_at: `2026-05-06T12:0${minute}:00.000Z`,
+      });
+
     const firstPage = [page("job_2", 2), page("job_1", 1)];
     const nextPage = [firstPage[1], page("job_0", 0)];
-    const listDocuments = vi.fn(async ({ cursor } = {}) => (
+
+    const listDocuments = vi.fn(async ({ cursor } = {}) =>
       cursor
         ? jobList(nextPage, { total: 3 })
-        : jobList(firstPage, { total: 3, next_cursor: "cursor_1", has_more: true })
-    ));
+        : jobList(firstPage, { total: 3, next_cursor: "cursor_1", has_more: true }),
+    );
+
     const documentIds = () => controller().contextList.documents.map((job) => job.job_id);
 
     const { controller } = renderController({
@@ -790,13 +898,17 @@ function liveMessage(...events) {
 
 function renderController(props = {}) {
   let controller = null;
+
   const view = render(
     <DocumentControllerHarness
       workspaceId="ws_1"
-      onController={(value) => { controller = value; }}
+      onController={(value) => {
+        controller = value;
+      }}
       {...props}
     />,
   );
+
   return { ...view, controller: () => controller };
 }
 
@@ -816,10 +928,13 @@ function DocumentControllerHarness({
     getFilterOptions: () => request("/jobs/filter-options", { method: "GET" }),
     listDocuments: async ({ search = "", cursor = null } = {}) => {
       const params = new URLSearchParams();
+
       if (search) params.set("search", search);
+
       if (cursor) params.set("cursor", cursor);
       const result = await request(`/jobs${params.size ? `?${params}` : ""}`, { method: "GET" });
       const jobs = Array.isArray(result?.jobs) ? result.jobs : [];
+
       return {
         jobs,
         total: Number.isFinite(result?.total) ? result.total : jobs.length,
@@ -831,6 +946,7 @@ function DocumentControllerHarness({
     submitDocument: (formData) => request("/extract", { method: "POST", body: formData }),
     ...documentRequests,
   };
+
   const controller = useDocumentController({
     apiBase: "/v1",
     initialWorkspace,
@@ -851,7 +967,9 @@ function DocumentControllerHarness({
     onModelConfigurationInvalidation,
     onActivePageChange: vi.fn(),
   });
+
   onController?.(controller);
+
   return showList ? <DocumentContextList {...controller.contextList} /> : null;
 }
 
@@ -871,5 +989,6 @@ function installWebSocketStub() {
   }
 
   globalThis.WebSocket = WebSocketStub;
+
   return WebSocketStub;
 }

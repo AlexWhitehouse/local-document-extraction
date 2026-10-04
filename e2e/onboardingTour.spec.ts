@@ -4,6 +4,7 @@ import { ONE_PIXEL_PNG, signUpAndVerify } from "./support/journeyHelpers";
 
 test("optional tour guides real creation, isolates controls and queues a document", async ({ page }, testInfo) => {
   const harness = await startRuntimeHarness({ requireEmailVerification: true });
+
   try {
     await signUpAndVerify(page, harness, { name: "Tour User", email: "tour@example.test", password: "Strong1!" });
     const invitation = page.getByRole("complementary", { name: "Welcome tour" });
@@ -14,7 +15,11 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await expect(invitation).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Take a tour", exact: true })).toHaveCount(0);
     await page.locator(".sidebar-profile-trigger").click();
-    await page.getByRole("dialog", { name: "Settings" }).locator(".settings-modal-sidebar").getByRole("button", { name: "Take a tour", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings" })
+      .locator(".settings-modal-sidebar")
+      .getByRole("button", { name: "Take a tour", exact: true })
+      .click();
     await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
     const tour = page.locator(".tour-popover");
     const next = () => tour.getByRole("button", { name: "Continue", exact: true }).click();
@@ -65,10 +70,18 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await page.route("**/v1/templates", async (route) => {
       if (route.request().method() === "POST" && failSave) {
         failSave = false;
-        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Try again" }) });
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Try again" }),
+        });
       } else await route.continue();
     });
-    const failedSave = page.waitForResponse((response) => response.url().endsWith("/v1/templates") && response.status() === 503);
+
+    const failedSave = page.waitForResponse(
+      (response) => response.url().endsWith("/v1/templates") && response.status() === 503,
+    );
+
     await target("save-template").click();
     await failedSave;
     await expect(target("save-template")).toBeEnabled();
@@ -77,7 +90,10 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await expect(tour).toContainText("Connect a model");
     await target("nav-workspace").click();
     await page.screenshot({ path: testInfo.outputPath("tour-gateway.png") });
-    await page.getByRole("article", { name: "Workspace Model gateway" }).getByRole("button", { name: "Edit", exact: true }).click();
+    await page
+      .getByRole("article", { name: "Workspace Model gateway" })
+      .getByRole("button", { name: "Edit", exact: true })
+      .click();
     await page.getByLabel("Gateway URL", { exact: true }).click();
     await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
     await page.getByLabel("Extraction model", { exact: true }).fill("browser/model");
@@ -88,7 +104,8 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await page.screenshot({ path: testInfo.outputPath("tour-upload.png") });
     await next();
     await page.locator('input[type="file"]').setInputFiles({
-      name: "tour-invoice.png", mimeType: "image/png",
+      name: "tour-invoice.png",
+      mimeType: "image/png",
       buffer: ONE_PIXEL_PNG,
     });
     await next();
@@ -107,10 +124,16 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await expect(invitation).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Take a tour", exact: true })).toHaveCount(0);
     await page.locator(".sidebar-profile-trigger").click();
-    await page.getByRole("dialog", { name: "Settings" }).locator(".settings-modal-sidebar").getByRole("button", { name: "Take a tour", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings" })
+      .locator(".settings-modal-sidebar")
+      .getByRole("button", { name: "Take a tour", exact: true })
+      .click();
     await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(tour).toHaveCount(0);
     await expect(page.locator("[inert]")).toHaveCount(0);
-  } finally { await harness.stop(); }
+  } finally {
+    await harness.stop();
+  }
 });

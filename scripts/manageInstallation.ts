@@ -13,7 +13,92 @@ export type Installation = {
   version: string;
   sha256: string;
 };
+
 type Running = { pid: number; server: string; origin: string };
+
+export function parseInstallation(contents: string): Installation {
+  const value = JSON.parse(contents);
+
+  if (!isInstallation(value)) throw new Error("Installation metadata is invalid.");
+
+  return value;
+}
+
+function isInstallation(value: unknown): value is Installation {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "root" in value &&
+    typeof value.root === "string" &&
+    "release" in value &&
+    typeof value.release === "string" &&
+    "bun" in value &&
+    typeof value.bun === "string" &&
+    "configFile" in value &&
+    typeof value.configFile === "string" &&
+    "state" in value &&
+    typeof value.state === "string" &&
+    "repo" in value &&
+    typeof value.repo === "string" &&
+    "version" in value &&
+    typeof value.version === "string" &&
+    "sha256" in value &&
+    typeof value.sha256 === "string"
+  );
+}
+
+function isRunning(value: unknown): value is Running {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "pid" in value &&
+    typeof value.pid === "number" &&
+    Number.isSafeInteger(value.pid) &&
+    value.pid > 0 &&
+    "server" in value &&
+    typeof value.server === "string" &&
+    value.server.length > 0 &&
+    "origin" in value &&
+    typeof value.origin === "string" &&
+    value.origin.length > 0
+  );
+}
+
+function hasOrigin(value: unknown): value is { origin: string } {
+  return value !== null && typeof value === "object" && "origin" in value && typeof value.origin === "string";
+}
+
+function isHealthyService(value: unknown): value is { ok: true; service: "document-extraction-api" } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "ok" in value &&
+    value.ok === true &&
+    "service" in value &&
+    value.service === "document-extraction-api"
+  );
+}
+
+function isCapturedMail(
+  value: unknown,
+): value is { occurred_at: string; to: string; subject: string; action_url?: string } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "occurred_at" in value &&
+    typeof value.occurred_at === "string" &&
+    "to" in value &&
+    typeof value.to === "string" &&
+    "subject" in value &&
+    typeof value.subject === "string" &&
+    (!("action_url" in value) || typeof value.action_url === "string")
+  );
+}
+
+export function hasSystemErrorCode(cause: unknown, code: string): boolean {
+  return cause instanceof Error && "code" in cause && cause.code === code;
+}
+
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 export async function privateDirectory(path: string) {
@@ -23,49 +108,90 @@ export async function privateDirectory(path: string) {
 
 export async function writePrivateFile(path: string, contents: string, mode = 0o600) {
   const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+
   try {
-    const descriptor = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, mode);
-    try { await descriptor.writeFile(contents); await descriptor.sync(); } finally { await descriptor.close(); }
+    const descriptor = await open(
+      temporary,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+      mode,
+    );
+
+    try {
+      await descriptor.writeFile(contents);
+      await descriptor.sync();
+    } finally {
+      await descriptor.close();
+    }
+
     // Replacing a destination symlink changes the link itself, never its target.
     await rename(temporary, path);
-  } finally { await rm(temporary, { force: true }); }
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 export async function withManagementLock<T>(root: string, action: () => Promise<T>): Promise<T> {
   await privateDirectory(root);
   const lock = join(root, "management.lock");
+
   try {
     await mkdir(lock, { mode: 0o700 });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (!hasSystemErrorCode(error, "EEXIST")) throw error;
     const holder = Number(await readFile(join(lock, "pid"), "utf8").catch(() => "0"));
-    if (!holder || processExists(holder)) throw new Error("Another installation/management command holds the installation lock.", { cause: error });
+
+    if (!holder || processExists(holder))
+      throw new Error("Another installation/management command holds the installation lock.", { cause: error });
     await rm(lock, { recursive: true });
     await mkdir(lock, { mode: 0o700 });
   }
+
   await writeFile(join(lock, "pid"), String(process.pid), { mode: 0o600 });
-  try { return await action(); } finally { await rm(lock, { recursive: true, force: true }); }
+
+  try {
+    return await action();
+  } finally {
+    await rm(lock, { recursive: true, force: true });
+  }
 }
 
 function processExists(pid: number) {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+  try {
+    process.kill(pid, 0);
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function processFinished(pid: number) {
   if (!processExists(pid)) return true;
   const result = spawnSync("ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" });
   const state = result.stdout.trim();
+
   return result.status !== 0 || !state || /[ZEX]/.test(state);
 }
 
 export async function runningInstallation(root: string): Promise<Running | null> {
-  const running = await readFile(join(root, "running.json"), "utf8").then((value) => JSON.parse(value) as Running).catch(() => null);
-  if (!running || !Number.isSafeInteger(running.pid) || running.pid < 1 || !processExists(running.pid)) return null;
-  const result = spawnSync("ps", ["-ww", "-p", String(running.pid), "-o", "stat=", "-o", "command="], { encoding: "utf8" });
+  const running = await readFile(join(root, "running.json"), "utf8")
+    .then((value) => JSON.parse(value))
+    .catch(() => null);
+
+  if (!isRunning(running) || !processExists(running.pid)) return null;
+
+  const result = spawnSync("ps", ["-ww", "-p", String(running.pid), "-o", "stat=", "-o", "command="], {
+    encoding: "utf8",
+  });
+
   const processState = result.stdout.trim().split(/\s+/)[0] || "";
+
   // macOS briefly reports an exiting process with E; Linux/macOS use Z for zombies.
   if (result.status !== 0 || !processState || /[ZEX]/.test(processState)) return null;
-  if (!result.stdout.includes(running.server)) throw new Error("Saved process ID belongs to a different process; refusing to signal it. Inspect running.json.");
+
+  if (!result.stdout.includes(running.server))
+    throw new Error("Saved process ID belongs to a different process; refusing to signal it. Inspect running.json.");
+
   return running;
 }
 
@@ -78,32 +204,56 @@ export function applicationEnvironment(installation: Installation): NodeJS.Proce
 }
 
 export function runApplicationCommand(installation: Installation, script: string) {
-  const result = spawnSync(installation.bun, [`--env-file=${installation.configFile}`, join(installation.release, script)], {
-    cwd: installation.release,
-    env: applicationEnvironment(installation),
-    stdio: "inherit",
-  });
+  const result = spawnSync(
+    installation.bun,
+    [`--env-file=${installation.configFile}`, join(installation.release, script)],
+    {
+      cwd: installation.release,
+      env: applicationEnvironment(installation),
+      stdio: "inherit",
+    },
+  );
+
   if (result.status !== 0) throw new Error(`Application check failed: ${script}`);
 }
 
 export async function assertReady(origin: string) {
   const health = await fetch(`${origin}/v1/health`, { redirect: "error", signal: AbortSignal.timeout(3_000) });
-  const details = await health.json() as { ok?: boolean; service?: string };
-  if (!health.ok || !details.ok || details.service !== "document-extraction-api") throw new Error("Health check failed.");
+  const details = await health.json();
+
+  if (!health.ok || !isHealthyService(details)) throw new Error("Health check failed.");
   const page = await fetch(origin, { redirect: "error", signal: AbortSignal.timeout(3_000) });
-  if (!page.ok || !page.headers.get("content-type")?.includes("text/html") || !(await page.text()).includes('id="root"')) {
+
+  if (
+    !page.ok ||
+    !page.headers.get("content-type")?.includes("text/html") ||
+    !(await page.text()).includes('id="root"')
+  ) {
     throw new Error("Built application page is unavailable.");
   }
 }
 
 export async function startInstallation(installation: Installation): Promise<Running> {
   const existing = await runningInstallation(installation.root);
-  if (existing) { await assertReady(existing.origin); return existing; }
+
+  if (existing) {
+    await assertReady(existing.origin);
+
+    return existing;
+  }
+
   runApplicationCommand(installation, "backend/src/checkConfiguration.ts");
   const server = join(installation.release, "backend/src/server.ts");
   const logPath = join(installation.root, "server.log");
-  const log = await open(logPath, constants.O_CREAT | constants.O_TRUNC | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+
+  const log = await open(
+    logPath,
+    constants.O_CREAT | constants.O_TRUNC | constants.O_WRONLY | constants.O_NOFOLLOW,
+    0o600,
+  );
+
   let child: ReturnType<typeof spawn>;
+
   try {
     child = spawn(installation.bun, [`--env-file=${installation.configFile}`, server], {
       cwd: installation.release,
@@ -111,27 +261,43 @@ export async function startInstallation(installation: Installation): Promise<Run
       detached: true,
       stdio: ["ignore", log.fd, log.fd],
     });
-  } finally { await log.close(); }
+  } finally {
+    await log.close();
+  }
+
   let spawnError: Error | undefined;
-  child.on("error", (error) => { spawnError = error; });
+  child.on("error", (error) => {
+    spawnError = error;
+  });
   let ready: Running | undefined;
+
   try {
     for (let attempt = 0; attempt < 150; attempt += 1) {
       if (spawnError || child.exitCode !== null || child.signalCode !== null) {
-        throw new Error(`Server did not start. Check ${logPath}; another application may already use the configured port.`);
+        throw new Error(
+          `Server did not start. Check ${logPath}; another application may already use the configured port.`,
+        );
       }
+
       const logText = await readFile(logPath, "utf8");
       const match = logText.match(/^LOCAL_RUNTIME_READY (.+)$/m);
+
       if (match) {
-        const { origin } = JSON.parse(match[1]!) as { origin: string };
+        const readiness = JSON.parse(match[1]!);
+
+        if (!hasOrigin(readiness)) throw new Error("Server readiness message is invalid.");
+        const { origin } = readiness;
         await assertReady(origin);
         ready = { pid: child.pid!, server, origin };
         await writePrivateFile(join(installation.root, "running.json"), `${JSON.stringify(ready)}\n`);
         child.unref();
+
         return ready;
       }
+
       await pause(200);
     }
+
     throw new Error(`Server readiness timed out. Check ${logPath}.`);
   } finally {
     if (!ready) {
@@ -143,94 +309,190 @@ export async function startInstallation(installation: Installation): Promise<Run
 
 export async function stopInstallation(root: string) {
   const running = await runningInstallation(root);
-  if (!running) { await rm(join(root, "running.json"), { force: true }); return; }
-  try { process.kill(running.pid, "SIGTERM"); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+
+  if (!running) {
     await rm(join(root, "running.json"), { force: true });
+
     return;
   }
+
+  try {
+    process.kill(running.pid, "SIGTERM");
+  } catch (error) {
+    if (!hasSystemErrorCode(error, "ESRCH")) throw error;
+    await rm(join(root, "running.json"), { force: true });
+
+    return;
+  }
+
   for (let attempt = 0; attempt < 150; attempt += 1) {
     // Identity was verified before our only signal. Linux may clear argv while
     // exiting, so command text is no longer a reliable shutdown observation.
     if (processFinished(running.pid)) {
       await rm(join(root, "running.json"), { force: true });
+
       return;
     }
+
     await pause(200);
   }
+
   throw new Error("Graceful shutdown is still pending; inspect the server log. No forced shutdown was performed.");
 }
 
 async function showMail(installation: Installation) {
   const directory = join(installation.state, "mail");
-  const files = (await readdir(directory).catch(() => [])).filter((file) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file)).sort();
+
+  const files = (await readdir(directory).catch(() => []))
+    .filter((file) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file))
+    .sort();
+
   const recent = files.slice(-2);
-  const lines = (await Promise.all(recent.map((file) => readFile(join(directory, file), "utf8")))).join("\n").split("\n").filter(Boolean).slice(-10);
-  if (!lines.length) { console.log("No captured local mail. Sign up first, or check your configured external mailbox."); return; }
+
+  const lines = (await Promise.all(recent.map((file) => readFile(join(directory, file), "utf8"))))
+    .join("\n")
+    .split("\n")
+    .filter(Boolean)
+    .slice(-10);
+
+  if (!lines.length) {
+    console.log("No captured local mail. Sign up first, or check your configured external mailbox.");
+
+    return;
+  }
+
   console.log("Recent local mail (private verification/reset links; do not share):");
+
   for (const line of lines) {
-    const record = JSON.parse(line) as { occurred_at: string; to: string; subject: string; action_url?: string };
+    const record = JSON.parse(line);
+
+    if (!isCapturedMail(record)) throw new Error("Captured mail record is invalid.");
     console.log(`${record.occurred_at} | ${record.to} | ${record.subject}\n${record.action_url || "No action link"}`);
   }
 }
 
 async function manage() {
   const [rootArgument, command = "status", ...args] = process.argv.slice(2);
+
   if (!rootArgument) throw new Error("Use the installed document-extraction launcher.");
   const root = resolve(rootArgument);
-  const installation = JSON.parse(await readFile(join(root, "installation.json"), "utf8")) as Installation;
-  if ((command === "start" || command === "doctor") && await Bun.file(join(root, "upgrade-incomplete.json")).exists()) {
-    throw new Error("An installation failed after migration began. Retry installation or restore the documented backup before starting an older release.");
+  const installation = parseInstallation(await readFile(join(root, "installation.json"), "utf8"));
+
+  if (
+    (command === "start" || command === "doctor") &&
+    (await Bun.file(join(root, "upgrade-incomplete.json")).exists())
+  ) {
+    throw new Error(
+      "An installation failed after migration began. Retry installation or restore the documented backup before starting an older release.",
+    );
   }
+
   if (command === "update") {
-    if (args.length > 1 || (args[0] && !/^[A-Za-z0-9_.-]+$/.test(args[0]))) throw new Error("Usage: document-extraction update [release-tag]");
-    if (await runningInstallation(root)) throw new Error("Stop the application before updating: document-extraction stop");
-    const result = spawnSync("bash", [join(installation.release, "scripts/install.sh"), "--repo", installation.repo, "--version", args[0] || "latest", "--install-dir", root, "--config-dir", resolve(installation.configFile, ".."), "--state-dir", installation.state], { stdio: "inherit" });
+    if (args.length > 1 || (args[0] && !/^[A-Za-z0-9_.-]+$/.test(args[0])))
+      throw new Error("Usage: document-extraction update [release-tag]");
+
+    if (await runningInstallation(root))
+      throw new Error("Stop the application before updating: document-extraction stop");
+
+    const result = spawnSync(
+      "bash",
+      [
+        join(installation.release, "scripts/install.sh"),
+        "--repo",
+        installation.repo,
+        "--version",
+        args[0] || "latest",
+        "--install-dir",
+        root,
+        "--config-dir",
+        resolve(installation.configFile, ".."),
+        "--state-dir",
+        installation.state,
+      ],
+      { stdio: "inherit" },
+    );
+
     process.exitCode = result.status ?? 1;
+
     return;
   }
+
   if (command === "storage") {
     const [action, ...flags] = args;
+
     if (action !== "configure" || flags.some((flag) => flag !== "--confirm-unversioned-bucket")) {
       throw new Error("Usage: document-extraction storage configure [--confirm-unversioned-bucket]");
     }
+
     await withManagementLock(root, async () => {
       // Checks run against a stopped application so dependencies cannot change before restart.
-      if (await runningInstallation(root)) throw new Error("Stop the application before configuring storage: document-extraction stop");
+      if (await runningInstallation(root))
+        throw new Error("Stop the application before configuring storage: document-extraction stop");
+
       // The launcher copy of this file stands alone; storage setup runs from the installed release.
-      const result = spawnSync(installation.bun, [join(installation.release, "scripts/sourceStorageSetup.ts"), root, ...flags], {
-        cwd: installation.release,
-        env: applicationEnvironment(installation),
-        stdio: "inherit",
-      });
+      const result = spawnSync(
+        installation.bun,
+        [join(installation.release, "scripts/sourceStorageSetup.ts"), root, ...flags],
+        {
+          cwd: installation.release,
+          env: applicationEnvironment(installation),
+          stdio: "inherit",
+        },
+      );
+
       process.exitCode = result.status ?? 1;
     });
+
     return;
   }
+
   await withManagementLock(root, async () => {
     switch (command) {
-      case "start": console.log(`Application ready: ${(await startInstallation(installation)).origin}`); break;
-      case "stop": await stopInstallation(root); console.log("Application stopped."); break;
+      case "start":
+        console.log(`Application ready: ${(await startInstallation(installation)).origin}`);
+        break;
+      case "stop":
+        await stopInstallation(root);
+        console.log("Application stopped.");
+        break;
       case "status": {
         const running = await runningInstallation(root);
+
         if (running) console.log(`Running: ${running.origin} (PID ${running.pid})`);
-        else { console.log("Application stopped."); process.exitCode = 3; }
+        else {
+          console.log("Application stopped.");
+          process.exitCode = 3;
+        }
+
         break;
       }
+
       case "doctor": {
         runApplicationCommand(installation, "backend/src/checkConfiguration.ts");
         runApplicationCommand(installation, "scripts/nativeSmoke.ts");
         const running = await runningInstallation(root);
+
         if (running) await assertReady(running.origin);
-        console.log(`Installation checks passed. Application ${running ? "running" : "stopped"}.\nConfig: ${installation.configFile}\nState: ${installation.state}`);
+        console.log(
+          `Installation checks passed. Application ${running ? "running" : "stopped"}.\nConfig: ${installation.configFile}\nState: ${installation.state}`,
+        );
         break;
       }
-      case "mail": await showMail(installation); break;
-      default: throw new Error("Commands: start, stop, status, doctor, mail, update [release-tag], storage configure");
+
+      case "mail":
+        await showMail(installation);
+        break;
+      default:
+        throw new Error("Commands: start, stop, status, doctor, mail, update [release-tag], storage configure");
     }
   });
 }
 
 if (import.meta.main) {
-  try { await manage(); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }
+  try {
+    await manage();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

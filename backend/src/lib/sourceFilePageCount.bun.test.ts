@@ -23,7 +23,11 @@ describe("Source file page count", () => {
     const content = Buffer.alloc(32 * 1024 * 1024, 32);
     content.write("100 0 << /Synthetic true >>");
     const encoded = Buffer.from(deflateSync(content).toString("hex") + ">");
-    const source = metadataPdf([streamObject(4, "/Type /ObjStm /N 1 /First 6 /Filter [/ASCIIHexDecode /FlateDecode]", encoded)]);
+
+    const source = metadataPdf([
+      streamObject(4, "/Type /ObjStm /N 1 /First 6 /Filter [/ASCIIHexDecode /FlateDecode]", encoded),
+    ]);
+
     await expect(countPdfSourceFilePages(source)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
   });
 
@@ -38,31 +42,47 @@ describe("Source file page count", () => {
   });
 
   it("counts xref entries across all streams, including ones with no decoded bytes", async () => {
-    const source = metadataPdf([4, 5].map((id) => streamObject(id, "/Type /XRef /Root 1 0 R /Size 30000 /W [0 0 0]", new Uint8Array())));
+    const source = metadataPdf(
+      [4, 5].map((id) => streamObject(id, "/Type /XRef /Root 1 0 R /Size 30000 /W [0 0 0]", new Uint8Array())),
+    );
+
     await expect(countPdfSourceFilePages(source)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
   });
 
   it.each([
     ["nested arrays", `${"[".repeat(100)}0${"]".repeat(100)}`],
-    ["large string tokens", `(${'a'.repeat(256 * 1024 + 1)})`],
+    ["large string tokens", `(${"a".repeat(256 * 1024 + 1)})`],
     ["large numeric tokens", "0".repeat(256 * 1024 + 1)],
   ])("bounds %s", async (_name, object) => {
-    await expect(countPdfSourceFilePages(metadataPdf([Buffer.from(`4 0 obj\n${object}\nendobj\n`)]))).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+    await expect(
+      countPdfSourceFilePages(metadataPdf([Buffer.from(`4 0 obj\n${object}\nendobj\n`)])),
+    ).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
   });
 
   it("budgets reparsing the same string through repeated object-stream offsets", async () => {
     const count = 80;
     const offsets = Array.from({ length: count }, (_, index) => `${100 + index} 0 `).join("");
-    const contents = Buffer.from(offsets + `(${'a'.repeat(128 * 1024)})`);
-    const source = metadataPdf([streamObject(4, `/Type /ObjStm /N ${count} /First ${offsets.length} /Filter /FlateDecode`, deflateSync(contents))]);
+    const contents = Buffer.from(offsets + `(${"a".repeat(128 * 1024)})`);
+
+    const source = metadataPdf([
+      streamObject(4, `/Type /ObjStm /N ${count} /First ${offsets.length} /Filter /FlateDecode`, deflateSync(contents)),
+    ]);
+
     await expect(countPdfSourceFilePages(source)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
   });
 
   it("budgets raw stream copies made through repeated object-stream offsets", async () => {
     const count = 70;
     const offsets = Array.from({ length: count }, (_, index) => `${100 + index} 0 `).join("");
-    const contents = Buffer.from(offsets + `<< /Length ${1024 * 1024} >>\nstream\n${"a".repeat(1024 * 1024)}\nendstream`);
-    const source = metadataPdf([streamObject(4, `/Type /ObjStm /N ${count} /First ${offsets.length} /Filter /FlateDecode`, deflateSync(contents))]);
+
+    const contents = Buffer.from(
+      offsets + `<< /Length ${1024 * 1024} >>\nstream\n${"a".repeat(1024 * 1024)}\nendstream`,
+    );
+
+    const source = metadataPdf([
+      streamObject(4, `/Type /ObjStm /N ${count} /First ${offsets.length} /Filter /FlateDecode`, deflateSync(contents)),
+    ]);
+
     await expect(countPdfSourceFilePages(source)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
   });
 
@@ -107,27 +127,45 @@ describe("Source file page count", () => {
 describe("PDF inspection process lifecycle", () => {
   it("reuses inspectors with fresh document budgets and retires them after bounded use", async () => {
     const counter = createPdfSourceFilePageCounter({ maxConcurrent: 1 });
+
     try {
       const first = metadataPdf([]);
       const pdf = await PDFDocument.create();
-      pdf.addPage(); pdf.addPage();
+      pdf.addPage();
+      pdf.addPage();
       const second = await pdf.save();
+
       for (let index = 0; index < 33; index++) {
         expect(await counter.count(index % 2 ? second : first)).toBe(index % 2 ? 2 : 1);
       }
+
       expect(counter.diagnostics().spawned).toBe(2);
-      await expect(counter.count(pdfWithCompressedObjectStreams([32 * 1024 * 1024]))).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+      await expect(counter.count(pdfWithCompressedObjectStreams([32 * 1024 * 1024]))).rejects.toMatchObject({
+        code: "pdf_source_file_limit_exceeded",
+      });
       await expect(counter.count(first)).resolves.toBe(1);
       expect(counter.diagnostics().spawned).toBe(3);
-    } finally { await counter.close(); }
+    } finally {
+      await counter.close();
+    }
+
     expect(counter.diagnostics()).toMatchObject({ active: 0, queued: 0, reservedBytes: 0, idle: 0 });
     await expect(counter.count(metadataPdf([]))).rejects.toMatchObject({ code: "pdf_validation_capacity_unavailable" });
   });
   it("keeps the caller responsive while rejecting compressed expansion", async () => {
     const source = pdfWithCompressedObjectStreams([32 * 1024 * 1024]);
     const events: string[] = [];
-    const parsing = countPdfSourceFilePages(source).catch(() => { events.push("parsed"); });
-    await new Promise<void>((resolve) => setTimeout(() => { events.push("timer"); resolve(); }, 0));
+
+    const parsing = countPdfSourceFilePages(source).catch(() => {
+      events.push("parsed");
+    });
+
+    await new Promise<void>((resolve) =>
+      setTimeout(() => {
+        events.push("timer");
+        resolve();
+      }, 0),
+    );
     await parsing;
     expect(events).toEqual(["timer", "parsed"]);
   });
@@ -144,8 +182,13 @@ describe("PDF inspection process lifecycle", () => {
     const controller = new AbortController();
     const parsing = counter.count(pdfWithCompressedObjectStreams([32 * 1024 * 1024]), controller.signal);
     const timer = setTimeout(() => controller.abort(), 0);
-    try { await expect(parsing).rejects.toMatchObject({ name: "AbortError" }); }
-    finally { clearTimeout(timer); }
+
+    try {
+      await expect(parsing).rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      clearTimeout(timer);
+    }
+
     expect(counter.snapshot()).toEqual({ active: 0, queued: 0, reservedBytes: 0 });
     await expect(counter.count(metadataPdf([]))).resolves.toBe(1);
   });
@@ -186,41 +229,64 @@ describe("PDF inspection process lifecycle", () => {
     expect(await active).toMatchObject({ name: "AbortError" });
     expect(await queued).toMatchObject({ name: "AbortError" });
     expect(counter.snapshot()).toEqual({ active: 0, queued: 0, reservedBytes: 0 });
-    await expect(counter.count(new Uint8Array(32 * 1024 * 1024 + 1))).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+    await expect(counter.count(new Uint8Array(32 * 1024 * 1024 + 1))).rejects.toMatchObject({
+      code: "pdf_source_file_limit_exceeded",
+    });
     expect(counter.snapshot()).toEqual({ active: 0, queued: 0, reservedBytes: 0 });
   });
 
   it("releases capacity and drains the queue after a spawn failure", async () => {
     const counter = createPdfSourceFilePageCounter({ maxConcurrent: 1 });
-    const spawn = spyOn(Bun, "spawn").mockImplementationOnce(() => { throw new Error("private operating-system details"); });
+
+    const spawn = spyOn(Bun, "spawn").mockImplementationOnce(() => {
+      throw new Error("private operating-system details");
+    });
+
     try {
       const failed = counter.count(metadataPdf([])).catch((error) => error);
       const queued = counter.count(metadataPdf([]));
-      expect(await failed).toMatchObject({ code: "invalid_pdf_source_file", message: "PDF Source file could not be read" });
+      expect(await failed).toMatchObject({
+        code: "invalid_pdf_source_file",
+        message: "PDF Source file could not be read",
+      });
       await expect(queued).resolves.toBe(1);
       expect(counter.snapshot()).toEqual({ active: 0, queued: 0, reservedBytes: 0 });
-    } finally { spawn.mockRestore(); }
+    } finally {
+      spawn.mockRestore();
+    }
   });
 });
 
 function metadataPdf(objects: Uint8Array[]): Uint8Array {
   return Buffer.concat([
-    Buffer.from("%PDF-1.5\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n"),
-    ...objects, Buffer.from("trailer\n<< /Root 1 0 R /Size 200 >>\n%%EOF\n"),
+    Buffer.from(
+      "%PDF-1.5\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
+    ),
+    ...objects,
+    Buffer.from("trailer\n<< /Root 1 0 R /Size 200 >>\n%%EOF\n"),
   ]);
 }
+
 function streamObject(id: number, dictionary: string, data: Uint8Array): Uint8Array {
-  return Buffer.concat([Buffer.from(`${id} 0 obj\n<< ${dictionary} /Length ${data.length} >>\nstream\n`), data, Buffer.from("\nendstream\nendobj\n")]);
+  return Buffer.concat([
+    Buffer.from(`${id} 0 obj\n<< ${dictionary} /Length ${data.length} >>\nstream\n`),
+    data,
+    Buffer.from("\nendstream\nendobj\n"),
+  ]);
 }
 
 it("keeps a bounded inspector warm between short upload bursts", async () => {
   const counter = createPdfSourceFilePageCounter({ maxConcurrent: 1 });
-  const document = await PDFDocument.create(); document.addPage();
+  const document = await PDFDocument.create();
+  document.addPage();
   const bytes = await document.save();
+
   try {
     expect(await counter.count(bytes)).toBe(1);
     await Bun.sleep(1_100);
     expect(await counter.count(bytes)).toBe(1);
     expect(counter.diagnostics().spawned).toBe(1);
-  } finally { await counter.close(); }
+  } finally {
+    await counter.close();
+  }
 });

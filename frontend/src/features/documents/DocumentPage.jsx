@@ -1,8 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  ExtractionJobStatusDisplay,
-  ExtractionResultDisplay,
-} from "./ExtractionResultDisplay.jsx";
+import { ExtractionJobStatusDisplay, ExtractionResultDisplay } from "./ExtractionResultDisplay.jsx";
 import { SourceFilePreview } from "./SourceFilePreview.jsx";
 import "./DocumentViewing.css";
 import { PacketPage } from "./PacketPage.jsx";
@@ -12,24 +9,23 @@ import { ProcessingCost } from "./ProcessingCost.jsx";
 
 const NARROW_SPLIT_WIDTH = 600;
 
-export function DocumentPage({
-  selectedDocument,
-  selectedPacketId,
-  packetPage,
-  ...detail
-}) {
+export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, ...detail }) {
   if (selectedPacketId) {
     if (isSingleDocumentPacket(packetPage?.packet)) {
       return <SinglePacketDocument {...detail} packetPage={packetPage} />;
     }
-    return <PacketPage {...packetPage} renderDocument={(document) => <DocumentDetail {...detail} selectedDocument={document} />} />;
-  }
-  if (!selectedDocument)
+
     return (
-      <p className="studio-empty-state">
-        Select an uploaded document, or upload one to get started.
-      </p>
+      <PacketPage
+        {...packetPage}
+        renderDocument={(document) => <DocumentDetail {...detail} selectedDocument={document} />}
+      />
     );
+  }
+
+  if (!selectedDocument)
+    return <p className="studio-empty-state">Select an uploaded document, or upload one to get started.</p>;
+
   return <DocumentDetail {...detail} selectedDocument={selectedDocument} />;
 }
 
@@ -38,9 +34,14 @@ function SinglePacketDocument({ packetPage, ...detail }) {
   const child = singlePacketDocument(packet);
   const hasDetails = child && activeDocument?.job_id === child.job_id;
   const exclusions = packet.plan?.exclusions || [];
+
   return (
     <>
-      {error ? <p role="alert" className="packet-message is-error">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="packet-message is-error">
+          {error}
+        </p>
+      ) : null}
       {child ? (
         <DocumentDetail
           {...detail}
@@ -53,7 +54,8 @@ function SinglePacketDocument({ packetPage, ...detail }) {
         <section className="studio-document-page document-layout-results" aria-label="Document results">
           <div className="studio-document-summary">
             <span className={`studio-document-status ${packet.status === "queued" ? "queued" : "processing"}`}>
-              <i aria-hidden="true" />{packet.status === "queued" ? "Queued" : "Processing"}
+              <i aria-hidden="true" />
+              {packet.status === "queued" ? "Queued" : "Processing"}
             </span>
           </div>
           <div className="job-status-stack">
@@ -67,7 +69,11 @@ function SinglePacketDocument({ packetPage, ...detail }) {
       {exclusions.length ? (
         <section className="packet-message" aria-label="Excluded pages">
           <strong>Excluded pages</strong>
-          {exclusions.map(({ page, reason }) => <p key={page}>Page {page}: {reason}</p>)}
+          {exclusions.map(({ page, reason }) => (
+            <p key={page}>
+              Page {page}: {reason}
+            </p>
+          ))}
         </section>
       ) : null}
     </>
@@ -88,17 +94,15 @@ function DocumentDetail({
   loadOriginal,
   sourceStorageConfigured = false,
 }) {
-  const results = Array.isArray(selectedDocument.results)
-    ? selectedDocument.results
-    : [];
-  const confidences = results
-    .map((result) => result.confidence)
-    .filter((value) => typeof value === "number" && Number.isFinite(value));
-  const average = confidences.length
-    ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length
-    : null;
+  const results = Array.isArray(selectedDocument.results) ? selectedDocument.results : [];
+
+  const confidences = results.flatMap((result) => (Number.isFinite(result.confidence) ? [result.confidence] : []));
+
+  const average = confidences.length ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length : null;
+
   const status = String(selectedDocument.status || "queued");
   const date = new Date(selectedDocument.created_at);
+
   const dateLabel = Number.isNaN(date.getTime())
     ? ""
     : date.toLocaleString(undefined, {
@@ -108,35 +112,35 @@ function DocumentDetail({
         hour: "2-digit",
         minute: "2-digit",
       });
+
   // A Document without a retained original shows results only; the Account preference is kept.
-  const canViewOriginal = (selectedDocument.source_retained === true || status === "awaiting_template") && Boolean(loadOriginal);
+  const canViewOriginal =
+    (selectedDocument.source_retained === true || status === "awaiting_template") && Boolean(loadOriginal);
+
   const layout = canViewOriginal ? viewingLayout : "results";
   const isHeld = status === "awaiting_template" || selectedDocument.routing_status === "awaiting_template";
+
   const resultDisplay = (
     <>
-      {status !== "completed" ? (
-        <ExtractionJobStatusDisplay job={selectedDocument} />
-      ) : null}
+      {status !== "completed" ? <ExtractionJobStatusDisplay job={selectedDocument} /> : null}
       {documentError ? (
         <div className="packet-message is-error">
           <p role="alert">{documentError}</p>
-          <button type="button" className="secondary" onClick={onRetryDocument}>Retry document</button>
+          <button type="button" className="secondary" onClick={onRetryDocument}>
+            Retry document
+          </button>
         </div>
       ) : (
         <ExtractionResultDisplay
           job={selectedDocument}
-          isLoading={
-            loadingDocumentDetailsId === String(selectedDocument.job_id || "")
-          }
+          isLoading={loadingDocumentDetailsId === String(selectedDocument.job_id || "")}
         />
       )}
     </>
   );
+
   return (
-    <section
-      className={`studio-document-page document-layout-${layout}`}
-      aria-label="Document results"
-    >
+    <section className={`studio-document-page document-layout-${layout}`} aria-label="Document results">
       <div className="studio-document-summary">
         <span className={`studio-document-status ${status}`}>
           <i aria-hidden="true" />
@@ -144,8 +148,7 @@ function DocumentDetail({
         </span>
         {results.length ? (
           <span>
-            {results.length} {results.length === 1 ? "field" : "fields"}{" "}
-            extracted
+            {results.length} {results.length === 1 ? "field" : "fields"} extracted
           </span>
         ) : null}
         {average !== null ? (
@@ -154,19 +157,23 @@ function DocumentDetail({
           </span>
         ) : null}
         {status === "completed" ? <ProcessingCost costs={selectedDocument.costs} /> : null}
-        {selectedDocument.source_pages ? (
-          <span>Pages {formatPages(selectedDocument.source_pages)}</span>
-        ) : null}
-        {dateLabel ? (
-          <time dateTime={date.toISOString()}>{dateLabel}</time>
-        ) : null}
+        {selectedDocument.source_pages ? <span>Pages {formatPages(selectedDocument.source_pages)}</span> : null}
+        {dateLabel ? <time dateTime={date.toISOString()}>{dateLabel}</time> : null}
         {canViewOriginal ? (
           <DocumentLayoutToggle layout={layout} onChange={onViewingLayoutChange} />
         ) : sourceStorageConfigured ? (
           <span className="document-original-note">Original not retained</span>
         ) : null}
       </div>
-      {isHeld ? <TemplateHold job={selectedDocument} templates={templates} onResolve={onResolveTemplate} busy={isResolvingTemplate} error={templateResolutionError} /> : null}
+      {isHeld ? (
+        <TemplateHold
+          job={selectedDocument}
+          templates={templates}
+          onResolve={onResolveTemplate}
+          busy={isResolvingTemplate}
+          error={templateResolutionError}
+        />
+      ) : null}
       {layout === "side-by-side" ? (
         <SideBySide key={selectedDocument.job_id} document={selectedDocument} loadOriginal={loadOriginal}>
           {resultDisplay}
@@ -181,7 +188,10 @@ function DocumentDetail({
 function DocumentLayoutToggle({ layout, onChange }) {
   return (
     <span className="segmented document-layout-toggle" role="radiogroup" aria-label="Document view">
-      {[["results", "Results"], ["side-by-side", "Side by side"]].map(([value, label]) => (
+      {[
+        ["results", "Results"],
+        ["side-by-side", "Side by side"],
+      ].map(([value, label]) => (
         <button
           key={value}
           type="button"
@@ -205,15 +215,20 @@ function SideBySide({ document, loadOriginal, children }) {
 
   useEffect(() => {
     const element = host.current;
-    if (!element || typeof ResizeObserver !== "function") return undefined;
+
+    if (!element || typeof ResizeObserver === "undefined") return undefined;
+
     const observer = new ResizeObserver(([entry]) => {
       setIsNarrow(entry.contentRect.width < NARROW_SPLIT_WIDTH);
     });
+
     observer.observe(element);
+
     return () => observer.disconnect();
   }, []);
 
   const [isDragging, setIsDragging] = useState(false);
+
   // The PDF preview is an iframe, which swallows pointer events once the cursor crosses it.
   // Capturing the pointer on the divider and disabling pointer events on the preview while
   // dragging keeps the split following the cursor in both directions.
@@ -223,24 +238,31 @@ function SideBySide({ document, loadOriginal, children }) {
     const { pointerId } = event;
     divider.setPointerCapture?.(pointerId);
     setIsDragging(true);
+
     const move = (moveEvent) => {
       const box = host.current?.getBoundingClientRect();
+
       if (!box?.width) return;
       setSplit(Math.min(70, Math.max(30, ((moveEvent.clientX - box.left) / box.width) * 100)));
     };
+
     const stop = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
+
       if (divider.hasPointerCapture?.(pointerId)) divider.releasePointerCapture(pointerId);
       setIsDragging(false);
     };
+
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
     window.addEventListener("pointercancel", stop);
   };
+
   const nudge = (event) => {
     const step = { ArrowLeft: -5, ArrowRight: 5 }[event.key];
+
     if (!step) return;
     event.preventDefault();
     setSplit((value) => Math.min(70, Math.max(30, value + step)));
@@ -248,6 +270,7 @@ function SideBySide({ document, loadOriginal, children }) {
 
   const showDocument = !isNarrow || narrowTab === "document";
   const showResults = !isNarrow || narrowTab === "results";
+
   return (
     <div
       ref={host}
@@ -256,7 +279,10 @@ function SideBySide({ document, loadOriginal, children }) {
     >
       {isNarrow ? (
         <div className="document-split-tabs" role="tablist" aria-label="Document view">
-          {[["results", "Results"], ["document", "Document"]].map(([value, label]) => (
+          {[
+            ["results", "Results"],
+            ["document", "Document"],
+          ].map(([value, label]) => (
             <button
               key={value}
               type="button"
@@ -296,16 +322,42 @@ function SideBySide({ document, loadOriginal, children }) {
 function TemplateHold({ job, templates, onResolve, busy, error }) {
   const [templateId, setTemplateId] = useState("");
   useEffect(() => setTemplateId(""), [job.job_id]);
-  return <section className="routing-summary" aria-label="Template selection">
-    <h3>Choose a template to continue</h3>
-    <p>{job.selection_reason || "Automatic selection could not identify a suitable template. Select a template to continue with the uploaded document."}</p>
-    {job.template_tags?.length ? <p>Requested tags: {job.template_tags.join(", ")}</p> : null}
-    <form onSubmit={(event) => { event.preventDefault(); if (templateId) void onResolve?.(job.job_id, templateId); }}>
-      <label>Template for this document<select value={templateId} disabled={busy} onChange={(event) => setTemplateId(event.target.value)}>
-        <option value="">Select template</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-      </select></label>
-      <button type="submit" disabled={busy || !templateId}>{busy ? "Continuing…" : "Use template and continue"}</button>
-    </form>
-    {error ? <p role="alert" className="processing-error">{error}</p> : null}
-  </section>;
+
+  return (
+    <section className="routing-summary" aria-label="Template selection">
+      <h3>Choose a template to continue</h3>
+      <p>
+        {job.selection_reason ||
+          "Automatic selection could not identify a suitable template. Select a template to continue with the uploaded document."}
+      </p>
+      {job.template_tags?.length ? <p>Requested tags: {job.template_tags.join(", ")}</p> : null}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+
+          if (templateId) void onResolve?.(job.job_id, templateId);
+        }}
+      >
+        <label>
+          Template for this document
+          <select value={templateId} disabled={busy} onChange={(event) => setTemplateId(event.target.value)}>
+            <option value="">Select template</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" disabled={busy || !templateId}>
+          {busy ? "Continuing…" : "Use template and continue"}
+        </button>
+      </form>
+      {error ? (
+        <p role="alert" className="processing-error">
+          {error}
+        </p>
+      ) : null}
+    </section>
+  );
 }

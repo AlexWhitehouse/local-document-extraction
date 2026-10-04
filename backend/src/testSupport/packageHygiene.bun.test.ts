@@ -15,13 +15,16 @@ const repositoryRoot = resolve(import.meta.dir, "../../..");
 
 describe("Bun package hygiene", () => {
   test("normalizes and sorts a portable production license inventory", () => {
-    const normalized = normalizeLicenseInventory({
-      MIT: [
-        { name: "zeta", paths: [`${repositoryRoot}/node_modules/zeta`], versions: ["2.0.0"] },
-        { name: "alpha", paths: [`${repositoryRoot}/backend/node_modules/alpha`], versions: ["1.0.0"] },
-      ],
-      "Apache-2.0": [{ name: "middle", paths: ["/outside/cache/middle"], versions: ["3.0.0"] }],
-    }, repositoryRoot);
+    const normalized = normalizeLicenseInventory(
+      {
+        MIT: [
+          { name: "zeta", paths: [`${repositoryRoot}/node_modules/zeta`], versions: ["2.0.0"] },
+          { name: "alpha", paths: [`${repositoryRoot}/backend/node_modules/alpha`], versions: ["1.0.0"] },
+        ],
+        "Apache-2.0": [{ name: "middle", paths: ["/outside/cache/middle"], versions: ["3.0.0"] }],
+      },
+      repositoryRoot,
+    );
 
     expect(Object.keys(normalized)).toEqual(["Apache-2.0", "MIT"]);
     expect(normalized.MIT?.map((entry) => entry.name)).toEqual(["alpha", "zeta"]);
@@ -31,8 +34,9 @@ describe("Bun package hygiene", () => {
 
   test("accepts an empty production audit and rejects actionable advisories", () => {
     expect(validateProductionAudit("{}")).toEqual({ advisoryCount: 0 });
-    expect(() => validateProductionAudit(JSON.stringify({ GHSA_example: { severity: "high" } })))
-      .toThrow("1 production advisory");
+    expect(() => validateProductionAudit(JSON.stringify({ GHSA_example: { severity: "high" } }))).toThrow(
+      "1 production advisory",
+    );
   });
 
   test("declares only non-mutating hygiene commands", () => {
@@ -41,13 +45,15 @@ describe("Bun package hygiene", () => {
   });
 
   test("rejects package diff evidence without the reviewed shape", () => {
-    expect(() => validatePackageDiffEvidence({
-      files: [],
-      from: "pdfjs-dist@6.1.200",
-      notes: ["new module imports: fs"],
-      to: "pdfjs-dist@6.2.108",
-      totals: { added: 0, deleted: 0, files: 1, linesAdded: 1, linesRemoved: 1 },
-    })).not.toThrow();
+    expect(() =>
+      validatePackageDiffEvidence({
+        files: [],
+        from: "pdfjs-dist@6.1.200",
+        notes: ["new module imports: fs"],
+        to: "pdfjs-dist@6.2.108",
+        totals: { added: 0, deleted: 0, files: 1, linesAdded: 1, linesRemoved: 1 },
+      }),
+    ).not.toThrow();
     expect(() => validatePackageDiffEvidence({ from: "x", to: "y" })).toThrow("files");
   });
 
@@ -59,13 +65,16 @@ describe("Bun package hygiene", () => {
       to: "package@2.0.0",
       totals: { added: 0, deleted: 0, files: 1, linesAdded: 2, linesRemoved: 0 },
     });
-    expect(summarized.files).toEqual([{
-      linesAdded: 2,
-      patchBytes: 33,
-      patchSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-      path: "dist/index.js",
-      status: "modified",
-    }]);
+
+    expect(summarized.files).toEqual([
+      {
+        linesAdded: 2,
+        patchBytes: 33,
+        patchSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        path: "dist/index.js",
+        status: "modified",
+      },
+    ]);
     expect(JSON.stringify(summarized)).not.toContain("credential-looking");
   });
 });

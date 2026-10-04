@@ -1,13 +1,28 @@
+import { parseJson, type JsonValue } from "../../shared/json";
 import { HttpError, toHttpError } from "./lib/http";
 import type { LocalAuth } from "./localAuth";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
-import { LocalWorkspaceProductDataAccessError, type LocalWorkspaceProductDataAccess } from "./localWorkspaceProductDataAccess";
+import {
+  LocalWorkspaceProductDataAccessError,
+  type LocalWorkspaceProductDataAccess,
+} from "./localWorkspaceProductDataAccess";
 import { buildChatCompletionsUrl, readRunResultContent } from "./consumer/modelGateway";
-import { createWorkspaceCredentialVault, modelConfigurationETag, publicModelConfiguration, validateWorkspaceModelDraft, configurationMissing, type WorkspaceModelDraft, type StoredWorkspaceModelConfiguration } from "./workspaceModelConfiguration";
+import {
+  createWorkspaceCredentialVault,
+  modelConfigurationETag,
+  publicModelConfiguration,
+  validateWorkspaceModelDraft,
+  configurationMissing,
+  type WorkspaceModelDraft,
+  type StoredWorkspaceModelConfiguration,
+} from "./workspaceModelConfiguration";
 
 const noStore = { "cache-control": "no-store" };
-const failedCondition = () => new HttpError(412, "precondition_failed", "The configuration changed. Reload it before trying again.");
+
+const failedCondition = () =>
+  new HttpError(412, "precondition_failed", "The configuration changed. Reload it before trying again.");
+
 const missingCondition = () => new HttpError(428, "precondition_required", "A configuration precondition is required.");
 
 export async function handleWorkspaceModelConfiguration(input: {
@@ -21,101 +36,233 @@ export async function handleWorkspaceModelConfiguration(input: {
   liveUpdateHub?: LocalLiveUpdateHub;
 }): Promise<Response> {
   const { request, workspaceId, auth, workspaceControl } = input;
+
   try {
     const session = await auth.getSession(request);
+
     if (!session) throw new HttpError(401, "unauthorized", "Authentication required");
     const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId: session.id });
+
     if (!workspace) throw new HttpError(403, "forbidden", "You do not have access to this workspace");
     const canManage = workspace.role === "owner" || workspace.role === "admin";
-    if ((input.test || request.method !== "GET") && !canManage) throw new HttpError(403, "insufficient_workspace_role", "Only Workspace owners and admins can manage model configuration.");
+
+    if ((input.test || request.method !== "GET") && !canManage)
+      throw new HttpError(
+        403,
+        "insufficient_workspace_role",
+        "Only Workspace owners and admins can manage model configuration.",
+      );
     const allowed = input.test ? ["POST"] : ["GET", "PUT", "DELETE"];
-    if (!allowed.includes(request.method)) return Response.json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, { status: 405, headers: { ...noStore, allow: allowed.join(", ") } });
-    return await input.access.run({ workspaceId, mode: request.method === "PUT" ? "create" : "existing" }, async ({ store }) => {
-      const vault = createWorkspaceCredentialVault(input.stateDirectory);
-      const represent = (record: StoredWorkspaceModelConfiguration | null, status = 200) => Response.json(publicModelConfiguration(record, workspaceId, canManage, vault), {
-        status, headers: { ...noStore, ...(record && canManage ? { etag: modelConfigurationETag(record.revision) } : {}) },
-      });
-      if (request.method === "GET") return represent(store?.getModelConfiguration() ?? null);
-      const ifMatch = request.headers.get("if-match");
-      const ifNoneMatch = request.headers.get("if-none-match");
-      if (request.method === "DELETE") {
+
+    if (!allowed.includes(request.method))
+      return Response.json(
+        { error: { code: "method_not_allowed", message: "Method not allowed" } },
+        { status: 405, headers: { ...noStore, allow: allowed.join(", ") } },
+      );
+
+    return await input.access.run(
+      { workspaceId, mode: request.method === "PUT" ? "create" : "existing" },
+      async ({ store }) => {
+        const vault = createWorkspaceCredentialVault(input.stateDirectory);
+
+        const represent = (record: StoredWorkspaceModelConfiguration | null, status = 200) => {
+          const headers = new Headers(noStore);
+
+          if (record && canManage) headers.set("etag", modelConfigurationETag(record.revision));
+
+          return Response.json(publicModelConfiguration(record, workspaceId, canManage, vault), { status, headers });
+        };
+
+        if (request.method === "GET") return represent(store?.getModelConfiguration() ?? null);
+        const ifMatch = request.headers.get("if-match");
+        const ifNoneMatch = request.headers.get("if-none-match");
+
+        if (request.method === "DELETE") {
+          if (!ifMatch && !ifNoneMatch) throw missingCondition();
+          const current = store?.getModelConfiguration();
+
+          if (
+            !current ||
+            ifNoneMatch ||
+            ifMatch !== modelConfigurationETag(current.revision) ||
+            !store!.clearModelConfiguration(current.revision)
+          )
+            throw failedCondition();
+          input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({
+            workspaceId,
+            reason: "model_configuration_changed",
+            occurredAt: new Date().toISOString(),
+          });
+
+          return new Response(null, { status: 204, headers: noStore });
+        }
+
+        let body: JsonValue;
+
+        try {
+          body = parseJson(await request.text());
+        } catch {
+          throw new HttpError(
+            400,
+            "invalid_workspace_model_configuration",
+            "Provide valid JSON for the Workspace model configuration.",
+          );
+        }
+
+        const draft = validateWorkspaceModelDraft(body);
+
+        if (input.test && draft.credential !== undefined) {
+          return await testWorkspaceModelConnection(draft, draft.credential, request.signal);
+        }
+
+        const current = store?.getModelConfiguration() ?? null;
+
         if (!ifMatch && !ifNoneMatch) throw missingCondition();
-        const current = store?.getModelConfiguration();
-        if (!current || ifNoneMatch || ifMatch !== modelConfigurationETag(current.revision) || !store!.clearModelConfiguration(current.revision)) throw failedCondition();
-        input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({ workspaceId, reason: "model_configuration_changed", occurredAt: new Date().toISOString() });
-        return new Response(null, { status: 204, headers: noStore });
-      }
-      let body: unknown;
-      try { body = await request.json(); } catch { throw new HttpError(400, "invalid_workspace_model_configuration", "Provide valid JSON for the Workspace model configuration."); }
-      const draft = validateWorkspaceModelDraft(body);
-      if (input.test && draft.credential !== undefined) {
-        return await testWorkspaceModelConnection(draft, draft.credential, request.signal);
-      }
-      const current = store?.getModelConfiguration() ?? null;
-      if (!ifMatch && !ifNoneMatch) throw missingCondition();
-      const creating = request.method === "PUT" && ifNoneMatch === "*" && !ifMatch;
-      if (creating ? current !== null : !current || ifNoneMatch || ifMatch !== modelConfigurationETag(current.revision)) throw failedCondition();
-      if (input.test) {
-        if (!current) throw configurationMissing();
-        return await testWorkspaceModelConnection(draft, vault.decrypt(workspaceId, current.credential_ciphertext), request.signal);
-      }
-      if (!draft.credential && !current) throw new HttpError(400, "invalid_workspace_model_configuration", "A new configuration requires a credential.");
-      const { credential, ...fields } = draft;
-      // Checking usability before preserving ciphertext keeps replacement-with-a-new-key and clear as repair paths.
-      if (!credential) vault.decrypt(workspaceId, current!.credential_ciphertext);
-      const saved = store!.putModelConfiguration({
-        expectedRevision: current?.revision ?? null,
-        configuration: { ...fields, credential_ciphertext: credential ? vault.encrypt(workspaceId, credential) : current!.credential_ciphertext },
-        updatedAt: new Date().toISOString(),
-      });
-      if (!saved) throw failedCondition();
-      input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({ workspaceId, reason: "model_configuration_changed", occurredAt: saved.updated_at });
-      return represent(saved, creating ? 201 : 200);
-    });
+        const creating = request.method === "PUT" && ifNoneMatch === "*" && !ifMatch;
+
+        if (
+          creating ? current !== null : !current || ifNoneMatch || ifMatch !== modelConfigurationETag(current.revision)
+        )
+          throw failedCondition();
+
+        if (input.test) {
+          if (!current) throw configurationMissing();
+
+          return await testWorkspaceModelConnection(
+            draft,
+            vault.decrypt(workspaceId, current.credential_ciphertext),
+            request.signal,
+          );
+        }
+
+        if (!draft.credential && !current)
+          throw new HttpError(
+            400,
+            "invalid_workspace_model_configuration",
+            "A new configuration requires a credential.",
+          );
+        const { credential, ...fields } = draft;
+
+        // Checking usability before preserving ciphertext keeps replacement-with-a-new-key and clear as repair paths.
+        if (!credential) vault.decrypt(workspaceId, current!.credential_ciphertext);
+
+        const saved = store!.putModelConfiguration({
+          expectedRevision: current?.revision ?? null,
+          configuration: {
+            ...fields,
+            credential_ciphertext: credential ? vault.encrypt(workspaceId, credential) : current!.credential_ciphertext,
+          },
+          updatedAt: new Date().toISOString(),
+        });
+
+        if (!saved) throw failedCondition();
+        input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({
+          workspaceId,
+          reason: "model_configuration_changed",
+          occurredAt: saved.updated_at,
+        });
+
+        return represent(saved, creating ? 201 : 200);
+      },
+    );
   } catch (error) {
-    const safe = error instanceof LocalWorkspaceProductDataAccessError
-      ? error.code === "unexpected"
-        ? toHttpError(error.cause)
-        : new HttpError(503, "workspace_product_store_unavailable", "Workspace product storage is temporarily unavailable.")
-      : toHttpError(error);
-    return Response.json({ error: { code: safe.code, message: safe.message } }, { status: safe.status, headers: noStore });
+    const safe =
+      error instanceof LocalWorkspaceProductDataAccessError
+        ? error.code === "unexpected"
+          ? toHttpError(error.cause)
+          : new HttpError(
+              503,
+              "workspace_product_store_unavailable",
+              "Workspace product storage is temporarily unavailable.",
+            )
+        : toHttpError(error);
+
+    return Response.json(
+      { error: { code: safe.code, message: safe.message } },
+      { status: safe.status, headers: noStore },
+    );
   }
 }
 
 /** Tests each distinct configured model. Reports the first failing model’s role. */
-export async function testWorkspaceModelConnection(draft: WorkspaceModelDraft, credential: string, signal?: AbortSignal): Promise<Response> {
-  const models: Array<[role: "extraction" | "assistant" | "classification", model: string]> = [["extraction", draft.model_name]];
-  if (draft.assistant_model && draft.assistant_model.model_name !== draft.model_name) models.push(["assistant", draft.assistant_model.model_name]);
-  if (draft.classification_model && !models.some(([, model]) => model === draft.classification_model!.model_name)) models.push(["classification", draft.classification_model.model_name]);
+export async function testWorkspaceModelConnection(
+  draft: WorkspaceModelDraft,
+  credential: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const models: Array<[role: "extraction" | "assistant" | "classification", model: string]> = [
+    ["extraction", draft.model_name],
+  ];
+
+  if (draft.assistant_model && draft.assistant_model.model_name !== draft.model_name)
+    models.push(["assistant", draft.assistant_model.model_name]);
+
+  if (draft.classification_model && !models.some(([, model]) => model === draft.classification_model!.model_name))
+    models.push(["classification", draft.classification_model.model_name]);
+
   for (const [role, model] of models) {
     const failure = await testModel(draft.gateway_url, model, role, credential, signal);
+
     if (failure) return failure;
   }
-  return Response.json({ status: "passed", tested_models: models.map(([model_role, model_name]) => ({ model_role, model_name })) }, { headers: noStore });
+
+  return Response.json(
+    { status: "passed", tested_models: models.map(([model_role, model_name]) => ({ model_role, model_name })) },
+    { headers: noStore },
+  );
 }
 
-async function testModel(gatewayUrl: string, model: string, model_role: string, credential: string, signal?: AbortSignal): Promise<Response | null> {
+async function testModel(
+  gatewayUrl: string,
+  model: string,
+  model_role: string,
+  credential: string,
+  signal?: AbortSignal,
+): Promise<Response | null> {
   const timeout = AbortSignal.timeout(30_000);
-  const error = (status: number, code: string, message: string, gateway_status?: number) => Response.json({ error: { code, message, model_role, ...(gateway_status === undefined ? {} : { gateway_status }) } }, { status, headers: noStore });
+
+  const error = (status: number, code: string, message: string, gateway_status?: number) => {
+    type ConnectionFailure = { code: string; message: string; model_role: string; gateway_status?: number };
+
+    const detail: ConnectionFailure = { code, message, model_role };
+
+    if (gateway_status !== undefined) detail.gateway_status = gateway_status;
+
+    return Response.json({ error: detail }, { status, headers: noStore });
+  };
+
   try {
     const response = await fetch(buildChatCompletionsUrl({ MODEL_GATEWAY_URL: gatewayUrl }), {
-      method: "POST", redirect: "manual",
+      method: "POST",
+      redirect: "manual",
       headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
       body: JSON.stringify({ model, messages: [{ role: "user", content: "Reply with OK." }] }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
+
     if (!response.ok) {
       await response.body?.cancel();
-      if (response.status === 408 || response.status === 429 || response.status >= 500) return error(503, "model_gateway_test_unavailable", "The Model gateway is temporarily unavailable.");
+
+      if (response.status === 408 || response.status === 429 || response.status >= 500)
+        return error(503, "model_gateway_test_unavailable", "The Model gateway is temporarily unavailable.");
+
       return error(422, "model_gateway_test_rejected", "The Model gateway rejected the test request.", response.status);
     }
+
     const body = await response.text();
+
     try {
       readRunResultContent(JSON.parse(body));
     } catch {
       if (timeout.aborted) return error(504, "model_gateway_test_timeout", "The Model gateway test timed out.");
-      return error(502, "model_gateway_test_invalid_response", "The Model gateway returned no readable assistant response.");
+
+      return error(
+        502,
+        "model_gateway_test_invalid_response",
+        "The Model gateway returned no readable assistant response.",
+      );
     }
+
     return null;
   } catch {
     return timeout.aborted

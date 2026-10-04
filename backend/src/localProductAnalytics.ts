@@ -48,10 +48,24 @@ export type LocalWorkspaceProductAnalyticsEvent =
     });
 
 type LocalProductAnalyticsLogger = {
-  warn(message: string, error: unknown): void;
+  warn(message: string, cause: unknown): void;
 };
 
-type SerializedAnalyticsEvent = Record<string, string | number>;
+type SerializedAnalyticsEvent = {
+  occurred_at: string;
+  type: string;
+  workspace_id: string;
+  template_id: string;
+  template_version: number;
+  status: string;
+  field_count?: number;
+  extraction_job_id?: string;
+  attempt?: number;
+  source_mime_type?: string;
+  source_byte_size?: number;
+  model_name?: string;
+  error_code?: string;
+};
 
 export type LocalProductAnalytics = {
   flush(): Promise<void>;
@@ -73,43 +87,64 @@ export function createLocalProductAnalytics({
   let pendingBytes = 0;
   let dropped = 0;
   let writing: Promise<void> | null = null;
+
   const drain = () => {
     if (writing) return writing;
-    writing = Promise.resolve().then(async () => {
-      while (pending.length) {
-        const first = pending.shift()!;
-        let content = first.line;
-        let bytes = first.bytes;
-        pendingBytes -= first.bytes;
-        while (pending[0]?.path === first.path && bytes + pending[0].bytes <= 64 * 1024) {
-          const next = pending.shift()!;
-          content += next.line;
-          bytes += next.bytes;
-          pendingBytes -= next.bytes;
+    writing = Promise.resolve()
+      .then(async () => {
+        while (pending.length) {
+          const first = pending.shift()!;
+          let content = first.line;
+          let bytes = first.bytes;
+          pendingBytes -= first.bytes;
+
+          while (pending[0]?.path === first.path && bytes + pending[0].bytes <= 64 * 1024) {
+            const next = pending.shift()!;
+            content += next.line;
+            bytes += next.bytes;
+            pendingBytes -= next.bytes;
+          }
+
+          try {
+            await append(first.path, content);
+          } catch (error) {
+            logger.warn("Local product analytics write failed", error);
+          }
         }
-        try { await append(first.path, content); }
-        catch (error) { logger.warn("Local product analytics write failed", error); }
-      }
-      if (dropped) {
-        logger.warn("Local product analytics buffer full", { droppedEvents: dropped });
-        dropped = 0;
-      }
-    }).finally(() => { writing = null; if (pending.length) void drain(); });
+
+        if (dropped) {
+          logger.warn("Local product analytics buffer full", { droppedEvents: dropped });
+          dropped = 0;
+        }
+      })
+      .finally(() => {
+        writing = null;
+
+        if (pending.length) void drain();
+      });
+
     return writing;
   };
 
   return {
-    flush: async () => { do { await drain(); } while (pending.length || writing); },
+    flush: async () => {
+      do {
+        await drain();
+      } while (pending.length || writing);
+    },
     record: (event) => {
       const occurredAt = now();
       const path = join(stateDirectory, "analytics", `${occurredAt.toISOString().slice(0, 10)}.jsonl`);
       const line = `${JSON.stringify(serializeEvent(event, occurredAt))}\n`;
       const bytes = Buffer.byteLength(line);
+
       if (bytes > 64 * 1024 || pendingBytes + bytes > 1024 * 1024) {
         dropped += 1;
         void drain();
+
         return;
       }
+
       pending.push({ path, line, bytes });
       pendingBytes += bytes;
       void drain();
@@ -117,10 +152,7 @@ export function createLocalProductAnalytics({
   };
 }
 
-function serializeEvent(
-  event: LocalWorkspaceProductAnalyticsEvent,
-  occurredAt: Date,
-): SerializedAnalyticsEvent {
+function serializeEvent(event: LocalWorkspaceProductAnalyticsEvent, occurredAt: Date): SerializedAnalyticsEvent {
   const record: SerializedAnalyticsEvent = {
     occurred_at: occurredAt.toISOString(),
     type: event.type,
@@ -133,17 +165,21 @@ function serializeEvent(
   if ("fieldCount" in event) {
     record.field_count = event.fieldCount;
   }
+
   if ("extractionJobId" in event) {
     record.extraction_job_id = event.extractionJobId;
     record.attempt = event.attempt;
     record.source_mime_type = event.sourceMimeType;
   }
+
   if ("sourceByteSize" in event) {
     record.source_byte_size = event.sourceByteSize;
   }
+
   if ("modelName" in event) {
     record.model_name = event.modelName;
   }
+
   if ("errorCode" in event) {
     record.error_code = event.errorCode;
   }

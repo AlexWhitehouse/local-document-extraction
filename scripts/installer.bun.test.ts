@@ -1,7 +1,21 @@
+import { isJsonObject, isString, parseJson } from "../shared/json";
+import { type SQLQueryBindings, Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { inTerminal } from "./installerTestSupport";
-import { Database } from "bun:sqlite";
-import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+
+import {
+  appendFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createLocalWorkspaceControl } from "../backend/src/localWorkspaceControl";
@@ -9,34 +23,69 @@ import { createLocalWorkspaceProductStore } from "../backend/src/localWorkspaceP
 import { createWorkspaceCredentialVault } from "../backend/src/workspaceModelConfiguration";
 
 const repository = resolve(import.meta.dir, "..");
+
 let temporary: string;
+
 let archive: string;
+
 let checksum: string;
+
 let root: string;
+
 let state: string;
+
 let config: string;
+
 let launcher: string;
+
 let path = process.env.PATH || "/usr/bin:/bin";
+
 type Result = { code: number; output: string };
 
 async function command(args: string[], extra: Record<string, string> = {}): Promise<Result> {
   const child = Bun.spawn(args, {
     cwd: repository,
     env: { HOME: process.env.HOME!, PATH: path, TMPDIR: tmpdir(), PORT: "0", ...extra },
-    stdout: "pipe", stderr: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+
   return { code, output: stdout + stderr };
 }
+
 function passed(result: Result) {
   if (result.code !== 0) throw new Error(`Command exited ${result.code}:\n${result.output.slice(-6000)}`);
 }
+
 function pipeInstaller(args: string[]) {
   return ["bash", "-o", "pipefail", "-c", 'cat "$1" | bash -s -- "${@:2}"', "installer-pipe", ...args.slice(1)];
 }
+
 async function install(extra: string[] = [], environment: Record<string, string> = {}) {
-  return command(["bash", join(repository, "scripts/install.sh"), "--archive", archive, "--sha256", checksum,
-    "--install-dir", root, "--config-dir", config, "--state-dir", state, ...extra], environment);
+  return command(
+    [
+      "bash",
+      join(repository, "scripts/install.sh"),
+      "--archive",
+      archive,
+      "--sha256",
+      checksum,
+      "--install-dir",
+      root,
+      "--config-dir",
+      config,
+      "--state-dir",
+      state,
+      ...extra,
+    ],
+    environment,
+  );
 }
 
 beforeAll(async () => {
@@ -46,13 +95,22 @@ beforeAll(async () => {
   state = join(temporary, "state with spaces");
   launcher = join(root, "document-extraction");
   const output = join(temporary, "release");
-  passed(await command([process.execPath, "--no-env-file", join(repository, "scripts/packageRelease.ts"), "--output", output]));
+  passed(
+    await command([
+      process.execPath,
+      "--no-env-file",
+      join(repository, "scripts/packageRelease.ts"),
+      "--output",
+      output,
+    ]),
+  );
   archive = join(output, "document-extraction.tar.gz");
   checksum = (await readFile(`${archive}.sha256`, "utf8")).split(" ")[0]!;
 }, 30_000);
 
 afterAll(async () => {
-  if (launcher && await Bun.file(launcher).exists()) await command([launcher, "stop"]);
+  if (launcher && (await Bun.file(launcher).exists())) await command([launcher, "stop"]);
+
   if (temporary) await rm(temporary, { recursive: true, force: true });
 }, 40_000);
 
@@ -68,30 +126,59 @@ describe("macOS/Linux release installer", () => {
   });
 
   test("piped install without a terminal uses defaults, renders a PDF, starts the SPA and protects persistent files", async () => {
-    passed(await command(pipeInstaller(["bash", join(repository, "scripts/install.sh"), "--archive", archive, "--sha256", checksum,
-      "--install-dir", root, "--config-dir", config, "--state-dir", state])));
+    passed(
+      await command(
+        pipeInstaller([
+          "bash",
+          join(repository, "scripts/install.sh"),
+          "--archive",
+          archive,
+          "--sha256",
+          checksum,
+          "--install-dir",
+          root,
+          "--config-dir",
+          config,
+          "--state-dir",
+          state,
+        ]),
+      ),
+    );
     const metadata = JSON.parse(await readFile(join(root, "installation.json"), "utf8"));
     const running = JSON.parse(await readFile(join(root, "running.json"), "utf8"));
     const response = await fetch(`${running.origin}/v1/health`);
-    expect((await response.json() as { ok: boolean }).ok).toBe(true);
+    expect(await response.json()).toMatchObject({ ok: true });
     expect(await (await fetch(running.origin)).text()).toContain('id="root"');
-    expect(await (await fetch(`${running.origin}/v1/config`)).json()).toMatchObject({ auth: { requireEmailVerification: false } });
+    expect(await (await fetch(`${running.origin}/v1/config`)).json()).toMatchObject({
+      auth: { requireEmailVerification: false },
+    });
+
     const signup = await fetch(`${running.origin}/api/auth/sign-up/email`, {
-      method: "POST", headers: { "content-type": "application/json", origin: running.origin },
+      method: "POST",
+      headers: { "content-type": "application/json", origin: running.origin },
       body: JSON.stringify({ email: "installer@example.test", name: "Installer test", password: "Strong1!" }),
     });
+
     expect(signup.ok).toBe(true);
-    const cookie = signup.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
+
+    const cookie = signup.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+
     expect(cookie).not.toBe("");
     const workspaces = await fetch(`${running.origin}/v1/workspaces`, { headers: { cookie } });
     expect(workspaces.status).toBe(200);
     expect(await workspaces.json()).toMatchObject({ workspaces: [expect.objectContaining({ role: "owner" })] });
     expect(await readdir(join(state, "mail"))).toEqual([]);
+
     // Request an optional link explicitly so backup/restore still verifies signed-token preservation.
     const verification = await fetch(`${running.origin}/api/auth/send-verification-email`, {
-      method: "POST", headers: { "content-type": "application/json", origin: running.origin },
+      method: "POST",
+      headers: { "content-type": "application/json", origin: running.origin },
       body: JSON.stringify({ email: "installer@example.test", callbackURL: "/" }),
     });
+
     expect(verification.ok).toBe(true);
     expect((await stat(state)).mode & 0o777).toBe(0o700);
     expect((await stat(join(config, "config.env"))).mode & 0o777).toBe(0o600);
@@ -109,21 +196,51 @@ describe("macOS/Linux release installer", () => {
     const installRoot = join(fixture, "app");
     const configRoot = join(fixture, "config");
     const installedLauncher = join(installRoot, "document-extraction");
-    const args = ["bash", join(repository, "scripts/install.sh"), "--archive", archive, "--sha256", checksum,
-      "--install-dir", installRoot, "--config-dir", configRoot, "--state-dir", join(fixture, "state"), "--no-start"];
+
+    const args = [
+      "bash",
+      join(repository, "scripts/install.sh"),
+      "--archive",
+      archive,
+      "--sha256",
+      checksum,
+      "--install-dir",
+      installRoot,
+      "--config-dir",
+      configRoot,
+      "--state-dir",
+      join(fixture, "state"),
+      "--no-start",
+    ];
+
     const googleSecret = "synthetic-google-$HOME-secret";
     const emailToken = "synthetic-email-$PATH-token";
+
     try {
-      const result = await inTerminal(pipeInstaller(args), [
-        ["reverse proxy? [y/N]: ", "y\n"], ["Public app URL (for example https://documents.example.com): ", "https://docs.example.com\n"],
-        ["Google sign-in? [y/N]: ", "y\n"], ["Google client ID: ", "synthetic-client\n"],
-        ["Google client secret (hidden): ", `${googleSecret}\n`], ["email and password login? [Y/n]: ", "y\n"],
-        ["with Cloudflare? [y/N]: ", "y\n"], ["Cloudflare account ID: ", `${"a".repeat(32)}\n`],
-        ["Cloudflare Email API token (hidden): ", `${emailToken}\n`],
-        ["From email address (on your onboarded domain): ", "sender@example.com\n"], ["From name [Document Extraction]: ", "Installer Test\n"],
-        ["email and password? [Y/n]: ", "y\n"],
-        ["Keep original documents? (none, local or s3) [none]: ", "local\n"],
-      ], { cwd: repository, env: { HOME: process.env.HOME!, PATH: path, TMPDIR: tmpdir(), PORT: "0", TERM: "xterm" }, timeout: 120_000 });
+      const result = await inTerminal(
+        pipeInstaller(args),
+        [
+          ["reverse proxy? [y/N]: ", "y\n"],
+          ["Public app URL (for example https://documents.example.com): ", "https://docs.example.com\n"],
+          ["Google sign-in? [y/N]: ", "y\n"],
+          ["Google client ID: ", "synthetic-client\n"],
+          ["Google client secret (hidden): ", `${googleSecret}\n`],
+          ["email and password login? [Y/n]: ", "y\n"],
+          ["with Cloudflare? [y/N]: ", "y\n"],
+          ["Cloudflare account ID: ", `${"a".repeat(32)}\n`],
+          ["Cloudflare Email API token (hidden): ", `${emailToken}\n`],
+          ["From email address (on your onboarded domain): ", "sender@example.com\n"],
+          ["From name [Document Extraction]: ", "Installer Test\n"],
+          ["email and password? [Y/n]: ", "y\n"],
+          ["Keep original documents? (none, local or s3) [none]: ", "local\n"],
+        ],
+        {
+          cwd: repository,
+          env: { HOME: process.env.HOME!, PATH: path, TMPDIR: tmpdir(), PORT: "0", TERM: "xterm" },
+          timeout: 120_000,
+        },
+      );
+
       passed(result);
       expect(result.answered).toBe(13);
       expect(result.output).not.toContain(googleSecret);
@@ -132,16 +249,32 @@ describe("macOS/Linux release installer", () => {
       const saved = await readFile(savedPath, "utf8");
       expect((await stat(savedPath)).mode & 0o777).toBe(0o600);
       const metadata = JSON.parse(await readFile(join(installRoot, "installation.json"), "utf8"));
-      const configuration = await command([metadata.bun, `--env-file=${savedPath}`, "-e",
-        `import {readLocalConfiguration} from ${JSON.stringify(join(metadata.release, "backend/src/localConfiguration.ts"))}; const c=readLocalConfiguration(); console.log(JSON.stringify({origin:c.auth.baseURL,google:c.auth.googleEnabled,verify:c.auth.requireEmailVerification,provider:c.email.provider,storage:c.sourceStorage,secret:process.env.GOOGLE_CLIENT_SECRET,token:process.env.CLOUDFLARE_EMAIL_API_TOKEN}));`]);
+
+      const configuration = await command([
+        metadata.bun,
+        `--env-file=${savedPath}`,
+        "-e",
+        `import {readLocalConfiguration} from ${JSON.stringify(join(metadata.release, "backend/src/localConfiguration.ts"))}; const c=readLocalConfiguration(); console.log(JSON.stringify({origin:c.auth.baseURL,google:c.auth.googleEnabled,verify:c.auth.requireEmailVerification,provider:c.email.provider,storage:c.sourceStorage,secret:process.env.GOOGLE_CLIENT_SECRET,token:process.env.CLOUDFLARE_EMAIL_API_TOKEN}));`,
+      ]);
+
       passed(configuration);
-      expect(JSON.parse(configuration.output)).toEqual({ origin: "https://docs.example.com", google: true, verify: true, provider: "cloudflare", storage: { provider: "local", originalRetentionEnabled: true }, secret: googleSecret, token: emailToken });
+      expect(JSON.parse(configuration.output)).toEqual({
+        origin: "https://docs.example.com",
+        google: true,
+        verify: true,
+        provider: "cloudflare",
+        storage: { provider: "local", originalRetentionEnabled: true },
+        secret: googleSecret,
+        token: emailToken,
+      });
       // Even --interactive without a terminal skips the wizard when config already exists.
       const upgraded = await command([...args, "--interactive"]);
       passed(upgraded);
       expect(upgraded.output).toContain("setup questions are skipped on upgrades");
       expect(await readFile(savedPath, "utf8")).toBe(saved);
-    } finally { if (await Bun.file(installedLauncher).exists()) await command([installedLauncher, "stop"]); }
+    } finally {
+      if (await Bun.file(installedLauncher).exists()) await command([installedLauncher, "stop"]);
+    }
   }, 180_000);
 
   test("refuses to upgrade a running instance", async () => {
@@ -162,28 +295,50 @@ describe("macOS/Linux release installer", () => {
     const signalled = join(fixture, "signalled");
     const observations = join(fixture, "ps-count");
     const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-    await writeFile(server, `process.on("SIGTERM", () => { Bun.write(${JSON.stringify(signalled)}, "yes"); setTimeout(() => process.exit(0), 1000); });\nawait Bun.write(${JSON.stringify(ready)}, "yes");\nsetInterval(() => {}, 100);\n`);
-    const child = Bun.spawn([process.execPath, "--no-env-file", server], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    await writeFile(
+      server,
+      `process.on("SIGTERM", () => { Bun.write(${JSON.stringify(signalled)}, "yes"); setTimeout(() => process.exit(0), 1000); });\nawait Bun.write(${JSON.stringify(ready)}, "yes");\nsetInterval(() => {}, 100);\n`,
+    );
+
+    const child = Bun.spawn([process.execPath, "--no-env-file", server], {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+
     try {
-      for (let attempt = 0; attempt < 100 && !await Bun.file(ready).exists(); attempt += 1) await Bun.sleep(20);
+      for (let attempt = 0; attempt < 100 && !(await Bun.file(ready).exists()); attempt += 1) await Bun.sleep(20);
       expect(await Bun.file(ready).exists()).toBe(true);
-      await writeFile(join(fixture, "running.json"), JSON.stringify({ pid: child.pid, server, origin: "http://127.0.0.1:1" }));
-      await writeFile(join(shimDirectory, "ps"), `#!/bin/sh
+      await writeFile(
+        join(fixture, "running.json"),
+        JSON.stringify({ pid: child.pid, server, origin: "http://127.0.0.1:1" }),
+      );
+      await writeFile(
+        join(shimDirectory, "ps"),
+        `#!/bin/sh
 set -eu
 count=0
 if [ -f ${shellQuote(observations)} ]; then count=$(cat ${shellQuote(observations)}); fi
 count=$((count + 1))
 printf '%s' "$count" > ${shellQuote(observations)}
 if [ "$count" = 2 ]; then printf 'S [bun]\\n'; else exec /bin/ps "$@"; fi
-`, { mode: 0o700 });
+`,
+        { mode: 0o700 },
+      );
       const stopScript = join(fixture, "stop.ts");
-      await writeFile(stopScript, `import { stopInstallation } from ${JSON.stringify(join(repository, "scripts/manageInstallation.ts"))};\nawait stopInstallation(${JSON.stringify(fixture)});\n`);
+      await writeFile(
+        stopScript,
+        `import { stopInstallation } from ${JSON.stringify(join(repository, "scripts/manageInstallation.ts"))};\nawait stopInstallation(${JSON.stringify(fixture)});\n`,
+      );
       passed(await command([process.execPath, "--no-env-file", stopScript], { PATH: `${shimDirectory}:${path}` }));
       expect(await Bun.file(signalled).exists()).toBe(true);
       expect(Number(await readFile(observations, "utf8"))).toBeGreaterThanOrEqual(2);
       expect(await child.exited).toBe(0);
       expect(await Bun.file(join(fixture, "running.json")).exists()).toBe(false);
-    } finally { child.kill("SIGKILL"); await child.exited; }
+    } finally {
+      child.kill("SIGKILL");
+      await child.exited;
+    }
   }, 15_000);
 
   test("rejects broad, overlapping and symlink-disguised paths before changing their permissions", async () => {
@@ -191,14 +346,20 @@ if [ "$count" = 2 ]; then printf 'S [bun]\\n'; else exec /bin/ps "$@"; fi
     const sharedMode = (await stat(temporary)).mode;
     const alias = join(temporary, "home-alias");
     await symlink(process.env.HOME!, alias);
+
     for (const options of [
-      ["--install-dir", "/"], ["--config-dir", process.env.HOME!], ["--state-dir", tmpdir()],
-      ["--config-dir", alias], ["--config-dir", temporary], ["--state-dir", join(root, "nested-state")],
+      ["--install-dir", "/"],
+      ["--config-dir", process.env.HOME!],
+      ["--state-dir", tmpdir()],
+      ["--config-dir", alias],
+      ["--config-dir", temporary],
+      ["--state-dir", join(root, "nested-state")],
     ]) {
       const result = await install(options);
       expect(result.code).not.toBe(0);
       expect(result.output).toMatch(/dedicated|non-overlapping/);
     }
+
     expect((await stat(process.env.HOME!)).mode).toBe(homeMode);
     expect((await stat(temporary)).mode).toBe(sharedMode);
   }, 60_000);
@@ -210,6 +371,7 @@ if [ "$count" = 2 ]; then printf 'S [bun]\\n'; else exec /bin/ps "$@"; fi
     const configFile = join(config, "config.env");
     const savedConfig = join(config, "saved-config.env");
     await rename(configFile, savedConfig);
+
     try {
       await symlink(target, configFile);
       const linked = await install();
@@ -232,53 +394,95 @@ if [ "$count" = 2 ]; then printf 'S [bun]\\n'; else exec /bin/ps "$@"; fi
 
   test("preserves config and state, backs up before migration, and can leave the app stopped", async () => {
     const configFile = join(config, "config.env");
-    await writeFile(configFile, (await readFile(configFile, "utf8")).replace("AUTH_REQUIRE_EMAIL_VERIFICATION=false", "AUTH_REQUIRE_EMAIL_VERIFICATION=true"));
+    await writeFile(
+      configFile,
+      (await readFile(configFile, "utf8")).replace(
+        "AUTH_REQUIRE_EMAIL_VERIFICATION=false",
+        "AUTH_REQUIRE_EMAIL_VERIFICATION=true",
+      ),
+    );
     await appendFile(join(config, "config.env"), "\n# preserved custom configuration\n");
     await writeFile(join(state, "operator-marker"), "preserve me");
     const original = await readFile(join(config, "config.env"), "utf8");
     const authSecret = await readFile(join(state, "data/better-auth-secret"), "utf8");
     const control = new Database(join(state, "data/control.sqlite"));
     let workspaceId: string;
+
     try {
-      const account = control.query('SELECT id FROM "user" WHERE email = ?').get("installer@example.test") as { id: string };
-      workspaceId = createLocalWorkspaceControl(control).createWorkspace({ userId: account.id, name: "Backup preservation" }).workspace_id;
-    } finally { control.close(); }
+      const account = control
+        .query<{ id: string }, SQLQueryBindings[]>('SELECT id FROM "user" WHERE email = ?')
+        .get("installer@example.test")!;
+
+      workspaceId = createLocalWorkspaceControl(control).createWorkspace({
+        userId: account.id,
+        name: "Backup preservation",
+      }).workspace_id;
+    } finally {
+      control.close();
+    }
+
     const credential = "installer-backup-dummy-credential";
     const productStore = createLocalWorkspaceProductStore({ stateDirectory: state, workspaceId });
+
     try {
       const vault = createWorkspaceCredentialVault(state);
+
       const saved = productStore.putModelConfiguration({
         expectedRevision: null,
         configuration: {
-          gateway_url: "http://127.0.0.1:1/v1", model_name: "installer/test-model",
+          gateway_url: "http://127.0.0.1:1/v1",
+          model_name: "installer/test-model",
           credential_ciphertext: vault.encrypt(workspaceId, credential),
-          sequential_calls: false, supports_pdf_input: false, supports_structured_output: false,
+          sequential_calls: false,
+          supports_pdf_input: false,
+          supports_structured_output: false,
         },
         updatedAt: new Date().toISOString(),
       });
+
       expect(saved).not.toBeNull();
       expect(saved!.credential_ciphertext).not.toContain(credential);
-    } finally { productStore.close(); }
+    } finally {
+      productStore.close();
+    }
+
     const modelSecret = await readFile(join(state, "secrets/model-gateway.key"));
     const mailFiles = (await readdir(join(state, "mail"))).filter((file) => file.endsWith(".jsonl")).sort();
-    const mail = (await readFile(join(state, "mail", mailFiles.at(-1)!), "utf8")).trim().split("\n")
-      .map((line) => JSON.parse(line) as { to: string; action_url?: string })
-      .find((entry) => entry.to === "installer@example.test" && entry.action_url);
-    expect(mail?.action_url).toBeTruthy();
+
+    const mail = (await readFile(join(state, "mail", mailFiles.at(-1)!), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => parseJson(line))
+      .find((entry) => isJsonObject(entry) && entry.to === "installer@example.test" && entry.action_url);
+
+    if (!isJsonObject(mail) || !isString(mail.action_url))
+      throw new Error("Verification mail is missing its action URL.");
+    expect(mail.action_url).toBeTruthy();
     passed(await install(["--no-start"]));
     expect(await readFile(join(config, "config.env"), "utf8")).toBe(original);
     expect(await readFile(join(state, "operator-marker"), "utf8")).toBe("preserve me");
     expect(await readFile(join(state, "data/better-auth-secret"), "utf8")).toBe(authSecret);
     expect((await readFile(join(state, "secrets/model-gateway.key"))).equals(modelSecret)).toBe(true);
     const upgradedStore = createLocalWorkspaceProductStore({ stateDirectory: state, workspaceId });
+
     try {
       const saved = upgradedStore.getModelConfiguration();
       expect(saved).not.toBeNull();
       expect(createWorkspaceCredentialVault(state).decrypt(workspaceId, saved!.credential_ciphertext)).toBe(credential);
-    } finally { upgradedStore.close(); }
+    } finally {
+      upgradedStore.close();
+    }
+
     const database = new Database(join(state, "data/control.sqlite"), { readonly: true });
-    try { expect(database.query('SELECT email FROM "user" WHERE email = ?').get("installer@example.test")).toEqual({ email: "installer@example.test" }); }
-    finally { database.close(); }
+
+    try {
+      expect(database.query('SELECT email FROM "user" WHERE email = ?').get("installer@example.test")).toEqual({
+        email: "installer@example.test",
+      });
+    } finally {
+      database.close();
+    }
+
     const backups = await readdir(join(root, "backups"));
     expect(backups.length).toBeGreaterThan(0);
     expect(await readFile(join(root, "backups", backups[0]!, "operator-marker"), "utf8")).toBe("preserve me");
@@ -289,7 +493,9 @@ if [ "$count" = 2 ]; then printf 'S [bun]\\n'; else exec /bin/ps "$@"; fi
     const installed = JSON.parse(await readFile(join(root, "installation.json"), "utf8"));
     const restored = { ...installed, root: join(temporary, "restored runtime"), state: restoredState };
     const restoreScript = join(temporary, "verify-restored-backup.ts");
-    await writeFile(restoreScript, `
+    await writeFile(
+      restoreScript,
+      `
 import { privateDirectory, runApplicationCommand, startInstallation, stopInstallation } from ${JSON.stringify(join(installed.release, "scripts/manageInstallation.ts"))};
 import { createLocalWorkspaceProductStore } from ${JSON.stringify(join(installed.release, "backend/src/localWorkspaceProductStore.ts"))};
 import { createWorkspaceCredentialVault } from ${JSON.stringify(join(installed.release, "backend/src/workspaceModelConfiguration.ts"))};
@@ -313,7 +519,8 @@ try {
   if (!signIn.ok) throw new Error("The restored account cannot sign in with its original password.");
   console.log("RESTORED_BACKUP_VERIFIED");
 } finally { await stopInstallation(installation.root); }
-`);
+`,
+    );
     const restoredResult = await command([installed.bun, "--no-env-file", restoreScript]);
     passed(restoredResult);
     expect(restoredResult.output).toContain("RESTORED_BACKUP_VERIFIED");
@@ -324,7 +531,16 @@ try {
   test("rejects checksum and download failures without changing the active installation", async () => {
     const before = await readFile(join(root, "installation.json"), "utf8");
     expect((await install(["--sha256", "0".repeat(64)])).code).not.toBe(0);
-    const missing = await command(["bash", join(repository, "scripts/install.sh"), "--repo", "document-extraction-installer-test/missing-repository", "--install-dir", root]);
+
+    const missing = await command([
+      "bash",
+      join(repository, "scripts/install.sh"),
+      "--repo",
+      "document-extraction-installer-test/missing-repository",
+      "--install-dir",
+      root,
+    ]);
+
     expect(missing.code).not.toBe(0);
     expect(await readFile(join(root, "installation.json"), "utf8")).toBe(before);
   }, 60_000);
@@ -349,13 +565,17 @@ try {
 
   test("detects occupied ports and blocks unsafe old-release startup after migration", async () => {
     const occupied = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("occupied") });
+
     try {
       const result = await install(["--no-start"], { PORT: String(occupied.port) });
       expect(result.code).not.toBe(0);
       expect(result.output).toContain("another application may already use");
       expect(await Bun.file(join(root, "upgrade-incomplete.json")).exists()).toBe(true);
       expect((await command([launcher, "start"])).code).not.toBe(0);
-    } finally { await occupied.stop(true); }
+    } finally {
+      await occupied.stop(true);
+    }
+
     passed(await install(["--no-start"]));
     expect(await Bun.file(join(root, "upgrade-incomplete.json")).exists()).toBe(false);
     passed(await command([launcher, "start"]));
@@ -369,7 +589,9 @@ try {
     const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
     // Exercise the production HTTPS URL selection unchanged; only curl's transport
     // is replaced. Unknown URLs fail, including an accidental upstream/default repo.
-    await writeFile(join(shimDirectory, "curl"), `#!/bin/sh
+    await writeFile(
+      join(shimDirectory, "curl"),
+      `#!/bin/sh
 set -eu
 url=
 output=
@@ -388,13 +610,32 @@ case "$url" in
     cp ${shellQuote(`${archive}.sha256`)} "$output" ;;
   *) printf 'Unexpected download URL: %s\\n' "$url" >&2; exit 22 ;;
 esac
-`, { mode: 0o700 });
+`,
+      { mode: 0o700 },
+    );
     const environment = { PATH: `${shimDirectory}:${path}` };
     const originalConfig = await readFile(join(config, "config.env"), "utf8");
     const originalSecret = await readFile(join(state, "data/better-auth-secret"), "utf8");
-    passed(await command(["bash", join(repository, "scripts/install.sh"),
-      "--repo", "installer-fixture/public-fork", "--version", "v1.2.3", "--install-dir", root,
-      "--config-dir", config, "--state-dir", state, "--no-start"], environment));
+    passed(
+      await command(
+        [
+          "bash",
+          join(repository, "scripts/install.sh"),
+          "--repo",
+          "installer-fixture/public-fork",
+          "--version",
+          "v1.2.3",
+          "--install-dir",
+          root,
+          "--config-dir",
+          config,
+          "--state-dir",
+          state,
+          "--no-start",
+        ],
+        environment,
+      ),
+    );
     const installed = JSON.parse(await readFile(join(root, "installation.json"), "utf8"));
     expect(installed.repo).toBe("installer-fixture/public-fork");
     expect(installed.version).toBe("v1.2.3");
@@ -415,7 +656,13 @@ esac
     expect(await readFile(join(state, "data/better-auth-secret"), "utf8")).toBe(originalSecret);
     expect(await readFile(join(state, "operator-marker"), "utf8")).toBe("preserve me");
     const database = new Database(join(state, "data/control.sqlite"), { readonly: true });
-    try { expect(database.query('SELECT email FROM "user" WHERE email = ?').get("installer@example.test")).toEqual({ email: "installer@example.test" }); }
-    finally { database.close(); }
+
+    try {
+      expect(database.query('SELECT email FROM "user" WHERE email = ?').get("installer@example.test")).toEqual({
+        email: "installer@example.test",
+      });
+    } finally {
+      database.close();
+    }
   }, 180_000);
 });

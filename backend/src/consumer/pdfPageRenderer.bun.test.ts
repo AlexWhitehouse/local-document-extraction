@@ -18,9 +18,7 @@ describe("renderPdfPagesToPng", () => {
     await expect(pages.next()).rejects.toBeInstanceOf(PdfPreparationLimitError);
   });
   it("renders JBIG2-compressed images", async () => {
-    const sourceBytes = Uint8Array.from(
-      Buffer.from(JBIG2_PDF_BASE64, "base64"),
-    ).buffer;
+    const sourceBytes = Uint8Array.from(Buffer.from(JBIG2_PDF_BASE64, "base64")).buffer;
 
     const [pngBytes] = await renderPdfPagesToPng(sourceBytes);
 
@@ -32,11 +30,7 @@ describe("renderPdfPagesToPng", () => {
     let nonWhitePixelCount = 0;
 
     for (let index = 0; index < pixels.length; index += 4) {
-      if (
-        pixels[index] < 250 ||
-        pixels[index + 1] < 250 ||
-        pixels[index + 2] < 250
-      ) {
+      if (pixels[index] < 250 || pixels[index + 1] < 250 || pixels[index + 2] < 250) {
         nonWhitePixelCount += 1;
       }
     }
@@ -49,18 +43,13 @@ describe("renderPdfPagesToPng", () => {
     Reflect.deleteProperty(globalThis, executionMarker);
     const pdf = await PDFDocument.create();
     pdf.addPage([100, 100]);
-    pdf.addJavaScript(
-      "hostile-script",
-      `globalThis.${executionMarker} = true`,
-    );
+    pdf.addJavaScript("hostile-script", `globalThis.${executionMarker} = true`);
 
     try {
-      const renderedPages = await renderPdfPagesToPng(
-        Uint8Array.from(await pdf.save()).buffer,
-      );
+      const renderedPages = await renderPdfPagesToPng(Uint8Array.from(await pdf.save()).buffer);
 
       expect(renderedPages).toHaveLength(1);
-      expect(Reflect.get(globalThis, executionMarker)).toBeUndefined();
+      expect(Object.hasOwn(globalThis, executionMarker)).toBe(false);
     } finally {
       Reflect.deleteProperty(globalThis, executionMarker);
     }

@@ -1,56 +1,41 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const authClientMock = vi.hoisted(() => ({
+const authClientMock = {
   refetchSession: vi.fn(),
   signOut: vi.fn(),
   updateUser: vi.fn(),
-}));
+};
 
-const toastMock = vi.hoisted(() => ({
+const toastMock = {
   error: vi.fn(),
   success: vi.fn(),
-}));
+};
 
-vi.mock("./lib/authClient", () => ({
-  createRuntimeAuthClient: () => ({
-    useSession: () => ({
-      data: {
-        user: {
-          id: "user_1",
-          name: "Ada Lovelace",
-          email: "ada@example.com",
-        },
+const createAuthClient = () => ({
+  useSession: () => ({
+    data: {
+      user: {
+        id: "user_1",
+        name: "Ada Lovelace",
+        email: "ada@example.com",
       },
-      isPending: false,
-      refetch: authClientMock.refetchSession,
-    }),
-    signIn: {
-      email: vi.fn(),
-      social: vi.fn(),
     },
-    signUp: {
-      email: vi.fn(),
-    },
-    signOut: authClientMock.signOut,
-    updateUser: authClientMock.updateUser,
+    isPending: false,
+    refetch: authClientMock.refetchSession,
   }),
-}));
-
-vi.mock("sonner", () => ({
-  Toaster: (props) => (
-    <div data-rich-colors={String(props.richColors)} data-testid="sonner-toaster" />
-  ),
-  toast: toastMock,
-}));
+  signIn: {
+    email: vi.fn(),
+    social: vi.fn(),
+  },
+  signUp: {
+    email: vi.fn(),
+  },
+  signOut: authClientMock.signOut,
+  updateUser: authClientMock.updateUser,
+});
 
 import { App } from "./App.jsx";
 import { COMPLETED_DOCUMENT_CACHE_STORAGE_KEY } from "./lib/completedDocumentCache";
@@ -80,7 +65,7 @@ describe("Workspace action toast feedback", () => {
       userWorkspaceInvitations: [],
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
       expect(screen.getByRole("link", { name: /Research Workspace/ })).toBeTruthy();
@@ -100,7 +85,7 @@ describe("Workspace action toast feedback", () => {
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     expect(screen.getByRole("heading", { name: "Loading workspace context" })).toBeTruthy();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
@@ -116,7 +101,7 @@ describe("Workspace action toast feedback", () => {
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
@@ -131,12 +116,14 @@ describe("Workspace action toast feedback", () => {
     routeFetch((url, method, options) => {
       if (url.endsWith("/workspaces")) {
         workspaceListCalls += 1;
+
         return workspaceList(
           workspaceListCalls === 1
             ? workspace({ id: "ws_removed", name: "Removed Workspace" })
             : workspace({ id: "ws_remaining", name: "Remaining Workspace" }),
         );
       }
+
       if (
         url.endsWith("/templates") &&
         method === "GET" &&
@@ -149,7 +136,7 @@ describe("Workspace action toast feedback", () => {
     // Flush the immediate mocked startup and 403 recovery responses before the
     // expensive accessibility query, which can exhaust waitFor on slower CI.
     await act(async () => {
-      render(<App />);
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
     });
 
     expect(screen.getByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
@@ -160,6 +147,7 @@ describe("Workspace action toast feedback", () => {
 
   it("revalidates a second browser's Workspace context after a live access invalidation", async () => {
     const sockets = [];
+
     class WebSocketStub {
       close = vi.fn();
       onclose = null;
@@ -172,20 +160,20 @@ describe("Workspace action toast feedback", () => {
         sockets.push(this);
       }
     }
+
     globalThis.WebSocket = WebSocketStub;
     let workspaceListCalls = 0;
     routeFetch((url, method) => {
       if (url.endsWith("/workspaces") && method === "GET") {
         workspaceListCalls += 1;
+
         return workspaceList(
-          workspaceListCalls === 1
-            ? workspace()
-            : workspace({ id: "ws_2", name: "Remaining Workspace" }),
+          workspaceListCalls === 1 ? workspace() : workspace({ id: "ws_2", name: "Remaining Workspace" }),
         );
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
       expect(sockets).toHaveLength(1);
@@ -194,20 +182,20 @@ describe("Workspace action toast feedback", () => {
       sockets[0].onmessage({
         data: JSON.stringify({
           version: 1,
-          events: [{
-            type: "workspace_context_invalidated",
-            reason: "workspace_access",
-            occurred_at: "2026-07-10T12:00:00.000Z",
-          }],
+          events: [
+            {
+              type: "workspace_context_invalidated",
+              reason: "workspace_access",
+              occurred_at: "2026-07-10T12:00:00.000Z",
+            },
+          ],
         }),
       });
       await Promise.resolve();
     });
 
     expect(await screen.findByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
-    expect(toastMock.success).toHaveBeenCalledWith(
-      "Workspace access changed. Switched to Remaining Workspace.",
-    );
+    expect(toastMock.success).toHaveBeenCalledWith("Workspace access changed. Switched to Remaining Workspace.");
   });
 
   it("generates a one-time visible Workspace API key for owners without persisting the secret", async () => {
@@ -217,7 +205,7 @@ describe("Workspace action toast feedback", () => {
     const confirmSpy = vi.spyOn(window, "confirm");
     routeApiKeyGeneration({ hasApiKey: false, apiKey: generatedKey });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(await screen.findByRole("button", { name: "Generate API key" }));
 
@@ -243,7 +231,7 @@ describe("Workspace action toast feedback", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     routeApiKeyGeneration({ hasApiKey: true, apiKey: rotatedKey });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(await screen.findByRole("button", { name: "Rotate API key" }));
 
@@ -262,14 +250,12 @@ describe("Workspace action toast feedback", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
     routeApiKeyGeneration({ hasApiKey: false, apiKey: generatedKey });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(await screen.findByRole("button", { name: "Generate API key" }));
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Workspace API key generated. Copy it before leaving this page.",
-      );
+      expect(toastMock.success).toHaveBeenCalledWith("Workspace API key generated. Copy it before leaving this page.");
     });
     expect(screen.getByDisplayValue(generatedKey)).toBeTruthy();
 
@@ -284,7 +270,7 @@ describe("Workspace action toast feedback", () => {
       if (url.endsWith("/workspaces")) return workspaceList(workspace({ role: "member" }));
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     expect(await screen.findByLabelText("Workspace API key")).toBeTruthy();
     expect(screen.getByPlaceholderText("Generate an API key to view")).toBeTruthy();
@@ -297,21 +283,25 @@ describe("Workspace action toast feedback", () => {
     routeFetch((url, method) => {
       if (url.endsWith("/workspaces") && method === "POST") {
         created = true;
+
         return jsonResponse({
           workspace_id: "ws_2",
           name: "New Workspace",
           api_key: "imgx_live_new_workspace_key",
         });
       }
+
       if (url.endsWith("/workspaces")) {
         return workspaceList(
           workspace(),
-          ...(created ? [workspace({ id: "ws_2", name: "New Workspace", created_at: "2026-01-02T00:00:00.000Z" })] : []),
+          ...(created
+            ? [workspace({ id: "ws_2", name: "New Workspace", created_at: "2026-01-02T00:00:00.000Z" })]
+            : []),
         );
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("button", { name: "Create Workspace" }));
 
@@ -328,16 +318,19 @@ describe("Workspace action toast feedback", () => {
     let renamed = false;
     routeFetch((url, method) => {
       if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(failedDocument());
+
       if (url.endsWith("/workspaces/ws_1") && method === "PATCH") {
         renamed = true;
+
         return jsonResponse({ id: "ws_1", name: "Clinical Workspace" });
       }
+
       if (url.endsWith("/workspaces")) {
         return workspaceList(workspace({ name: renamed ? "Clinical Workspace" : "Research Workspace" }));
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Documents/ }));
     expect(await screen.findByRole("heading", { name: "invoice.pdf" })).toBeTruthy();
@@ -363,8 +356,10 @@ describe("Workspace action toast feedback", () => {
     routeFetch((url, method) => {
       if (url.endsWith("/workspaces/ws_1/leave") && method === "POST") {
         leaveRequested = true;
+
         return jsonResponse({ replacement_workspace: { workspace_id: "ws_personal" } });
       }
+
       if (url.endsWith("/workspaces")) {
         return workspaceList(
           leaveRequested
@@ -374,16 +369,14 @@ describe("Workspace action toast feedback", () => {
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await screen.findByRole("link", { name: /Research Workspace/ });
 
     await user.click(screen.getByRole("button", { name: "Leave Workspace" }));
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith(
-        "Workspace left. Replacement personal Workspace created.",
-      );
+      expect(toastMock.success).toHaveBeenCalledWith("Workspace left. Replacement personal Workspace created.");
     });
   });
 
@@ -395,14 +388,16 @@ describe("Workspace action toast feedback", () => {
     routeFetch((url, method) => {
       if (url.endsWith("/workspaces") && method === "GET") {
         workspaceListCalls += 1;
+
         return workspaceListCalls === 1 ? workspaceList(workspace(), remaining) : workspaceList(remaining);
       }
+
       if (url.endsWith("/workspaces/ws_1") && method === "DELETE") {
         return jsonResponse({ ok: true, workspace_id: "ws_1" });
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await screen.findByRole("link", { name: /Research Workspace/ });
 
@@ -418,7 +413,7 @@ describe("Workspace action toast feedback", () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(false);
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await screen.findByRole("link", { name: /Research Workspace/ });
 
@@ -428,30 +423,25 @@ describe("Workspace action toast feedback", () => {
   });
 
   it("does not toast for background Workspace listing and refresh", async () => {
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        "/v1/workspaces",
-        expect.objectContaining({ method: "GET" }),
-      );
+      expect(globalThis.fetch).toHaveBeenCalledWith("/v1/workspaces", expect.objectContaining({ method: "GET" }));
     });
     expectNoToasts();
   });
 
   it("uses the signed-in session and accepted Workspace context for product requests", async () => {
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        "/v1/templates",
-        expect.objectContaining({ method: "GET" }),
-      );
+      expect(globalThis.fetch).toHaveBeenCalledWith("/v1/templates", expect.objectContaining({ method: "GET" }));
     });
 
     const templatesRequest = globalThis.fetch.mock.calls.find(
       ([url, options]) => String(url).endsWith("/templates") && options?.method === "GET",
     );
+
     const headers = templatesRequest?.[1]?.headers;
 
     expect(headers.get("x-workspace-id")).toBe("ws_1");
@@ -463,15 +453,17 @@ describe("Workspace action toast feedback", () => {
     const secondWorkspaceJobs = deferred();
     routeFetch((url, method, options) => {
       if (url.endsWith("/workspaces")) return twoWorkspaceList();
+
       if (url.endsWith("/jobs?group_packets=true") && method === "GET") {
         if (new Headers(options.headers).get("x-workspace-id") === "ws_2") {
           return secondWorkspaceJobs.promise;
         }
+
         return jobList(failedDocument({ job_id: "job_ws_1", source_name: "research.pdf" }));
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Documents/ }));
     expect(await screen.findByRole("heading", { name: "research.pdf" })).toBeTruthy();
@@ -494,15 +486,17 @@ describe("Workspace action toast feedback", () => {
     const secondWorkspaceUsers = deferred();
     routeFetch((url, method) => {
       if (url.endsWith("/workspaces")) return twoWorkspaceList();
+
       if (url.endsWith("/workspaces/ws_1/users") && method === "GET") {
         return jsonResponse({ users: [workspaceMember()] });
       }
+
       if (url.endsWith("/workspaces/ws_2/users") && method === "GET") {
         return secondWorkspaceUsers.promise;
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     expect(await screen.findByText("Grace Hopper")).toBeTruthy();
     await user.click(await screen.findByRole("link", { name: /Clinical Workspace/ }));
@@ -513,9 +507,11 @@ describe("Workspace action toast feedback", () => {
       expect(screen.queryByText("Loading workspace users…")).toBeNull();
     });
 
-    secondWorkspaceUsers.resolve(jsonResponse({
-      users: [workspaceMember({ user_id: "user_3", name: "Katherine Johnson", email: "katherine@example.com" })],
-    }));
+    secondWorkspaceUsers.resolve(
+      jsonResponse({
+        users: [workspaceMember({ user_id: "user_3", name: "Katherine Johnson", email: "katherine@example.com" })],
+      }),
+    );
 
     expect(await screen.findByText("Katherine Johnson")).toBeTruthy();
   });
@@ -523,13 +519,10 @@ describe("Workspace action toast feedback", () => {
   it("does not send product requests with a synthetic fallback Workspace ID", async () => {
     installLocalStorage({ apiKey: "imgx_live_legacy_key" });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        "/v1/workspaces",
-        expect.objectContaining({ method: "GET" }),
-      );
+      expect(globalThis.fetch).toHaveBeenCalledWith("/v1/workspaces", expect.objectContaining({ method: "GET" }));
     });
 
     const productRequests = globalThis.fetch.mock.calls.filter(([url]) =>
@@ -537,6 +530,7 @@ describe("Workspace action toast feedback", () => {
     );
 
     expect(productRequests).not.toEqual([]);
+
     for (const [, options] of productRequests) {
       expect(options.headers.get("x-workspace-id")).not.toBe("workspace_local_default");
     }
@@ -545,8 +539,9 @@ describe("Workspace action toast feedback", () => {
   describe("Workspace invitations", () => {
     async function inviteTeammate(email) {
       const user = userEvent.setup();
-      render(<App />);
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
       await user.click(screen.getByRole("button", { name: "+ Invite user" }));
+
       if (email) await user.type(screen.getByLabelText("Invite email"), email);
       await user.click(screen.getByRole("button", { name: "Invite user" }));
     }
@@ -558,12 +553,14 @@ describe("Workspace action toast feedback", () => {
     }
 
     it("confirms creating a Workspace invitation", async () => {
-      routeInvitationCreate(jsonResponse({
-        invitation_id: "inv_1",
-        email: "grace@example.com",
-        role: "member",
-        status: "pending",
-      }));
+      routeInvitationCreate(
+        jsonResponse({
+          invitation_id: "inv_1",
+          email: "grace@example.com",
+          role: "member",
+          status: "pending",
+        }),
+      );
 
       await inviteTeammate("grace@example.com");
 
@@ -575,9 +572,7 @@ describe("Workspace action toast feedback", () => {
     it("shows a validation toast when creating a Workspace invitation without an email", async () => {
       await inviteTeammate("");
 
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "Enter an email address before inviting a teammate.",
-      );
+      expect(toastMock.error).toHaveBeenCalledWith("Enter an email address before inviting a teammate.");
       expect(globalThis.fetch).not.toHaveBeenCalledWith(
         expect.stringContaining("/workspaces/ws_1/invitations"),
         expect.objectContaining({ method: "POST" }),
@@ -590,9 +585,7 @@ describe("Workspace action toast feedback", () => {
       await inviteTeammate("grace@example.com");
 
       await waitFor(() => {
-        expect(toastMock.error).toHaveBeenCalledWith(
-          "Workspace invitation could not be created. Please try again.",
-        );
+        expect(toastMock.error).toHaveBeenCalledWith("Workspace invitation could not be created. Please try again.");
       });
       expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("Database"));
     });
@@ -602,13 +595,14 @@ describe("Workspace action toast feedback", () => {
         if (url.endsWith("/workspaces/ws_1/invitations") && method === "GET") {
           return jsonResponse({ invitations: [pendingInvitation()] });
         }
+
         if (url.endsWith("/workspaces/ws_1/invitations/inv_1") && method === "DELETE") return response;
       });
     }
 
     async function cancelInvitation() {
       const user = userEvent.setup();
-      render(<App />);
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
       await user.click(await screen.findByRole("button", { name: "Cancel invitation for grace@example.com" }));
     }
 
@@ -643,9 +637,7 @@ describe("Workspace action toast feedback", () => {
       await cancelInvitation();
 
       await waitFor(() => {
-        expect(toastMock.error).toHaveBeenCalledWith(
-          "Workspace invitation could not be cancelled. Please try again.",
-        );
+        expect(toastMock.error).toHaveBeenCalledWith("Workspace invitation could not be cancelled. Please try again.");
       });
     });
 
@@ -655,21 +647,29 @@ describe("Workspace action toast feedback", () => {
       routeFetch((url, method) => {
         if (url.endsWith("/invitations/inv_1/accept") && method === "POST") {
           accepted = true;
+
           return jsonResponse({ workspace_id: "ws_invited" });
         }
+
         if (url.endsWith("/invitations") && method === "GET") {
           return jsonResponse({ invitations: accepted ? [] : [pendingUserWorkspaceInvitation()] });
         }
+
         if (url.endsWith("/workspaces")) {
           return workspaceList(
             accepted
-              ? workspace({ id: "ws_invited", name: "Clinical Workspace", role: "member", created_at: "2026-01-02T00:00:00.000Z" })
+              ? workspace({
+                  id: "ws_invited",
+                  name: "Clinical Workspace",
+                  role: "member",
+                  created_at: "2026-01-02T00:00:00.000Z",
+                })
               : workspace(),
           );
         }
       });
 
-      render(<App />);
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
       await user.click(await screen.findByRole("link", { name: /Clinical Workspace/ }));
       await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
@@ -685,14 +685,16 @@ describe("Workspace action toast feedback", () => {
       routeFetch((url, method) => {
         if (url.endsWith("/invitations/inv_1/decline") && method === "POST") {
           declined = true;
+
           return jsonResponse({ declined: true });
         }
+
         if (url.endsWith("/invitations") && method === "GET") {
           return jsonResponse({ invitations: declined ? [] : [pendingUserWorkspaceInvitation()] });
         }
       });
 
-      render(<App />);
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
       await user.click(await screen.findByRole("link", { name: /Clinical Workspace/ }));
       await user.click(await screen.findByRole("button", { name: "Decline invitation" }));
@@ -705,26 +707,30 @@ describe("Workspace action toast feedback", () => {
     it.each([
       ["accept", "Accept invitation", 409, "Workspace invitation could not be accepted. Please try again."],
       ["decline", "Decline invitation", 403, "Workspace invitation could not be declined. Please try again."],
-    ])("shows friendly failure copy when a Workspace invitation %s fails", async (action, buttonName, status, message) => {
-      const user = userEvent.setup();
-      routeFetch((url, method) => {
-        if (url.endsWith(`/invitations/inv_1/${action}`) && method === "POST") {
-          return jsonResponse({ error: "policy detail" }, { status });
-        }
-        if (url.endsWith("/invitations") && method === "GET") {
-          return jsonResponse({ invitations: [pendingUserWorkspaceInvitation()] });
-        }
-      });
+    ])(
+      "shows friendly failure copy when a Workspace invitation %s fails",
+      async (action, buttonName, status, message) => {
+        const user = userEvent.setup();
+        routeFetch((url, method) => {
+          if (url.endsWith(`/invitations/inv_1/${action}`) && method === "POST") {
+            return jsonResponse({ error: "policy detail" }, { status });
+          }
 
-      render(<App />);
+          if (url.endsWith("/invitations") && method === "GET") {
+            return jsonResponse({ invitations: [pendingUserWorkspaceInvitation()] });
+          }
+        });
 
-      await user.click(await screen.findByRole("link", { name: /Clinical Workspace/ }));
-      await user.click(await screen.findByRole("button", { name: buttonName }));
+        render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-      await waitFor(() => {
-        expect(toastMock.error).toHaveBeenCalledWith(message);
-      });
-    });
+        await user.click(await screen.findByRole("link", { name: /Clinical Workspace/ }));
+        await user.click(await screen.findByRole("button", { name: buttonName }));
+
+        await waitFor(() => {
+          expect(toastMock.error).toHaveBeenCalledWith(message);
+        });
+      },
+    );
   });
 
   describe("Workspace member actions", () => {
@@ -733,13 +739,14 @@ describe("Workspace action toast feedback", () => {
         if (url.endsWith("/workspaces/ws_1/users") && method === "GET") {
           return jsonResponse({ users: [workspaceMember()] });
         }
+
         if (url.endsWith("/workspaces/ws_1/users/user_2") && method === "POST") return response;
       });
     }
 
     async function applyMemberAction(actionName) {
       const user = userEvent.setup();
-      render(<App />);
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
       await user.click(await screen.findByRole("button", { name: "Edit user" }));
       await user.click(await screen.findByRole("button", { name: actionName }));
     }
@@ -777,7 +784,7 @@ describe("Workspace action toast feedback", () => {
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "Save new template" }));
@@ -789,13 +796,15 @@ describe("Workspace action toast feedback", () => {
 
   it("keeps existing template save disabled until the loaded template changes", async () => {
     const user = userEvent.setup();
-    globalThis.fetch.mockImplementation(mockTemplateFetch({
-      id: "tpl_existing",
-      name: "Discharge Summary",
-      description: "Extract discharge details",
-    }));
+    globalThis.fetch.mockImplementation(
+      mockTemplateFetch({
+        id: "tpl_existing",
+        name: "Discharge Summary",
+        description: "Extract discharge details",
+      }),
+    );
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Templates/i }));
 
@@ -817,7 +826,7 @@ describe("Workspace action toast feedback", () => {
   it("shows a validation toast for invalid template drafts without toasting draft-only edits", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "+ Add field" }));
@@ -827,22 +836,22 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getByRole("button", { name: "Save new template" }));
 
     await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "Template draft is incomplete. Fix required fields before saving.",
-      );
+      expect(toastMock.error).toHaveBeenCalledWith("Template draft is incomplete. Fix required fields before saving.");
     });
   });
 
   it("confirms deleting a template and stays quiet when deletion is cancelled", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    globalThis.fetch.mockImplementation(mockTemplateFetch({
-      id: "tpl_delete",
-      name: "Delete Me",
-      description: "Template to delete",
-    }));
+    globalThis.fetch.mockImplementation(
+      mockTemplateFetch({
+        id: "tpl_delete",
+        name: "Delete Me",
+        description: "Template to delete",
+      }),
+    );
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Templates/i }));
     await screen.findByRole("button", { name: "Save changes" });
@@ -863,7 +872,7 @@ describe("Workspace action toast feedback", () => {
   it("toasts template JSON validation blockers while preserving inline detail", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "View JSON" }));
@@ -882,7 +891,7 @@ describe("Workspace action toast feedback", () => {
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "View JSON" }));
@@ -901,7 +910,7 @@ describe("Workspace action toast feedback", () => {
     const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Denied"));
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Templates/i }));
     await user.click(screen.getByRole("button", { name: "View JSON" }));
@@ -924,17 +933,21 @@ describe("Workspace action toast feedback", () => {
     let workspaceContextRefreshes = 0;
     routeFetch((url, method, options) => {
       if (url.endsWith("/templates")) return jsonResponse({ templates: [invoiceTemplate()] });
+
       if (url.endsWith("/extract") && method === "POST") {
         extractFormData = options.body;
+
         return jsonResponse({ job_id: "job_upload_1" });
       }
+
       if (url.endsWith("/workspaces/ws_1/context")) {
         workspaceContextRefreshes += 1;
+
         return jsonResponse({ workspace: workspace() });
       }
     });
 
-    const { container } = render(<App />);
+    const { container } = render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await uploadFiles(user, container, [new File(["invoice"], "invoice.pdf", { type: "application/pdf" })]);
 
@@ -955,11 +968,13 @@ describe("Workspace action toast feedback", () => {
   it("uses Source file language in document upload controls", async () => {
     const user = userEvent.setup();
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
 
-    expect(screen.getByText("Choose a template or tags for automatic selection, then add your source files.")).toBeTruthy();
+    expect(
+      screen.getByText("Choose a template or tags for automatic selection, then add your source files."),
+    ).toBeTruthy();
     expect(screen.getByText("Source files")).toBeTruthy();
     expect(screen.getByText("Drag and drop source files here")).toBeTruthy();
     expect(screen.getByText("No Source files selected")).toBeTruthy();
@@ -973,15 +988,17 @@ describe("Workspace action toast feedback", () => {
     let queueAttempts = 0;
     routeFetch((url, method) => {
       if (url.endsWith("/templates")) return jsonResponse({ templates: [invoiceTemplate()] });
+
       if (url.endsWith("/extract") && method === "POST") {
         queueAttempts += 1;
+
         return queueAttempts === 1
           ? jsonResponse({ job_id: "job_upload_1" })
           : jsonResponse({ error: "queue detail" }, { status: 500 });
       }
     });
 
-    const { container } = render(<App />);
+    const { container } = render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await uploadFiles(user, container, [
       new File(["invoice"], "invoice.pdf", { type: "application/pdf" }),
@@ -1011,7 +1028,7 @@ describe("Workspace action toast feedback", () => {
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
       expect(timeoutSpy.mock.calls.some(([, delay]) => delay >= 5000 && delay <= 6000)).toBe(true);
@@ -1027,14 +1044,16 @@ describe("Workspace action toast feedback", () => {
       created_at: "2026-01-03T00:00:00.000Z",
       updated_at: "2026-01-03T00:00:01.000Z",
     };
+
     const intervalSpy = vi.spyOn(window, "setInterval").mockReturnValue(123);
     vi.spyOn(window, "clearInterval").mockImplementation(() => {});
     routeFetch((url) => {
       if (url.endsWith("/jobs?group_packets=true")) return jobList(legacyJob);
+
       if (url.endsWith("/jobs/job_legacy_unknown_1")) return jsonResponse(legacyJob);
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -1047,21 +1066,26 @@ describe("Workspace action toast feedback", () => {
 
   it("stores completed Extraction job details after the Document details load", async () => {
     routeFetch((url, method) => {
-      if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(completedDocument({ results: [] }));
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET")
+        return jobList(completedDocument({ results: [] }));
+
       if (url.endsWith("/jobs/job_completed_1")) {
-        return jsonResponse(completedDocument({
-          source_preview_url: "blob:http://localhost/source-preview",
-          results: [totalResult()],
-        }));
+        return jsonResponse(
+          completedDocument({
+            source_preview_url: "blob:http://localhost/source-preview",
+            results: [totalResult()],
+          }),
+        );
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
       const cacheWrite = window.localStorage.setItem.mock.calls.find(
         ([key]) => key === COMPLETED_DOCUMENT_CACHE_STORAGE_KEY,
       );
+
       expect(cacheWrite).toBeTruthy();
       expect(cacheWrite[1]).toContain("job_completed_1");
       expect(cacheWrite[1]).toContain("$42.00");
@@ -1080,11 +1104,13 @@ describe("Workspace action toast feedback", () => {
       },
     );
     routeFetch((url, method) => {
-      if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(completedDocument({ results: [] }));
+      if (url.endsWith("/jobs?group_packets=true") && method === "GET")
+        return jobList(completedDocument({ results: [] }));
+
       if (url.endsWith("/jobs/job_completed_1")) return new Promise(() => {});
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await userEvent.click(await screen.findByRole("link", { name: /Documents/ }));
 
@@ -1094,58 +1120,82 @@ describe("Workspace action toast feedback", () => {
   it.each([
     ["invoice.pdf", "application/pdf", "%PDF"],
     ["invoice.png", "image/png", "image"],
-  ])("keeps the completed Document preview for %s loaded through unrelated interactions", async (sourceName, mimeType, contents) => {
-    const { createObjectURL, revokeObjectURL } = stubObjectUrls("blob:document-preview");
-    const document = completedDocument({
-      source_name: sourceName,
-      source_retained: true,
-      source_mime_type: mimeType,
-      results: [totalResult()],
-    });
-    let originalRequests = 0;
-    routeFetch((url) => {
-      if (url.endsWith("/jobs?group_packets=true")) return jobList(document);
-      if (url.endsWith("/jobs/job_completed_1")) return jsonResponse(document);
-      if (url.endsWith("/jobs/job_completed_1/source")) {
-        originalRequests += 1;
-        return new Response(contents, { headers: { "content-type": mimeType } });
-      }
-    });
+  ])(
+    "keeps the completed Document preview for %s loaded through unrelated interactions",
+    async (sourceName, mimeType, contents) => {
+      const { createObjectURL, revokeObjectURL } = stubObjectUrls("blob:document-preview");
 
-    await act(async () => { render(<App />); });
-    await act(async () => { fireEvent.click(screen.getByRole("link", { name: /Documents/ })); });
-    await act(async () => { fireEvent.click(screen.getByRole("radio", { name: "Side by side" })); });
-    const getPreview = () => mimeType === "application/pdf"
-      ? screen.getByTitle(`Preview of ${sourceName}`)
-      : screen.getByAltText(`Original ${sourceName}`);
-    const preview = getPreview();
-    const previewUrl = preview.getAttribute("src");
-    expect(originalRequests).toBe(1);
+      const document = completedDocument({
+        source_name: sourceName,
+        source_retained: true,
+        source_mime_type: mimeType,
+        results: [totalResult()],
+      });
 
-    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Upload Document" })[0]); });
-    expect(screen.getByRole("dialog", { name: "Upload document" })).toBeTruthy();
-    expect(getPreview()).toBe(preview);
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true })); });
-    expect(screen.queryByRole("dialog", { name: "Upload document" })).toBeNull();
-    await act(async () => { fireEvent.click(screen.getByRole("checkbox", { name: "Select document job_completed_1" })); });
-    expect(screen.getByRole("checkbox", { name: "Select document job_completed_1" }).checked).toBe(true);
+      let originalRequests = 0;
+      routeFetch((url) => {
+        if (url.endsWith("/jobs?group_packets=true")) return jobList(document);
 
-    expect(originalRequests).toBe(1);
-    expect(getPreview()).toBe(preview);
-    expect(preview.getAttribute("src")).toBe(previewUrl);
-    expect(createObjectURL).toHaveBeenCalledOnce();
-    expect(revokeObjectURL).not.toHaveBeenCalled();
-  });
+        if (url.endsWith("/jobs/job_completed_1")) return jsonResponse(document);
+
+        if (url.endsWith("/jobs/job_completed_1/source")) {
+          originalRequests += 1;
+
+          return new Response(contents, { headers: { "content-type": mimeType } });
+        }
+      });
+
+      await act(async () => {
+        render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("link", { name: /Documents/ }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("radio", { name: "Side by side" }));
+      });
+
+      const getPreview = () =>
+        mimeType === "application/pdf"
+          ? screen.getByTitle(`Preview of ${sourceName}`)
+          : screen.getByAltText(`Original ${sourceName}`);
+
+      const preview = getPreview();
+      const previewUrl = preview.getAttribute("src");
+      expect(originalRequests).toBe(1);
+
+      await act(async () => {
+        fireEvent.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
+      });
+      expect(screen.getByRole("dialog", { name: "Upload document" })).toBeTruthy();
+      expect(getPreview()).toBe(preview);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+      });
+      expect(screen.queryByRole("dialog", { name: "Upload document" })).toBeNull();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("checkbox", { name: "Select document job_completed_1" }));
+      });
+      expect(screen.getByRole("checkbox", { name: "Select document job_completed_1" }).checked).toBe(true);
+
+      expect(originalRequests).toBe(1);
+      expect(getPreview()).toBe(preview);
+      expect(preview.getAttribute("src")).toBe(previewUrl);
+      expect(createObjectURL).toHaveBeenCalledOnce();
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+    },
+  );
 
   describe("document deletion", () => {
     async function deleteOpenDocument(deleteResponse) {
       const user = userEvent.setup();
       routeFetch((url, method) => {
         if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(failedDocument());
+
         if (url.endsWith("/jobs/job_failed_1") && method === "DELETE") return deleteResponse;
       });
 
-      render(<App />);
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
       await user.click(screen.getByRole("link", { name: /Documents/ }));
       await user.click(screen.getByRole("button", { name: "Delete" }));
@@ -1190,16 +1240,19 @@ describe("Workspace action toast feedback", () => {
       if (url.endsWith("/jobs?group_packets=true") && method === "GET") {
         return jobList(failedDocument(), failedDocument({ job_id: "job_failed_2", source_name: "receipt.pdf" }));
       }
+
       const deletedDocumentId = ["job_failed_1", "job_failed_2"].find(
         (documentId) => url.endsWith(`/jobs/${documentId}`) && method === "DELETE",
       );
+
       if (deletedDocumentId) {
         deletedDocumentIds.push(deletedDocumentId);
+
         return jsonResponse({ deleted: true, job_id: deletedDocumentId });
       }
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Documents/ }));
     await user.click(screen.getByRole("checkbox", { name: "Select all available documents" }));
@@ -1224,13 +1277,16 @@ describe("Workspace action toast feedback", () => {
     routeFetch((url, method, options) => {
       if (url.endsWith("/jobs/export") && method === "POST") {
         requestedIds.push(...JSON.parse(options.body).job_ids);
+
         return new Response("xlsx", { headers: { "x-exported-job-count": "1" } });
       }
+
       if (url.endsWith("/jobs?group_packets=true")) return jobList(completedDocument());
+
       if (url.endsWith("/jobs/job_completed_1")) return jsonResponse(completedDocument());
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
     await user.click(screen.getByRole("link", { name: /Documents/ }));
     await screen.findByRole("checkbox", { name: "Select document job_completed_1" });
     await user.click(screen.getByRole("button", { name: "Export", exact: true }));
@@ -1251,8 +1307,10 @@ describe("Workspace action toast feedback", () => {
     routeFetch((url, method, options) => {
       if (url.endsWith("/jobs/export") && method === "POST") {
         requestedExportIds.push(...JSON.parse(options.body).job_ids);
+
         return exportResponse.promise;
       }
+
       if (url.endsWith("/jobs?group_packets=true") && method === "GET") {
         return jobList(
           completedDocument(),
@@ -1265,13 +1323,14 @@ describe("Workspace action toast feedback", () => {
           failedDocument({ job_id: "job_failed_1" }),
         );
       }
+
       if (url.endsWith("/jobs/job_completed_1") && method === "GET") {
         return jsonResponse(completedDocument());
       }
     });
     const checkbox = (id) => screen.getByRole("checkbox", { name: `Select document ${id}` });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Documents/ }));
     await user.click(await screen.findByRole("checkbox", { name: "Select all available documents" }));
@@ -1291,8 +1350,7 @@ describe("Workspace action toast feedback", () => {
         new Response("xlsx-bytes", {
           status: 200,
           headers: {
-            "content-disposition":
-              'attachment; filename="research-workspace-job-export-2026-08-16-1430.xlsx"',
+            "content-disposition": 'attachment; filename="research-workspace-job-export-2026-08-16-1430.xlsx"',
             "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "x-exported-job-count": "2",
             "x-skipped-job-count": "1",
@@ -1317,6 +1375,7 @@ describe("Workspace action toast feedback", () => {
     expect(downloadBlob.type).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:job-export");
     expect(screen.getByRole("button", { name: "Export 3" }).disabled).toBe(false);
+
     for (const id of ["job_completed_1", "job_processing_1", "job_failed_1"]) {
       expect(checkbox(id).checked).toBe(true);
     }
@@ -1328,7 +1387,7 @@ describe("Workspace action toast feedback", () => {
       if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(failedDocument());
     });
 
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Documents/ }));
     await waitFor(() => {
@@ -1343,6 +1402,7 @@ function installLocalStorage(initialValue, extraEntries = {}) {
     ["documentextraction.workspace.v1", JSON.stringify(initialValue)],
     ...Object.entries(extraEntries),
   ]);
+
   Object.defineProperty(window, "localStorage", {
     configurable: true,
     value: {
@@ -1361,16 +1421,20 @@ function lastStoredWorkspacePreference() {
 function installClipboard() {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+
   return writeText;
 }
 
 function stubObjectUrls(url) {
   const createObjectURL = vi.fn(() => url);
   const revokeObjectURL = vi.fn();
+
   class ExportURL extends globalThis.URL {}
+
   ExportURL.createObjectURL = createObjectURL;
   ExportURL.revokeObjectURL = revokeObjectURL;
   vi.stubGlobal("URL", ExportURL);
+
   return { createObjectURL, revokeObjectURL };
 }
 
@@ -1387,9 +1451,11 @@ async function uploadFiles(user, container, files) {
 
 function deferred() {
   let resolve;
+
   const promise = new Promise((next) => {
     resolve = next;
   });
+
   return { promise, resolve };
 }
 
@@ -1398,6 +1464,7 @@ function deferred() {
 function routeFetch(handler) {
   globalThis.fetch.mockImplementation((input, options = {}) => {
     const response = handler(String(input), options.method || "GET", options);
+
     return response === undefined ? mockWorkspaceFetch(input, options) : Promise.resolve(response);
   });
 }
@@ -1405,6 +1472,7 @@ function routeFetch(handler) {
 function routeApiKeyGeneration({ hasApiKey, apiKey }) {
   routeFetch((url, method) => {
     if (url.endsWith("/workspaces")) return workspaceList(workspace({ has_api_key: hasApiKey }));
+
     if (url.endsWith("/workspaces/ws_1/api-key") && method === "POST") {
       return jsonResponse({ workspace_id: "ws_1", api_key: apiKey, has_api_key: true });
     }
@@ -1413,39 +1481,54 @@ function routeApiKeyGeneration({ hasApiKey, apiKey }) {
 
 function mockWorkspaceFetch(input) {
   const url = String(input);
+
   if (url.endsWith("/model-configuration")) {
-    return Promise.resolve(jsonResponse({
-      configured: true,
-      credential_status: "configured",
-      gateway_url: "http://localhost:1/v1",
-      model_name: "test/model",
-      revision: 1,
-    }));
+    return Promise.resolve(
+      jsonResponse({
+        configured: true,
+        credential_status: "configured",
+        gateway_url: "http://localhost:1/v1",
+        model_name: "test/model",
+        revision: 1,
+      }),
+    );
   }
+
   if (url.endsWith("/workspaces")) return Promise.resolve(workspaceList(workspace()));
+
   if (url.endsWith("/invitations")) return Promise.resolve(jsonResponse({ invitations: [] }));
+
   if (url.endsWith("/templates")) return Promise.resolve(jsonResponse({ templates: [] }));
+
   if (url.includes("/jobs")) return Promise.resolve(jobList());
+
   if (url.includes("/users")) return Promise.resolve(jsonResponse({ users: [] }));
+
   return Promise.resolve(jsonResponse({}));
 }
 
 function mockTemplateFetch(template) {
   return (input, options = {}) => {
     const url = String(input);
+
     if (url.endsWith("/templates") && (!options.method || options.method === "GET")) {
       return Promise.resolve(jsonResponse({ templates: [template] }));
     }
+
     if (url.endsWith(`/templates/${template.id}`) && options.method === "GET") {
       return Promise.resolve(jsonResponse(validTemplatePayload(template.name, template.description)));
     }
+
     if (url.endsWith(`/templates/${template.id}`) && options.method === "PATCH") {
       const body = JSON.parse(options.body || "{}");
+
       return Promise.resolve(jsonResponse({ id: template.id, ...body }));
     }
+
     if (url.endsWith(`/templates/${template.id}`) && options.method === "DELETE") {
       return Promise.resolve(jsonResponse({ deleted: true }));
     }
+
     return mockWorkspaceFetch(input, options);
   };
 }

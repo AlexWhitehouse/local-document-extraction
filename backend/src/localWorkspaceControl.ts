@@ -1,5 +1,5 @@
+import { type SQLQueryBindings, Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { Database } from "bun:sqlite";
 
 import { newId, nowIso } from "./lib/ids";
 
@@ -73,7 +73,11 @@ export class LocalWorkspaceControlError extends Error {
 }
 
 export type LocalWorkspaceControl = {
-  acceptInvitation(input: { invitationId: string; userId: string; userEmail: string }): { ok: true; workspace_id: string; role: "owner" | "admin" | "member" };
+  acceptInvitation(input: { invitationId: string; userId: string; userEmail: string }): {
+    ok: true;
+    workspace_id: string;
+    role: "owner" | "admin" | "member";
+  };
   applyWorkspaceMemberAction(input: {
     workspaceId: string;
     actorUserId: string;
@@ -82,10 +86,23 @@ export type LocalWorkspaceControl = {
   }): LocalWorkspaceMemberActionResult;
   assertWorkspaceDeletion(input: { workspaceId: string; userId: string }): void;
   authorizeApiKey(input: { apiKey: string }): LocalApiKeyWorkspace | null;
-  createInvitation(input: { workspaceId: string; inviterUserId: string; email: string; role?: string }): LocalWorkspaceInvitation;
-  cancelInvitation(input: { workspaceId: string; invitationId: string; userId: string }): { ok: true; invitation_id: string; status: "cancelled" };
+  createInvitation(input: {
+    workspaceId: string;
+    inviterUserId: string;
+    email: string;
+    role?: string;
+  }): LocalWorkspaceInvitation;
+  cancelInvitation(input: { workspaceId: string; invitationId: string; userId: string }): {
+    ok: true;
+    invitation_id: string;
+    status: "cancelled";
+  };
   completeWorkspaceDeletionIntent(input: { workspaceId: string }): void;
-  declineInvitation(input: { invitationId: string; userEmail: string }): { ok: true; invitation_id: string; status: "cancelled" };
+  declineInvitation(input: { invitationId: string; userEmail: string }): {
+    ok: true;
+    invitation_id: string;
+    status: "cancelled";
+  };
   completeStarterTemplateBootstrap(input: { workspaceId: string }): void;
   createWorkspace(input: { userId: string; name?: string }): CreatedLocalWorkspace;
   deleteWorkspace(input: { workspaceId: string; userId: string }): void;
@@ -100,7 +117,10 @@ export type LocalWorkspaceControl = {
   recordWorkspaceDeletionIntent(input: { workspaceId: string }): void;
   listAcceptedWorkspaces(input: { userId: string; userName?: string | null }): LocalWorkspace[];
   renameWorkspace(input: { workspaceId: string; userId: string; name: string }): { workspace_id: string; name: string };
-  setWorkspaceSourceRetention(input: { workspaceId: string; userId: string; disabled: boolean }): { workspace_id: string; source_retention_disabled: boolean };
+  setWorkspaceSourceRetention(input: { workspaceId: string; userId: string; disabled: boolean }): {
+    workspace_id: string;
+    source_retention_disabled: boolean;
+  };
   rotateApiKey(input: { workspaceId: string; userId: string }): {
     workspace_id: string;
     api_key: string;
@@ -133,75 +153,130 @@ export function createLocalWorkspaceControl(database: Database): LocalWorkspaceC
     deleteWorkspace: (input) => deleteWorkspace(database, input),
     revokeWorkspaceForDeletion: (input) => revokeWorkspaceForDeletion(database, input),
     getAcceptedWorkspaceContext: (input) => getAcceptedWorkspaceContext(database, input),
-    hasPendingStarterTemplateBootstrap: (input) => Boolean(
-      database.query("SELECT 1 FROM workspace_product_bootstraps WHERE workspace_id = ? LIMIT 1").get(input.workspaceId),
-    ),
+    hasPendingStarterTemplateBootstrap: (input) =>
+      Boolean(
+        database
+          .query("SELECT 1 FROM workspace_product_bootstraps WHERE workspace_id = ? LIMIT 1")
+          .get(input.workspaceId),
+      ),
     listPendingInvitations: (input) => listPendingInvitations(database, input),
     leaveWorkspace: (input) => leaveWorkspace(database, input),
     listWorkspaceInvitations: (input) => listWorkspaceInvitations(database, input),
     listWorkspaceUsers: (input) => listWorkspaceUsers(database, input),
-    listWorkspaceDeletionIntents: () => database.query(
-      "SELECT workspace_id FROM workspace_deletion_intents ORDER BY requested_at ASC, workspace_id ASC",
-    ).all().map((row) => (row as { workspace_id: string }).workspace_id),
+    listWorkspaceDeletionIntents: () =>
+      database
+        .query<{ workspace_id: string }, SQLQueryBindings[]>(
+          "SELECT workspace_id FROM workspace_deletion_intents ORDER BY requested_at ASC, workspace_id ASC",
+        )
+        .all()
+        .map((row) => row.workspace_id),
     recordWorkspaceDeletionIntent: (input) => {
-      database.query(
-        "INSERT OR IGNORE INTO workspace_deletion_intents (workspace_id, requested_at) VALUES (?, ?)",
-      ).run(input.workspaceId, nowIso());
+      database
+        .query("INSERT OR IGNORE INTO workspace_deletion_intents (workspace_id, requested_at) VALUES (?, ?)")
+        .run(input.workspaceId, nowIso());
     },
     listAcceptedWorkspaces: (input) => listAcceptedWorkspaces(database, input),
     renameWorkspace: (input) => renameWorkspace(database, input),
     setWorkspaceSourceRetention: (input) => setWorkspaceSourceRetention(database, input),
     rotateApiKey: (input) => rotateApiKey(database, input),
-    workspaceExists: (input) => Boolean(
-      database.query("SELECT 1 FROM workspaces WHERE id = ? LIMIT 1").get(input.workspaceId),
-    ),
+    workspaceExists: (input) =>
+      Boolean(database.query("SELECT 1 FROM workspaces WHERE id = ? LIMIT 1").get(input.workspaceId)),
   };
 }
 
-function cancelInvitation(database: Database, input: { workspaceId: string; invitationId: string; userId: string }): { ok: true; invitation_id: string; status: "cancelled" } {
+type CancelInvitationResult = { ok: true; invitation_id: string; status: "cancelled" };
+
+function cancelInvitation(
+  database: Database,
+  input: { workspaceId: string; invitationId: string; userId: string },
+): CancelInvitationResult {
   requireManager(database, input.workspaceId, input.userId, "Only owners/admins can manage invitations");
-  const invitation = database.query("SELECT id FROM workspace_invitations WHERE id = ? AND workspace_id = ? AND status = 'pending' LIMIT 1").get(input.invitationId, input.workspaceId);
+
+  const invitation = database
+    .query("SELECT id FROM workspace_invitations WHERE id = ? AND workspace_id = ? AND status = 'pending' LIMIT 1")
+    .get(input.invitationId, input.workspaceId);
+
   if (!invitation) throw new LocalWorkspaceControlError("not_found", "Invitation not found");
-  database.query("UPDATE workspace_invitations SET status = 'cancelled', updated_at = ? WHERE id = ?").run(nowIso(), input.invitationId);
+  database
+    .query("UPDATE workspace_invitations SET status = 'cancelled', updated_at = ? WHERE id = ?")
+    .run(nowIso(), input.invitationId);
+
   return { ok: true, invitation_id: input.invitationId, status: "cancelled" };
 }
 
-function declineInvitation(database: Database, input: { invitationId: string; userEmail: string }): { ok: true; invitation_id: string; status: "cancelled" } {
-  const invitation = database.query("SELECT id, email, status FROM workspace_invitations WHERE id = ? LIMIT 1").get(input.invitationId) as { id: string; email: string; status: string } | null;
-  if (!invitation || invitation.status !== "pending") throw new LocalWorkspaceControlError("not_found", "Invitation not found");
-  if (normalizeEmail(invitation.email) !== normalizeEmail(input.userEmail)) throw new LocalWorkspaceControlError("forbidden", "This invitation is for a different email address");
-  database.query("UPDATE workspace_invitations SET status = 'cancelled', updated_at = ? WHERE id = ?").run(nowIso(), input.invitationId);
+type DeclineInvitationResult = { ok: true; invitation_id: string; status: "cancelled" };
+
+function declineInvitation(
+  database: Database,
+  input: { invitationId: string; userEmail: string },
+): DeclineInvitationResult {
+  const invitation = database
+    .query<{ id: string; email: string; status: string }, SQLQueryBindings[]>(
+      "SELECT id, email, status FROM workspace_invitations WHERE id = ? LIMIT 1",
+    )
+    .get(input.invitationId);
+
+  if (!invitation || invitation.status !== "pending")
+    throw new LocalWorkspaceControlError("not_found", "Invitation not found");
+
+  if (normalizeEmail(invitation.email) !== normalizeEmail(input.userEmail))
+    throw new LocalWorkspaceControlError("forbidden", "This invitation is for a different email address");
+  database
+    .query("UPDATE workspace_invitations SET status = 'cancelled', updated_at = ? WHERE id = ?")
+    .run(nowIso(), input.invitationId);
+
   return { ok: true, invitation_id: input.invitationId, status: "cancelled" };
 }
+
+type AcceptInvitationResult = { ok: true; workspace_id: string; role: "owner" | "admin" | "member" };
 
 function acceptInvitation(
   database: Database,
   input: { invitationId: string; userId: string; userEmail: string },
-): { ok: true; workspace_id: string; role: "owner" | "admin" | "member" } {
-  const invitation = database.query(
-    `SELECT id, workspace_id, email, role, status, expires_at
+): AcceptInvitationResult {
+  const invitation = database
+    .query<
+      { workspace_id: string; email: string; role: "admin" | "member"; status: string; expires_at: string },
+      SQLQueryBindings[]
+    >(
+      `SELECT id, workspace_id, email, role, status, expires_at
      FROM workspace_invitations WHERE id = ? LIMIT 1`,
-  ).get(input.invitationId) as { workspace_id: string; email: string; role: "admin" | "member"; status: string; expires_at: string } | null;
+    )
+    .get(input.invitationId);
+
   if (!invitation || invitation.status !== "pending") {
     throw new LocalWorkspaceControlError("not_found", "Invitation not found");
   }
-  if (normalizeEmail(invitation.email) !== normalizeEmail(input.userEmail) || Date.parse(invitation.expires_at) <= Date.now()) {
+
+  if (
+    normalizeEmail(invitation.email) !== normalizeEmail(input.userEmail) ||
+    Date.parse(invitation.expires_at) <= Date.now()
+  ) {
     throw new LocalWorkspaceControlError("forbidden", "This invitation is not available");
   }
+
   const now = nowIso();
   const existingMembership = getMembership(database, invitation.workspace_id, input.userId);
+
   const accept = database.transaction(() => {
     if (!existingMembership) {
-      database.query(
-        `INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
+      database
+        .query(
+          `INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
          VALUES (?, ?, ?, ?)`,
-      ).run(invitation.workspace_id, input.userId, invitation.role, now);
+        )
+        .run(invitation.workspace_id, input.userId, invitation.role, now);
     }
-    database.query(
-      `UPDATE workspace_invitations SET status = 'accepted', accepted_by_user_id = ?, updated_at = ? WHERE id = ?`,
-    ).run(input.userId, now, input.invitationId);
+
+    database
+      .query(
+        `UPDATE workspace_invitations SET status = 'accepted', accepted_by_user_id = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(input.userId, now, input.invitationId);
   });
+
   accept();
+
   return { ok: true, workspace_id: invitation.workspace_id, role: existingMembership?.role ?? invitation.role };
 }
 
@@ -211,40 +286,64 @@ function createInvitation(
 ): LocalWorkspaceInvitation {
   requireManager(database, input.workspaceId, input.inviterUserId, "Only owners/admins can invite users");
   const email = normalizeEmail(input.email);
+
   if (!email) {
     throw new LocalWorkspaceControlError("not_found", "Invitation email is required");
   }
-  const existingMember = database.query(
-    `SELECT 1 FROM workspace_memberships m JOIN user u ON u.id = m.user_id
+
+  const existingMember = database
+    .query(
+      `SELECT 1 FROM workspace_memberships m JOIN user u ON u.id = m.user_id
      WHERE m.workspace_id = ? AND lower(u.email) = ? LIMIT 1`,
-  ).get(input.workspaceId, email);
-  const existingInvitation = database.query(
-    "SELECT 1 FROM workspace_invitations WHERE workspace_id = ? AND email = ? AND status = 'pending' AND expires_at > ? LIMIT 1",
-  ).get(input.workspaceId, email, nowIso());
+    )
+    .get(input.workspaceId, email);
+
+  const existingInvitation = database
+    .query(
+      "SELECT 1 FROM workspace_invitations WHERE workspace_id = ? AND email = ? AND status = 'pending' AND expires_at > ? LIMIT 1",
+    )
+    .get(input.workspaceId, email, nowIso());
+
   if (existingMember || existingInvitation) {
     throw new LocalWorkspaceControlError("invite_exists", "A pending invitation already exists for this user");
   }
+
   const id = newId("invite");
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const role = input.role === "admin" ? "admin" : "member";
-  database.query(
-    `INSERT INTO workspace_invitations (id, workspace_id, email, role, status, invited_by_user_id, accepted_by_user_id, created_at, updated_at, expires_at)
+  database
+    .query(
+      `INSERT INTO workspace_invitations (id, workspace_id, email, role, status, invited_by_user_id, accepted_by_user_id, created_at, updated_at, expires_at)
      VALUES (?, ?, ?, ?, 'pending', ?, NULL, ?, ?, ?)`,
-  ).run(id, input.workspaceId, email, role, input.inviterUserId, createdAt, createdAt, expiresAt);
-  return database.query(INVITATION_SELECT + " WHERE i.id = ? LIMIT 1").get(id) as LocalWorkspaceInvitation;
+    )
+    .run(id, input.workspaceId, email, role, input.inviterUserId, createdAt, createdAt, expiresAt);
+
+  return database
+    .query<LocalWorkspaceInvitation, SQLQueryBindings[]>(INVITATION_SELECT + " WHERE i.id = ? LIMIT 1")
+    .get(id)!;
 }
 
 function listPendingInvitations(database: Database, input: { email: string }): LocalWorkspaceInvitation[] {
-  return database.query(INVITATION_SELECT + " WHERE i.email = ? AND i.status = 'pending' AND i.expires_at > ? ORDER BY i.updated_at DESC")
-    .all(normalizeEmail(input.email), nowIso()) as LocalWorkspaceInvitation[];
+  return database
+    .query<LocalWorkspaceInvitation, SQLQueryBindings[]>(
+      INVITATION_SELECT + " WHERE i.email = ? AND i.status = 'pending' AND i.expires_at > ? ORDER BY i.updated_at DESC",
+    )
+    .all(normalizeEmail(input.email), nowIso());
 }
 
-function listWorkspaceInvitations(database: Database, input: { workspaceId: string; userId: string }): LocalWorkspaceInvitation[] {
+function listWorkspaceInvitations(
+  database: Database,
+  input: { workspaceId: string; userId: string },
+): LocalWorkspaceInvitation[] {
   requireManager(database, input.workspaceId, input.userId, "Only owners/admins can manage invitations");
-  return database.query(
-    INVITATION_SELECT + " WHERE i.workspace_id = ? AND i.status = 'pending' AND i.expires_at > ? ORDER BY i.updated_at DESC",
-  ).all(input.workspaceId, nowIso()) as LocalWorkspaceInvitation[];
+
+  return database
+    .query<LocalWorkspaceInvitation, SQLQueryBindings[]>(
+      INVITATION_SELECT +
+        " WHERE i.workspace_id = ? AND i.status = 'pending' AND i.expires_at > ? ORDER BY i.updated_at DESC",
+    )
+    .all(input.workspaceId, nowIso());
 }
 
 function leaveWorkspace(
@@ -253,22 +352,30 @@ function leaveWorkspace(
 ): LocalWorkspaceLeaveResult {
   const leave = database.transaction(() => {
     const membership = getMembership(database, input.workspaceId, input.userId);
+
     if (!membership) {
       throw new LocalWorkspaceControlError("not_found", "Workspace not found");
     }
+
     if (membership.role === "owner") {
       throw new LocalWorkspaceControlError("forbidden", "Workspace owners cannot leave their workspace");
     }
 
     const acceptedWorkspaces = listMembershipWorkspaces(database, input.userId);
-    const replacementWorkspace = acceptedWorkspaces.length <= 1
-      ? createWorkspaceRecord(database, {
-          userId: input.userId,
-          name: `${normalizedUserName(input.userName)} Workspace`,
-          bootstrapProductData: true,
-        })
-      : null;
-    database.query("DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?").run(input.workspaceId, input.userId);
+
+    const replacementWorkspace =
+      acceptedWorkspaces.length <= 1
+        ? createWorkspaceRecord(database, {
+            userId: input.userId,
+            name: `${normalizedUserName(input.userName)} Workspace`,
+            bootstrapProductData: true,
+          })
+        : null;
+
+    database
+      .query("DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?")
+      .run(input.workspaceId, input.userId);
+
     const nextWorkspace = replacementWorkspace
       ? getAcceptedWorkspaceContext(database, {
           workspaceId: replacementWorkspace.workspace_id,
@@ -276,86 +383,111 @@ function leaveWorkspace(
         })!
       : listMembershipWorkspaces(database, input.userId)[0]!;
 
-    return {
-      ok: true as const,
+    const result: LocalWorkspaceLeaveResult = {
+      ok: true,
       workspace_id: input.workspaceId,
       next_workspace: nextWorkspace,
-      ...(replacementWorkspace ? { replacement_workspace: replacementWorkspace } : {}),
     };
+
+    if (replacementWorkspace) result.replacement_workspace = replacementWorkspace;
+
+    return result;
   });
 
   return leave();
 }
 
-function listWorkspaceUsers(database: Database, input: { workspaceId: string; userId: string }): LocalWorkspaceMember[] {
+function listWorkspaceUsers(
+  database: Database,
+  input: { workspaceId: string; userId: string },
+): LocalWorkspaceMember[] {
   if (!getMembership(database, input.workspaceId, input.userId)) {
     throw new LocalWorkspaceControlError("forbidden", "You do not have access to this workspace");
   }
-  return database.query(
-    `SELECT m.user_id, u.name, u.email, m.role
+
+  return database
+    .query<LocalWorkspaceMember, SQLQueryBindings[]>(
+      `SELECT m.user_id, u.name, u.email, m.role
      FROM workspace_memberships m
      JOIN user u ON u.id = m.user_id
      WHERE m.workspace_id = ?
      ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END ASC,
               m.created_at ASC,
               m.user_id ASC`,
-  ).all(input.workspaceId) as LocalWorkspaceMember[];
+    )
+    .all(input.workspaceId);
 }
 
 function applyWorkspaceMemberAction(
   database: Database,
   input: { workspaceId: string; actorUserId: string; targetUserId: string; action: string },
 ): LocalWorkspaceMemberActionResult {
-  const action = input.action as LocalWorkspaceMemberAction;
+  const action = input.action;
+
   if (action !== "remove_user" && action !== "make_admin" && action !== "make_owner") {
     throw new LocalWorkspaceControlError("forbidden", "Workspace member action is not permitted");
   }
-  const apply = database.transaction(() => {
+
+  const apply = database.transaction((): LocalWorkspaceMemberActionResult => {
     const actor = getMembership(database, input.workspaceId, input.actorUserId);
+
     if (!actor || input.actorUserId === input.targetUserId) {
       throw new LocalWorkspaceControlError("forbidden", "Workspace member action is not permitted");
     }
+
     const target = getMembership(database, input.workspaceId, input.targetUserId);
+
     if (!target) {
       throw new LocalWorkspaceControlError("not_found", "Workspace member not found");
     }
 
-    if (action === "remove_user" && target.role !== "owner" && (actor.role === "owner" || actor.role === "admin" && target.role === "member")) {
-      database.query(
-        "DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?",
-      ).run(input.workspaceId, input.targetUserId);
+    if (
+      action === "remove_user" &&
+      target.role !== "owner" &&
+      (actor.role === "owner" || (actor.role === "admin" && target.role === "member"))
+    ) {
+      database
+        .query("DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?")
+        .run(input.workspaceId, input.targetUserId);
+
       return { workspace_id: input.workspaceId, user_id: input.targetUserId, action, role: null };
     }
 
     if (action === "make_admin" && actor.role === "owner" && target.role === "member") {
-      database.query(
-        "UPDATE workspace_memberships SET role = 'admin' WHERE workspace_id = ? AND user_id = ?",
-      ).run(input.workspaceId, input.targetUserId);
+      database
+        .query("UPDATE workspace_memberships SET role = 'admin' WHERE workspace_id = ? AND user_id = ?")
+        .run(input.workspaceId, input.targetUserId);
+
       return { workspace_id: input.workspaceId, user_id: input.targetUserId, action, role: "admin" as const };
     }
 
     if (action === "make_owner" && actor.role === "owner" && target.role !== "owner") {
-      database.query(
-        "UPDATE workspace_memberships SET role = 'admin' WHERE workspace_id = ? AND user_id = ?",
-      ).run(input.workspaceId, input.actorUserId);
-      database.query(
-        "UPDATE workspace_memberships SET role = 'owner' WHERE workspace_id = ? AND user_id = ?",
-      ).run(input.workspaceId, input.targetUserId);
+      database
+        .query("UPDATE workspace_memberships SET role = 'admin' WHERE workspace_id = ? AND user_id = ?")
+        .run(input.workspaceId, input.actorUserId);
+      database
+        .query("UPDATE workspace_memberships SET role = 'owner' WHERE workspace_id = ? AND user_id = ?")
+        .run(input.workspaceId, input.targetUserId);
+
       return { workspace_id: input.workspaceId, user_id: input.targetUserId, action, role: "owner" as const };
     }
 
     throw new LocalWorkspaceControlError("forbidden", "Workspace member action is not permitted");
   });
+
   return apply();
 }
 
 function authorizeApiKey(database: Database, input: { apiKey: string }): LocalApiKeyWorkspace | null {
-  const row = database.query(
-    `SELECT id, name, created_at, max_source_file_bytes, source_retention_disabled, api_key_hash IS NOT NULL AS has_api_key
+  const row = database
+    .query<WorkspaceRow<LocalApiKeyWorkspace>, SQLQueryBindings[]>(
+      `SELECT id, name, created_at, max_source_file_bytes, source_retention_disabled, api_key_hash IS NOT NULL AS has_api_key
      FROM workspaces
      WHERE api_key_hash = ?
      LIMIT 1`,
-  ).get(hashApiKey(input.apiKey)) as WorkspaceRow<LocalApiKeyWorkspace> | null;
+    )
+    .get(hashApiKey(input.apiKey));
+
   return row && withApiKeyFlag(row);
 }
 
@@ -364,6 +496,7 @@ function listAcceptedWorkspaces(
   input: { userId: string; userName?: string | null },
 ): LocalWorkspace[] {
   const workspaces = listMembershipWorkspaces(database, input.userId);
+
   if (workspaces.length > 0) {
     return workspaces;
   }
@@ -373,6 +506,7 @@ function listAcceptedWorkspaces(
     name: `${normalizedUserName(input.userName)} Workspace`,
     bootstrapProductData: true,
   });
+
   return listMembershipWorkspaces(database, input.userId);
 }
 
@@ -381,6 +515,7 @@ function createWorkspace(
   input: { userId: string; name?: string; bootstrapProductData?: boolean },
 ): CreatedLocalWorkspace {
   const create = database.transaction(() => createWorkspaceRecord(database, input));
+
   return create();
 }
 
@@ -391,19 +526,26 @@ function createWorkspaceRecord(
   const workspaceId = newId("workspace");
   const createdAt = nowIso();
   const name = input.name?.trim() || "New Workspace";
-  database.query(
-    `INSERT INTO workspaces (id, name, created_at, created_by_user_id, api_key_hash, max_source_file_bytes)
+  database
+    .query(
+      `INSERT INTO workspaces (id, name, created_at, created_by_user_id, api_key_hash, max_source_file_bytes)
      VALUES (?, ?, ?, ?, NULL, NULL)`,
-  ).run(workspaceId, name, createdAt, input.userId);
-  database.query(
-    `INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
+    )
+    .run(workspaceId, name, createdAt, input.userId);
+  database
+    .query(
+      `INSERT INTO workspace_memberships (workspace_id, user_id, role, created_at)
      VALUES (?, ?, 'owner', ?)`,
-  ).run(workspaceId, input.userId, createdAt);
+    )
+    .run(workspaceId, input.userId, createdAt);
+
   if (input.bootstrapProductData) {
-    database.query(
-      `INSERT INTO workspace_product_bootstraps (workspace_id, created_at)
+    database
+      .query(
+        `INSERT INTO workspace_product_bootstraps (workspace_id, created_at)
        VALUES (?, ?)`,
-    ).run(workspaceId, createdAt);
+      )
+      .run(workspaceId, createdAt);
   }
 
   return {
@@ -419,48 +561,65 @@ function getAcceptedWorkspaceContext(
   database: Database,
   input: { workspaceId: string; userId: string },
 ): LocalWorkspace | null {
-  const row = database.query(`${MEMBERSHIP_WORKSPACE_SELECT} WHERE w.id = ? AND m.user_id = ? LIMIT 1`)
-    .get(input.workspaceId, input.userId) as WorkspaceRow<LocalWorkspace> | null;
+  const row = database
+    .query<WorkspaceRow<LocalWorkspace>, SQLQueryBindings[]>(
+      `${MEMBERSHIP_WORKSPACE_SELECT} WHERE w.id = ? AND m.user_id = ? LIMIT 1`,
+    )
+    .get(input.workspaceId, input.userId);
+
   return row && withApiKeyFlag(row);
 }
+
+type RenameWorkspaceResult = { workspace_id: string; name: string };
 
 function renameWorkspace(
   database: Database,
   input: { workspaceId: string; userId: string; name: string },
-): { workspace_id: string; name: string } {
+): RenameWorkspaceResult {
   const membership = getMembership(database, input.workspaceId, input.userId);
+
   if (!membership) {
     throw new LocalWorkspaceControlError("not_found", "Workspace not found");
   }
+
   if (membership.role !== "owner" && membership.role !== "admin") {
     throw new LocalWorkspaceControlError("forbidden", "Only owners/admins can update workspace settings");
   }
 
   database.query("UPDATE workspaces SET name = ? WHERE id = ?").run(input.name, input.workspaceId);
+
   return { workspace_id: input.workspaceId, name: input.name };
 }
+
+type SetWorkspaceSourceRetentionResult = { workspace_id: string; source_retention_disabled: boolean };
 
 function setWorkspaceSourceRetention(
   database: Database,
   input: { workspaceId: string; userId: string; disabled: boolean },
-): { workspace_id: string; source_retention_disabled: boolean } {
+): SetWorkspaceSourceRetentionResult {
   const membership = getMembership(database, input.workspaceId, input.userId);
+
   if (!membership) throw new LocalWorkspaceControlError("not_found", "Workspace not found");
+
   if (membership.role !== "owner" && membership.role !== "admin") {
     throw new LocalWorkspaceControlError("forbidden", "Only owners/admins can update workspace settings");
   }
-  database.query("UPDATE workspaces SET source_retention_disabled = ? WHERE id = ?").run(Number(input.disabled), input.workspaceId);
+
+  database
+    .query("UPDATE workspaces SET source_retention_disabled = ? WHERE id = ?")
+    .run(Number(input.disabled), input.workspaceId);
+
   return { workspace_id: input.workspaceId, source_retention_disabled: input.disabled };
 }
 
-function rotateApiKey(
-  database: Database,
-  input: { workspaceId: string; userId: string },
-): { workspace_id: string; api_key: string; has_api_key: true; rotated_at: string } {
+type RotateApiKeyResult = { workspace_id: string; api_key: string; has_api_key: true; rotated_at: string };
+
+function rotateApiKey(database: Database, input: { workspaceId: string; userId: string }): RotateApiKeyResult {
   requireManager(database, input.workspaceId, input.userId, "Only owners/admins can rotate workspace API keys");
   const apiKey = newId("key");
   const rotatedAt = nowIso();
   database.query("UPDATE workspaces SET api_key_hash = ? WHERE id = ?").run(hashApiKey(apiKey), input.workspaceId);
+
   return { workspace_id: input.workspaceId, api_key: apiKey, has_api_key: true, rotated_at: rotatedAt };
 }
 
@@ -473,29 +632,41 @@ function revokeWorkspaceForDeletion(database: Database, input: { workspaceId: st
   if (!database.query("SELECT 1 FROM workspaces WHERE id = ? LIMIT 1").get(input.workspaceId)) {
     return false;
   }
+
   return database.query("DELETE FROM workspaces WHERE id = ?").run(input.workspaceId).changes > 0;
 }
 
 function assertWorkspaceDeletion(database: Database, input: { workspaceId: string; userId: string }): void {
   const membership = getMembership(database, input.workspaceId, input.userId);
+
   if (!membership) {
     throw new LocalWorkspaceControlError("not_found", "Workspace not found");
   }
+
   if (membership.role !== "owner") {
     throw new LocalWorkspaceControlError("forbidden", "Only owners can delete workspaces");
   }
 
   const count = Number(
-    (database.query("SELECT COUNT(*) AS count FROM workspace_memberships WHERE user_id = ?").get(input.userId) as { count: number }).count,
+    database
+      .query<{ count: number }, SQLQueryBindings[]>(
+        "SELECT COUNT(*) AS count FROM workspace_memberships WHERE user_id = ?",
+      )
+      .get(input.userId)!.count,
   );
+
   if (count <= 1) {
     throw new LocalWorkspaceControlError("last_workspace", "You cannot delete your only workspace");
   }
 }
 
 function listMembershipWorkspaces(database: Database, userId: string): LocalWorkspace[] {
-  const rows = database.query(`${MEMBERSHIP_WORKSPACE_SELECT} WHERE m.user_id = ? ORDER BY w.created_at DESC`)
-    .all(userId) as WorkspaceRow<LocalWorkspace>[];
+  const rows = database
+    .query<WorkspaceRow<LocalWorkspace>, SQLQueryBindings[]>(
+      `${MEMBERSHIP_WORKSPACE_SELECT} WHERE m.user_id = ? ORDER BY w.created_at DESC`,
+    )
+    .all(userId);
+
   return rows.map(withApiKeyFlag);
 }
 
@@ -504,13 +675,16 @@ function getMembership(
   workspaceId: string,
   userId: string,
 ): { role: "owner" | "admin" | "member" } | null {
-  return database.query(
-    "SELECT role FROM workspace_memberships WHERE workspace_id = ? AND user_id = ? LIMIT 1",
-  ).get(workspaceId, userId) as { role: "owner" | "admin" | "member" } | null;
+  return database
+    .query<{ role: "owner" | "admin" | "member" }, SQLQueryBindings[]>(
+      "SELECT role FROM workspace_memberships WHERE workspace_id = ? AND user_id = ? LIMIT 1",
+    )
+    .get(workspaceId, userId);
 }
 
 function requireManager(database: Database, workspaceId: string, userId: string, message: string): void {
   const membership = getMembership(database, workspaceId, userId);
+
   if (membership?.role !== "owner" && membership?.role !== "admin") {
     throw new LocalWorkspaceControlError("forbidden", message);
   }
@@ -518,16 +692,33 @@ function requireManager(database: Database, workspaceId: string, userId: string,
 
 /** SQLite returns flags as 0/1. */
 type WorkspaceFlags = { has_api_key: boolean; source_retention_disabled: boolean };
-type WorkspaceRow<T extends WorkspaceFlags> = Omit<T, keyof WorkspaceFlags> & { has_api_key: number; source_retention_disabled: number };
+
+type WorkspaceRow<T extends WorkspaceFlags> = Omit<T, keyof WorkspaceFlags> & {
+  has_api_key: number;
+  source_retention_disabled: number;
+};
 
 function withApiKeyFlag<T extends WorkspaceFlags>(row: WorkspaceRow<T>): T {
-  return { ...row, has_api_key: Boolean(row.has_api_key), source_retention_disabled: Boolean(row.source_retention_disabled) } as T;
+  // SAFETY: WorkspaceRow preserves every T property except the two SQLite 0/1 flags, which are converted back to their declared boolean fields here.
+  return {
+    ...row,
+    has_api_key: Boolean(row.has_api_key),
+    source_retention_disabled: Boolean(row.source_retention_disabled),
+  } as T;
 }
 
 function ensureControlSchemaColumns(database: Database): void {
-  const columns = new Set((database.query("PRAGMA table_info(workspaces)").all() as Array<{ name: string }>).map((column) => column.name));
+  const columns = new Set(
+    database
+      .query<{ name: string }, SQLQueryBindings[]>("PRAGMA table_info(workspaces)")
+      .all()
+      .map((column) => column.name),
+  );
+
   if (!columns.has("source_retention_disabled")) {
-    database.exec("ALTER TABLE workspaces ADD COLUMN source_retention_disabled INTEGER NOT NULL DEFAULT 0 CHECK (source_retention_disabled IN (0, 1))");
+    database.exec(
+      "ALTER TABLE workspaces ADD COLUMN source_retention_disabled INTEGER NOT NULL DEFAULT 0 CHECK (source_retention_disabled IN (0, 1))",
+    );
   }
 }
 

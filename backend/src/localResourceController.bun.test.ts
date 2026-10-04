@@ -10,10 +10,14 @@ test("the resource controller exposes storage/process telemetry and backs off on
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-resources-"));
   await mkdir(join(stateDirectory, "source-files", "workspaces", "workspace_one"), { recursive: true });
   await mkdir(join(stateDirectory, "data", "workspaces"), { recursive: true });
-  await writeFile(join(stateDirectory, "source-files", "workspaces", "workspace_one", "source.pdf"), new Uint8Array(128));
+  await writeFile(
+    join(stateDirectory, "source-files", "workspaces", "workspace_one", "source.pdf"),
+    new Uint8Array(128),
+  );
   await writeFile(join(stateDirectory, "data", "workspaces", "workspace_one.sqlite"), new Uint8Array(256));
   await writeFile(join(stateDirectory, "data", "workspaces", "workspace_one.sqlite-wal"), new Uint8Array(64));
   const permits: number[] = [];
+
   const controller = createLocalResourceController({
     diskReserveBytes: Number.MAX_SAFE_INTEGER,
     getQueueSnapshot: () => ({
@@ -57,10 +61,12 @@ test("OS memory pressure applies immediate admission policy and recovers only af
   const permits: number[] = [];
   let clock = Date.parse("2026-08-20T12:00:00.000Z");
   let evictedIdleStores = 0;
+
   const controller = createLocalResourceController({
     diskReserveBytes: 0,
     evictIdleStores: () => {
       evictedIdleStores += 2;
+
       return 2;
     },
     getQueueSnapshot: () => ({
@@ -145,6 +151,7 @@ test("critical pressure pauses new queue claims without losing active or durable
     started.push(job.job_id);
     await new Promise<void>((resolve) => releases.push(resolve));
   });
+
   const controller = createLocalResourceController({
     diskReserveBytes: 0,
     getQueueSnapshot: queue.snapshot,
@@ -162,6 +169,7 @@ test("critical pressure pauses new queue claims without losing active or durable
 
     await controller.handleMemoryPressure("critical");
     expect(queue.snapshot()).toMatchObject({ active: 2, maxConcurrent: 0, pending: 1 });
+
     for (const release of releases.splice(0)) release();
     await waitFor(() => queue.snapshot().active === 0);
     expect(started).toEqual(["job_active_one", "job_active_two"]);
@@ -197,5 +205,6 @@ async function waitFor(condition: () => boolean): Promise<void> {
     if (condition()) return;
     await Bun.sleep(1);
   }
+
   throw new Error("Timed out waiting for memory-pressure queue state");
 }

@@ -1,47 +1,76 @@
+import { isJsonObject, isNumber, isString, parseJson } from "../shared/json";
 import { expect, test } from "@playwright/test";
 import { submitSignUp } from "./support/journeyHelpers";
 import { startRuntimeHarness } from "./support/runtimeHarnessClient";
 
 test("manage shared template tags in the frontend without creating field versions", async ({ page }, testInfo) => {
   const harness = await startRuntimeHarness();
+
   try {
     await submitSignUp(page, harness, { name: "Tag Editor", email: "tag-editor@example.test", password: "Strong1!" });
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
-    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: /Templates/ }).click();
+    await page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("link", { name: /Templates/ })
+      .click();
     await page.getByRole("button", { name: "Create Template", exact: true }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Tagged invoice");
-    const creation = page.waitForResponse(response => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST");
+
+    const creation = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
+    );
+
     await page.getByRole("button", { name: "Save new template", exact: true }).click();
     const created = await creation;
     expect(created.status()).toBe(201);
     const { template_id: firstId } = await created.json();
     const headers = { "x-workspace-id": created.request().headers()["x-workspace-id"] };
+
     const readTemplate = async (id: string) => {
       const response = await page.request.get(`${harness.origin}/v1/templates/${id}`, { headers });
       expect(response.status()).toBe(200);
+
       return response.json();
     };
+
     const readTags = async () => {
       const response = await page.request.get(`${harness.origin}/v1/template-tags`, { headers });
       expect(response.status()).toBe(200);
-      return (await response.json()).tags as { id: string; name: string; template_count: number }[];
+
+      const body = parseJson(await response.text());
+
+      if (!isJsonObject(body) || !Array.isArray(body.tags)) throw new Error("Tags response must contain tags.");
+
+      return body.tags.map((tag) => {
+        if (!isJsonObject(tag) || !isString(tag.id) || !isString(tag.name) || !isNumber(tag.template_count))
+          throw new Error("Invalid tag in response.");
+
+        return { id: tag.id, name: tag.name, template_count: tag.template_count };
+      });
     };
+
     const saveChanges = async (id: string) => {
-      const response = page.waitForResponse(value => new URL(value.url()).pathname === `/v1/templates/${id}` && value.request().method() === "PATCH");
+      const response = page.waitForResponse(
+        (value) => new URL(value.url()).pathname === `/v1/templates/${id}` && value.request().method() === "PATCH",
+      );
+
       await page.getByRole("button", { name: "Save changes", exact: true }).click();
       expect((await response).status()).toBe(200);
       await expect(page.getByText("6 fields · All changes saved", { exact: true })).toBeVisible();
     };
+
     const original = await readTemplate(firstId);
     const descriptionBox = (await page.getByLabel("Description", { exact: true }).boundingBox())!;
     const tagsBox = (await page.getByRole("button", { name: "Template tags", exact: true }).boundingBox())!;
     expect(tagsBox.x).toBeGreaterThan(descriptionBox.x);
     expect(tagsBox.y).toBeLessThan(descriptionBox.y + descriptionBox.height);
     const dropdown = page.getByRole("dialog", { name: "Template tags", exact: true });
+
     const openTags = async () => {
       await page.getByRole("button", { name: "Template tags", exact: true }).click();
       await expect(dropdown).toBeVisible();
     };
+
     const closeTags = async () => {
       await page.getByRole("button", { name: "Template tags", exact: true }).click();
       await expect(dropdown).toBeHidden();
@@ -57,14 +86,22 @@ test("manage shared template tags in the frontend without creating field version
     await closeTags();
     await saveChanges(firstId);
     expect(await readTags()).toMatchObject([{ name: "invoice", template_count: 1 }]);
-    expect(await readTemplate(firstId)).toMatchObject({ tags: ["invoice"], current_version: original.current_version, fields: original.fields });
+    expect(await readTemplate(firstId)).toMatchObject({
+      tags: ["invoice"],
+      current_version: original.current_version,
+      fields: original.fields,
+    });
 
     await page.getByRole("button", { name: "Create Template", exact: true }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Tagged receipt");
     await openTags();
     await dropdown.getByRole("checkbox", { name: "invoice", exact: true }).check();
     await closeTags();
-    const secondCreation = page.waitForResponse(response => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST");
+
+    const secondCreation = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
+    );
+
     await page.getByRole("button", { name: "Save new template", exact: true }).click();
     const secondCreated = await secondCreation;
     expect(secondCreated.status()).toBe(201);
@@ -81,7 +118,10 @@ test("manage shared template tags in the frontend without creating field version
     await dropdown.getByRole("textbox", { name: "New tag name", exact: true }).fill("  FINANCE   DOCS  ");
     await dropdown.getByRole("button", { name: "Save tag name", exact: true }).click();
     await expect(dropdown.getByRole("button", { name: "Rename finance docs", exact: true })).toBeVisible();
-    expect(await readTemplate(firstId)).toMatchObject({ tags: ["finance docs"], current_version: original.current_version });
+    expect(await readTemplate(firstId)).toMatchObject({
+      tags: ["finance docs"],
+      current_version: original.current_version,
+    });
     expect(await readTemplate(secondId)).toMatchObject({ tags: ["finance docs"], current_version: 1 });
     await page.screenshot({ path: testInfo.outputPath("template-tags-management.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -93,7 +133,10 @@ test("manage shared template tags in the frontend without creating field version
     await saveChanges(secondId);
     expect((await readTemplate(secondId)).current_version).toBe(1);
 
-    await page.getByRole("region", { name: "Template list", exact: true }).getByRole("link", { name: /Tagged invoice/ }).click();
+    await page
+      .getByRole("region", { name: "Template list", exact: true })
+      .getByRole("link", { name: /Tagged invoice/ })
+      .click();
     await expect(page.getByLabel("Template name", { exact: true })).toHaveValue("Tagged invoice");
     await openTags();
     await dropdown.getByRole("checkbox", { name: "finance docs", exact: true }).uncheck();
@@ -109,14 +152,18 @@ test("manage shared template tags in the frontend without creating field version
     await saveChanges(firstId);
     await openTags();
     await dropdown.getByRole("button", { name: "Manage tags", exact: true }).click();
-    page.once("dialog", async dialog => {
+    page.once("dialog", async (dialog) => {
       expect(dialog.message()).toContain("2");
       await dialog.accept();
     });
     await dropdown.getByRole("button", { name: "Delete finance docs", exact: true }).click();
     await expect(dropdown.getByRole("button", { name: "Delete finance docs", exact: true })).toBeHidden();
     expect(await readTags()).toEqual([]);
-    expect(await readTemplate(firstId)).toMatchObject({ tags: [], current_version: original.current_version, fields: original.fields });
+    expect(await readTemplate(firstId)).toMatchObject({
+      tags: [],
+      current_version: original.current_version,
+      fields: original.fields,
+    });
     expect(await readTemplate(secondId)).toMatchObject({ tags: [], current_version: 1 });
     await closeTags();
     await expect(page.getByRole("button", { name: "Save changes", exact: true })).toBeDisabled();

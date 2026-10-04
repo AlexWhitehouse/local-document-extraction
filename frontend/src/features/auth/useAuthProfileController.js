@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast as defaultToast } from "sonner";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 
 export const ACCOUNT_PASSWORD_REQUIREMENTS = [
@@ -15,6 +15,7 @@ export const ACCOUNT_PASSWORD_REQUIREMENTS = [
 export function useAuthProfileController({
   authOptions = DEFAULT_RUNTIME_CONFIGURATION.auth,
   authClient,
+  toast = defaultToast,
   refetchSession,
   initialAuthMode = "signin",
   hasSession,
@@ -34,10 +35,11 @@ export function useAuthProfileController({
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authPasswordTouched, setAuthPasswordTouched] = useState(false);
   const [signUpSubmitAttempted, setSignUpSubmitAttempted] = useState(false);
-  const [accountVerificationPromptEmail, setAccountVerificationPromptEmail] =
-    useState("");
-  const [accountPasswordResetRequestedEmail, setAccountPasswordResetRequestedEmail] =
-    useState("");
+
+  const [accountVerificationPromptEmail, setAccountVerificationPromptEmail] = useState("");
+
+  const [accountPasswordResetRequestedEmail, setAccountPasswordResetRequestedEmail] = useState("");
+
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -50,19 +52,20 @@ export function useAuthProfileController({
   const displayProfileName = currentProfileName || "Unnamed User";
   const displayProfileEmail = currentProfileEmail || "No email";
   const profileIsDirty = profileDraftName.trim() !== currentProfileName;
+
   const unmetAccountPasswordRequirements = ACCOUNT_PASSWORD_REQUIREMENTS.filter(
     (requirement) => !requirement.test(authPassword),
   );
-  const shouldShowAccountPasswordRequirements =
-    authMode === "signup" && (authPasswordTouched || signUpSubmitAttempted);
+
+  const shouldShowAccountPasswordRequirements = authMode === "signup" && (authPasswordTouched || signUpSubmitAttempted);
+
   const hasSignUpPasswordMismatch =
-    authMode === "signup" &&
-    authConfirmPassword.length > 0 &&
-    authPassword !== authConfirmPassword;
+    authMode === "signup" && authConfirmPassword.length > 0 && authPassword !== authConfirmPassword;
 
   useEffect(() => {
     if (!hasSession) {
       setIsProfileMenuOpen(false);
+
       return;
     }
 
@@ -74,6 +77,7 @@ export function useAuthProfileController({
     if (isProfileMenuOpen) {
       return;
     }
+
     setProfileDraftName(currentProfileName);
   }, [currentProfileName, isProfileMenuOpen]);
 
@@ -89,6 +93,7 @@ export function useAuthProfileController({
     }
 
     window.addEventListener("keydown", handleKeyDown);
+
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
@@ -97,18 +102,22 @@ export function useAuthProfileController({
   async function signIn() {
     if (!authEmail.trim() || !authPassword.trim()) {
       toast.error("Email and password are required.");
+
       return;
     }
 
     setBusy(true);
+
     try {
       const result = await authClient.signIn.email({
         email: authEmail.trim(),
         password: authPassword,
       });
+
       if (result.error) {
         throw new Error(result.error.message || "Sign in failed");
       }
+
       setAuthPassword("");
       await refetchSession();
     } catch (error) {
@@ -121,50 +130,66 @@ export function useAuthProfileController({
   async function signUp() {
     setSignUpSubmitAttempted(true);
     const missingSignUpFields = [];
+
     if (!authName.trim()) missingSignUpFields.push("Name");
+
     if (!authEmail.trim()) missingSignUpFields.push("email");
+
     if (!authPassword.trim()) missingSignUpFields.push("password");
+
     if (!authConfirmPassword.trim()) {
       missingSignUpFields.push("confirm password");
     }
+
     if (missingSignUpFields.length > 0) {
       const lastField = missingSignUpFields[missingSignUpFields.length - 1];
       const leadingFields = missingSignUpFields.slice(0, -1);
+
       const fieldList =
         leadingFields.length === 0
           ? lastField
           : leadingFields.length === 1
             ? `${leadingFields[0]} and ${lastField}`
             : `${leadingFields.join(", ")}, and ${lastField}`;
+
       const requiredVerb = missingSignUpFields.length === 1 ? "is" : "are";
       const displayFieldList = fieldList[0].toUpperCase() + fieldList.slice(1);
       toast.error(`${displayFieldList} ${requiredVerb} required.`);
+
       return;
     }
+
     if (unmetAccountPasswordRequirements.length > 0) {
       toast.error("Password must meet all complexity requirements.");
+
       return;
     }
+
     if (hasSignUpPasswordMismatch) {
       toast.error("Passwords do not match.");
+
       return;
     }
 
     setBusy(true);
+
     try {
       const result = await authClient.signUp.email({
         name: authName.trim(),
         email: authEmail.trim(),
         password: authPassword,
       });
+
       if (result.error) {
         throw new Error(result.error.message || "Sign up failed");
       }
+
       const signedUpEmail = authEmail.trim();
       setAuthPassword("");
       setAuthConfirmPassword("");
       setAuthPasswordTouched(false);
       setSignUpSubmitAttempted(false);
+
       if (authOptions.requireEmailVerification) {
         setAccountVerificationPromptEmail(signedUpEmail);
       } else {
@@ -179,11 +204,13 @@ export function useAuthProfileController({
 
   async function signInWithGoogle() {
     setBusy(true);
+
     try {
       const result = await authClient.signIn.social({
         provider: "google",
         callbackURL: window.location.pathname === "/reset-password" ? window.location.origin : window.location.href,
       });
+
       if (result?.error) {
         throw new Error(result.error.message || "Google sign in failed");
       }
@@ -196,19 +223,23 @@ export function useAuthProfileController({
   async function requestAccountPasswordReset() {
     if (!authEmail.trim()) {
       toast.error("Email is required.");
+
       return;
     }
 
     const requestedEmail = authEmail.trim();
     setBusy(true);
+
     try {
       const result = await authClient.requestPasswordReset({
         email: requestedEmail,
         redirectTo: "/reset-password",
       });
+
       if (result?.error) {
         throw new Error(result.error.message || "Account password reset request failed");
       }
+
       setAccountPasswordResetRequestedEmail(requestedEmail);
     } catch {
       toast.error("Password reset request failed. Please try again.");
@@ -219,15 +250,21 @@ export function useAuthProfileController({
 
   async function submitAuthForm(event) {
     event.preventDefault();
+
     if (!authOptions.emailPasswordEnabled || (authMode === "signup" && !authOptions.signupEnabled)) return;
+
     if (authMode === "reset-request") {
       await requestAccountPasswordReset();
+
       return;
     }
+
     if (authMode === "signin") {
       await signIn();
+
       return;
     }
+
     await signUp();
   }
 
@@ -244,6 +281,7 @@ export function useAuthProfileController({
 
   async function signOut() {
     setBusy(true);
+
     try {
       onSessionChanging?.();
       await authClient.signOut();
@@ -266,11 +304,14 @@ export function useAuthProfileController({
     }
 
     setIsSavingProfile(true);
+
     try {
       const result = await authClient.updateUser({ name });
+
       if (result?.error) {
         throw new Error(result.error.message || "Profile update failed");
       }
+
       const nextName = String(result?.data?.name || result?.data?.user?.name || name);
       setProfileName(nextName);
       setAuthName(nextName);
@@ -328,25 +369,26 @@ export function useAuthProfileController({
 
 function getSignInErrorToastMessage(message, mailDelivery) {
   const normalized = String(message || "").toLowerCase();
-  if (
-    normalized.includes("verify") ||
-    normalized.includes("verified") ||
-    normalized.includes("verification")
-  ) {
+
+  if (normalized.includes("verify") || normalized.includes("verified") || normalized.includes("verification")) {
     return mailDelivery === "local"
       ? "Verify your account before signing in. Open the verification link in the server terminal or local mail capture."
       : "Verify your email before signing in. We sent you a new Account verification link.";
   }
+
   return "Sign in failed. Check your email and password and try again.";
 }
 
 function getSignUpErrorToastMessage(message) {
   const normalized = String(message || "").toLowerCase();
+
   if (normalized.includes("already") || normalized.includes("exists")) {
     return "An account already exists for this email. Sign in instead.";
   }
+
   if (normalized.includes("invalid") && normalized.includes("email")) {
     return "Enter a valid email address and try again.";
   }
+
   return "Account creation failed. Please try again.";
 }

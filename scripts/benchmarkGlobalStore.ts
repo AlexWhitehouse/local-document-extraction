@@ -23,6 +23,7 @@ type GlobalStoreBenchmarkResult = {
 };
 
 const repositoryRoot = resolve(import.meta.dir, "..");
+
 const evidencePath = resolve(repositoryRoot, ".scratch/bun-1-4-review/evidence/20-global-store-worktrees.md");
 
 function renderGlobalStoreBenchmark(result: GlobalStoreBenchmarkResult): string {
@@ -36,7 +37,10 @@ function renderGlobalStoreBenchmark(result: GlobalStoreBenchmarkResult): string 
     "",
     "| Worktree | Frozen install | Registry | Lockfile | Git state | Global-store links | Native canvas PNG | node_modules disk |",
     "| --- | ---: | --- | --- | --- | ---: | ---: | ---: |",
-    ...result.worktrees.map((worktree) => `| ${worktree.name} | ${worktree.installMs.toFixed(2)} ms | ${worktree.registryDenied ? "registry denied" : "available"} | ${worktree.lockfileUnchanged ? "unchanged" : "CHANGED"} | ${worktree.cleanAfterInstall ? "clean" : "DIRTY"} | ${worktree.globalStoreLinks} | ${worktree.nativeCanvasPngBytes} bytes | ${worktree.nodeModulesDiskKiB.toLocaleString("en-GB")} KiB |`),
+    ...result.worktrees.map(
+      (worktree) =>
+        `| ${worktree.name} | ${worktree.installMs.toFixed(2)} ms | ${worktree.registryDenied ? "registry denied" : "available"} | ${worktree.lockfileUnchanged ? "unchanged" : "CHANGED"} | ${worktree.cleanAfterInstall ? "clean" : "DIRTY"} | ${worktree.globalStoreLinks} | ${worktree.nativeCanvasPngBytes} bytes | ${worktree.nodeModulesDiskKiB.toLocaleString("en-GB")} KiB |`,
+    ),
     "",
     `Shared cache plus global store: ${result.cacheDiskKiB.toLocaleString("en-GB")} KiB on disk after both installs.`,
     "",
@@ -51,12 +55,26 @@ async function runGlobalStoreBenchmark(): Promise<void> {
   const seed = join(temporaryRoot, "seed");
   const worktreeA = join(temporaryRoot, "worktree-a");
   const worktreeB = join(temporaryRoot, "worktree-b");
+
   try {
     await mkdir(cacheDirectory, { recursive: true });
     await Promise.all([seed, worktreeA, worktreeB].map(materializeDependencyWorktree));
     await installDependencies({ cacheDirectory, directory: seed, globalStore: false, registryDenied: false });
-    const first = await measureWorktree({ cacheDirectory, directory: worktreeA, name: "worktree-a", registryDenied: false });
-    const second = await measureWorktree({ cacheDirectory, directory: worktreeB, name: "worktree-b", registryDenied: true });
+
+    const first = await measureWorktree({
+      cacheDirectory,
+      directory: worktreeA,
+      name: "worktree-a",
+      registryDenied: false,
+    });
+
+    const second = await measureWorktree({
+      cacheDirectory,
+      directory: worktreeB,
+      name: "worktree-b",
+      registryDenied: true,
+    });
+
     const result: GlobalStoreBenchmarkResult = {
       bunRevision: Bun.revision,
       bunVersion: Bun.version,
@@ -64,11 +82,18 @@ async function runGlobalStoreBenchmark(): Promise<void> {
       host: `${platform()} ${arch()}`,
       worktrees: [first, second],
     };
+
     for (const worktree of result.worktrees) {
-      if (!worktree.cleanAfterInstall || !worktree.lockfileUnchanged || worktree.globalStoreLinks === 0 || worktree.nativeCanvasPngBytes === 0) {
+      if (
+        !worktree.cleanAfterInstall ||
+        !worktree.lockfileUnchanged ||
+        worktree.globalStoreLinks === 0 ||
+        worktree.nativeCanvasPngBytes === 0
+      ) {
         throw new Error(`${worktree.name} failed global-store integrity checks: ${JSON.stringify(worktree)}`);
       }
     }
+
     await mkdir(resolve(evidencePath, ".."), { recursive: true });
     const markdown = renderGlobalStoreBenchmark(result);
     await writeFile(evidencePath, markdown, "utf8");
@@ -87,6 +112,7 @@ async function materializeDependencyWorktree(directory: string): Promise<void> {
     mkdir(join(directory, "backend"), { recursive: true }),
     mkdir(join(directory, "frontend"), { recursive: true }),
   ]);
+
   const copies = [
     ["package.json", "package.json"],
     ["bun.lock", "bun.lock"],
@@ -94,9 +120,12 @@ async function materializeDependencyWorktree(directory: string): Promise<void> {
     ["backend/package.json", "backend/package.json"],
     ["frontend/package.json", "frontend/package.json"],
   ] as const;
-  await Promise.all(copies.map(async ([source, destination]) => {
-    await writeFile(join(directory, destination), await readFile(resolve(repositoryRoot, source)));
-  }));
+
+  await Promise.all(
+    copies.map(async ([source, destination]) => {
+      await writeFile(join(directory, destination), await readFile(resolve(repositoryRoot, source)));
+    }),
+  );
   await writeFile(join(directory, ".gitignore"), "node_modules/\n**/node_modules/\n", "utf8");
   await run(["git", "init", "--quiet"], directory);
   await run(["git", "config", "user.name", "Bun package benchmark"], directory);
@@ -121,6 +150,7 @@ async function measureWorktree({
   await installDependencies({ cacheDirectory, directory, globalStore: true, registryDenied });
   const installMs = performance.now() - startedAt;
   const lockAfter = await fileSha256(join(directory, "bun.lock"));
+
   return {
     cleanAfterInstall: (await run(["git", "status", "--porcelain"], directory)).trim() === "",
     globalStoreLinks: await countGlobalStoreLinks(directory, cacheDirectory),
@@ -144,15 +174,19 @@ async function installDependencies({
   globalStore: boolean;
   registryDenied: boolean;
 }): Promise<void> {
-  await run([
-    process.execPath,
-    "--no-env-file",
-    "ci",
-    "--ignore-scripts",
-    "--cache-dir",
-    cacheDirectory,
-    ...(registryDenied ? ["--registry", "http://127.0.0.1:9"] : []),
-  ], directory, { ...isolatedEnvironment(), BUN_INSTALL_GLOBAL_STORE: globalStore ? "1" : "0" });
+  await run(
+    [
+      process.execPath,
+      "--no-env-file",
+      "ci",
+      "--ignore-scripts",
+      "--cache-dir",
+      cacheDirectory,
+      ...(registryDenied ? ["--registry", "http://127.0.0.1:9"] : []),
+    ],
+    directory,
+    { ...isolatedEnvironment(), BUN_INSTALL_GLOBAL_STORE: globalStore ? "1" : "0" },
+  );
 }
 
 async function countGlobalStoreLinks(directory: string, cacheDirectory: string): Promise<number> {
@@ -160,13 +194,17 @@ async function countGlobalStoreLinks(directory: string, cacheDirectory: string):
   const canonicalLinkRoot = await realpath(join(cacheDirectory, "links"));
   const entries = await readdir(storeDirectory);
   let count = 0;
+
   for (const entry of entries) {
     if (entry === "node_modules") continue;
     const path = join(storeDirectory, entry);
+
     if (!(await lstat(path)).isSymbolicLink()) continue;
     const target = await realpath(path);
+
     if (target === canonicalLinkRoot || target.startsWith(`${canonicalLinkRoot}${sep}`)) count += 1;
   }
+
   return count;
 }
 
@@ -178,45 +216,60 @@ async function nativeCanvasSmoke(directory: string): Promise<number> {
     "if (png.byteLength < 8) process.exit(2);",
     "process.stdout.write(String(png.byteLength));",
   ].join("\n");
-  const stdout = await run([process.execPath, "--no-env-file", "-e", source], join(directory, "backend"), isolatedEnvironment());
+
+  const stdout = await run(
+    [process.execPath, "--no-env-file", "-e", source],
+    join(directory, "backend"),
+    isolatedEnvironment(),
+  );
+
   return Number(stdout.trim());
 }
 
 async function diskKiB(path: string): Promise<number> {
   const output = await run(["du", "-sk", path], repositoryRoot);
   const value = Number(output.trim().split(/\s+/, 1)[0]);
+
   if (!Number.isFinite(value)) throw new Error(`Could not read disk use for ${path}`);
+
   return value;
 }
 
 async function localTreeKiB(path: string): Promise<number> {
-  return Math.ceil(await localTreeBytes(path) / 1024);
+  return Math.ceil((await localTreeBytes(path)) / 1024);
 }
 
 async function localTreeBytes(path: string): Promise<number> {
   const metadata = await lstat(path);
+
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) return metadata.size;
   const entries = await readdir(path);
   const childBytes = await Promise.all(entries.map((entry) => localTreeBytes(join(path, entry))));
+
   return metadata.size + childBytes.reduce((total, value) => total + value, 0);
 }
 
 async function fileSha256(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
-function isolatedEnvironment(): Record<string, string> {
+function isolatedEnvironment() {
   return { NO_COLOR: "1", PATH: process.env.PATH ?? "", TMPDIR: tmpdir() };
 }
 
 async function run(command: string[], cwd: string, env?: Record<string, string>): Promise<string> {
   const child = Bun.spawn(command, { cwd, env, stderr: "pipe", stdout: "pipe" });
+
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
+
   if (exitCode !== 0) throw new Error(`${command.join(" ")} failed in ${cwd}:\n${(stderr || stdout).slice(-4_000)}`);
+
   return stdout;
 }
 

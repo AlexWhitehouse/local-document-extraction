@@ -22,35 +22,35 @@ describe("Document transport body limits", () => {
     const maximumSourceBytes = 100;
     const limit = localDocumentRequestBodyLimit(maximumSourceBytes);
 
-    expect(() => assertKnownDocumentRequestBodyLength(
-      requestWithContentLength(limit - 1),
-      maximumSourceBytes,
-    )).not.toThrow();
-    expect(() => assertKnownDocumentRequestBodyLength(
-      requestWithContentLength(limit),
-      maximumSourceBytes,
-    )).not.toThrow();
+    expect(() =>
+      assertKnownDocumentRequestBodyLength(requestWithContentLength(limit - 1), maximumSourceBytes),
+    ).not.toThrow();
+    expect(() =>
+      assertKnownDocumentRequestBodyLength(requestWithContentLength(limit), maximumSourceBytes),
+    ).not.toThrow();
 
     let failure: unknown;
+
     try {
       assertKnownDocumentRequestBodyLength(requestWithContentLength(limit + 1), maximumSourceBytes);
     } catch (error) {
       failure = error;
     }
+
     expect(failure).toBeInstanceOf(HttpError);
     expect(failure).toMatchObject({ status: 400, code: "source_file_too_large" });
-    expect((failure as Error).message).toContain(String(limit));
+
+    if (!(failure instanceof Error)) throw new Error("Expected a body limit error");
+    expect(failure.message).toContain(String(limit));
   });
 
   it("rejects a malformed known body length without treating an unknown-length stream as malformed", () => {
-    expect(() => assertKnownDocumentRequestBodyLength(
-      requestWithContentLength("12x"),
-      100,
-    )).toThrow(expect.objectContaining({ status: 400, code: "invalid_multipart" }));
-    expect(() => assertKnownDocumentRequestBodyLength(
-      new Request("http://127.0.0.1/v1/extract", { method: "POST" }),
-      100,
-    )).not.toThrow();
+    expect(() => assertKnownDocumentRequestBodyLength(requestWithContentLength("12x"), 100)).toThrow(
+      expect.objectContaining({ status: 400, code: "invalid_multipart" }),
+    );
+    expect(() =>
+      assertKnownDocumentRequestBodyLength(new Request("http://127.0.0.1/v1/extract", { method: "POST" }), 100),
+    ).not.toThrow();
   });
 
   it("fits a maximum-shaped browser FormData envelope inside the derived allowance", async () => {
@@ -58,10 +58,7 @@ describe("Document transport body limits", () => {
     form.set("template_id", "t".repeat(8 * 1024));
     form.set("options", "o".repeat(8 * 1024));
     form.set("fields", "f".repeat(8 * 1024));
-    form.set(
-      "document",
-      new File([new Uint8Array([1])], `${"d".repeat(250)}.pdf`, { type: "application/pdf" }),
-    );
+    form.set("document", new File([new Uint8Array([1])], `${"d".repeat(250)}.pdf`, { type: "application/pdf" }));
     const request = new Request("http://127.0.0.1/v1/extract", { method: "POST", body: form });
     const measuredEnvelopeBytes = (await request.arrayBuffer()).byteLength - 1;
 

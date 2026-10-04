@@ -9,21 +9,35 @@ const workspaces = [
 
 function deferred() {
   let resolve, reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+
   return { promise, resolve, reject };
 }
 
 function setup(contextRequest) {
   const coreRequest = vi.fn(async (path) => {
     if (path.endsWith("/context")) return contextRequest.promise;
+
     if (path === "/workspaces") return { workspaces };
+
     return { invitations: [], users: [] };
   });
+
   const props = {
-    coreRequest, hasSession: true, sessionUserId: "user_1", sessionId: "session_1",
-    showActionToast: vi.fn(), setBusy: vi.fn(),
-    onActivePageChange: vi.fn(), onClearWorkspaceScopedData: vi.fn(),
+    coreRequest,
+    hasSession: true,
+    sessionUserId: "user_1",
+    sessionId: "session_1",
+    showActionToast: vi.fn(),
+    setBusy: vi.fn(),
+    onActivePageChange: vi.fn(),
+    onClearWorkspaceScopedData: vi.fn(),
   };
+
   return { ...renderHook((value) => useWorkspaceController(value), { initialProps: props }), props, coreRequest };
 }
 
@@ -35,7 +49,9 @@ describe("workspace refresh scope", () => {
     const { result, coreRequest } = setup(pending);
     await waitFor(() => expect(result.current.context.workspaceId).toBe("workspace_a"));
     let refresh;
-    act(() => { refresh = result.current.actions.refreshSelectedWorkspaceContext(); });
+    act(() => {
+      refresh = result.current.actions.refreshSelectedWorkspaceContext();
+    });
     act(() => result.current.sidebar.onSelectAcceptedWorkspace(workspaces[1]));
     act(() => result.current.sidebar.onSelectAcceptedWorkspace(workspaces[0]));
     const callsBeforeResponse = coreRequest.mock.calls.length;
@@ -53,10 +69,15 @@ describe("workspace refresh scope", () => {
     const { result, rerender, props } = setup(pending);
     await waitFor(() => expect(result.current.context.workspaceId).toBe("workspace_a"));
     let refresh;
-    act(() => { refresh = result.current.actions.refreshSelectedWorkspaceContext(); });
+    act(() => {
+      refresh = result.current.actions.refreshSelectedWorkspaceContext();
+    });
     act(() => result.current.actions.clearSessionWorkspaceData());
     rerender({ ...props, hasSession: false, sessionId: "", sessionUserId: "" });
-    await act(async () => { pending.resolve({ workspace: workspaces[0] }); await refresh; });
+    await act(async () => {
+      pending.resolve({ workspace: workspaces[0] });
+      await refresh;
+    });
     expect(result.current.context.workspaceId).toBe("");
     expect(result.current.context.availableWorkspaces).toEqual([]);
   });
@@ -66,10 +87,15 @@ describe("workspace refresh scope", () => {
     const { result, rerender, props } = setup(pending);
     await waitFor(() => expect(result.current.context.workspaceId).toBe("workspace_a"));
     let refresh;
-    act(() => { refresh = result.current.actions.refreshSelectedWorkspaceContext(); });
+    act(() => {
+      refresh = result.current.actions.refreshSelectedWorkspaceContext();
+    });
     rerender({ ...props, sessionId: "session_2" });
     await waitFor(() => expect(result.current.context.isWorkspaceContextLoading).toBe(false));
-    await act(async () => { pending.resolve({ workspace: { ...workspaces[0], name: "Old session" } }); await refresh; });
+    await act(async () => {
+      pending.resolve({ workspace: { ...workspaces[0], name: "Old session" } });
+      await refresh;
+    });
     expect(result.current.context.workspaceName).toBe("Workspace A");
   });
 });

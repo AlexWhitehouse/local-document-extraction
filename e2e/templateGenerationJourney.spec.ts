@@ -6,34 +6,55 @@ import { startRuntimeHarness } from "./support/runtimeHarnessClient";
 
 test("generate a template from a sample, review the draft, then explicitly save", async ({ page }, testInfo) => {
   const harness = await startRuntimeHarness();
+
   try {
-    await submitSignUp(page, harness, { name: "Template Designer", email: "template-designer@example.test", password: "Strong1!" });
+    await submitSignUp(page, harness, {
+      name: "Template Designer",
+      email: "template-designer@example.test",
+      password: "Strong1!",
+    });
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await saveModelGateway(page, harness, "browser/template-generator");
-    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: /Templates/ }).click();
+    await page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("link", { name: /Templates/ })
+      .click();
     await page.getByRole("button", { name: "Create Template" }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Unsaved work");
     await page.getByRole("button", { name: "Auto generate new template", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Auto generate template" });
-    const sample = { name: "Purchase order with a very long document name that should truncate without moving the Pending pill or Remove button.png", mimeType: "image/png", buffer: ONE_PIXEL_PNG };
+
+    const sample = {
+      name: "Purchase order with a very long document name that should truncate without moving the Pending pill or Remove button.png",
+      mimeType: "image/png",
+      buffer: ONE_PIXEL_PNG,
+    };
+
     await dialog.getByLabel("Sample file").setInputFiles(sample);
     await expect(dialog.getByRole("button", { name: /Drag and drop a sample document/ })).toBeHidden();
     await dialog.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(dialog.getByRole("button", { name: /Drag and drop a sample document/ })).toBeVisible();
     await dialog.getByLabel("Sample file").setInputFiles(sample);
     await expect(dialog.getByRole("button", { name: /Drag and drop a sample document/ })).toBeHidden();
-    await dialog.getByLabel("What should this template capture? (optional)").fill("Capture totals and purchased items.");
+    await dialog
+      .getByLabel("What should this template capture? (optional)")
+      .fill("Capture totals and purchased items.");
     await expect(dialog.getByRole("button", { name: "Generate template", exact: true })).toBeDisabled();
     await dialog.getByRole("checkbox").check();
     await page.screenshot({ path: testInfo.outputPath("generation-dialog.png"), fullPage: true });
     let releaseGeneration!: () => void;
-    const generationGate = new Promise<void>((resolve) => { releaseGeneration = resolve; });
+
+    const generationGate = new Promise<void>((resolve) => {
+      releaseGeneration = resolve;
+    });
+
     await page.route("**/v1/templates/generate", async (route) => {
       await generationGate;
       await route.continue();
     });
     const generated = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/templates/generate");
     await dialog.getByRole("button", { name: "Generate template", exact: true }).click();
+
     try {
       await expect(dialog.getByText("Combobulating response…", { exact: true })).toBeVisible();
       await expect(dialog.getByText("Consulting the schema sprites…", { exact: true })).toBeVisible();
@@ -42,6 +63,7 @@ test("generate a template from a sample, review the draft, then explicitly save"
     } finally {
       releaseGeneration();
     }
+
     const response = await generated;
     expect(response.status()).toBe(200);
     await expect(dialog).toBeHidden();
@@ -50,8 +72,14 @@ test("generate a template from a sample, review the draft, then explicitly save"
     await expect(page.getByText("2 fields · New template", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("generated-draft.png"), fullPage: true });
     const workspaceId = response.request().headers()["x-workspace-id"];
-    const saved = await page.request.get(`${harness.origin}/v1/templates`, { headers: { "x-workspace-id": workspaceId } });
-    expect((await saved.json()).templates.some((template: { name: string }) => template.name === "Generated Receipt")).toBe(false);
+
+    const saved = await page.request.get(`${harness.origin}/v1/templates`, {
+      headers: { "x-workspace-id": workspaceId },
+    });
+
+    expect(
+      (await saved.json()).templates.some((template: { name: string }) => template.name === "Generated Receipt"),
+    ).toBe(false);
     expect(await readdir(join(harness.stateDirectory, "temporary", "submissions"))).toEqual([]);
     await page.getByRole("button", { name: "View JSON" }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("template-field-actions.png"), fullPage: true });
@@ -60,7 +88,11 @@ test("generate a template from a sample, review the draft, then explicitly save"
     const json = JSON.parse(await jsonDialog.getByRole("textbox", { name: "Template JSON", exact: true }).inputValue());
     expect(json.fields[1].object_schema.columns).toHaveLength(2);
     await jsonDialog.getByRole("button", { name: "Cancel", exact: true }).click();
-    const creation = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST");
+
+    const creation = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
+    );
+
     await page.getByRole("button", { name: "Save new template", exact: true }).click();
     expect((await creation).status()).toBe(201);
     await expect(page.getByText("2 fields · All changes saved", { exact: true })).toBeVisible();
@@ -74,10 +106,13 @@ test("generate a template from a sample, review the draft, then explicitly save"
     await dialog.getByRole("button", { name: "Generate template", exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByRole("button", { name: "Save new template", exact: true })).toBeVisible();
-    const secondCreation = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST");
+
+    const secondCreation = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
+    );
+
     await page.getByRole("button", { name: "Save new template", exact: true }).click();
     expect((await secondCreation).status()).toBe(201);
-
   } finally {
     await page.close();
     await harness.stop();

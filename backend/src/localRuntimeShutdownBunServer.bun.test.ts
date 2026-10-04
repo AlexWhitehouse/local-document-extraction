@@ -8,21 +8,26 @@ test("runtime shutdown settles an in-flight request after closing idle server co
   const requestStarted = Promise.withResolvers<void>();
   const events: string[] = [];
   const requestDrain = createLocalRuntimeRequestDrain();
+
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     fetch: (request) => {
       const pathname = new URL(request.url).pathname;
+
       return requestDrain.run(async () => {
         if (pathname === "/slow") {
           requestStarted.resolve();
           await activeRequest.promise;
+
           return new Response("completed");
         }
+
         return new Response("idle");
       });
     },
   });
+
   const origin = `http://127.0.0.1:${server.port}`;
 
   try {
@@ -45,6 +50,7 @@ test("runtime shutdown settles an in-flight request after closing idle server co
       stopRecurringWork: () => {},
       stopServer: (force) => {
         events.push(force ? "server:forced" : "server:graceful");
+
         return server.stop(force);
       },
     });
@@ -55,12 +61,7 @@ test("runtime shutdown settles an in-flight request after closing idle server co
 
     expect(await (await slowResponse).text()).toBe("completed");
     await completed;
-    expect(events).toEqual([
-      "server:graceful",
-      "analytics:flushed",
-      "auth:closed",
-      "stores:closed",
-    ]);
+    expect(events).toEqual(["server:graceful", "analytics:flushed", "auth:closed", "stores:closed"]);
   } finally {
     await server.stop(true);
   }

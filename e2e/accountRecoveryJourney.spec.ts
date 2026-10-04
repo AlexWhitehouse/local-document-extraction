@@ -1,11 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { access } from "node:fs/promises";
 
-import {
-  signIn,
-  signOut,
-  signUpAndVerify,
-} from "./support/journeyHelpers";
+import { signIn, signOut, signUpAndVerify } from "./support/journeyHelpers";
 import { startRuntimeHarness, type RuntimeHarness } from "./support/runtimeHarnessClient";
 
 const ACCOUNT = {
@@ -45,6 +41,7 @@ test("a user manages local settings and recovers access through the frontend", a
   } finally {
     const stateDirectory = harness?.stateDirectory;
     await harness?.stop();
+
     if (stateDirectory) {
       await expect(access(stateDirectory)).rejects.toThrow();
     }

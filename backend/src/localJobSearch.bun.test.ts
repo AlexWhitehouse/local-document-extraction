@@ -1,3 +1,5 @@
+import { readObjectResponse, responseError, readUserResponse } from "./testing/responseFixture";
+
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +16,7 @@ import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 test("the Document adapter searches one Workspace's stable job metadata and returns its unfiltered total", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-job-search-"));
   const database = new Database(":memory:");
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -21,15 +24,19 @@ test("the Document adapter searches one Workspace's stable job metadata and retu
     mailSink: { capture: async () => undefined },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
 
   try {
-    const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const user = await signUp.json() as { user: { id: string; name: string } };
+    const signUp = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+      }),
+    );
+
+    const user = await readUserResponse(signUp);
     const workspace = workspaceControl.listAcceptedWorkspaces({ userId: user.user.id, userName: user.user.name })[0]!;
     const isolatedWorkspace = workspaceControl.createWorkspace({ userId: user.user.id, name: "Isolated Workspace" });
     createSearchableJobs({ stateDirectory, workspaceId: workspace.id });
@@ -56,27 +63,35 @@ test("the Document adapter searches one Workspace's stable job metadata and retu
       jobs: [expect.objectContaining({ job_id: "job_receipt_failed", status: "failed" })],
       total: 4,
     });
-    await expect(adapter.listDocuments({
-      filters: { dateFrom: "2026-07-10", dateTo: "2026-07-10" },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.listDocuments({
+        filters: { dateFrom: "2026-07-10", dateTo: "2026-07-10" },
+      }),
+    ).resolves.toMatchObject({
       jobs: [expect.objectContaining({ job_id: "job_receipt_failed" })],
       total: 4,
     });
-    await expect(adapter.listDocuments({
-      filters: { model: "test-model" },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.listDocuments({
+        filters: { model: "test-model" },
+      }),
+    ).resolves.toMatchObject({
       jobs: [expect.objectContaining({ job_id: "job_completed", model_name: "test-model" })],
       total: 4,
     });
     await expect(adapter.getFilterOptions()).resolves.toEqual({
       available_models: ["test-model"],
     });
-    await expect(adapter.listDocuments({
-      filters: { dateFrom: "2026-02-30" },
-    })).rejects.toMatchObject({ code: "invalid_job_filters", status: 400 });
-    await expect(adapter.listDocuments({
-      filters: { dateFrom: "2026-07-11", dateTo: "2026-07-10" },
-    })).rejects.toMatchObject({ code: "invalid_job_filters", status: 400 });
+    await expect(
+      adapter.listDocuments({
+        filters: { dateFrom: "2026-02-30" },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_job_filters", status: 400 });
+    await expect(
+      adapter.listDocuments({
+        filters: { dateFrom: "2026-07-11", dateTo: "2026-07-10" },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_job_filters", status: 400 });
     await expect(adapter.listDocuments({ search: "isolated" })).resolves.toEqual({
       jobs: [],
       total: 4,
@@ -96,6 +111,7 @@ test("the Document adapter searches one Workspace's stable job metadata and retu
 
 function createSearchableJobs({ stateDirectory, workspaceId }: { stateDirectory: string; workspaceId: string }) {
   const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+
   try {
     store.createTemplate({
       templateId: "tpl_invoices",
@@ -111,6 +127,7 @@ function createSearchableJobs({ stateDirectory, workspaceId }: { stateDirectory:
       fields: [{ id: "reference", name: "Reference", description: "Reference", data_type: "string" }],
       createdAt: "2026-07-10T12:00:00.000Z",
     });
+
     for (const [jobId, templateId, sourceName, submittedAt] of [
       ["job_invoice", "tpl_invoices", "invoice-2026.pdf", "2026-07-08T12:00:00.000Z"],
       ["job_report", "tpl_invoices", "report.png", "2026-07-09T12:00:00.000Z"],
@@ -128,16 +145,35 @@ function createSearchableJobs({ stateDirectory, workspaceId }: { stateDirectory:
         submittedAt,
       });
     }
+
     store.claimExtractionJobForProcessing({ jobId: "job_report", attempt: 1, claimedAt: "2026-07-10T12:01:00.000Z" });
-    store.failQueuedExtractionJob({ jobId: "job_receipt_failed", failedAt: "2026-07-10T12:01:00.000Z", errorCode: "test_failure", errorMessage: "Test failure" });
-    store.claimExtractionJobForProcessing({ jobId: "job_completed", attempt: 1, claimedAt: "2026-07-11T12:01:00.000Z" });
+    store.failQueuedExtractionJob({
+      jobId: "job_receipt_failed",
+      failedAt: "2026-07-10T12:01:00.000Z",
+      errorCode: "test_failure",
+      errorMessage: "Test failure",
+    });
+    store.claimExtractionJobForProcessing({
+      jobId: "job_completed",
+      attempt: 1,
+      claimedAt: "2026-07-11T12:01:00.000Z",
+    });
     store.completeExtractionJob({
       jobId: "job_completed",
       attempt: 1,
       completedAt: "2026-07-11T12:02:00.000Z",
       modelName: "test-model",
       route: "test-route",
-      results: [{ field_id: "reference", status: "ok", answer: "COMPLETE", normalized_value: "COMPLETE", confidence: 1, evidence: null }],
+      results: [
+        {
+          field_id: "reference",
+          status: "ok",
+          answer: "COMPLETE",
+          normalized_value: "COMPLETE",
+          confidence: 1,
+          evidence: null,
+        },
+      ],
     });
   } finally {
     store.close();
@@ -146,6 +182,7 @@ function createSearchableJobs({ stateDirectory, workspaceId }: { stateDirectory:
 
 function createIsolatedJob({ stateDirectory, workspaceId }: { stateDirectory: string; workspaceId: string }) {
   const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+
   try {
     store.createTemplate({
       templateId: "tpl_isolated",
@@ -175,14 +212,16 @@ function createIsolatedJob({ stateDirectory, workspaceId }: { stateDirectory: st
       completedAt: "2026-07-10T12:02:00.000Z",
       modelName: "isolated-model",
       route: "isolated-route",
-      results: [{
-        field_id: "value",
-        status: "ok",
-        answer: "ISOLATED",
-        normalized_value: "ISOLATED",
-        confidence: 1,
-        evidence: null,
-      }],
+      results: [
+        {
+          field_id: "value",
+          status: "ok",
+          answer: "ISOLATED",
+          normalized_value: "ISOLATED",
+          confidence: 1,
+          evidence: null,
+        },
+      ],
     });
   } finally {
     store.close();
@@ -194,13 +233,12 @@ function createApiKeyRequest(application: (request: Request) => Response | Promi
     const headers = new Headers(options.headers);
     headers.set("authorization", `Bearer ${apiKey}`);
     const response = await application(new Request(`http://127.0.0.1:8787/v1${path}`, { ...options, headers }));
-    const data = await response.json() as { error?: { code?: string; message?: string } };
+    const data = await readObjectResponse(response);
+
     if (!response.ok) {
-      throw Object.assign(new Error(data.error?.message || `Request failed (${response.status})`), {
-        code: data.error?.code || null,
-        status: response.status,
-      });
+      throw responseError(data, response.status);
     }
+
     return data;
   };
 }

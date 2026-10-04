@@ -23,6 +23,11 @@ for (const storageName of ["localStorage", "sessionStorage"]) {
   });
 }
 
+Object.defineProperty(window, "matchMedia", {
+  configurable: true,
+  value: (query) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {} }),
+});
+
 const capturedDescriptors = [
   ...["fetch", "WebSocket", "URL"].map((key) => captureDescriptor(globalThis, key)),
   ...["localStorage", "sessionStorage", "location"].map((key) => captureDescriptor(window, key)),
@@ -33,14 +38,17 @@ afterEach(() => {
   cleanup();
   clearStorage(window.localStorage);
   clearStorage(window.sessionStorage);
+
   if (vi.isFakeTimers()) {
     vi.clearAllTimers();
     vi.useRealTimers();
   }
+
   vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+
   for (const captured of capturedDescriptors) restoreDescriptor(captured);
   window.history.replaceState(null, "", "/");
 });

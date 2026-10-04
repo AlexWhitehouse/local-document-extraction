@@ -31,6 +31,7 @@ export function createLocalWorkspaceDeletion({
 }): LocalWorkspaceDeletion {
   const announceAccessRevoked = (workspaceId: string) =>
     onWorkspaceAccessRevoked?.({ workspaceId, reason: "workspace_access", occurredAt: nowIso() });
+
   const eraseRevokedWorkspace = async (workspaceId: string) => {
     await productStoreRegistry?.invalidate({ workspaceId });
     // Every remote object already has a manifest entry, so this covers them all before product data goes.
@@ -51,6 +52,7 @@ export function createLocalWorkspaceDeletion({
       // The intent survives a crash after access is revoked so startup can finish the erase.
       workspaceControl.recordWorkspaceDeletionIntent({ workspaceId });
       let accessRevoked = false;
+
       try {
         // Re-checks ownership: membership may have changed while in-flight work drained.
         workspaceControl.deleteWorkspace(input);

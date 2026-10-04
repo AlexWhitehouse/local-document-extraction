@@ -14,18 +14,12 @@ const CAPABILITIES = [
 export function WorkspaceModelConfiguration({ controller }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const [editing, setEditing] = useState(false);
-  const {
-    record,
-    canManage,
-    draft,
-    loading,
-    saving,
-    testing,
-    error,
-    conflict,
-  } = controller;
+
+  const { record, canManage, draft, loading, saving, testing, error, conflict } = controller;
+
   const configured = Boolean(record?.configured);
   const unavailable = canManage && record?.credential_status === "unavailable";
+
   const status =
     loading || !record
       ? "Not loaded"
@@ -34,22 +28,23 @@ export function WorkspaceModelConfiguration({ controller }) {
         : configured
           ? "Configured"
           : "Not configured";
+
   // Every Workspace opens on the summary; editing is an explicit action.
   const showForm = canManage && Boolean(record) && (editing || conflict);
   const showSummary = canManage && !loading && Boolean(record) && !showForm;
+
   const closeEditor = () => {
     setConfirmClear(false);
     setEditing(false);
   };
+
   return (
     <article data-tour="model-configuration" className="workspace-model" aria-label="Workspace Model gateway">
       <header className="workspace-model-header">
         <div>
           <div className="workspace-model-title">
             <h2>Model gateway</h2>
-            <span
-              className={`workspace-model-status ${unavailable ? "unavailable" : configured ? "configured" : ""}`}
-            >
+            <span className={`workspace-model-status ${unavailable ? "unavailable" : configured ? "configured" : ""}`}>
               <i aria-hidden="true" />
               {status}
             </span>
@@ -57,11 +52,7 @@ export function WorkspaceModelConfiguration({ controller }) {
           <p>LLM Gateway settings for this workspace only.</p>
         </div>
         {showSummary ? (
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setEditing(true)}
-          >
+          <button type="button" className="secondary" onClick={() => setEditing(true)}>
             Edit
           </button>
         ) : null}
@@ -77,12 +68,10 @@ export function WorkspaceModelConfiguration({ controller }) {
           </p>
           {error ? (
             <>
-              <p className="form-error" role="alert">{error}</p>
-              <button
-                type="button"
-                className="secondary"
-                onClick={controller.reload}
-              >
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+              <button type="button" className="secondary" onClick={controller.reload}>
                 Try again
               </button>
             </>
@@ -95,11 +84,7 @@ export function WorkspaceModelConfiguration({ controller }) {
           ) : !record ? (
             <div role="alert">
               <p className="form-error">{error || "Configuration is not available."}</p>
-              <button
-                type="button"
-                className="secondary"
-                onClick={controller.reload}
-              >
+              <button type="button" className="secondary" onClick={controller.reload}>
                 Try again
               </button>
             </div>
@@ -107,14 +92,16 @@ export function WorkspaceModelConfiguration({ controller }) {
             <div className="workspace-model-summary">
               {unavailable ? (
                 <p className="workspace-model-repair" role="alert">
-                  The saved credential cannot be read on this machine. Edit the
-                  configuration to enter a new credential, or clear it.
+                  The saved credential cannot be read on this machine. Edit the configuration to enter a new credential,
+                  or clear it.
                 </p>
               ) : null}
               <dl className="workspace-model-connection">
                 <div>
                   <dt>Gateway URL</dt>
-                  <dd><code>{configured ? record.gateway_url : "—"}</code></dd>
+                  <dd>
+                    <code>{configured ? record.gateway_url : "—"}</code>
+                  </dd>
                 </div>
                 <div>
                   <dt>API key</dt>
@@ -124,7 +111,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                 </div>
                 <div>
                   <dt>Calls</dt>
-                  <dd>{configured ? record.sequential_calls ? "Sequential" : "Parallel" : "—"}</dd>
+                  <dd>{configured ? (record.sequential_calls ? "Sequential" : "Parallel") : "—"}</dd>
                 </div>
               </dl>
               <ModelRoles record={record} />
@@ -145,19 +132,20 @@ export function WorkspaceModelConfiguration({ controller }) {
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
+
                 if (await controller.save()) closeEditor();
               }}
             >
               {!configured ? (
                 <p className="workspace-model-intro">
-                  Add an OpenAI-compatible endpoint, model, and credential to
-                  start processing documents. New Workspaces have no defaults.
+                  Add an OpenAI-compatible endpoint, model, and credential to start processing documents. New Workspaces
+                  have no defaults.
                 </p>
               ) : null}
               {unavailable ? (
                 <p className="workspace-model-repair" role="alert">
-                  The saved credential cannot be read on this machine. Enter a
-                  new credential to repair this configuration, or clear it.
+                  The saved credential cannot be read on this machine. Enter a new credential to repair this
+                  configuration, or clear it.
                 </p>
               ) : null}
               <fieldset disabled={saving}>
@@ -172,9 +160,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                         required
                         maxLength={2048}
                         value={draft.gateway_url}
-                        onChange={(event) =>
-                          controller.update("gateway_url", event.target.value)
-                        }
+                        onChange={(event) => controller.update("gateway_url", event.target.value)}
                         placeholder="https://gateway.example/v1"
                         spellCheck="false"
                       />
@@ -190,9 +176,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                         required={!configured || unavailable}
                         maxLength={8192}
                         value={draft.credential}
-                        onChange={(event) =>
-                          controller.update("credential", event.target.value)
-                        }
+                        onChange={(event) => controller.update("credential", event.target.value)}
                         placeholder={
                           configured && !unavailable
                             ? "Saved — leave blank to keep, or enter a replacement"
@@ -202,8 +186,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                         spellCheck="false"
                       />
                       <small>
-                        Encrypted on this machine and never shown again. This
-                        is separate from the Workspace API key.
+                        Encrypted on this machine and never shown again. This is separate from the Workspace API key.
                       </small>
                     </label>
                   </div>
@@ -211,9 +194,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                     <input
                       type="checkbox"
                       checked={draft.sequential_calls}
-                      onChange={(event) =>
-                        controller.update("sequential_calls", event.target.checked)
-                      }
+                      onChange={(event) => controller.update("sequential_calls", event.target.checked)}
                     />
                     <span>
                       <strong>Sequential calls</strong>
@@ -225,10 +206,9 @@ export function WorkspaceModelConfiguration({ controller }) {
                   <h3>Models</h3>
                   <ModelRolesEditor draft={draft} update={controller.update} />
                   <small>
-                    Capabilities are declarations for each model; the connection
-                    test does not verify them. Direct PDF input sends PDFs
-                    inline instead of page images. Structured output sends a
-                    response format with requests.
+                    Capabilities are declarations for each model; the connection test does not verify them. Direct PDF
+                    input sends PDFs inline instead of page images. Structured output sends a response format with
+                    requests.
                   </small>
                 </div>
               </fieldset>
@@ -238,20 +218,13 @@ export function WorkspaceModelConfiguration({ controller }) {
                 </p>
               ) : null}
               {conflict ? (
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={controller.reload}
-                >
+                <button type="button" className="secondary" onClick={controller.reload}>
                   Reload configuration
                 </button>
               ) : null}
               <div className="workspace-model-actions">
                 <div>
-                  <button
-                    type="submit"
-                    disabled={saving || conflict || !controller.dirty}
-                  >
+                  <button type="submit" disabled={saving || conflict || !controller.dirty}>
                     {saving ? "Saving…" : "Save configuration"}
                   </button>
                   <button
@@ -288,8 +261,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                 ) : null}
               </div>
               <p className="workspace-model-footnote">
-                Testing is optional and does not save. Saving does not contact
-                the gateway.
+                Testing is optional and does not save. Saving does not contact the gateway.
               </p>
               {confirmClear ? (
                 <div
@@ -299,9 +271,8 @@ export function WorkspaceModelConfiguration({ controller }) {
                 >
                   <strong>Clear this Workspace’s Model gateway?</strong>
                   <p>
-                    New document requests will be rejected. Queued jobs and
-                    retries will stop at their next attempt; in-flight attempts
-                    can finish.
+                    New document requests will be rejected. Queued jobs and retries will stop at their next attempt;
+                    in-flight attempts can finish.
                   </p>
                   <div className="actions">
                     <button
@@ -315,11 +286,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                     >
                       Confirm clear
                     </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => setConfirmClear(false)}
-                    >
+                    <button type="button" className="secondary" onClick={() => setConfirmClear(false)}>
                       Cancel
                     </button>
                   </div>
@@ -350,7 +317,9 @@ function RolesTable({ label, children }) {
           <th scope="col">Used for</th>
           <th scope="col">Model</th>
           {CAPABILITIES.map(([field, title, short]) => (
-            <th scope="col" key={field} title={title}>{short}</th>
+            <th scope="col" key={field} title={title}>
+              {short}
+            </th>
           ))}
         </tr>
       </thead>
@@ -363,25 +332,39 @@ function RolesTable({ label, children }) {
 function ModelRoles({ record }) {
   const capability = (values, field, title) => (
     <td key={field}>
-      {record.configured ? <span className={values[field] ? "workspace-model-flag on" : "workspace-model-flag"}>
-        <span className="workspace-model-sr-only">{`${title}: ${values[field] ? "yes" : "no"}`}</span>
-      </span> : <span aria-label={`${title}: not configured`}>—</span>}
+      {record.configured ? (
+        <span className={values[field] ? "workspace-model-flag on" : "workspace-model-flag"}>
+          <span className="workspace-model-sr-only">{`${title}: ${values[field] ? "yes" : "no"}`}</span>
+        </span>
+      ) : (
+        <span aria-label={`${title}: not configured`}>—</span>
+      )}
     </td>
   );
+
   return (
     <RolesTable label="Models">
       <tr>
         <RoleHeading title="Extraction" note="Jobs and Evaluations" />
-        <td><code>{record.configured ? record.model_name : "—"}</code></td>
+        <td>
+          <code>{record.configured ? record.model_name : "—"}</code>
+        </td>
         {CAPABILITIES.map(([field, title]) => capability(record, field, title))}
       </tr>
       {TASK_ROLES.map(([role, title, note]) => {
         const model = record[`${role}_model`];
+
         return (
           <tr key={role} className={record.configured && !model ? "inherited" : ""}>
             <RoleHeading title={title} note={note} />
             <td>
-              {!record.configured ? "—" : model ? <code>{model.model_name}</code> : <span className="workspace-model-inherited">Same as extraction</span>}
+              {!record.configured ? (
+                "—"
+              ) : model ? (
+                <code>{model.model_name}</code>
+              ) : (
+                <span className="workspace-model-inherited">Same as extraction</span>
+              )}
             </td>
             {CAPABILITIES.map(([field, capabilityTitle]) => capability(model ?? record, field, capabilityTitle))}
           </tr>
@@ -420,6 +403,7 @@ function ModelRolesEditor({ draft, update }) {
       </tr>
       {TASK_ROLES.map(([role, title, note]) => {
         const custom = draft[`${role}_mode`] === "custom";
+
         return (
           <tr key={role} className={custom ? "" : "inherited"}>
             <RoleHeading title={title} note={note} />

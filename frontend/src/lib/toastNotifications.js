@@ -1,25 +1,20 @@
 const successMessages = {
   "workspace.apiKey.generate.copied": () => "Workspace API key generated and copied",
   "workspace.apiKey.rotate.copied": () => "Workspace API key rotated and copied",
-  "workspace.apiKey.generate.manualCopy": () =>
-    "Workspace API key generated. Copy it before leaving this page.",
-  "workspace.apiKey.rotate.manualCopy": () =>
-    "Workspace API key rotated. Copy it before leaving this page.",
+  "workspace.apiKey.generate.manualCopy": () => "Workspace API key generated. Copy it before leaving this page.",
+  "workspace.apiKey.rotate.manualCopy": () => "Workspace API key rotated. Copy it before leaving this page.",
   "workspace.create": ({ target }) => withTarget("Workspace created", target),
   "workspace.rename": ({ target }) => withTarget("Workspace renamed", target),
   "workspace.access.changed": ({ target }) =>
-    target
-      ? `Workspace access changed. Switched to ${target}.`
-      : "Workspace access changed.",
+    target ? `Workspace access changed. Switched to ${target}.` : "Workspace access changed.",
   "workspace.leave": ({ replacementPersonalWorkspaceCreated }) =>
-    replacementPersonalWorkspaceCreated
-      ? "Workspace left. Replacement personal Workspace created."
-      : "Workspace left",
+    replacementPersonalWorkspaceCreated ? "Workspace left. Replacement personal Workspace created." : "Workspace left",
   "workspace.delete": () => "Workspace deleted",
   "template.save": ({ target }) => withTarget("Template saved", target),
   "template.delete": ({ target }) => withTarget("Template deleted", target),
   "workspaceInvitation.create": ({ target }) => `Successfully invited ${target}`,
-  "workspaceInvitation.cancel": ({ target }) => target ? `Invitation cancelled for ${target}` : "Invitation cancelled",
+  "workspaceInvitation.cancel": ({ target }) =>
+    target ? `Invitation cancelled for ${target}` : "Invitation cancelled",
   "workspaceInvitation.accept": () => "Workspace invitation accepted",
   "workspaceInvitation.decline": () => "Invitation declined",
   "workspaceMember.remove": ({ target }) => `Removed ${target} from workspace`,
@@ -30,10 +25,10 @@ const successMessages = {
   "applicationUser.unban": ({ target }) => withTarget("User unbanned", target),
   "applicationUser.stopImpersonating": () => "Impersonation stopped",
   "document.delete": ({ target }) => withTarget("Document deleted", target),
-  "document.bulkDelete": ({ target }) =>
-    target ? `${target} deleted` : "Selected documents deleted",
+  "document.bulkDelete": ({ target }) => (target ? `${target} deleted` : "Selected documents deleted"),
   "document.export": ({ exportedCount = 0, skippedCount = 0 }) => {
     const exported = `Exported ${exportedCount} ${pluralize("document", exportedCount)}`;
+
     return skippedCount
       ? `${exported}; skipped ${skippedCount} unavailable or in-progress ${pluralize("document", skippedCount)}`
       : exported;
@@ -48,37 +43,40 @@ const successMessages = {
 };
 
 const failureMessages = {
-  "workspace.apiKey.rotate": "Workspace API key could not be rotated. Please try again.",
-  "workspace.create": "Workspace could not be created. Please try again.",
-  "workspace.rename": "Workspace name could not be saved. Please try again.",
-  "workspace.leave": "Workspace could not be left. Please try again.",
-  "workspace.delete": "Workspace could not be deleted. Please try again.",
-  "template.save": "Template could not be saved. Please try again.",
-  "template.delete": "Template could not be deleted. Please try again.",
-  "workspaceInvitation.create": "Workspace invitation could not be created. Please try again.",
-  "workspaceInvitation.cancel": "Workspace invitation could not be cancelled. Please try again.",
-  "workspaceInvitation.accept": "Workspace invitation could not be accepted. Please try again.",
-  "workspaceInvitation.decline": "Workspace invitation could not be declined. Please try again.",
-  "workspaceMember.remove": "Workspace member action failed. Please try again.",
-  "workspaceMember.makeAdmin": "Workspace member action failed. Please try again.",
-  "workspaceMember.transferOwnership": "Workspace member action failed. Please try again.",
-  "applicationRole.change": "Application role could not be updated. Please try again.",
-  "applicationUser.ban": "User could not be banned. Please try again.",
-  "applicationUser.unban": "User could not be unbanned. Please try again.",
-  "applicationUser.impersonate": "Impersonation could not be started. Please try again.",
-  "applicationUser.stopImpersonating": "Impersonation could not be stopped. Please try again.",
-  "document.delete": "Document could not be deleted. Please try again.",
-  "document.bulkDelete":
-    "Some selected documents could not be deleted. Try again.",
-  "document.export": "Selected documents could not be exported. Please try again.",
-  "document.downloadOriginal": "The original document couldn't be downloaded because storage can't be reached. Please try again.",
-  "document.downloadOriginalMissing": "The original document couldn't be downloaded because it's missing from storage.",
-  "clipboard.copyTemplateJson": "Template JSON could not be copied. Please try again.",
-  "workspace.documentProcessing": "Document processing settings could not be saved. Please try again.",
-  "workspace.sourceRetention": "Document retention could not be updated. Please try again.",
-  "workspace.modelGateway.save": "Model gateway could not be saved. Replace an unavailable credential or try again.",
-  "workspace.modelGateway.clear": "Model gateway could not be cleared. Please try again.",
-  "workspace.modelGateway.test": ({ message }) => message || "Connection test failed. Check the gateway, models and credential.",
+  "workspace.apiKey.rotate": () => "Workspace API key could not be rotated. Please try again.",
+  "workspace.create": () => "Workspace could not be created. Please try again.",
+  "workspace.rename": () => "Workspace name could not be saved. Please try again.",
+  "workspace.leave": () => "Workspace could not be left. Please try again.",
+  "workspace.delete": () => "Workspace could not be deleted. Please try again.",
+  "template.save": () => "Template could not be saved. Please try again.",
+  "template.delete": () => "Template could not be deleted. Please try again.",
+  "workspaceInvitation.create": () => "Workspace invitation could not be created. Please try again.",
+  "workspaceInvitation.cancel": () => "Workspace invitation could not be cancelled. Please try again.",
+  "workspaceInvitation.accept": () => "Workspace invitation could not be accepted. Please try again.",
+  "workspaceInvitation.decline": () => "Workspace invitation could not be declined. Please try again.",
+  "workspaceMember.remove": () => "Workspace member action failed. Please try again.",
+  "workspaceMember.makeAdmin": () => "Workspace member action failed. Please try again.",
+  "workspaceMember.transferOwnership": () => "Workspace member action failed. Please try again.",
+  "applicationRole.change": () => "Application role could not be updated. Please try again.",
+  "applicationUser.ban": () => "User could not be banned. Please try again.",
+  "applicationUser.unban": () => "User could not be unbanned. Please try again.",
+  "applicationUser.impersonate": () => "Impersonation could not be started. Please try again.",
+  "applicationUser.stopImpersonating": () => "Impersonation could not be stopped. Please try again.",
+  "document.delete": () => "Document could not be deleted. Please try again.",
+  "document.bulkDelete": () => "Some selected documents could not be deleted. Try again.",
+  "document.export": () => "Selected documents could not be exported. Please try again.",
+  "document.downloadOriginal": () =>
+    "The original document couldn't be downloaded because storage can't be reached. Please try again.",
+  "document.downloadOriginalMissing": () =>
+    "The original document couldn't be downloaded because it's missing from storage.",
+  "clipboard.copyTemplateJson": () => "Template JSON could not be copied. Please try again.",
+  "workspace.documentProcessing": () => "Document processing settings could not be saved. Please try again.",
+  "workspace.sourceRetention": () => "Document retention could not be updated. Please try again.",
+  "workspace.modelGateway.save": () =>
+    "Model gateway could not be saved. Replace an unavailable credential or try again.",
+  "workspace.modelGateway.clear": () => "Model gateway could not be cleared. Please try again.",
+  "workspace.modelGateway.test": ({ message }) =>
+    message || "Connection test failed. Check the gateway, models and credential.",
 };
 
 const validationMessages = {
@@ -119,12 +117,10 @@ export function getActionToast(action, outcome, options = {}) {
 
   return {
     severity: "error",
-    message: (outcome === "failure" && resolveMessage(failureMessages[action], { ...options, target })) || "Action failed. Please try again.",
+    message:
+      (outcome === "failure" && failureMessages[action]?.({ ...options, target })) ||
+      "Action failed. Please try again.",
   };
-}
-
-function resolveMessage(message, options) {
-  return typeof message === "function" ? message(options) : message;
 }
 
 export function getDocumentUploadToast({ queued = 0, failed = 0 }) {

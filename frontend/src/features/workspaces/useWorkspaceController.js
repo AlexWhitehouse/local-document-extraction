@@ -13,13 +13,16 @@ import {
 } from "../../lib/workspaceSelection";
 
 const WORKSPACE_STORAGE_KEY = "documentextraction.workspace.v1";
+
 const NEW_WORKSPACE_NAME = "New Workspace";
+
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 function loadStoredWorkspacePreference() {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(WORKSPACE_STORAGE_KEY) || "null");
     const workspaceId = String(parsed?.workspaceId || "").trim();
+
     return workspaceId ? { workspaceId, workspaceName: String(parsed.workspaceName || "").trim() } : null;
   } catch {
     return null;
@@ -74,7 +77,12 @@ export function useWorkspaceController({
   const workspaceIdRef = useRef(workspaceId);
   const workspaceNameRef = useRef(workspaceName);
   const resolutionRef = useRef(null);
-  resolutionRef.current = { status: workspaceResolutionStatus, sessionId: resolvedSessionId, invitationId: selectedWorkspaceInvitationId, unavailable: unavailableRoute };
+  resolutionRef.current = {
+    status: workspaceResolutionStatus,
+    sessionId: resolvedSessionId,
+    invitationId: selectedWorkspaceInvitationId,
+    unavailable: unavailableRoute,
+  };
   // Selection changes invalidate synchronously in clearWorkspaceScopedData,
   // so a follow-up list started by that action survives the resulting render.
   const contextScope = JSON.stringify([hasSession, sessionId, requestedWorkspaceId, requestedInvitationId]);
@@ -82,18 +90,33 @@ export function useWorkspaceController({
   const contextGenerationRef = useRef(0);
   const contextRefreshRequestRef = useRef(0);
   const workspaceListRequestRef = useRef(0);
+
   if (contextScopeRef.current !== contextScope) {
     contextScopeRef.current = contextScope;
     contextGenerationRef.current += 1;
   }
 
   const normalizedWorkspaceId = workspaceId.trim();
-  const hasWorkspaceContext = workspaceResolutionStatus === "resolved" && resolvedSessionId === sessionId &&
-    (!requestedWorkspaceId || requestedWorkspaceId === normalizedWorkspaceId) && !unavailableRoute && Boolean(normalizedWorkspaceId);
+
+  const hasWorkspaceContext =
+    workspaceResolutionStatus === "resolved" &&
+    resolvedSessionId === sessionId &&
+    (!requestedWorkspaceId || requestedWorkspaceId === normalizedWorkspaceId) &&
+    !unavailableRoute &&
+    Boolean(normalizedWorkspaceId);
+
   const hasApiAccess = hasSession && hasWorkspaceContext;
+
   const isWorkspaceContextLoading =
-    hasSession && Boolean(workspaceResolutionStatus === "idle" || workspaceResolutionStatus === "loading" ||
-      (workspaceResolutionStatus === "resolved" && (resolvedSessionId !== sessionId || (!unavailableRoute && requestedWorkspaceId && requestedWorkspaceId !== workspaceId))));
+    hasSession &&
+    Boolean(
+      workspaceResolutionStatus === "idle" ||
+      workspaceResolutionStatus === "loading" ||
+      (workspaceResolutionStatus === "resolved" &&
+        (resolvedSessionId !== sessionId ||
+          (!unavailableRoute && requestedWorkspaceId && requestedWorkspaceId !== workspaceId))),
+    );
+
   const hasWorkspaceResolutionError = hasSession && workspaceResolutionStatus === "error";
 
   const { request } = createWorkspaceRequestLayer({
@@ -102,6 +125,7 @@ export function useWorkspaceController({
     workspaceId,
     onForbiddenWorkspaceAccess: recoverForbiddenWorkspaceAccess,
   });
+
   const workspaceRequests = createWorkspaceRequestAdapter({ request });
 
   hasSessionRef.current = hasSession;
@@ -127,6 +151,7 @@ export function useWorkspaceController({
       }),
     [hasApiAccess, selectedWorkspaceInvitationId, workspaceId, workspaceName, userWorkspaceInvitations, userWorkspaces],
   );
+
   const selectedWorkspaceInvitation = workspaceSelectionView.invitation;
   const isWorkspaceInvitationSelected = workspaceSelectionView.type === "invitation";
   const selectedWorkspace = userWorkspaces.find((workspace) => String(workspace.id || "") === workspaceId);
@@ -134,19 +159,21 @@ export function useWorkspaceController({
   const selectedWorkspaceHasApiKey = Boolean(selectedWorkspace?.has_api_key);
   const canRotateWorkspaceApiKey = ["owner", "admin"].includes(selectedWorkspaceRole.trim().toLowerCase());
   const workspacePrimaryAction = getWorkspacePrimaryAction(selectedWorkspaceRole);
-  const memberPermissions = getWorkspaceMemberPermissions(
-    isWorkspaceInvitationSelected ? "" : selectedWorkspaceRole,
-  );
+
+  const memberPermissions = getWorkspaceMemberPermissions(isWorkspaceInvitationSelected ? "" : selectedWorkspaceRole);
+
   const canListWorkspaceUsers = memberPermissions.canListUsers;
   const canManageWorkspaceInvitations = memberPermissions.canManage;
-  const isWorkspaceNameDirty =
-    Boolean(normalizedWorkspaceId) && workspaceName.trim() !== selectedWorkspaceName.trim();
+
+  const isWorkspaceNameDirty = Boolean(normalizedWorkspaceId) && workspaceName.trim() !== selectedWorkspaceName.trim();
 
   const filteredWorkspaces = useMemo(() => {
     const query = workspaceSearch.trim().toLowerCase();
+
     if (!query) {
       return availableWorkspaces;
     }
+
     return availableWorkspaces.filter((workspace) =>
       [
         workspace.id,
@@ -156,7 +183,11 @@ export function useWorkspaceController({
         workspace.inviter_display,
         workspace.email,
         workspace.role,
-      ].some((value) => String(value || "").toLowerCase().includes(query)),
+      ].some((value) =>
+        String(value || "")
+          .toLowerCase()
+          .includes(query),
+      ),
     );
   }, [availableWorkspaces, workspaceSearch]);
 
@@ -178,10 +209,12 @@ export function useWorkspaceController({
 
     const has = (key) => Object.hasOwn(update, key);
     const nextWorkspaceId = has("workspaceId") ? String(update.workspaceId || "") : workspaceIdRef.current;
+
     if (nextWorkspaceId !== workspaceIdRef.current) {
       const nextInvitationId = has("selectedWorkspaceInvitationId")
         ? String(update.selectedWorkspaceInvitationId || "")
         : selectedWorkspaceInvitationId;
+
       clearWorkspaceScopedData({
         isSwitchingAcceptedWorkspace: hasSession && Boolean(nextWorkspaceId.trim()) && !nextInvitationId.trim(),
       });
@@ -191,10 +224,14 @@ export function useWorkspaceController({
       workspaceIdRef.current = nextWorkspaceId;
       setWorkspaceId(update.workspaceId);
     }
+
     if (has("workspaceName")) setWorkspaceName(update.workspaceName);
+
     if (has("selectedWorkspaceInvitationId")) setSelectedWorkspaceInvitationId(update.selectedWorkspaceInvitationId);
+
     if (has("apiKey")) setApiKey(update.apiKey);
   }
+
   applyWorkspaceContextUpdateRef.current = applyWorkspaceContextUpdate;
 
   useEffect(() => {
@@ -203,10 +240,13 @@ export function useWorkspaceController({
     }
 
     const storedWorkspaceId = workspaceId.trim();
+
     if (!storedWorkspaceId) {
       window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+
       return;
     }
+
     window.localStorage.setItem(
       WORKSPACE_STORAGE_KEY,
       JSON.stringify({ workspaceId: storedWorkspaceId, workspaceName }),
@@ -216,6 +256,7 @@ export function useWorkspaceController({
   async function copyToClipboard(value) {
     try {
       await navigator.clipboard.writeText(value);
+
       return true;
     } catch {
       return false;
@@ -224,6 +265,7 @@ export function useWorkspaceController({
 
   async function createWorkspace() {
     setBusy(true);
+
     try {
       const data = await request(
         "/workspaces",
@@ -231,11 +273,14 @@ export function useWorkspaceController({
         true,
         false,
       );
+
       const createdWorkspaceId = String(data.workspace_id || "");
       const createdWorkspaceName = data.name || NEW_WORKSPACE_NAME;
+
       if (createdWorkspaceId !== workspaceId) {
         clearWorkspaceScopedData();
       }
+
       setWorkspaceId(createdWorkspaceId);
       setWorkspaceName(createdWorkspaceName);
       setApiKey("");
@@ -254,6 +299,7 @@ export function useWorkspaceController({
     if (!hasWorkspaceContext) {
       return;
     }
+
     if (
       selectedWorkspaceHasApiKey &&
       !window.confirm(
@@ -265,6 +311,7 @@ export function useWorkspaceController({
 
     const wasRotation = selectedWorkspaceHasApiKey;
     setBusy(true);
+
     try {
       const data = await request(
         `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/api-key`,
@@ -272,14 +319,13 @@ export function useWorkspaceController({
         true,
         false,
       );
+
       const rotatedWorkspaceId = data.workspace_id || normalizedWorkspaceId;
       setWorkspaceId(rotatedWorkspaceId);
       setApiKey(data.api_key || "");
       setUserWorkspaces((prev) =>
         prev.map((workspace) =>
-          String(workspace.id || "") === String(rotatedWorkspaceId)
-            ? { ...workspace, has_api_key: true }
-            : workspace,
+          String(workspace.id || "") === String(rotatedWorkspaceId) ? { ...workspace, has_api_key: true } : workspace,
         ),
       );
       const copied = data.api_key ? await copyToClipboard(String(data.api_key)) : false;
@@ -293,63 +339,92 @@ export function useWorkspaceController({
   }
 
   // Resolves to the accepted Workspace that became selected, or null.
-  const listWorkspaces = useCallback(async (options = {}) => {
-    if (!hasSessionRef.current) {
-      return null;
-    }
-
-    const generation = contextGenerationRef.current;
-    const requestId = ++workspaceListRequestRef.current;
-    const isCurrent = () =>
-      generation === contextGenerationRef.current &&
-      requestId === workspaceListRequestRef.current &&
-      hasSessionRef.current;
-    try {
-      const [workspaceData, invitationData] = await Promise.all([
-        requestRef.current("/workspaces", { method: "GET" }, true, false),
-        requestRef.current("/invitations", { method: "GET" }, true, false),
-      ]);
-      if (!isCurrent()) return null;
-      const workspaces = Array.isArray(workspaceData?.workspaces) ? workspaceData.workspaces : [];
-      const invitations = Array.isArray(invitationData?.invitations) ? invitationData.invitations : [];
-      setUserWorkspaces(workspaces);
-      setUserWorkspaceInvitations(invitations);
-      const resolvedWorkspace = resolveAcceptedWorkspace({
-        storedWorkspacePreference:
-          options.storedWorkspacePreference ||
-          (routeRef.current.requestedWorkspaceId && !options.ignoreRoute
-            ? { workspaceId: routeRef.current.requestedWorkspaceId } : null) ||
-          (workspaceIdRef.current.trim()
-            ? { workspaceId: workspaceIdRef.current, workspaceName: workspaceNameRef.current }
-            : storedWorkspacePreference),
-        userWorkspaces: workspaces,
-      });
-      const target = routeRef.current;
-      const invitation = target.requestedInvitationId && invitations.find(item => item.id === target.requestedInvitationId);
-      const unavailable = !options.ignoreRoute && !options.storedWorkspacePreference && Boolean(
-        (target.requestedWorkspaceId && !workspaces.some(item => item.id === target.requestedWorkspaceId)) ||
-        (target.requestedInvitationId && !invitation),
-      );
-      setUnavailableRoute(unavailable);
-      setResolvedSessionId(target.sessionId);
-      if (unavailable) {
-        applyWorkspaceContextUpdateRef.current({ workspaceId: "", workspaceName: "", apiKey: "", selectedWorkspaceInvitationId: "" });
-        setWorkspaceResolutionStatus("resolved");
+  const listWorkspaces = useCallback(
+    async (options = {}) => {
+      if (!hasSessionRef.current) {
         return null;
       }
-      if (resolvedWorkspace) {
-        applyWorkspaceContextUpdateRef.current(selectAcceptedWorkspaceContext(resolvedWorkspace));
+
+      const generation = contextGenerationRef.current;
+      const requestId = ++workspaceListRequestRef.current;
+
+      const isCurrent = () =>
+        generation === contextGenerationRef.current &&
+        requestId === workspaceListRequestRef.current &&
+        hasSessionRef.current;
+
+      try {
+        const [workspaceData, invitationData] = await Promise.all([
+          requestRef.current("/workspaces", { method: "GET" }, true, false),
+          requestRef.current("/invitations", { method: "GET" }, true, false),
+        ]);
+
+        if (!isCurrent()) return null;
+        const workspaces = Array.isArray(workspaceData?.workspaces) ? workspaceData.workspaces : [];
+        const invitations = Array.isArray(invitationData?.invitations) ? invitationData.invitations : [];
+        setUserWorkspaces(workspaces);
+        setUserWorkspaceInvitations(invitations);
+
+        const resolvedWorkspace = resolveAcceptedWorkspace({
+          storedWorkspacePreference:
+            options.storedWorkspacePreference ||
+            (routeRef.current.requestedWorkspaceId && !options.ignoreRoute
+              ? { workspaceId: routeRef.current.requestedWorkspaceId }
+              : null) ||
+            (workspaceIdRef.current.trim()
+              ? { workspaceId: workspaceIdRef.current, workspaceName: workspaceNameRef.current }
+              : storedWorkspacePreference),
+          userWorkspaces: workspaces,
+        });
+
+        const target = routeRef.current;
+
+        const invitation =
+          target.requestedInvitationId && invitations.find((item) => item.id === target.requestedInvitationId);
+
+        const unavailable =
+          !options.ignoreRoute &&
+          !options.storedWorkspacePreference &&
+          Boolean(
+            (target.requestedWorkspaceId && !workspaces.some((item) => item.id === target.requestedWorkspaceId)) ||
+            (target.requestedInvitationId && !invitation),
+          );
+
+        setUnavailableRoute(unavailable);
+        setResolvedSessionId(target.sessionId);
+
+        if (unavailable) {
+          applyWorkspaceContextUpdateRef.current({
+            workspaceId: "",
+            workspaceName: "",
+            apiKey: "",
+            selectedWorkspaceInvitationId: "",
+          });
+          setWorkspaceResolutionStatus("resolved");
+
+          return null;
+        }
+
+        if (resolvedWorkspace) {
+          applyWorkspaceContextUpdateRef.current(selectAcceptedWorkspaceContext(resolvedWorkspace));
+        }
+
+        if (invitation && !options.ignoreRoute)
+          applyWorkspaceContextUpdateRef.current({ selectedWorkspaceInvitationId: invitation.id });
+        setWorkspaceResolutionStatus(resolvedWorkspace ? "resolved" : "error");
+
+        if (options.ignoreRoute || options.storedWorkspacePreference)
+          target.onWorkspaceNavigation?.(resolvedWorkspace?.id || "", { force: true });
+
+        return resolvedWorkspace;
+      } catch (error) {
+        if (!isCurrent()) return null;
+        setWorkspaceResolutionStatus("error");
+        throw error;
       }
-      if (invitation && !options.ignoreRoute) applyWorkspaceContextUpdateRef.current({ selectedWorkspaceInvitationId: invitation.id });
-      setWorkspaceResolutionStatus(resolvedWorkspace ? "resolved" : "error");
-      if (options.ignoreRoute || options.storedWorkspacePreference) target.onWorkspaceNavigation?.(resolvedWorkspace?.id || "", { force: true });
-      return resolvedWorkspace;
-    } catch (error) {
-      if (!isCurrent()) return null;
-      setWorkspaceResolutionStatus("error");
-      throw error;
-    }
-  }, [storedWorkspacePreference]);
+    },
+    [storedWorkspacePreference],
+  );
 
   function retryWorkspaceResolution() {
     setWorkspaceResolutionStatus("loading");
@@ -358,17 +433,20 @@ export function useWorkspaceController({
 
   async function refreshSelectedWorkspaceContext() {
     const targetWorkspaceId = workspaceIdRef.current.trim();
+
     if (!hasSessionRef.current || !targetWorkspaceId) {
       return null;
     }
 
     const generation = contextGenerationRef.current;
     const requestId = ++contextRefreshRequestRef.current;
+
     const isCurrent = () =>
       generation === contextGenerationRef.current &&
       requestId === contextRefreshRequestRef.current &&
       hasSessionRef.current &&
       targetWorkspaceId === workspaceIdRef.current;
+
     try {
       const data = await requestRef.current(
         `/workspaces/${encodeURIComponent(targetWorkspaceId)}/context`,
@@ -376,27 +454,30 @@ export function useWorkspaceController({
         true,
         false,
       );
+
       if (!isCurrent()) return null;
       const refreshedWorkspace = data?.workspace;
+
       if (String(refreshedWorkspace?.id || "") !== targetWorkspaceId) {
         return null;
       }
 
       setUserWorkspaces((prev) =>
         prev.some((workspace) => String(workspace.id || "") === targetWorkspaceId)
-          ? prev.map((workspace) =>
-              String(workspace.id || "") === targetWorkspaceId ? refreshedWorkspace : workspace,
-            )
+          ? prev.map((workspace) => (String(workspace.id || "") === targetWorkspaceId ? refreshedWorkspace : workspace))
           : [...prev, refreshedWorkspace],
       );
       applyWorkspaceContextUpdateRef.current(selectAcceptedWorkspaceContext(refreshedWorkspace));
       setWorkspaceResolutionStatus("resolved");
+
       return refreshedWorkspace;
     } catch (error) {
       if (!isCurrent()) return null;
+
       if (error.status === 403 || error.status === 404) {
         return listWorkspaces();
       }
+
       throw error;
     }
   }
@@ -407,8 +488,10 @@ export function useWorkspaceController({
     }
 
     isRecoveringForbiddenWorkspaceRef.current = true;
+
     try {
       const nextWorkspace = await listWorkspaces();
+
       if (nextWorkspace?.id) {
         showActionToast("workspace.access.changed", "success", {
           targetName: nextWorkspace.name || nextWorkspace.id,
@@ -421,53 +504,65 @@ export function useWorkspaceController({
     }
   }
 
-  const listWorkspaceUsers = useCallback(async (targetWorkspaceId) => {
-    const requestId = ++workspaceUsersRequestRef.current;
-    if (!hasSessionRef.current || !targetWorkspaceId || !canListWorkspaceUsers) {
-      setWorkspaceUsers([]);
-      setIsLoadingWorkspaceUsers(false);
-      return;
-    }
+  const listWorkspaceUsers = useCallback(
+    async (targetWorkspaceId) => {
+      const requestId = ++workspaceUsersRequestRef.current;
 
-    setIsLoadingWorkspaceUsers(true);
-    try {
-      const users = await workspaceRequestsRef.current.listWorkspaceUsers(targetWorkspaceId);
-      if (workspaceUsersRequestRef.current === requestId) setWorkspaceUsers(users);
-    } catch {
-      if (workspaceUsersRequestRef.current === requestId) setWorkspaceUsers([]);
-    } finally {
-      if (workspaceUsersRequestRef.current === requestId) setIsLoadingWorkspaceUsers(false);
-    }
-  }, [canListWorkspaceUsers]);
+      if (!hasSessionRef.current || !targetWorkspaceId || !canListWorkspaceUsers) {
+        setWorkspaceUsers([]);
+        setIsLoadingWorkspaceUsers(false);
 
-  const listWorkspaceInvitations = useCallback(async (targetWorkspaceId) => {
-    if (!hasSessionRef.current || !targetWorkspaceId || !canManageWorkspaceInvitations) {
-      setWorkspaceInvitations([]);
-      return;
-    }
+        return;
+      }
 
-    try {
-      setWorkspaceInvitations(await workspaceRequestsRef.current.listWorkspaceInvitations(targetWorkspaceId));
-    } catch {
-      setWorkspaceInvitations([]);
-    }
-  }, [canManageWorkspaceInvitations]);
+      setIsLoadingWorkspaceUsers(true);
+
+      try {
+        const users = await workspaceRequestsRef.current.listWorkspaceUsers(targetWorkspaceId);
+
+        if (workspaceUsersRequestRef.current === requestId) setWorkspaceUsers(users);
+      } catch {
+        if (workspaceUsersRequestRef.current === requestId) setWorkspaceUsers([]);
+      } finally {
+        if (workspaceUsersRequestRef.current === requestId) setIsLoadingWorkspaceUsers(false);
+      }
+    },
+    [canListWorkspaceUsers],
+  );
+
+  const listWorkspaceInvitations = useCallback(
+    async (targetWorkspaceId) => {
+      if (!hasSessionRef.current || !targetWorkspaceId || !canManageWorkspaceInvitations) {
+        setWorkspaceInvitations([]);
+
+        return;
+      }
+
+      try {
+        setWorkspaceInvitations(await workspaceRequestsRef.current.listWorkspaceInvitations(targetWorkspaceId));
+      } catch {
+        setWorkspaceInvitations([]);
+      }
+    },
+    [canManageWorkspaceInvitations],
+  );
 
   async function applyWorkspaceUserAction(targetUser, action) {
     const targetUserId = String(targetUser.user_id || "").trim();
+
     if (!normalizedWorkspaceId || !targetUserId) {
       return;
     }
-    const targetWorkspaceUser = workspaceUsers.find(
-      (user) => String(user.user_id || "").trim() === targetUserId,
-    );
+
+    const targetWorkspaceUser = workspaceUsers.find((user) => String(user.user_id || "").trim() === targetUserId);
+
     const targetDisplay =
-      String(targetWorkspaceUser?.name || "").trim() ||
-      String(targetWorkspaceUser?.email || "").trim() ||
-      targetUserId;
+      String(targetWorkspaceUser?.name || "").trim() || String(targetWorkspaceUser?.email || "").trim() || targetUserId;
+
     const actionToast = WORKSPACE_MEMBER_ACTION_TOASTS[action] || "workspaceMember.remove";
 
     setBusy(true);
+
     try {
       await workspaceRequests.applyWorkspaceMemberAction({
         workspaceId: normalizedWorkspaceId,
@@ -488,13 +583,17 @@ export function useWorkspaceController({
     if (!normalizedWorkspaceId) {
       return;
     }
+
     const email = inviteEmail.trim();
+
     if (!email) {
       showActionToast("workspaceInvitation.create", "validation", { reason: "email" });
+
       return;
     }
 
     setBusy(true);
+
     try {
       await request(`/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/invitations`, {
         method: "POST",
@@ -513,15 +612,19 @@ export function useWorkspaceController({
 
   async function cancelWorkspaceInvitation(invitation) {
     const invitationId = String(invitation.id || "").trim();
+
     if (!normalizedWorkspaceId || !invitationId) {
       return;
     }
+
     const invitationEmail = String(invitation.email || "this invitation").trim();
+
     if (!window.confirm(`Cancel pending invitation for ${invitationEmail}?`)) {
       return;
     }
 
     setBusy(true);
+
     try {
       await request(
         `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/invitations/${encodeURIComponent(invitationId)}`,
@@ -544,11 +647,13 @@ export function useWorkspaceController({
 
   async function acceptSelectedWorkspaceInvitation() {
     const invitation = selectedWorkspaceInvitation;
+
     if (!isActionablePendingInvitation(invitation)) {
       return;
     }
 
     setIsAcceptingWorkspaceInvitation(true);
+
     try {
       const data = await request(
         `/invitations/${encodeURIComponent(invitation.id.trim())}/accept`,
@@ -556,14 +661,17 @@ export function useWorkspaceController({
         true,
         false,
       );
+
       await listWorkspaces();
       const acceptedWorkspaceId = String(data?.workspace_id || "").trim();
+
       if (acceptedWorkspaceId) {
         applyWorkspaceContextUpdate(
           selectAcceptedWorkspaceContext({ id: acceptedWorkspaceId, name: invitation.workspaceName }),
         );
         onWorkspaceNavigation?.(acceptedWorkspaceId, { force: true });
       }
+
       showActionToast("workspaceInvitation.accept", "success");
     } catch (error) {
       showActionToast("workspaceInvitation.accept", "failure", { error });
@@ -574,11 +682,13 @@ export function useWorkspaceController({
 
   async function declineSelectedWorkspaceInvitation() {
     const invitation = selectedWorkspaceInvitation;
+
     if (!isActionablePendingInvitation(invitation)) {
       return;
     }
 
     setIsDecliningWorkspaceInvitation(true);
+
     try {
       await request(
         `/invitations/${encodeURIComponent(invitation.id.trim())}/decline`,
@@ -603,6 +713,7 @@ export function useWorkspaceController({
 
     const nextName = workspaceName.trim();
     setIsSavingWorkspace(true);
+
     try {
       await request(`/workspaces/${encodeURIComponent(normalizedWorkspaceId)}`, {
         method: "PATCH",
@@ -622,11 +733,13 @@ export function useWorkspaceController({
     if (!normalizedWorkspaceId || isDeletingWorkspace) {
       return;
     }
+
     if (!window.confirm(`Delete workspace ${normalizedWorkspaceId}? This action cannot be undone.`)) {
       return;
     }
 
     setIsDeletingWorkspace(true);
+
     try {
       await workspaceRequests.deleteWorkspace(workspaceId);
       clearWorkspaceScopedData();
@@ -646,11 +759,13 @@ export function useWorkspaceController({
     if (!normalizedWorkspaceId || isDeletingWorkspace) {
       return;
     }
+
     if (!window.confirm("Leave this workspace? You will lose access unless you are invited again.")) {
       return;
     }
 
     setIsDeletingWorkspace(true);
+
     try {
       const data = await workspaceRequests.leaveWorkspace(normalizedWorkspaceId);
       await listWorkspaces({ ignoreRoute: true });
@@ -665,14 +780,24 @@ export function useWorkspaceController({
   }
 
   function selectInvitedWorkspace(workspace) {
-    if (onWorkspaceNavigation) { onWorkspaceNavigation("", { invitationId: workspace.invitation_id }); return; }
+    if (onWorkspaceNavigation) {
+      onWorkspaceNavigation("", { invitationId: workspace.invitation_id });
+
+      return;
+    }
+
     if (beforeWorkspaceSelection && !beforeWorkspaceSelection()) return;
     applyWorkspaceContextUpdate({ selectedWorkspaceInvitationId: String(workspace.invitation_id || "") });
     onActivePageChange("workspace");
   }
 
   function selectAcceptedWorkspace(workspace) {
-    if (onWorkspaceNavigation) { onWorkspaceNavigation(workspace.id); return; }
+    if (onWorkspaceNavigation) {
+      onWorkspaceNavigation(workspace.id);
+
+      return;
+    }
+
     if (workspace.id !== workspaceIdRef.current && beforeWorkspaceSelection && !beforeWorkspaceSelection()) return;
     applyWorkspaceContextUpdate(selectAcceptedWorkspaceContext(workspace));
   }
@@ -698,26 +823,41 @@ export function useWorkspaceController({
   useEffect(() => {
     if (!hasSession) {
       setWorkspaceResolutionStatus("idle");
+
       return;
     }
 
     const resolved = resolutionRef.current;
+
     // Canonicalizing / to the selected Workspace must not clear loaded state,
     // restart sockets, or discard edits that began during startup.
-    if (workspaceIdRef.current && (!requestedWorkspaceId || requestedWorkspaceId === workspaceIdRef.current) &&
-      resolved.status === "resolved" && resolved.sessionId === sessionId && !resolved.unavailable && !resolved.invitationId && !requestedInvitationId) return;
+    if (
+      workspaceIdRef.current &&
+      (!requestedWorkspaceId || requestedWorkspaceId === workspaceIdRef.current) &&
+      resolved.status === "resolved" &&
+      resolved.sessionId === sessionId &&
+      !resolved.unavailable &&
+      !resolved.invitationId &&
+      !requestedInvitationId
+    )
+      return;
 
     setWorkspaceResolutionStatus("loading");
     void listWorkspaces().catch(() => {});
-    return () => { contextGenerationRef.current += 1; };
+
+    return () => {
+      contextGenerationRef.current += 1;
+    };
   }, [hasSession, sessionId, listWorkspaces, requestedWorkspaceId, requestedInvitationId]);
 
   useEffect(() => {
     const targetWorkspaceId = workspaceId.trim();
+
     if (!hasSession || !targetWorkspaceId) {
       setWorkspaceUsers([]);
       setIsLoadingWorkspaceUsers(false);
       setWorkspaceInvitations([]);
+
       return;
     }
 

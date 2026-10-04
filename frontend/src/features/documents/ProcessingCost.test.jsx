@@ -7,9 +7,28 @@ import { DocumentPage } from "./DocumentPage.jsx";
 import { PacketPage } from "./PacketPage.jsx";
 import { createCompletedDocumentCache } from "../../lib/completedDocumentCache.js";
 
-const amount = (value, complete = true) => ({ amount: value, complete, reported_calls: value === null ? 0 : 1, unreported_calls: complete ? 0 : 1 });
-const costs = { currency: "USD", split: amount(0.006), auto_template: amount(0.0022842), extraction: amount(0.004), total: amount(0.0122842), split_allocation: { document_pages: 3, packet_pages: 10 } };
-const document = { job_id: "cost_doc", status: "completed", costs, results: [{ field_id: "total", name: "Total", answer: "42", confidence: 0.9 }] };
+const amount = (value, complete = true) => ({
+  amount: value,
+  complete,
+  reported_calls: value === null ? 0 : 1,
+  unreported_calls: complete ? 0 : 1,
+});
+
+const costs = {
+  currency: "USD",
+  split: amount(0.006),
+  auto_template: amount(0.0022842),
+  extraction: amount(0.004),
+  total: amount(0.0122842),
+  split_allocation: { document_pages: 3, packet_pages: 10 },
+};
+
+const document = {
+  job_id: "cost_doc",
+  status: "completed",
+  costs,
+  results: [{ field_id: "total", name: "Total", answer: "42", confidence: 0.9 }],
+};
 
 describe("Processing cost headers", () => {
   it("places the document total beside confidence and shows stage costs on hover", async () => {
@@ -31,7 +50,18 @@ describe("Processing cost headers", () => {
   it("places the packet total after excluded count and supports keyboard focus and Escape", async () => {
     const user = userEvent.setup();
     const packetCosts = { ...costs, split_allocation: undefined, excluded_pages_cost: amount(0.002) };
-    render(<PacketPage packet={{ packet_id: "packet", status: "completed", selected_pages: [1, 2], plan: { groups: [], exclusions: [{ page: 2, reason: "Blank" }] }, children: [], costs: packetCosts }} />);
+    render(
+      <PacketPage
+        packet={{
+          packet_id: "packet",
+          status: "completed",
+          selected_pages: [1, 2],
+          plan: { groups: [], exclusions: [{ page: 2, reason: "Blank" }] },
+          children: [],
+          costs: packetCosts,
+        }}
+      />,
+    );
     const button = screen.getByRole("button", { name: "Packet total cost: $0.0122842" });
     expect(button.closest(".processing-cost").previousElementSibling.textContent).toBe("1 excluded");
     act(() => button.focus());

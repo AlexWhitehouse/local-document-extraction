@@ -1,3 +1,4 @@
+import { streamingRequest } from "./testing/requestFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,19 +21,24 @@ test("multipart submission streams the document to a promotable temporary file",
       request: new Request("http://127.0.0.1/v1/extract", { method: "POST", body: form }),
       stateDirectory,
     });
+
     expect(parsed).toMatchObject({
       templateId: "template_invoice",
       source: { mimeType: "application/pdf", name: "invoice.pdf", size: 4 },
     });
-    expect(new Uint8Array(await Bun.file(parsed.source.temporaryPath).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(new Uint8Array(await Bun.file(parsed.source.temporaryPath).arrayBuffer())).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
 
     const sourceFiles = createLocalSourceFileStore({ stateDirectory });
+
     const key = await sourceFiles.promoteTemporary!({
       workspaceId: "workspace_one",
       jobId: "job_one",
       mimeType: parsed.source.mimeType,
       temporaryPath: parsed.source.temporaryPath,
     });
+
     expect(key).toBe("workspaces/workspace_one/jobs/job_one/source.pdf");
     expect(await sourceFiles.read(key)).not.toBeNull();
   } finally {
@@ -45,10 +51,13 @@ test("multipart submission rejects duplicate fields and oversized files without 
     const stateDirectory = await mkdtemp(join(tmpdir(), `document-extraction-multipart-${scenario}-`));
     const form = new FormData();
     form.append("template_id", "template_one");
+
     if (scenario === "duplicate") form.append("template_id", "template_two");
     form.set("document", new File([new Uint8Array([1, 2, 3])], "source.pdf", { type: "application/pdf" }));
+
     try {
-      let failure: unknown = null;
+      let failure: unknown;
+
       try {
         await parseLocalMultipartSubmission({
           maxSourceFileBytes: scenario === "oversized" ? 2 : 10,
@@ -58,8 +67,11 @@ test("multipart submission rejects duplicate fields and oversized files without 
       } catch (error) {
         failure = error;
       }
+
       expect(failure).toBeInstanceOf(HttpError);
-      expect((failure as HttpError).code).toBe(scenario === "duplicate" ? "invalid_multipart" : "source_file_too_large");
+
+      if (!(failure instanceof HttpError)) throw new Error("Expected an HTTP submission error");
+      expect(failure.code).toBe(scenario === "duplicate" ? "invalid_multipart" : "source_file_too_large");
       const temporaryFiles = await readdir(join(stateDirectory, "temporary", "submissions")).catch(() => []);
       expect(temporaryFiles).toEqual([]);
     } finally {
@@ -84,15 +96,19 @@ test("multipart Source size accepts the exact boundary and rejects boundary plus
           request,
           stateDirectory,
         });
+
         expect(parsed.source.size).toBe(3);
         await rm(parsed.source.temporaryPath, { force: true });
       } else {
-        await expect(parseLocalMultipartSubmission({
-          maxSourceFileBytes: 3,
-          request,
-          stateDirectory,
-        })).rejects.toMatchObject({ status: 400, code: "source_file_too_large" });
+        await expect(
+          parseLocalMultipartSubmission({
+            maxSourceFileBytes: 3,
+            request,
+            stateDirectory,
+          }),
+        ).rejects.toMatchObject({ status: 400, code: "source_file_too_large" });
       }
+
       const temporaryFiles = await readdir(join(stateDirectory, "temporary", "submissions")).catch(() => []);
       expect(temporaryFiles).toEqual([]);
     } finally {
@@ -101,90 +117,105 @@ test("multipart Source size accepts the exact boundary and rejects boundary plus
   }
 });
 
-test.each([
-  "before parsing",
-  "during directory initialization",
-  "after a partial file is written",
-])("an aborted multipart stream %s cancels its body and removes temporary Source data", async (abortTiming) => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-multipart-abort-"));
-  const controller = new AbortController();
-  const boundary = "document-extraction-aborted-boundary";
-  let bodyCancelled = false;
-  let bodyController: ReadableStreamDefaultController<Uint8Array>;
-  const body = new ReadableStream<Uint8Array>({
-    start(streamController) {
-      bodyController = streamController;
-      streamController.enqueue(new TextEncoder().encode([
-        `--${boundary}`,
-        'Content-Disposition: form-data; name="template_id"',
-        "",
-        "template_abort",
-        `--${boundary}`,
-        'Content-Disposition: form-data; name="document"; filename="source.pdf"',
-        "Content-Type: application/pdf",
-        "",
-        "%PDF-partial",
-      ].join("\r\n")));
-    },
-    cancel() {
-      bodyCancelled = true;
-    },
-  });
-  const request = new Request("http://127.0.0.1/v1/extract", {
-    method: "POST",
-    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
-    body,
-    duplex: "half",
-    signal: controller.signal,
-  } as RequestInit);
-  if (abortTiming === "before parsing") controller.abort();
-  const parsing = parseLocalMultipartSubmission({
-    maxSourceFileBytes: 1024,
-    request,
-    stateDirectory,
-  });
-  // Observe rejection immediately, including while waiting for the file to be written.
-  const outcome = parsing.then(
-    () => ({ error: null }),
-    (error: unknown) => ({ error }),
-  );
+test.each(["before parsing", "during directory initialization", "after a partial file is written"])(
+  "an aborted multipart stream %s cancels its body and removes temporary Source data",
+  async (abortTiming) => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-multipart-abort-"));
+    const controller = new AbortController();
+    const boundary = "document-extraction-aborted-boundary";
+    let bodyCancelled = false;
+    let bodyController: ReadableStreamDefaultController<Uint8Array>;
 
-  try {
-    if (abortTiming === "after a partial file is written") {
-      await waitForPartialSourceFile(stateDirectory);
-    }
-    // For the middle case this runs synchronously while parse is awaiting mkdir.
-    controller.abort();
-    expect((await withinDeadline(outcome)).error).toMatchObject({ status: 400, code: "submission_aborted" });
-    expect(bodyCancelled).toBe(true);
-    const temporaryFiles = await readdir(join(stateDirectory, "temporary", "submissions")).catch(() => []);
-    expect(temporaryFiles).toEqual([]);
-  } finally {
-    // A lost abort must fail the assertion without leaving the test process hung.
-    bodyController!.error(new Error("Multipart abort test cleanup"));
+    const body = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        bodyController = streamController;
+        streamController.enqueue(
+          new TextEncoder().encode(
+            [
+              `--${boundary}`,
+              'Content-Disposition: form-data; name="template_id"',
+              "",
+              "template_abort",
+              `--${boundary}`,
+              'Content-Disposition: form-data; name="document"; filename="source.pdf"',
+              "Content-Type: application/pdf",
+              "",
+              "%PDF-partial",
+            ].join("\r\n"),
+          ),
+        );
+      },
+      cancel() {
+        bodyCancelled = true;
+      },
+    });
+
+    const request = streamingRequest("http://127.0.0.1/v1/extract", {
+      method: "POST",
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      body,
+      duplex: "half",
+      signal: controller.signal,
+    });
+
+    if (abortTiming === "before parsing") controller.abort();
+
+    const parsing = parseLocalMultipartSubmission({
+      maxSourceFileBytes: 1024,
+      request,
+      stateDirectory,
+    });
+
+    // Observe rejection immediately, including while waiting for the file to be written.
+    const outcome = parsing.then(
+      () => ({ error: null }),
+      (cause: unknown) => ({ error: cause }),
+    );
+
     try {
-      await withinDeadline(outcome);
+      if (abortTiming === "after a partial file is written") {
+        await waitForPartialSourceFile(stateDirectory);
+      }
+
+      // For the middle case this runs synchronously while parse is awaiting mkdir.
+      controller.abort();
+      expect((await withinDeadline(outcome)).error).toMatchObject({ status: 400, code: "submission_aborted" });
+      expect(bodyCancelled).toBe(true);
+      const temporaryFiles = await readdir(join(stateDirectory, "temporary", "submissions")).catch(() => []);
+      expect(temporaryFiles).toEqual([]);
     } finally {
-      await rm(stateDirectory, { recursive: true, force: true });
+      // A lost abort must fail the assertion without leaving the test process hung.
+      bodyController!.error(new Error("Multipart abort test cleanup"));
+
+      try {
+        await withinDeadline(outcome);
+      } finally {
+        await rm(stateDirectory, { recursive: true, force: true });
+      }
     }
-  }
-});
+  },
+);
 
 async function waitForPartialSourceFile(stateDirectory: string): Promise<void> {
   const directory = join(stateDirectory, "temporary", "submissions");
   const deadline = Date.now() + 1500;
+
   while (Date.now() < deadline) {
     const files = await readdir(directory).catch(() => []);
+
     for (const file of files) {
       if ((await stat(join(directory, file))).size > 0) return;
     }
+
     await Bun.sleep(5);
   }
+
   throw new Error("Multipart parser did not write partial Source data");
 }
 
 async function withinDeadline<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
+
   try {
     return await Promise.race([
       promise,

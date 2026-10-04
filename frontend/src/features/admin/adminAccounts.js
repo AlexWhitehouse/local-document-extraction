@@ -4,6 +4,7 @@ export function userIdOf(user) {
 
 export function safeText(value) {
   const text = String(value || "").trim();
+
   return text || "—";
 }
 

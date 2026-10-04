@@ -1,3 +1,4 @@
+import { workspaceFixture } from "./testing/workspaceControlFixture";
 import { expect, test } from "bun:test";
 
 import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
@@ -6,22 +7,26 @@ import { upgradeLocalLiveUpdate } from "./localLiveUpdateUpgrade";
 
 test("the Bun server keeps a bounded receive-only Workspace socket and delivers lifecycle messages", async () => {
   const hub = createLocalLiveUpdateHub();
+
   const auth = {
     getSession: async () => ({ id: "user_ada", email: "ada@example.com", name: "Ada" }),
   };
+
   const workspaceControl = {
     getAcceptedWorkspaceContext: ({ workspaceId, userId }: { workspaceId: string; userId: string }) =>
-      workspaceId === "workspace_research" && userId === "user_ada" ? { id: workspaceId } : null,
+      workspaceId === "workspace_research" && userId === "user_ada" ? workspaceFixture({ id: workspaceId }) : null,
   };
+
   const server = Bun.serve<{ workspaceId: string }>({
     hostname: "127.0.0.1",
     port: 0,
-    fetch: (request, bunServer) => upgradeLocalLiveUpdate({
-      auth: auth as never,
-      request,
-      server: bunServer,
-      workspaceControl: workspaceControl as never,
-    }),
+    fetch: (request, bunServer) =>
+      upgradeLocalLiveUpdate({
+        auth,
+        request,
+        server: bunServer,
+        workspaceControl,
+      }),
     websocket: {
       ...LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY,
       close: (socket) => {
@@ -44,10 +49,12 @@ test("the Bun server keeps a bounded receive-only Workspace socket and delivers 
     expect(LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY.idleTimeout).toBeGreaterThan(120);
     await Bun.sleep(20);
     expect(socket.readyState).toBe(WebSocket.OPEN);
+
     const message = new Promise<string>((resolve, reject) => {
       socket.onmessage = (event) => resolve(String(event.data));
       socket.onerror = () => reject(new Error("Live update WebSocket failed while receiving"));
     });
+
     hub.broadcastJob("workspace_research", {
       job_id: "job_invoice",
       status: "processing",
@@ -92,6 +99,7 @@ async function openSocket(port: number): Promise<WebSocket> {
     socket.onopen = () => resolve();
     socket.onerror = () => reject(new Error("Live update WebSocket failed to open"));
   });
+
   return socket;
 }
 
@@ -107,5 +115,6 @@ async function waitFor(condition: () => boolean): Promise<void> {
     if (condition()) return;
     await Bun.sleep(2);
   }
+
   throw new Error("Timed out waiting for live update socket cleanup");
 }

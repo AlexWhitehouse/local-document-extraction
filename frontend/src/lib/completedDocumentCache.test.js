@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createCompletedDocumentCache,
-  COMPLETED_DOCUMENT_CACHE_STORAGE_KEY,
-} from "./completedDocumentCache";
+import { createCompletedDocumentCache, COMPLETED_DOCUMENT_CACHE_STORAGE_KEY } from "./completedDocumentCache";
 
 describe("Completed document cache", () => {
   let storage;
@@ -21,6 +18,7 @@ describe("Completed document cache", () => {
 
   it("stores only completed Extraction job details without source preview data", () => {
     const cache = createCompletedDocumentCache();
+
     const completedDocument = {
       job_id: "job_completed_1",
       status: "completed",
@@ -90,10 +88,7 @@ describe("Completed document cache", () => {
     const cache = createCompletedDocumentCache();
 
     cache.store("ws_1", completedDocument({ job_id: "job_queued", status: "queued" }));
-    cache.store(
-      "ws_1",
-      completedDocument({ job_id: "job_processing", status: "processing" }),
-    );
+    cache.store("ws_1", completedDocument({ job_id: "job_processing", status: "processing" }));
     cache.store("ws_1", completedDocument({ job_id: "job_failed", status: "failed" }));
 
     expect(cache.get("ws_1", "job_queued")).toBeNull();
@@ -137,11 +132,7 @@ describe("Completed document cache", () => {
     cache.store("ws_1", completedDocument({ job_id: "job_missing" }));
     cache.store("ws_1", completedDocument({ job_id: "job_listed" }));
 
-    cache.pruneFromJobList(
-      "ws_1",
-      [{ job_id: "job_listed", status: "completed" }],
-      { filtered: false },
-    );
+    cache.pruneFromJobList("ws_1", [{ job_id: "job_listed", status: "completed" }], { filtered: false });
 
     expect(cache.get("ws_1", "job_missing")).toBeNull();
     expect(cache.get("ws_1", "job_listed")).toMatchObject({ job_id: "job_listed" });

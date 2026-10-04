@@ -4,21 +4,33 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TemplateTags } from "./TemplateTags.jsx";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
 const invoice = { id: "tag_invoice", name: "invoice", template_count: 2 };
 
 describe("Template tag dropdown", () => {
   it("supports keyboard selection, normalized creation, and detaching without shared deletion", async () => {
-    const user = userEvent.setup(), onDelete = vi.fn();
+    const user = userEvent.setup(),
+      onDelete = vi.fn();
+
     let selected;
+
     function Harness() {
-      const [value, setValue] = useState([]); selected = value;
+      const [value, setValue] = useState([]);
+      selected = value;
+
       return <TemplateTags tags={[invoice]} value={value} onChange={setValue} onDelete={onDelete} />;
     }
+
     render(<Harness />);
-    await user.tab(); await user.keyboard("{Enter}");
+    await user.tab();
+    await user.keyboard("{Enter}");
     expect(document.activeElement).toBe(screen.getByLabelText("Search or create tags"));
-    await user.tab(); await user.keyboard(" ");
+    await user.tab();
+    await user.keyboard(" ");
     expect(selected).toEqual(["invoice"]);
     await user.type(screen.getByLabelText("Search or create tags"), "  FINANCE   Reports ");
     await user.click(screen.getByRole("button", { name: "Create “finance reports”" }));
@@ -34,10 +46,17 @@ describe("Template tag dropdown", () => {
 
   it("explains global changes, displays rename errors, and confirms affected template counts", async () => {
     const user = userEvent.setup();
-    const onRename = vi.fn().mockRejectedValueOnce(new Error("A tag with this name already exists")).mockResolvedValue(true);
+
+    const onRename = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("A tag with this name already exists"))
+      .mockResolvedValue(true);
+
     const onDelete = vi.fn().mockResolvedValue(true);
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    render(<TemplateTags tags={[invoice]} value={["invoice"]} onChange={vi.fn()} onRename={onRename} onDelete={onDelete} />);
+    render(
+      <TemplateTags tags={[invoice]} value={["invoice"]} onChange={vi.fn()} onRename={onRename} onDelete={onDelete} />,
+    );
     await user.click(screen.getByRole("button", { name: "Template tags" }));
     await user.click(screen.getByRole("button", { name: "Manage tags" }));
     expect(screen.getByText(/updates all templates immediately/)).toBeTruthy();
@@ -57,7 +76,10 @@ describe("Template tag dropdown", () => {
   });
 
   it("rejects invalid names before creation and provides a list-loading retry", async () => {
-    const user = userEvent.setup(), onChange = vi.fn(), onReload = vi.fn();
+    const user = userEvent.setup(),
+      onChange = vi.fn(),
+      onReload = vi.fn();
+
     render(<TemplateTags onChange={onChange} onReload={onReload} error="Unable to load template tags" />);
     await user.click(screen.getByRole("button", { name: "Template tags" }));
     await user.click(screen.getByRole("button", { name: "Retry tags" }));

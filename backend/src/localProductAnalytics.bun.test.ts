@@ -7,10 +7,9 @@ import { createLocalProductAnalytics } from "./localProductAnalytics";
 
 test("local product analytics appends whitelisted events to daily JSONL files", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-analytics-"));
-  const timestamps = [
-    new Date("2026-07-09T12:00:00.000Z"),
-    new Date("2026-07-10T08:30:00.000Z"),
-  ];
+
+  const timestamps = [new Date("2026-07-09T12:00:00.000Z"), new Date("2026-07-10T08:30:00.000Z")];
+
   const analytics = createLocalProductAnalytics({
     now: () => timestamps.shift() ?? new Date("2026-07-10T08:30:00.000Z"),
     stateDirectory,
@@ -43,7 +42,10 @@ test("local product analytics appends whitelisted events to daily JSONL files", 
     });
     await analytics.flush();
 
-    const submittedLines = (await readFile(join(stateDirectory, "analytics", "2026-07-09.jsonl"), "utf8")).trim().split("\n");
+    const submittedLines = (await readFile(join(stateDirectory, "analytics", "2026-07-09.jsonl"), "utf8"))
+      .trim()
+      .split("\n");
+
     expect(submittedLines).toHaveLength(1);
     expect(JSON.parse(submittedLines[0]!)).toEqual({
       occurred_at: "2026-07-09T12:00:00.000Z",
@@ -58,7 +60,10 @@ test("local product analytics appends whitelisted events to daily JSONL files", 
       source_byte_size: 2048,
     });
 
-    const completedLines = (await readFile(join(stateDirectory, "analytics", "2026-07-10.jsonl"), "utf8")).trim().split("\n");
+    const completedLines = (await readFile(join(stateDirectory, "analytics", "2026-07-10.jsonl"), "utf8"))
+      .trim()
+      .split("\n");
+
     expect(completedLines).toHaveLength(1);
     expect(JSON.parse(completedLines[0]!)).toMatchObject({
       occurred_at: "2026-07-10T08:30:00.000Z",
@@ -74,19 +79,20 @@ test("local product analytics appends whitelisted events to daily JSONL files", 
 
 test("local product analytics serializes only the approved privacy-safe fields", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-analytics-privacy-"));
+
   const analytics = createLocalProductAnalytics({
     now: () => new Date("2026-07-09T12:00:00.000Z"),
     stateDirectory,
   });
 
   try {
-    analytics.record({
-      type: "extraction_failed",
+    const privateEvent = {
+      type: "extraction_failed" as const,
       workspaceId: "workspace_research",
       templateId: "tpl_invoice",
       templateVersion: 2,
       extractionJobId: "job_invoice",
-      status: "failed",
+      status: "failed" as const,
       attempt: 2,
       sourceMimeType: "image/png",
       errorCode: "processing_error",
@@ -97,7 +103,9 @@ test("local product analytics serializes only the approved privacy-safe fields",
       answer: "INV-001",
       evidence: "Invoice number is INV-001",
       sourceBytes: "binary document contents",
-    } as never);
+    };
+
+    analytics.record(privateEvent);
     await analytics.flush();
 
     const content = await readFile(join(stateDirectory, "analytics", "2026-07-09.jsonl"), "utf8");
@@ -108,7 +116,7 @@ test("local product analytics serializes only the approved privacy-safe fields",
       template_id: "tpl_invoice",
       template_version: 2,
       extraction_job_id: "job_invoice",
-      status: "failed",
+      status: "failed" as const,
       attempt: 2,
       source_mime_type: "image/png",
       error_code: "processing_error",
@@ -126,6 +134,7 @@ test("local product analytics serializes only the approved privacy-safe fields",
 
 test("local product analytics warnings do not fail the product operation that emitted an event", async () => {
   const warnings: Array<{ message: string; error: unknown }> = [];
+
   const analytics = createLocalProductAnalytics({
     append: async () => {
       throw new Error("local disk unavailable");
@@ -136,14 +145,16 @@ test("local product analytics warnings do not fail the product operation that em
     stateDirectory: "/unavailable-state-directory",
   });
 
-  expect(() => analytics.record({
-    type: "template_created",
-    workspaceId: "workspace_research",
-    templateId: "tpl_invoice",
-    templateVersion: 1,
-    status: "active",
-    fieldCount: 3,
-  })).not.toThrow();
+  expect(() =>
+    analytics.record({
+      type: "template_created",
+      workspaceId: "workspace_research",
+      templateId: "tpl_invoice",
+      templateVersion: 1,
+      status: "active",
+      fieldCount: 3,
+    }),
+  ).not.toThrow();
   await analytics.flush();
 
   expect(warnings).toEqual([
@@ -157,16 +168,30 @@ test("local product analytics warnings do not fail the product operation that em
 test("analytics batches bursts and flushes events arriving during a write", async () => {
   const batches: string[] = [];
   let release!: () => void;
-  const firstWrite = new Promise<void>((resolve) => { release = resolve; });
+
+  const firstWrite = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
   const analytics = createLocalProductAnalytics({
     stateDirectory: "/synthetic",
     now: () => new Date("2026-09-05T12:00:00.000Z"),
     append: async (_path, content) => {
       batches.push(content);
+
       if (batches.length === 1) await firstWrite;
     },
   });
-  const event = { type: "template_created", workspaceId: "workspace", templateId: "template", templateVersion: 1, status: "active", fieldCount: 1 } as const;
+
+  const event = {
+    type: "template_created",
+    workspaceId: "workspace",
+    templateId: "template",
+    templateVersion: 1,
+    status: "active",
+    fieldCount: 1,
+  } as const;
+
   for (let i = 0; i < 100; i++) analytics.record(event);
   await Bun.sleep(1);
   analytics.record(event);

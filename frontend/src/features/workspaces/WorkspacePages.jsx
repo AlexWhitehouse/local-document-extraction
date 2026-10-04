@@ -14,10 +14,8 @@ export function WorkspaceInvitationPage({
   onDeclineInvitation,
 }) {
   const isPending = String(invitation.status || "").toLowerCase() === "pending";
-  const actionsDisabled =
-    isAcceptingWorkspaceInvitation ||
-    isDecliningWorkspaceInvitation ||
-    !isPending;
+
+  const actionsDisabled = isAcceptingWorkspaceInvitation || isDecliningWorkspaceInvitation || !isPending;
 
   return (
     <>
@@ -25,10 +23,7 @@ export function WorkspaceInvitationPage({
         <article className="workspace-card invitation-detail-card">
           <div className="workspace-head">
             <h2>Pending invitation</h2>
-            <p>
-              Review who invited you and what role you will receive before
-              accepting or declining.
-            </p>
+            <p>Review who invited you and what role you will receive before accepting or declining.</p>
           </div>
 
           <dl className="invitation-detail-list">
@@ -43,9 +38,7 @@ export function WorkspaceInvitationPage({
             <div>
               <dt>Offered role</dt>
               <dd>
-                <span className="status-chip busy">
-                  {formatRoleLabel(invitation.role)}
-                </span>
+                <span className="status-chip busy">{formatRoleLabel(invitation.role)}</span>
               </dd>
             </div>
             <div>
@@ -69,30 +62,17 @@ export function WorkspaceInvitationPage({
           <div className="invitation-locked-panel">
             <strong>No workspace access yet</strong>
             <p>
-              Templates, documents, API keys, uploads, rename, deletion, and
-              user management stay locked until this invitation is accepted.
+              Templates, documents, API keys, uploads, rename, deletion, and user management stay locked until this
+              invitation is accepted.
             </p>
           </div>
 
           <div className="actions invitation-actions">
-            <button
-              type="button"
-              disabled={actionsDisabled}
-              onClick={onAcceptInvitation}
-            >
-              {isAcceptingWorkspaceInvitation
-                ? "Accepting…"
-                : "Accept invitation"}
+            <button type="button" disabled={actionsDisabled} onClick={onAcceptInvitation}>
+              {isAcceptingWorkspaceInvitation ? "Accepting…" : "Accept invitation"}
             </button>
-            <button
-              type="button"
-              className="danger"
-              disabled={actionsDisabled}
-              onClick={onDeclineInvitation}
-            >
-              {isDecliningWorkspaceInvitation
-                ? "Declining…"
-                : "Decline invitation"}
+            <button type="button" className="danger" disabled={actionsDisabled} onClick={onDeclineInvitation}>
+              {isDecliningWorkspaceInvitation ? "Declining…" : "Decline invitation"}
             </button>
           </div>
         </article>
@@ -105,8 +85,11 @@ function WorkspaceSourceRetention({ controller }) {
   const { settings, loading, saving, error, canManage } = controller;
   const configured = settings?.storage_configured === true;
   const retaining = settings?.source_retention_disabled === false && configured;
+
   const explanation = !settings
-    ? loading ? "Loading document retention…" : ""
+    ? loading
+      ? "Loading document retention…"
+      : ""
     : !configured
       ? "This installation has no storage for original documents, so only extraction results are kept."
       : !settings.installation_retains_originals
@@ -114,6 +97,7 @@ function WorkspaceSourceRetention({ controller }) {
         : retaining
           ? "New uploads keep their original document for viewing and download until it is deleted."
           : "New uploads keep only their extraction results. Originals already retained stay available.";
+
   return (
     <section className="studio-api-access studio-source-retention" aria-label="Original documents">
       <div className="studio-section-heading">
@@ -135,7 +119,9 @@ function WorkspaceSourceRetention({ controller }) {
       {error ? (
         <p role="alert" className="form-error">
           {error}{" "}
-          <button type="button" className="studio-text-button" onClick={controller.reload}>Try again</button>
+          <button type="button" className="studio-text-button" onClick={controller.reload}>
+            Try again
+          </button>
         </p>
       ) : null}
     </section>
@@ -177,6 +163,7 @@ export function AcceptedWorkspacePage({
   onCancelWorkspaceInvitation,
 }) {
   const [inviteOpen, setInviteOpen] = useState(false);
+
   return (
     <div className="studio-workspace-page">
       <div className="studio-workspace-settings">
@@ -206,12 +193,7 @@ export function AcceptedWorkspacePage({
               <button
                 type="submit"
                 className="secondary"
-                disabled={
-                  busy ||
-                  isSavingWorkspace ||
-                  !hasApiAccess ||
-                  !isWorkspaceNameDirty
-                }
+                disabled={busy || isSavingWorkspace || !hasApiAccess || !isWorkspaceNameDirty}
               >
                 {isSavingWorkspace ? "Saving…" : "Save name"}
               </button>
@@ -274,10 +256,7 @@ export function AcceptedWorkspacePage({
         {modelConfiguration || processingSettings ? (
           <div className="studio-workspace-model-settings">
             {modelConfiguration ? (
-              <WorkspaceModelConfiguration
-                key={modelConfigurationKey}
-                controller={modelConfiguration}
-              />
+              <WorkspaceModelConfiguration key={modelConfigurationKey} controller={modelConfiguration} />
             ) : null}
             {processingSettings ? <WorkspaceDocumentProcessingSettings controller={processingSettings} /> : null}
           </div>
@@ -323,11 +302,7 @@ export function AcceptedWorkspacePage({
             </label>
             <label>
               Invite role
-              <select
-                disabled={busy}
-                value={inviteRole}
-                onChange={(event) => onInviteRoleChange(event.target.value)}
-              >
+              <select disabled={busy} value={inviteRole} onChange={(event) => onInviteRoleChange(event.target.value)}>
                 <option value="member">Member</option>
                 <option value="admin">Admin</option>
               </select>
@@ -343,19 +318,10 @@ export function AcceptedWorkspacePage({
         ) : null}
         {/* Render nothing while users load so switching Workspaces doesn't flash a placeholder. */}
         {isLoadingWorkspaceUsers ? null : workspaceUsers.length ? (
-          <div
-            className="studio-user-list"
-            role="region"
-            aria-label="Workspace user list"
-            tabIndex={0}
-          >
+          <div className="studio-user-list" role="region" aria-label="Workspace user list" tabIndex={0}>
             <div role="list">
               {workspaceUsers.map((user) => (
-                <div
-                  className="studio-user-row"
-                  role="listitem"
-                  key={String(user.user_id || user.email || "")}
-                >
+                <div className="studio-user-row" role="listitem" key={String(user.user_id || user.email || "")}>
                   <span className="studio-initials" aria-hidden="true">
                     {String(user.name || user.email || "?")
                       .split(/\s+/)
@@ -372,8 +338,7 @@ export function AcceptedWorkspacePage({
                     <span>{formatRoleLabel(user.role)}</span>
                     <small>Joined {formatJoinedAt(user.created_at)}</small>
                   </div>
-                  {canShowWorkspaceUserAction(user) &&
-                  String(user.user_id || "").trim() !== sessionUserId ? (
+                  {canShowWorkspaceUserAction(user) && String(user.user_id || "").trim() !== sessionUserId ? (
                     <button
                       type="button"
                       className="icon-action-button"
@@ -392,10 +357,7 @@ export function AcceptedWorkspacePage({
         ) : (
           <p className="muted">No workspace users found.</p>
         )}
-        <p className="studio-users-note">
-          {workspaceUsers.length} users · Access is managed by owners and
-          admins.
-        </p>
+        <p className="studio-users-note">{workspaceUsers.length} users · Access is managed by owners and admins.</p>
       </section>
       {canManageWorkspaceInvitations && workspaceInvitations.length > 0 ? (
         <section className="studio-pending-invitations">
@@ -430,12 +392,7 @@ export function AcceptedWorkspacePage({
                     <td>{formatRoleLabel(invitation.role)}</td>
                     <td>{formatRoleLabel(invitation.status)}</td>
                     <td>
-                      {String(
-                        invitation.inviter_display ||
-                          invitation.inviter_name ||
-                          invitation.inviter_email ||
-                          "—",
-                      )}
+                      {String(invitation.inviter_display || invitation.inviter_name || invitation.inviter_email || "—")}
                     </td>
                     <td>{formatJoinedAt(invitation.created_at)}</td>
                     <td>{formatJoinedAt(invitation.expires_at)}</td>
@@ -465,10 +422,13 @@ function formatJoinedAt(value) {
   if (!value) {
     return "—";
   }
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) {
     return String(value);
   }
+
   return date.toLocaleDateString();
 }
 
@@ -476,10 +436,13 @@ function formatTimestamp(value) {
   if (!value) {
     return "—";
   }
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) {
     return String(value);
   }
+
   return date.toLocaleString();
 }
 

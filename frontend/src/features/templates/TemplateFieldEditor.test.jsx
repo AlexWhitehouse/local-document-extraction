@@ -39,9 +39,7 @@ describe("Template field editor", () => {
     expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
-    expect(
-      screen.queryByRole("dialog", { name: "Object schema builder" }),
-    ).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Object schema builder" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Edit schema" }));
     expect(screen.getByRole("table", { name: "Object schema columns" })).toBeTruthy();
@@ -62,6 +60,7 @@ describe("Template field editor", () => {
           data_type: "string",
         },
       ]);
+
       latestFields = fields;
 
       return (
@@ -83,10 +82,7 @@ describe("Template field editor", () => {
     const columnCard = screen.getByText("Column 1").closest(".object-column-card");
     await user.type(within(columnCard).getByLabelText("Column name"), "Dose #1");
     await user.selectOptions(within(columnCard).getByLabelText("Type"), "number");
-    await user.type(
-      within(columnCard).getByLabelText("Column Description"),
-      "Dose amount",
-    );
+    await user.type(within(columnCard).getByLabelText("Column Description"), "Dose amount");
 
     expect(latestFields[0]).toMatchObject({
       data_type: "array<object>",
@@ -155,6 +151,7 @@ describe("Template field editor", () => {
           },
         },
       ]);
+
       latestFields = fields;
 
       return (
@@ -179,9 +176,7 @@ describe("Template field editor", () => {
     await user.type(screen.getByLabelText("Column name"), "Quantity");
     await user.click(screen.getByRole("button", { name: "Done" }));
 
-    expect(
-      screen.queryByRole("dialog", { name: "Object schema builder" }),
-    ).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Object schema builder" })).toBeNull();
     expect(screen.getByText("1 column defined")).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit schema" }));
     expect(latestFields[0].object_schema.columns[0]).toMatchObject({

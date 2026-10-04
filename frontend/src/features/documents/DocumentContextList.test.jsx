@@ -12,41 +12,86 @@ describe("DocumentContextList", () => {
     const { container, rerender } = render(<DocumentContextList {...props} />);
     expect(within(container).getAllByRole("listitem")).toHaveLength(1);
     expect(within(container).queryByText("child_live")).toBeNull();
-    rerender(<DocumentContextList {...props} packets={[{ packet_id: "packet_live", source_name: "bundle.pdf", status: "materializing", children: [] }]} />);
+    rerender(
+      <DocumentContextList
+        {...props}
+        packets={[{ packet_id: "packet_live", source_name: "bundle.pdf", status: "materializing", children: [] }]}
+      />,
+    );
     expect(within(container).getAllByRole("listitem")).toHaveLength(2);
     expect(within(container).queryByText("child_live")).toBeNull();
   });
-  it.each([{ pages: [1] }, { pages: [1, 2, 3] }])("shows an accepted one-document split as a normal document for pages $pages", ({ pages }) => {
-    const child = { job_id: "child_single", status: "completed", source_pages: pages };
-    const packet = { packet_id: "packet_single", source_name: "invoice.pdf", status: "completed", selected_pages: pages, plan_accepted: true, plan: { groups: [{ pages }] }, children: [child] };
-    const onSelectPacket = vi.fn();
-    const onTogglePacketSelection = vi.fn();
-    const { container } = render(<DocumentContextList search="" packets={[packet]}
-      documents={[{ ...child, source_name: "invoice.pdf", parent_packet_id: packet.packet_id }]}
-      selectedPacketId={packet.packet_id} selectedPacketIds={[packet.packet_id]}
-      onSearchChange={vi.fn()} onSelectDocument={vi.fn()} onSelectPacket={onSelectPacket}
-      onTogglePacketSelection={onTogglePacketSelection} onLoadMoreDocuments={vi.fn()} />);
-    const rows = within(container).getAllByRole("listitem");
-    expect(rows).toHaveLength(1);
-    expect(rows[0].classList.contains("context-item-packet")).toBe(false);
-    expect(rows[0].classList.contains("status-completed")).toBe(true);
-    expect(rows[0].classList.contains("active")).toBe(true);
-    expect(rows[0].querySelector(".context-packet-mark")).toBeNull();
-    expect(within(rows[0]).getByText("child_single")).toBeTruthy();
-    expect(within(rows[0]).queryByText("1 document · Completed")).toBeNull();
-    expect(within(rows[0]).getByRole("button", { name: "Copy document ID child_single" })).toBeTruthy();
-    const checkbox = within(rows[0]).getByRole("checkbox", { name: "Select document child_single" });
-    expect(checkbox.checked).toBe(true);
-    fireEvent.click(checkbox);
-    expect(onTogglePacketSelection).toHaveBeenCalledWith("packet_single", false);
-    fireEvent.click(within(rows[0]).getByRole("button", { name: /invoice\.pdf/ }));
-    expect(onSelectPacket).toHaveBeenCalledWith("packet_single");
-  });
+  it.each([{ pages: [1] }, { pages: [1, 2, 3] }])(
+    "shows an accepted one-document split as a normal document for pages $pages",
+    ({ pages }) => {
+      const child = { job_id: "child_single", status: "completed", source_pages: pages };
+
+      const packet = {
+        packet_id: "packet_single",
+        source_name: "invoice.pdf",
+        status: "completed",
+        selected_pages: pages,
+        plan_accepted: true,
+        plan: { groups: [{ pages }] },
+        children: [child],
+      };
+
+      const onSelectPacket = vi.fn();
+      const onTogglePacketSelection = vi.fn();
+
+      const { container } = render(
+        <DocumentContextList
+          search=""
+          packets={[packet]}
+          documents={[{ ...child, source_name: "invoice.pdf", parent_packet_id: packet.packet_id }]}
+          selectedPacketId={packet.packet_id}
+          selectedPacketIds={[packet.packet_id]}
+          onSearchChange={vi.fn()}
+          onSelectDocument={vi.fn()}
+          onSelectPacket={onSelectPacket}
+          onTogglePacketSelection={onTogglePacketSelection}
+          onLoadMoreDocuments={vi.fn()}
+        />,
+      );
+
+      const rows = within(container).getAllByRole("listitem");
+      expect(rows).toHaveLength(1);
+      expect(rows[0].classList.contains("context-item-packet")).toBe(false);
+      expect(rows[0].classList.contains("status-completed")).toBe(true);
+      expect(rows[0].classList.contains("active")).toBe(true);
+      expect(rows[0].querySelector(".context-packet-mark")).toBeNull();
+      expect(within(rows[0]).getByText("child_single")).toBeTruthy();
+      expect(within(rows[0]).queryByText("1 document · Completed")).toBeNull();
+      expect(within(rows[0]).getByRole("button", { name: "Copy document ID child_single" })).toBeTruthy();
+      const checkbox = within(rows[0]).getByRole("checkbox", { name: "Select document child_single" });
+      expect(checkbox.checked).toBe(true);
+      fireEvent.click(checkbox);
+      expect(onTogglePacketSelection).toHaveBeenCalledWith("packet_single", false);
+      fireEvent.click(within(rows[0]).getByRole("button", { name: /invoice\.pdf/ }));
+      expect(onSelectPacket).toHaveBeenCalledWith("packet_single");
+    },
+  );
 
   it("shows pending single-page uploads as ordinary processing documents", () => {
-    const { container } = render(<DocumentContextList search="" packets={[{
-      packet_id: "packet_pending", source_name: "single.pdf", status: "processing", selected_pages: [1], children: [],
-    }]} documents={[]} onSearchChange={vi.fn()} onSelectDocument={vi.fn()} onLoadMoreDocuments={vi.fn()} />);
+    const { container } = render(
+      <DocumentContextList
+        search=""
+        packets={[
+          {
+            packet_id: "packet_pending",
+            source_name: "single.pdf",
+            status: "processing",
+            selected_pages: [1],
+            children: [],
+          },
+        ]}
+        documents={[]}
+        onSearchChange={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onLoadMoreDocuments={vi.fn()}
+      />,
+    );
+
     const row = within(container).getByRole("listitem");
     expect(row.classList.contains("context-item-packet")).toBe(false);
     expect(row.classList.contains("status-progress")).toBe(true);
@@ -54,11 +99,25 @@ describe("DocumentContextList", () => {
   });
 
   it("uses the current child's status when its packet summary has not refreshed yet", () => {
-    const { container } = render(<DocumentContextList search="" packets={[{
-      packet_id: "packet_single", source_name: "single.pdf", status: "processing_children",
-      plan: { groups: [{ pages: [1, 2] }] }, children: [{ job_id: "child_single", status: "processing" }],
-    }]} documents={[{ job_id: "child_single", status: "awaiting_template" }]}
-      onSearchChange={vi.fn()} onSelectDocument={vi.fn()} onLoadMoreDocuments={vi.fn()} />);
+    const { container } = render(
+      <DocumentContextList
+        search=""
+        packets={[
+          {
+            packet_id: "packet_single",
+            source_name: "single.pdf",
+            status: "processing_children",
+            plan: { groups: [{ pages: [1, 2] }] },
+            children: [{ job_id: "child_single", status: "processing" }],
+          },
+        ]}
+        documents={[{ job_id: "child_single", status: "awaiting_template" }]}
+        onSearchChange={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onLoadMoreDocuments={vi.fn()}
+      />,
+    );
+
     const row = within(container).getByRole("listitem");
     expect(row.classList.contains("context-item-packet")).toBe(false);
     expect(row.classList.contains("status-failed")).toBe(true);
@@ -66,33 +125,99 @@ describe("DocumentContextList", () => {
 
   it("keeps unresolved and genuinely split documents in packet rows, including a sole surviving child", () => {
     const packets = [
-      { packet_id: "unresolved", source_name: "unresolved.pdf", status: "processing", selected_pages: [1, 2], children: [] },
-      { packet_id: "review", source_name: "review.pdf", status: "awaiting_review", selected_pages: [1], plan: { groups: [{ pages: [1] }] }, children: [] },
-      { packet_id: "multiple", source_name: "multiple.pdf", status: "completed", plan_accepted: true, plan: { groups: [{ pages: [1] }, { pages: [2] }] }, children: [{ job_id: "a" }, { job_id: "b" }] },
-      { packet_id: "survivor", source_name: "survivor.pdf", status: "completed", plan_accepted: true, plan: { groups: [{ pages: [1] }, { pages: [2] }] }, children: [{ job_id: "c" }] },
+      {
+        packet_id: "unresolved",
+        source_name: "unresolved.pdf",
+        status: "processing",
+        selected_pages: [1, 2],
+        children: [],
+      },
+      {
+        packet_id: "review",
+        source_name: "review.pdf",
+        status: "awaiting_review",
+        selected_pages: [1],
+        plan: { groups: [{ pages: [1] }] },
+        children: [],
+      },
+      {
+        packet_id: "multiple",
+        source_name: "multiple.pdf",
+        status: "completed",
+        plan_accepted: true,
+        plan: { groups: [{ pages: [1] }, { pages: [2] }] },
+        children: [{ job_id: "a" }, { job_id: "b" }],
+      },
+      {
+        packet_id: "survivor",
+        source_name: "survivor.pdf",
+        status: "completed",
+        plan_accepted: true,
+        plan: { groups: [{ pages: [1] }, { pages: [2] }] },
+        children: [{ job_id: "c" }],
+      },
     ];
-    const { container } = render(<DocumentContextList search="" packets={packets} documents={[]}
-      onSearchChange={vi.fn()} onSelectDocument={vi.fn()} onLoadMoreDocuments={vi.fn()} />);
+
+    const { container } = render(
+      <DocumentContextList
+        search=""
+        packets={packets}
+        documents={[]}
+        onSearchChange={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onLoadMoreDocuments={vi.fn()}
+      />,
+    );
+
     const rows = within(container).getAllByRole("listitem");
     expect(rows).toHaveLength(4);
+
     for (const row of rows) expect(row.classList.contains("context-item-packet")).toBe(true);
   });
 
   it("only resolves a sole child after a one-group split is committed", () => {
     const child = { job_id: "only_child" };
-    const packet = { status: "processing", selected_pages: [1, 2], plan: { groups: [{ pages: [1, 2] }] }, children: [child] };
+
+    const packet = {
+      status: "processing",
+      selected_pages: [1, 2],
+      plan: { groups: [{ pages: [1, 2] }] },
+      children: [child],
+    };
+
     expect(singlePacketDocument(packet)).toBeNull();
     expect(singlePacketDocument({ ...packet, plan_accepted: true })).toBe(child);
     expect(singlePacketDocument({ ...packet, status: "processing_children" })).toBe(child);
-    expect(isSingleDocumentPacket({ ...packet, plan_accepted: true, status: "materializing", children: [] })).toBe(true);
+    expect(isSingleDocumentPacket({ ...packet, plan_accepted: true, status: "materializing", children: [] })).toBe(
+      true,
+    );
     expect(isSingleDocumentPacket({ ...packet, plan_accepted: true, status: "completed", children: [] })).toBe(false);
-    expect(isSingleDocumentPacket({ ...packet, plan_accepted: true, status: "completed", outcome: "no_documents", children: [] })).toBe(false);
+    expect(
+      isSingleDocumentPacket({
+        ...packet,
+        plan_accepted: true,
+        status: "completed",
+        outcome: "no_documents",
+        children: [],
+      }),
+    ).toBe(false);
   });
   it("windows long lists, preserves offscreen selections, and navigates to selected rows", () => {
     const documents = Array.from({ length: 1000 }, (_, i) => ({ job_id: `job_${i}`, source_name: `invoice-${i}.pdf` }));
     const onSelectDocument = vi.fn();
     const onToggleAllDocumentSelections = vi.fn();
-    const props = { search: "", documents, selectedDocumentId: "job_0", selectedDocumentIds: ["job_500"], onSelectDocument, onToggleAllDocumentSelections, onSearchChange() {}, onLoadMoreDocuments() {} };
+
+    const props = {
+      search: "",
+      documents,
+      selectedDocumentId: "job_0",
+      selectedDocumentIds: ["job_500"],
+      onSelectDocument,
+      onToggleAllDocumentSelections,
+      onSearchChange() {},
+      onLoadMoreDocuments() {},
+    };
+
     const { container, rerender } = render(<DocumentContextList {...props} />);
     expect(container.querySelectorAll('[role="listitem"]').length).toBeLessThan(30);
     fireEvent.click(within(container).getByRole("checkbox", { name: "Select all available documents" }));
@@ -127,7 +252,8 @@ describe("DocumentContextList", () => {
     );
 
     const rowFor = (name) =>
-      within(container).getByRole("button", { name: new RegExp(name) })
+      within(container)
+        .getByRole("button", { name: new RegExp(name) })
         .closest(".context-item-document");
 
     expect(rowFor("completed.pdf").classList.contains("status-completed")).toBe(true);
@@ -141,13 +267,28 @@ describe("DocumentContextList", () => {
     const onSelectPacket = vi.fn();
     const onTogglePacketSelection = vi.fn();
     const onToggleAllDocumentSelections = vi.fn();
+
     const { container, rerender } = render(
       <DocumentContextList
         search=""
-        packets={[{ packet_id: "packet_1", source_name: "bundle.pdf", status: "completed", created_at: "2026-01-02T00:00:00Z", children: [{ job_id: "child_1" }, { job_id: "child_2" }] }]}
+        packets={[
+          {
+            packet_id: "packet_1",
+            source_name: "bundle.pdf",
+            status: "completed",
+            created_at: "2026-01-02T00:00:00Z",
+            children: [{ job_id: "child_1" }, { job_id: "child_2" }],
+          },
+        ]}
         documents={[
           { job_id: "newer", source_name: "newer.pdf", status: "completed", created_at: "2026-01-03T00:00:00Z" },
-          { job_id: "child_1", source_name: "bundle.pdf", status: "completed", parent_packet_id: "packet_1", created_at: "2026-01-02T00:00:01Z" },
+          {
+            job_id: "child_1",
+            source_name: "bundle.pdf",
+            status: "completed",
+            parent_packet_id: "packet_1",
+            created_at: "2026-01-02T00:00:01Z",
+          },
           { job_id: "child_2", status: "completed", created_at: "2026-01-02T00:00:01Z" },
           { job_id: "older", source_name: "older.pdf", status: "completed", created_at: "2026-01-01T00:00:00Z" },
         ]}
@@ -161,8 +302,13 @@ describe("DocumentContextList", () => {
         onLoadMoreDocuments={vi.fn()}
       />,
     );
+
     const rows = within(container).getAllByRole("listitem");
-    expect(rows.map((row) => row.querySelector("strong").textContent)).toEqual(["newer.pdf", "bundle.pdf", "older.pdf"]);
+    expect(rows.map((row) => row.querySelector("strong").textContent)).toEqual([
+      "newer.pdf",
+      "bundle.pdf",
+      "older.pdf",
+    ]);
     expect(rows[1].classList.contains("active")).toBe(true);
     expect(rows[1].textContent).toContain("2 documents · Completed");
     fireEvent.click(within(rows[1]).getByRole("checkbox", { name: "Select packet packet_1" }));
@@ -173,10 +319,16 @@ describe("DocumentContextList", () => {
     fireEvent.click(within(rows[1]).getByRole("button", { name: /bundle\.pdf/ }));
     expect(onSelectPacket).toHaveBeenCalledWith("packet_1");
     rerender(
-      <DocumentContextList search="older" debouncedSearch="older" hasActiveFilters={false}
+      <DocumentContextList
+        search="older"
+        debouncedSearch="older"
+        hasActiveFilters={false}
         packets={[{ packet_id: "packet_1", source_name: "bundle.pdf", status: "completed", children: [] }]}
         documents={[{ job_id: "older", source_name: "older.pdf", status: "completed" }]}
-        onSearchChange={vi.fn()} onSelectDocument={vi.fn()} onLoadMoreDocuments={vi.fn()} />,
+        onSearchChange={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onLoadMoreDocuments={vi.fn()}
+      />,
     );
     expect(within(container).getAllByRole("listitem")).toHaveLength(1);
   });
@@ -194,7 +346,9 @@ describe("DocumentContextList", () => {
         source_mime_type: "application/pdf",
       },
     ];
+
     const onToggleAllDocumentSelections = vi.fn();
+
     const sharedProps = {
       search: "",
       documents,
@@ -208,35 +362,26 @@ describe("DocumentContextList", () => {
       onToggleDocumentSelection: vi.fn(),
       onLoadMoreDocuments: vi.fn(),
     };
-    const { container, rerender } = render(
-      <DocumentContextList {...sharedProps} selectedDocumentIds={["job_1"]} />,
-    );
+
+    const { container, rerender } = render(<DocumentContextList {...sharedProps} selectedDocumentIds={["job_1"]} />);
 
     const selectAll = within(container).getByRole("checkbox", {
       name: "Select all available documents",
     });
+
     expect(selectAll.indeterminate).toBe(true);
     fireEvent.click(selectAll);
-    expect(onToggleAllDocumentSelections).toHaveBeenLastCalledWith(
-      ["job_1", "job_2"],
-      true,
-    );
+    expect(onToggleAllDocumentSelections).toHaveBeenLastCalledWith(["job_1", "job_2"], true);
 
-    rerender(
-      <DocumentContextList
-        {...sharedProps}
-        selectedDocumentIds={["job_1", "job_2"]}
-      />,
-    );
+    rerender(<DocumentContextList {...sharedProps} selectedDocumentIds={["job_1", "job_2"]} />);
+
     const deselectAll = within(container).getByRole("checkbox", {
       name: "Deselect all available documents",
     });
+
     expect(deselectAll.checked).toBe(true);
     fireEvent.click(deselectAll);
-    expect(onToggleAllDocumentSelections).toHaveBeenLastCalledWith(
-      ["job_1", "job_2"],
-      false,
-    );
+    expect(onToggleAllDocumentSelections).toHaveBeenLastCalledWith(["job_1", "job_2"], false);
   });
 
   it("locks individual and bulk selection during export", () => {
@@ -258,16 +403,13 @@ describe("DocumentContextList", () => {
       />,
     );
 
-    expect(
-      within(container).getByRole("checkbox", { name: "Deselect all available documents" }).disabled,
-    ).toBe(true);
-    expect(
-      within(container).getByRole("checkbox", { name: "Select document job_1" }).disabled,
-    ).toBe(true);
+    expect(within(container).getByRole("checkbox", { name: "Deselect all available documents" }).disabled).toBe(true);
+    expect(within(container).getByRole("checkbox", { name: "Select document job_1" }).disabled).toBe(true);
   });
 
   it("applies and clears date and model filters from the integrated search action", () => {
     const onFiltersChange = vi.fn();
+
     const sharedProps = {
       search: "",
       documents: [],
@@ -282,12 +424,11 @@ describe("DocumentContextList", () => {
       onSelectDocument: vi.fn(),
       onLoadMoreDocuments: vi.fn(),
     };
+
     const { container, rerender } = render(
-      <DocumentContextList
-        {...sharedProps}
-        filters={{ dateFrom: "", dateTo: "", model: "" }}
-      />,
+      <DocumentContextList {...sharedProps} filters={{ dateFrom: "", dateTo: "", model: "" }} />,
     );
+
     const view = within(container);
 
     fireEvent.click(view.getByRole("button", { name: "Advanced document filters" }));
@@ -320,9 +461,7 @@ describe("DocumentContextList", () => {
         hasActiveFilters={true}
       />,
     );
-    fireEvent.click(
-      view.getByRole("button", { name: "Advanced document filters, 3 active" }),
-    );
+    fireEvent.click(view.getByRole("button", { name: "Advanced document filters, 3 active" }));
     fireEvent.click(view.getByRole("button", { name: "Clear" }));
     expect(onFiltersChange).toHaveBeenLastCalledWith({
       dateFrom: "",
@@ -347,6 +486,7 @@ describe("DocumentContextList", () => {
         onLoadMoreDocuments={vi.fn()}
       />,
     );
+
     const view = within(container);
 
     fireEvent.click(view.getByRole("button", { name: "Advanced document filters" }));
@@ -357,11 +497,7 @@ describe("DocumentContextList", () => {
       target: { value: "2026-08-15" },
     });
 
-    expect(view.getByRole("alert").textContent).toContain(
-      "Date from must be on or before date to",
-    );
-    expect(view.getByRole("button", { name: "Apply filters" }).disabled).toBe(
-      true,
-    );
+    expect(view.getByRole("alert").textContent).toContain("Date from must be on or before date to");
+    expect(view.getByRole("button", { name: "Apply filters" }).disabled).toBe(true);
   });
 });

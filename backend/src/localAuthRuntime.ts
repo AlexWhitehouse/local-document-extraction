@@ -1,3 +1,4 @@
+import { hasFilesystemErrorCode, assertRegularStateFile } from "./localStatePaths";
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
@@ -11,7 +12,6 @@ import { createLocalWorkspaceControl, type LocalWorkspaceControl } from "./local
 import { createCloudflareMailSink } from "./cloudflareMailSink";
 import type { LocalEmailConfiguration } from "./localConfiguration";
 import { ensureLocalStateDirectories } from "./localRuntime";
-import { assertRegularStateFile } from "./localStatePaths";
 
 export type LocalAuthRuntime = {
   auth: LocalAuth;
@@ -34,7 +34,7 @@ export async function createLocalAuthRuntime({
   baseURL: string;
   googleClientId?: string;
   googleClientSecret?: string;
-  logger?: LocalMailLogger & { error(message: string, error: unknown): void };
+  logger?: LocalMailLogger & { error(message: string, cause: unknown): void };
   stateDirectory: string;
   email?: LocalEmailConfiguration;
 }): Promise<LocalAuthRuntime> {
@@ -46,15 +46,35 @@ export async function createLocalAuthRuntime({
 
   const databasePath = join(dataDirectory, "control.sqlite");
   const secretPath = join(dataDirectory, "better-auth-secret");
-  for (const path of [secretPath, databasePath, ...["-journal", "-wal", "-shm"].map((suffix) => databasePath + suffix)]) {
+
+  for (const path of [
+    secretPath,
+    databasePath,
+    ...["-journal", "-wal", "-shm"].map((suffix) => databasePath + suffix),
+  ]) {
     await assertRegularStateFile(path);
   }
-  const databaseFile = await open(databasePath, fsConstants.O_RDWR | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
-  try { await databaseFile.chmod(0o600); }
-  finally { await databaseFile.close(); }
-  const database = new Database(databasePath, sqliteConstants.SQLITE_OPEN_READWRITE | sqliteConstants.SQLITE_OPEN_CREATE | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
+
+  const databaseFile = await open(
+    databasePath,
+    fsConstants.O_RDWR | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW,
+    0o600,
+  );
+
+  try {
+    await databaseFile.chmod(0o600);
+  } finally {
+    await databaseFile.close();
+  }
+
+  const database = new Database(
+    databasePath,
+    sqliteConstants.SQLITE_OPEN_READWRITE | sqliteConstants.SQLITE_OPEN_CREATE | sqliteConstants.SQLITE_OPEN_NOFOLLOW,
+  );
+
   try {
     database.exec("PRAGMA foreign_keys = ON;");
+
     const auth = await createLocalAuth({
       ...settings,
       adminEmails,
@@ -64,9 +84,13 @@ export async function createLocalAuthRuntime({
       googleClientSecret,
       logger,
       emailFrom: { email: email.fromAddress, name: email.fromName },
-      mailSink: email.provider === "cloudflare"
-        ? createCloudflareMailSink({ accountId: email.cloudflareAccountId ?? "", apiToken: email.cloudflareApiToken ?? "" })
-        : createLocalMailSink({ directory: mailDirectory, logger }),
+      mailSink:
+        email.provider === "cloudflare"
+          ? createCloudflareMailSink({
+              accountId: email.cloudflareAccountId ?? "",
+              apiToken: email.cloudflareApiToken ?? "",
+            })
+          : createLocalMailSink({ directory: mailDirectory, logger }),
       secret: await readOrCreateSecret(secretPath),
     });
 
@@ -84,26 +108,42 @@ export async function createLocalAuthRuntime({
 
 async function readOrCreateSecret(path: string): Promise<string> {
   await assertRegularStateFile(path);
+
   try {
     const file = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+
     try {
       const existing = (await file.readFile("utf8")).trim();
+
       if (!existing) throw new Error("Stored authentication secret is empty.");
       await file.chmod(0o600);
+
       return existing;
-    } finally { await file.close(); }
+    } finally {
+      await file.close();
+    }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (!hasFilesystemErrorCode(error, "ENOENT")) throw error;
   }
 
   const secret = randomBytes(32).toString("base64url");
+
   try {
-    const file = await open(path, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
-    try { await file.writeFile(`${secret}\n`, "utf8"); }
-    finally { await file.close(); }
+    const file = await open(
+      path,
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
+      0o600,
+    );
+
+    try {
+      await file.writeFile(`${secret}\n`, "utf8");
+    } finally {
+      await file.close();
+    }
+
     return secret;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+    if (!hasFilesystemErrorCode(error, "EEXIST")) {
       throw error;
     }
 

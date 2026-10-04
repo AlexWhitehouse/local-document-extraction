@@ -1,3 +1,4 @@
+import { readUserResponse } from "./testing/responseFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,6 +20,7 @@ test("terminal Document deletion crosses the adapter and Fetch application witho
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-document-delete-"));
   const database = new Database(":memory:");
   const verificationLinks: string[] = [];
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -26,13 +28,16 @@ test("terminal Document deletion crosses the adapter and Fetch application witho
     mailSink: {
       capture: async (message) => {
         const link = message.text.match(/https?:\/\/\S+/)?.[0];
+
         if (link) verificationLinks.push(link);
       },
     },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
+
   const application = createLocalApplication({
     auth,
     sourceFileStore: sourceFiles,
@@ -48,6 +53,7 @@ test("terminal Document deletion crosses the adapter and Fetch application witho
       name: "Ada Lovelace",
       verificationLinks,
     });
+
     const stranger = await createSignedInUser({
       application,
       auth,
@@ -55,14 +61,17 @@ test("terminal Document deletion crosses the adapter and Fetch application witho
       name: "Grace Hopper",
       verificationLinks,
     });
+
     const workspace = workspaceControl.listAcceptedWorkspaces({
       userId: owner.session.id,
       userName: owner.session.name,
     })[0]!;
+
     const sourceKeys = await createTerminalJobs({ sourceFiles, stateDirectory, workspaceId: workspace.id });
     const beforeDeletion = openLocalWorkspaceProductStore({ stateDirectory, workspaceId: workspace.id })!;
     expect(beforeDeletion.getExtractionJob("job_completed")).toEqual(expect.objectContaining({ status: "completed" }));
     beforeDeletion.close();
+
     const ownerAdapter = createDocumentRequestAdapter({
       request: createFetchRequest(application, owner.cookie, workspace.id),
     });
@@ -80,9 +89,12 @@ test("terminal Document deletion crosses the adapter and Fetch application witho
     expect(afterCompleted.getTemplate("tpl_invoice")).toEqual(expect.objectContaining({ id: "tpl_invoice" }));
     afterCompleted.close();
     const productDatabase = new Database(join(stateDirectory, "data", "workspaces", `${workspace.id}.sqlite`));
+
     try {
       expect(productDatabase.query("SELECT job_id FROM job_results WHERE job_id = ?").all("job_completed")).toEqual([]);
-      expect(productDatabase.query("SELECT job_id FROM source_files WHERE job_id = ?").all("job_completed")).toEqual([]);
+      expect(productDatabase.query("SELECT job_id FROM source_files WHERE job_id = ?").all("job_completed")).toEqual(
+        [],
+      );
     } finally {
       productDatabase.close();
     }
@@ -105,16 +117,21 @@ test("terminal Document deletion crosses the adapter and Fetch application witho
     const strangerAdapter = createDocumentRequestAdapter({
       request: createFetchRequest(application, stranger.cookie, workspace.id),
     });
+
     await expect(strangerAdapter.deleteDocument("job_api_key")).rejects.toMatchObject({
       code: "forbidden",
       status: 403,
     });
 
     const apiKey = workspaceControl.rotateApiKey({ workspaceId: workspace.id, userId: owner.session.id }).api_key;
-    const apiKeyResponse = await application(new Request("http://127.0.0.1:8787/v1/jobs/job_api_key", {
-      method: "DELETE",
-      headers: { authorization: `Bearer ${apiKey}` },
-    }));
+
+    const apiKeyResponse = await application(
+      new Request("http://127.0.0.1:8787/v1/jobs/job_api_key", {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${apiKey}` },
+      }),
+    );
+
     expect(apiKeyResponse.status).toBe(200);
     await expect(sourceFiles.read(sourceKeys.apiKey)).resolves.toBeNull();
   } finally {
@@ -126,49 +143,92 @@ test("terminal Document deletion crosses the adapter and Fetch application witho
 test.each(["failed unlink", "interrupted deletion"])("Source cleanup survives restart after %s", async (failure) => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-delete-recovery-"));
   const database = new Database(":memory:");
-  const auth = await createLocalAuth({ database, baseURL: "http://127.0.0.1:8787", requireEmailVerification: false,
-    secret: "01234567890123456789012345678901", mailSink: { capture: async () => {} } });
+
+  const auth = await createLocalAuth({
+    database,
+    baseURL: "http://127.0.0.1:8787",
+    requireEmailVerification: false,
+    secret: "01234567890123456789012345678901",
+    mailSink: { capture: async () => {} },
+  });
+
   const control = createLocalWorkspaceControl(database);
   const files = createLocalSourceFileStore({ stateDirectory });
   const registry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
   let restarted: ReturnType<typeof createLocalWorkspaceProductStoreRegistry> | undefined;
+
   try {
-    const signup = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Owner", email: "owner@example.org", password: "Strong1!" }),
-    }));
-    const { user } = await signup.json() as { user: { id: string } };
+    const signup = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Owner", email: "owner@example.org", password: "Strong1!" }),
+      }),
+    );
+
+    const { user } = await readUserResponse(signup);
     const workspace = control.createWorkspace({ userId: user.id, name: "Recovery" });
     const apiKey = control.rotateApiKey({ workspaceId: workspace.workspace_id, userId: user.id }).api_key;
     const keys = await createTerminalJobs({ sourceFiles: files, stateDirectory, workspaceId: workspace.workspace_id });
+
     if (failure === "failed unlink") {
-      const application = createLocalApplication({ auth, stateDirectory, workspaceControl: control, productStoreRegistry: registry,
-        sourceFileStore: { ...files, delete: async () => { throw new Error("simulated EIO"); } } });
-      const response = await application(new Request("http://127.0.0.1:8787/v1/jobs/job_failed", {
-        method: "DELETE", headers: { authorization: `Bearer ${apiKey}`, origin: "https://external-client.example.org" },
-      }));
+      const application = createLocalApplication({
+        auth,
+        stateDirectory,
+        workspaceControl: control,
+        productStoreRegistry: registry,
+        sourceFileStore: {
+          ...files,
+          delete: async () => {
+            throw new Error("simulated EIO");
+          },
+        },
+      });
+
+      const response = await application(
+        new Request("http://127.0.0.1:8787/v1/jobs/job_failed", {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${apiKey}`, origin: "https://external-client.example.org" },
+        }),
+      );
+
       expect(response.status).toBe(200);
     } else {
       const lease = registry.acquire({ workspaceId: workspace.workspace_id })!;
       lease.store.deleteExtractionJob({ jobId: "job_failed" });
       lease.release(); // Simulate process exit after committing metadata deletion.
     }
+
     registry.closeAll();
     expect(await files.read(keys.failed)).not.toBeNull();
     restarted = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
     const lease = restarted.acquire({ workspaceId: workspace.workspace_id, mode: "existing" })!;
+
     try {
       expect(lease.store.getExtractionJob("job_failed")).toBeNull();
-      expect(lease.store.listRetainedTerminalSourceFiles({ failedBefore: "2000-01-01T00:00:00.000Z" }))
-        .toContainEqual({ job_id: "job_failed", source_file_key: keys.failed, retained_object_key: null });
-    } finally { lease.release(); }
-    const retention = createLocalSourceFileRetention({ stateDirectory, productStoreRegistry: restarted, sourceFileStore: files });
+      expect(lease.store.listRetainedTerminalSourceFiles({ failedBefore: "2000-01-01T00:00:00.000Z" })).toContainEqual({
+        job_id: "job_failed",
+        source_file_key: keys.failed,
+        retained_object_key: null,
+      });
+    } finally {
+      lease.release();
+    }
+
+    const retention = createLocalSourceFileRetention({
+      stateDirectory,
+      productStoreRegistry: restarted,
+      sourceFileStore: files,
+    });
+
     await retention.run();
     await retention.run();
     expect(await files.read(keys.failed)).toBeNull();
     expect(retention.snapshot().failures).toBe(0);
   } finally {
-    registry.closeAll(); restarted?.closeAll(); database.close();
+    registry.closeAll();
+    restarted?.closeAll();
+    database.close();
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });
@@ -188,7 +248,9 @@ async function createTerminalJobs({
     queued: await writeSource(sourceFiles, workspaceId, "job_queued"),
     apiKey: await writeSource(sourceFiles, workspaceId, "job_api_key"),
   };
+
   const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+
   try {
     store.createTemplate({
       templateId: "tpl_invoice",
@@ -197,6 +259,7 @@ async function createTerminalJobs({
       fields: [{ id: "invoice_number", name: "Invoice number", description: "Invoice number", data_type: "string" }],
       createdAt: "2026-07-10T12:00:00.000Z",
     });
+
     for (const [jobId, sourceFileKey] of [
       ["job_completed", sourceKeys.completed],
       ["job_failed", sourceKeys.failed],
@@ -214,6 +277,7 @@ async function createTerminalJobs({
         submittedAt: "2026-07-10T12:00:00.000Z",
       });
     }
+
     store.claimExtractionJobForProcessing({
       jobId: "job_completed",
       attempt: 1,
@@ -225,8 +289,18 @@ async function createTerminalJobs({
       completedAt: "2026-07-10T12:02:00.000Z",
       modelName: "test-model",
       route: "test-route",
-      results: [{ field_id: "invoice_number", status: "ok", answer: "INV-001", normalized_value: "INV-001", confidence: 1, evidence: null }],
+      results: [
+        {
+          field_id: "invoice_number",
+          status: "ok",
+          answer: "INV-001",
+          normalized_value: "INV-001",
+          confidence: 1,
+          evidence: null,
+        },
+      ],
     });
+
     for (const jobId of ["job_failed", "job_api_key"]) {
       store.claimExtractionJobForProcessing({
         jobId,
@@ -244,6 +318,7 @@ async function createTerminalJobs({
   } finally {
     store.close();
   }
+
   return sourceKeys;
 }
 

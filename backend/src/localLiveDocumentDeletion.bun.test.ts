@@ -1,3 +1,4 @@
+import { readUserResponse } from "./testing/responseFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,6 +18,7 @@ import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOp
 test("live Document deletion aborts and drains only its target job before erasure", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-live-document-delete-"));
   const database = new Database(":memory:");
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -24,30 +26,39 @@ test("live Document deletion aborts and drains only its target job before erasur
     mailSink: { capture: async () => undefined },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
   const workspaceProductOperations = createLocalWorkspaceProductOperations();
   const lifecycleUpdates: Array<{ jobId: string; status: string }> = [];
   const analyticsEvents: LocalWorkspaceProductAnalyticsEvent[] = [];
   let extractionStarted: () => void = () => {};
+
   const extractionStartedPromise = new Promise<void>((resolve) => {
     extractionStarted = resolve;
   });
+
   let targetWasAborted = false;
 
   try {
-    const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const user = await signUp.json() as { user: { id: string; name: string } };
+    const signUp = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+      }),
+    );
+
+    const user = await readUserResponse(signUp);
+
     const workspace = workspaceControl.listAcceptedWorkspaces({
       userId: user.user.id,
       userName: user.user.name,
     })[0]!;
+
     const sourceFileKeys = await createJobs({ sourceFiles, stateDirectory, workspaceId: workspace.id });
     const apiKey = workspaceControl.rotateApiKey({ workspaceId: workspace.id, userId: user.user.id }).api_key;
+
     const application = createLocalApplication({
       auth,
       productAnalytics: {
@@ -59,17 +70,24 @@ test("live Document deletion aborts and drains only its target job before erasur
       workspaceControl,
       workspaceProductOperations,
     });
+
     const runner = createLocalExtractionRunner({
       extract: async ({ signal, sourceBytes }) => {
         if (new Uint8Array(sourceBytes)[0] === 1) {
           extractionStarted();
+
           return new Promise((_, reject) => {
-            signal.addEventListener("abort", () => {
-              targetWasAborted = true;
-              reject(new DOMException("Document deletion cancelled extraction", "AbortError"));
-            }, { once: true });
+            signal.addEventListener(
+              "abort",
+              () => {
+                targetWasAborted = true;
+                reject(new DOMException("Document deletion cancelled extraction", "AbortError"));
+              },
+              { once: true },
+            );
           });
         }
+
         return [{ field_id: "invoice_number", status: "ok", answer: "INV-002" }];
       },
       onJobLifecycleChange: (_workspaceId, job) => {
@@ -93,8 +111,9 @@ test("live Document deletion aborts and drains only its target job before erasur
     expect(deleteResponse.status).toBe(200);
     await expect(deleteResponse.json()).resolves.toEqual({ deleted: true, job_id: "job_processing" });
     expect(targetWasAborted).toBe(true);
-    expect(lifecycleUpdates.filter((update) => update.jobId === "job_processing"))
-      .toEqual([{ jobId: "job_processing", status: "processing" }]);
+    expect(lifecycleUpdates.filter((update) => update.jobId === "job_processing")).toEqual([
+      { jobId: "job_processing", status: "processing" },
+    ]);
     expect(analyticsEvents.filter((event) => isJobAnalyticsEvent(event, "job_processing"))).toEqual([]);
     await expect(sourceFiles.read(sourceFileKeys.processing)).resolves.toBeNull();
 
@@ -107,6 +126,7 @@ test("live Document deletion aborts and drains only its target job before erasur
 
     await runner.run(job("job_unrelated", workspace.id));
     const store = openLocalWorkspaceProductStore({ stateDirectory, workspaceId: workspace.id })!;
+
     try {
       expect(store.getExtractionJob("job_processing")).toBeNull();
       expect(store.getExtractionJob("job_queued")).toBeNull();
@@ -114,8 +134,11 @@ test("live Document deletion aborts and drains only its target job before erasur
     } finally {
       store.close();
     }
-    expect(lifecycleUpdates.filter((update) => update.jobId === "job_unrelated").map((update) => update.status))
-      .toEqual(["processing", "completed"]);
+
+    expect(lifecycleUpdates.flatMap((update) => (update.jobId === "job_unrelated" ? [update.status] : []))).toEqual([
+      "processing",
+      "completed",
+    ]);
   } finally {
     database.close();
     await rm(stateDirectory, { recursive: true, force: true });
@@ -136,7 +159,9 @@ async function createJobs({
     queued: await writeSource(sourceFiles, workspaceId, "job_queued", 2),
     unrelated: await writeSource(sourceFiles, workspaceId, "job_unrelated", 3),
   };
+
   const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+
   try {
     store.createTemplate({
       templateId: "tpl_invoice",
@@ -145,6 +170,7 @@ async function createJobs({
       fields: [{ id: "invoice_number", name: "Invoice number", description: "Invoice number", data_type: "string" }],
       createdAt: "2026-07-10T12:00:00.000Z",
     });
+
     for (const [jobId, sourceFileKey] of [
       ["job_processing", sourceFileKeys.processing],
       ["job_queued", sourceFileKeys.queued],
@@ -164,6 +190,7 @@ async function createJobs({
   } finally {
     store.close();
   }
+
   return sourceFileKeys;
 }
 
@@ -201,7 +228,6 @@ async function writeSource(
 
 function isJobAnalyticsEvent(event: LocalWorkspaceProductAnalyticsEvent, jobId: string): boolean {
   return (
-    (event.type === "extraction_completed" || event.type === "extraction_failed") &&
-    event.extractionJobId === jobId
+    (event.type === "extraction_completed" || event.type === "extraction_failed") && event.extractionJobId === jobId
   );
 }

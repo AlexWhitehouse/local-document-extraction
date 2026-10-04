@@ -1,3 +1,7 @@
+import { textRequestBody } from "../testing/requestFixture";
+import { jsonPath, jsonArray, jsonObject, jsonText } from "../testing/jsonFixture";
+import { parseJson, type JsonValue } from "../../../shared/json";
+import { fetchFixture, type FetchImplementation } from "../testing/fetchFixture";
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
@@ -23,28 +27,31 @@ const fields: FieldDefinition[] = [
 
 const originalFetch = globalThis.fetch;
 
-function replaceFetch(fetchMock: unknown) {
-  globalThis.fetch = fetchMock as typeof globalThis.fetch;
+function replaceFetch(fetchMock: FetchImplementation) {
+  globalThis.fetch = fetchFixture(fetchMock);
 }
 
 async function waitForMockCallCount(
-  fetchMock: { mock: { calls: unknown[][] } },
+  fetchMock: { mock: { calls: { length: number } } },
   expectedCallCount: number,
   timeoutMs = 1_000,
 ) {
   const startedAt = performance.now();
+
   while (fetchMock.mock.calls.length !== expectedCallCount) {
     const elapsedMs = performance.now() - startedAt;
+
     if (elapsedMs >= timeoutMs) {
       throw new Error(
         `Timed out after ${Math.round(elapsedMs)}ms waiting for ${expectedCallCount} Model gateway call(s); observed ${fetchMock.mock.calls.length}.`,
       );
     }
+
     await Bun.sleep(5);
   }
 }
 
-function createEnv(overrides: Record<string, unknown> = {}): ModelGatewayConfiguration {
+function createEnv(overrides: Partial<ModelGatewayConfiguration> = {}): ModelGatewayConfiguration {
   return {
     LITELLM_KEY: "litellm-secret",
     MODEL_GATEWAY_URL: "https://litellm.example/proxy",
@@ -53,18 +60,21 @@ function createEnv(overrides: Record<string, unknown> = {}): ModelGatewayConfigu
     MODEL_GATEWAY_REQUEST_TIMEOUT_MS: "300000",
     AI_MODEL: "claude-opus-configured",
     ...overrides,
-  } as ModelGatewayConfiguration;
+  };
 }
 
-function stubGatewayResponse(payload: unknown, init: ResponseInit = {}) {
-  const fetchMock = mock(async () =>
-    new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-      ...init,
-    }),
+function stubGatewayResponse(payload: JsonValue, init: ResponseInit = {}) {
+  const fetchMock = mock(
+    async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        ...init,
+      }),
   );
+
   replaceFetch(fetchMock);
+
   return fetchMock;
 }
 
@@ -92,15 +102,15 @@ function successfulModelJson() {
   });
 }
 
-function readGatewayRequest(fetchMock: ReturnType<typeof mock>, callIndex = 0) {
-  const [url, init] = fetchMock.mock.calls[callIndex] as [string, RequestInit];
+function readGatewayRequest(fetchMock: { mock: { calls: Parameters<FetchImplementation>[] } }, callIndex = 0) {
+  const [url, init] = fetchMock.mock.calls[callIndex]!;
+
+  if (!init) throw new Error("Expected gateway request options");
+
   return {
     url,
     init,
-    body:
-      typeof init.body === "string"
-        ? (JSON.parse(init.body) as Record<string, unknown>)
-        : init.body,
+    body: parseJson(textRequestBody(init.body)),
   };
 }
 
@@ -113,9 +123,7 @@ describe("runExtraction", () => {
     const env = createEnv();
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-    ).resolves.toEqual([
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png")).resolves.toEqual([
       {
         field_id: "patient_name",
         status: "ok",
@@ -142,12 +150,7 @@ describe("runExtraction", () => {
     const env = createEnv({ MODEL_SUPPORTS_STRUCTURED_OUTPUT: "false" });
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
 
-    await runExtraction(
-      env,
-      fields,
-      new Uint8Array([1, 2, 3]).buffer,
-      "image/png",
-    );
+    await runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png");
 
     const request = readGatewayRequest(fetchMock);
     expect(request.body).toMatchObject({ model: "claude-opus-configured" });
@@ -158,12 +161,7 @@ describe("runExtraction", () => {
     const env = createEnv({ AI_MODEL: "google/gemma-4-e4b" });
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
 
-    await runExtraction(
-      env,
-      fields,
-      new Uint8Array([1, 2, 3]).buffer,
-      "image/png",
-    );
+    await runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png");
 
     expect(readGatewayRequest(fetchMock).body).toMatchObject({
       model: "google/gemma-4-e4b",
@@ -182,11 +180,20 @@ describe("runExtraction", () => {
 
   it("aborts model gateway execution when Workspace deletion cancels the caller signal", async () => {
     const controller = new AbortController();
-    const fetchMock = mock((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      (init.signal as AbortSignal).addEventListener("abort", () => {
-        reject(new DOMException("cancelled", "AbortError"));
-      }, { once: true });
-    }));
+
+    const fetchMock = mock(
+      (_url: Parameters<FetchImplementation>[0], init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init!.signal!.addEventListener(
+            "abort",
+            () => {
+              reject(new DOMException("cancelled", "AbortError"));
+            },
+            { once: true },
+          );
+        }),
+    );
+
     replaceFetch(fetchMock);
 
     const extraction = runExtraction(
@@ -196,6 +203,7 @@ describe("runExtraction", () => {
       "image/png",
       controller.signal,
     );
+
     await waitForMockCallCount(fetchMock, 1);
     controller.abort();
 
@@ -205,7 +213,9 @@ describe("runExtraction", () => {
 
   it("refuses an absent model instead of inheriting a default", async () => {
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
-    await expect(runExtraction(createEnv({ AI_MODEL: undefined }), fields, new Uint8Array([1]).buffer, "image/png")).rejects.toThrow(ModelGatewayRequestError);
+    await expect(
+      runExtraction(createEnv({ AI_MODEL: undefined }), fields, new Uint8Array([1]).buffer, "image/png"),
+    ).rejects.toThrow(ModelGatewayRequestError);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -213,12 +223,7 @@ describe("runExtraction", () => {
     const env = createEnv();
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
 
-    await runExtraction(
-      env,
-      fields,
-      new Uint8Array([1, 2, 3]).buffer,
-      "application/pdf",
-    );
+    await runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf");
 
     const request = readGatewayRequest(fetchMock);
     expect(request.url).toBe("https://litellm.example/proxy/chat/completions");
@@ -248,6 +253,7 @@ describe("runExtraction", () => {
       AI_MODEL: "google/gemma-4-e4b",
       MODEL_SUPPORTS_PDF_INPUT: "false",
     });
+
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
     const pdf = await PDFDocument.create();
     const page = pdf.addPage([300, 200]);
@@ -255,19 +261,10 @@ describe("runExtraction", () => {
     page.drawText("Patient: Ada Lovelace", { x: 30, y: 120, size: 18, font });
     const pdfBytes = await pdf.save();
 
-    await runExtraction(
-      env,
-      fields,
-      Uint8Array.from(pdfBytes).buffer,
-      "application/pdf",
-    );
+    await runExtraction(env, fields, Uint8Array.from(pdfBytes).buffer, "application/pdf");
 
     const request = readGatewayRequest(fetchMock);
-    const requestBody = request.body as Record<string, unknown>;
-    const userMessage = (requestBody.messages as Array<{
-      content: Array<Record<string, unknown>>;
-    }>)[1];
-    const imageUrl = (userMessage.content[1].image_url as { url: string }).url;
+    const imageUrl = jsonText(jsonPath(request.body, "messages", 1, "content", 1, "image_url", "url"));
     expect(request.body).toMatchObject({
       messages: [
         expect.any(Object),
@@ -285,7 +282,7 @@ describe("runExtraction", () => {
         },
       ],
     });
-    expect(userMessage.content[1]).toEqual({
+    expect(jsonPath(request.body, "messages", 1, "content", 1)).toEqual({
       type: "image_url",
       image_url: {
         url: imageUrl,
@@ -294,61 +291,57 @@ describe("runExtraction", () => {
     expect(imageUrl).toMatch(/^data:image\/png;base64,/);
   });
 
-  it.each([
-    "qwen/qwen3.6-27b",
-    "qwen3.8-27b-mlx",
-    "qwen3-vl-32b-instruct-mlx",
-  ])("renders PDF Source file pages as image content accepted by Qwen model %s", async (model) => {
-    const env = createEnv({
-      AI_MODEL: model,
-      MODEL_SUPPORTS_PDF_INPUT: "false",
-    });
-    const fetchMock = stubGatewayResponse(successfulGatewayPayload());
-    const pdf = await PDFDocument.create();
-    const page = pdf.addPage([300, 200]);
-    const font = await pdf.embedFont(StandardFonts.Helvetica);
-    page.drawText("Patient: Ada Lovelace", { x: 30, y: 120, size: 18, font });
-    const pdfBytes = await pdf.save();
+  it.each(["qwen/qwen3.6-27b", "qwen3.8-27b-mlx", "qwen3-vl-32b-instruct-mlx"])(
+    "renders PDF Source file pages as image content accepted by Qwen model %s",
+    async (model) => {
+      const env = createEnv({
+        AI_MODEL: model,
+        MODEL_SUPPORTS_PDF_INPUT: "false",
+      });
 
-    await runExtraction(
-      env,
-      fields,
-      Uint8Array.from(pdfBytes).buffer,
-      "application/pdf",
-    );
+      const fetchMock = stubGatewayResponse(successfulGatewayPayload());
+      const pdf = await PDFDocument.create();
+      const page = pdf.addPage([300, 200]);
+      const font = await pdf.embedFont(StandardFonts.Helvetica);
+      page.drawText("Patient: Ada Lovelace", { x: 30, y: 120, size: 18, font });
+      const pdfBytes = await pdf.save();
 
-    const request = readGatewayRequest(fetchMock);
-    expect(request.body).toMatchObject({
-      model,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "extraction_results",
-          strict: true,
-          schema: { required: ["results"] },
+      await runExtraction(env, fields, Uint8Array.from(pdfBytes).buffer, "application/pdf");
+
+      const request = readGatewayRequest(fetchMock);
+      expect(request.body).toMatchObject({
+        model,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "extraction_results",
+            strict: true,
+            schema: { required: ["results"] },
+          },
         },
-      },
-      messages: [
-        expect.any(Object),
-        {
-          role: "user",
-          content: [
-            expect.objectContaining({ type: "text", text: expect.any(String) }),
-            {
-              type: "image_url",
-              image_url: {
-                url: expect.stringMatching(/^data:image\/png;base64,/),
+        messages: [
+          expect.any(Object),
+          {
+            role: "user",
+            content: [
+              expect.objectContaining({ type: "text", text: expect.any(String) }),
+              {
+                type: "image_url",
+                image_url: {
+                  url: expect.stringMatching(/^data:image\/png;base64,/),
+                },
               },
-            },
-          ],
-        },
-      ],
-    });
-  });
+            ],
+          },
+        ],
+      });
+    },
+  );
 
   it("builds Qwen JSON Schema answer types from the requested Template fields", async () => {
     const env = createEnv({ AI_MODEL: "qwen/qwen3.6-27b" });
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
+
     const typedFields: FieldDefinition[] = [
       fields[0],
       {
@@ -383,42 +376,29 @@ describe("runExtraction", () => {
       },
     ];
 
-    await runExtraction(
-      env,
-      typedFields,
-      new Uint8Array([1, 2, 3]).buffer,
-      "image/png",
+    await runExtraction(env, typedFields, new Uint8Array([1, 2, 3]).buffer, "image/png");
+
+    const requestBody = readGatewayRequest(fetchMock).body;
+
+    const answerSchemas = jsonArray(
+      jsonPath(
+        requestBody,
+        "response_format",
+        "json_schema",
+        "schema",
+        "properties",
+        "results",
+        "items",
+        "properties",
+        "answer",
+        "anyOf",
+      ),
     );
 
-    const requestBody = readGatewayRequest(fetchMock).body as {
-      response_format: {
-        json_schema: {
-          schema: {
-            properties: {
-              results: {
-                items: {
-                  properties: {
-                    answer: { anyOf: Array<Record<string, unknown>> };
-                  };
-                };
-              };
-            };
-          };
-        };
-      };
-    };
-    const answerSchemas =
-      requestBody.response_format.json_schema.schema.properties.results.items
-        .properties.answer.anyOf;
     expect(answerSchemas).toEqual(
-      expect.arrayContaining([
-        { type: "string" },
-        { type: "number" },
-        { type: "boolean" },
-        { type: "null" },
-      ]),
+      expect.arrayContaining([{ type: "string" }, { type: "number" }, { type: "boolean" }, { type: "null" }]),
     );
-    expect(answerSchemas.find((schema) => schema.type === "object")).toMatchObject({
+    expect(answerSchemas.find((schema) => jsonObject(schema).type === "object")).toMatchObject({
       properties: {
         rows: {
           items: {
@@ -437,10 +417,22 @@ describe("runExtraction", () => {
   it("never uses managed files or model-prefix inference for PDF input", async () => {
     for (const model of ["azure/gpt", "azure_ai/gpt", "custom/alias"]) {
       const fetchMock = stubGatewayResponse(successfulGatewayPayload());
-      await runExtraction(createEnv({ AI_MODEL: model, MODEL_GATEWAY_USE_MANAGED_FILES: "true" }), fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf");
+      const legacyConfig = { ...createEnv({ AI_MODEL: model }), MODEL_GATEWAY_USE_MANAGED_FILES: "true" };
+      await runExtraction(legacyConfig, fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf");
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(readGatewayRequest(fetchMock).url).toBe("https://litellm.example/proxy/chat/completions");
-      expect(readGatewayRequest(fetchMock).body).toMatchObject({ messages: [expect.any(Object), { role: "user", content: [expect.any(Object), { type: "file", file: { file_data: "data:application/pdf;base64,AQID", format: "application/pdf" } }] }] });
+      expect(readGatewayRequest(fetchMock).body).toMatchObject({
+        messages: [
+          expect.any(Object),
+          {
+            role: "user",
+            content: [
+              expect.any(Object),
+              { type: "file", file: { file_data: "data:application/pdf;base64,AQID", format: "application/pdf" } },
+            ],
+          },
+        ],
+      });
     }
   });
 
@@ -448,12 +440,7 @@ describe("runExtraction", () => {
     const env = createEnv();
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
 
-    await runExtraction(
-      env,
-      fields,
-      new Uint8Array([4, 5, 6]).buffer,
-      "image/png",
-    );
+    await runExtraction(env, fields, new Uint8Array([4, 5, 6]).buffer, "image/png");
 
     const request = readGatewayRequest(fetchMock);
     expect(request.body).toMatchObject({
@@ -479,9 +466,7 @@ describe("runExtraction", () => {
     const env = createEnv();
     stubGatewayResponse(successfulGatewayPayload());
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-    ).resolves.toEqual([
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png")).resolves.toEqual([
       {
         field_id: "patient_name",
         status: "ok",
@@ -502,9 +487,7 @@ describe("runExtraction", () => {
       ],
     });
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-    ).resolves.toEqual([
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png")).resolves.toEqual([
       {
         field_id: "patient_name",
         status: "ok",
@@ -526,9 +509,7 @@ describe("runExtraction", () => {
       ],
     });
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-    ).resolves.toEqual([
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png")).resolves.toEqual([
       {
         field_id: "patient_name",
         status: "ok",
@@ -541,9 +522,9 @@ describe("runExtraction", () => {
     const env = createEnv({ LITELLM_KEY: undefined });
     const fetchMock = stubGatewayResponse(successfulGatewayPayload());
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf"),
-    ).rejects.toThrow(ModelGatewayRequestError);
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf")).rejects.toThrow(
+      ModelGatewayRequestError,
+    );
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -553,19 +534,28 @@ describe("runExtraction", () => {
     pdf.addPage([100, 100]);
     const source = Uint8Array.from(await pdf.save()).buffer;
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
+
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
     const fetchMock = mock(async () => {
       await gate;
+
       return Response.json(successfulGatewayPayload());
     });
+
     replaceFetch(fetchMock);
     const env = createEnv({ MODEL_GATEWAY_SEQUENTIAL_CALLS: "false", MODEL_SUPPORTS_PDF_INPUT: "false" });
     const calls = [runExtraction(env, fields, source.slice(0), "application/pdf")];
+
     try {
       await waitForMockCallCount(fetchMock, 1);
+
       for (let i = 1; i < count; i++) {
         calls.push(runExtraction(env, fields, source.slice(0), "application/pdf"));
       }
+
       await waitForMockCallCount(fetchMock, count);
       expect(fetchMock).toHaveBeenCalledTimes(count);
     } finally {
@@ -577,40 +567,42 @@ describe("runExtraction", () => {
   it.each(["image/png", "application/pdf"])("runs configured %s model calls sequentially", async (sourceMimeType) => {
     const pdf = await PDFDocument.create();
     pdf.addPage([100, 100]);
-    const source = sourceMimeType === "application/pdf"
-      ? Uint8Array.from(await pdf.save()).buffer
-      : new Uint8Array([1, 2, 3]).buffer;
+
+    const source =
+      sourceMimeType === "application/pdf"
+        ? Uint8Array.from(await pdf.save()).buffer
+        : new Uint8Array([1, 2, 3]).buffer;
+
     let releaseFirstRequest: (() => void) | undefined;
+
     const firstRequestGate = new Promise<void>((resolve) => {
       releaseFirstRequest = resolve;
     });
+
     let requestCount = 0;
+
     const fetchMock = mock(async () => {
       requestCount += 1;
+
       if (requestCount === 1) {
         await firstRequestGate;
       }
+
       return new Response(JSON.stringify(successfulGatewayPayload()), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
     });
+
     replaceFetch(fetchMock);
     const env = createEnv({ MODEL_GATEWAY_SEQUENTIAL_CALLS: "true", MODEL_SUPPORTS_PDF_INPUT: "false" });
 
-    const first = runExtraction(
-      env,
-      fields,
-      source.slice(0),
-      sourceMimeType,
-    );
+    const first = runExtraction(env, fields, source.slice(0), sourceMimeType);
+
     await waitForMockCallCount(fetchMock, 1);
-    const second = runExtraction(
-      env,
-      fields,
-      source.slice(0),
-      sourceMimeType,
-    );
+
+    const second = runExtraction(env, fields, source.slice(0), sourceMimeType);
+
     try {
       await Bun.sleep(25);
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -618,104 +610,114 @@ describe("runExtraction", () => {
       releaseFirstRequest?.();
       await expect(Promise.all([first, second])).resolves.toHaveLength(2);
     }
+
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("treats LiteLLM HTTP failures as retryable extraction failures", async () => {
     const env = createEnv();
-    stubGatewayResponse(
-      { error: { message: "rate limited" } },
-      { status: 429, headers: { "retry-after": "7" } },
+    stubGatewayResponse({ error: { message: "rate limited" } }, { status: 429, headers: { "retry-after": "7" } });
+
+    const failure = await runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png").catch(
+      (error) => error,
     );
 
-    const failure = await runExtraction(
-      env,
-      fields,
-      new Uint8Array([1, 2, 3]).buffer,
-      "image/png",
-    ).catch((error) => error);
     expect(failure).toBeInstanceOf(RetryableError);
     expect(failure).toMatchObject({ status: 429, retryAfterMs: 7_000 });
     expect(failure.message).toBe("Model gateway request failed with HTTP 429");
   });
 
-  it.each(["null", "[]", "{}", '{"results":[null]}', '{"results":[{}]}', '{"results":[{"field_id":1,"status":"ok"}]}'])("retries malformed generated result shape %s", async (content) => {
-    stubGatewayResponse(successfulGatewayPayload(content));
-    await expect(runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png"))
-      .rejects.toBeInstanceOf(RetryableError);
-  });
+  it.each(["null", "[]", "{}", '{"results":[null]}', '{"results":[{}]}', '{"results":[{"field_id":1,"status":"ok"}]}'])(
+    "retries malformed generated result shape %s",
+    async (content) => {
+      stubGatewayResponse(successfulGatewayPayload(content));
+      await expect(
+        runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
+      ).rejects.toBeInstanceOf(RetryableError);
+    },
+  );
 
   it("does not retry deterministic Model gateway request failures", async () => {
     const env = createEnv();
-    stubGatewayResponse(
-      { error: { message: "invalid request" } },
-      { status: 400 },
-    );
+    stubGatewayResponse({ error: { message: "invalid request" } }, { status: 400 });
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-    ).rejects.toThrow(ModelGatewayRequestError);
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png")).rejects.toThrow(
+      ModelGatewayRequestError,
+    );
   });
 
   it("does not follow gateway redirects or consume their error bodies", async () => {
-    const fetchMock = mock(async () => new Response(new ReadableStream({
-      pull(controller) { controller.error(new Error("sensitive-upstream-body")); },
-    }), { status: 302, headers: { location: "https://different-gateway.invalid" } }));
+    const fetchMock = mock(
+      async () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.error(new Error("sensitive-upstream-body"));
+            },
+          }),
+          { status: 302, headers: { location: "https://different-gateway.invalid" } },
+        ),
+    );
+
     replaceFetch(fetchMock);
-    const failure = await runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png").catch((error) => error);
+
+    const failure = await runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png").catch(
+      (error) => error,
+    );
+
     expect(failure).toBeInstanceOf(ModelGatewayRequestError);
     expect(failure.message).toBe("Model gateway request failed with HTTP 302");
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]).toMatchObject(["https://litellm.example/proxy/chat/completions", { redirect: "manual" }]);
+    expect(fetchMock.mock.calls[0]).toMatchObject([
+      "https://litellm.example/proxy/chat/completions",
+      { redirect: "manual" },
+    ]);
   });
 
   it("treats deterministic inline PDF request failures as non-retryable", async () => {
     const env = createEnv({ AI_MODEL: "azure_ai/gpt-configured" });
-    const fetchMock = stubGatewayResponse(
-      { error: { message: "file upload rejected" } },
-      { status: 400 },
-    );
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf"),
-    ).rejects.toThrow(ModelGatewayRequestError);
+    const fetchMock = stubGatewayResponse({ error: { message: "file upload rejected" } }, { status: 400 });
+
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "application/pdf")).rejects.toThrow(
+      ModelGatewayRequestError,
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("treats invalid gateway JSON as retryable output", async () => {
     const env = createEnv();
-    replaceFetch(
-      mock(async () => new Response("not json", { status: 200 })),
-    );
+    replaceFetch(mock(async () => new Response("not json", { status: 200 })));
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-    ).rejects.toThrow("Model gateway returned invalid JSON");
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png")).rejects.toThrow(
+      "Model gateway returned invalid JSON",
+    );
   });
 
   it("treats invalid model JSON content as retryable output", async () => {
     const env = createEnv();
     stubGatewayResponse(successfulGatewayPayload("not json"));
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-    ).rejects.toThrow("Model response content was not valid JSON");
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png")).rejects.toThrow(
+      "Model response content was not valid JSON",
+    );
   });
 
   it("treats model JSON without results as retryable output", async () => {
     const env = createEnv();
     stubGatewayResponse(successfulGatewayPayload(JSON.stringify({})));
 
-    await expect(
-      runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-    ).rejects.toThrow("Model JSON missing results array");
+    await expect(runExtraction(env, fields, new Uint8Array([1, 2, 3]).buffer, "image/png")).rejects.toThrow(
+      "Model JSON missing results array",
+    );
   });
 });
 
 describe("model gateway configuration", () => {
   it("derives the model gateway route label only from the URL host", () => {
     expect(getModelGatewayRouteLabel(createEnv())).toBe("litellm.example");
-    expect(getModelGatewayRouteLabel(createEnv({ MODEL_GATEWAY_ROUTE_LABEL: "ignored-global-label" }))).toBe("litellm.example");
+    const legacyConfig = { ...createEnv(), MODEL_GATEWAY_ROUTE_LABEL: "ignored-global-label" };
+    expect(getModelGatewayRouteLabel(legacyConfig)).toBe("litellm.example");
     expect(() => getModelGatewayRouteLabel(createEnv({ MODEL_GATEWAY_URL: "not a url" }))).toThrow();
   });
 
@@ -730,13 +732,23 @@ it("releases unused derivative capacity before the model call and releases the r
   const { withPreparedModelSourceFactory, getModelPreparationSnapshot } = await import("./modelGateway");
   const baseline = getModelPreparationSnapshot().reservedBytes;
   const upperBound = 32 * 1024 * 1024;
-  await expect(withPreparedModelSourceFactory(createEnv({ MODEL_SUPPORTS_PDF_INPUT: "true" }), upperBound, "application/pdf", undefined, async () => {
-    expect(getModelPreparationSnapshot().reservedBytes - baseline).toBe(upperBound * 4);
-    return new Blob([new Uint8Array(1024)], { type: "application/pdf" });
-  }, async (_parts, prepared) => {
-    expect(getModelPreparationSnapshot().reservedBytes - baseline).toBeLessThan(upperBound);
-    prepared(2048);
-    throw new Error("simulated transport failure");
-  })).rejects.toThrow("simulated transport failure");
+  await expect(
+    withPreparedModelSourceFactory(
+      createEnv({ MODEL_SUPPORTS_PDF_INPUT: "true" }),
+      upperBound,
+      "application/pdf",
+      undefined,
+      async () => {
+        expect(getModelPreparationSnapshot().reservedBytes - baseline).toBe(upperBound * 4);
+
+        return new Blob([new Uint8Array(1024)], { type: "application/pdf" });
+      },
+      async (_parts, prepared) => {
+        expect(getModelPreparationSnapshot().reservedBytes - baseline).toBeLessThan(upperBound);
+        prepared(2048);
+        throw new Error("simulated transport failure");
+      },
+    ),
+  ).rejects.toThrow("simulated transport failure");
   expect(getModelPreparationSnapshot().reservedBytes).toBe(baseline);
 });

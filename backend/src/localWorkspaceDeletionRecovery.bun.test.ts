@@ -1,3 +1,4 @@
+import { readUserResponse } from "./testing/responseFixture";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 test("failed Workspace erasure retains durable cleanup intent that reconciliation completes idempotently", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-delete-recovery-"));
   const database = new Database(":memory:");
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -20,27 +22,38 @@ test("failed Workspace erasure retains durable cleanup intent that reconciliatio
     mailSink: { capture: async () => undefined },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const localSourceFiles = createLocalSourceFileStore({ stateDirectory });
   let failSourceErasure = true;
+
   const sourceFiles = {
     ...localSourceFiles,
     eraseWorkspace: async (workspaceId: string) => {
       if (failSourceErasure) {
         throw new Error("Source storage is temporarily unavailable");
       }
+
       await localSourceFiles.eraseWorkspace(workspaceId);
     },
   };
 
   try {
-    const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const user = await signUp.json() as { user: { id: string; name: string } };
-    const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({ userId: user.user.id, userName: user.user.name })[0]!;
+    const signUp = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+      }),
+    );
+
+    const user = await readUserResponse(signUp);
+
+    const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({
+      userId: user.user.id,
+      userName: user.user.name,
+    })[0]!;
+
     workspaceControl.createWorkspace({ userId: user.user.id, name: "Remaining Workspace" });
     const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: deletedWorkspace.id });
     productStore.createTemplate({
@@ -59,8 +72,9 @@ test("failed Workspace erasure retains durable cleanup intent that reconciliatio
     });
     const deletion = createLocalWorkspaceDeletion({ sourceFileStore: sourceFiles, stateDirectory, workspaceControl });
 
-    await expect(deletion.deleteWorkspace({ workspaceId: deletedWorkspace.id, userId: user.user.id }))
-      .rejects.toThrow("Source storage is temporarily unavailable");
+    await expect(deletion.deleteWorkspace({ workspaceId: deletedWorkspace.id, userId: user.user.id })).rejects.toThrow(
+      "Source storage is temporarily unavailable",
+    );
 
     expect(workspaceControl.workspaceExists({ workspaceId: deletedWorkspace.id })).toBe(false);
     expect(workspaceControl.listWorkspaceDeletionIntents()).toEqual([deletedWorkspace.id]);
@@ -71,8 +85,12 @@ test("failed Workspace erasure retains durable cleanup intent that reconciliatio
     await deletion.reconcileInterruptedDeletions();
 
     expect(workspaceControl.listWorkspaceDeletionIntents()).toEqual([]);
-    await expect(stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(stat(join(stateDirectory, "source-files", "workspaces", deletedWorkspace.id))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(stateDirectory, "source-files", "workspaces", deletedWorkspace.id))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   } finally {
     database.close();
     await rm(stateDirectory, { recursive: true, force: true });
@@ -82,6 +100,7 @@ test("failed Workspace erasure retains durable cleanup intent that reconciliatio
 test("reconciliation revokes a Workspace whose deletion intent was recorded before a crash", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-delete-revoke-recovery-"));
   const database = new Database(":memory:");
+
   const auth = await createLocalAuth({
     requireEmailVerification: true,
     baseURL: "http://127.0.0.1:8787",
@@ -89,28 +108,36 @@ test("reconciliation revokes a Workspace whose deletion intent was recorded befo
     mailSink: { capture: async () => undefined },
     secret: "01234567890123456789012345678901",
   });
+
   const workspaceControl = createLocalWorkspaceControl(database);
   const sourceFiles = createLocalSourceFileStore({ stateDirectory });
 
   try {
-    const signUp = await auth.handler(new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
-    }));
-    const user = await signUp.json() as { user: { id: string; name: string } };
+    const signUp = await auth.handler(
+      new Request("http://127.0.0.1:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com", password: "Strong1!" }),
+      }),
+    );
+
+    const user = await readUserResponse(signUp);
+
     const deletedWorkspace = workspaceControl.listAcceptedWorkspaces({
       userId: user.user.id,
       userName: user.user.name,
     })[0]!;
+
     const remainingWorkspace = workspaceControl.createWorkspace({
       userId: user.user.id,
       name: "Remaining Workspace",
     });
+
     const productStore = createLocalWorkspaceProductStore({
       stateDirectory,
       workspaceId: deletedWorkspace.id,
     });
+
     productStore.close();
     await sourceFiles.write({
       workspaceId: deletedWorkspace.id,
@@ -120,19 +147,28 @@ test("reconciliation revokes a Workspace whose deletion intent was recorded befo
     });
 
     workspaceControl.recordWorkspaceDeletionIntent({ workspaceId: deletedWorkspace.id });
-    await createLocalWorkspaceDeletion({ sourceFileStore: sourceFiles, stateDirectory, workspaceControl })
-      .reconcileInterruptedDeletions();
+    await createLocalWorkspaceDeletion({
+      sourceFileStore: sourceFiles,
+      stateDirectory,
+      workspaceControl,
+    }).reconcileInterruptedDeletions();
 
     expect(workspaceControl.workspaceExists({ workspaceId: deletedWorkspace.id })).toBe(false);
-    expect(workspaceControl.listAcceptedWorkspaces({
-      userId: user.user.id,
-      userName: user.user.name,
-    }).map((workspace) => workspace.id)).toEqual([remainingWorkspace.workspace_id]);
+    expect(
+      workspaceControl
+        .listAcceptedWorkspaces({
+          userId: user.user.id,
+          userName: user.user.name,
+        })
+        .map((workspace) => workspace.id),
+    ).toEqual([remainingWorkspace.workspace_id]);
     expect(workspaceControl.listWorkspaceDeletionIntents()).toEqual([]);
-    await expect(stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`)))
-      .rejects.toMatchObject({ code: "ENOENT" });
-    await expect(stat(join(stateDirectory, "source-files", "workspaces", deletedWorkspace.id)))
-      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(stateDirectory, "source-files", "workspaces", deletedWorkspace.id))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   } finally {
     database.close();
     await rm(stateDirectory, { recursive: true, force: true });
@@ -158,14 +194,24 @@ test("reconciliation erases only explicitly recorded Workspace deletion intents"
         bytes: new Uint8Array([137, 80, 78, 71]),
       });
     }
+
     workspaceControl.recordWorkspaceDeletionIntent({ workspaceId: orphanWorkspaceId });
 
-    await createLocalWorkspaceDeletion({ sourceFileStore: sourceFiles, stateDirectory, workspaceControl })
-      .reconcileInterruptedDeletions();
+    await createLocalWorkspaceDeletion({
+      sourceFileStore: sourceFiles,
+      stateDirectory,
+      workspaceControl,
+    }).reconcileInterruptedDeletions();
 
-    await expect(stat(join(stateDirectory, "data", "workspaces", `${orphanWorkspaceId}.sqlite`))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(stat(join(stateDirectory, "source-files", "workspaces", orphanWorkspaceId))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(stat(join(stateDirectory, "data", "workspaces", `${activeWorkspaceId}.sqlite`))).resolves.toBeDefined();
+    await expect(stat(join(stateDirectory, "data", "workspaces", `${orphanWorkspaceId}.sqlite`))).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+    await expect(stat(join(stateDirectory, "source-files", "workspaces", orphanWorkspaceId))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(
+      stat(join(stateDirectory, "data", "workspaces", `${activeWorkspaceId}.sqlite`)),
+    ).resolves.toBeDefined();
     await expect(stat(join(stateDirectory, "source-files", "workspaces", activeWorkspaceId))).resolves.toBeDefined();
   } finally {
     database.close();

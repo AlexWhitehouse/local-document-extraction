@@ -1,3 +1,4 @@
+import { isJsonObject, isString, parseJson, type JsonValue } from "../../shared/json";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
@@ -5,9 +6,10 @@ import { join, resolve } from "node:path";
 
 import { sanitizeConsoleText } from "./browserEvidence";
 
-const expectedBunVersion: string = JSON.parse(
-  readFileSync(resolve("package.json"), "utf8"),
-).packageManager.replace(/^bun@/, "");
+const expectedBunVersion: string = JSON.parse(readFileSync(resolve("package.json"), "utf8")).packageManager.replace(
+  /^bun@/,
+  "",
+);
 
 type ReadyPayload = {
   bunVersion: string;
@@ -18,15 +20,27 @@ type ReadyPayload = {
 
 export type RuntimeHarness = Awaited<ReturnType<typeof startRuntimeHarness>>;
 
-export async function startRuntimeHarness({ timeoutMs = 20_000, requireEmailVerification, sourceStorage }: { timeoutMs?: number; requireEmailVerification?: boolean; sourceStorage?: "local" } = {}) {
+export async function startRuntimeHarness({
+  timeoutMs = 20_000,
+  requireEmailVerification,
+  sourceStorage,
+}: { timeoutMs?: number; requireEmailVerification?: boolean; sourceStorage?: "local" } = {}) {
   const rootDirectory = resolve(process.cwd());
-  const child = spawn(process.env.E2E_BUN_EXECUTABLE || "bun", [
-    "e2e/support/runtimeHarness.ts",
-  ], {
+
+  const environment = {
+    ...process.env,
+    AUTH_REQUIRE_EMAIL_VERIFICATION: requireEmailVerification === undefined ? "" : String(requireEmailVerification),
+    E2E_PARENT_PID: String(process.pid),
+  };
+
+  if (sourceStorage) Object.assign(environment, { SOURCE_STORAGE_PROVIDER: sourceStorage });
+
+  const child = spawn(process.env.E2E_BUN_EXECUTABLE || "bun", ["e2e/support/runtimeHarness.ts"], {
     cwd: rootDirectory,
-    env: { ...process.env, AUTH_REQUIRE_EMAIL_VERIFICATION: requireEmailVerification === undefined ? "" : String(requireEmailVerification), E2E_PARENT_PID: String(process.pid), ...(sourceStorage ? { SOURCE_STORAGE_PROVIDER: sourceStorage } : {}) },
+    env: environment,
     stdio: ["pipe", "pipe", "pipe"],
   });
+
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
 
@@ -36,19 +50,23 @@ export async function startRuntimeHarness({ timeoutMs = 20_000, requireEmailVeri
   let resolveReady!: (payload: ReadyPayload) => void;
   let rejectReady!: (error: Error) => void;
   let readySettled = false;
+
   const ready = new Promise<ReadyPayload>((resolvePromise, rejectPromise) => {
     resolveReady = resolvePromise;
     rejectReady = rejectPromise;
   });
+
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolvePromise) => {
     child.once("exit", (code, signal) => {
       resolvePromise({ code, signal });
+
       if (!readySettled) {
         readySettled = true;
         rejectReady(new Error(`harness exited before readiness (code=${code}, signal=${signal || "none"})`));
       }
     });
   });
+
   child.once("error", (error) => {
     if (!readySettled) {
       readySettled = true;
@@ -60,11 +78,14 @@ export async function startRuntimeHarness({ timeoutMs = 20_000, requireEmailVeri
     pendingLine += chunk;
     const lines = pendingLine.split(/\r?\n/);
     pendingLine = lines.pop() || "";
+
     for (const line of lines) {
       const prefix = "E2E_RUNTIME_READY ";
+
       if (!line.startsWith(prefix) || readySettled) continue;
+
       try {
-        const payload = validateReadyPayload(JSON.parse(line.slice(prefix.length)));
+        const payload = validateReadyPayload(parseJson(line.slice(prefix.length)));
         readySettled = true;
         resolveReady(payload);
       } catch (error) {
@@ -85,42 +106,50 @@ export async function startRuntimeHarness({ timeoutMs = 20_000, requireEmailVeri
   }, timeoutMs);
 
   let payload: ReadyPayload;
+
   try {
     payload = await ready;
   } catch (error) {
     await terminateChild(child, exited);
-    throw new Error([
-      `Browser runtime harness startup failed: ${errorMessage(error)}`,
-      `stdout:\n${sanitizeProcessOutput(stdout)}`,
-      `stderr:\n${sanitizeProcessOutput(stderr)}`,
-    ].join("\n"), { cause: error });
+    throw new Error(
+      [
+        `Browser runtime harness startup failed: ${errorMessage(error)}`,
+        `stdout:\n${sanitizeProcessOutput(stdout)}`,
+        `stderr:\n${sanitizeProcessOutput(stderr)}`,
+      ].join("\n"),
+      { cause: error },
+    );
   } finally {
     clearTimeout(timer);
   }
 
   let stopPromise: Promise<void> | undefined;
+
   return {
     bunVersion: payload.bunVersion,
     origin: payload.origin,
     gatewayOrigin: payload.controlOrigin,
     stateDirectory: payload.stateDirectory,
-    waitForVerificationMail: (email: string) => waitForTransactionalMail({
-      email,
-      expectedPath: "/api/auth/verify-email",
-      origin: payload.origin,
-      stateDirectory: payload.stateDirectory,
-      type: "account_email_verification",
-    }),
-    waitForPasswordResetMail: (email: string) => waitForTransactionalMail({
-      email,
-      expectedPath: "/api/auth/reset-password/",
-      pathMatch: "prefix",
-      origin: payload.origin,
-      stateDirectory: payload.stateDirectory,
-      type: "account_password_reset",
-    }),
+    waitForVerificationMail: (email: string) =>
+      waitForTransactionalMail({
+        email,
+        expectedPath: "/api/auth/verify-email",
+        origin: payload.origin,
+        stateDirectory: payload.stateDirectory,
+        type: "account_email_verification",
+      }),
+    waitForPasswordResetMail: (email: string) =>
+      waitForTransactionalMail({
+        email,
+        expectedPath: "/api/auth/reset-password/",
+        pathMatch: "prefix",
+        origin: payload.origin,
+        stateDirectory: payload.stateDirectory,
+        type: "account_password_reset",
+      }),
     stop(): Promise<void> {
       stopPromise ??= stopHarness(child, exited, payload.controlOrigin, () => ({ stderr, stdout }));
+
       return stopPromise;
     },
   };
@@ -143,49 +172,59 @@ async function waitForTransactionalMail({
 }): Promise<{ actionUrl: string }> {
   const mailDirectory = join(stateDirectory, "mail");
   const deadline = Date.now() + 10_000;
+
   while (Date.now() < deadline) {
     const fileNames = await readdir(mailDirectory).catch(() => []);
+
     for (const fileName of fileNames.filter((value) => value.endsWith(".jsonl")).sort()) {
       const content = await readFile(join(mailDirectory, fileName), "utf8");
+
       for (const line of content.trim().split("\n").filter(Boolean)) {
-        const record = JSON.parse(line) as {
-          action_url?: unknown;
-          to?: unknown;
-          type?: unknown;
-        };
-        if (record.type !== type || record.to !== email) continue;
+        const record = parseJson(line);
+
+        if (!isJsonObject(record) || record.type !== type || record.to !== email) continue;
         const actionUrl = new URL(String(record.action_url || ""));
-        const pathMatches = pathMatch === "prefix"
-          ? actionUrl.pathname.startsWith(expectedPath)
-          : actionUrl.pathname === expectedPath;
+
+        const pathMatches =
+          pathMatch === "prefix" ? actionUrl.pathname.startsWith(expectedPath) : actionUrl.pathname === expectedPath;
+
         if (actionUrl.origin !== origin || !pathMatches) {
           throw new Error(`Local ${type} mail contained an unexpected action origin or path`);
         }
+
         return { actionUrl: actionUrl.toString() };
       }
     }
+
     await delay(25);
   }
+
   throw new Error(`Timed out waiting for isolated ${type} mail`);
 }
 
-function validateReadyPayload(input: unknown): ReadyPayload {
-  if (!input || typeof input !== "object") throw new Error("ready payload must be an object");
-  const candidate = input as Partial<ReadyPayload>;
+function validateReadyPayload(candidate: JsonValue): ReadyPayload {
+  if (!isJsonObject(candidate)) throw new Error("ready payload must be an object");
   const origin = new URL(String(candidate.origin || ""));
   const controlOrigin = new URL(String(candidate.controlOrigin || ""));
+
   if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || !origin.port) {
     throw new Error("ready origin must be an explicit loopback HTTP listener");
   }
+
   if (controlOrigin.protocol !== "http:" || controlOrigin.hostname !== "127.0.0.1" || !controlOrigin.port) {
     throw new Error("ready control origin must be an explicit loopback HTTP listener");
   }
+
   if (candidate.bunVersion !== expectedBunVersion) {
-    throw new Error(`browser harness requires Bun ${expectedBunVersion}, received ${String(candidate.bunVersion || "unknown")}`);
+    throw new Error(
+      `browser harness requires Bun ${expectedBunVersion}, received ${String(candidate.bunVersion || "unknown")}`,
+    );
   }
-  if (typeof candidate.stateDirectory !== "string" || !candidate.stateDirectory) {
+
+  if (!isString(candidate.stateDirectory) || !candidate.stateDirectory) {
     throw new Error("ready payload did not include an isolated state directory");
   }
+
   return {
     bunVersion: expectedBunVersion,
     controlOrigin: controlOrigin.origin,
@@ -205,27 +244,31 @@ async function stopHarness(
       child.kill("SIGTERM");
     });
   }
-  const result = await Promise.race([
-    exited,
-    delay(10_000).then(() => null),
-  ]);
+
+  const result = await Promise.race([exited, delay(10_000).then(() => null)]);
+
   if (!result) {
     child.kill("SIGKILL");
     await exited;
     const captured = output();
-    throw new Error([
-      "Browser runtime harness did not stop within 10 seconds and was killed",
-      `stdout:\n${sanitizeProcessOutput(captured.stdout)}`,
-      `stderr:\n${sanitizeProcessOutput(captured.stderr)}`,
-    ].join("\n"));
+    throw new Error(
+      [
+        "Browser runtime harness did not stop within 10 seconds and was killed",
+        `stdout:\n${sanitizeProcessOutput(captured.stdout)}`,
+        `stderr:\n${sanitizeProcessOutput(captured.stderr)}`,
+      ].join("\n"),
+    );
   }
+
   if (result.code !== 0) {
     const captured = output();
-    throw new Error([
-      `Browser runtime harness exited with code ${result.code} (signal=${result.signal || "none"})`,
-      `stdout:\n${sanitizeProcessOutput(captured.stdout)}`,
-      `stderr:\n${sanitizeProcessOutput(captured.stderr)}`,
-    ].join("\n"));
+    throw new Error(
+      [
+        `Browser runtime harness exited with code ${result.code} (signal=${result.signal || "none"})`,
+        `stdout:\n${sanitizeProcessOutput(captured.stdout)}`,
+        `stderr:\n${sanitizeProcessOutput(captured.stderr)}`,
+      ].join("\n"),
+    );
   }
 }
 
@@ -250,6 +293,6 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }

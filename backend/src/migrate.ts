@@ -4,8 +4,11 @@ import { retireGlobalModelConfiguration } from "./retireGlobalModelConfiguration
 import { ensureLocalStateDirectories } from "./localRuntime";
 
 const configuration = readLocalConfiguration();
+
 const { stateDirectory } = configuration;
+
 await ensureLocalStateDirectories(stateDirectory);
+
 const runtime = await createLocalAuthRuntime({
   ...configuration.auth,
   // Migration does not bind a listener; ephemeral ports resolve at server startup.
@@ -13,6 +16,9 @@ const runtime = await createLocalAuthRuntime({
   email: configuration.email,
   stateDirectory,
 });
+
 runtime.close();
+
 await retireGlobalModelConfiguration(stateDirectory);
+
 console.info(`Local state is initialized at ${stateDirectory}`);

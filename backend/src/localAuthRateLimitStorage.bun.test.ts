@@ -21,6 +21,7 @@ test("identity churn cannot evict active limits or grow storage without a bound"
   const consume = (key: string) => storage.consume!(key, { max: 1, window: 10 });
   expect((await consume("first")).allowed).toBe(true);
   expect((await consume("second")).allowed).toBe(true);
+
   for (let index = 0; index < 10; index++) expect((await consume(`new-${index}`)).allowed).toBe(false);
   expect((await consume("first")).allowed).toBe(false);
   now = 110_000;

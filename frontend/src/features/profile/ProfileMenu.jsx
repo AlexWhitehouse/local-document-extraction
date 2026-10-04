@@ -64,12 +64,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                       <span className="eyebrow">Identity</span>
                       <h3>Account</h3>
                     </div>
-                    <button
-                      type="button"
-                      className="modal-close"
-                      aria-label="Close settings"
-                      onClick={onToggle}
-                    >
+                    <button type="button" className="modal-close" aria-label="Close settings" onClick={onToggle}>
                       ×
                     </button>
                   </header>
@@ -94,11 +89,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         <input value={displayEmail} readOnly aria-readonly="true" />
                       </label>
                       <div className="settings-form-actions">
-                        <button
-                          type="button"
-                          disabled={isSavingProfile || !isDirty}
-                          onClick={onSaveProfile}
-                        >
+                        <button type="button" disabled={isSavingProfile || !isDirty} onClick={onSaveProfile}>
                           {isSavingProfile ? "Saving…" : "Save profile"}
                         </button>
                       </div>
@@ -108,12 +99,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         <strong>End this session</strong>
                         <span>You’ll need to sign in again to access local workspaces.</span>
                       </div>
-                      <button
-                        type="button"
-                        className="danger"
-                        disabled={busy || isSavingProfile}
-                        onClick={onSignOut}
-                      >
+                      <button type="button" className="danger" disabled={busy || isSavingProfile} onClick={onSignOut}>
                         Sign out
                       </button>
                     </div>
@@ -130,11 +116,13 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
 
 function profileInitials(name, email) {
   const source = String(name || "").trim() || String(email || "").trim();
+
   if (!source) {
     return "U";
   }
 
   const parts = source.split(/\s+/).filter(Boolean);
+
   if (parts.length >= 2) {
     return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
   }

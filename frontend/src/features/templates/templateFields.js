@@ -1,15 +1,8 @@
+import { isJsonObject, isString } from "../../../../shared/json.ts";
 import { diagnoseTemplateDraft } from "../../../../shared/templateDiagnostics.ts";
 import { normalizeTemplateTags } from "../../../../shared/templateTags.ts";
 
-export const DATA_TYPES = [
-  "string",
-  "number",
-  "boolean",
-  "date",
-  "object",
-  "array",
-  "array<object>",
-];
+export const DATA_TYPES = ["string", "number", "boolean", "date", "object", "array", "array<object>"];
 
 const DATA_TYPE_LABELS = {
   string: "Text",
@@ -26,11 +19,15 @@ export function getDataTypeLabel(dataType) {
 }
 
 export const OBJECT_SCHEMA_DATA_TYPES = ["string", "number", "boolean", "date"];
+
 export const MAX_TEMPLATE_OBJECT_COLUMNS = 20;
 
 const OBJECT_GUIDANCE_START = "[[OBJECT_TABLE_GUIDANCE]]";
+
 const OBJECT_GUIDANCE_END = "[[/OBJECT_TABLE_GUIDANCE]]";
+
 const OBJECT_SCHEMA_START = "[[OBJECT_SCHEMA]]";
+
 const OBJECT_SCHEMA_END = "[[/OBJECT_SCHEMA]]";
 
 export const EMPTY_OBJECT_COLUMN = {
@@ -56,7 +53,7 @@ function normalizeFields(fields, options = {}) {
   const names = new Set();
 
   const normalizedFields = fields.map((field, index) => {
-    if (!field || typeof field !== "object" || Array.isArray(field)) {
+    if (!isJsonObject(field)) {
       throw new Error(`Field ${index + 1}: must be an object`);
     }
 
@@ -64,8 +61,9 @@ function normalizeFields(fields, options = {}) {
     const id = toFieldId(name);
     const description = String(field.description || "").trim();
     const dataType = normalizeDataType(field.data_type);
-    const { baseDescription, objectSchema: descriptionObjectSchema } =
-      extractObjectMetadata(description);
+
+    const { baseDescription, objectSchema: descriptionObjectSchema } = extractObjectMetadata(description);
+
     const objectSchema = isObjectLikeType(dataType)
       ? normalizeObjectSchema(field.object_schema || descriptionObjectSchema)
       : null;
@@ -73,20 +71,23 @@ function normalizeFields(fields, options = {}) {
     if (!name) {
       throw new Error(`Field ${index + 1}: name is required`);
     }
+
     if (!id) {
-      throw new Error(
-        `Field ${index + 1}: name must include letters or numbers`,
-      );
+      throw new Error(`Field ${index + 1}: name must include letters or numbers`);
     }
+
     if (!baseDescription) {
       throw new Error(`Field ${index + 1}: description is required`);
     }
+
     if (!DATA_TYPES.includes(dataType)) {
       throw new Error(`Field ${index + 1}: unsupported type "${dataType}"`);
     }
+
     if (ids.has(id)) {
       throw new Error(`Duplicate field ID: ${id}`);
     }
+
     if (names.has(name)) {
       throw new Error(`Duplicate field name: ${name}`);
     }
@@ -94,9 +95,8 @@ function normalizeFields(fields, options = {}) {
     ids.add(id);
     names.add(name);
 
-    const objectColumns = objectSchema
-      ? validateObjectColumns(objectSchema.columns, index)
-      : null;
+    const objectColumns = objectSchema ? validateObjectColumns(objectSchema.columns, index) : null;
+
     const finalDescription = objectColumns
       ? appendObjectMetadata(baseDescription, objectColumns, dataType)
       : baseDescription;
@@ -125,10 +125,9 @@ function normalizeFields(fields, options = {}) {
     return normalizedField;
   });
 
-  const tableShapedFieldCount = normalizedFields.filter((field) =>
-    isObjectLikeType(field.data_type),
-  ).length;
-  if (tableShapedFieldCount > 1) {
+  const tableFieldCount = normalizedFields.filter((field) => isObjectLikeType(field.data_type)).length;
+
+  if (tableFieldCount > 1) {
     throw new Error("A Template may contain at most one table-shaped Template field");
   }
 
@@ -137,11 +136,13 @@ function normalizeFields(fields, options = {}) {
 
 export function isObjectLikeType(dataType) {
   const normalized = normalizeDataType(dataType);
+
   return normalized === "object" || normalized === "array<object>";
 }
 
 export function normalizeDataType(value) {
   const raw = String(value || "").trim();
+
   if (!raw) {
     return "";
   }
@@ -151,6 +152,7 @@ export function normalizeDataType(value) {
   }
 
   const lowered = raw.toLowerCase();
+
   if (DATA_TYPES.includes(lowered)) {
     return lowered;
   }
@@ -172,15 +174,11 @@ export function toFieldId(name) {
 
 export function normalizeObjectSchema(schema) {
   const rawColumns = Array.isArray(schema?.columns) ? schema.columns : [];
+
   const columns = rawColumns.map((column) => ({
-    heading: sanitizeFieldName(String(column?.heading || "")).replace(
-      /\s+/g,
-      " ",
-    ),
+    heading: sanitizeFieldName(String(column?.heading || "")).replace(/\s+/g, " "),
     key: toFieldId(String(column?.heading || "")),
-    data_type: OBJECT_SCHEMA_DATA_TYPES.includes(String(column?.data_type || ""))
-      ? String(column.data_type)
-      : "string",
+    data_type: OBJECT_SCHEMA_DATA_TYPES.includes(String(column?.data_type || "")) ? String(column.data_type) : "string",
     description: String(column?.description || ""),
   }));
 
@@ -192,9 +190,7 @@ export function normalizeObjectSchema(schema) {
 
 function validateObjectColumns(columns, fieldIndex) {
   if (!Array.isArray(columns) || columns.length === 0) {
-    throw new Error(
-      `Field ${fieldIndex + 1}: object fields require at least one table column`,
-    );
+    throw new Error(`Field ${fieldIndex + 1}: object fields require at least one table column`);
   }
 
   if (columns.length > MAX_TEMPLATE_OBJECT_COLUMNS) {
@@ -204,6 +200,7 @@ function validateObjectColumns(columns, fieldIndex) {
   }
 
   const keys = new Set();
+
   const normalized = columns.map((column, columnIndex) => {
     const heading = String(column.heading || "").trim();
     const key = toFieldId(heading);
@@ -211,24 +208,19 @@ function validateObjectColumns(columns, fieldIndex) {
     const dataType = String(column.data_type || "").trim();
 
     if (!heading) {
-      throw new Error(
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading is required`,
-      );
+      throw new Error(`Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading is required`);
     }
+
     if (!key) {
-      throw new Error(
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading must include letters or numbers`,
-      );
+      throw new Error(`Field ${fieldIndex + 1}, column ${columnIndex + 1}: heading must include letters or numbers`);
     }
+
     if (!OBJECT_SCHEMA_DATA_TYPES.includes(dataType)) {
-      throw new Error(
-        `Field ${fieldIndex + 1}, column ${columnIndex + 1}: unsupported column type`,
-      );
+      throw new Error(`Field ${fieldIndex + 1}, column ${columnIndex + 1}: unsupported column type`);
     }
+
     if (keys.has(key)) {
-      throw new Error(
-        `Field ${fieldIndex + 1}: duplicate object column heading "${heading}"`,
-      );
+      throw new Error(`Field ${fieldIndex + 1}: duplicate object column heading "${heading}"`);
     }
 
     keys.add(key);
@@ -281,10 +273,10 @@ function appendObjectMetadata(baseDescription, columns, dataType) {
 
 function extractObjectMetadata(description) {
   const raw = String(description || "");
-  const schemaPattern =
-    /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/;
-  const guidancePattern =
-    /\[\[OBJECT_TABLE_GUIDANCE\]\][\s\S]*?\[\[\/OBJECT_TABLE_GUIDANCE\]\]\s*/g;
+
+  const schemaPattern = /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/;
+
+  const guidancePattern = /\[\[OBJECT_TABLE_GUIDANCE\]\][\s\S]*?\[\[\/OBJECT_TABLE_GUIDANCE\]\]\s*/g;
 
   const schemaMatch = raw.match(schemaPattern);
   let objectSchema = null;
@@ -298,10 +290,7 @@ function extractObjectMetadata(description) {
     }
   }
 
-  const baseDescription = raw
-    .replace(schemaPattern, "")
-    .replace(guidancePattern, "")
-    .trim();
+  const baseDescription = raw.replace(schemaPattern, "").replace(guidancePattern, "").trim();
 
   return {
     baseDescription,
@@ -310,47 +299,46 @@ function extractObjectMetadata(description) {
 }
 
 export function hydrateFieldFromTemplate(field) {
-  const { baseDescription, objectSchema } = extractObjectMetadata(
-    field.description,
-  );
+  const { baseDescription, objectSchema } = extractObjectMetadata(field.description);
+
   const sanitizedName = normalizeFieldName(field.name);
   const normalizedDataType = normalizeDataType(field.data_type);
 
-  return {
+  const hydrated = {
     ...field,
     id: toFieldId(sanitizedName),
     name: sanitizedName,
     description: baseDescription,
     data_type: normalizedDataType || "string",
-    ...(objectSchema ? { object_schema: objectSchema } : {}),
   };
+
+  if (objectSchema) hydrated.object_schema = objectSchema;
+
+  return hydrated;
 }
 
 export function validateTemplateJsonPayload(input, options = {}) {
   const diagnostics = diagnoseTemplateDraft(input);
+
   if (diagnostics.length) {
     throw Object.assign(new Error(diagnostics[0].title), { diagnostics });
   }
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
+
+  if (!isJsonObject(input)) {
     throw new Error("Template JSON must be an object");
   }
 
-  if (typeof input.name !== "string" || input.name.trim().length === 0) {
+  if (!isString(input.name) || input.name.trim().length === 0) {
     throw new Error("Template name is required");
   }
 
-  if (
-    input.description !== undefined &&
-    input.description !== null &&
-    typeof input.description !== "string"
-  ) {
+  if (input.description !== undefined && input.description !== null && !isString(input.description)) {
     throw new Error("Template description must be a string");
   }
 
   return {
     name: input.name.trim(),
-    description:
-      input.description === null ? null : String(input.description || "").trim(),
+    description: input.description === null ? null : String(input.description || "").trim(),
     tags: normalizeTemplateTags(input.tags === undefined ? [] : input.tags),
     fields: normalizeFields(input.fields, options),
   };

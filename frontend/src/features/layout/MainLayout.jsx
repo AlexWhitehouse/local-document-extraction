@@ -43,7 +43,9 @@ export function MainLayout({
             <p className="eyebrow">Document Extraction</p>
             <h1>Studio</h1>
           </div>
-          <span className="sidebar-brand-mark" aria-hidden="true">DX</span>
+          <span className="sidebar-brand-mark" aria-hidden="true">
+            DX
+          </span>
           <button
             type="button"
             className="sidebar-collapse-toggle"
@@ -72,7 +74,9 @@ export function MainLayout({
           disabled={isUploadDisabled}
           onClick={onUploadDocument}
         >
-          <span className="sidebar-upload-icon" aria-hidden="true">+</span>
+          <span className="sidebar-upload-icon" aria-hidden="true">
+            +
+          </span>
           <span className="sidebar-upload-label">Upload Document</span>
         </button>
 
@@ -102,7 +106,9 @@ function useContentFade(ref, page, selection) {
     const before = previous.current;
     previous.current = { page, selection };
     const isSwap = page !== before.page || (selection && before.selection && selection !== before.selection);
-    if (!isSwap || typeof ref.current?.animate !== "function") return;
+
+    if (!isSwap || !ref.current?.animate) return;
+
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     ref.current.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
   }, [ref, page, selection]);
@@ -117,6 +123,7 @@ function useSidebarCollapsed() {
       return false;
     }
   });
+
   const toggle = useCallback(() => setIsCollapsed((current) => !current), []);
 
   useEffect(() => {
@@ -139,11 +146,13 @@ function useSidebarCollapsed() {
       ) {
         return;
       }
+
       event.preventDefault();
       toggle();
     }
 
     window.addEventListener("keydown", toggleOnShortcut);
+
     return () => window.removeEventListener("keydown", toggleOnShortcut);
   }, [toggle]);
 
@@ -170,17 +179,8 @@ function SidebarToggleIcon({ collapsed }) {
   );
 }
 
-function SidebarNavigation({
-  activePage,
-  counts,
-  showAdminNavigation,
-  onNavigate,
-  navigationHref,
-}) {
-  const items = [
-    ...SIDEBAR_ITEMS,
-    ...(showAdminNavigation ? [ADMIN_SIDEBAR_ITEM] : []),
-  ];
+function SidebarNavigation({ activePage, counts, showAdminNavigation, onNavigate, navigationHref }) {
+  const items = [...SIDEBAR_ITEMS, ...(showAdminNavigation ? [ADMIN_SIDEBAR_ITEM] : [])];
 
   return (
     <nav className="sidebar-nav" aria-label="Main navigation">
@@ -189,18 +189,14 @@ function SidebarNavigation({
           key={item.id}
           data-tour={`nav-${item.id}`}
           href={navigationHref?.(item.id)}
-          className={
-            item.id === activePage ? "sidebar-link active" : "sidebar-link"
-          }
+          className={item.id === activePage ? "sidebar-link active" : "sidebar-link"}
           onClick={() => onNavigate(item.id)}
         >
           <span className="sidebar-link-icon" aria-hidden="true">
             {item.icon}
           </span>
           <span className="sidebar-link-label">{item.label}</span>
-          {item.id === "admin" ? null : (
-            <span className="sidebar-link-count">{counts[item.id] ?? ""}</span>
-          )}
+          {item.id === "admin" ? null : <span className="sidebar-link-count">{counts[item.id] ?? ""}</span>}
         </NavigationLink>
       ))}
     </nav>
@@ -244,6 +240,7 @@ export function WorkspaceToolbar({
       : selectedDocumentCount > exportableDocumentCount
         ? `${exportableDocumentCount} of ${selectedDocumentCount} selected documents are ready to export. In-progress documents will be skipped.`
         : undefined;
+
   return (
     <header className="studio-page-heading" aria-label="Workspace toolbar">
       <p className="studio-eyebrow">
@@ -253,108 +250,119 @@ export function WorkspaceToolbar({
       </p>
       <h1 title={pageTitle}>{pageTitle}</h1>
       <div className="studio-heading-actions">
-        {actions ?? (activePage === "documents" ? (
-          <>
-            {canDownloadOriginal ? (
-              <button
-                type="button"
-                className="secondary"
-                disabled={!hasApiAccess || isDownloadingOriginal}
-                onClick={onDownloadOriginal}
-              >
-                {isDownloadingOriginal ? "Downloading…" : "Download"}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="danger"
-              disabled={
-                !hasApiAccess ||
-                isDeletingDocument ||
-                isExportingDocuments ||
-                (!selectedDocumentCount && !selectedDocumentId)
-              }
-              onClick={onDeleteDocument}
-            >
-              {isDeletingDocument
-                ? "Deleting…"
-                : selectedDocumentCount
-                  ? `Delete ${selectedDocumentCount}`
-                  : "Delete"}
-            </button>
-            <button
-              type="button"
-              disabled={
-                !hasApiAccess ||
-                isDeletingDocument ||
-                isExportingDocuments ||
-                exportableDocumentCount === 0
-              }
-              onClick={onExportDocuments}
-              title={exportHint}
-            >
-              {isExportingDocuments
-                ? "Exporting…"
-                : selectedDocumentCount
-                  ? `Export ${selectedDocumentCount}`
-                  : "Export"}
-            </button>
-          </>
-        ) : (
-          <>
-            {activePage === "workspace" && onViewCosts ? <button type="button" className="secondary" onClick={onViewCosts}>Costs</button> : null}
-            {activePage === "templates" ? (
-              <div className="studio-create-template-split" role="group" aria-label="Create template">
-                <button type="button" className="secondary" data-tour="create-template"
-                  disabled={!hasApiAccess} onClick={onCreateTemplate}>
-                  Create Template
+        {actions ??
+          (activePage === "documents" ? (
+            <>
+              {canDownloadOriginal ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={!hasApiAccess || isDownloadingOriginal}
+                  onClick={onDownloadOriginal}
+                >
+                  {isDownloadingOriginal ? "Downloading…" : "Download"}
                 </button>
-                <button type="button" className="secondary studio-create-template-magic"
-                  aria-label="Auto generate new template" title="Auto generate new template"
-                  disabled={!hasApiAccess} onClick={onAutoGenerateTemplate}>
-                  <MagicIcon />
-                </button>
-              </div>
-            ) : (
-              <button type="button" className="secondary" data-tour="create-workspace"
-                disabled={isWorkspaceBusy} onClick={onCreateWorkspace}>
-                Create Workspace
-              </button>
-            )}
-            {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
+              ) : null}
               <button
                 type="button"
                 className="danger"
                 disabled={
-                  isDeletingWorkspace ||
                   !hasApiAccess ||
-                  !workspaceId.trim() ||
-                  workspacePrimaryAction.type === "none"
+                  isDeletingDocument ||
+                  isExportingDocuments ||
+                  (!selectedDocumentCount && !selectedDocumentId)
                 }
-                onClick={onWorkspacePrimaryAction}
+                onClick={onDeleteDocument}
               >
-                {isDeletingWorkspace
-                  ? workspacePrimaryAction.type === "leave"
-                    ? "Leaving…"
-                    : "Deleting…"
-                  : workspacePrimaryAction.label || "Delete Workspace"}
+                {isDeletingDocument
+                  ? "Deleting…"
+                  : selectedDocumentCount
+                    ? `Delete ${selectedDocumentCount}`
+                    : "Delete"}
               </button>
-            ) : activePage === "templates" ? (
               <button
                 type="button"
-                className="danger"
-                disabled={
-                  isDeletingTemplate ||
-                  !hasApiAccess ||
-                  !updateTemplateId.trim()
-                }
-                onClick={onDeleteTemplate}
+                disabled={!hasApiAccess || isDeletingDocument || isExportingDocuments || exportableDocumentCount === 0}
+                onClick={onExportDocuments}
+                title={exportHint}
               >
-                {isDeletingTemplate ? "Deleting…" : "Delete Template"}
+                {isExportingDocuments
+                  ? "Exporting…"
+                  : selectedDocumentCount
+                    ? `Export ${selectedDocumentCount}`
+                    : "Export"}
               </button>
-            ) : null}
-          </>
-        ))}
+            </>
+          ) : (
+            <>
+              {activePage === "workspace" && onViewCosts ? (
+                <button type="button" className="secondary" onClick={onViewCosts}>
+                  Costs
+                </button>
+              ) : null}
+              {activePage === "templates" ? (
+                <div className="studio-create-template-split" role="group" aria-label="Create template">
+                  <button
+                    type="button"
+                    className="secondary"
+                    data-tour="create-template"
+                    disabled={!hasApiAccess}
+                    onClick={onCreateTemplate}
+                  >
+                    Create Template
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary studio-create-template-magic"
+                    aria-label="Auto generate new template"
+                    title="Auto generate new template"
+                    disabled={!hasApiAccess}
+                    onClick={onAutoGenerateTemplate}
+                  >
+                    <MagicIcon />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="secondary"
+                  data-tour="create-workspace"
+                  disabled={isWorkspaceBusy}
+                  onClick={onCreateWorkspace}
+                >
+                  Create Workspace
+                </button>
+              )}
+              {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={
+                    isDeletingWorkspace ||
+                    !hasApiAccess ||
+                    !workspaceId.trim() ||
+                    workspacePrimaryAction.type === "none"
+                  }
+                  onClick={onWorkspacePrimaryAction}
+                >
+                  {isDeletingWorkspace
+                    ? workspacePrimaryAction.type === "leave"
+                      ? "Leaving…"
+                      : "Deleting…"
+                    : workspacePrimaryAction.label || "Delete Workspace"}
+                </button>
+              ) : activePage === "templates" ? (
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={isDeletingTemplate || !hasApiAccess || !updateTemplateId.trim()}
+                  onClick={onDeleteTemplate}
+                >
+                  {isDeletingTemplate ? "Deleting…" : "Delete Template"}
+                </button>
+              ) : null}
+            </>
+          ))}
       </div>
       <p className="studio-page-description">{pageDescription}</p>
     </header>

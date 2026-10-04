@@ -42,14 +42,19 @@ export function AdminContextList({ admin }) {
         {admin.users.map((user) => {
           const isActive = userIdOf(user) === selectedId;
           const email = safeText(user.email);
+
           return (
             <div
               key={userKey(user)}
-              className={[
-                "context-item-card context-item-account",
-                user.banned ? "is-banned" : isApplicationAdmin(user) ? "is-admin" : "",
-                isActive ? "active" : "",
-              ].filter(Boolean).join(" ") + rowMotion(userKey(user))}
+              className={
+                [
+                  "context-item-card context-item-account",
+                  user.banned ? "is-banned" : isApplicationAdmin(user) ? "is-admin" : "",
+                  isActive ? "active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ") + rowMotion(userKey(user))
+              }
             >
               <button
                 type="button"
@@ -69,7 +74,11 @@ export function AdminContextList({ admin }) {
           <p className="muted">
             {admin.isLoading ? (
               <span role="status">Loading users…</span>
-            ) : isSearching ? "No users match this search." : "No users found."}
+            ) : isSearching ? (
+              "No users match this search."
+            ) : (
+              "No users found."
+            )}
           </p>
         ) : null}
       </ScrollArea>
@@ -79,6 +88,7 @@ export function AdminContextList({ admin }) {
 
 export function AdminContextFooter({ admin }) {
   const pageCount = Math.max(1, Math.ceil(admin.total / admin.pageSize));
+
   return (
     <>
       <span className="status-chip">Total users {admin.total}</span>
@@ -93,7 +103,9 @@ export function AdminContextFooter({ admin }) {
           >
             ‹
           </button>
-          <span>Page {admin.currentPage} of {pageCount}</span>
+          <span>
+            Page {admin.currentPage} of {pageCount}
+          </span>
           <button
             type="button"
             className="secondary"
@@ -111,10 +123,13 @@ export function AdminContextFooter({ admin }) {
 
 function AccountFlags({ user }) {
   const flags = accountFlags(user);
+
   return flags.length ? (
     <span className="admin-account-flags">
       {flags.map((flag) => (
-        <em key={flag.label} className={flag.tone}>{flag.label}</em>
+        <em key={flag.label} className={flag.tone}>
+          {flag.label}
+        </em>
       ))}
     </span>
   ) : null;

@@ -19,7 +19,12 @@ export type ProcessingCosts = {
 };
 
 export function costAmount(amount = 0, reported = 0, unreported = 0): CostAmount {
-  return { amount: unreported && !reported ? null : amount, complete: unreported === 0, reported_calls: reported, unreported_calls: unreported };
+  return {
+    amount: unreported && !reported ? null : amount,
+    complete: unreported === 0,
+    reported_calls: reported,
+    unreported_calls: unreported,
+  };
 }
 
 export function sumCosts(costs: CostAmount[]): CostAmount {
@@ -32,5 +37,6 @@ export function sumCosts(costs: CostAmount[]): CostAmount {
 
 export function allocateCost(cost: CostAmount, pages: number, totalPages: number): CostAmount {
   if (!pages) return costAmount();
+
   return { ...cost, amount: cost.amount === null ? null : cost.amount * (pages / totalPages) };
 }

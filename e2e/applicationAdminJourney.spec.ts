@@ -16,10 +16,7 @@ const REGULAR_USER = {
   password: "Strong1!",
 };
 
-test("an Application admin manages account access through the frontend", async ({
-  browser,
-  page: adminPage,
-}) => {
+test("an Application admin manages account access through the frontend", async ({ browser, page: adminPage }) => {
   let harness: RuntimeHarness | undefined;
   const regularContext = await browser.newContext();
   const regularPage = await regularContext.newPage();
@@ -75,8 +72,10 @@ test("an Application admin manages account access through the frontend", async (
     if (!regularContext.pages().every((page) => page.isClosed())) {
       await regularContext.close();
     }
+
     const stateDirectory = harness?.stateDirectory;
     await harness?.stop();
+
     if (stateDirectory) {
       await expect(access(stateDirectory)).rejects.toThrow();
     }

@@ -1,9 +1,10 @@
+import { toast as realToast } from "sonner";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const authClientMock = vi.hoisted(() => ({
+const authClientMock = {
   useSession: vi.fn(),
   signInEmail: vi.fn(),
   signInSocial: vi.fn(),
@@ -12,41 +13,40 @@ const authClientMock = vi.hoisted(() => ({
   resetPassword: vi.fn(),
   signOut: vi.fn(),
   refetchSession: vi.fn(),
-}));
+};
 
-const toastMock = vi.hoisted(() => ({
+const toastMock = {
   error: vi.fn(),
   success: vi.fn(),
-}));
+};
 
-vi.mock("./lib/authClient", () => ({
-  createRuntimeAuthClient: () => ({
-    useSession: authClientMock.useSession,
-    signIn: {
-      email: authClientMock.signInEmail,
-      social: authClientMock.signInSocial,
-    },
-    signUp: {
-      email: authClientMock.signUpEmail,
-    },
-    requestPasswordReset: authClientMock.requestPasswordReset,
-    resetPassword: authClientMock.resetPassword,
-    signOut: authClientMock.signOut,
-  }),
-}));
-
-vi.mock("sonner", () => ({
-  Toaster: (props) => (
-    <div data-rich-colors={String(props.richColors)} data-testid="sonner-toaster" />
-  ),
-  toast: toastMock,
-}));
+const createAuthClient = () => ({
+  useSession: authClientMock.useSession,
+  signIn: {
+    email: authClientMock.signInEmail,
+    social: authClientMock.signInSocial,
+  },
+  signUp: {
+    email: authClientMock.signUpEmail,
+  },
+  requestPasswordReset: authClientMock.requestPasswordReset,
+  resetPassword: authClientMock.resetPassword,
+  signOut: authClientMock.signOut,
+});
 
 import { App } from "./App.jsx";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
 
 // These existing cases exercise deployments with Google and delivered email.
-const configuration = { ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, googleEnabled: true, requireEmailVerification: true, mailDelivery: "cloudflare" } };
+const configuration = {
+  ...DEFAULT_RUNTIME_CONFIGURATION,
+  auth: {
+    ...DEFAULT_RUNTIME_CONFIGURATION.auth,
+    googleEnabled: true,
+    requireEmailVerification: true,
+    mailDelivery: "cloudflare",
+  },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -80,14 +80,12 @@ describe("auth sign-in feedback", () => {
   it("shows one error toast reporting all missing sign-in fields", async () => {
     const user = userEvent.setup();
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Email and password are required.",
-    );
+    expect(toastMock.error).toHaveBeenCalledWith("Email and password are required.");
   });
 
   it("shows a generic safe error toast when email sign-in fails", async () => {
@@ -96,19 +94,15 @@ describe("auth sign-in feedback", () => {
       error: { message: "No user exists for ada@example.com" },
     });
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "wrong-password");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Sign in failed. Check your email and password and try again.",
-    );
-    expect(toastMock.error).not.toHaveBeenCalledWith(
-      expect.stringContaining("ada@example.com"),
-    );
+    expect(toastMock.error).toHaveBeenCalledWith("Sign in failed. Check your email and password and try again.");
+    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("ada@example.com"));
   });
 
   it("tells an unverified email/password user to verify their email and that a new link was sent", async () => {
@@ -117,7 +111,7 @@ describe("auth sign-in feedback", () => {
       error: { message: "Email not verified" },
     });
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "Password1!");
@@ -136,19 +130,13 @@ describe("auth sign-in feedback", () => {
       error: { message: "OAuth client_id is invalid" },
     });
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
-    await user.click(
-      screen.getByRole("button", { name: "Sign in with Google" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
 
     expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Google sign-in could not start. Please try again.",
-    );
-    expect(toastMock.error).not.toHaveBeenCalledWith(
-      expect.stringContaining("OAuth"),
-    );
+    expect(toastMock.error).toHaveBeenCalledWith("Google sign-in could not start. Please try again.");
+    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("OAuth"));
   });
 
   it.each([
@@ -157,7 +145,13 @@ describe("auth sign-in feedback", () => {
   ])("uses a usable Google sign-in callback from %s", async (path, callbackPath) => {
     window.history.replaceState(null, "", path);
     authClientMock.signInSocial.mockResolvedValue({ error: null });
-    render(<App configuration={{ ...configuration, auth: { ...configuration.auth, emailPasswordEnabled: false } }} />);
+    render(
+      <App
+        createAuthClient={createAuthClient}
+        notifications={toastMock}
+        configuration={{ ...configuration, auth: { ...configuration.auth, emailPasswordEnabled: false } }}
+      />,
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Sign in with Google" }));
 
@@ -171,7 +165,7 @@ describe("auth sign-in feedback", () => {
     const user = userEvent.setup();
     authClientMock.signInEmail.mockResolvedValue({ error: null });
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "valid-password{Enter}");
@@ -181,12 +175,22 @@ describe("auth sign-in feedback", () => {
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
-  it("renders one rich-colors Sonner toaster on the auth screen", () => {
-    render(<App configuration={configuration} />);
+  it("renders one rich-colors Sonner toaster on the auth screen", async () => {
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
+    let toastId;
+    await act(async () => {
+      toastId = realToast.success("Toast appearance test");
+    });
 
-    const toasters = screen.getAllByTestId("sonner-toaster");
-    expect(toasters).toHaveLength(1);
-    expect(toasters[0].dataset.richColors).toBe("true");
+    try {
+      const message = await screen.findByText("Toast appearance test");
+      expect(document.querySelectorAll("[data-sonner-toaster]")).toHaveLength(1);
+      expect(message.closest("[data-sonner-toast]").dataset.richColors).toBe("true");
+    } finally {
+      act(() => {
+        realToast.dismiss(toastId);
+      });
+    }
   });
 
   it("does not initialize auth form values from Stored workspace preference", async () => {
@@ -199,7 +203,7 @@ describe("auth sign-in feedback", () => {
       }),
     );
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     expect(screen.getByLabelText("Email").value).toBe("");
 
@@ -215,29 +219,23 @@ describe("auth sign-in feedback", () => {
       workspaceName: "Legacy Workspace",
       authEmail: "legacy@example.com",
     });
+
     window.localStorage.getItem.mockImplementation((key) =>
       key === "imageextraction.workspace.v1" ? legacyValue : null,
     );
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
-    expect(window.localStorage.getItem).toHaveBeenCalledWith(
-      "documentextraction.workspace.v1",
-    );
-    expect(window.localStorage.getItem).not.toHaveBeenCalledWith(
-      "imageextraction.workspace.v1",
-    );
-    expect(window.localStorage.setItem).not.toHaveBeenCalledWith(
-      "documentextraction.workspace.v1",
-      legacyValue,
-    );
+    expect(window.localStorage.getItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
+    expect(window.localStorage.getItem).not.toHaveBeenCalledWith("imageextraction.workspace.v1");
+    expect(window.localStorage.setItem).not.toHaveBeenCalledWith("documentextraction.workspace.v1", legacyValue);
     expect(screen.getByLabelText("Email").value).toBe("");
   });
 
   it("opens Account password reset request mode from sign-in while preserving the typed email", async () => {
     const user = userEvent.setup();
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.click(screen.getByRole("link", { name: "Forgot password?" }));
@@ -250,7 +248,7 @@ describe("auth sign-in feedback", () => {
   it("shows feedback and does not call auth when Account password reset request email is missing", async () => {
     const user = userEvent.setup();
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Forgot password?" }));
     await user.click(screen.getByRole("button", { name: "Send reset link" }));
@@ -263,30 +261,20 @@ describe("auth sign-in feedback", () => {
   it("shows Account password reset recovery when the reset link has no token", async () => {
     window.history.replaceState(null, "", "/reset-password");
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     expect(authClientMock.useSession).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("heading", { name: "Reset link is missing or invalid" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Request a new Account password reset link to continue."),
-    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Reset link is missing or invalid" })).toBeTruthy();
+    expect(screen.getByText("Request a new Account password reset link to continue.")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull();
     expect(screen.queryByLabelText("Password")).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Request a new reset link" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Request a new reset link" })).toBeTruthy();
   });
 
   it("shows Account password reset recovery when Better Auth reports a token error", async () => {
-    window.history.replaceState(
-      null,
-      "",
-      "/reset-password?error=invalid_token",
-    );
+    window.history.replaceState(null, "", "/reset-password?error=invalid_token");
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     expect(authClientMock.useSession).not.toHaveBeenCalled();
     expect(
@@ -294,26 +282,18 @@ describe("auth sign-in feedback", () => {
         name: "Reset link has expired or is invalid",
       }),
     ).toBeTruthy();
-    expect(
-      screen.getByText(
-        "This Account password reset link can no longer be used.",
-      ),
-    ).toBeTruthy();
+    expect(screen.getByText("This Account password reset link can no longer be used.")).toBeTruthy();
     expect(screen.queryByLabelText("Password")).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Request a new reset link" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Request a new reset link" })).toBeTruthy();
   });
 
   it("opens Account password reset request mode from a reset link recovery state", async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/reset-password");
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
-    await user.click(
-      screen.getByRole("button", { name: "Request a new reset link" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Request a new reset link" }));
 
     expect(authClientMock.useSession).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Reset password" })).toBeTruthy();
@@ -325,20 +305,14 @@ describe("auth sign-in feedback", () => {
   it("shows a new-password form when an Account password reset token is present", () => {
     window.history.replaceState(null, "", "/reset-password?token=abc123");
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     expect(authClientMock.useSession).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("heading", { name: "Set new password" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Set new password" })).toBeTruthy();
     expect(screen.getByLabelText("New password")).toBeTruthy();
     expect(screen.getByLabelText("Confirm new password")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Set new password" }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole("heading", { name: /Reset link/i }),
-    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Set new password" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Reset link/i })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull();
   });
 
@@ -346,7 +320,7 @@ describe("auth sign-in feedback", () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/reset-password?token=abc123");
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.type(screen.getByLabelText("New password"), "password");
 
@@ -360,16 +334,14 @@ describe("auth sign-in feedback", () => {
 
     expect(authClientMock.resetPassword).not.toHaveBeenCalled();
     expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Password must meet all complexity requirements.",
-    );
+    expect(toastMock.error).toHaveBeenCalledWith("Password must meet all complexity requirements.");
   });
 
   it("blocks Account password reset when confirmation does not match", async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/reset-password?token=abc123");
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     const newPasswordInput = screen.getByLabelText("New password");
     const confirmPasswordInput = screen.getByLabelText("Confirm new password");
@@ -394,7 +366,7 @@ describe("auth sign-up password policy feedback", () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign up" }));
 
@@ -407,9 +379,7 @@ describe("auth sign-up password policy feedback", () => {
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
     expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Confirm password is required.",
-    );
+    expect(toastMock.error).toHaveBeenCalledWith("Confirm password is required.");
 
     toastMock.error.mockClear();
 
@@ -423,7 +393,7 @@ describe("auth sign-up password policy feedback", () => {
   it("shows password mismatch feedback until sign-up passwords match", async () => {
     const user = userEvent.setup();
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign up" }));
 
@@ -450,7 +420,7 @@ describe("auth sign-up password policy feedback", () => {
   it("blocks sign-up with mismatched passwords and shows one error toast", async () => {
     const user = userEvent.setup();
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await fillSignUp(user, { confirmPassword: "Password2!" });
     await user.click(screen.getByRole("button", { name: "Create Account" }));
@@ -463,7 +433,7 @@ describe("auth sign-up password policy feedback", () => {
   it("clears password validation state when switching auth modes while preserving identity fields", async () => {
     const user = userEvent.setup();
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await fillSignUp(user, { confirmPassword: "Password2!" });
 
@@ -489,7 +459,7 @@ describe("auth sign-up password policy feedback", () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ error: null });
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await fillSignUp(user, { confirmPassword: "Password1!{Enter}" });
 
@@ -500,7 +470,7 @@ describe("auth sign-up password policy feedback", () => {
   it("shows only unmet account password policy requirements while composing a sign-up password", async () => {
     const user = userEvent.setup();
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign up" }));
 
@@ -525,31 +495,27 @@ describe("auth sign-up password policy feedback", () => {
   it("blocks sign-up with an unmet account password policy and shows one error toast", async () => {
     const user = userEvent.setup();
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await fillSignUp(user, { password: "password" });
     await user.click(screen.getByRole("button", { name: "Create Account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
     expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Password must meet all complexity requirements.",
-    );
+    expect(toastMock.error).toHaveBeenCalledWith("Password must meet all complexity requirements.");
   });
 
   it("shows one error toast reporting all missing sign-up fields", async () => {
     const user = userEvent.setup();
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.click(screen.getByRole("link", { name: "Sign up" }));
     await user.click(screen.getByRole("button", { name: "Create Account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
     expect(toastMock.error).toHaveBeenCalledOnce();
-    expect(toastMock.error).toHaveBeenCalledWith(
-      "Name, email, password, and confirm password are required.",
-    );
+    expect(toastMock.error).toHaveBeenCalledWith("Name, email, password, and confirm password are required.");
   });
 
   it.each([
@@ -559,16 +525,12 @@ describe("auth sign-up password policy feedback", () => {
       "An account already exists for this email. Sign in instead.",
     ],
     ["the email is invalid", "Invalid email address", "Enter a valid email address and try again."],
-    [
-      "an unknown reason",
-      "Database constraint failed near secret_table",
-      "Account creation failed. Please try again.",
-    ],
+    ["an unknown reason", "Database constraint failed near secret_table", "Account creation failed. Please try again."],
   ])("shows one safe, actionable toast when sign-up fails because %s", async (_reason, serverMessage, toastMessage) => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ error: { message: serverMessage } });
 
-    render(<App configuration={configuration} />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await fillSignUp(user);
     await user.click(screen.getByRole("button", { name: "Create Account" }));
@@ -582,14 +544,29 @@ describe("auth sign-up password policy feedback", () => {
 
 describe("deployment auth configuration", () => {
   it("hides unconfigured providers and closed registration", () => {
-    render(<App configuration={{ ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, signupEnabled: false } }} />);
+    render(
+      <App
+        createAuthClient={createAuthClient}
+        notifications={toastMock}
+        configuration={{
+          ...DEFAULT_RUNTIME_CONFIGURATION,
+          auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, signupEnabled: false },
+        }}
+      />,
+    );
     expect(screen.queryByRole("button", { name: "Sign in with Google" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Sign up" })).toBeNull();
     expect(screen.getByText(/Account registration is closed/)).toBeTruthy();
   });
 
   it("shows only Google for a provider-only deployment", () => {
-    render(<App configuration={{ ...configuration, auth: { ...configuration.auth, emailPasswordEnabled: false } }} />);
+    render(
+      <App
+        createAuthClient={createAuthClient}
+        notifications={toastMock}
+        configuration={{ ...configuration, auth: { ...configuration.auth, emailPasswordEnabled: false } }}
+      />,
+    );
     expect(screen.queryByLabelText("Email")).toBeNull();
     expect(screen.queryByLabelText("Password")).toBeNull();
     expect(screen.queryByRole("link", { name: "Forgot password?" })).toBeNull();
@@ -599,7 +576,16 @@ describe("deployment auth configuration", () => {
   it("explains local verification when explicitly enabled", async () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ data: { user: { email: "ada@example.com" } } });
-    render(<App configuration={{ ...DEFAULT_RUNTIME_CONFIGURATION, auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, requireEmailVerification: true } }} />);
+    render(
+      <App
+        createAuthClient={createAuthClient}
+        notifications={toastMock}
+        configuration={{
+          ...DEFAULT_RUNTIME_CONFIGURATION,
+          auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, requireEmailVerification: true },
+        }}
+      />,
+    );
     await fillSignUp(user, { name: "Ada" });
     await user.click(screen.getByRole("button", { name: "Create Account" }));
     expect(screen.getByRole("heading", { name: "Open your local verification link." })).toBeTruthy();
@@ -609,7 +595,7 @@ describe("deployment auth configuration", () => {
   it("enters the session immediately with the default configuration", async () => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ data: { user: { email: "ada@example.com" } } });
-    render(<App />);
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
     await fillSignUp(user, { name: "Ada" });
     await user.click(screen.getByRole("button", { name: "Create Account" }));
     expect(authClientMock.refetchSession).toHaveBeenCalledOnce();

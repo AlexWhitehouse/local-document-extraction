@@ -24,6 +24,7 @@ test("Source retention deletes completed and expired failed binaries but preserv
         mimeType: "application/pdf",
         bytes: new Uint8Array([1, 2, 3]),
       });
+
       sourceKeys.set(jobId, sourceFileKey);
       store.createQueuedExtractionJob({
         jobId,
@@ -36,6 +37,7 @@ test("Source retention deletes completed and expired failed binaries but preserv
         submittedAt: "2026-01-01T00:00:00.000Z",
       });
     }
+
     store.failQueuedExtractionJob({
       jobId: "job_failed_old",
       failedAt: "2026-01-01T00:01:00.000Z",
@@ -66,12 +68,14 @@ test("Source retention deletes completed and expired failed binaries but preserv
   }
 
   const registry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
+
   const retention = createLocalSourceFileRetention({
     now: () => Date.parse("2026-01-12T00:00:00.000Z"),
     productStoreRegistry: registry,
     sourceFileStore: sourceFiles,
     stateDirectory,
   });
+
   try {
     await retention.run();
     await retention.run();
@@ -85,9 +89,12 @@ test("Source retention deletes completed and expired failed binaries but preserv
   }
 
   const database = new Database(join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`));
+
   try {
     expect(database.query("SELECT COUNT(*) AS count FROM jobs").get()).toEqual({ count: 4 });
-    expect(database.query("SELECT COUNT(*) AS count FROM source_files WHERE deleted_at IS NOT NULL").get()).toEqual({ count: 2 });
+    expect(database.query("SELECT COUNT(*) AS count FROM source_files WHERE deleted_at IS NOT NULL").get()).toEqual({
+      count: 2,
+    });
   } finally {
     database.close();
     await rm(stateDirectory, { recursive: true, force: true });

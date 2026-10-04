@@ -12,10 +12,14 @@ test("a 64 GiB host admits eight PDF preparation reservations within the shared 
   const gate = Promise.withResolvers<void>();
   const started = Promise.withResolvers<void>();
   let active = 0;
-  const calls = Array.from({ length: 8 }, () => budget.run(208 * 1024 ** 2, async () => {
-    if (++active === 8) started.resolve();
-    await gate.promise;
-  }));
+
+  const calls = Array.from({ length: 8 }, () =>
+    budget.run(208 * 1024 ** 2, async () => {
+      if (++active === 8) started.resolve();
+      await gate.promise;
+    }),
+  );
+
   try {
     await started.promise;
     expect(budget.snapshot()).toMatchObject({ reservedBytes: 8 * 208 * 1024 ** 2, waiting: 0 });
@@ -23,6 +27,7 @@ test("a 64 GiB host admits eight PDF preparation reservations within the shared 
     gate.resolve();
     await Promise.all(calls);
   }
+
   expect(budget.snapshot().reservedBytes).toBe(0);
 });
 
@@ -35,16 +40,20 @@ test("the preparation allowance scales down with system RAM and the configured p
 });
 
 test("operators can lower the preparation budget but cannot remove process headroom", () => {
-  expect(readLocalMemoryLimits({ MODEL_PREPARATION_MAX_BYTES: String(GiB) }, 64 * GiB)
-    .preparationMaxBytes).toBe(GiB);
-  expect(() => readLocalMemoryLimits({ MODEL_PREPARATION_MAX_BYTES: String(50 * GiB) }, 64 * GiB))
-    .toThrow("MODEL_PREPARATION_MAX_BYTES");
+  expect(readLocalMemoryLimits({ MODEL_PREPARATION_MAX_BYTES: String(GiB) }, 64 * GiB).preparationMaxBytes).toBe(GiB);
+  expect(() => readLocalMemoryLimits({ MODEL_PREPARATION_MAX_BYTES: String(50 * GiB) }, 64 * GiB)).toThrow(
+    "MODEL_PREPARATION_MAX_BYTES",
+  );
+
   for (const value of ["0", "-1", "invalid", "Infinity", "1.5"]) {
-    expect(() => readLocalMemoryLimits({ MODEL_PREPARATION_MAX_BYTES: value }, 64 * GiB))
-      .toThrow("MODEL_PREPARATION_MAX_BYTES");
+    expect(() => readLocalMemoryLimits({ MODEL_PREPARATION_MAX_BYTES: value }, 64 * GiB)).toThrow(
+      "MODEL_PREPARATION_MAX_BYTES",
+    );
   }
+
   for (const value of ["0", "-1", "invalid", "Infinity", "1.1"]) {
-    expect(() => readLocalMemoryLimits({ LOCAL_MEMORY_LIMIT_RATIO: value }, 64 * GiB))
-      .toThrow("LOCAL_MEMORY_LIMIT_RATIO");
+    expect(() => readLocalMemoryLimits({ LOCAL_MEMORY_LIMIT_RATIO: value }, 64 * GiB)).toThrow(
+      "LOCAL_MEMORY_LIMIT_RATIO",
+    );
   }
 });

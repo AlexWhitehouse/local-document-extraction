@@ -11,7 +11,7 @@ test("the local live update hub isolates Workspace broadcasts and strips private
   hub.subscribe({ workspaceId: "workspace_research", socket: researchSocket });
   hub.subscribe({ workspaceId: "workspace_legal", socket: legalSocket });
 
-  hub.broadcastJob("workspace_research", {
+  const privateJob = {
     job_id: "job_invoice",
     parent_packet_id: "packet_invoices",
     status: "completed",
@@ -31,7 +31,9 @@ test("the local live update hub isolates Workspace broadcasts and strips private
     results: [{ answer: "private answer", evidence: "private evidence" }],
     account_email: "ada@example.com",
     api_key: "secret",
-  });
+  };
+
+  hub.broadcastJob("workspace_research", privateJob);
 
   expect(legalMessages).toEqual([]);
   expect(researchMessages).toHaveLength(1);
@@ -67,6 +69,7 @@ test("the local live update hub closes every Workspace connection during forced 
   const hub = createLocalLiveUpdateHub();
   const closed: Array<{ code: number; reason: string }> = [];
   const messages: string[] = [];
+
   const socket = {
     close: (code: number, reason: string) => {
       closed.push({ code, reason });
@@ -75,6 +78,7 @@ test("the local live update hub closes every Workspace connection during forced 
       return messages.push(message);
     },
   };
+
   hub.subscribe({ workspaceId: "workspace_research", socket });
 
   hub.closeAll();
@@ -94,16 +98,19 @@ test("the live update hub classifies delivery, backpressure, drops, failures, an
   const closed: string[] = [];
   const delivered = { send: () => 32 };
   const backpressured = { send: () => -1 };
+
   const dropped = {
     close: (code: number) => closed.push(`dropped:${code}`),
     send: () => 0,
   };
+
   const failed = {
     close: (code: number) => closed.push(`failed:${code}`),
     send: () => {
       throw new Error("socket failed");
     },
   };
+
   for (const socket of [delivered, backpressured, dropped, failed]) {
     hub.subscribe({ workspaceId: "workspace_private", socket });
   }

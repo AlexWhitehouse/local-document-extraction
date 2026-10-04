@@ -98,6 +98,7 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
     await memberContext.close();
     const stateDirectory = harness?.stateDirectory;
     await harness?.stop();
+
     if (stateDirectory) {
       await expect(access(stateDirectory)).rejects.toThrow();
     }
@@ -106,19 +107,13 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
 
 async function invite(page: Page, email: string) {
   const openInvite = page.getByRole("button", { name: "+ Invite user", exact: true });
+
   if (await openInvite.count()) await openInvite.click();
   await page.getByLabel("Invite email").fill(email);
   await page.getByRole("button", { name: "Invite user" }).click();
   await expect(page.getByText(`Successfully invited ${email}`)).toBeVisible();
 }
 
-async function selectInvitation(
-  page: Page,
-  workspaceName: string,
-) {
-  await page
-    .getByRole("link")
-    .filter({ hasText: workspaceName })
-    .filter({ hasText: "Invited as Member" })
-    .click();
+async function selectInvitation(page: Page, workspaceName: string) {
+  await page.getByRole("link").filter({ hasText: workspaceName }).filter({ hasText: "Invited as Member" }).click();
 }

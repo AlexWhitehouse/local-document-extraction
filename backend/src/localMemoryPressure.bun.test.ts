@@ -16,7 +16,11 @@ test("Linux ignores spurious PSI startup events but forwards accumulated stalls 
 });
 
 test("Linux pressure verification forwards events when counters disappear, reset, or cannot be read", () => {
-  let reading: { stalls: Record<string, number>; lowHeadroom: boolean } | null = { stalls: { host: 10 }, lowHeadroom: false };
+  let reading: { stalls: Record<string, number>; lowHeadroom: boolean } | null = {
+    stalls: { host: 10 },
+    lowHeadroom: false,
+  };
+
   const verify = createLinuxMemoryPressureVerifier(() => reading);
   reading = { stalls: { host: 0 }, lowHeadroom: false };
   expect(verify()).toBe(true);
@@ -29,6 +33,7 @@ test("Linux pressure verification forwards events when counters disappear, reset
 test("the runtime memory-pressure listener forwards supported levels and removes itself idempotently", async () => {
   const emitter = new EventEmitter();
   const levels: string[] = [];
+
   const remove = registerLocalMemoryPressureListener({
     emitter,
     onPressure: async (level) => {

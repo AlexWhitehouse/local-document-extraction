@@ -2,36 +2,176 @@ import React from "react";
 import { fireEvent, render, screen, within, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { EvaluationsPage } from "./EvaluationsPage.jsx";
-const template = { name: "Invoice", description: "Description", fields: [{ id: "total", name: "Total", description: "Original instruction", data_type: "number" }] };
-const itemsField = { id: "items", name: "Items", data_type: "array<object>", object_schema: { columns: [{ key: "sku", heading: "SKU", data_type: "string" }, { key: "quantity", heading: "Quantity", data_type: "number" }] } };
-const result = (fields, raw) => ({ revision: 0, fields, raw, model: "model", queueMs: 0, processingMs: 1, attempts: 1 });
+
+const template = {
+  name: "Invoice",
+  description: "Description",
+  fields: [{ id: "total", name: "Total", description: "Original instruction", data_type: "number" }],
+};
+
+const itemsField = {
+  id: "items",
+  name: "Items",
+  data_type: "array<object>",
+  object_schema: {
+    columns: [
+      { key: "sku", heading: "SKU", data_type: "string" },
+      { key: "quantity", heading: "Quantity", data_type: "number" },
+    ],
+  },
+};
+
+const result = (fields, raw) => ({
+  revision: 0,
+  fields,
+  raw,
+  model: "model",
+  queueMs: 0,
+  processingMs: 1,
+  attempts: 1,
+});
+
 afterEach(() => cleanup());
+
 const BUSY = ["staged", "submitting", "queued", "running", "retrying"];
+
 // Builds the multi-document state from one document's candidates, answers and results. Results move
 // into per-pair state and their details into the (mocked) result cache, as the controller keeps them.
-function toState({ document = new File(["sample"], "invoice.pdf", { type: "application/pdf" }), references = {}, definitions = {}, candidates, ...rest }, details) {
-  const documents = document ? [{ key: "doc", kind: "upload", file: document, name: document.name, reference: { references, definitions }, save: "idle", availability: "ok" }] : [];
+function toState(
+  {
+    document = new File(["sample"], "invoice.pdf", { type: "application/pdf" }),
+    references = {},
+    definitions = {},
+    candidates,
+    ...rest
+  },
+  details,
+) {
+  const documents = document
+    ? [
+        {
+          key: "doc",
+          kind: "upload",
+          file: document,
+          name: document.name,
+          reference: { references, definitions },
+          save: "idle",
+          availability: "ok",
+        },
+      ]
+    : [];
+
   const pairs = { doc: {} };
+
   const plain = (candidates || []).map(({ status = "idle", result, message, attempt, ...candidate }) => {
     const record = result && { ...result, recordId: `record-${candidate.id}`, raw: undefined };
+
     if (result) details[record.recordId] = { raw: result.raw };
-    pairs.doc[candidate.id] = { status, message, attempt, result: record && !BUSY.includes(status) ? record : null, previous: record && BUSY.includes(status) ? record : null, detail: "retained" };
+    pairs.doc[candidate.id] = {
+      status,
+      message,
+      attempt,
+      result: record && !BUSY.includes(status) ? record : null,
+      previous: record && BUSY.includes(status) ? record : null,
+      detail: "retained",
+    };
+
     return candidate;
   });
-  return { id: "evaluation", setup: { configured: true, model: "model" }, library: { save_available: true }, libraryVersion: 0, documents, pairs, mode: "templates", alignments: {}, columns: {}, candidates: plain, ...rest };
+
+  return {
+    id: "evaluation",
+    setup: { configured: true, model: "model" },
+    library: { save_available: true },
+    libraryVersion: 0,
+    documents,
+    pairs,
+    mode: "templates",
+    alignments: {},
+    columns: {},
+    candidates: plain,
+    ...rest,
+  };
 }
+
 function setup(overrides = {}, templates = [], props = {}) {
   const details = {};
-  const state = toState({ candidates: [{ id: "a", revision: 2, model: "model", pdf: false, structured: false, status: "running", template, result: { revision: 1, fields: template.fields, raw: [{ field_id: "total", status: "ok", answer: 10 }], model: "model", queueMs: 5, processingMs: 10, attempts: 1 } }], ...overrides }, details);
-  const evaluation = { state, patch: vi.fn(), edit: vi.fn(), run: vi.fn(), api: vi.fn(async () => Response.json({ template_id: "copy" })), clear: vi.fn(), start: vi.fn(() => []), changeMode: vi.fn(), duplicate: vi.fn(), remove: vi.fn(),
-    setReference: vi.fn(), reviewReference: vi.fn(), setColumns: vi.fn(), addUploads: vi.fn(), removeDocument: vi.fn(), detail: id => details[id] || null, hydrate: vi.fn() };
-  const page = next => <EvaluationsPage evaluation={next} templates={templates} workspaceLabel="Test Workspace" enabled maxSourceFileBytes={1000} {...props} />;
+
+  const state = toState(
+    {
+      candidates: [
+        {
+          id: "a",
+          revision: 2,
+          model: "model",
+          pdf: false,
+          structured: false,
+          status: "running",
+          template,
+          result: {
+            revision: 1,
+            fields: template.fields,
+            raw: [{ field_id: "total", status: "ok", answer: 10 }],
+            model: "model",
+            queueMs: 5,
+            processingMs: 10,
+            attempts: 1,
+          },
+        },
+      ],
+      ...overrides,
+    },
+    details,
+  );
+
+  const evaluation = {
+    state,
+    patch: vi.fn(),
+    edit: vi.fn(),
+    run: vi.fn(),
+    api: vi.fn(async () => Response.json({ template_id: "copy" })),
+    clear: vi.fn(),
+    start: vi.fn(() => []),
+    changeMode: vi.fn(),
+    duplicate: vi.fn(),
+    remove: vi.fn(),
+    setReference: vi.fn(),
+    reviewReference: vi.fn(),
+    setColumns: vi.fn(),
+    addUploads: vi.fn(),
+    removeDocument: vi.fn(),
+    detail: (id) => details[id] || null,
+    hydrate: vi.fn(),
+  };
+
+  const page = (next) => (
+    <EvaluationsPage
+      evaluation={next}
+      templates={templates}
+      workspaceLabel="Test Workspace"
+      enabled
+      maxSourceFileBytes={1000}
+      {...props}
+    />
+  );
+
   const view = render(page(evaluation));
-  return Object.assign(evaluation, { rerender: stateChange => view.rerender(page({ ...evaluation, state: { ...state, ...stateChange } })) });
+
+  return Object.assign(evaluation, {
+    rerender: (stateChange) => view.rerender(page({ ...evaluation, state: { ...state, ...stateChange } })),
+  });
 }
+
 // The answers one setReference call verified, keyed by field identity.
-const saved = (evaluation, call = 0) => { const [docKey, identity, value] = evaluation.setReference.mock.calls[call]; expect(docKey).toBe("doc"); return { [identity]: value }; };
+const saved = (evaluation, call = 0) => {
+  const [docKey, identity, value] = evaluation.setReference.mock.calls[call];
+  expect(docKey).toBe("doc");
+
+  return { [identity]: value };
+};
+
 const openMenu = (index = 1) => fireEvent.click(screen.getByRole("button", { name: `Candidate ${index} options` }));
+
 const savedTemplate = (fields = template.fields) => ({ ...template, fields, current_version: 3 });
 
 it("keeps editing available during processing and applies full editor changes only to the candidate", async () => {
@@ -40,25 +180,36 @@ it("keeps editing available during processing and applies full editor changes on
   openMenu();
   fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
   const dialog = screen.getByRole("dialog", { name: "Edit Template" });
-  fireEvent.change(within(dialog).getByRole("textbox", { name: "Extraction instructions" }), { target: { value: "Revised instruction" } });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Extraction instructions" }), {
+    target: { value: "Revised instruction" },
+  });
   fireEvent.click(within(dialog).getByRole("button", { name: "Apply changes" }));
   await waitFor(() => expect(evaluation.edit).toHaveBeenCalled());
   expect(evaluation.edit.mock.calls[0][1].template.fields[0].description).toBe("Revised instruction");
-  expect(template.fields[0].description).toBe("Original instruction"); expect(evaluation.api).not.toHaveBeenCalled();
+  expect(template.fields[0].description).toBe("Original instruction");
+  expect(evaluation.api).not.toHaveBeenCalled();
 });
+
 it("Save as new Template warns for untested edits and saves an independent current draft", async () => {
   const evaluation = setup();
   openMenu();
   fireEvent.click(screen.getByRole("button", { name: "Save as new Template" }));
   const dialog = screen.getByRole("dialog", { name: "Save as new Template" });
   expect(within(dialog).getByText(/current edits have not been tested/)).toBeTruthy();
-  fireEvent.change(within(dialog).getByRole("textbox", { name: "Template name" }), { target: { value: "New Invoice" } });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Template name" }), {
+    target: { value: "New Invoice" },
+  });
   fireEvent.click(within(dialog).getByRole("button", { name: "Save new Template" }));
   await waitFor(() => expect(evaluation.api).toHaveBeenCalled());
   expect(evaluation.api.mock.calls[0][0]).toBe("/templates");
-  expect(JSON.parse(evaluation.api.mock.calls[0][1].body)).toMatchObject({ name: "New Invoice", fields: [{ name: "Total", description: "Original instruction", data_type: "number" }] });
-  expect(evaluation.edit).not.toHaveBeenCalled(); expect(template.name).toBe("Invoice");
+  expect(JSON.parse(evaluation.api.mock.calls[0][1].body)).toMatchObject({
+    name: "New Invoice",
+    fields: [{ name: "Total", description: "Original instruction", data_type: "number" }],
+  });
+  expect(evaluation.edit).not.toHaveBeenCalled();
+  expect(template.name).toBe("Invoice");
 });
+
 it("candidate values stay unverified until an explicit reference confirmation", () => {
   const evaluation = setup();
   fireEvent.click(screen.getByRole("button", { name: "Inspect Total for Candidate 1" }));
@@ -70,6 +221,7 @@ it("candidate values stay unverified until an explicit reference confirmation", 
   expect(saved(evaluation, 0)["total:number"]).toMatchObject({ verified: true, value: "12" });
   expect(evaluation.run).not.toHaveBeenCalled();
 });
+
 it("uses a candidate's scalar answer as the expected answer in one explicit step", () => {
   const evaluation = setup();
   fireEvent.click(screen.getByRole("button", { name: "Inspect Total for Candidate 1" }));
@@ -78,6 +230,7 @@ it("uses a candidate's scalar answer as the expected answer in one explicit step
   fireEvent.click(screen.getByRole("button", { name: "Use as expected answer" }));
   expect(saved(evaluation, 0)["total:number"]).toEqual({ verified: true, absent: false, exact: false, value: 10 });
 });
+
 it("verifies expected answers inline, including explicit absence", () => {
   const evaluation = setup();
   fireEvent.click(screen.getByRole("button", { name: "Add expected Total" }));
@@ -95,9 +248,24 @@ it("verifies expected answers inline, including explicit absence", () => {
 
 it("verifies day-first dates inline and saves the unambiguous calendar day", () => {
   const field = { id: "dob", name: "Date of birth", data_type: "date" };
-  const evaluation = setup({ candidates: [{ id: "a", revision: 0, model: "model", status: "success", template: { ...template, fields: [field] }, result: result([field], [{ field_id: "dob", status: "ok", answer: "1871-09-08" }]) }] });
+
+  const evaluation = setup({
+    candidates: [
+      {
+        id: "a",
+        revision: 0,
+        model: "model",
+        status: "success",
+        template: { ...template, fields: [field] },
+        result: result([field], [{ field_id: "dob", status: "ok", answer: "1871-09-08" }]),
+      },
+    ],
+  });
+
   fireEvent.click(screen.getByRole("button", { name: "Add expected Date of birth" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Expected Date of birth" }), { target: { value: "08/09/1871" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Expected Date of birth" }), {
+    target: { value: "08/09/1871" },
+  });
   expect(screen.getByText("Interpreted as 8 September 1871")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
   expect(saved(evaluation)["date of birth:date"]).toMatchObject({ verified: true, value: "1871-09-08" });
@@ -105,7 +273,20 @@ it("verifies day-first dates inline and saves the unambiguous calendar day", () 
 
 it("shows a day-first candidate date as matching its ISO expected answer", () => {
   const date = { id: "dob", name: "Date of birth", data_type: "date" };
-  setup({ references: { "date of birth:date": { verified: true, value: "1871-09-08" } }, definitions: { "date of birth:date": date }, candidates: [{ id: "a", revision: 0, model: "model", status: "success", template: { ...template, fields: [date] }, result: result([date], [{ field_id: "dob", status: "ok", answer: "08/09/1871" }]) }] });
+  setup({
+    references: { "date of birth:date": { verified: true, value: "1871-09-08" } },
+    definitions: { "date of birth:date": date },
+    candidates: [
+      {
+        id: "a",
+        revision: 0,
+        model: "model",
+        status: "success",
+        template: { ...template, fields: [date] },
+        result: result([date], [{ field_id: "dob", status: "ok", answer: "08/09/1871" }]),
+      },
+    ],
+  });
   expect(screen.getByText("100%", { exact: true })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Inspect Date of birth for Candidate 1" }));
   const inspector = screen.getByRole("complementary", { name: "Answer inspector" });
@@ -114,10 +295,33 @@ it("shows a day-first candidate date as matching its ISO expected answer", () =>
 });
 
 it("keeps ignored table cells out of differences and highlights values in absent cells", () => {
-  const candidate = (id, answer) => ({ id, revision: 0, model: id, status: "success", template: { ...template, fields: [itemsField] }, result: result([itemsField], [{ field_id: "items", status: "ok", answer }]) });
-  setup({ mode: "models", references: { "items:array<object>": { verified: true, value: [{ sku: "A" }, { sku: "B" }], rows: { mode: "key", key: "sku" }, cellStates: [{ quantity: "absent" }, { quantity: "ignored" }] } }, candidates: [
-    candidate("alpha", [{ sku: "B", quantity: 999 }, { sku: "A" }]), candidate("beta", [{ sku: "A", quantity: 0 }, { sku: "B", quantity: 888 }]),
-  ] });
+  const candidate = (id, answer) => ({
+    id,
+    revision: 0,
+    model: id,
+    status: "success",
+    template: { ...template, fields: [itemsField] },
+    result: result([itemsField], [{ field_id: "items", status: "ok", answer }]),
+  });
+
+  setup({
+    mode: "models",
+    references: {
+      "items:array<object>": {
+        verified: true,
+        value: [{ sku: "A" }, { sku: "B" }],
+        rows: { mode: "key", key: "sku" },
+        cellStates: [{ quantity: "absent" }, { quantity: "ignored" }],
+      },
+    },
+    candidates: [
+      candidate("alpha", [{ sku: "B", quantity: 999 }, { sku: "A" }]),
+      candidate("beta", [
+        { sku: "A", quantity: 0 },
+        { sku: "B", quantity: 888 },
+      ]),
+    ],
+  });
   fireEvent.click(screen.getByRole("button", { name: /Compare all 2 tables/ }));
   const dialog = screen.getByRole("dialog", { name: "Items across candidates" });
   expect(within(dialog).getByText("3/3 cells")).toBeTruthy();
@@ -130,7 +334,12 @@ it("keeps ignored table cells out of differences and highlights values in absent
 });
 
 it("starts a model comparison from a saved historical field version with the chosen models", async () => {
-  const evaluation = setup({ candidates: [], mode: "models", document: null }, [{ id: "saved", name: "Saved Invoice", current_version: 3 }], { suggestedModels: ["other-model"] });
+  const evaluation = setup(
+    { candidates: [], mode: "models", document: null },
+    [{ id: "saved", name: "Saved Invoice", current_version: 3 }],
+    { suggestedModels: ["other-model"] },
+  );
+
   expect(screen.getByText("Test Workspace / Evaluations")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Start Evaluation" }).disabled).toBe(true);
   evaluation.api.mockImplementation(async () => Response.json(savedTemplate()));
@@ -143,13 +352,17 @@ it("starts a model comparison from a saved historical field version with the cho
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
   const [mode, entries] = evaluation.start.mock.calls[0];
   expect(mode).toBe("models");
-  expect(entries.map(entry => entry.model)).toEqual(["model", "other-model"]);
+  expect(entries.map((entry) => entry.model)).toEqual(["model", "other-model"]);
   expect(entries[0].template).toMatchObject({ source: { id: "saved", version: 2 }, name: "Invoice · fields v2" });
   expect(evaluation.api).toHaveBeenCalledWith("/evaluations/templates/saved?version=2");
   expect(evaluation.run).not.toHaveBeenCalled();
 });
+
 it("shows the Workspace model only when comparing Template versions and loads each chosen version", async () => {
-  const evaluation = setup({ candidates: [], mode: "models", document: null }, [{ id: "saved", name: "Saved Invoice", current_version: 3 }]);
+  const evaluation = setup({ candidates: [], mode: "models", document: null }, [
+    { id: "saved", name: "Saved Invoice", current_version: 3 },
+  ]);
+
   evaluation.api.mockImplementation(async () => Response.json(savedTemplate()));
   expect(screen.queryByText("Workspace model")).toBeNull();
   fireEvent.click(screen.getByRole("radio", { name: /Template versions/ }));
@@ -162,24 +375,33 @@ it("shows the Workspace model only when comparing Template versions and loads ea
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
   const [mode, entries] = evaluation.start.mock.calls[0];
   expect(mode).toBe("templates");
-  expect(entries.map(entry => entry.template.source.version)).toEqual([3, 2, 1]);
-  expect(entries.every(entry => entry.model === undefined)).toBe(true);
+  expect(entries.map((entry) => entry.template.source.version)).toEqual([3, 2, 1]);
+  expect(entries.every((entry) => entry.model === undefined)).toBe(true);
   fireEvent.click(screen.getByRole("radio", { name: /Models/ }));
   expect(screen.queryByText("Workspace model")).toBeNull();
 });
+
 it("starts two copies of a single Template version so one can be edited as a draft", async () => {
-  const evaluation = setup({ candidates: [], mode: "templates", document: null }, [{ id: "saved", name: "Saved Invoice", current_version: 1 }]);
+  const evaluation = setup({ candidates: [], mode: "templates", document: null }, [
+    { id: "saved", name: "Saved Invoice", current_version: 1 },
+  ]);
+
   evaluation.api.mockImplementation(async () => Response.json({ ...template, current_version: 1 }));
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });
   expect(screen.getByText(/Starts two copies of Fields v1/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Start Evaluation" }));
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
-  expect(evaluation.start.mock.calls[0][1].map(entry => entry.template.source.version)).toEqual([1, 1]);
+  expect(evaluation.start.mock.calls[0][1].map((entry) => entry.template.source.version)).toEqual([1, 1]);
   expect(evaluation.api).toHaveBeenCalledTimes(2);
 });
+
 it("starts and runs the new candidates in one step when a document is present", async () => {
   const document = new File(["sample"], "invoice.pdf", { type: "application/pdf" });
-  const evaluation = setup({ candidates: [], mode: "models", document }, [{ id: "saved", name: "Saved Invoice", current_version: 1 }]);
+
+  const evaluation = setup({ candidates: [], mode: "models", document }, [
+    { id: "saved", name: "Saved Invoice", current_version: 1 },
+  ]);
+
   evaluation.api.mockImplementation(async () => Response.json({ ...template, current_version: 1 }));
   evaluation.start.mockReturnValue(["x", "y"]);
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });
@@ -187,14 +409,19 @@ it("starts and runs the new candidates in one step when a document is present", 
   fireEvent.click(screen.getByRole("button", { name: "Start and run" }));
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
   expect(evaluation.run).not.toHaveBeenCalled();
-  evaluation.rerender({ candidates: ["x", "y"].map(id => ({ id, revision: 0, model: id, status: "idle", template, result: null })) });
+  evaluation.rerender({
+    candidates: ["x", "y"].map((id) => ({ id, revision: 0, model: id, status: "idle", template, result: null })),
+  });
   await waitFor(() => expect(evaluation.run).toHaveBeenCalledWith(["x", "y"]));
 });
+
 it("validates setup documents before keeping them", () => {
   const evaluation = setup({ candidates: [], document: null });
   const input = screen.getByLabelText("Evaluation document");
   expect(input.multiple).toBe(true);
-  fireEvent.change(input, { target: { files: [new File(["x".repeat(1001)], "large.pdf", { type: "application/pdf" })] } });
+  fireEvent.change(input, {
+    target: { files: [new File(["x".repeat(1001)], "large.pdf", { type: "application/pdf" })] },
+  });
   expect(screen.getByRole("alert").textContent).toMatch(/file limit/);
   fireEvent.change(input, { target: { files: [new File(["x"], "notes.txt", { type: "text/plain" })] } });
   expect(screen.getByRole("alert").textContent).toMatch(/PDF, PNG, JPG or WEBP/);
@@ -203,6 +430,7 @@ it("validates setup documents before keeping them", () => {
   fireEvent.change(input, { target: { files: [file] } });
   expect(evaluation.addUploads).toHaveBeenCalledWith([file]);
 });
+
 it("uses the shared uploader to add documents and keeps invalid uploads in the dialog", () => {
   const evaluation = setup({ document: null });
   fireEvent.click(screen.getByRole("button", { name: "Upload document" }));
@@ -210,7 +438,9 @@ it("uses the shared uploader to add documents and keeps invalid uploads in the d
   expect(within(dialog).getByRole("button", { name: /Drag and drop source files/ })).toBeTruthy();
   const input = within(dialog).getByLabelText("Document");
   expect(input.multiple).toBe(true);
-  fireEvent.change(input, { target: { files: [new File(["x".repeat(1001)], "large.pdf", { type: "application/pdf" })] } });
+  fireEvent.change(input, {
+    target: { files: [new File(["x".repeat(1001)], "large.pdf", { type: "application/pdf" })] },
+  });
   expect(within(dialog).getByRole("alert").textContent).toMatch(/file limit/);
   expect(evaluation.addUploads).not.toHaveBeenCalled();
   const file = new File(["sample"], "invoice.pdf", { type: "application/pdf" });
@@ -218,6 +448,7 @@ it("uses the shared uploader to add documents and keeps invalid uploads in the d
   expect(evaluation.addUploads).toHaveBeenCalledWith([file]);
   expect(screen.queryByRole("dialog")).toBeNull();
 });
+
 it("adds a candidate from the last candidate, or duplicates a chosen one", () => {
   const candidate = { id: "a", revision: 0, model: "alpha", status: "idle", template };
   const evaluation = setup({ mode: "models", candidates: [candidate, { ...candidate, id: "b", model: "beta" }] });
@@ -230,31 +461,73 @@ it("adds a candidate from the last candidate, or duplicates a chosen one", () =>
   fireEvent.click(screen.getByRole("button", { name: "Remove candidate" }));
   expect(evaluation.remove).toHaveBeenCalledWith("b");
 });
+
 it("disables adding candidates at the eight candidate limit", () => {
-  setup({ candidates: Array.from({ length: 8 }, (_, i) => ({ id: String(i), model: "alpha", status: "idle", template })) });
+  setup({
+    candidates: Array.from({ length: 8 }, (_, i) => ({ id: String(i), model: "alpha", status: "idle", template })),
+  });
   expect(screen.getByRole("button", { name: "+ Add candidate" }).disabled).toBe(true);
   expect(screen.getByText("8/8")).toBeTruthy();
 });
+
 it("scores candidates, marks the leader and filters fields by disagreement and mismatch", () => {
-  const fields = [{ id: "total", name: "Total", data_type: "number" }, { id: "ref", name: "Reference", data_type: "string" }];
-  const candidate = (id, total) => ({ id, revision: 0, model: id, status: "success", template: { ...template, fields }, result: result(fields, [{ field_id: "total", status: "ok", answer: total }, { field_id: "ref", status: "ok", answer: "INV-1" }]) });
-  setup({ mode: "models", references: { "total:number": { verified: true, value: "10" } }, candidates: [candidate("alpha", 10), candidate("beta", 12)] });
-  expect(screen.getByText("100%")).toBeTruthy(); expect(screen.getByText("0%")).toBeTruthy();
+  const fields = [
+    { id: "total", name: "Total", data_type: "number" },
+    { id: "ref", name: "Reference", data_type: "string" },
+  ];
+
+  const candidate = (id, total) => ({
+    id,
+    revision: 0,
+    model: id,
+    status: "success",
+    template: { ...template, fields },
+    result: result(fields, [
+      { field_id: "total", status: "ok", answer: total },
+      { field_id: "ref", status: "ok", answer: "INV-1" },
+    ]),
+  });
+
+  setup({
+    mode: "models",
+    references: { "total:number": { verified: true, value: "10" } },
+    candidates: [candidate("alpha", 10), candidate("beta", 12)],
+  });
+  expect(screen.getByText("100%")).toBeTruthy();
+  expect(screen.getByText("0%")).toBeTruthy();
   expect(screen.getAllByText("Best")).toHaveLength(1);
   const matrix = screen.getByRole("region", { name: "Comparison matrix" });
   fireEvent.click(screen.getByRole("button", { name: "Candidates differ" }));
-  expect(within(matrix).getByText("Total")).toBeTruthy(); expect(within(matrix).queryByText("Reference")).toBeNull();
+  expect(within(matrix).getByText("Total")).toBeTruthy();
+  expect(within(matrix).queryByText("Reference")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Unverified" }));
-  expect(within(matrix).queryByText("Total")).toBeNull(); expect(within(matrix).getByText("Reference")).toBeTruthy();
+  expect(within(matrix).queryByText("Total")).toBeNull();
+  expect(within(matrix).getByText("Reference")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Has mismatch" }));
-  expect(within(matrix).getByText("Total")).toBeTruthy(); expect(within(matrix).queryByText("Reference")).toBeNull();
+  expect(within(matrix).getByText("Total")).toBeTruthy();
+  expect(within(matrix).queryByText("Reference")).toBeNull();
 });
+
 it("compares every candidate's table rows against the expected rows in one view", () => {
-  const candidate = (id, answer) => ({ id, revision: 0, model: id, status: "success", template: { ...template, fields: [itemsField] }, result: result([itemsField], [{ field_id: "items", status: "ok", answer }]) });
-  const expected = [{ sku: "A", quantity: 1 }, { sku: "B", quantity: 2 }];
-  setup({ mode: "models", references: { "items:array<object>": { verified: true, value: expected, rows: { mode: "key", key: "sku" } } }, candidates: [
-    candidate("alpha", expected), candidate("beta", { rows: [{ sku: "B", quantity: 3 }] }),
-  ] });
+  const candidate = (id, answer) => ({
+    id,
+    revision: 0,
+    model: id,
+    status: "success",
+    template: { ...template, fields: [itemsField] },
+    result: result([itemsField], [{ field_id: "items", status: "ok", answer }]),
+  });
+
+  const expected = [
+    { sku: "A", quantity: 1 },
+    { sku: "B", quantity: 2 },
+  ];
+
+  setup({
+    mode: "models",
+    references: { "items:array<object>": { verified: true, value: expected, rows: { mode: "key", key: "sku" } } },
+    candidates: [candidate("alpha", expected), candidate("beta", { rows: [{ sku: "B", quantity: 3 }] })],
+  });
   fireEvent.click(screen.getByRole("button", { name: /Compare all 2 tables/ }));
   const dialog = screen.getByRole("dialog", { name: "Items across candidates" });
   expect(within(dialog).getByText(/Rows matched by SKU/)).toBeTruthy();
@@ -275,19 +548,35 @@ it("compares every candidate's table rows against the expected rows in one view"
   const side = within(dialog).getByRole("table", { name: "Candidates side by side" });
   expect(within(side).getAllByRole("columnheader", { name: "SKU" })).toHaveLength(3);
 });
+
 it("compares candidates' tables with the most common value before rows are verified", () => {
-  const candidate = (id, quantity) => ({ id, revision: 0, model: id, status: "success", template: { ...template, fields: [itemsField] }, result: result([itemsField], [{ field_id: "items", status: "ok", answer: [{ sku: "A", quantity }] }]) });
+  const candidate = (id, quantity) => ({
+    id,
+    revision: 0,
+    model: id,
+    status: "success",
+    template: { ...template, fields: [itemsField] },
+    result: result([itemsField], [{ field_id: "items", status: "ok", answer: [{ sku: "A", quantity }] }]),
+  });
+
   setup({ mode: "models", candidates: [candidate("alpha", 1), candidate("beta", 1), candidate("gamma", 5)] });
   fireEvent.click(screen.getByRole("button", { name: /Compare all 3 tables/ }));
   const dialog = screen.getByRole("dialog", { name: "Items across candidates" });
   expect(within(dialog).getByText(/most common candidate value/)).toBeTruthy();
   expect(within(dialog).getByTitle("Most common: 1").textContent).toBe("5");
 });
+
 it("uses explicit Yes/No answers and preserves false when verifying", () => {
   const fields = [{ id: "repeat", name: "Repeat prescription", data_type: "boolean" }];
-  const evaluation = setup({ candidates: [{ id: "a", model: "model", status: "idle", template: { ...template, fields } }] });
+
+  const evaluation = setup({
+    candidates: [{ id: "a", model: "model", status: "idle", template: { ...template, fields } }],
+  });
+
   fireEvent.click(screen.getByRole("button", { name: "Add expected Repeat prescription" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Expected Repeat prescription" }), { target: { value: "false" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Expected Repeat prescription" }), {
+    target: { value: "false" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
   expect(saved(evaluation, 0)["repeat prescription:boolean"].value).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Add expected Repeat prescription" }));
@@ -298,55 +587,132 @@ it("uses explicit Yes/No answers and preserves false when verifying", () => {
   expect(within(dialog).getByRole("alert")).toBeTruthy();
   expect(evaluation.setReference).toHaveBeenCalledTimes(1);
 });
+
 it("edits table records against ordered schema columns with typed cells", () => {
-  const fields = [{ id: "lines", name: "Prescription lines", data_type: "array<object>", object_schema: { columns: [
-    { key: "drug", heading: "Drug name", data_type: "string", description: "Medicine as printed" },
-    { key: "repeat", heading: "Repeat", data_type: "boolean" },
-  ] } }];
-  const evaluation = setup({ candidates: [{ id: "a", model: "model", status: "idle", template: { ...template, fields } }] });
+  const fields = [
+    {
+      id: "lines",
+      name: "Prescription lines",
+      data_type: "array<object>",
+      object_schema: {
+        columns: [
+          { key: "drug", heading: "Drug name", data_type: "string", description: "Medicine as printed" },
+          { key: "repeat", heading: "Repeat", data_type: "boolean" },
+        ],
+      },
+    },
+  ];
+
+  const evaluation = setup({
+    candidates: [{ id: "a", model: "model", status: "idle", template: { ...template, fields } }],
+  });
+
   fireEvent.click(screen.getByRole("button", { name: /Add expected rows/ }));
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
   expect(within(dialog).getByRole("button", { name: "Select row 1" })).toBeTruthy();
   const table = within(dialog).getByRole("table", { name: "Expected row schema values" });
   expect(within(table).getByRole("columnheader", { name: "Column name" })).toBeTruthy();
   expect(within(table).getByText("Medicine as printed")).toBeTruthy();
-  fireEvent.change(within(table).getByRole("textbox", { name: "Expected row 1 Drug name" }), { target: { value: "Example A" } });
-  fireEvent.change(within(table).getByRole("combobox", { name: "Expected row 1 Repeat" }), { target: { value: "false" } });
+  fireEvent.change(within(table).getByRole("textbox", { name: "Expected row 1 Drug name" }), {
+    target: { value: "Example A" },
+  });
+  fireEvent.change(within(table).getByRole("combobox", { name: "Expected row 1 Repeat" }), {
+    target: { value: "false" },
+  });
   fireEvent.click(within(dialog).getByRole("button", { name: "Add row" }));
-  fireEvent.change(within(table).getByRole("textbox", { name: "Expected row 2 Drug name" }), { target: { value: "Example B" } });
-  fireEvent.change(within(table).getByRole("combobox", { name: "Expected row 2 Repeat" }), { target: { value: "true" } });
+  fireEvent.change(within(table).getByRole("textbox", { name: "Expected row 2 Drug name" }), {
+    target: { value: "Example B" },
+  });
+  fireEvent.change(within(table).getByRole("combobox", { name: "Expected row 2 Repeat" }), {
+    target: { value: "true" },
+  });
   fireEvent.click(within(dialog).getByRole("button", { name: "Select row 1" }));
   expect(within(table).getByRole("textbox", { name: "Expected row 1 Drug name" }).value).toBe("Example A");
   fireEvent.change(within(dialog).getByRole("combobox", { name: "Compare rows" }), { target: { value: "position" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
-  expect(saved(evaluation, 0)["prescription lines:array<object>"].value).toEqual([{ drug: "Example A", repeat: false }, { drug: "Example B", repeat: true }]);
+  expect(saved(evaluation, 0)["prescription lines:array<object>"].value).toEqual([
+    { drug: "Example A", repeat: false },
+    { drug: "Example B", repeat: true },
+  ]);
 });
 
-it.each(["array", "table object"])("reviews returned %s table rows without losing values or changing the result", shape => {
-  const records = [{ sku: "A", quantity: 0 }, { sku: "B", quantity: 2 }];
-  const answer = shape === "array" ? records : { columns: ["sku", "quantity"], rows: records };
-  const evaluation = setup({ candidates: [{ id: "a", revision: 0, model: "model", status: "success", template: { ...template, fields: [itemsField] }, result: result([itemsField], [{ field_id: "items", status: "ok", answer }]) }] });
-  fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
-  expect(screen.queryByRole("button", { name: "Use as expected answer" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
-  const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
-  expect(within(dialog).getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("A");
-  expect(within(dialog).getByRole("textbox", { name: "Expected row 1 Quantity" }).value).toBe("0");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Select row 2" }));
-  expect(within(dialog).getByRole("textbox", { name: "Expected row 2 SKU" }).value).toBe("B");
-  fireEvent.change(within(dialog).getByRole("textbox", { name: "Expected row 2 SKU" }), { target: { value: "Corrected B" } });
-  expect(records[1].sku).toBe("B");
-  expect(evaluation.setReference).not.toHaveBeenCalled();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
-  expect(within(dialog).getByRole("alert").textContent).toMatch(/Choose how to match rows/);
-  expect(evaluation.setReference).not.toHaveBeenCalled();
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "Compare rows" }), { target: { value: "position" } });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
-  expect(saved(evaluation, 0)["items:array<object>"].value).toEqual([{ sku: "A", quantity: 0 }, { sku: "Corrected B", quantity: 2 }]);
-});
+it.each(["array", "table object"])(
+  "reviews returned %s table rows without losing values or changing the result",
+  (representation) => {
+    const records = [
+      { sku: "A", quantity: 0 },
+      { sku: "B", quantity: 2 },
+    ];
+
+    const answer = representation === "array" ? records : { columns: ["sku", "quantity"], rows: records };
+
+    const evaluation = setup({
+      candidates: [
+        {
+          id: "a",
+          revision: 0,
+          model: "model",
+          status: "success",
+          template: { ...template, fields: [itemsField] },
+          result: result([itemsField], [{ field_id: "items", status: "ok", answer }]),
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
+    expect(screen.queryByRole("button", { name: "Use as expected answer" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+    const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
+    expect(within(dialog).getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("A");
+    expect(within(dialog).getByRole("textbox", { name: "Expected row 1 Quantity" }).value).toBe("0");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Select row 2" }));
+    expect(within(dialog).getByRole("textbox", { name: "Expected row 2 SKU" }).value).toBe("B");
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Expected row 2 SKU" }), {
+      target: { value: "Corrected B" },
+    });
+    expect(records[1].sku).toBe("B");
+    expect(evaluation.setReference).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
+    expect(within(dialog).getByRole("alert").textContent).toMatch(/Choose how to match rows/);
+    expect(evaluation.setReference).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Compare rows" }), { target: { value: "position" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
+    expect(saved(evaluation, 0)["items:array<object>"].value).toEqual([
+      { sku: "A", quantity: 0 },
+      { sku: "Corrected B", quantity: 2 },
+    ]);
+  },
+);
+
 it("preserves row matching when reviewing another result for an existing expected table", () => {
-  const fields = [{ id: "items", name: "Items", data_type: "array<object>", object_schema: { columns: [{ key: "sku", heading: "SKU", data_type: "string" }] } }];
-  const evaluation = setup({ references: { "items:array<object>": { verified: true, value: [{ sku: "A" }], rows: { mode: "key", key: "sku" } } }, candidates: [{ id: "a", model: "model", status: "success", template: { ...template, fields }, result: { fields, raw: [{ field_id: "items", status: "ok", answer: { rows: [{ sku: "B" }] } }], queueMs: 0, processingMs: 1, attempts: 1 } }] });
+  const fields = [
+    {
+      id: "items",
+      name: "Items",
+      data_type: "array<object>",
+      object_schema: { columns: [{ key: "sku", heading: "SKU", data_type: "string" }] },
+    },
+  ];
+
+  const evaluation = setup({
+    references: { "items:array<object>": { verified: true, value: [{ sku: "A" }], rows: { mode: "key", key: "sku" } } },
+    candidates: [
+      {
+        id: "a",
+        model: "model",
+        status: "success",
+        template: { ...template, fields },
+        result: {
+          fields,
+          raw: [{ field_id: "items", status: "ok", answer: { rows: [{ sku: "B" }] } }],
+          queueMs: 0,
+          processingMs: 1,
+          attempts: 1,
+        },
+      },
+    ],
+  });
+
   fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
   fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });

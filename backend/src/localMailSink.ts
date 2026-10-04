@@ -34,29 +34,44 @@ export function createLocalMailSink({
   return {
     async capture(message) {
       const actionUrl = message.text.match(/https?:\/\/[^\s<>'"]+/)?.[0];
-      const record = {
+
+      type CapturedMail = LocalMailMessage & { occurred_at: string; action_url?: string };
+
+      const record: CapturedMail = {
         occurred_at: now().toISOString(),
         type: message.type,
         to: message.to,
         from: message.from,
         subject: message.subject,
         text: message.text,
-        ...(message.html ? { html: message.html } : {}),
-        ...(actionUrl ? { action_url: actionUrl } : {}),
       };
+
+      if (message.html) record.html = message.html;
+
+      if (actionUrl) record.action_url = actionUrl;
 
       await ensurePrivateStateDirectory(directory, { recursive: true });
       const path = join(directory, `${record.occurred_at.slice(0, 10)}.jsonl`);
       await assertRegularStateFile(path);
-      const file = await open(path, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+
+      const file = await open(
+        path,
+        constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW,
+        0o600,
+      );
+
       try {
         await file.chmod(0o600);
         await file.writeFile(`${JSON.stringify(record)}\n`, "utf8");
-      } finally { await file.close(); }
+      } finally {
+        await file.close();
+      }
 
-      logger.info(actionUrl
-        ? `Local mail ${message.type} for ${message.to}: ${actionUrl}`
-        : `Local mail ${message.type} captured for ${message.to}`);
+      logger.info(
+        actionUrl
+          ? `Local mail ${message.type} for ${message.to}: ${actionUrl}`
+          : `Local mail ${message.type} captured for ${message.to}`,
+      );
     },
   };
 }

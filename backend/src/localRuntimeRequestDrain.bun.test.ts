@@ -9,17 +9,22 @@ test("closing runtime request handling waits for active work and rejects new han
   expect(drain.snapshot()).toEqual({ accepting: true, active: 1 });
 
   let closed = false;
+
   const closing = drain.close().then(() => {
     closed = true;
   });
+
   expect(drain.snapshot()).toEqual({ accepting: false, active: 1 });
   expect(closed).toBe(false);
 
   let handledAfterClose = false;
+
   const rejected = await drain.run(() => {
     handledAfterClose = true;
+
     return new Response("unexpected");
   });
+
   expect(rejected.status).toBe(503);
   expect(await rejected.json()).toEqual({
     error: {

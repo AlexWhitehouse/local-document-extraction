@@ -20,9 +20,13 @@ type LocalTransientExtractionTask = {
   run(): Promise<void>;
   discard(): void;
 };
+
 type ScheduledWork = LocalQueuedExtractionJob | LocalTransientExtractionTask;
+
 type TransientAdmission = "accepted" | "duplicate" | "full" | "closed";
-const isTransient = (job: ScheduledWork): job is LocalTransientExtractionTask => "kind" in job && job.kind === "evaluation";
+
+const isTransient = (job: ScheduledWork): job is LocalTransientExtractionTask =>
+  "kind" in job && job.kind === "evaluation";
 
 export type LocalExtractionQueueSnapshot = {
   accepting: boolean;
@@ -57,7 +61,7 @@ export function createLocalExtractionQueue({
   maxConcurrent = 16,
   now = Date.now,
   scheduleTimer = (handler, delayMs) => setTimeout(handler, delayMs),
-  cancelTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+  cancelTimer = (timer) => clearTimeout(timer),
   onHandlerError = (error) => console.error("Local extraction queue handler failed", error),
   getWorkspaceMaxConcurrent = () => Number.MAX_SAFE_INTEGER,
   onWorkspaceIdle,
@@ -66,19 +70,17 @@ export function createLocalExtractionQueue({
   maxBuffered?: number;
   maxConcurrent?: number;
   now?: () => number;
-  scheduleTimer?: (handler: () => void, delayMs: number) => unknown;
-  cancelTimer?: (timer: unknown) => void;
-  onHandlerError?: (error: unknown, job: LocalQueuedExtractionJob) => void;
+  scheduleTimer?: (handler: () => void, delayMs: number) => ReturnType<typeof setTimeout> | number | undefined;
+  cancelTimer?: (timer: ReturnType<typeof setTimeout> | number | undefined) => void;
+  onHandlerError?: (cause: unknown, job: LocalQueuedExtractionJob) => void;
   getWorkspaceMaxConcurrent?: (workspaceId: string) => number;
   onWorkspaceIdle?: (workspaceId: string) => void | Promise<void>;
   onCapacityAvailable?: () => void | Promise<void>;
 } = {}): LocalExtractionQueue {
-  let currentMaxConcurrent = Number.isSafeInteger(maxConcurrent) && maxConcurrent > 0
-    ? maxConcurrent
-    : 16;
-  const normalizedMaxBuffered = Number.isSafeInteger(maxBuffered) && maxBuffered > 0
-    ? maxBuffered
-    : 10_000;
+  let currentMaxConcurrent = Number.isSafeInteger(maxConcurrent) && maxConcurrent > 0 ? maxConcurrent : 16;
+
+  const normalizedMaxBuffered = Number.isSafeInteger(maxBuffered) && maxBuffered > 0 ? maxBuffered : 10_000;
+
   const handlers = new Set<(job: LocalQueuedExtractionJob) => void | Promise<void>>();
   const workspaceQueues = new Map<string, ScheduledWork[]>();
   const readyWorkspaces: string[] = [];
@@ -94,16 +96,18 @@ export function createLocalExtractionQueue({
   const activeByWorkspace = new Map<string, number>();
   const lastWasPacket = new Map<string, boolean>();
   let durableDeferrals = 0;
-  let deferredTimer: unknown = null;
+  let deferredTimer: ReturnType<typeof setTimeout> | number | undefined | null = null;
   let deferredTimerDueAt: number | null = null;
 
   const settleIdle = () => {
     if (active !== 0 || pending !== 0 || deferredJobs.length !== 0) return;
+
     for (const resolve of idleWaiters.splice(0)) resolve();
   };
 
   const settleClose = () => {
     if (accepting || active !== 0) return;
+
     for (const resolve of closeWaiters.splice(0)) resolve();
   };
 
@@ -112,6 +116,7 @@ export function createLocalExtractionQueue({
     queue.push(job);
     pending += 1;
     workspaceQueues.set(job.workspace_id, queue);
+
     if (!readyWorkspaceSet.has(job.workspace_id)) {
       readyWorkspaceSet.add(job.workspace_id);
       readyWorkspaces.push(job.workspace_id);
@@ -121,6 +126,7 @@ export function createLocalExtractionQueue({
   const admit = (job: ScheduledWork) => {
     knownJobs.add(jobKey(job));
     const dueAt = job.not_before ? Date.parse(job.not_before) : Number.NaN;
+
     if (Number.isFinite(dueAt) && dueAt > now()) {
       deferredJobs.push({ dueAt, job });
       armDeferredTimer();
@@ -131,8 +137,10 @@ export function createLocalExtractionQueue({
   };
 
   const pump = () => {
-    if (handlers.size === 0 && ![...workspaceQueues.values()].some(queue => queue[0] && isTransient(queue[0]))) return;
+    if (handlers.size === 0 && ![...workspaceQueues.values()].some((queue) => queue[0] && isTransient(queue[0])))
+      return;
     let skipped = 0;
+
     while (active < currentMaxConcurrent && readyWorkspaces.length > skipped) {
       const workspaceId = readyWorkspaces.shift()!;
       const workspaceActive = activeByWorkspace.get(workspaceId) ?? 0;
@@ -140,24 +148,36 @@ export function createLocalExtractionQueue({
       // Packet fan-out must not leave ready child extractions behind an entire
       // upload backlog. Alternate stages, preserving FIFO within each stage.
       const previousPacket = lastWasPacket.get(workspaceId);
-      const alternate = previousPacket === undefined ? -1
-        : queue?.findIndex((item) => (item.kind === "packet") !== previousPacket) ?? -1;
+
+      const alternate =
+        previousPacket === undefined
+          ? -1
+          : (queue?.findIndex((item) => (item.kind === "packet") !== previousPacket) ?? -1);
+
       const nextIndex = alternate < 0 ? 0 : alternate;
       const first = queue?.[nextIndex];
-      if (workspaceActive >= getWorkspaceMaxConcurrent(workspaceId) || (first && !isTransient(first) && handlers.size === 0)) {
+
+      if (
+        workspaceActive >= getWorkspaceMaxConcurrent(workspaceId) ||
+        (first && !isTransient(first) && handlers.size === 0)
+      ) {
         readyWorkspaces.push(workspaceId);
         skipped += 1;
         continue;
       }
+
       skipped = 0;
       readyWorkspaceSet.delete(workspaceId);
       const job = queue?.splice(nextIndex, 1)[0];
+
       if (!job) {
         workspaceQueues.delete(workspaceId);
         continue;
       }
+
       lastWasPacket.set(workspaceId, job.kind === "packet");
       pending -= 1;
+
       if (queue!.length > 0) {
         readyWorkspaceSet.add(workspaceId);
         readyWorkspaces.push(workspaceId);
@@ -167,24 +187,43 @@ export function createLocalExtractionQueue({
 
       active += 1;
       activeByWorkspace.set(workspaceId, workspaceActive + 1);
-      void (async () => { if (isTransient(job)) await Promise.resolve().then(() => job.run()); else await Promise.all(Array.from(handlers, (handler) => handler(job))); })()
-        .catch((error) => { if (isTransient(job)) job.discard(); else onHandlerError(error, job); })
+      void (async () => {
+        if (isTransient(job)) await Promise.resolve().then(() => job.run());
+        else await Promise.all(Array.from(handlers, (handler) => handler(job)));
+      })()
+        .catch((error) => {
+          if (isTransient(job)) job.discard();
+          else onHandlerError(error, job);
+        })
         .finally(() => {
           active -= 1;
           const remaining = (activeByWorkspace.get(workspaceId) ?? 1) - 1;
+
           if (remaining) activeByWorkspace.set(workspaceId, remaining);
           else activeByWorkspace.delete(workspaceId);
           knownJobs.delete(jobKey(job));
           pump();
           settleIdle();
           settleClose();
-          if (!activeByWorkspace.has(workspaceId) && !workspaceQueues.has(workspaceId)) lastWasPacket.delete(workspaceId);
+
+          if (!activeByWorkspace.has(workspaceId) && !workspaceQueues.has(workspaceId))
+            lastWasPacket.delete(workspaceId);
+
           if (accepting && !activeByWorkspace.has(workspaceId) && !workspaceQueues.has(workspaceId)) {
-            void Promise.resolve().then(() => onWorkspaceIdle?.(workspaceId)).catch((error) => { if (!isTransient(job)) onHandlerError(error, job); });
+            void Promise.resolve()
+              .then(() => onWorkspaceIdle?.(workspaceId))
+              .catch((error) => {
+                if (!isTransient(job)) onHandlerError(error, job);
+              });
           }
+
           if (accepting && overflowed && pending + deferredJobs.length < Math.max(1, normalizedMaxBuffered / 2)) {
             overflowed = false;
-            void Promise.resolve().then(() => onCapacityAvailable?.()).catch((error) => { if (!isTransient(job)) onHandlerError(error, job); });
+            void Promise.resolve()
+              .then(() => onCapacityAvailable?.())
+              .catch((error) => {
+                if (!isTransient(job)) onHandlerError(error, job);
+              });
           }
         });
     }
@@ -193,26 +232,34 @@ export function createLocalExtractionQueue({
   const armDeferredTimer = () => {
     deferredJobs.sort((left, right) => left.dueAt - right.dueAt);
     const nextDueAt = deferredJobs[0]?.dueAt ?? null;
+
     if (nextDueAt === null) {
       if (deferredTimer !== null) cancelTimer(deferredTimer);
       deferredTimer = null;
       deferredTimerDueAt = null;
       settleIdle();
+
       return;
     }
+
     if (deferredTimer !== null && deferredTimerDueAt === nextDueAt) return;
+
     if (deferredTimer !== null) cancelTimer(deferredTimer);
     deferredTimerDueAt = nextDueAt;
-    deferredTimer = scheduleTimer(() => {
-      const firedDueAt = nextDueAt;
-      deferredTimer = null;
-      deferredTimerDueAt = null;
-      const due = deferredJobs.filter((entry) => entry.dueAt <= firedDueAt);
-      deferredJobs.splice(0, due.length);
-      for (const entry of due) enqueueReady(entry.job);
-      pump();
-      armDeferredTimer();
-    }, Math.max(0, nextDueAt - now()));
+    deferredTimer = scheduleTimer(
+      () => {
+        const firedDueAt = nextDueAt;
+        deferredTimer = null;
+        deferredTimerDueAt = null;
+        const due = deferredJobs.filter((entry) => entry.dueAt <= firedDueAt);
+        deferredJobs.splice(0, due.length);
+
+        for (const entry of due) enqueueReady(entry.job);
+        pump();
+        armDeferredTimer();
+      },
+      Math.max(0, nextDueAt - now()),
+    );
   };
 
   return {
@@ -220,10 +267,13 @@ export function createLocalExtractionQueue({
       if (accepting) {
         accepting = false;
         currentMaxConcurrent = 0;
+
         if (deferredTimer !== null) cancelTimer(deferredTimer);
         deferredTimer = null;
         deferredTimerDueAt = null;
+
         for (const { job } of deferredJobs) if (isTransient(job)) job.discard();
+
         for (const queue of workspaceQueues.values()) for (const job of queue) if (isTransient(job)) job.discard();
         deferredJobs.splice(0);
         workspaceQueues.clear();
@@ -234,27 +284,36 @@ export function createLocalExtractionQueue({
         knownJobs.clear();
         settleIdle();
       }
+
       if (active === 0) return;
       await new Promise<void>((resolve) => closeWaiters.push(resolve));
     },
     schedule: async (job) => {
       if (!accepting) {
         durableDeferrals += 1;
+
         return;
       }
+
       if (knownJobs.has(jobKey(job))) return;
+
       if (pending + deferredJobs.length >= normalizedMaxBuffered) {
         durableDeferrals += 1;
         overflowed = true;
+
         return;
       }
+
       admit(job);
     },
     scheduleTransient: (task) => {
       if (!accepting) return "closed";
+
       if (knownJobs.has(jobKey(task))) return "duplicate";
+
       if (pending + deferredJobs.length >= normalizedMaxBuffered) return "full";
       admit(task);
+
       return "accepted";
     },
     discardTransient: (owner) => {
@@ -262,22 +321,28 @@ export function createLocalExtractionQueue({
         if (!isTransient(job) || job.owner !== owner) return false;
         knownJobs.delete(jobKey(job));
         job.discard();
+
         return true;
       };
+
       for (const [id, queue] of workspaceQueues) {
-        const remaining = queue.filter(job => !remove(job));
+        const remaining = queue.filter((job) => !remove(job));
         pending -= queue.length - remaining.length;
+
         if (remaining.length) workspaceQueues.set(id, remaining);
         else {
           workspaceQueues.delete(id);
           readyWorkspaceSet.delete(id);
           const index = readyWorkspaces.indexOf(id);
+
           if (index >= 0) readyWorkspaces.splice(index, 1);
         }
       }
+
       for (let i = deferredJobs.length - 1; i >= 0; i--) {
         if (remove(deferredJobs[i].job)) deferredJobs.splice(i, 1);
       }
+
       armDeferredTimer();
       pump();
       settleIdle();
@@ -286,6 +351,7 @@ export function createLocalExtractionQueue({
       if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error("Extraction concurrency must be a non-negative integer");
       }
+
       currentMaxConcurrent = accepting ? value : 0;
       pump();
     },
@@ -302,8 +368,10 @@ export function createLocalExtractionQueue({
     }),
     subscribe: (handler) => {
       if (!accepting) return () => {};
+
       handlers.add(handler);
       pump();
+
       return () => handlers.delete(handler);
     },
     waitForIdle: async () => {
@@ -314,21 +382,23 @@ export function createLocalExtractionQueue({
 }
 
 function jobKey(job: ScheduledWork): string {
-  return (isTransient(job) ? "evaluation:" : "document:") + `${job.workspace_id}\u0000${job.job_id}\u0000${job.attempt ?? 1}`;
+  return (
+    (isTransient(job) ? "evaluation:" : "document:") + `${job.workspace_id}\u0000${job.job_id}\u0000${job.attempt ?? 1}`
+  );
 }
 
-function oldestEnqueuedAt(
-  workspaceQueues: Map<string, ScheduledWork[]>,
-  deferredJobs: DeferredJob[],
-): string | null {
+function oldestEnqueuedAt(workspaceQueues: Map<string, ScheduledWork[]>, deferredJobs: DeferredJob[]): string | null {
   let oldest: string | null = null;
+
   for (const queue of workspaceQueues.values()) {
     for (const job of queue) {
       if (!oldest || job.enqueued_at < oldest) oldest = job.enqueued_at;
     }
   }
+
   for (const { job } of deferredJobs) {
     if (!oldest || job.enqueued_at < oldest) oldest = job.enqueued_at;
   }
+
   return oldest;
 }

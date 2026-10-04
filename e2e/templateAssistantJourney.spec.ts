@@ -2,34 +2,56 @@ import { expect, test } from "@playwright/test";
 import { saveModelGateway, submitSignUp } from "./support/journeyHelpers";
 import { startRuntimeHarness } from "./support/runtimeHarnessClient";
 
-test("review a focused VAT column proposal, apply to the draft once, and save explicitly", async ({ page }, testInfo) => {
+test("review a focused VAT column proposal, apply to the draft once, and save explicitly", async ({
+  page,
+}, testInfo) => {
   const harness = await startRuntimeHarness();
+
   try {
-    await submitSignUp(page, harness, { name: "Template Reviewer", email: "template-reviewer@example.test", password: "Strong1!" });
+    await submitSignUp(page, harness, {
+      name: "Template Reviewer",
+      email: "template-reviewer@example.test",
+      password: "Strong1!",
+    });
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await saveModelGateway(page, harness, "browser/template-assistant");
-    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: /Templates/ }).click();
+    await page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("link", { name: /Templates/ })
+      .click();
     await page.getByRole("button", { name: "Create Template", exact: true }).click();
     await page.getByLabel("Template name", { exact: true }).fill("VAT invoice");
-    const creation = page.waitForResponse(response => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST");
+
+    const creation = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
+    );
+
     await page.getByRole("button", { name: "Save new template", exact: true }).click();
     const created = await creation;
     expect(created.status()).toBe(201);
     const { template_id: templateId } = await created.json();
     const workspaceId = created.request().headers()["x-workspace-id"];
+
     const readSaved = async () => {
-      const result = await page.request.get(`${harness.origin}/v1/templates/${templateId}`, { headers: { "x-workspace-id": workspaceId } });
+      const result = await page.request.get(`${harness.origin}/v1/templates/${templateId}`, {
+        headers: { "x-workspace-id": workspaceId },
+      });
+
       expect(result.status()).toBe(200);
+
       return result.json();
     };
+
     const original = await readSaved();
     await page.getByRole("button", { name: "Assistant", exact: true }).click();
     const assistant = page.getByRole("complementary", { name: "Template assistant" });
     await assistant.getByRole("tab", { name: "Propose edits", exact: true }).click();
     await expect(assistant.getByText("From the model", { exact: true })).toBeVisible();
     await assistant.getByRole("button", { name: /^Add VAT rate to each line item/ }).click();
-    await expect(assistant.getByRole("textbox", { name: "Describe your change", exact: true })).toHaveValue("Add VAT rate to each line item.");
-    const proposal = page.waitForResponse(response => new URL(response.url()).pathname === "/v1/templates/assist");
+    await expect(assistant.getByRole("textbox", { name: "Describe your change", exact: true })).toHaveValue(
+      "Add VAT rate to each line item.",
+    );
+    const proposal = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/templates/assist");
     await assistant.getByRole("button", { name: "Propose edits", exact: true }).click();
     const proposed = await proposal;
     expect(proposed.status()).toBe(200);
@@ -50,13 +72,35 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
     await assistant.getByRole("button", { name: "Close assistant", exact: true }).click();
     await page.getByRole("button", { name: "View JSON", exact: true }).click();
     const jsonDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
-    const draft = JSON.parse(await jsonDialog.getByRole("textbox", { name: "Template JSON", exact: true }).inputValue());
-    expect(draft.fields.slice(0, 5)).toEqual(original.fields.slice(0, 5).map(({ name, description, data_type }: { name: string; description: string; data_type: string }) => ({ name, description, data_type })));
+
+    const draft = JSON.parse(
+      await jsonDialog.getByRole("textbox", { name: "Template JSON", exact: true }).inputValue(),
+    );
+
+    expect(draft.fields.slice(0, 5)).toEqual(
+      original.fields
+        .slice(0, 5)
+        .map(({ name, description, data_type }: { name: string; description: string; data_type: string }) => ({
+          name,
+          description,
+          data_type,
+        })),
+    );
     expect(draft.fields[5].object_schema.columns.map((column: { heading: string }) => column.heading)).toEqual([
-      "Line Number", "Description", "Quantity", "Unit Price", "Line Total", "VAT Rate",
+      "Line Number",
+      "Description",
+      "Quantity",
+      "Unit Price",
+      "Line Total",
+      "VAT Rate",
     ]);
     await jsonDialog.getByRole("button", { name: "Cancel", exact: true }).click();
-    const save = page.waitForResponse(response => new URL(response.url()).pathname === `/v1/templates/${templateId}` && response.request().method() === "PATCH");
+
+    const save = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/v1/templates/${templateId}` && response.request().method() === "PATCH",
+    );
+
     await page.getByRole("button", { name: "Save changes", exact: true }).click();
     expect((await save).status()).toBe(200);
     const saved = await readSaved();
