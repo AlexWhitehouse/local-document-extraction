@@ -3,6 +3,7 @@ import { newId } from "./lib/ids";
 import type { LocalWorkspaceProductStore, LocalWorkspaceExtractionJobSummary } from "./localWorkspaceProductStore";
 import type { WorkspaceDocumentProcessingSettings } from "./workspaceDocumentProcessing";
 import { DocumentAssessmentValidationError, validateSplitPlan } from "./consumer/documentAssessment";
+import type { ProcessingCosts } from "../../shared/processingCosts";
 export type RoutingCandidate = {
     id: string;
     name: string;
@@ -44,6 +45,7 @@ export type PacketChildSlot = {
     retained_object_key: string | null;
 };
 export type DocumentPacket = {
+    costs?: ProcessingCosts;
     packet_id: string;
     status: "queued" | "processing" | "awaiting_review" | "materializing" | "processing_children" | "completed" | "failed";
     stage: "analysis" | "review" | "materialization" | "extraction" | "finished";
@@ -203,7 +205,7 @@ export function createDocumentProcessingStore(database: Database, store: () => L
             source_file_key: row.source_file_key, source_name: row.source_name, source_mime_type: row.source_mime_type, source_file_page_count: row.source_file_page_count, source_retained: Boolean(getSource(packetId)?.source_retained),
             template_id: row.template_id, template_version: row.template_version, template_tags: JSON.parse(row.template_tags), selected_pages: JSON.parse(row.selected_pages), processing_policy: JSON.parse(row.processing_policy),
             plan_revision: row.plan_revision, plan_accepted: Boolean(row.plan_accepted), plan: { groups: JSON.parse(row.groups_json).map((pages: number[]) => ({ pages })), exclusions: JSON.parse(row.exclusions_json) },
-            children, child_slots: slots, reason: row.reason, evidence: JSON.parse(row.evidence), assessment_rounds: row.assessment_rounds, configuration_snapshot: parse(row.configuration_snapshot),
+            children, child_slots: slots, costs: store().getPacketCosts(packetId), reason: row.reason, evidence: JSON.parse(row.evidence), assessment_rounds: row.assessment_rounds, configuration_snapshot: parse(row.configuration_snapshot),
             error_code: row.error_code, error_message: row.error_message, outcome: row.outcome, created_at: row.created_at, updated_at: row.updated_at };
     };
     return {
@@ -415,6 +417,7 @@ export function createDocumentProcessingStore(database: Database, store: () => L
                 sources.push({ job_id: input.packetId, ...source });
             }
             database.query("DELETE FROM document_packet_children WHERE packet_id=?").run(input.packetId);
+            database.query("DELETE FROM model_call_costs WHERE packet_id=?").run(input.packetId);
             database.query("DELETE FROM source_files WHERE job_id=?").run(input.packetId);
             database.query("DELETE FROM document_packets WHERE id=?").run(input.packetId);
             return { packet_id: input.packetId, sources };

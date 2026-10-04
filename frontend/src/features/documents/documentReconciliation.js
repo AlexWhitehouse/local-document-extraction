@@ -536,7 +536,7 @@ export function createDocumentReconciliation({
 }
 
 function version(job) {
-  return JSON.stringify([job?.status, job?.updated_at, job?.current_attempt, job?.completed_attempt, job?.template_version]);
+  return JSON.stringify([job?.status, job?.updated_at, job?.current_attempt, job?.completed_attempt, job?.template_version, job?.costs]);
 }
 
 function sameVersion(a, b) {

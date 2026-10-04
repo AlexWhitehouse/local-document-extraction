@@ -8,6 +8,7 @@ import "./DocumentViewing.css";
 import { PacketPage } from "./PacketPage.jsx";
 import { formatPages } from "./documentProcessing.js";
 import { isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
+import { ProcessingCost } from "./ProcessingCost.jsx";
 
 const NARROW_SPLIT_WIDTH = 600;
 
@@ -152,6 +153,7 @@ function DocumentDetail({
             <strong>{(average * 100).toFixed(1)}%</strong> average confidence
           </span>
         ) : null}
+        {status === "completed" ? <ProcessingCost costs={selectedDocument.costs} /> : null}
         {selectedDocument.source_pages ? (
           <span>Pages {formatPages(selectedDocument.source_pages)}</span>
         ) : null}

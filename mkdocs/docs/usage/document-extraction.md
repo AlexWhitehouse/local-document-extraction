@@ -63,6 +63,10 @@ An all-blank PDF completes as **No documents to extract** only with blank exclus
 
 Open a completed document to inspect extracted values, confidence, and evidence. If its original remains available, select **Side by side** to compare it with results. Select **Download** to save it.
 
+The document header shows total model cost beside average confidence once the document is completed. The packet header shows total cost beside the excluded-page count once the packet is completed. Hover, focus, or tap the total to see **Smart split**, **Auto template**, and **Extraction** costs in USD. These are costs reported by your model endpoint, including reported retries and reassessments. A `+` marks a known subtotal with missing call costs; **Unavailable** means no usable total was reported or the work predates cost tracking.
+
+Each document receives `packet split cost × document pages ÷ selected packet pages`. Excluded pages keep their share at packet level. Packet totals include the full split cost and all child selection/extraction costs once. Deleting a child does not remove its incurred cost from the packet total or change its siblings' allocations.
+
 A child source contains only its assigned pages. The packet’s original download contains the full uploaded PDF, including excluded pages.
 
 Select **Export** for completed documents, including packet children. A packet is a container and adds no result row.

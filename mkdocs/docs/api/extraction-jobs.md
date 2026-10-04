@@ -28,3 +28,11 @@ Automatic processing permits one initial assessment and at most two targeted rea
 One-page PDFs and accepted one-document plans retain packet identity, even when the frontend presents them as ordinary documents. Read child sources with `GET|HEAD /v1/jobs/{job_id}/source`. Read the full original with `GET|HEAD /v1/packets/{packet_id}/source`. Retention and review-source availability control access.
 
 The [packet request-chain example](overview.md#follow-the-packet-and-child-request-chain) covers submission, child discovery, and result retrieval. The [quickstart](overview.md#quickstart-document-to-structured-data) covers explicit extraction. The [full reference](overview.md#jobs-and-results) covers polling, exports, retention, and deletion.
+
+## Model costs
+
+Job and packet representations include `costs` with `currency: "USD"` and `total`, `split`, `auto_template`, and `extraction` entries. Each entry contains `amount`, `complete`, `reported_calls`, and `unreported_calls`. `amount` is the known subtotal, or `null` when calls occurred but none reported a usable cost. `complete: false` identifies missing call costs. A stage with no calls has amount zero. Active work reports costs so far; completeness does not mean processing has finished.
+
+Cost capture recognizes `usage.cost`, `cost_breakdown.total_cost`, and the `x-litellm-response-cost` header, in that precedence order, without requiring a provider selection. Only one total is recorded per call. These supported conventions use USD; explicitly different currencies remain unavailable. Token usage alone does not produce a price estimate. Historical unrecorded calls and interrupted requests remain unknown.
+
+Child costs include `split_allocation` with `document_pages` and `packet_pages`. The latter counts selected pages submitted for splitting. `split.amount` is allocated by their ratio. Packet costs include `excluded_pages_cost`, the excluded pages' share already contained in `split`, not an additional charge. Packet totals retain incurred costs of deleted children. Job entity tags change when their cost representation changes.

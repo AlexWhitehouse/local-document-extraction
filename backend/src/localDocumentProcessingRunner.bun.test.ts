@@ -17,6 +17,46 @@ const selection = (template_id: string): DocumentClassification => ({ status: "s
 const uncertain: DocumentClassification = { status: "uncertain", template_id: null, reason: "Compare the payment terms on the final page.", evidence: ["Payment terms unclear"] };
 const plan = (groups: number[][]): DocumentSplitAssessment => ({ status: "resolved", groups, exclusions: [], reason: "Separate invoice headings.", evidence: ["Page headings identify each document"] });
 
+test("real gateway calls retain split reassessments, automatic selection, and rejected extraction response costs", async () => {
+  const f = await fixture();
+  f.template("tpl_invoice");
+  let splitCalls = 0, classificationCalls = 0, extractionCalls = 0;
+  const gateway = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const body = await request.json() as { messages: Array<{ role: string; content: unknown }> };
+    const system = String(body.messages[0]!.content);
+    let result: unknown, cost: number;
+    if (system.includes("Identify logical document boundaries")) {
+      splitCalls++;
+      result = { ...plan([[1, 2, 3], [4]]), status: splitCalls === 1 ? "uncertain" : "resolved" };
+      cost = 0.01;
+    } else if (system.includes("template_id")) {
+      classificationCalls++;
+      result = selection("tpl_invoice"); cost = 0.002;
+    } else {
+      extractionCalls++;
+      result = { results: [{ field_id: "total", status: "ok", answer: 42 }] }; cost = 0.004;
+    }
+    return Response.json({ id: `call-${splitCalls}-${classificationCalls}-${extractionCalls}`, usage: { cost, prompt_tokens: 10, completion_tokens: 2 }, choices: [{ message: { content: extractionCalls === 1 && cost === 0.004 ? "invalid JSON" : JSON.stringify(result) } }] });
+  } });
+  cleanups.push(() => { gateway.stop(true); });
+  const configuration = f.store.getModelConfiguration()!;
+  f.store.putModelConfiguration({ expectedRevision: configuration.revision, configuration: { ...configuration, gateway_url: gateway.url.toString() }, updatedAt: at });
+  await f.addPacket("cost_packet");
+  const runner = f.runner({ extract: undefined });
+  await runner.run(f.queued("cost_packet", "packet"));
+  for (let work = 0; f.scheduled.length && work < 10; work++) await runner.run(f.scheduled.shift()!);
+  const packet = f.store.getDocumentPacket("cost_packet")!;
+  expect(packet.status).toBe("completed");
+  expect([splitCalls, classificationCalls, extractionCalls]).toEqual([2, 2, 3]);
+  expect(packet.costs?.split.amount).toBeCloseTo(0.02, 12);
+  expect(packet.costs?.auto_template.amount).toBeCloseTo(0.004, 12);
+  expect(packet.costs?.extraction.amount).toBeCloseTo(0.012, 12);
+  expect(packet.costs?.total).toMatchObject({ complete: true, reported_calls: 7, unreported_calls: 0 });
+  expect(packet.costs?.total.amount).toBeCloseTo(0.036, 12);
+  expect(packet.children[0]!.costs?.split.amount).toBeCloseTo(0.015, 12);
+  expect(packet.children[1]!.costs?.split.amount).toBeCloseTo(0.005, 12);
+});
+
 async function fixture() {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-processing-runner-"));
   cleanups.push(() => rm(stateDirectory, { recursive: true, force: true }));

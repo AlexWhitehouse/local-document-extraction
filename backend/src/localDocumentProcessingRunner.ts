@@ -32,15 +32,15 @@ export function createLocalDocumentProcessingRunner(input: DocumentProcessingFun
   const materialize = input.materializePages ?? materializePdfPageGroups;
   const notifyGateway = (outcome: "failed" | "success" | "throttled" | "timeout") => { try { input.onGatewayOutcome?.(outcome); } catch { /* Diagnostics cannot change processing outcomes. */ } };
 
-  const modelAttempt = (context: ProcessingContext) => {
+  const modelAttempt = (context: ProcessingContext, stage: "split" | "auto_template") => {
     const configuration = context.store.getModelConfiguration();
     if (!configuration) throw configurationMissing();
     const model = classificationModelOf(configuration);
     return {
-      environment: classificationModelEnvironment(configuration, {
+      environment: { ...classificationModelEnvironment(configuration, {
         credential: vault.decrypt(context.workspaceId, configuration.credential_ciphertext), workspaceId: context.workspaceId,
         requestTimeoutMs: input.modelGatewayRequestTimeoutMs ?? "120000",
-      }),
+      }), modelCallObserver: context.store.modelCallObserver({ ownerId: context.ownerId, stage, model: model.model_name, configurationRevision: configuration.revision, now: input.now }) },
       snapshot: {
         revision: configuration.revision, model_name: model.model_name, gateway_url: model.gateway_url,
         supports_pdf_input: model.supports_pdf_input, supports_structured_output: model.supports_structured_output, sequential_calls: model.sequential_calls,
@@ -115,7 +115,7 @@ export function createLocalDocumentProcessingRunner(input: DocumentProcessingFun
         const candidates = store.getRoutingCandidates(routing.template_tags);
         if (!candidates.length) return hold("No eligible templates match the supplied tags. Select a template to continue.");
         if (candidates.length > DOCUMENT_ASSESSMENT_LIMITS.candidates) return hold("Too many templates match the supplied tags. Select a template to continue.");
-        const attempt = modelAttempt(context);
+        const attempt = modelAttempt(context, "auto_template");
         const round = store.claimRoutingRound({ jobId, updatedAt: input.now(), configurationSnapshot: attempt.snapshot });
         if (!round) return Boolean(store.getExtractionJobSummary(jobId)?.template_id);
         notify();
@@ -214,7 +214,7 @@ export function createLocalDocumentProcessingRunner(input: DocumentProcessingFun
         if (packet.assessment_rounds >= 3) {
           store.holdDocumentPacket({ packetId, reason: packet.reason || "Document boundaries remain uncertain after reassessment.", updatedAt: input.now() }); return;
         }
-        const attempt = modelAttempt(context);
+        const attempt = modelAttempt(context, "split");
         const round = store.claimPacketRound({ packetId, updatedAt: input.now(), configurationSnapshot: attempt.snapshot });
         if (!round) return;
         document ??= await source(context);
