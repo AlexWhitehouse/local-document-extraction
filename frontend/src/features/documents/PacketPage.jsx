@@ -1,5 +1,5 @@
 import { isString } from "../../../../shared/json.ts";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { formatPages, parsePageSelection, validateSplitPlan } from "./documentProcessing.js";
 import { PACKET_STATUS_LABELS } from "./packetListing.js";
 import "./DocumentProcessing.css";
@@ -7,7 +7,7 @@ import { ProcessingCost } from "./ProcessingCost.jsx";
 
 const LIVE_CHILD_STATUSES = new Set(["queued", "processing"]);
 
-const LIVE_PACKET_STATUSES = new Set(["processing", "materializing", "processing_children"]);
+const ATTENTION_CHILD_STATUSES = new Set(["failed", "error", "awaiting_template", "awaiting_review"]);
 
 export function PacketPage({
   packet,
@@ -37,28 +37,35 @@ export function PacketPage({
 
   return (
     <section className="packet-page" aria-label="Document packet">
-      {children.length ? (
-        <div className="packet-tabs" role="tablist" aria-label="Documents in this packet">
-          <button type="button" role="tab" aria-selected={!selectedTabId} onClick={() => onSelectDocument?.("")}>
-            Overview
-          </button>
-          {children.map((child, index) => (
+      <PacketSummary packet={packet} documents={children} />
+      <div className="packet-tabs" role="tablist" aria-label="Documents in this packet">
+        <OverviewTab
+          packet={packet}
+          documents={children}
+          selected={!selectedTabId}
+          onSelect={() => onSelectDocument?.("")}
+        />
+        {children.map((child, index) => {
+          const status = String(child.status || "queued");
+
+          return (
             <button
               key={child.job_id}
               type="button"
               role="tab"
+              className={childTone(status)}
               aria-selected={selectedTabId === child.job_id}
               aria-busy={pendingDocumentId === child.job_id || undefined}
-              title={String(child.status || "queued").replaceAll("_", " ")}
               onClick={() => onSelectDocument?.(child.job_id)}
             >
-              <i className={`packet-tab-status ${child.status || "queued"}`} aria-hidden="true" />
               Document {index + 1}
-              <span>{pagesLabel(child.source_pages)}</span>
+              <small>
+                {pagesLabel(child.source_pages)} · {status.replaceAll("_", " ")}
+              </small>
             </button>
-          ))}
-        </div>
-      ) : null}
+          );
+        })}
+      </div>
       {documentError ? (
         <div className="packet-message is-error">
           <p role="alert">{documentError}</p>
@@ -88,11 +95,117 @@ export function PacketPage({
   );
 }
 
+/** Packet-wide status, counts, and cost; shown above the tabs so it stays put across them. */
+function PacketSummary({ packet, documents }) {
+  const exclusions = packet.plan?.exclusions || [];
+  const pages = packet.selected_pages || [];
+  const date = new Date(packet.created_at);
+
+  return (
+    <div className="studio-document-summary">
+      <span className={`studio-document-status ${packet.status}`}>
+        <i aria-hidden="true" />
+        {PACKET_STATUS_LABELS[packet.status] || packet.status}
+      </span>
+      {pages.length ? (
+        <span>
+          <strong>{pages.length}</strong> {pages.length === 1 ? "page" : "pages"}
+        </span>
+      ) : null}
+      {documents.length ? (
+        <span>
+          <strong>{documents.length}</strong> {documents.length === 1 ? "document" : "documents"}
+        </span>
+      ) : null}
+      {exclusions.length ? (
+        <span>
+          <strong>{exclusions.length}</strong> excluded
+        </span>
+      ) : null}
+      {packet.status === "completed" ? <ProcessingCost costs={packet.costs} kind="Packet" /> : null}
+      {Number.isNaN(date.getTime()) ? null : (
+        <time dateTime={date.toISOString()}>
+          {date.toLocaleString(undefined, {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </time>
+      )}
+    </div>
+  );
+}
+
+/** The Overview tab carries the packet's stage; its underline is the packet's progress. */
+function OverviewTab({ packet, documents, selected, onSelect }) {
+  const stageId = useId();
+  const stage = packetStage(packet, documents);
+
+  return (
+    <button
+      type="button"
+      role="tab"
+      className={`packet-tab-overview ${stage.tone}`}
+      aria-label="Overview"
+      aria-describedby={stageId}
+      aria-selected={selected}
+      onClick={onSelect}
+    >
+      Overview
+      {/* Keyed by its text so each new stage or count fades in. */}
+      <small key={stage.text} id={stageId}>
+        {stage.text}
+      </small>
+    </button>
+  );
+}
+
+function packetStage(packet, documents) {
+  const done = documents.filter((child) => child.status === "completed").length;
+  const failed = documents.filter((child) => child.status === "failed" || child.status === "error").length;
+  const splitDone = packet.plan_accepted || documents.length > 0 || packet.outcome === "no_documents";
+
+  if (packet.status === "awaiting_review") return { text: "Split needs your review", tone: "is-attention" };
+
+  if (!splitDone) {
+    if (packet.status === "failed") return { text: "Split failed", tone: "is-attention" };
+
+    return packet.status === "queued"
+      ? { text: "Queued", tone: "" }
+      : { text: "Finding documents", tone: "is-working" };
+  }
+
+  if (packet.outcome === "no_documents") return { text: "No documents found", tone: "is-done" };
+
+  if (packet.status === "materializing" || !documents.length) return { text: "Preparing documents", tone: "is-working" };
+
+  if (packet.status === "completed")
+    return failed
+      ? { text: `Finished · ${failed} failed`, tone: "is-attention" }
+      : { text: "All documents extracted", tone: "is-done" };
+
+  if (packet.status === "failed") return { text: `Failed · ${done} of ${documents.length} extracted`, tone: "is-attention" };
+
+  return {
+    text: `Split ✓ · Extracting ${done}/${documents.length}${failed ? ` · ${failed} failed` : ""}`,
+    tone: failed ? "is-attention" : "is-working",
+  };
+}
+
+function childTone(status) {
+  if (status === "completed") return "is-done";
+
+  if (ATTENTION_CHILD_STATUSES.has(status)) return "is-attention";
+
+  return status === "processing" ? "is-working" : "";
+}
+
 function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, onSelectDocument, loadPagePreview }) {
   const documents = Array.isArray(packet.children) ? packet.children : [];
   const exclusions = packet.plan?.exclusions || [];
   const pages = packet.selected_pages || [];
-  const date = new Date(packet.created_at);
 
   const failure =
     packet.status === "failed"
@@ -101,40 +214,6 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
 
   return (
     <div className="packet-overview">
-      <div className="studio-document-summary">
-        <span className={`studio-document-status ${packet.status}`}>
-          <i aria-hidden="true" />
-          {PACKET_STATUS_LABELS[packet.status] || packet.status}
-        </span>
-        {pages.length ? (
-          <span>
-            <strong>{pages.length}</strong> {pages.length === 1 ? "page" : "pages"}
-          </span>
-        ) : null}
-        {documents.length ? (
-          <span>
-            <strong>{documents.length}</strong> {documents.length === 1 ? "document" : "documents"}
-          </span>
-        ) : null}
-        {exclusions.length ? (
-          <span>
-            <strong>{exclusions.length}</strong> excluded
-          </span>
-        ) : null}
-        {packet.status === "completed" ? <ProcessingCost costs={packet.costs} kind="Packet" /> : null}
-        {Number.isNaN(date.getTime()) ? null : (
-          <time dateTime={date.toISOString()}>
-            {date.toLocaleString(undefined, {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </time>
-        )}
-      </div>
-      <PacketProgress packet={packet} documents={documents} />
       {error ? (
         <p role="alert" className="packet-message is-error">
           {error}
@@ -194,77 +273,6 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
         </section>
       ) : null}
     </div>
-  );
-}
-
-/** Three stages: the split, extraction of each document, and completion. */
-function PacketProgress({ packet, documents }) {
-  const done = documents.filter((child) => child.status === "completed").length;
-  const failed = documents.filter((child) => child.status === "failed" || child.status === "error").length;
-  const splitDone = packet.plan_accepted || documents.length > 0 || packet.outcome === "no_documents";
-  const stage = packet.status === "completed" ? 3 : splitDone ? 1 : 0;
-
-  const steps = [
-    {
-      label: "Split",
-      detail: splitDone
-        ? packet.outcome === "no_documents"
-          ? "No documents found"
-          : `${documents.length} ${documents.length === 1 ? "document" : "documents"} found`
-        : packet.status === "awaiting_review"
-          ? "Needs your review"
-          : packet.status === "failed"
-            ? "Failed"
-            : packet.status === "queued"
-              ? "Queued"
-              : "Finding documents",
-      attention: packet.status === "awaiting_review" || (packet.status === "failed" && !splitDone),
-    },
-    {
-      label: "Extract",
-      detail: !splitDone
-        ? "Waits for the split"
-        : packet.outcome === "no_documents"
-          ? "Nothing to extract"
-          : `${done} of ${documents.length} complete${failed ? ` · ${failed} failed` : ""}`,
-      attention: failed > 0 || (packet.status === "failed" && splitDone),
-      fill: documents.length ? (done + failed) / documents.length : 0,
-    },
-    {
-      label: "Done",
-      detail:
-        packet.status !== "completed"
-          ? "—"
-          : packet.outcome === "no_documents"
-            ? "Nothing extracted"
-            : failed
-              ? "Finished with failures"
-              : "All documents extracted",
-      attention: false,
-    },
-  ];
-
-  return (
-    <ol className="packet-progress" aria-label="Packet progress">
-      {steps.map((step, index) => {
-        const state = index < stage || stage === 3 ? "done" : index === stage ? "current" : "pending";
-        const working = state === "current" && LIVE_PACKET_STATUSES.has(packet.status);
-
-        return (
-          <li
-            key={step.label}
-            className={`is-${state}${step.attention ? " is-attention" : ""}${working ? " is-working" : ""}`}
-            aria-current={state === "current" ? "step" : undefined}
-            style={state === "current" && step.fill ? { "--packet-stage-fill": step.fill } : undefined}
-          >
-            <span className="packet-progress-index">{String(index + 1).padStart(2, "0")}</span>
-            <strong>{step.label}</strong>
-            {/* Keyed by its text so each new count or state fades in. */}
-            <span key={step.detail}>{step.detail}</span>
-          </li>
-        );
-      })}
-    </ol>
   );
 }
 

@@ -259,26 +259,31 @@ describe("Automatic document processing UI", () => {
     },
   );
 
-  it("tracks the split and extraction stages on the packet overview", () => {
+  it("tracks the split and extraction stages on the packet tabs", () => {
     const children = [
       { job_id: "child_1", status: "completed", source_pages: [1, 2], template_id: "tpl_invoice" },
       { job_id: "child_2", status: "processing", source_pages: [3] },
     ];
 
     const { rerender } = render(<PacketPage packet={{ ...packet, status: "processing" }} />);
-    const progress = () => within(screen.getByRole("list", { name: "Packet progress" })).getAllByRole("listitem");
-    expect(progress()[0].getAttribute("aria-current")).toBe("step");
-    expect(progress()[0].textContent).toContain("Finding documents");
+    const overview = () => screen.getByRole("tab", { name: "Overview" });
+    expect(overview().getAttribute("aria-describedby")).toBeTruthy();
+    expect(overview().textContent).toContain("Finding documents");
     rerender(
       <PacketPage
         packet={{ ...packet, status: "processing_children", plan_accepted: true, children }}
         templates={uploadProps.templates}
       />,
     );
-    expect(progress()[1].getAttribute("aria-current")).toBe("step");
-    expect(progress()[1].textContent).toContain("1 of 2 complete");
+    expect(overview().textContent).toContain("Extracting 1/2");
+    expect(screen.getByRole("tab", { name: /Document 1/ }).className).toBe("is-done");
+    expect(screen.getByRole("tab", { name: /Document 2/ }).textContent).toContain("Page 3 · processing");
     const table = screen.getByRole("region", { name: "Documents in this packet" });
     expect(within(table).getByRole("row", { name: /Document 1 1, 2 Invoice Completed/ })).toBeTruthy();
     expect(within(table).getByText("Choosing template…")).toBeTruthy();
+    rerender(
+      <PacketPage packet={{ ...packet, status: "completed", plan_accepted: true, children: [children[0]] }} />,
+    );
+    expect(overview().textContent).toContain("All documents extracted");
   });
 });
