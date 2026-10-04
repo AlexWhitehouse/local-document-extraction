@@ -23,7 +23,6 @@ describe("Processing cost headers", () => {
     expect(within(tooltip).getByText("Smart split").nextElementSibling.textContent).toBe("$0.006");
     expect(within(tooltip).getByText("Auto template").nextElementSibling.textContent).toBe("$0.0022842");
     expect(within(tooltip).getByText("Extraction").nextElementSibling.textContent).toBe("$0.004");
-    expect(within(tooltip).getByText("Split allocated across 3 of 10 packet pages.")).toBeTruthy();
     // Escape also dismisses a hovered tooltip when the trigger does not have focus.
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("tooltip")).toBeNull();

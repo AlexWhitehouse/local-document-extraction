@@ -153,7 +153,7 @@ function DocumentDetail({
             <strong>{(average * 100).toFixed(1)}%</strong> average confidence
           </span>
         ) : null}
-        <ProcessingCost costs={selectedDocument.costs} inProgress={!["completed", "failed"].includes(status)} />
+        {status === "completed" ? <ProcessingCost costs={selectedDocument.costs} /> : null}
         {selectedDocument.source_pages ? (
           <span>Pages {formatPages(selectedDocument.source_pages)}</span>
         ) : null}

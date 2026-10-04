@@ -63,7 +63,6 @@ export function ProcessingCost({ costs, kind = "Document", inProgress = false })
         ))}
         <div className="processing-cost-total"><dt>Total</dt><dd>{total}</dd></div>
       </dl>
-      {costs?.split_allocation ? <p>Split allocated across {costs.split_allocation.document_pages} of {costs.split_allocation.packet_pages} packet pages.</p> : null}
       {costs?.excluded_pages_cost && (costs.excluded_pages_cost.amount > 0 || !costs.excluded_pages_cost.complete) ? (
         <p>Split includes {amountLabel(costs.excluded_pages_cost)} for excluded pages, kept at packet level.</p>
       ) : null}

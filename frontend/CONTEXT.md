@@ -339,7 +339,7 @@ _Avoid_: demo mode, sample data sandbox
 - The Template field editor and JSON modal allow at most one table-shaped **Template field** with no more than 20 **Template object columns**.
 - An **Extraction job** shows results for its fixed **Template version**, pinned at explicit submission or when automatic/manual selection resolves. Later Template edits do not change its interpretation.
 - A completed **Extraction job** displays **Extraction results** for extracted **Template fields**.
-- The Document header shows total model cost beside average confidence. The packet header shows total model cost after the excluded-page count. Hovering, focusing, or tapping a total exposes Smart split, Auto template, and Extraction costs. Missing costs display as unavailable; partial totals use a plus sign with an explanation. Display rounding does not change stored costs or page allocation.
+- The Document header shows total model cost beside average confidence only when the Document is completed. The packet header shows total model cost after the excluded-page count. Hovering, focusing, or tapping a total exposes Smart split, Auto template, and Extraction costs. Missing costs display as unavailable; partial totals use a plus sign with an explanation. Display rounding does not change stored costs or page allocation.
 - **Selected upload Template** is derived from backend Templates after Workspace resolution and does not persist across page refresh.
 - **Workspace live updates** do not provide durable history. After reconnecting, revalidate authoritative **Workspace product data** and accepted **Workspace context** over HTTP.
 - **Extraction job** lifecycle live updates update Documents UI state without refreshing **Workspace context**.
