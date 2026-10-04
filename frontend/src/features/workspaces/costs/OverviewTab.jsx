@@ -32,8 +32,6 @@ export function OverviewTab({ data }) {
   ];
   return <div className="cp-tab-panel" role="tabpanel" aria-label="Overview">
     <FigureStrip figures={figures} label="Headline figures" />
-    <p className="cp-footnote">Averages use {plural(metrics.fullyCostedDocuments, "finished, fully costed document")} and include their split shares. Excluded-page overhead remains in total spend.</p>
-    {!totals.total.complete ? <p className="cp-footnote">+ marks known spend where some calls have no reported cost. Unavailable costs are never counted as zero.</p> : null}
     <SpendCharts buckets={buckets} unit={range.unit} totals={totals} />
     <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} />
   </div>;
@@ -159,7 +157,7 @@ function CostSpread({ documents, sampled, population }) {
         <Segmented label="Measure" value={metric} onChange={setMetric} options={[{ value: "document", label: "Per document" }, { value: "page", label: "Per page" }]} />
       </div>
     </div>
-    <p className="cp-muted">{sampled ? `Sample of ${documents.length} of ${population.toLocaleString()} documents. Percentiles are estimates weighted by upload-period volume.` : `${plural(documents.length, "fully costed document")} in this range.`} Each document includes all its processing models.</p>
+    {sampled ? <p className="cp-muted">Sample of {documents.length} of {population.toLocaleString()} documents. Percentiles are estimates weighted by upload-period volume.</p> : null}
     {groups.length ? <>
       <div ref={ref} className="cp-chart">
         <svg width={width} height={height} role="group" aria-label={`Cost per ${metric} by template`}>

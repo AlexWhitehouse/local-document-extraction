@@ -185,7 +185,7 @@ it("reconciles packet split shares, deleted children, and unallocated original p
   expect(within(table).getByText("Invoice").closest("tr").textContent).toContain("Deleted");
   expect(within(table).getByText("Unallocated pages").closest("tr").textContent).toContain("$0.10");
   expect(within(table).getByText("Excluded pages").closest("tr").textContent).toContain("$0.10");
-  expect(within(detail).getByText(/Invoice gets/).textContent).toContain("$0.50 × 2 / 5 pages = $0.20");
+  expect(within(within(table).getByText("Invoice").closest("tr")).getAllByRole("cell")[2].textContent).toBe("$0.20");
   const page = within(detail).getByTitle("Page 12 · Unallocated pages");
   fireEvent.mouseEnter(page);
   expect(within(detail).getByLabelText("Invoice: $0.60").className).toContain("cp-dim");

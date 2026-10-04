@@ -1,5 +1,5 @@
 import React from "react";
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
 import { useWorkspaceModelConfiguration } from "./useWorkspaceModelConfiguration.js";
@@ -215,7 +215,7 @@ describe("Workspace Model gateway", () => {
     expect(result.current.conflict).toBe(false);
   });
 
-  it("shows the editor, then a summary with an Edit action, write-only input, capability declarations, and clear confirmation", async () => {
+  it("starts on an empty summary and supports explicit editing, cancel, save, and clearing back to the summary", async () => {
     const coreRequest = apiFixture();
     const showActionToast = vi.fn();
     function Editor() {
@@ -225,7 +225,18 @@ describe("Workspace Model gateway", () => {
     const { container } = render(<Editor />);
     await screen.findByText("Not configured");
     expect(container.querySelectorAll("article")).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(within(screen.getByRole("table", { name: "Models" })).getAllByRole("cell").every(cell => cell.textContent === "—")).toBe(true);
+    expect(screen.queryByLabelText("Gateway URL")).toBeNull();
+    expect(screen.queryByText("Saved")).toBeNull();
+    expect(screen.queryByText("Same as extraction")).toBeNull();
+    expect(screen.getByRole("button", { name: "Test connection" }).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Gateway URL"), { target: { value: draft.gateway_url } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByLabelText("Gateway URL")).toBeNull();
+    expect(coreRequest).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByLabelText("Gateway URL").value).toBe("");
     fireEvent.change(screen.getByLabelText("Gateway URL"), { target: { value: draft.gateway_url } });
     fireEvent.change(screen.getByLabelText("Extraction model"), { target: { value: draft.model_name } });
     fireEvent.change(screen.getByLabelText("Gateway API key"), { target: { value: draft.credential } });
@@ -253,6 +264,10 @@ describe("Workspace Model gateway", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear configuration" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm clear" }));
     await waitFor(() => expect(showActionToast).toHaveBeenCalledWith("workspace.modelGateway.clear", "success"));
+    expect(screen.getByText("Not configured")).toBeTruthy();
+    expect(screen.queryByLabelText("Gateway URL")).toBeNull();
+    expect(screen.getByRole("button", { name: "Test connection" }).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByLabelText("Gateway URL").value).toBe("");
   });
 

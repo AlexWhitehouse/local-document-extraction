@@ -77,6 +77,7 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await expect(tour).toContainText("Connect a model");
     await target("nav-workspace").click();
     await page.screenshot({ path: testInfo.outputPath("tour-gateway.png") });
+    await page.getByRole("article", { name: "Workspace Model gateway" }).getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByLabel("Gateway URL", { exact: true }).click();
     await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
     await page.getByLabel("Extraction model", { exact: true }).fill("browser/model");

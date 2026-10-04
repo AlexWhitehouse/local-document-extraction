@@ -34,9 +34,9 @@ export function WorkspaceModelConfiguration({ controller }) {
         : configured
           ? "Configured"
           : "Not configured";
-  // Configured Workspaces open on a read-only summary; a new Workspace goes straight to the form.
-  const showForm = canManage && Boolean(record) && (editing || !configured || conflict);
-  const showSummary = canManage && !loading && configured && !showForm;
+  // Every Workspace opens on the summary; editing is an explicit action.
+  const showForm = canManage && Boolean(record) && (editing || conflict);
+  const showSummary = canManage && !loading && Boolean(record) && !showForm;
   const closeEditor = () => {
     setConfirmClear(false);
     setEditing(false);
@@ -114,17 +114,17 @@ export function WorkspaceModelConfiguration({ controller }) {
               <dl className="workspace-model-connection">
                 <div>
                   <dt>Gateway URL</dt>
-                  <dd><code>{record.gateway_url}</code></dd>
+                  <dd><code>{configured ? record.gateway_url : "—"}</code></dd>
                 </div>
                 <div>
                   <dt>API key</dt>
                   <dd className={unavailable ? "unavailable" : ""}>
-                    {unavailable ? "Unavailable" : "Saved"}
+                    {unavailable ? "Unavailable" : configured ? "Saved" : "—"}
                   </dd>
                 </div>
                 <div>
                   <dt>Calls</dt>
-                  <dd>{record.sequential_calls ? "Sequential" : "Parallel"}</dd>
+                  <dd>{configured ? record.sequential_calls ? "Sequential" : "Parallel" : "—"}</dd>
                 </div>
               </dl>
               <ModelRoles record={record} />
@@ -133,7 +133,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                   <button
                     type="button"
                     className="secondary"
-                    disabled={testing}
+                    disabled={!configured || saving || testing}
                     onClick={controller.testConnection}
                   >
                     {testing ? "Testing…" : "Test connection"}
@@ -262,7 +262,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                   >
                     {testing ? "Testing…" : "Test connection"}
                   </button>
-                  {configured && !conflict ? (
+                  {!conflict ? (
                     <button
                       type="button"
                       className="ghost"
@@ -363,25 +363,25 @@ function RolesTable({ label, children }) {
 function ModelRoles({ record }) {
   const capability = (values, field, title) => (
     <td key={field}>
-      <span className={values[field] ? "workspace-model-flag on" : "workspace-model-flag"}>
+      {record.configured ? <span className={values[field] ? "workspace-model-flag on" : "workspace-model-flag"}>
         <span className="workspace-model-sr-only">{`${title}: ${values[field] ? "yes" : "no"}`}</span>
-      </span>
+      </span> : <span aria-label={`${title}: not configured`}>—</span>}
     </td>
   );
   return (
     <RolesTable label="Models">
       <tr>
         <RoleHeading title="Extraction" note="Jobs and Evaluations" />
-        <td><code>{record.model_name}</code></td>
+        <td><code>{record.configured ? record.model_name : "—"}</code></td>
         {CAPABILITIES.map(([field, title]) => capability(record, field, title))}
       </tr>
       {TASK_ROLES.map(([role, title, note]) => {
         const model = record[`${role}_model`];
         return (
-          <tr key={role} className={model ? "" : "inherited"}>
+          <tr key={role} className={record.configured && !model ? "inherited" : ""}>
             <RoleHeading title={title} note={note} />
             <td>
-              {model ? <code>{model.model_name}</code> : <span className="workspace-model-inherited">Same as extraction</span>}
+              {!record.configured ? "—" : model ? <code>{model.model_name}</code> : <span className="workspace-model-inherited">Same as extraction</span>}
             </td>
             {CAPABILITIES.map(([field, capabilityTitle]) => capability(model ?? record, field, capabilityTitle))}
           </tr>
