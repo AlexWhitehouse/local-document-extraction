@@ -102,3 +102,21 @@ Health, the built SPA, deep routes, native PDF rendering, restart, and graceful 
 Published-download verification used noninteractive defaults on the existing macOS 27.0 arm64 host. It did not use a fresh machine. CI separately qualified the listed runners. These release tests did not verify Intel macOS, older operating systems, or third-party model routes. They also excluded live Google sign-in and Cloudflare email delivery.
 
 Local evidence remains in `.scratch/release-v1.1.0/` and `.scratch/ci/release-v1.1.0-real-upgrade/`. It is not distributed.
+
+## v1.2.0 release qualification (2026-10-04)
+
+[PR #44](https://github.com/AlexWhitehouse/local-document-extraction/pull/44) passed [CI run 37175471754](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/37175471754) before merge. The feature branch was then deleted locally and remotely.
+
+[v1.2.0](https://github.com/AlexWhitehouse/local-document-extraction/releases/tag/v1.2.0) was published from merged commit `317149d89a1b34721d4278d9f1226b48b547e4a0`. [Release workflow 37175796160](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/37175796160) passed for that exact commit with Bun 1.4.2. Platform verification covered quality, dependency hygiene, coverage, build, native PDF rendering, and installer tests on Ubuntu 24.04 x64 and arm64, and macOS 15 arm64. Linux Chromium journeys, the complete-history secret scan, the license gate, and packaging passed. The scheduled/manual randomized backend lane was skipped as configured.
+
+All three published assets downloaded without GitHub authentication. The archive SHA256 was `3ff7a80d4695021cbb4a3fc3c28cc96d2f8695491a7c7bb754ba4b718ec28f51`. Its 502 entries included the project license and clean metadata identifying v1.2.0 and the tagged commit. The archive excluded private configuration, runtime state, dependencies, and scratch files. The published installer matched the copy inside the archive.
+
+The exact README installation command passed on the existing Ubuntu 26.04.1 x64 host, using empty isolated XDG directories with spaces, an ephemeral loopback port, and a PATH without Bun or Node. The installer downloaded Bun 1.4.2. Health, SPA fallback, native PDF rendering, private file permissions, shutdown, and restart passed.
+
+A separate installation downloaded published v1.1.0 and upgraded through its installed `document-extraction update v1.2.0` command. Configuration bytes, account login, Workspace membership, a saved Template, a completed Document and its extraction result, and both generated secrets survived. The synthetic model credential remained decryptable. Migration 12 was present, and the historical Document's cost was unavailable rather than an invented zero. All five pre-upgrade state files matched the pre-migration backup. Health, native PDF rendering, shutdown, and restart passed.
+
+Both installations matched the published archive checksum and tagged revision. Both were stopped, and their temporary application, configuration, and state directories were removed.
+
+These published-download checks used noninteractive defaults on an existing Linux host. They did not qualify fresh machines, published downloads on macOS, Intel macOS, older operating systems, or live model routes. Live Google sign-in and Cloudflare email delivery were not tested. CI separately qualified its three listed runners.
+
+Local logs and verification results remain in `.scratch/release-v1.2.0/`. They are not distributed.
