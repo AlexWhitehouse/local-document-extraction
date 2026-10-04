@@ -45,7 +45,15 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await page.getByRole("button", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));
+
+    const creation = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
+    );
+
     await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
+    const created = await creation;
+    const { template_id: templateId } = await created.json();
+    const headers = { "x-workspace-id": created.request().headers()["x-workspace-id"] };
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
     const evaluations = page.getByRole("region", { name: "Evaluations" });
@@ -145,6 +153,43 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await evaluations.getByRole("button", { name: "Manage library" }).click();
     await library.getByRole("button", { name: "Edit library-invoice" }).click();
     await expect(editorMatrix.getByText("INV-EDITED", { exact: true })).toBeVisible();
+
+    // A saved Template changes later. Select historical or current fields without rerunning the document.
+    const updated = await page.request.patch(`${harness.origin}/v1/templates/${templateId}`, {
+      headers,
+      data: {
+        ...TEMPLATE,
+        fields: [...TEMPLATE.fields, { id: "reviewed", name: "Reviewed", data_type: "boolean", description: "Whether the invoice is reviewed." }],
+      },
+    });
+
+    expect(updated.status()).toBe(200);
+    await page.reload();
+    await evaluations.getByRole("button", { name: "Manage library" }).click();
+    await library.getByRole("button", { name: "Edit library-invoice" }).click();
+    await evaluations.getByRole("button", { name: "Choose Template/version" }).click();
+    const versions = page.getByRole("dialog", { name: "Choose Template/version" });
+    await versions.getByRole("combobox", { name: "Template", exact: true }).selectOption(templateId);
+    await expect(versions.getByRole("combobox", { name: "Field version" })).toContainText("Current · v2");
+    await versions.getByRole("combobox", { name: "Field version" }).selectOption("1");
+    await versions.getByRole("button", { name: "Use Template version" }).click();
+    await expect(evaluations.getByTitle(`${TEMPLATE.name} · fields v1`)).toBeVisible();
+    await expect(editorMatrix.getByRole("button", { name: "Add expected Reviewed" })).toHaveCount(0);
+    await evaluations.getByRole("button", { name: "Choose Template/version" }).click();
+    await expect(versions.getByRole("combobox", { name: "Template", exact: true })).toHaveValue(templateId);
+    await versions.getByRole("button", { name: "Use Template version" }).click();
+    await expect(evaluations.getByTitle(`${TEMPLATE.name} · fields v2`)).toBeVisible();
+    await expect(editorMatrix.getByText("INV-EDITED", { exact: true })).toBeVisible();
+    await editorMatrix.getByRole("button", { name: "Add expected Reviewed" }).click();
+    await editorMatrix.getByRole("combobox", { name: "Expected Reviewed", exact: true }).selectOption("false");
+    await editorMatrix.getByRole("button", { name: "Verify" }).click();
+    await evaluations.getByRole("button", { name: "Update saved answers…" }).click();
+    await page.getByRole("dialog", { name: "Review saved answer update" }).getByRole("button", { name: "Update saved answers" }).click();
+    await expect(evaluations.getByText("Saved answers updated for the Workspace.")).toBeVisible();
+    await page.reload();
+    await evaluations.getByRole("button", { name: "Manage library" }).click();
+    await library.getByRole("button", { name: "Edit library-invoice" }).click();
+    await expect(editorMatrix.getByRole("button", { name: "Edit expected Reviewed" })).toContainText("No");
     expect(modelRequests).toEqual([]);
     expect(evidence.externalWebSockets()).toEqual([]);
   } finally {

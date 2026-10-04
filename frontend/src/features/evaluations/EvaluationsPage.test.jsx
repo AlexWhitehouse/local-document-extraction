@@ -175,6 +175,21 @@ const openMenu = (index = 1) => fireEvent.click(screen.getByRole("button", { nam
 
 const savedTemplate = (fields = template.fields) => ({ ...template, fields, current_version: 3 });
 
+it("replaces a comparison candidate with a historical Template without running it", async () => {
+  const evaluation = setup({ mode: "templates" }, [{ id: "saved", name: "Saved Invoice", current_version: 3 }]);
+  evaluation.api.mockImplementation(async () => Response.json(savedTemplate()));
+  openMenu();
+  fireEvent.click(screen.getByRole("button", { name: "Choose another Template/version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose candidate Template" }));
+  fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "saved" } });
+  fireEvent.change(picker.getByRole("combobox", { name: "Field version" }), { target: { value: "2" } });
+  fireEvent.click(picker.getByRole("button", { name: "Replace candidate Template" }));
+  await waitFor(() => expect(evaluation.edit).toHaveBeenCalledWith("a", {
+    template: expect.objectContaining({ source: { id: "saved", version: 2 }, name: "Invoice · fields v2" }),
+  }));
+  expect(evaluation.run).not.toHaveBeenCalled();
+});
+
 it("keeps editing available during processing and applies full editor changes only to the candidate", async () => {
   const evaluation = setup();
   expect(screen.getByRole("button", { name: "Run all 1" }).disabled).toBe(true);

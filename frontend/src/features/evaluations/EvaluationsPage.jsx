@@ -15,6 +15,7 @@ import {
 import { Meter } from "./EvaluationParts.jsx";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
+import { TemplateVersionDialog } from "./TemplateVersionDialog.jsx";
 import { MAX_CANDIDATES, documentRunnable, pairBusy } from "./useEvaluations.js";
 import { documentCompatibility } from "./evaluationScoring.js";
 import { documentDirty, saveUnavailableMessage } from "./evaluationLibrary.js";
@@ -31,14 +32,11 @@ export function EvaluationsPage({
   onTemplateSaved,
 }) {
   const { state, patch, edit, api } = evaluation;
-  const [templateId, setTemplateId] = useState("");
-  const [version, setVersion] = useState("");
   const [editor, setEditor] = useState(null);
   const [preview, setPreview] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [isDragActive, setDragActive] = useState(false);
   const [autoRun, setAutoRun] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [replacement, setReplacement] = useState(null);
   const [localError, setLocalError] = useState("");
   const [notice, setNotice] = useState("");
@@ -49,8 +47,6 @@ export function EvaluationsPage({
   useEffect(() => {
     lifetime.current++;
     setEditor(null);
-    setTemplateId("");
-    setVersion("");
     setReplacement(null);
     setUploadOpen(false);
     setPreview(null);
@@ -69,7 +65,10 @@ export function EvaluationsPage({
   }, [autoRun, state.candidates, evaluation]);
   const editingLibrary = !!state.libraryEditor;
   const batch = !editingLibrary && state.documents.length > 1;
-  useEffect(() => setFilter("all"), [state.libraryEditor]);
+  useEffect(() => {
+    setFilter("all");
+    setReplacement(null);
+  }, [state.libraryEditor]);
 
   // One document at a time, as in a single-document Evaluation; Previous/Next move through the rest.
   const position = Math.max(
@@ -154,10 +153,10 @@ export function EvaluationsPage({
   };
 
   const loadTemplate = useCallback(
-    async (id, fieldVersion) => {
-      const template = await (
-        await api(`/evaluations/templates/${encodeURIComponent(id)}${fieldVersion ? `?version=${fieldVersion}` : ""}`)
-      ).json();
+    async (id, fieldVersion, signal) => {
+      const path = `/evaluations/templates/${encodeURIComponent(id)}${fieldVersion ? `?version=${fieldVersion}` : ""}`;
+      const response = signal ? await api(path, { signal }) : await api(path);
+      const template = await response.json();
 
       const tested = Number(fieldVersion || template.current_version);
 
@@ -186,25 +185,6 @@ export function EvaluationsPage({
       if (runNow) setAutoRun(ids);
     } catch (error) {
       if (owner === lifetime.current) setLocalError(error.message);
-    }
-  };
-
-  const replaceTemplate = async () => {
-    if (!templateId) return;
-    const owner = lifetime.current;
-    setLoading(true);
-    setLocalError("");
-
-    try {
-      const selected = await loadTemplate(templateId, version);
-
-      if (owner !== lifetime.current) return;
-      edit(replacement, { template: selected });
-      setReplacement(null);
-    } catch (error) {
-      if (owner === lifetime.current) setLocalError(error.message);
-    } finally {
-      if (owner === lifetime.current) setLoading(false);
     }
   };
 
@@ -238,7 +218,10 @@ export function EvaluationsPage({
       setNotice("New Template saved. Your Evaluation draft and original Template are unchanged.");
       await onTemplateSaved?.();
     } else if (editingLibrary) {
-      evaluation.editLibraryTemplate(payload);
+      const next = { ...payload };
+
+      if (template.source) next.source = modifiedSource(template.source);
+      evaluation.editLibraryTemplate(next);
     } else if (state.mode === "models") {
       patch({
         candidates: state.candidates.map((c) => ({
@@ -269,11 +252,7 @@ export function EvaluationsPage({
       { label: "Edit Template", onClick: () => openEditor(candidate) },
       state.mode === "templates" && {
         label: "Choose another Template/version",
-        onClick: () => {
-          setReplacement(candidate.id);
-          setTemplateId("");
-          setVersion("");
-        },
+        onClick: () => setReplacement({ candidateId: candidate.id, source: candidate.template.source }),
       },
       { label: "Save as new Template", onClick: () => openEditor(candidate, true) },
       {
@@ -480,10 +459,18 @@ export function EvaluationsPage({
             {editingLibrary ? (
               <div className="evaluation-context-item">
                 <small>Template</small>
-                <span className="evaluation-context-value">
-                  Saved fields · {fields.length} {fields.length === 1 ? "field" : "fields"}
+                <span className="evaluation-context-value" title={template.source ? template.name : "Saved fields"}>
+                  {template.source ? template.name : "Saved fields"}{template.source?.modified ? " · edited" : ""}
+                  {" · "}{fields.length} {fields.length === 1 ? "field" : "fields"}
                 </span>
                 <span className="evaluation-context-actions">
+                  <button
+                    type="button"
+                    className="studio-text-button"
+                    onClick={() => setReplacement({ documentKey: document.key, source: template.source })}
+                  >
+                    Choose Template/version
+                  </button>
                   <button
                     type="button"
                     className="studio-text-button"
@@ -640,75 +627,26 @@ export function EvaluationsPage({
         </ModalDialog>
       )}
       {replacement && (
-        <ModalDialog label="Choose candidate Template" onClose={() => setReplacement(null)}>
-          <div className="evaluation-heading">
-            <h2>Choose candidate Template</h2>
-            <button
-              type="button"
-              className="modal-close"
-              aria-label="Close"
-              title="Close"
-              onClick={() => setReplacement(null)}
-            >
-              ×
-            </button>
-          </div>
-          <label>
-            Template
-            <select
-              value={templateId}
-              disabled={loading}
-              onChange={(event) => {
-                setTemplateId(event.target.value);
-                setVersion("");
-              }}
-            >
-              <option value="" disabled>
-                Choose a Template
-              </option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Field version
-            <select
-              value={version}
-              disabled={!templates.find((t) => t.id === templateId) || loading}
-              onChange={(event) => setVersion(event.target.value)}
-            >
-              <option value="">
-                {templates.find((t) => t.id === templateId)
-                  ? `Current · v${templates.find((t) => t.id === templateId).current_version}`
-                  : "Select a Template first"}
-              </option>
-              {Array.from(
-                { length: Math.max(0, (templates.find((t) => t.id === templateId)?.current_version || 1) - 1) },
-                (_, index) => (
-                  <option key={index} value={index + 1}>
-                    Fields v{index + 1}
-                  </option>
-                ),
-              )}
-            </select>
-          </label>
-          <div className="actions">
-            <button className="secondary" onClick={() => setReplacement(null)}>
-              Cancel
-            </button>
-            <button disabled={!templateId || loading} onClick={replaceTemplate}>
-              {loading ? "Loading…" : "Replace candidate Template"}
-            </button>
-          </div>
-          {localError && (
-            <p role="alert" className="form-error">
-              {localError}
-            </p>
-          )}
-        </ModalDialog>
+        <TemplateVersionDialog
+          key={`${state.id}:${replacement.documentKey || replacement.candidateId}`}
+          templates={templates}
+          source={replacement.source}
+          title={replacement.documentKey ? "Choose Template/version" : "Choose candidate Template"}
+          description={
+            replacement.documentKey
+              ? "Load fields into this document’s draft and review changes against its Expected answers. Use Update saved answers to save your reviewed answers to the library."
+              : undefined
+          }
+          action={replacement.documentKey ? "Use Template version" : "Replace candidate Template"}
+          loadTemplate={loadTemplate}
+          onSelect={(selected) => {
+            if (replacement.documentKey) {
+              evaluation.editLibraryTemplate(selected);
+              setFilter("all");
+            } else edit(replacement.candidateId, { template: selected });
+          }}
+          onClose={() => setReplacement(null)}
+        />
       )}
       {editor && (
         <TemplateEditorModal

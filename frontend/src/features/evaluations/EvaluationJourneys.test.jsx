@@ -97,7 +97,7 @@ beforeEach(() => {
 
 const createCache = () => createResultCache({ indexedDB: database, keyRange: FakeKeyRange });
 
-function Harness() {
+function Harness({ templates = [{ id: "invoice", name: "Invoice", current_version: 1 }] }) {
   const evaluation = useEvaluations({
     workspaceId: "workspace",
     sessionId: "session",
@@ -109,7 +109,7 @@ function Harness() {
   return (
     <EvaluationsPage
       evaluation={evaluation}
-      templates={[{ id: "invoice", name: "Invoice", current_version: 1 }]}
+      templates={templates}
       enabled
       maxSourceFileBytes={10000}
     />
@@ -226,6 +226,114 @@ it("keeps Manage library open with a retryable error if the saved entry cannot l
   await screen.findByText("Try opening again.");
   expect(screen.getByRole("button", { name: "Edit Harbour invoice" }).disabled).toBe(false);
   expect(screen.queryByRole("region", { name: "Comparison matrix" })).toBeNull();
+});
+
+it("loads the latest Template into the library editor and saves reviewed changes without a model", async () => {
+  const table = (type) => ({
+    id: "items", name: "Items", data_type: "array<object>",
+    object_schema: { mode: "table", columns: [{ key: "quantity", heading: "Quantity", data_type: type, description: "Item count" }] },
+  });
+
+  library.evd_a.reference.definitions["items:array<object>"] = table("string");
+  library.evd_a.reference.references["items:array<object>"] = {
+    verified: true, value: [{ quantity: "7" }], rows: { mode: "position" },
+  };
+  library.evd_a.reference.definitions["old code:string"] = { id: "old", name: "Old code", data_type: "string" };
+  library.evd_a.reference.references["old code:string"] = { verified: true, value: "Keep until reviewed" };
+  const saved = structuredClone(library.evd_a.reference);
+  overrides["GET /evaluations/setup"] = () => Response.json({ configured: false });
+  overrides["GET /evaluations/templates/invoice"] = () => Response.json({
+    name: "Invoice", current_version: 3, fields: [fields[0], table("number"), fields[1]],
+  });
+  overrides["PATCH /evaluations/documents/evd_a"] = (options) => {
+    library.evd_a = { document: summary("evd_a", "Harbour invoice", 2), reference: JSON.parse(options.body).reference };
+
+    return Response.json(library.evd_a);
+  };
+
+  render(<Harness templates={[{ id: "invoice", name: "Invoice", current_version: 3 }]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Choose Template/version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
+  expect(picker.getByRole("option", { name: "Current · v3" }).selected).toBe(true);
+  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose Template/version" })).toBeNull());
+  expect(screen.getByTitle("Invoice · fields v3")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Edit expected Total" }).textContent).toContain("3420");
+  expect(screen.getByRole("button", { name: "Add expected Supplier" })).toBeTruthy();
+  expect(screen.getByText("Removed from the Template draft · saved answer kept")).toBeTruthy();
+  expect(library.evd_a.reference).toEqual(saved);
+
+  fireEvent.click(screen.getByRole("button", { name: "Review updated table" }));
+  const answer = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
+  expect(answer.getByRole("textbox", { name: "Expected row 1 Quantity" }).value).toBe("7");
+  fireEvent.click(answer.getByRole("button", { name: "Use as expected answer" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove expected answer for Old code" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add expected Supplier" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Expected Supplier" }), { target: { value: "Harbour" } });
+  fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+  expect(library.evd_a.reference).toEqual(saved);
+  fireEvent.click(screen.getByRole("button", { name: "Update saved answers…" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Review saved answer update" })).getByRole("button", { name: "Update saved answers" }));
+  await screen.findByText("Saved answers updated for the Workspace.");
+  expect(library.evd_a.reference.references["total:number"]).toEqual(saved.references["total:number"]);
+  expect(library.evd_a.reference.references["items:array<object>"].value).toEqual([{ quantity: 7 }]);
+  expect(library.evd_a.reference.definitions["items:array<object>"].object_schema.columns[0].data_type).toBe("number");
+  expect(library.evd_a.reference.references["supplier:string"].value).toBe("Harbour");
+  expect(library.evd_a.reference.definitions["old code:string"]).toBeUndefined();
+  expect(streams).toHaveLength(0);
+  expect(fetch.mock.calls.some(([url]) => url === "/v1/evaluations/actions")).toBe(false);
+});
+
+it("chooses a historical library Template version and ignores a later load after Cancel", async () => {
+  overrides["GET /evaluations/templates/invoice?version=1"] = () => Response.json({ name: "Invoice", current_version: 3, fields: [fields[0]] });
+  render(<Harness templates={[{ id: "invoice", name: "Invoice", current_version: 3 }]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Choose Template/version" }));
+  let picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
+  fireEvent.change(picker.getByRole("combobox", { name: "Field version" }), { target: { value: "1" } });
+  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
+  await screen.findByTitle("Invoice · fields v1");
+  expect(screen.queryByRole("button", { name: "Add expected Supplier" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
+  const draft = within(screen.getByRole("dialog", { name: "Edit Template" }));
+  fireEvent.change(draft.getByRole("textbox", { name: "Extraction instructions" }), { target: { value: "Updated instructions" } });
+  fireEvent.click(draft.getByRole("button", { name: "Apply changes" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Template" })).toBeNull());
+  expect(screen.getByTitle("Invoice · fields v1").textContent).toContain("edited");
+  fireEvent.click(screen.getByRole("button", { name: "Choose Template/version" }));
+  picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  expect(picker.getByRole("combobox", { name: "Template", exact: true }).value).toBe("invoice");
+  expect(picker.getByRole("option", { name: "Current · v3" }).selected).toBe(true);
+  let finish;
+  overrides["GET /evaluations/templates/invoice"] = () => new Promise((resolve) => { finish = resolve; });
+  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
+  fireEvent.click(picker.getByRole("button", { name: "Cancel" }));
+  await act(async () => finish(Response.json({ name: "Invoice", current_version: 3, fields })));
+  expect(screen.getByTitle("Invoice · fields v1")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Add expected Supplier" })).toBeNull();
+  expect(streams).toHaveLength(0);
+});
+
+it("keeps the library draft after a Template load failure and allows retry", async () => {
+  overrides["GET /evaluations/templates/invoice"] = () => Response.json({ error: { message: "Template field version not found." } }, { status: 404 });
+  render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Choose Template/version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
+  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
+  expect(await picker.findByRole("alert")).toHaveProperty("textContent", "Template field version not found.");
+  expect(screen.getByRole("button", { name: "Edit expected Total" }).textContent).toContain("3420");
+  delete overrides["GET /evaluations/templates/invoice"];
+  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
+  await screen.findByTitle("Invoice · fields v1");
+  expect(screen.queryByRole("dialog", { name: "Choose Template/version" })).toBeNull();
 });
 
 it("mixes saved entries with a fresh upload and moves between documents with Previous and Next", async () => {
