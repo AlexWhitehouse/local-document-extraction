@@ -116,7 +116,7 @@ Cancel leaves the existing answers unchanged. Verification updates the working c
 
 Link renamed fields manually. For example, if **Total** becomes **Invoice total**, select **Renamed? Link it to** beside the saved answer. Eligible fields have the same type and no verified answer of their own. The link applies only to this document in this Evaluation. It does not change saved answers. Select **Unlink** to remove it; the app never infers renamed-field links.
 
-Select **Manage library** to open the centered management modal. Any Workspace member can rename or delete saved documents. Long names and details use ellipses; hover to read the full text. The document list scrolls when necessary.
+Select **Manage library** to open the centered management modal. Any Workspace member can edit, rename, or delete saved documents. **Edit** opens the matrix with the document’s saved fields and Expected answers, with no models selected or running. No model configuration is required. Use **Edit Template** to revise its field draft, verify answers in the matrix, and **Update saved answers…** to review and save changes to the shared library. **Back to Evaluation** keeps the working copy and field draft in this tab. Long names and details use ellipses; hover to read the full text. The document list scrolls when necessary.
 
 Deletion removes the document and its answers for everyone. Evaluations that already show its results keep them, but cannot run that document again. You cannot replace a saved file. Save a corrected file as a new document.
 

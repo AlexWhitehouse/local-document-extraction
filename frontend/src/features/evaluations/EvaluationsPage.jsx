@@ -67,12 +67,14 @@ export function EvaluationsPage({
     setAutoRun(null);
     evaluation.run(autoRun);
   }, [autoRun, state.candidates, evaluation]);
-  const batch = state.documents.length > 1;
+  const editingLibrary = !!state.libraryEditor;
+  const batch = !editingLibrary && state.documents.length > 1;
+  useEffect(() => setFilter("all"), [state.libraryEditor]);
 
   // One document at a time, as in a single-document Evaluation; Previous/Next move through the rest.
   const position = Math.max(
     0,
-    state.documents.findIndex((d) => d.key === view),
+    state.documents.findIndex((d) => d.key === (state.libraryEditor || view)),
   );
 
   const document = state.documents[position];
@@ -82,7 +84,8 @@ export function EvaluationsPage({
     setView(state.documents[(position + delta + state.documents.length) % state.documents.length]?.key ?? null);
   };
 
-  const fields = state.candidates[0]?.template.fields || [];
+  const template = editingLibrary ? document?.editingTemplate : state.candidates[0]?.template;
+  const fields = template?.fields || [];
 
   const labelFor = (candidate) =>
     state.mode === "models"
@@ -92,7 +95,7 @@ export function EvaluationsPage({
   // The selected document's view of each candidate: its pair status plus the displayed result details.
   const shown = (pair) => pair?.result || pair?.previous || null;
 
-  const viewCandidates = document
+  const viewCandidates = document && !editingLibrary
     ? state.candidates.map((candidate) => {
         const pair = state.pairs[document.key]?.[candidate.id],
           record = shown(pair);
@@ -234,6 +237,8 @@ export function EvaluationsPage({
       });
       setNotice("New Template saved. Your Evaluation draft and original Template are unchanged.");
       await onTemplateSaved?.();
+    } else if (editingLibrary) {
+      evaluation.editLibraryTemplate(payload);
     } else if (state.mode === "models") {
       patch({
         candidates: state.candidates.map((c) => ({
@@ -319,14 +324,26 @@ export function EvaluationsPage({
         pageDescription="Compare candidates on one or more documents. Runs and results are temporary and clear when you close this tab; saved documents and their answers stay in the Workspace library."
         actions={
           <>
+            {editingLibrary && (
+              <>
+                <button type="button" className="secondary" onClick={() => patch({ libraryEditor: null })}>
+                  Back to Evaluation
+                </button>
+                <button type="button" className="secondary" onClick={() => open("manage")}>
+                  Manage library
+                </button>
+              </>
+            )}
             <button type="button" className="secondary" onClick={() => open("clear")}>
               Clear Evaluation{unsaved ? ` · ${unsaved} unsaved` : ""}
             </button>
-            <button
-              type="button"
-              disabled={runDisabled}
-              onClick={() => evaluation.run(state.candidates.map((c) => c.id))}
-            >{`Run all${state.candidates.length ? ` ${state.candidates.length}` : ""}${batch && state.candidates.length ? ` × ${runnable.length}` : ""}`}</button>
+            {!editingLibrary && (
+              <button
+                type="button"
+                disabled={runDisabled}
+                onClick={() => evaluation.run(state.candidates.map((c) => c.id))}
+              >{`Run all${state.candidates.length ? ` ${state.candidates.length}` : ""}${batch && state.candidates.length ? ` × ${runnable.length}` : ""}`}</button>
+            )}
           </>
         }
       />
@@ -352,7 +369,7 @@ export function EvaluationsPage({
           </button>
         </div>
       )}
-      {!state.candidates.length ? (
+      {!state.candidates.length && !editingLibrary ? (
         <EvaluationSetup
           state={state}
           templates={templates}
@@ -370,9 +387,15 @@ export function EvaluationsPage({
         />
       ) : (
         <>
-          {(state.error || localError) && !uploadOpen && (
+          {((!editingLibrary && state.error) || localError) && !uploadOpen && (
             <p role="alert" className="evaluation-page-alert">
-              {state.error || localError}
+              {(!editingLibrary && state.error) || localError}
+            </p>
+          )}
+          {editingLibrary && (
+            <p className="evaluation-notice">
+              Edit this document’s saved fields and Expected answers. Review your changes with Update saved answers
+              to save them to the Workspace library.
             </p>
           )}
           <div className="evaluation-contextbar">
@@ -421,34 +444,62 @@ export function EvaluationsPage({
                     </button>
                   </>
                 )}
-                <button type="button" className="studio-text-button" onClick={() => open("picker")}>
-                  Add from library
-                </button>
-                <button type="button" className="studio-text-button" onClick={() => setUploadOpen(true)}>
-                  Upload document
-                </button>
+                {!editingLibrary && (
+                  <>
+                    <button type="button" className="studio-text-button" onClick={() => open("picker")}>
+                      Add from library
+                    </button>
+                    <button type="button" className="studio-text-button" onClick={() => setUploadOpen(true)}>
+                      Upload document
+                    </button>
+                  </>
+                )}
               </span>
             </div>
-            <div className="evaluation-context-item">
-              <small>Comparing</small>
-              <div className="segmented" role="group" aria-label="Comparison mode">
-                {[
-                  ["models", "Models"],
-                  ["templates", "Templates"],
-                ].map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    disabled={anyBusy}
-                    aria-pressed={state.mode === mode}
-                    onClick={() => evaluation.changeMode(mode)}
-                  >
-                    {label}
-                  </button>
-                ))}
+            {!editingLibrary && (
+              <div className="evaluation-context-item">
+                <small>Comparing</small>
+                <div className="segmented" role="group" aria-label="Comparison mode">
+                  {[
+                    ["models", "Models"],
+                    ["templates", "Templates"],
+                  ].map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      disabled={anyBusy}
+                      aria-pressed={state.mode === mode}
+                      onClick={() => evaluation.changeMode(mode)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            {state.mode === "models" ? (
+            )}
+            {editingLibrary ? (
+              <div className="evaluation-context-item">
+                <small>Template</small>
+                <span className="evaluation-context-value">
+                  Saved fields · {fields.length} {fields.length === 1 ? "field" : "fields"}
+                </span>
+                <span className="evaluation-context-actions">
+                  <button
+                    type="button"
+                    className="studio-text-button"
+                    onClick={() =>
+                      setEditor({
+                        candidateId: "library-template",
+                        initial: template,
+                        notice: "Changes apply to this document’s draft. Review the Expected answers, then use Update saved answers to save them.",
+                      })
+                    }
+                  >
+                    Edit Template
+                  </button>
+                </span>
+              </div>
+            ) : state.mode === "models" ? (
               <div className="evaluation-context-item">
                 <small>Shared Template</small>
                 <span className="evaluation-context-value" title={state.candidates[0].template.name}>
@@ -496,7 +547,7 @@ export function EvaluationsPage({
           {document && <DocumentBanner evaluation={evaluation} document={document} onNotice={setNotice} />}
           {document && (
             <div className="evaluation-toolbar-row">
-              <FieldFilters value={filter} onChange={setFilter} />
+              <FieldFilters value={filter} onChange={setFilter} editing={editingLibrary} />
               {batch && (
                 <nav className="evaluation-doc-nav" aria-label="Documents in this Evaluation">
                   <button type="button" className="secondary" onClick={() => step(-1)}>
@@ -514,10 +565,11 @@ export function EvaluationsPage({
           )}
           {document ? (
             <DocumentMatrix
-              key={`${state.id}:${document.key}`}
+              key={`${state.id}:${document.key}:${editingLibrary}`}
               evaluation={evaluation}
               document={document}
               candidates={viewCandidates}
+              template={editingLibrary ? template : undefined}
               batch={batch}
               labelFor={labelFor}
               menuFor={menuFor}

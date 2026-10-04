@@ -384,7 +384,7 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
 .evaluation-library-answers-col { width: 18%; }
 .evaluation-library-fields-col { width: 16%; }
 .evaluation-library-updated-col { width: 20%; }
-.evaluation-library-actions-col { width: 114px; }
+.evaluation-library-actions-col { width: 156px; }
 .evaluation-library-table :is(th, td) { overflow: hidden; text-overflow: ellipsis; }
 .evaluation-library-table td:last-child { width: auto; }
 .evaluation-library-document > strong, .evaluation-library-table td > :is(small, span) { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

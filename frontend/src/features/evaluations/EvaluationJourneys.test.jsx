@@ -158,6 +158,76 @@ const success = (stream, index, total) =>
     ),
   );
 
+it("edits saved answers from Manage library without configuring or running a model, then saves and reopens them", async () => {
+  overrides["GET /evaluations/setup"] = () => Response.json({ configured: false });
+  overrides["PATCH /evaluations/documents/evd_a"] = (options) => {
+    const body = JSON.parse(options.body);
+    library.evd_a = { document: summary("evd_a", "Harbour invoice", 2), reference: body.reference };
+
+    return Response.json(library.evd_a);
+  };
+
+  render(<Harness />);
+  fireEvent.change(screen.getByLabelText("Evaluation document"), { target: { files: [upload("keep.pdf")] } });
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  const manager = await screen.findByRole("dialog", { name: "Manage library" });
+  fireEvent.click(await within(manager).findByRole("button", { name: "Edit Harbour invoice" }));
+  const matrix = await screen.findByRole("region", { name: "Comparison matrix" });
+  expect(within(matrix).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Field", "Expected"]);
+  expect(screen.queryByRole("textbox", { name: /model/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Run all/ })).toBeNull();
+  expect(screen.queryByText(/Configure a model/)).toBeNull();
+  expect(screen.queryByText(/not requested/)).toBeNull();
+  fireEvent.click(within(matrix).getByRole("button", { name: "Edit expected Total" }));
+  fireEvent.change(within(matrix).getByRole("textbox", { name: "Expected Total" }), { target: { value: "3500" } });
+  fireEvent.click(within(matrix).getByRole("button", { name: "Verify" }));
+  expect(library.evd_a.reference.references["total:number"].value).toBe("3420");
+
+  // Leaving and reopening keeps the private working copy and unrelated uploads.
+  fireEvent.click(screen.getByRole("button", { name: "Back to Evaluation" }));
+  expect(screen.getByText("keep.pdf", { selector: "strong" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
+  await screen.findByRole("region", { name: "Comparison matrix" });
+  fireEvent.click(screen.getByRole("button", { name: "Update saved answers…" }));
+  const review = screen.getByRole("dialog", { name: "Review saved answer update" });
+  expect(within(review).getByText("3500 ✓")).toBeTruthy();
+  fireEvent.click(within(review).getByRole("button", { name: "Update saved answers" }));
+  await screen.findByText("Saved answers updated for the Workspace.");
+  expect(library.evd_a.reference.references["total:number"].value).toBe("3500");
+  expect(streams).toHaveLength(0);
+  expect(fetch.mock.calls.some(([url]) => url === "/v1/evaluations/actions")).toBe(false);
+});
+
+it("edits the saved field Template before reviewing an answer without any candidate", async () => {
+  render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Template" }));
+  const editor = screen.getByRole("dialog", { name: "Edit Template" });
+  fireEvent.change(within(editor).getByRole("combobox", { name: "Type" }), { target: { value: "string" } });
+  fireEvent.click(within(editor).getByRole("button", { name: "Apply changes" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Template" })).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "Review as Text" }));
+  const answer = screen.getByRole("dialog", { name: "Verify expected answer" });
+  expect(within(answer).getByRole("textbox", { name: "Expected value" }).value).toBe("3420");
+  fireEvent.click(within(answer).getByRole("button", { name: "Use as expected answer" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Verify expected answer" })).toBeNull());
+  expect(screen.getByRole("button", { name: "Update saved answers…" })).toBeTruthy();
+  expect(library.evd_a.reference.definitions["total:number"]).toBeTruthy();
+  expect(streams).toHaveLength(0);
+});
+
+it("keeps Manage library open with a retryable error if the saved entry cannot load", async () => {
+  overrides["GET /evaluations/documents/evd_a"] = () => Response.json({ error: { message: "Try opening again." } }, { status: 503 });
+  render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
+  await screen.findByText("Try opening again.");
+  expect(screen.getByRole("button", { name: "Edit Harbour invoice" }).disabled).toBe(false);
+  expect(screen.queryByRole("region", { name: "Comparison matrix" })).toBeNull();
+});
+
 it("mixes saved entries with a fresh upload and moves between documents with Previous and Next", async () => {
   render(<Harness />);
   await chooseFromLibrary(["Harbour invoice", "Northwind invoice"]);

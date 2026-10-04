@@ -304,11 +304,30 @@ export function LibraryPicker({ evaluation, fields, onClose }) {
   );
 }
 
-// The only library management surface: rename or delete shared entries. Answers change via a working copy.
+// Answers open in a working copy; updates to the shared library stay explicit.
 export function ManageLibrary({ evaluation, fields, onClose }) {
   const list = useLibraryList(evaluation);
   const [renaming, setRenaming] = useState(null);
   const [message, setMessage] = useState("");
+  const [editing, setEditing] = useState(null);
+  const editRequest = useRef(null);
+  useEffect(() => () => editRequest.current?.abort(), []);
+
+  const edit = async (entry) => {
+    editRequest.current?.abort();
+    const controller = new AbortController();
+    editRequest.current = controller;
+    setEditing(entry.id);
+    setMessage("");
+
+    try {
+      if (await evaluation.editSaved(entry, controller.signal)) onClose();
+    } catch (error) {
+      if (!controller.signal.aborted) setMessage(error.message);
+    } finally {
+      if (!controller.signal.aborted) setEditing(null);
+    }
+  };
 
   const rename = async (entry, name, expectedRevision = entry.revision) => {
     if (!name.trim() || name.trim() === entry.name) {
@@ -415,7 +434,17 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
         <button
           type="button"
           className="studio-text-button"
+          aria-label={`Edit ${entry.name}`}
+          disabled={!!editing}
+          onClick={() => edit(entry)}
+        >
+          {editing === entry.id ? "Opening…" : "Edit"}
+        </button>
+        <button
+          type="button"
+          className="studio-text-button"
           aria-label={`Rename ${entry.name}`}
+          disabled={!!editing}
           onClick={() => setRenaming({ id: entry.id, name: entry.name })}
         >
           Rename
@@ -424,6 +453,7 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
           type="button"
           className="studio-text-button evaluation-danger-text"
           aria-label={`Delete ${entry.name}`}
+          disabled={!!editing}
           onClick={() => remove(entry)}
         >
           Delete
@@ -435,7 +465,7 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
   return (
     <LibraryModal
       label="Manage library"
-      description="Rename or delete documents shared with this Workspace. To change Expected answers, add the document to an Evaluation and use Update saved answers."
+      description="Edit saved fields and Expected answers without running a model, or rename and delete documents shared with this Workspace."
       onClose={onClose}
       footer={
         <>

@@ -37,14 +37,16 @@ const FILTERS = [
 
 const baseName = (identity) => identity.slice(0, identity.lastIndexOf(":"));
 
-export function FieldFilters({ value, onChange }) {
+export function FieldFilters({ value, onChange, editing = false }) {
   return (
     <div className="segmented evaluation-filter" role="group" aria-label="Filter fields">
-      {FILTERS.map(([id, label]) => (
-        <button key={id} type="button" aria-pressed={value === id} onClick={() => onChange(id)}>
-          {label}
-        </button>
-      ))}
+      {FILTERS.map(([id, label]) =>
+        editing && ["differ", "mismatch"].includes(id) ? null : (
+          <button key={id} type="button" aria-pressed={value === id} onClick={() => onChange(id)}>
+            {label}
+          </button>
+        ),
+      )}
     </div>
   );
 }
@@ -103,6 +105,7 @@ export function DocumentMatrix({
   evaluation,
   document,
   candidates,
+  template,
   batch,
   labelFor,
   menuFor,
@@ -116,10 +119,11 @@ export function DocumentMatrix({
   const [expanded, setExpanded] = useState(null);
   const [inspect, setInspect] = useState(null);
   const { references, definitions: saved } = document.reference;
+  const schemaCandidates = template ? [{ id: "library-template", template }] : candidates;
   const definitions = { ...saved };
   const rows = new Map();
 
-  for (const candidate of candidates) {
+  for (const candidate of schemaCandidates) {
     for (const field of candidate.result?.fields || candidate.template.fields) {
       const own = fieldIdentity(field),
         link = document.links?.[own];
@@ -146,7 +150,7 @@ export function DocumentMatrix({
 
   const changedTableCandidate = (row, needsReview = false) =>
     row.field.data_type === "array<object>" &&
-    candidates.find(
+    schemaCandidates.find(
       (candidate) =>
         row.candidates[candidate.id] &&
         tableSchemaChanges(row.field, row.candidates[candidate.id])[needsReview ? "needsReview" : "hasChanges"],
@@ -172,7 +176,7 @@ export function DocumentMatrix({
     ...state.alignments[c.id],
   });
 
-  const templateFields = candidates.flatMap((c) => c.result?.fields || c.template.fields);
+  const templateFields = schemaCandidates.flatMap((c) => c.result?.fields || c.template.fields);
 
   const scores = Object.fromEntries(
     candidates.map((c) => [c.id, scoreCandidate(c, references, definitions, alignFor(c), state.columns[c.id])]),
@@ -232,7 +236,7 @@ export function DocumentMatrix({
     const existing = references[from || row.identity];
     const previousField = saved[from || row.identity] || row.field;
     const preferred = candidate || changedTableCandidate(row, true) || changedTableCandidate(row);
-    const ordered = preferred ? [preferred, ...candidates.filter((c) => c !== preferred)] : candidates;
+    const ordered = preferred ? [preferred, ...schemaCandidates.filter((c) => c !== preferred)] : schemaCandidates;
     const schemas = [];
     const seen = new Set();
 
@@ -251,7 +255,7 @@ export function DocumentMatrix({
       seen.add(signature);
       schemas.push({
         field: { ...field, name: row.field.name },
-        label: `Candidate ${candidates.indexOf(current) + 1} · ${current.template.name}`,
+        label: template ? "Template draft" : `Candidate ${candidates.indexOf(current) + 1} · ${current.template.name}`,
       });
     }
 
@@ -465,7 +469,7 @@ export function DocumentMatrix({
       )}
       <div className={`evaluation-body ${inspected ? "inspecting" : ""}`}>
         <ScrollArea className="evaluation-comparison-scroll" tabIndex={0} role="region" aria-label="Comparison matrix">
-          <table className="evaluation-matrix" style={{ minWidth: 390 + candidates.length * 220 + 160 }}>
+          <table className="evaluation-matrix" style={{ minWidth: template ? 550 : 390 + candidates.length * 220 + 160 }}>
             <thead>
               <tr>
                 <th className="evaluation-field-col">Field</th>
@@ -522,19 +526,21 @@ export function DocumentMatrix({
                     </CandidateHead>
                   );
                 })}
-                <th className="evaluation-add-col">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={candidates.length >= MAX_CANDIDATES}
-                    onClick={onAddCandidate}
-                  >
-                    + Add candidate
-                  </button>
-                  <small>
-                    {candidates.length}/{MAX_CANDIDATES}
-                  </small>
-                </th>
+                {!template && (
+                  <th className="evaluation-add-col">
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={candidates.length >= MAX_CANDIDATES}
+                      onClick={onAddCandidate}
+                    >
+                      + Add candidate
+                    </button>
+                    <small>
+                      {candidates.length}/{MAX_CANDIDATES}
+                    </small>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -546,7 +552,7 @@ export function DocumentMatrix({
 
                 return (
                   <tr key={row.identity} className={row.omitted ? "evaluation-omitted-row" : undefined}>
-                    <th className="evaluation-field-col">
+                    <th scope="row" className="evaluation-field-col">
                       <strong>{row.linked ? row.linked.field.name : row.field.name}</strong>
                       <small className="evaluation-type">{getDataTypeLabel(row.field.data_type)}</small>
                       {changes.has(row.identity) && !row.omitted && (
@@ -563,7 +569,9 @@ export function DocumentMatrix({
                         <small className="evaluation-warn-text evaluation-block">
                           {reviewing
                             ? `Saved as ${getDataTypeLabel(row.field.data_type)}; the Template now expects ${getDataTypeLabel(reviewing.field.data_type)}.`
-                            : "Saved answer not requested by any candidate · shown in coverage"}
+                            : template
+                              ? "Removed from the Template draft · saved answer kept"
+                              : "Saved answer not requested by any candidate · shown in coverage"}
                         </small>
                       )}
                       {row.omitted && references[row.identity]?.verified && !reviewing && (
@@ -649,14 +657,16 @@ export function DocumentMatrix({
                         </td>
                       );
                     })}
-                    <td className="evaluation-add-col" />
+                    {!template && <td className="evaluation-add-col" />}
                   </tr>
                 );
               })}
               {!visible.length && (
                 <tr>
-                  <td colSpan={3 + candidates.length} className="evaluation-empty-row">
-                    No fields match this filter.
+                  <td colSpan={template ? 2 : 3 + candidates.length} className="evaluation-empty-row">
+                    {template && !allRows.length
+                      ? "No saved fields. Use Edit Template to add fields."
+                      : "No fields match this filter."}
                   </td>
                 </tr>
               )}

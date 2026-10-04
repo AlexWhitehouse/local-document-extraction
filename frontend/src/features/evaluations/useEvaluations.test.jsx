@@ -114,6 +114,36 @@ const pairOf = (result, docIndex, candidateIndex) =>
     result.current.state.candidates[candidateIndex].id
   ];
 
+it("ignores a pending library edit after clearing the Evaluation or canceling the library modal", async () => {
+  let finish;
+  overrides["GET /evaluations/documents/evd_a"] = () => new Promise((resolve) => { finish = resolve; });
+  const { result } = await initialized({ documents: 0 });
+
+  const loaded = {
+    document: { id: "evd_a", name: "Invoice", revision: 1 },
+    reference: { version: 1, definitions: { "total:number": template.fields[0] }, references: {} },
+  };
+
+  let opening;
+  act(() => { opening = result.current.editSaved({ id: "evd_a" }); });
+  act(() => result.current.clear());
+  await act(async () => {
+    finish(Response.json(loaded));
+    expect(await opening).toBe(false);
+  });
+  expect(result.current.state.libraryEditor).toBeNull();
+  expect(result.current.state.documents).toHaveLength(0);
+
+  const controller = new AbortController();
+  act(() => { opening = result.current.editSaved({ id: "evd_a" }, controller.signal); });
+  controller.abort();
+  await act(async () => {
+    finish(Response.json(loaded));
+    expect(await opening).toBe(false);
+  });
+  expect(result.current.state.documents).toHaveLength(0);
+});
+
 const send = (stream, event) =>
   stream.controller.enqueue(
     new TextEncoder().encode(

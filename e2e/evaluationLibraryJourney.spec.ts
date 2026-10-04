@@ -123,6 +123,29 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await evaluations.getByRole("button", { name: "Manage library" }).first().click();
     const library = page.getByRole("dialog", { name: "Manage library" });
     await expect(library.getByText("library-invoice", { exact: true })).toBeVisible();
+
+    // The library editor opens only saved fields and answers, and saves without a model call.
+    const modelRequests: string[] = [];
+    page.on("request", (request) => {
+      if (/\/evaluations\/(run|actions)$/.test(new URL(request.url()).pathname)) modelRequests.push(request.url());
+    });
+    await library.getByRole("button", { name: "Edit library-invoice" }).click();
+    const editorMatrix = evaluations.getByRole("region", { name: "Comparison matrix" });
+    await expect(editorMatrix).toBeVisible();
+    await expect(editorMatrix.getByRole("columnheader")).toHaveCount(2);
+    await expect(evaluations.getByRole("textbox", { name: /model/ })).toHaveCount(0);
+    await expect(evaluations.getByRole("button", { name: /^Run/ })).toHaveCount(0);
+    await editorMatrix.getByRole("button", { name: "Edit expected Invoice Number" }).click();
+    await editorMatrix.getByRole("textbox", { name: "Expected Invoice Number" }).fill("INV-EDITED");
+    await editorMatrix.getByRole("button", { name: "Verify" }).click();
+    await evaluations.getByRole("button", { name: "Update saved answers…" }).click();
+    await page.getByRole("dialog", { name: "Review saved answer update" }).getByRole("button", { name: "Update saved answers" }).click();
+    await expect(evaluations.getByText("Saved answers updated for the Workspace.")).toBeVisible();
+    await page.reload();
+    await evaluations.getByRole("button", { name: "Manage library" }).click();
+    await library.getByRole("button", { name: "Edit library-invoice" }).click();
+    await expect(editorMatrix.getByText("INV-EDITED", { exact: true })).toBeVisible();
+    expect(modelRequests).toEqual([]);
     expect(evidence.externalWebSockets()).toEqual([]);
   } finally {
     try {

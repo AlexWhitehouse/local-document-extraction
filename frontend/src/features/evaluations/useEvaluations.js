@@ -22,6 +22,7 @@ const empty = () => ({
   documents: [],
   setup: null,
   library: null,
+  libraryEditor: null,
   candidates: [],
   pairs: {},
   alignments: {},
@@ -912,6 +913,37 @@ export function useEvaluations({
       setState((previous) => ({ ...previous, documents: [...previous.documents, ...added] }));
 
       return added.map((d) => d.key);
+    },
+    async editSaved(entry, signal) {
+      const current = generation.current;
+      const existing = stateRef.current.documents.find((d) => d.entry?.id === entry.id);
+      const loaded = existing || savedDocument(await library.read(entry.id));
+
+      if (current !== generation.current || signal?.aborted) return false;
+      setState((previous) => {
+        const document = previous.documents.find((d) => d.entry?.id === entry.id) || loaded;
+
+        const editingTemplate = document.editingTemplate || {
+          name: document.name,
+          description: "",
+          fields: structuredClone(Object.values(document.reference.definitions)),
+        };
+
+        const edited = { ...document, editingTemplate };
+
+        return {
+          ...previous,
+          libraryEditor: document.key,
+          documents: previous.documents.some((d) => d.key === document.key)
+            ? previous.documents.map((d) => (d.key === document.key ? edited : d))
+            : [...previous.documents, edited],
+        };
+      });
+
+      return true;
+    },
+    editLibraryTemplate(template) {
+      patchDocument(stateRef.current.libraryEditor, { editingTemplate: structuredClone(template) });
     },
     // Bounded per-entry reads: each selected entry brings a private working copy of its answers.
     async addSaved(entries, onProgress) {
