@@ -425,8 +425,8 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   database.exec("PRAGMA busy_timeout = 250");
   database.exec("PRAGMA synchronous = FULL");
   const { version } = database.query("SELECT sqlite_version() AS version").get() as { version: string };
-  // SQLite 3.51.3 fixes the WAL-reset race. Retain rollback journaling on the
-  // currently bundled 3.51.0; a qualified newer runtime can use WAL + FULL.
+  // SQLite 3.51.3 fixes the WAL-reset race. Qualify the actual bundled
+  // SQLite version; older runtimes retain rollback journaling.
   const [major, minor, patch] = version.split(".").map(Number);
   if (major > 3 || (major === 3 && (minor > 51 || (minor === 51 && patch >= 3)))) {
     database.exec("PRAGMA journal_mode = WAL");

@@ -1,4 +1,4 @@
-import { materializePdfPages, PDF_PAGE_OPERATION_LIMITS, validatePdfPageSelection, verifyPdfBlankPages } from "../lib/pdfPageOperations";
+import { withPdfOperationCapacity, materializePdfPages, PDF_PAGE_OPERATION_LIMITS, validatePdfPageSelection, verifyPdfBlankPages } from "../lib/pdfPageOperations";
 import { buildModelResponseFormat, ExtractionCancelledError, getExtractionModelName, readBooleanConfiguration, readRunResultContent, runViaModelGateway, withPreparedModelSource, withPreparedModelSourceFactory, type ModelGatewayConfiguration } from "./modelGateway";
 
 export const DOCUMENT_ASSESSMENT_LIMITS = Object.freeze({ candidates: 100, candidateBytes: 64 * 1024, pages: 128, outputBytes: 64 * 1024, feedbackBytes: 16 * 1024 });
@@ -124,7 +124,7 @@ export async function assessDocumentSplit(configuration: ModelGatewayConfigurati
   const selected = validatePdfPageSelection(input.selectedPages, PDF_PAGE_OPERATION_LIMITS.pages);
   if (selected.length > DOCUMENT_ASSESSMENT_LIMITS.pages) throw new DocumentAssessmentLimitError("PDF selection exceeds the automatic split assessment page limit; select a smaller page range");
   const previous = feedback(input.previous);
-  const source: AssessmentSource = { size: PDF_PAGE_OPERATION_LIMITS.artifactBytes, prepare: async () => new Blob([Uint8Array.from(await materializePdfPages(input.source, selected, signal))], { type: "application/pdf" }) };
+  const source: AssessmentSource = { size: PDF_PAGE_OPERATION_LIMITS.artifactBytes, prepare: async () => new Blob([Uint8Array.from(await withPdfOperationCapacity(() => materializePdfPages(input.source, selected, signal), signal))], { type: "application/pdf" }) };
   try {
     const result = record(await assessmentCall(configuration, source, "application/pdf", SPLIT_RULES, { pages: selected.map((page, index) => ({ attachment_page: index + 1, original_page: page })), excludeBlankPages: input.excludeBlankPages, previous }, splitSchema, "document_split", signal));
     keys(result, ["status", "groups", "exclusions", "reason", "evidence"]);
@@ -137,7 +137,7 @@ export async function assessDocumentSplit(configuration: ModelGatewayConfigurati
       // Verify model-proposed exclusions against their original physical pages. Failure to
       // establish blankness is uncertainty, never permission to discard a page.
       const originalPages = plan.exclusions.map((exclusion) => exclusion.page);
-      const blank = new Set(await verifyPdfBlankPages(input.source, originalPages, signal));
+      const blank = new Set(await withPdfOperationCapacity(() => verifyPdfBlankPages(input.source, originalPages, signal), signal));
       if (originalPages.some((page) => !blank.has(page))) throw new DocumentAssessmentValidationError("Proposed blank exclusions contain visible content, text, or annotations; retain those pages and reassess their placement");
     }
     return { status: result.status, ...plan, reason, evidence: observations };

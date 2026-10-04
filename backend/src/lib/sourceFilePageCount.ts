@@ -1,4 +1,4 @@
-import { fileURLToPath } from "node:url";
+import { createPdfProcessPool, type PdfProcessWorker } from "./pdfProcessPool";
 import { PDF_INSPECTION_LIMITS as limits, type PdfInspectionResult } from "./pdfInspectionLimits";
 
 export class InvalidPdfSourceFileError extends Error {
@@ -16,7 +16,7 @@ export class PdfSourceFileCapacityError extends Error {
   constructor() { super("PDF validation capacity is temporarily full"); }
 }
 
-/** One process per input prevents PDF intern pools accumulating in the API. */
+/** Recycled subprocesses keep PDF intern pools bounded and outside the API. */
 export function createPdfSourceFilePageCounter({
   maxConcurrent = limits.concurrent,
   maxQueued = limits.queued,
@@ -24,11 +24,15 @@ export function createPdfSourceFilePageCounter({
   queueTimeoutMs = limits.wallTimeMs,
 }: { maxConcurrent?: number; maxQueued?: number; timeoutMs?: number; queueTimeoutMs?: number } = {}) {
   if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1 || !Number.isSafeInteger(maxQueued) || maxQueued < 0 || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || !Number.isSafeInteger(queueTimeoutMs) || queueTimeoutMs < 1) throw new Error("Invalid PDF inspection capacity");
+  const pool = createPdfProcessPool(new URL("./pdfInspectionProcess.ts", import.meta.url), limits.workerIdleMs);
+  let accepting = true;
+  const closeWaiters: Array<() => void> = [];
   let active = 0;
   let reservedBytes = 0;
   const waiting: Array<() => void> = [];
   const acquire = async (bytes: number, signal?: AbortSignal) => {
     signal?.throwIfAborted();
+    if (!accepting) throw new PdfSourceFileCapacityError();
     if (reservedBytes + bytes > limits.reservedSourceBytes || (active >= maxConcurrent && waiting.length >= maxQueued)) throw new PdfSourceFileCapacityError();
     reservedBytes += bytes;
     if (active < maxConcurrent) { active++; return; }
@@ -54,70 +58,75 @@ export function createPdfSourceFilePageCounter({
     const next = waiting.shift();
     if (next) next();
     else active--;
+    if (!active) for (const resolve of closeWaiters.splice(0)) resolve();
   };
   return {
     snapshot: () => ({ active, queued: waiting.length, reservedBytes }),
+    diagnostics: () => ({ active, queued: waiting.length, reservedBytes, ...pool.snapshot() }),
+    close: async () => {
+      accepting = false;
+      await pool.close();
+      if (active) await new Promise<void>((resolve) => closeWaiters.push(resolve));
+    },
     async count(sourceBytes: ArrayBuffer | Uint8Array, signal?: AbortSignal): Promise<number> {
       signal?.throwIfAborted();
       if (sourceBytes.byteLength > limits.sourceBytes) throw new PdfSourceFileLimitError();
       const sourceSize = sourceBytes.byteLength;
       await acquire(sourceSize, signal);
+      let worker: PdfProcessWorker | undefined;
+      let reusable = false;
+      let timedOut = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const terminate = () => { worker?.child.kill("SIGKILL"); };
       try {
         signal?.throwIfAborted();
-        const source = sourceBytes instanceof Uint8Array ? sourceBytes : new Uint8Array(sourceBytes);
-        const child = Bun.spawn([process.execPath, "--no-env-file", "--smol", fileURLToPath(new URL("./pdfInspectionProcess.ts", import.meta.url))], {
-          stdin: source, stdout: "pipe", stderr: "ignore",
-          // No installation credentials or user shell environment in the parser.
-          env: {},
-        });
-        let timedOut = false;
-        const terminate = () => { child.kill("SIGKILL"); };
-        const timer = setTimeout(() => { timedOut = true; terminate(); }, timeoutMs);
+        worker = await pool.take();
+        timer = setTimeout(() => { timedOut = true; terminate(); }, timeoutMs);
         signal?.addEventListener("abort", terminate, { once: true });
-        try {
-          if (signal?.aborted) terminate();
-          const reader = child.stdout.getReader();
-          let output = "";
-          try {
-            while (true) {
-              const chunk = await reader.read();
-              if (chunk.done) break;
-              if (output.length + chunk.value.byteLength > 256) { terminate(); throw new InvalidPdfSourceFileError(); }
-              output += new TextDecoder().decode(chunk.value);
-            }
-          } finally { reader.releaseLock(); }
-          const exitCode = await child.exited;
-          if (signal?.aborted) throw new DOMException("PDF inspection cancelled", "AbortError");
-          if (timedOut) throw new PdfSourceFileLimitError();
-          if (exitCode !== 0) throw new InvalidPdfSourceFileError();
-          let result: PdfInspectionResult;
-          try { result = JSON.parse(output); } catch { throw new InvalidPdfSourceFileError(); }
-          if (!result || typeof result !== "object") throw new InvalidPdfSourceFileError();
-          if ("error" in result) {
-            if (result.error === "limit") throw new PdfSourceFileLimitError();
-            if (result.error === "configuration") console.error("PDF inspection adapter requires the qualified pdf-lib 1.17.1 implementation.");
-            throw new InvalidPdfSourceFileError();
-          }
-          if (!Number.isSafeInteger(result.pages) || result.pages < 1 || result.pages > limits.pages) throw new InvalidPdfSourceFileError();
-          return result.pages;
-        } catch (error) {
-          if (signal?.aborted) throw new DOMException("PDF inspection cancelled", "AbortError");
-          if (timedOut) throw new PdfSourceFileLimitError();
-          if (error instanceof InvalidPdfSourceFileError || error instanceof PdfSourceFileLimitError) throw error;
+        signal?.throwIfAborted();
+        const header = new Uint8Array(4);
+        new DataView(header.buffer).setUint32(0, sourceSize);
+        worker.child.stdin.write(header);
+        worker.child.stdin.write(sourceBytes);
+        await worker.child.stdin.flush();
+        const responseHeader = await worker.reader.read(4);
+        if (!responseHeader) throw new InvalidPdfSourceFileError();
+        const responseSize = new DataView(responseHeader.buffer).getUint32(0);
+        if (!responseSize || responseSize > 256) throw new InvalidPdfSourceFileError();
+        const response = await worker.reader.read(responseSize);
+        if (!response) throw new InvalidPdfSourceFileError();
+        if (timedOut) throw new PdfSourceFileLimitError();
+        const output = new TextDecoder().decode(response);
+        signal?.throwIfAborted();
+        const result = JSON.parse(output) as PdfInspectionResult & { retire: boolean };
+        if (!result || typeof result !== "object" || typeof result.retire !== "boolean") throw new InvalidPdfSourceFileError();
+        if ("error" in result) {
+          if (result.error === "limit") throw new PdfSourceFileLimitError();
+          if (result.error === "configuration") console.error("PDF inspection adapter requires the qualified pdf-lib 1.17.1 implementation.");
           throw new InvalidPdfSourceFileError();
-        } finally {
-          clearTimeout(timer);
-          signal?.removeEventListener("abort", terminate);
-          terminate();
-          await child.exited;
         }
+        if (!Number.isSafeInteger(result.pages) || result.pages < 1 || result.pages > limits.pages) throw new InvalidPdfSourceFileError();
+        reusable = !result.retire;
+        return result.pages;
       } catch (error) {
         if (signal?.aborted) throw new DOMException("PDF inspection cancelled", "AbortError");
+        if (timedOut) throw new PdfSourceFileLimitError();
         if (error instanceof InvalidPdfSourceFileError || error instanceof PdfSourceFileLimitError) throw error;
         throw new InvalidPdfSourceFileError();
-      } finally { release(sourceSize); }
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", terminate);
+        if (worker) {
+          if (reusable && accepting && !signal?.aborted) pool.put(worker);
+          else await pool.stop(worker);
+        }
+        release(sourceSize);
+      }
     },
   };
 }
 
-export const countPdfSourceFilePages = createPdfSourceFilePageCounter().count;
+const pdfSourceFilePageCounter = createPdfSourceFilePageCounter();
+export const countPdfSourceFilePages = pdfSourceFilePageCounter.count;
+export const getPdfInspectionSnapshot = pdfSourceFilePageCounter.diagnostics;
+export const closePdfInspection = pdfSourceFilePageCounter.close;

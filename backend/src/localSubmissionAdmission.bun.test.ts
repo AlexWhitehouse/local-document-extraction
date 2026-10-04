@@ -128,6 +128,39 @@ test("submission admission reserves counters before asynchronous resource sampli
   expect(admission.snapshot()).toMatchObject({ active: 0, rejected: 1, reservedBytes: 0 });
 });
 
+for (const asynchronous of [false, true]) {
+  test(`resource sampling ${asynchronous ? "rejection" : "throw"} drains the upload, releases its reservation, and permits a later retry`, async () => {
+    let samples = 0;
+    let handled = 0;
+    const admission = createLocalSubmissionAdmission({
+      maxConcurrent: 1,
+      canReserve: () => {
+        if (samples++ > 0) return true;
+        const interrupted = Object.assign(new Error("Failed to get memory usage"), { errno: 4, syscall: "memoryUsage" });
+        if (asynchronous) return Promise.reject(interrupted);
+        throw interrupted;
+      },
+    });
+    const body = trackedBody();
+    const response = await admission.run(new Request("http://127.0.0.1/v1/extract", {
+      method: "POST", headers: { "content-length": "3" }, body: body.stream, duplex: "half",
+    } as RequestInit), () => {
+      handled++;
+      return new Response(null, { status: 202 });
+    });
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("1");
+    expect(await response.json()).toMatchObject({ error: { code: "local_submission_capacity_unavailable" } });
+    expect(body.consumed()).toBe(3);
+    expect(handled).toBe(0);
+    expect(admission.snapshot()).toMatchObject({ active: 0, reservedBytes: 0, rejected: 1 });
+    expect((await admission.run(requestWithBody(3), () => new Response(null, { status: 202 }))).status).toBe(202);
+    // Exceptions after admission still belong to the handler, not capacity rejection.
+    await expect(admission.run(requestWithBody(3), () => { throw new Error("handler failed"); })).rejects.toThrow("handler failed");
+    expect(admission.snapshot()).toMatchObject({ active: 0, reservedBytes: 0, rejected: 1 });
+  });
+}
+
 test("closing submission admission rejects new Documents and waits for admitted work", async () => {
   const admission = createLocalSubmissionAdmission({
     maxConcurrent: 2,

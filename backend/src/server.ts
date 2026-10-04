@@ -1,6 +1,8 @@
 import { createLocalEvaluations, EVALUATION_METADATA_BYTES } from "./localEvaluations";
 import { createLocalEvaluationDocuments } from "./localEvaluationDocuments";
 import { getModelPreparationSnapshot } from "./consumer/modelGateway";
+import { getPdfPageOperationsSnapshot } from "./lib/pdfPageOperations";
+import { closePdfInspection, getPdfInspectionSnapshot } from "./lib/sourceFilePageCount";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";
 import { createS3SourceObjectStore, evaluationDocumentObjectKey, retainedObjectKey, sourceObjectDestination } from "./s3SourceObjectStore";
 import { createLocalApplication } from "./localApplication";
@@ -270,6 +272,8 @@ const application = createLocalApplication({
     admission: localSubmissionAdmission.snapshot(),
     extractionQueue: localExtractionQueue.snapshot(),
     modelPreparation: getModelPreparationSnapshot(),
+    pdfInspection: getPdfInspectionSnapshot(),
+    pdfPageOperations: getPdfPageOperationsSnapshot(),
     liveUpdates: {
       ...localLiveUpdateHub.diagnostics(),
       runtimePendingWebSockets: server.pendingWebSockets,
@@ -313,6 +317,7 @@ const runtimeShutdown = createLocalRuntimeShutdown({
     const admissionClosed = localSubmissionAdmission.close();
     const requestsClosed = localRuntimeRequestDrain.close();
     await Promise.all([admissionClosed, requestsClosed]);
+    await closePdfInspection();
   },
   closeAuth: localAuth.close,
   closeProductStores: localProductStoreRegistry.closeAll,

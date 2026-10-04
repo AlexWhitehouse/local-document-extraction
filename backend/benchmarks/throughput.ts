@@ -285,7 +285,7 @@ async function runExternalWorker({
   while (!jobId) {
     const form = new FormData();
     form.append("template_id", templateId);
-    form.append("document", new File([fixture], `prototype-${index}.pdf`, { type: "application/pdf" }));
+    form.append("document", new File([Uint8Array.from(fixture).buffer], `prototype-${index}.pdf`, { type: "application/pdf" }));
     let response: Response;
     try {
       response = await fetch(`${origin}/v1/extract`, {
@@ -786,7 +786,7 @@ function argumentValue(name: string): string | null {
   return index >= 0 ? process.argv[index + 1] || null : null;
 }
 
-async function waitForJsonFile<T>(path: string, processHandle: Bun.Subprocess): Promise<T> {
+async function waitForJsonFile<T>(path: string, processHandle: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<T> {
   for (let attempt = 0; attempt < 300; attempt += 1) {
     const text = await readFile(path, "utf8").catch(() => "");
     if (text) return JSON.parse(text) as T;

@@ -35,9 +35,9 @@ const concurrency = 4;
 const pageSizeMiB = 2;
 const pageBytes = deterministicBytes(pageSizeMiB * MEBIBYTE);
 const originalFetch = globalThis.fetch;
-globalThis.fetch = async () => new Response(JSON.stringify({
+globalThis.fetch = Object.assign(async () => new Response(JSON.stringify({
   choices: [{ message: { content: JSON.stringify({ results: [] }) } }],
-}), { headers: { "content-type": "application/json" } });
+}), { headers: { "content-type": "application/json" } }), { preconnect: originalFetch.preconnect });
 
 try {
   const gatewaySample = await measureAsync(() => Promise.all(
@@ -45,7 +45,7 @@ try {
       runExtraction(
         gatewayEnvironment(),
         [],
-        pageBytes.buffer.slice(0),
+        Uint8Array.from(pageBytes).buffer,
         "image/png",
       )
     ),

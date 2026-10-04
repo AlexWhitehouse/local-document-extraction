@@ -96,7 +96,7 @@ The file limit, `MAX_SOURCE_FILE_BYTES`, is separate from the request limit. Doc
 
 Oversized requests return `400 source_file_too_large` before storage. Validation order is authorization, Workspace storage, model settings, then `Content-Length`. Requests without a length are counted during streaming. Bun’s hard limit permits another 40 KiB so the app can return its own error first.
 
-PDF inspection uses a separate, short-lived process with size, decoding, and time limits. PDF subsets, child sources, previews, and blank verification also use disposable processes. These operations have output bounds and cancellable deadlines. See [Configuration](../docs/configuration.md#uploads-and-extraction).
+PDF inspection uses a bounded pool of separate processes with size, decoding, and time limits. Inspectors recycle after 32 documents, 64 MiB of input, or 128 MiB sampled RSS, and exit after five seconds idle. PDF subsets, child sources, previews, and blank verification use a second bounded recycling pool with the same worker lifetime limits. These operations have output bounds and cancellable deadlines. See [Configuration](../docs/configuration.md#uploads-and-extraction).
 
 ### Memory pressure
 
@@ -106,6 +106,8 @@ When the operating system reports memory pressure, the resource controller react
 - **Critical:** Pause new extractions, reject all new uploads, and close idle Workspace databases.
 
 Active work continues. Normal service resumes after three consecutive samples show sufficient memory and event-loop capacity. `/v1/health` reports current and previous pressure levels and recovery times. Diagnostics exclude Workspace and document content.
+
+On Linux, native pressure events are checked against host and cgroup PSI counters to filter the known false event after arming a watcher ([Bun #42783](https://github.com/oven-sh/bun/issues/42783)). Low host or cgroup memory headroom, missing counters, and counter resets still forward the event conservatively.
 
 The runtime reserves preparation memory before work starts. It creates split subsets after admission and holds the shared reservation until derived files persist. The default budget is 72% of physical RAM, below the 80% memory threshold. This budget is an estimate, not an operating-system limit. Lower it when a local model server shares the machine.
 
@@ -154,7 +156,31 @@ Benchmarks compare implementations on your machine. Use them to detect regressio
 | `bun run benchmark:memory-pressure` | Behavior under simulated memory-pressure events, with the policy on and off. It never actually exhausts memory. |
 | `bun run benchmark:document-body-limit` | A real server under oversized and aborted uploads: responses, latency, memory, and leftover files. |
 | `bun run benchmark:live-update-fanout` | The cost of sending live updates to many subscribers inside the hub. Network and browser time are not included. |
-| `bun run benchmark:loopback-saturation` | Extraction throughput against a local fake gateway that can throttle, fail, or time out, sending PDFs inline or as rendered pages. |
+| `bun run benchmark:loopback-saturation` | Extraction throughput and the overhead of automatic template selection and smart splitting against a local simulated model, sending PDFs inline or as rendered pages. |
 | `bun run benchmark:model-payload-base64` | Encoding documents for model requests. |
 | `bun run benchmark:test-parallel` | Running the test suite in parallel compared with serially. |
-| `bunx bun@1.4.0 run benchmark:bun-runtime` | Full extraction throughput on Bun 1.4 compared with 1.3.14. It fails if 1.4 is more than 10% slower, adds more than 15% to p95 job time, or fails a job. |
+| `bunx bun@1.4.2 run benchmark:bun-runtime` | Synthetic queue/admission throughput on Bun 1.4.2 compared with 1.3.14. It fails if 1.4.2 is more than 10% slower, adds more than 15% to p95 job time, or fails a job. |
+
+The loopback benchmark runs four scenarios in each PDF mode: `explicit`, `automatic`, `split-explicit`, and `split-automatic`. It uses the same two-page PDF and two tagged candidate Templates across scenarios, with fresh application state for each pass. The simulated model selects the benchmark Template and splits each page into a separate Document. PDF preparation, assessment validation, child materialization, and field extraction use the current server implementation.
+
+Reports include uploads/s, extracted Documents/s, upload p50/p95 latency, CPU, memory, and model-call counts for extraction, classification, and splitting. Splitting completes an upload only when every child finishes. Throughput uses persisted completion timestamps during the measurement window; latency runs from persisted acceptance to completion and includes all completed uploads. The report shows throughput and latency changes against the explicit-template baseline for the same PDF mode. It fails for missing work, unexpected stage counts, invalid model requests, or load/drain errors. These scenarios assess processing cost, not model accuracy, retries, or human review.
+
+From the repository root:
+
+```bash
+# Default: 60 seconds per scenario and PDF mode (eight passes), plus setup/drain.
+bun run benchmark:loopback-saturation
+
+# Short comparison with a simulated 100 ms delay for every model call.
+LOOPBACK_BENCH_DURATION_SECONDS=10 LOOPBACK_BENCH_GATEWAY_LATENCY_MS=100 bun run benchmark:loopback-saturation
+```
+
+Use `LOOPBACK_BENCH_SCENARIOS=explicit,automatic` to select scenarios and `LOOPBACK_BENCH_MODES=inline-pdf` to select a PDF mode. `LOOPBACK_BENCH_RENDER_PAGES` controls the page count in **both** modes (default 2). `LOOPBACK_BENCH_GATEWAY_LATENCY_MS` defaults to 0 to expose local processing cost. `LOOPBACK_BENCH_RUNNER_CONCURRENCY`, `LOOPBACK_BENCH_SUBMITTERS`, and `LOOPBACK_BENCH_BACKLOG` control offered load; adaptive concurrency stays disabled for comparisons. Capacity retries honor `Retry-After`, wait at least one second, and add up to 250 ms of jitter to avoid repeated bursts of rejected uploads. Reports, JSON, optional CPU profiles, and isolated state are under `.scratch/loopback-gateway-saturation/runs/`.
+
+`benchmark:bun-runtime` still uses the older throughput prototype with an injected extraction delay; use the loopback benchmark for the full PDF/model preparation path. All benchmark TypeScript files are included in the normal backend typecheck.
+
+The loopback benchmark defaults to a process RSS threshold of 25% of physical RAM and a model preparation budget of at most 512 MiB, leaving space for other services on a shared development host. `LOOPBACK_BENCH_MEMORY_LIMIT_RATIO` and `LOOPBACK_BENCH_PREPARATION_MAX_BYTES` override these settings. Raw health samples and each completed scenario's result are saved immediately, including parser-pool diagnostics, so later failures do not erase earlier measurements.
+
+CPU profiling is disabled by default. Set `LOOPBACK_BENCH_CPU_PROFILE=true` only for short diagnostic runs. [Bun 1.4.2 retains sampled closures under `--cpu-prof`](https://github.com/oven-sh/bun/issues/42377), which can retain document buffers and inflate RSS by gigabytes. Use unprofiled runs for throughput and memory comparisons; the benchmark records the profiling setting in its evidence.
+
+Packet processing and ready extraction alternate within a Workspace, preserving FIFO within each stage. This prevents large split-upload backlogs from blocking child completion. PDF page copying uses four isolated subprocesses; preview and blank checks load rendering dependencies only when needed. Benchmark RSS includes both the API and a separate process-tree total for its PDF workers.

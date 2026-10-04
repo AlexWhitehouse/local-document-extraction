@@ -105,6 +105,24 @@ describe("Source file page count", () => {
 });
 
 describe("PDF inspection process lifecycle", () => {
+  it("reuses inspectors with fresh document budgets and retires them after bounded use", async () => {
+    const counter = createPdfSourceFilePageCounter({ maxConcurrent: 1 });
+    try {
+      const first = metadataPdf([]);
+      const pdf = await PDFDocument.create();
+      pdf.addPage(); pdf.addPage();
+      const second = await pdf.save();
+      for (let index = 0; index < 33; index++) {
+        expect(await counter.count(index % 2 ? second : first)).toBe(index % 2 ? 2 : 1);
+      }
+      expect(counter.diagnostics().spawned).toBe(2);
+      await expect(counter.count(pdfWithCompressedObjectStreams([32 * 1024 * 1024]))).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+      await expect(counter.count(first)).resolves.toBe(1);
+      expect(counter.diagnostics().spawned).toBe(3);
+    } finally { await counter.close(); }
+    expect(counter.diagnostics()).toMatchObject({ active: 0, queued: 0, reservedBytes: 0, idle: 0 });
+    await expect(counter.count(metadataPdf([]))).rejects.toMatchObject({ code: "pdf_validation_capacity_unavailable" });
+  });
   it("keeps the caller responsive while rejecting compressed expansion", async () => {
     const source = pdfWithCompressedObjectStreams([32 * 1024 * 1024]);
     const events: string[] = [];
@@ -194,3 +212,15 @@ function metadataPdf(objects: Uint8Array[]): Uint8Array {
 function streamObject(id: number, dictionary: string, data: Uint8Array): Uint8Array {
   return Buffer.concat([Buffer.from(`${id} 0 obj\n<< ${dictionary} /Length ${data.length} >>\nstream\n`), data, Buffer.from("\nendstream\nendobj\n")]);
 }
+
+it("keeps a bounded inspector warm between short upload bursts", async () => {
+  const counter = createPdfSourceFilePageCounter({ maxConcurrent: 1 });
+  const document = await PDFDocument.create(); document.addPage();
+  const bytes = await document.save();
+  try {
+    expect(await counter.count(bytes)).toBe(1);
+    await Bun.sleep(1_100);
+    expect(await counter.count(bytes)).toBe(1);
+    expect(counter.diagnostics().spawned).toBe(1);
+  } finally { await counter.close(); }
+});

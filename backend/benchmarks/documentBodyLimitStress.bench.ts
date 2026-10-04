@@ -108,7 +108,7 @@ export async function runDocumentBodyLimitStress(
       `stderr: ${stderr.slice(-4_000) || "<empty>"}`,
     ].join("\n"));
   }
-  const line = stdout.trim().split(/\r?\n/).findLast((entry) => entry.startsWith("DOCUMENT_BODY_STRESS_RESULT "));
+  const line = stdout.trim().split(/\r?\n/).reverse().find((entry) => entry.startsWith("DOCUMENT_BODY_STRESS_RESULT "));
   if (!line) throw new Error("Document body-limit stress worker returned no result");
   return JSON.parse(line.slice("DOCUMENT_BODY_STRESS_RESULT ".length)) as DocumentBodyLimitStressResult;
 }
@@ -223,7 +223,7 @@ async function runWorker(parameters: DocumentBodyLimitStressParameters): Promise
     await runWithConcurrency(probes, parameters.concurrency);
     const abortedConnectionsSettled = (await Promise.all(Array.from(
       { length: parameters.abortedRequests },
-      () => abortPartialMultipart(server.port, parameters.maxSourceBytes),
+      () => abortPartialMultipart(server.port!, parameters.maxSourceBytes),
     ))).filter(Boolean).length;
     await waitFor(() => activeHandlers === 0, 2_000);
     await Bun.sleep(10);
