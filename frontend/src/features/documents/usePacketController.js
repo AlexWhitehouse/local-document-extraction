@@ -3,6 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const TERMINAL = new Set(["completed", "failed"]);
 const emptyState = () => ({ packets: [], selectedId: "", selectedPacket: null, cursor: null, hasMore: false, loading: false, busy: false, error: "", detailStatus: "" });
 
+// A list refresh can finish before the selected packet's detail refresh. Keep
+// active polling until both observations have reached a terminal state.
+const hasPendingPackets = (state) => state.packets.some(packet => !TERMINAL.has(packet.status)) ||
+  Boolean(state.selectedPacket && !TERMINAL.has(state.selectedPacket.status));
+
 // Match the API's descending (created_at, packet_id) order. A removed boundary
 // is still covered once the refreshed page reaches a packet older than it.
 function reachesLoadedBoundary(packet, boundary) {
@@ -91,7 +96,7 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
     return () => { ctx.active = false; };
   }, [key, refresh]);
 
-  const hasActivePackets = currentState.packets.some((packet) => !TERMINAL.has(packet.status));
+  const hasActivePackets = hasPendingPackets(currentState);
   useEffect(() => {
     if (!key || !requestsRef.current.listPackets) return undefined;
     let cancelled = false;
@@ -104,7 +109,7 @@ export function usePacketController({ requests, sessionId, workspaceId, enabled,
         const ctx = context.current;
         if (ctx?.selectedId) await loadPacket(ctx.selectedId);
         if (!cancelled) schedule();
-      }, stateRef.current.packets.some((packet) => !TERMINAL.has(packet.status)) ? 6000 : 30000);
+      }, hasPendingPackets(stateRef.current) ? 6000 : 30000);
     };
     schedule();
     return () => { cancelled = true; clearTimeout(timer); };
