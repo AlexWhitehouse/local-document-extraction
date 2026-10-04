@@ -229,6 +229,7 @@ export function WorkspaceToolbar({
   onCreateTemplate,
   onAutoGenerateTemplate,
   onCreateWorkspace,
+  onViewCosts,
   onExportDocuments,
   onWorkspacePrimaryAction,
   onDeleteTemplate,
@@ -301,6 +302,7 @@ export function WorkspaceToolbar({
           </>
         ) : (
           <>
+            {activePage === "workspace" && onViewCosts ? <button type="button" className="secondary" onClick={onViewCosts}>Costs</button> : null}
             {activePage === "templates" ? (
               <div className="studio-create-template-split" role="group" aria-label="Create template">
                 <button type="button" className="secondary" data-tour="create-template"

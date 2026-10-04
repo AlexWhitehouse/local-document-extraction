@@ -9,6 +9,8 @@ describe("app routes", () => {
     { page: "documents", workspaceId: "a", packetId: "packet" },
     { page: "documents", workspaceId: "a", packetId: "packet", documentId: "child" },
     { page: "evaluations", workspaceId: "a" },
+    { page: "costs", workspaceId: "a", costTab: "overview" },
+    { page: "costs", workspaceId: "a", costTab: "documents" },
     { page: "admin" },
     { page: "workspace", invitationId: "invited" },
   ])("round trips %j", route => expect(parseAppRoute(appPath(route))).toEqual(route));

@@ -40,6 +40,7 @@ import { useWorkspaceController } from "./features/workspaces/useWorkspaceContro
 import { useWorkspaceDocumentProcessingSettings } from "./features/workspaces/useWorkspaceDocumentProcessingSettings.js";
 import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
 import { useWorkspaceSourceRetention } from "./features/workspaces/useWorkspaceSourceRetention.js";
+import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
 import "./features/layout/StudioLayouts.css";
 
 const API_BASE = "/v1";
@@ -378,7 +379,7 @@ function AuthenticatedApp({ configuration, navigation }) {
       <Toaster richColors theme="dark" />
       <MainLayout
         contentClassName={`studio-main studio-main-${visiblePage}`}
-        activePage={visiblePage}
+        activePage={visiblePage === "costs" ? "workspace" : visiblePage}
         contentSelection={
           visiblePage === "documents"
             ? packetContentSelection(documentController.documentPage) || documentToolbar.selectedDocumentId
@@ -446,7 +447,7 @@ function AuthenticatedApp({ configuration, navigation }) {
         contextSidebar={
           visiblePage === "evaluations" ? null : (
             <ContextSidebar
-              title={CONTEXT_SIDEBAR_TITLES[visiblePage]}
+              title={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage]}
               footer={
                 visiblePage === "admin" ? <AdminContextFooter admin={adminController} /> : visiblePage === "documents" ? (
                   <>
@@ -509,7 +510,7 @@ function AuthenticatedApp({ configuration, navigation }) {
           {workspaceResolutionFailed ? <button type="button" onClick={workspaceController.sidebar.onRetryResolution}>Retry Workspace</button> : null}
         </section> : routeLoading ? <p role="status">Loading linked page…</p> : null}
         {!hideRouteContent ? <>
-        {visiblePage !== "admin" && visiblePage !== "evaluations" ? (
+        {visiblePage !== "admin" && visiblePage !== "evaluations" && visiblePage !== "costs" ? (
           <WorkspaceToolbar
             activePage={visiblePage}
             pageTitle={pageTitle}
@@ -531,6 +532,8 @@ function AuthenticatedApp({ configuration, navigation }) {
             onAutoGenerateTemplate={templateController.toolbar.onAutoGenerateTemplate}
             onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
             onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
+            onViewCosts={hasApiAccess && !isWorkspaceInvitationSelected && ["owner", "admin"].includes(workspaceContext.selectedWorkspaceRole)
+              ? () => navigate(appPath({ workspaceId, page: "costs" })) : undefined}
             onExportDocuments={documentToolbar.onExportDocuments}
             onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
             onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
@@ -542,6 +545,11 @@ function AuthenticatedApp({ configuration, navigation }) {
         ) : null}
 
         {visiblePage === "admin" ? <ApplicationAdminPage admin={adminController} /> : null}
+
+        {visiblePage === "costs" ? <WorkspaceCosts key={`${sessionUserId}:${workspaceId}`}
+          workspaceId={workspaceId} workspaceName={workspaceToolbar.workspaceLabel} role={hasApiAccess ? workspaceContext.selectedWorkspaceRole : null}
+          request={coreRequest} tab={route.costTab} onTab={costTab => navigate(appPath({ workspaceId, page: "costs", costTab }))}
+          onBack={() => navigate(appPath({ workspaceId }))} /> : null}
 
         {visiblePage === "workspace" ? (
           isWorkspaceInvitationSelected && workspaceContext.selectedWorkspaceInvitation ? (

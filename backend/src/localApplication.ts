@@ -22,6 +22,7 @@ import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { handleWorkspaceModelConfiguration } from "./workspaceModelConfigurationHttp";
+import { handleWorkspaceCosts } from "./workspaceCostsHttp";
 import { assistantModelEnvironment, configurationMissing, createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 import type { FetchApplication } from "./localRuntime";
 import type { LocalSourceStorageConfiguration } from "./localConfiguration";
@@ -192,6 +193,12 @@ export function createLocalApplication({
       });
     }
 
+    const costsMatch = pathname.match(/^\/v1\/workspaces\/([^/]+)\/costs\/(overview|documents)(?:\/([^/]+))?$/);
+    if (costsMatch && (!costsMatch[3] || costsMatch[2] === "documents")) {
+      if (!product) return productStoreUnavailable();
+      return handleWorkspaceCosts({ request, workspaceId: decodeURIComponent(costsMatch[1]!), resource: costsMatch[2]!,
+        documentId: costsMatch[3] ? decodeURIComponent(costsMatch[3]) : undefined, auth: product.auth, workspaceControl: product.workspaceControl, access: product.access });
+    }
     const processingSettingsMatch = pathname.match(/^\/v1\/workspaces\/([^/]+)\/document-processing-settings$/);
     if (processingSettingsMatch) {
       if (!product) return productStoreUnavailable();

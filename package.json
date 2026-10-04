@@ -22,6 +22,7 @@
     "package:hygiene": "bun scripts/packageHygiene.ts",
     "package:release": "bun scripts/packageRelease.ts",
     "prototype:throughput": "bun backend/benchmarks/throughput.ts",
+    "prototype:costs": "bun run --cwd frontend dev --host 127.0.0.1 --port 5173 --open '/?prototype=costs'",
     "start": "bun backend/src/server.ts",
     "lint": "bunx eslint .",
     "test": "bun run --cwd backend test && bun run --cwd frontend test",

@@ -5,6 +5,8 @@ import { Database, constants as sqliteConstants } from "bun:sqlite";
 
 import { createDocumentProcessingStore, initializeDocumentProcessingSchema, type DocumentProcessingStore, type DocumentRouting } from "./localDocumentProcessingStore";
 import { createModelCostStore, initializeModelCostSchema } from "./localModelCosts";
+import { initializeWorkspaceCostSchema } from "./workspaceCostSchema";
+import { createWorkspaceCostStore } from "./workspaceCosts";
 import type { ProcessingCosts } from "../../shared/processingCosts";
 import { createWorkspaceDocumentProcessingSettingsStore, DOCUMENT_PROCESSING_SETTINGS_SCHEMA } from "./workspaceDocumentProcessing";
 import type { FieldDefinition } from "./lib/types";
@@ -176,7 +178,7 @@ export type LocalEvaluationDocumentDeletionIntent = {
 
 type EvaluationDocumentAuthor = { userId: string; name: string };
 
-export type LocalWorkspaceProductStore = DocumentProcessingStore & ReturnType<typeof createModelCostStore> & ReturnType<typeof createWorkspaceDocumentProcessingSettingsStore> & {
+export type LocalWorkspaceProductStore = DocumentProcessingStore & ReturnType<typeof createModelCostStore> & ReturnType<typeof createWorkspaceCostStore> & ReturnType<typeof createWorkspaceDocumentProcessingSettingsStore> & {
   close(): void;
   /** Commits a complete save and its receipt together; an existing receipt wins and nothing is inserted. */
   insertEvaluationDocument(input: {
@@ -439,9 +441,11 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   migrateProductSchema(database);
   initializeDocumentProcessingSchema(database);
   initializeModelCostSchema(database);
+  initializeWorkspaceCostSchema(database);
   database.exec(DOCUMENT_PROCESSING_SETTINGS_SCHEMA.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS "));
   const processing = createDocumentProcessingStore(database, () => store);
   const modelCosts = createModelCostStore(database);
+  const workspaceCosts = createWorkspaceCostStore(database);
 
   const readModelConfiguration = (): StoredWorkspaceModelConfiguration | null => {
     const row = database.query(`SELECT gateway_url, model_name, credential_ciphertext, sequential_calls, supports_pdf_input, supports_structured_output,
@@ -568,8 +572,9 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   const store: LocalWorkspaceProductStore = {
     ...processing,
     ...modelCosts,
+    ...workspaceCosts,
     ...createWorkspaceDocumentProcessingSettingsStore(database),
-    close: () => database.close(),
+    close: () => { workspaceCosts.closeCostUpdates(); database.close(); },
     insertEvaluationDocument: ({ document, author, operationId, digest }) => database.transaction(() => {
       // Concurrent retries of one operation race here; only the first commit creates an entry.
       const receipt = readSaveReceipt(operationId);
@@ -986,14 +991,14 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       if (!job) return null;
       // Commit cleanup intent with logical deletion so crashes and unlink errors
       // cannot lose the only pointer to a local Source binary or remote original.
+      workspaceCosts.retainDeletedCostDocument(job.job_id);
       database.query("INSERT OR REPLACE INTO source_file_deletion_intents (job_id, source_file_key, retained_key) VALUES (?, ?, ?)")
         .run(job.job_id, job.source_file_key, job.retained_object_key ?? null);
       database.query("DELETE FROM job_results WHERE job_id = ?").run(job.job_id);
       database.query("DELETE FROM source_files WHERE job_id = ?").run(job.job_id);
       database.query("UPDATE document_packet_children SET state='deleted' WHERE job_id=?").run(job.job_id);
       database.query("DELETE FROM document_routing WHERE job_id=?").run(job.job_id);
-      // A deleted packet child keeps its incurred spend in the packet total.
-      database.query("DELETE FROM model_call_costs WHERE owner_id=? AND packet_id IS NULL").run(job.job_id);
+      // Accounting snapshots and receipts survive Document deletion, including late finalization.
       database.query("DELETE FROM jobs WHERE id = ?").run(job.job_id);
       return job;
     })(),
