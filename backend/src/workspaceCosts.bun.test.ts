@@ -170,6 +170,8 @@ test("bounded pagination searches sparse matches without truncation and sorts th
 
 test("sampling is bounded, stable, complete-only and weighted by the exact bucket populations", () => {
   const f = fixture();
+  // Seeding through the production APIs performs thousands of durable writes;
+  // slower CI disks need more than the default five seconds for this fixture.
   for (let i = 0; i < 600; i++) { job(f.store, `job_${i}`); charge(f.store, `job_${i}`, i / 10000); finish(f.store, `job_${i}`); }
   drain(f.store);
   const summary = f.store.getCostOverview(range);
@@ -177,7 +179,7 @@ test("sampling is bounded, stable, complete-only and weighted by the exact bucke
   expect(summary.samples.length).toBe(512);
   expect(summary.samples.reduce((sum, item) => sum + item.weight, 0)).toBeCloseTo(600, 8);
   expect(f.store.getCostOverview(range).samples.map(item => item.id)).toEqual(summary.samples.map(item => item.id));
-});
+}, 15000);
 
 test("summary transactions roll back together and resume after a failed update", () => {
   const f = fixture(); job(f.store); charge(f.store, "job", 0.3); drain(f.store);

@@ -62,6 +62,10 @@ async function updateLocalSettings(page: Page) {
   await expect(page.getByRole("button", { name: new RegExp(updatedAccount.name) })).toBeVisible();
 
   const gateway = page.getByRole("article", { name: "Workspace Model gateway" });
+  await expect(gateway.getByRole("table", { name: "Models" })).toBeVisible();
+  await expect(gateway.getByLabel("Gateway URL", { exact: true })).toHaveCount(0);
+  await expect(gateway.getByRole("button", { name: "Test connection" })).toBeDisabled();
+  await gateway.getByRole("button", { name: "Edit", exact: true }).click();
   await gateway.getByLabel("Gateway URL", { exact: true }).fill("http://127.0.0.1:11434/v1");
   await gateway.getByLabel("Extraction model", { exact: true }).fill("browser/vision-model");
   const apiKey = gateway.getByLabel("Gateway API key", { exact: true });
@@ -85,7 +89,11 @@ async function updateLocalSettings(page: Page) {
   await gateway.getByRole("button", { name: "Clear configuration" }).click();
   await gateway.getByRole("button", { name: "Confirm clear" }).click();
   await expect(gateway.getByText("Not configured", { exact: true })).toBeVisible();
+  await expect(gateway.getByRole("table", { name: "Models" })).toBeVisible();
+  await expect(gateway.getByLabel("Gateway URL", { exact: true })).toHaveCount(0);
+  await gateway.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(gateway.getByLabel("Gateway URL", { exact: true })).toHaveValue("");
+  await gateway.getByRole("button", { name: "Cancel", exact: true }).click();
 
   return updatedAccount;
 }

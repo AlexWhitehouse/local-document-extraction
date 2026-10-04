@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { allocateCost, costAmount } from "../../../../../shared/processingCosts.ts";
 import { ChartTip, FigureStrip, Segmented, StageBar, StageLegend, StageTipRows } from "./costShared.jsx";
-import { costLabel, percent, plural, shortDate, usd } from "./costFormat.js";
+import { costLabel, percent, plural, shortDate } from "./costFormat.js";
 import { useChartTip } from "./costHooks.js";
 import { useCostResource } from "./useCostResource.js";
 import { CostResourceStatus } from "./WorkspaceCosts.jsx";
@@ -138,7 +138,6 @@ function CostAnatomy({ item }) {
       </tbody>
       <tfoot><tr><td>Total</td><td className="cp-num">{item.pages}</td><td className="cp-num">{costLabel(split)}</td><td className="cp-num">{costLabel(item.costs.auto_template)}</td><td className="cp-num">{costLabel(item.costs.extraction)}</td><td className="cp-num cp-strong">{costLabel(item.costs.total)}</td></tr></tfoot>
     </table> : null}
-    {multi && split.amount ? <p className="cp-note">For example, {example.name} gets {usd(split.amount)} × {example.pages} / {item.pages} pages = {costLabel(example.costs.split)} of the split cost.{item.excludedPages ? ` The ${plural(item.excludedPages, "excluded page")} keep their share as overhead.` : ""}</p> : null}
     {item.deleted || parts.some(part => part.deleted) ? <p className="cp-note">Deleted documents keep their cost here. That cost was incurred and still counts in Workspace totals.</p> : null}
     {item.costs.total.amount === null ? <p className="cp-note">This work predates cost tracking, or the endpoint did not report a cost.</p> : !item.costs.total.complete ? <p className="cp-note">+ marks a known subtotal. Some calls did not report a cost.</p> : null}
     <ChartTip tip={tip} />
