@@ -156,3 +156,21 @@ Both installations matched the published archive checksum and tagged revision. B
 These published-download checks used noninteractive defaults on an existing Linux host. They did not qualify fresh machines, published downloads on macOS, Intel macOS, older operating systems, or live model routes. Live Google sign-in and Cloudflare email delivery were not tested. CI separately qualified its three listed runners.
 
 Local logs and verification results remain in `.scratch/release-v1.3.0/`. They are not distributed.
+
+## v1.3.1 release qualification (2026-10-05)
+
+[v1.3.1](https://github.com/AlexWhitehouse/local-document-extraction/releases/tag/v1.3.1) was published from `25165d7c404061cef3b01d24abc5dedc6c9144b5`. [Release workflow 37245841764](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/37245841764) passed for that exact commit with Bun 1.4.2. Platform verification covered quality, dependency hygiene, coverage, build, native PDF rendering, and installer tests on Ubuntu 24.04 x64 and arm64, and macOS 15 arm64. Linux Chromium journeys, the complete-history secret scan, the license gate, and packaging passed. The scheduled/manual randomized backend lane was skipped as configured.
+
+A clean detached checkout without local configuration or state passed frozen dependency installation, typechecks, lint, 598 backend tests, the runtime smoke test, and the production build with Bun 1.4.2 on the existing macOS 27.0 arm64 host. The lockfile remained unchanged. 597 of 598 frontend tests passed. `App.workspace-toasts.test.jsx` › "revalidates a second browser's Workspace context after a live access invalidation" failed in the full file run on this host, as it also did on `main` before this release's changes. It passed when run alone and passed in every CI runner. The frontend coverage gate was not run locally.
+
+All three published assets downloaded without GitHub authentication. The archive SHA256 was `69e00d6271fc2667bfcf9cc4a72fee5ae6a2c6c80fa424d00f12f39a9cb05432` and matched the published checksum file. Its 593 entries included the project license and clean metadata identifying v1.3.1 and the tagged commit. The archive excluded private configuration, runtime state, dependencies, and scratch files. The published installer matched the copy inside the archive.
+
+The exact README installation command passed on the existing macOS 27.0 arm64 host, using empty isolated XDG directories with spaces, a separate loopback port, and a PATH without Bun. Health, SPA fallback, `doctor`, native PDF rendering, private configuration and state permissions, shutdown, and restart passed. The served stylesheet included this release's summary-row change.
+
+A separate installation downloaded published v1.3.0 and created a local account. Its installed `document-extraction update v1.3.1` command refused to run while the application was running, then upgraded after `document-extraction stop`. Configuration bytes, the generated authentication secret, the account, and a pre-upgrade browser session survived, and password sign-in succeeded. The update wrote a pre-upgrade backup. Health and the new stylesheet were served after the upgrade.
+
+Both installations were stopped, and their temporary application, configuration, and state directories were removed.
+
+These published-download checks used noninteractive defaults on an existing macOS host. They did not qualify fresh machines, published downloads on Linux, Intel macOS, older operating systems, Workspace model credentials, documents, or live model routes. Live Google sign-in and Cloudflare email delivery were not tested. CI separately qualified its three listed runners.
+
+Local verification results remain in `.scratch/release-v1.3.1/`. They are not distributed.
