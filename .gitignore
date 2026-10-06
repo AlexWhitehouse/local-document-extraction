@@ -42,3 +42,6 @@ config.env
 .scratch/
 
 backend-go/bin/
+
+# Generated benchmark results
+backend-go/benchmarks/results/
