@@ -174,3 +174,19 @@ Both installations were stopped, and their temporary application, configuration,
 These published-download checks used noninteractive defaults on an existing macOS host. They did not qualify fresh machines, published downloads on Linux, Intel macOS, older operating systems, Workspace model credentials, documents, or live model routes. Live Google sign-in and Cloudflare email delivery were not tested. CI separately qualified its three listed runners.
 
 Local verification results remain in `.scratch/release-v1.3.1/`. They are not distributed.
+
+## v2.0.0 release qualification (2026-10-06)
+
+[v2.0.0](https://github.com/AlexWhitehouse/local-document-extraction/releases/tag/v2.0.0) was published from `921143474c851443727e456d75a53427fe209a9d`. [Release workflow 37397162171](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/37397162171) passed for that exact commit with Bun 1.4.2. Platform verification covered quality, dependency hygiene, coverage, build, native PDF rendering, and installer tests on Ubuntu 24.04 x64 and arm64, and macOS 15 arm64. Go race checks and integration tests, Linux Chromium journeys, the complete-history secret scan, the license gate, and packaging passed. The scheduled/manual randomized backend lane was skipped as configured.
+
+A clean detached checkout without local configuration or state passed frozen dependency installation, typechecks, lint, 627 backend tests, the runtime smoke test, all 598 frontend tests, the frontend coverage gate, and the production build with Bun 1.4.2 on the existing Ubuntu 26.04.1 x64 host. The lockfile remained unchanged. The temporary checkout and its Go build cache were removed after verification.
+
+All three published assets downloaded without GitHub authentication. The archive SHA256 was `de77455a755beeb34ed650356819c470901147d912cd68c305b6834d6a37da98` and matched the published checksum file. Its 651 entries included the project license, executable Go processors for Linux/macOS x64/arm64, and clean metadata identifying v2.0.0 and the tagged commit. The archive excluded private configuration, runtime state, dependencies, scratch files, and generated raw benchmark results. The published installer matched the copy inside the archive.
+
+The exact README installation command passed using empty isolated XDG directories with spaces, an ephemeral loopback port, and a PATH without the host's Bun or Go toolchain. Health diagnostics confirmed a running Go processor. SPA fallback, native PDF rendering, private configuration and state permissions, shutdown, and restart passed.
+
+A separate installation downloaded published v1.3.1 and upgraded through its installed `document-extraction update v2.0.0` command. Configuration bytes, account login, Workspace membership, a saved Template, a completed Document and its extraction result, and both generated secrets survived. The synthetic model credential remained decryptable, and the Document's reported USD 0.25 cost and Template label were preserved. All four pre-upgrade state files matched the pre-migration backup. Health, Go processor startup, SPA fallback, native PDF rendering, shutdown, and restart passed.
+
+Both installations matched the published archive checksum and tagged revision. Both were stopped, and their temporary application, configuration, and state directories were removed. Downloaded verification assets were removed after inspection; small logs and verification results remain in `.scratch/release-v2.0.0/` and are not distributed.
+
+These published-download checks used noninteractive defaults on an existing Linux host. They did not qualify fresh machines, published downloads on macOS, Intel macOS, older operating systems, or live model routes. Live Google sign-in and Cloudflare email delivery were not tested. CI separately qualified its three listed runners. Downgrades from logical PDF Sources to v1.x were not tested or supported.
