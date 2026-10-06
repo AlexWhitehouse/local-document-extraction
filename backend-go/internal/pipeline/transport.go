@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ type ModelTask struct {
 	Render               bool   `json:"render"`
 	Sequential           bool   `json:"sequential"`
 	Pages                []int  `json:"pages"`
+	PageCount            int    `json:"page_count"`
 	TimeoutMS            int    `json:"timeout_ms"`
 	MaximumResponseBytes int64  `json:"maximum_response_bytes"`
 }
@@ -85,7 +87,9 @@ func NewTransport(pool, renderer *pdf.Pool, capacity int, artifactBytes, respons
 	}}
 }
 
-func (t *Transport) turn(ctx context.Context, workspace string) (func(), error) {
+// turn serializes provider calls for Workspaces that require it. Only waiting
+// for another call's turn releases the local permit.
+func (t *Transport) turn(ctx context.Context, workspace string, b *Bridge) (func(), error) {
 	t.mu.Lock()
 	turn := t.sequential[workspace]
 	if turn == nil {
@@ -102,13 +106,26 @@ func (t *Transport) turn(ctx context.Context, workspace string) (func(), error) 
 		}
 		t.mu.Unlock()
 	}
-	select {
-	case turn.slot <- struct{}{}:
-		return func() { <-turn.slot; releaseRef() }, nil
-	case <-ctx.Done():
+	err := b.Wait(ctx, func() bool {
+		select {
+		case turn.slot <- struct{}{}:
+			return true
+		default:
+			return false
+		}
+	}, func() error {
+		select {
+		case turn.slot <- struct{}{}:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	if err != nil {
 		releaseRef()
-		return nil, ctx.Err()
+		return nil, err
 	}
+	return func() { <-turn.slot; releaseRef() }, nil
 }
 
 type sourcePart struct {
@@ -217,17 +234,33 @@ func (t *Transport) clearPreparation(dir string, cache *preparationCache) error 
 	return nil
 }
 
-// PDF pools already own their CPU/RSS allowance. A document awaiting that pool
-// should not occupy the separate adapter/response processing allowance.
+// PDF pools already own their CPU/RSS allowance. A document waiting for a pool
+// slot releases its local permit; a document that gets one at once keeps it.
 func runPDF(ctx context.Context, b *Bridge, pool *pdf.Pool, source, dir string, metadata any, continuation bool, reserve func() error) ([]string, error) {
-	var paths []string
-	err := b.Wait(ctx, func() error {
+	var release func()
+	err := b.Wait(ctx, func() bool {
+		var ok bool
+		release, ok = pool.TryAdmit()
+		return ok
+	}, func() error {
 		var err error
-		paths, err = pool.RunPriority(ctx, source, dir, metadata, continuation, reserve)
+		release, err = pool.Admit(ctx, continuation)
 		return err
 	})
-	return paths, err
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return pool.RunAdmitted(ctx, source, dir, metadata, reserve)
 }
+
+func (t *Transport) reserveArtifacts(ctx context.Context, b *Bridge, bytes int64) error {
+	return b.Wait(ctx, func() bool { return t.Artifacts.tryAcquire(bytes) }, func() error { return t.Artifacts.acquire(ctx, bytes) })
+}
+
+// Pages beyond one chunk render in parallel processes, so a long document is
+// not serialized on one worker. Each chunk reloads the source.
+const renderChunkPages = 8
 
 func (t *Transport) prepare(ctx context.Context, task ModelTask, dir string, cache *preparationCache, b *Bridge) (parts []sourcePart, err error) {
 	key := task.Source + fmt.Sprint(task.Pages) + strconv.FormatBool(task.Render)
@@ -255,7 +288,7 @@ func (t *Transport) prepare(ctx context.Context, task ModelTask, dir string, cac
 		var reused []string
 		var actual int64
 		// Reserve before linking cache artifacts. Waiting releases local capacity.
-		if err = b.Wait(ctx, func() error { return t.Artifacts.acquire(ctx, 64<<20) }); err != nil {
+		if err = t.reserveArtifacts(ctx, b, 64<<20); err != nil {
 			return nil, err
 		}
 		cache.bytes += 64 << 20
@@ -286,12 +319,15 @@ func (t *Transport) prepare(ctx context.Context, task ModelTask, dir string, cac
 	if task.Render {
 		reservation += 64 << 20
 	}
+	var reserveMu sync.Mutex
 	reserved := false
 	reserve := func() error {
+		reserveMu.Lock()
+		defer reserveMu.Unlock()
 		if reserved {
 			return nil
 		}
-		if err := t.Artifacts.acquire(ctx, reservation); err != nil {
+		if err := t.reserveArtifacts(ctx, b, reservation); err != nil {
 			return err
 		}
 		reserved = true
@@ -313,22 +349,14 @@ func (t *Transport) prepare(ctx context.Context, task ModelTask, dir string, cac
 	}
 	paths = []string{source}
 	if task.Render {
-		metadata := map[string]any{"operation": "render"}
-		if len(task.Pages) > 0 {
-			metadata["pages"] = task.Pages
-		}
-		rendered, err := runPDF(ctx, b, t.Renderer, source, dir, metadata, task.Continuation, reserve)
+		rendered, err := t.render(ctx, b, source, dir, task, false, reserve)
 		if errors.Is(err, pdf.ErrArtifactLimit) && ctx.Err() == nil {
-			// Faster lossless encoding can be larger on some documents. Preserve
-			// the existing payload acceptance limit with the original encoder.
-			metadata["png_encoder"] = "native"
-			rendered, err = runPDF(ctx, b, t.Renderer, source, dir, metadata, task.Continuation, reserve)
+			// Maximum DEFLATE effort keeps pages within the payload limit when
+			// fast compression alone does not.
+			rendered, err = t.render(ctx, b, source, dir, task, true, reserve)
 		}
 		if err != nil {
 			return nil, err
-		}
-		if len(rendered) == 0 {
-			return nil, errors.New("PDF rendered no pages")
 		}
 		paths = rendered
 		generated = append(generated, rendered...)
@@ -342,7 +370,7 @@ func (t *Transport) prepare(ctx context.Context, task ModelTask, dir string, cac
 		actual += info.Size()
 	}
 	if actual > reservation {
-		return nil, errors.New("PDF artifact budget exceeded")
+		return nil, pdf.ErrArtifactLimit
 	}
 	t.Artifacts.release(reservation - actual)
 	cache.bytes -= reservation - actual
@@ -357,6 +385,71 @@ func (t *Transport) prepare(ctx context.Context, task ModelTask, dir string, cac
 	return partsFor(paths, mime)
 }
 
+func (t *Transport) render(ctx context.Context, b *Bridge, source, dir string, task ModelTask, best bool, reserve func() error) ([]string, error) {
+	pages := task.Pages
+	if len(pages) == 0 && task.PageCount > renderChunkPages {
+		pages = make([]int, task.PageCount)
+		for i := range pages {
+			pages[i] = i + 1
+		}
+	}
+	chunks := [][]int{pages}
+	if len(pages) > renderChunkPages {
+		chunks = nil
+		for start := 0; start < len(pages); start += renderChunkPages {
+			chunks = append(chunks, pages[start:min(start+renderChunkPages, len(pages))])
+		}
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make([][]string, len(chunks))
+	errs := make([]error, len(chunks))
+	var wg sync.WaitGroup
+	for i, chunk := range chunks {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			metadata := map[string]any{"operation": "render"}
+			if len(chunk) > 0 {
+				metadata["pages"] = chunk
+			}
+			if best {
+				metadata["compression"] = "best"
+			}
+			results[i], errs[i] = runPDF(ctx, b, t.Renderer, source, dir, metadata, task.Continuation, reserve)
+			if errs[i] != nil {
+				cancel()
+			}
+		}()
+	}
+	wg.Wait()
+	var paths []string
+	for _, result := range results {
+		paths = append(paths, result...)
+	}
+	if err := errors.Join(errs...); err != nil {
+		for _, path := range paths {
+			_ = os.Remove(path)
+		}
+		// One chunk's limit cancels its siblings; report the cause, not the cancellation.
+		for _, chunkErr := range errs {
+			if errors.Is(chunkErr, pdf.ErrArtifactLimit) {
+				return nil, pdf.ErrArtifactLimit
+			}
+		}
+		for _, chunkErr := range errs {
+			if chunkErr != nil && !errors.Is(chunkErr, context.Canceled) {
+				return nil, chunkErr
+			}
+		}
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, errors.New("PDF rendered no pages")
+	}
+	return paths, nil
+}
+
 func (t *Transport) releaseResponse(cache *preparationCache) {
 	t.Responses.release(cache.responseBytes)
 	cache.responseBytes = 0
@@ -366,45 +459,41 @@ func (t *Transport) Call(ctx context.Context, workspace string, task ModelTask, 
 	if task.CacheID != "" {
 		task.CacheID = workspace + "/" + task.CacheID
 	}
-	if task.Sequential {
-		var release func()
-		err := b.Wait(ctx, func() error {
-			var err error
-			release, err = t.turn(ctx, workspace)
-			return err
-		})
-		if release != nil {
-			defer release()
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
 	parts, err := t.prepare(ctx, task, dir, cache, b)
 	if err != nil {
 		return nil, err
 	}
-	if err := b.Call(ctx, "capacity/suspend", nil, nil); err != nil {
+	// Sequential Workspaces serialize provider calls, not local preparation.
+	if task.Sequential {
+		release, err := t.turn(ctx, workspace, b)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
+	err = b.Wait(ctx, func() bool {
+		select {
+		case t.slots <- struct{}{}:
+			return true
+		default:
+			return false
+		}
+	}, func() error {
+		select {
+		case t.slots <- struct{}{}:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	if err != nil {
 		return nil, err
 	}
-	suspended := true
-	defer func() {
-		if suspended {
-			_ = b.Call(ctx, "capacity/resume", nil, nil)
-		}
-	}()
-	select {
-	case t.slots <- struct{}{}:
-		t.InFlight.Add(1)
-		defer t.InFlight.Add(-1)
-		defer func() { <-t.slots }()
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	var receipt struct {
-		ID string `json:"id"`
-	}
-	if err = b.Call(ctx, "call/start", nil, &receipt); err != nil {
+	t.InFlight.Add(1)
+	defer t.InFlight.Add(-1)
+	defer func() { <-t.slots }()
+	receiptID, err := b.StartCall(ctx)
+	if err != nil {
 		return nil, err
 	}
 	var body json.RawMessage
@@ -414,14 +503,14 @@ func (t *Transport) Call(ctx context.Context, workspace string, task ModelTask, 
 	status := 0
 	defer func() {
 		if successful {
-			cache.receipt = map[string]any{"id": receipt.ID, "body": accounting, "headers": headers}
+			cache.receipt = map[string]any{"id": receiptID, "body": accounting, "headers": headers}
 			return
 		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		// A failed accounting callback must not turn a successful model result into
 		// another paid call. The durable pending receipt remains explicitly unknown.
-		_ = b.Call(finishCtx, "call/finish", map[string]any{"id": receipt.ID, "body": accounting, "headers": headers, "success": successful, "status": status}, nil)
+		_ = b.Call(finishCtx, "call/finish", map[string]any{"id": receiptID, "body": accounting, "headers": headers, "success": successful, "status": status}, nil)
 	}()
 	timeout := time.Duration(task.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
@@ -470,10 +559,9 @@ func (t *Transport) Call(ctx context.Context, workspace string, task ModelTask, 
 	}
 	// Read and normalize bodies only with local capacity. TCP backpressure keeps
 	// a simultaneous burst of provider responses from becoming unbounded RAM.
-	if resumeErr := b.Call(ctx, "capacity/resume", nil, nil); resumeErr != nil {
+	if resumeErr := b.Resume(ctx); resumeErr != nil {
 		return nil, resumeErr
 	}
-	suspended = false
 	if err != nil {
 		return nil, &GatewayFailure{Message: "Model gateway request failed or timed out", Retryable: true}
 	}
@@ -490,43 +578,83 @@ func (t *Transport) Call(ctx context.Context, workspace string, task ModelTask, 
 	if limit <= 0 {
 		limit = 32 << 20
 	}
-	reservation := limit + 1
-	if response.ContentLength >= 0 {
-		reservation = min(reservation, response.ContentLength)
-	}
-	if !t.Responses.tryAcquire(reservation) {
-		acquired := false
-		err := b.Wait(ctx, func() error {
-			err := t.Responses.acquire(ctx, reservation)
-			acquired = err == nil
-			return err
-		})
-		if err != nil {
-			if acquired {
-				t.Responses.release(reservation)
-			}
-			return nil, err
-		}
-	}
-	// Keep the credit through normalization and the durable adapter commit,
-	// rather than releasing it while the returned body is still being used.
-	cache.responseBytes += reservation
-	body, err = io.ReadAll(io.LimitReader(response.Body, reservation+1))
+	body, err = t.readResponse(ctx, b, response, limit, cache)
 	if err != nil {
-		return nil, &GatewayFailure{Message: "Model gateway response interrupted", Retryable: true}
+		return nil, err
 	}
-	if int64(len(body)) > limit || int64(len(body)) > reservation {
-		return nil, &GatewayFailure{Message: "Model gateway response exceeds limit"}
-	}
-	unused := reservation - int64(len(body))
-	t.Responses.release(unused)
-	cache.responseBytes -= unused
 	if json.Unmarshal(body, &accounting) != nil {
 		body = nil
 		accounting = usageEnvelope{}
 		return nil, &GatewayFailure{Message: "Model gateway returned invalid JSON", Retryable: true}
 	}
 	successful = true
+	return body, nil
+}
+
+// Response credit starts at the known length, or one chunk when unknown, and
+// grows as bytes arrive. Unknown-length bodies no longer reserve the whole limit.
+const responseChunk = 1 << 20
+
+func (t *Transport) readResponse(ctx context.Context, b *Bridge, response *http.Response, limit int64, cache *preparationCache) ([]byte, error) {
+	held := int64(0)
+	grow := func(bytes int64) error {
+		if !t.Responses.tryAcquire(bytes) {
+			if err := b.Suspend(ctx); err != nil {
+				return err
+			}
+			if err := t.Responses.acquire(ctx, bytes); err != nil {
+				return err
+			}
+			if err := b.Resume(ctx); err != nil {
+				t.Responses.release(bytes)
+				return err
+			}
+		}
+		// Keep the credit through normalization and the durable adapter commit.
+		held += bytes
+		cache.responseBytes += bytes
+		return nil
+	}
+	initial := min(limit+1, responseChunk)
+	if response.ContentLength >= 0 {
+		initial = min(limit+1, response.ContentLength)
+	}
+	if err := grow(initial); err != nil {
+		return nil, err
+	}
+	body := make([]byte, 0, initial)
+	for {
+		if int64(len(body)) > limit {
+			return nil, &GatewayFailure{Message: "Model gateway response exceeds limit"}
+		}
+		var n int
+		var err error
+		if int64(len(body)) < held {
+			n, err = response.Body.Read(body[len(body):held])
+			body = body[:len(body)+n]
+		} else {
+			// Probe before growing, so an exact Content-Length needs no extra credit.
+			var probe [1]byte
+			if n, err = response.Body.Read(probe[:]); n > 0 {
+				if growErr := grow(min(max(held, responseChunk), limit+1-held)); growErr != nil {
+					return nil, growErr
+				}
+				body = append(slices.Grow(body, int(held)-len(body)), probe[0])
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, &GatewayFailure{Message: "Model gateway response interrupted", Retryable: true}
+		}
+	}
+	if int64(len(body)) > limit {
+		return nil, &GatewayFailure{Message: "Model gateway response exceeds limit"}
+	}
+	unused := held - int64(len(body))
+	t.Responses.release(unused)
+	cache.responseBytes -= unused
 	return body, nil
 }
 

@@ -66,12 +66,12 @@ export function createLocalExtractionRunner(input: Omit<Parameters<typeof create
 
     try {
       for (let round = 0; round < 10; round++) {
-        const state = await session("state", null);
+        const next = await session("next", null);
 
-        if (state.done) return;
-        stage = state.packet ? state.accepted ? "materialize" : "split" : state.bound ? "extract" : "route";
+        if (next.stage === "done" || !isString(next.stage) || !isJsonObject(next.task)) return;
+        stage = next.stage;
         const configuration = context.store.getModelConfiguration();
-        const task = await session(`${stage}/claim`, null);
+        const task = next.task;
 
         if (task.done) return;
 

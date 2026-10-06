@@ -7,20 +7,27 @@ import (
 )
 
 // byteBudget reserves the worst case before PDF work, then refunds unused bytes.
-// Waiting consumes neither a PDF worker nor a local processing permit.
+// Waiters are granted in FIFO order; tryAcquire never overtakes a waiter.
 type byteBudget struct {
 	mu          sync.Mutex
 	limit, used int64
-	changed     chan struct{}
+	waiters     []*budgetWaiter
+}
+
+type budgetWaiter struct {
+	bytes   int64
+	ready   chan struct{}
+	granted bool
 }
 
 func newByteBudget(limit int64) *byteBudget {
-	return &byteBudget{limit: limit, changed: make(chan struct{})}
+	return &byteBudget{limit: limit}
 }
+
 func (b *byteBudget) tryAcquire(bytes int64) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if bytes < 0 || b.used+bytes > b.limit {
+	if bytes < 0 || len(b.waiters) > 0 || b.used+bytes > b.limit {
 		return false
 	}
 	b.used += bytes
@@ -31,22 +38,36 @@ func (b *byteBudget) acquire(ctx context.Context, bytes int64) error {
 	if bytes < 0 || bytes > b.limit {
 		return errors.New("artifact exceeds byte budget")
 	}
-	for {
-		b.mu.Lock()
-		if b.used+bytes <= b.limit {
-			b.used += bytes
-			b.mu.Unlock()
-			return nil
-		}
-		changed := b.changed
+	b.mu.Lock()
+	if len(b.waiters) == 0 && b.used+bytes <= b.limit {
+		b.used += bytes
 		b.mu.Unlock()
-		select {
-		case <-changed:
-		case <-ctx.Done():
-			return ctx.Err()
+		return nil
+	}
+	waiter := &budgetWaiter{bytes: bytes, ready: make(chan struct{})}
+	b.waiters = append(b.waiters, waiter)
+	b.mu.Unlock()
+	select {
+	case <-waiter.ready:
+		return nil
+	case <-ctx.Done():
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if waiter.granted {
+			b.used -= bytes
+		} else {
+			for i, candidate := range b.waiters {
+				if candidate == waiter {
+					b.waiters = append(b.waiters[:i], b.waiters[i+1:]...)
+					break
+				}
+			}
 		}
+		b.grantLocked()
+		return ctx.Err()
 	}
 }
+
 func (b *byteBudget) release(bytes int64) {
 	if bytes == 0 {
 		return
@@ -57,9 +78,19 @@ func (b *byteBudget) release(bytes int64) {
 	if b.used < 0 {
 		panic("artifact budget released twice")
 	}
-	close(b.changed)
-	b.changed = make(chan struct{})
+	b.grantLocked()
 }
+
+func (b *byteBudget) grantLocked() {
+	for len(b.waiters) > 0 && b.used+b.waiters[0].bytes <= b.limit {
+		waiter := b.waiters[0]
+		b.waiters = b.waiters[1:]
+		b.used += waiter.bytes
+		waiter.granted = true
+		close(waiter.ready)
+	}
+}
+
 func (b *byteBudget) Used() int64 { b.mu.Lock(); defer b.mu.Unlock(); return b.used }
 
 type preparationCache struct {

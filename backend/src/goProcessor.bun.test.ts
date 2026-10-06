@@ -1,5 +1,4 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { createHash } from "node:crypto";
 import { renderPdfPagesToPng } from "./consumer/pdfPageRenderer";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -195,18 +194,20 @@ goTest("Go renders a Document once across template selection and extraction", as
     expect(f.store.getExtractionJobSummary("document_test")?.status).toBe("completed");
     expect((await f.processor.diagnostics()).pdf_operations).toBe(1);
     const pages = await renderPdfPagesToPng(Uint8Array.from(f.original()).buffer);
-    const expected = pages.map((page) => `data:image/png;base64,${Buffer.from(page).toString("base64")}`);
 
-    const pixels = async (dataUrl: string) => {
-      const image = await loadImage(Buffer.from(dataUrl.split(",")[1]!, "base64"));
+    const geometry = async (png: Buffer) => {
+      const image = await loadImage(png);
       const canvas = createCanvas(image.width, image.height);
       canvas.getContext("2d").drawImage(image, 0, 0);
+      const pixels = canvas.getContext("2d").getImageData(0, 0, image.width, image.height).data;
 
-      return { width: image.width, height: image.height, hash: createHash("sha256").update(canvas.getContext("2d").getImageData(0, 0, image.width, image.height).data).digest("hex") };
+      return { width: image.width, height: image.height, inked: pixels.some((value, index) => index % 4 !== 3 && value < 128) };
     };
 
-    const expectedPixels = await Promise.all(expected.map(pixels));
-    expect(await Promise.all(f.attachments.map((pages) => Promise.all(pages.map(pixels))))).toEqual([expectedPixels, expectedPixels]);
+    // PDFium renders at the same geometry as PDF.js; the stages share one rendering.
+    const expected = await Promise.all(pages.map((page) => geometry(Buffer.from(page))));
+    const rendered = await Promise.all(f.attachments[0]!.map((dataUrl) => geometry(Buffer.from(dataUrl.split(",")[1]!, "base64"))));
+    expect(rendered).toEqual(expected.map((page) => ({ ...page, inked: true })));
     expect(f.attachments[0]).toEqual(f.attachments[1]);
     const database = new Database(join(f.stateDirectory, "data", "workspaces", `${f.workspaceId}.sqlite`), { readonly: true });
 

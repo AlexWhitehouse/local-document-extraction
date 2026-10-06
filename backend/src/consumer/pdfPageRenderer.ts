@@ -1,25 +1,13 @@
-import { encodePdfPng } from "./pdfPngEncoder";
 import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { fileURLToPath } from "node:url";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 const TARGET_PDF_RENDER_SCALE = 2;
 
-const MAX_PDF_PAGE_DIMENSION = 2_048;
+// Matches the Go renderer: providers reject edges above 2000 px in many-image requests.
+const MAX_PDF_PAGE_DIMENSION = 2_000;
 
 export const MAX_RENDERED_PDF_BYTES = 64 * 1024 * 1024;
-
-export type PdfRenderTiming = {
-  phase: "load" | "raster" | "encode";
-  elapsedMs: number;
-  bytes?: number;
-};
-
-export type PdfRenderOptions = {
-  observe?: (sample: PdfRenderTiming) => void;
-  fastPng?: boolean;
-  overlapEncoding?: boolean;
-};
 
 export class PdfPreparationLimitError extends Error {}
 
@@ -36,9 +24,8 @@ export async function* iteratePdfPagesToPng(
   signal?: AbortSignal,
   maxBytes = MAX_RENDERED_PDF_BYTES,
   selectedPages?: readonly number[],
-  options?: PdfRenderOptions,
 ): AsyncGenerator<ArrayBuffer> {
-  for await (const page of renderPages(sourceBytes, signal, maxBytes, selectedPages, false, options)) yield page.png!;
+  for await (const page of renderPages(sourceBytes, signal, maxBytes, selectedPages, false)) yield page.png!;
 }
 
 /** Conservative: any text, annotation, or nonwhite rendered pixel is not verified blank. */
@@ -61,12 +48,9 @@ async function* renderPages(
   maxBytes: number,
   selectedPages: readonly number[] | undefined,
   inspectBlank: boolean,
-  options?: PdfRenderOptions,
 ): AsyncGenerator<{ page: number; png?: ArrayBuffer; blank?: boolean }> {
   throwIfCancelled(signal);
   const pdfjsPackageUrl = import.meta.resolve("pdfjs-dist/package.json");
-
-  const loadingStarted = performance.now();
 
   const loadingTask = getDocument({
     data: new Uint8Array(sourceBytes),
@@ -81,23 +65,8 @@ async function* renderPages(
 
   signal?.addEventListener("abort", cancelLoading, { once: true });
 
-  type EncodedPage = { page: number; png: ArrayBuffer };
-
-  let pending: Promise<{ value: EncodedPage; error?: never } | { error: unknown; value?: never }> | null = null;
-
-  const finishPending = async (): Promise<EncodedPage> => {
-    const result = await pending!;
-    pending = null;
-
-    if ("error" in result) throw result.error;
-    throwIfCancelled(signal);
-
-    return result.value;
-  };
-
   try {
     const document = await loadingTask.promise;
-    options?.observe?.({ phase: "load", elapsedMs: performance.now() - loadingStarted });
     let renderedBytes = 0;
     const pageNumbers = selectedPages ?? Array.from({ length: document.numPages }, (_, index) => index + 1);
 
@@ -110,7 +79,6 @@ async function* renderPages(
 
     for (const pageNumber of pageNumbers) {
       throwIfCancelled(signal);
-      const rasterStarted = performance.now();
       const page = await document.getPage(pageNumber);
       const baseViewport = page.getViewport({ scale: 1 });
 
@@ -155,7 +123,6 @@ async function* renderPages(
 
       try {
         await renderTask.promise;
-        options?.observe?.({ phase: "raster", elapsedMs: performance.now() - rasterStarted });
         throwIfCancelled(signal);
 
         if (inspectBlank) {
@@ -177,56 +144,19 @@ async function* renderPages(
           throwIfCancelled(signal);
           yield { page: pageNumber, blank };
         } else {
-          const encode = async (): Promise<EncodedPage> => {
-            const encodingStarted = performance.now();
-            const png = options?.fastPng ? await encodePdfPng(canvas) : await canvas.encode("png");
-            options?.observe?.({ phase: "encode", elapsedMs: performance.now() - encodingStarted, bytes: png.byteLength });
+          const png = await canvas.encode("png");
+          renderedBytes += png.byteLength;
 
-            return { page: pageNumber, png: Uint8Array.from(png).buffer };
-          };
-
-          // At most two pages: rasterize this page while the preceding page's
-          // lossless deflater runs. Observe rejection immediately, even on cancel.
-          const next = (async () => {
-            try { return { value: await encode() }; }
-            catch (error) { return { error }; }
-          })();
-
-          const previous = pending;
-
-          try {
-            if (previous) {
-              const ready = await finishPending();
-              renderedBytes += ready.png.byteLength;
-
-              if (renderedBytes > maxBytes) throw new PdfPreparationLimitError("Rendered PDF exceeds the model payload limit");
-              yield ready;
-            }
-          } finally { pending = next; }
-
-          if (!options?.overlapEncoding) {
-            const ready = await finishPending();
-            renderedBytes += ready.png.byteLength;
-
-            if (renderedBytes > maxBytes) throw new PdfPreparationLimitError("Rendered PDF exceeds the model payload limit");
-            yield ready;
-          }
+          if (renderedBytes > maxBytes)
+            throw new PdfPreparationLimitError("Rendered PDF exceeds the model payload limit");
+          yield { page: pageNumber, png: Uint8Array.from(png).buffer };
         }
       } finally {
         signal?.removeEventListener("abort", cancelRendering);
         page.cleanup();
       }
     }
-
-    if (pending) {
-      const ready = await finishPending();
-      renderedBytes += ready.png.byteLength;
-
-      if (renderedBytes > maxBytes) throw new PdfPreparationLimitError("Rendered PDF exceeds the model payload limit");
-      yield ready;
-    }
   } finally {
-    await pending;
     signal?.removeEventListener("abort", cancelLoading);
     await loadingTask.destroy();
   }

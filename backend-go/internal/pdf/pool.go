@@ -1,5 +1,5 @@
-// Package pdf supervises isolated PDF processes. It deliberately uses the same
-// renderer/parser as the product so performance experiments retain image quality.
+// Package pdf supervises isolated PDF processes: PDFium renderers and the Bun
+// pdf-lib workers that materialize subset PDFs.
 package pdf
 
 import (
@@ -29,7 +29,7 @@ type worker struct {
 }
 type Pool struct {
 	admission    *admission
-	bun, script  string
+	command, env []string
 	renderer     bool
 	sweepStop    chan struct{}
 	sweepDone    chan struct{}
@@ -47,8 +47,10 @@ type Pool struct {
 	PeakRSS      atomic.Uint64
 }
 
-func New(bun, script string, capacity int, renderer bool) *Pool {
-	p := &Pool{admission: &admission{capacity: capacity}, bun: bun, script: script, renderer: renderer, slots: make(chan *worker, capacity), sweepStop: make(chan struct{}), sweepDone: make(chan struct{})}
+// New supervises up to capacity processes running command. Renderers report
+// phase metrics and run without the materialization deadline.
+func New(command, env []string, capacity int, renderer bool) *Pool {
+	p := &Pool{admission: &admission{capacity: capacity}, command: command, env: env, renderer: renderer, slots: make(chan *worker, capacity), sweepStop: make(chan struct{}), sweepDone: make(chan struct{})}
 	for i := 0; i < capacity; i++ {
 		p.slots <- nil
 	}
@@ -57,12 +59,9 @@ func New(bun, script string, capacity int, renderer bool) *Pool {
 }
 
 func (p *Pool) start() (*worker, error) {
-	cmd := exec.Command(p.bun, "--no-env-file", p.script)
+	cmd := exec.Command(p.command[0], p.command[1:]...)
 	cmd.Stderr = io.Discard
-	cmd.Env = append(os.Environ(), "GO_PDF_FILE_INPUT=1")
-	if p.renderer {
-		cmd.Env = append(cmd.Env, "GO_PDF_RENDER_PROCESS=1")
-	}
+	cmd.Env = append(os.Environ(), p.env...)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -98,18 +97,61 @@ func (p *Pool) Run(ctx context.Context, source, dir string, metadata any) ([]str
 }
 
 func (p *Pool) RunPriority(ctx context.Context, source, dir string, metadata any, continuation bool, reserve func() error) ([]string, error) {
-	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
-		return nil, errors.New("PDF pool closed")
-	}
-	p.wg.Add(1)
-	p.mu.Unlock()
-	defer p.wg.Done()
-	if err := p.admission.acquire(ctx, continuation); err != nil {
+	release, err := p.Admit(ctx, continuation)
+	if err != nil {
 		return nil, err
 	}
-	defer p.admission.release()
+	defer release()
+	return p.RunAdmitted(ctx, source, dir, metadata, reserve)
+}
+
+// TryAdmit takes a free slot without waiting or overtaking queued work.
+func (p *Pool) TryAdmit() (func(), bool) {
+	if !p.track() {
+		return nil, false
+	}
+	if !p.admission.tryAcquire() {
+		p.wg.Done()
+		return nil, false
+	}
+	return p.releaser(), true
+}
+
+// Admit waits for a slot: two continuation turns per new-document turn, FIFO
+// within each class.
+func (p *Pool) Admit(ctx context.Context, continuation bool) (func(), error) {
+	if !p.track() {
+		return nil, errors.New("PDF pool closed")
+	}
+	if err := p.admission.acquire(ctx, continuation); err != nil {
+		p.wg.Done()
+		return nil, err
+	}
+	return p.releaser(), nil
+}
+
+func (p *Pool) track() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return false
+	}
+	p.wg.Add(1)
+	return true
+}
+
+func (p *Pool) releaser() func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			p.admission.release()
+			p.wg.Done()
+		})
+	}
+}
+
+// RunAdmitted runs one operation inside a slot obtained from Admit or TryAdmit.
+func (p *Pool) RunAdmitted(ctx context.Context, source, dir string, metadata any, reserve func() error) ([]string, error) {
 	if reserve != nil {
 		if err := reserve(); err != nil {
 			return nil, err

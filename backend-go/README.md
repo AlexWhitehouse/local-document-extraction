@@ -54,15 +54,20 @@ flowchart LR
   Adapter --> Events[Existing live updates and accounting]
 ```
 
-* Separate pools handle PDF materialization and rendering. Rendering uses the
-  existing PDF.js/canvas rasterizer and dimensions, with faster lossless PNG
-  encoding that preserves decoded pixels. Selected pages render directly without
-  creating a subset PDF. The original encoder remains a payload-limit fallback.
-  Rendering overlaps one page’s encoding with the next page’s rasterization, with at most two outstanding pages. Keeping renderer processes warm amortizes module startup. They recycle after
-  128 operations, 64 MiB of source input or 384 MiB sampled RSS. Preparation workers
-  retain the existing 128 MiB recycling threshold. Idle workers exit after five
-  seconds. Materialization has a cancellable 20-second deadline. Rendering remains
-  cancellable for the whole Document, including PDFs with many pages.
+* Separate pools handle PDF materialization and rendering. Rendering runs in
+  isolated `document-extraction-pdf` processes that load PDFium through
+  [purego](https://github.com/ebitengine/purego), so both binaries still build with
+  `CGO_ENABLED=0`. Pages render over white at up to 2× scale (144 DPI) with each edge
+  capped at 2000 px: some providers reject larger edges in requests with more than 20
+  images. Annotations and form-field appearances are drawn. Output is lossless PNG:
+  8-bit gray when every pixel is gray, otherwise RGB, written as unfiltered scanlines
+  with fast DEFLATE; a page set above the payload limit is retried at maximum
+  compression. Each page's encoding overlaps the next page's rasterization.
+  Documents longer than eight pages render in parallel eight-page chunks, in order.
+  Renderer processes recycle after 128 operations or 384 MiB peak RSS, exit at 1 GiB,
+  and idle out after five seconds. Materialization still uses the pinned pdf-lib
+  workers, retains the 128 MiB recycling threshold and has a cancellable 20-second
+  deadline. Rendering remains cancellable for the whole Document.
 * PDF admission alternates two continuation/child turns with one new-parent turn,
   preserving FIFO within each class. Artifact space is reserved when work enters
   the pool, not while it waits behind other PDFs.
@@ -77,13 +82,14 @@ flowchart LR
   and abandoned entries expire after one idle minute (five-second sweeps).
 * File-backed admission inspection and Go PDF workers read private source paths
   directly, avoiding whole-PDF copies through the public Bun heap and IPC pipes.
-  Parser bounds, deadlines and isolation remain. Opaque grayscale pages use exact
-  8-bit grayscale PNG; colored/transparent pages retain RGBA.
+  PDFium maps the immutable source read-only. Upload admission keeps the guarded
+  pdf-lib inspector: it rejects decompression bombs, oversized xrefs and cyclic page
+  trees that PDFium would accept.
 * Go reads artifacts through a bounded buffer and streams base64 into the request.
   It supplies an exact Content-Length and does not allocate a complete encoded
   document or serialized model request. Network concurrency is independent of PDF
-  worker count. Workspace sequential-call settings still cover preparation and
-  transport. Final extraction releases prepared files and artifact credits as soon
+  worker count. Workspace sequential-call settings serialize provider calls, not
+  local preparation. Final extraction releases prepared files and artifact credits as soon
   as request upload completes; durable sources stay until result commit.
 * Concurrent upload acceptance and processing mutations can share one SQLite
   FULL-synchronous commit.
@@ -97,9 +103,12 @@ flowchart LR
   plans and child identities, retries, results, accounting, retention and review
   states. Go stages acquire durable claims before model calls. Restart recovery
   reads the same persisted records as the Bun runtime.
-* The Go module uses only the standard library. PDF workers use the repository's
-  pinned Bun dependencies. This preserves parsing and rendering behavior while
-  changing scheduling, artifact lifetime and transport.
+* The Go module depends only on purego. `bun run build:go` downloads the pinned
+  PDFium build from [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries),
+  verifies its SHA-256 and places `libpdfium` and its third-party licenses beside the
+  binaries. Release archives bundle all four platforms, so installation needs neither
+  Go nor network access to PDFium. Materialization uses the repository's pinned Bun
+  dependencies.
 
 ## Controls
 
@@ -108,9 +117,9 @@ flowchart LR
 | `GO_PROCESSOR_BINARY` | `backend-go/bin/document-extraction` | Override the processor binary path. |
 | `GO_MODEL_CONCURRENCY` | `EXTRACTION_MAX_CONCURRENCY`, or 24 | Maximum concurrent model HTTP calls. |
 | `GO_PDF_WORKERS` | CPUs, capped by one quarter of RAM at 384 MiB/worker | Concurrent rendering processes. |
-| `GO_PDF_WORKER_DOCUMENTS` | 128 | Renderer operation recycling threshold; source-byte and RSS thresholds still apply. |
-| `GO_PDF_OVERLAP` | 1 | Set `0` to measure serial page rendering/encoding. |
-| `GO_PDF_PNG_ENCODER` | `fast` | Set `native` for encoder comparisons. |
+| `GO_PDF_WORKER_DOCUMENTS` | 128 | Renderer operation recycling threshold; the RSS threshold still applies. |
+| `GO_PDF_WORKER_BINARY` | `document-extraction-pdf` beside the processor | Override the PDFium renderer binary. |
+| `PDFIUM_LIBRARY` | `libpdfium` beside the renderer | Override the PDFium shared library. |
 | `GO_RESPONSE_BUFFER_MIB` | 1/16 of host RAM, 64–512 MiB | Response-body allowance held through validation and commit. |
 | `GO_PREPARED_ARTIFACT_MIB` | Quarter of free disk, 96–4096 MiB | Global prepared-artifact byte allowance. |
 | `GO_PDF_PREPARATION_WORKERS` | 4 | Concurrent PDF materialization processes. |
@@ -136,8 +145,13 @@ if they become the next throughput limit; this is not a claim of a fully Go back
 ## Keeping the provider occupied
 
 `GO_MODEL_CONCURRENCY` is the provider-call allowance. It is independent of local
-preparation and result processing. Waiting for a provider, PDF pool, artifact budget
-or retry timer releases the local permit while retaining durable job ownership.
+preparation and result processing. Waiting for a provider, PDF pool, artifact budget,
+sequential turn or retry timer releases the local permit while retaining durable job
+ownership. Each resource is tried first; only a real wait costs a suspension round
+trip, and the permit stays released until the job next needs it. Recording the
+model call's usage receipt also releases the permit, so the provider wait needs no
+separate round trip. One `next` adapter call claims each stage; the extraction claim
+and its model record share one commit.
 Response bodies share a byte allowance through validation and commit. Unknown
 lengths reserve the response limit; known lengths reserve their bounded size.
 HTTP/2 is negotiated where supported, with bounded receive windows.
@@ -194,20 +208,32 @@ private durable adapter; `backend-go/internal/pipeline` owns execution/transport
 `backend-go/internal/pdf` owns process admission. Adapter tests use controlled model
 responses; Go integration tests always execute the real processor during normal tests.
 
-## Standard runtime verification
+## PDFium rendering verification
 
-After ADR-0022 cleanup, the standard runtime completed **32.66 Documents/s** on the
-same two-page, split + automatic Template benchmark (40-second load, ten-second
-warm-up, six renderers, 96 local/model permits, 24 submitters, backlog 192,
-near-instant simulated provider responses). All 1,372 accepted logical Documents
-completed; every expected result and stage count was verified. There were 60
-rejected upload attempts under saturation and zero failed accepted Documents.
-This single run confirms throughput retention; it does not establish another causal
-speedup or replace the earlier seven-second-provider measurement.
-[Raw evidence and implementation hashes](benchmarks/results/standard-runtime.json).
+Matched runs on one six-vCPU, 11.4 GiB host compare `main` (PDF.js with the fast
+encoder and overlap) with PDFium rendering and the reduced adapter round trips.
+Both use the same harness, `rendered-pages` mode, 96 local/model permits, six
+renderers, 24 submitters, backlog 192, a 40-second window with a ten-second warm-up
+and a zero-delay simulated provider. `LOOPBACK_BENCH_FIXTURE=scan` replaces each
+vector page with a 200 DPI grayscale JPEG, as a scanner produces.
 
-Validation: root typecheck, lint, build, 627 backend tests, startup smoke test,
-598 frontend tests, Go race tests/vet and 19 installation tests pass. Release
-installation was tested with the Go compiler blocked, proving bundled-binary use.
-Cross-platform binaries were built for Linux/macOS x64/ARM64; execution here was
-validated on this Linux x64 host. The build retains the existing frontend chunk-size warning.
+| Fixture and scenario | PDF.js Documents/s | PDFium Documents/s | Change |
+| --- | ---: | ---: | ---: |
+| Vector, explicit Template | 17.60 | 44.90 | 2.6× |
+| Vector, split + automatic Template | 27.93 | 56.43 | 2.0× |
+| Scanned, explicit Template | 2.42 | 16.88 | 7.0× |
+| Scanned, split + automatic Template | 2.13 | 26.46 | 12.4× |
+
+Every accepted Document completed, with no network errors or unexpected
+observations. Peak process-tree RSS fell from 2.3 GiB to 1.4–1.6 GiB. These are
+single runs on a shared host, not confidence intervals; the four-fold scan gains are
+well outside run-to-run variation, the vector gains less so. Rendered pixels differ
+from PDF.js: check extraction accuracy on a representative corpus before relying on
+these numbers in production.
+
+`bun backend-go/benchmarks/profile-pdf.ts <fixture.pdf>` profiles one warm renderer.
+On the same host it measured 27 pages/s for the vector benchmark page, 13 for the
+scanned page, 61 for JBIG2 and 42 for a large page, against 2.4–9.5 for PDF.js.
+
+Validation: root typecheck, lint and tests (624 backend, the smoke test and 598
+frontend), Go race tests and vet, and the Go integration suite pass.

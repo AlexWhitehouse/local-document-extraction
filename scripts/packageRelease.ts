@@ -2,6 +2,7 @@ import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } fr
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { installPdfium } from "./pdfium";
 
 const root = resolve(import.meta.dir, "..");
 
@@ -80,7 +81,9 @@ for (const required of [
   "backend/src/checkConfiguration.ts",
   "backend-go/go.mod",
   "backend-go/cmd/document-extraction/main.go",
+  "backend-go/cmd/pdf-worker/main.go",
   "scripts/buildGo.ts",
+  "scripts/pdfium.ts",
   "oxlint.config.ts",
   "tools/oxlint/anti-slop/index.ts",
   "tools/oxlint/anti-slop/LICENSE",
@@ -107,14 +110,18 @@ try {
 
   for (const [platform, goos] of [["linux", "linux"], ["darwin", "darwin"]]) {
     for (const [architecture, goarch] of [["x64", "amd64"], ["arm64", "arm64"]]) {
-      const destination = join(staging, "backend-go", "bin", `${platform}-${architecture}`, "document-extraction");
-      await mkdir(dirname(destination), { recursive: true });
+      const directory = join(staging, "backend-go", "bin", `${platform}-${architecture}`);
+      await mkdir(directory, { recursive: true });
 
-      const result = spawnSync("go", ["build", "-trimpath", "-o", destination, "./cmd/document-extraction"], {
-        cwd: join(root, "backend-go"), stdio: "inherit", env: { ...process.env, CGO_ENABLED: "0", GOOS: goos, GOARCH: goarch },
-      });
+      for (const [output, command] of [["document-extraction", "./cmd/document-extraction"], ["document-extraction-pdf", "./cmd/pdf-worker"]]) {
+        const result = spawnSync("go", ["build", "-trimpath", "-o", join(directory, output!), command!], {
+          cwd: join(root, "backend-go"), stdio: "inherit", env: { ...process.env, CGO_ENABLED: "0", GOOS: goos, GOARCH: goarch },
+        });
 
-      if (result.error || result.status !== 0) throw new Error(`Could not build processor for ${platform}-${architecture}`);
+        if (result.error || result.status !== 0) throw new Error(`Could not build ${output} for ${platform}-${architecture}`);
+      }
+
+      await installPdfium(platform!, architecture!, directory, join(root, "backend-go", "bin", ".cache"));
     }
   }
 
