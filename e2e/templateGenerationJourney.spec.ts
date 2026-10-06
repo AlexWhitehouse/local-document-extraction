@@ -80,7 +80,13 @@ test("generate a template from a sample, review the draft, then explicitly save"
     expect(
       (await saved.json()).templates.some((template: { name: string }) => template.name === "Generated Receipt"),
     ).toBe(false);
-    expect(await readdir(join(harness.stateDirectory, "temporary", "submissions"))).toEqual([]);
+    const submissions = join(harness.stateDirectory, "temporary", "submissions");
+    const entries = await readdir(submissions);
+
+    // The processor owns one idle cache directory; no sample or rendered bytes may remain.
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatch(/^go-processing-\d+-pages-[a-zA-Z0-9]+$/);
+    expect(await readdir(join(submissions, entries[0]!))).toEqual([]);
     await page.getByRole("button", { name: "View JSON" }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("template-field-actions.png"), fullPage: true });
     await page.getByRole("button", { name: "View JSON" }).click();
