@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -149,5 +150,72 @@ func TestInvalidSourcesAreRejected(t *testing.T) {
 	}
 	if _, err := library.OpenFile(writePDF(t, 10, 10, 0, ""), 10); !errors.Is(err, ErrLimit) {
 		t.Fatalf("oversized source: %v", err)
+	}
+}
+
+// writePages builds one blank page per width, so page order is observable.
+func writePages(t *testing.T, widths ...int) string {
+	t.Helper()
+	kids := make([]string, len(widths))
+	objects := []string{"<< /Type /Catalog /Pages 2 0 R >>", ""}
+	for i, width := range widths {
+		kids[i] = fmt.Sprintf("%d 0 R", i+3)
+		objects = append(objects, fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d 100] >>", width))
+	}
+	objects[1] = fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(widths))
+	var document bytes.Buffer
+	document.WriteString("%PDF-1.7\n")
+	offsets := make([]int, len(objects))
+	for i, object := range objects {
+		offsets[i] = document.Len()
+		fmt.Fprintf(&document, "%d 0 obj\n%s\nendobj\n", i+1, object)
+	}
+	xref := document.Len()
+	fmt.Fprintf(&document, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)
+	for _, offset := range offsets {
+		fmt.Fprintf(&document, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&document, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
+	path := filepath.Join(t.TempDir(), "pages.pdf")
+	if err := os.WriteFile(path, document.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestSubsetCopiesSelectedPagesInOrder(t *testing.T) {
+	library := openLibrary(t)
+	document, err := library.OpenFile(writePages(t, 101, 102, 103), 32<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer document.Close()
+	data, err := document.Subset([]int{1, 3}, 32<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "subset.pdf")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	subset, err := library.OpenFile(path, 32<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subset.Close()
+	if subset.PageCount() != 2 {
+		t.Fatalf("page count %d", subset.PageCount())
+	}
+	for i, width := range []int{101, 103} {
+		raster, err := subset.Render(i+1, 1, 2000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if raster.Width != width {
+			t.Fatalf("page %d width %d, want %d", i+1, raster.Width, width)
+		}
+	}
+	if _, err := document.Subset([]int{2}, 64); !errors.Is(err, ErrLimit) {
+		t.Fatalf("oversized subset returned %v", err)
 	}
 }

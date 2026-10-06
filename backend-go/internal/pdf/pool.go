@@ -1,5 +1,5 @@
-// Package pdf supervises isolated PDF processes: PDFium renderers and the Bun
-// pdf-lib workers that materialize subset PDFs.
+// Package pdf supervises isolated PDFium processes that render pages and
+// materialize subset PDFs.
 package pdf
 
 import (

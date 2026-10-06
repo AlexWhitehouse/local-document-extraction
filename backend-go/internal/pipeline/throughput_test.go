@@ -109,8 +109,8 @@ func TestFreeResourcesNeedNoCapacityRoundTrips(t *testing.T) {
 	if _, err := transport.Call(context.Background(), "workspace", ModelTask{URL: gateway.URL, Source: source, Mime: "application/pdf", Sequential: true}, dir, cache, bridge); err != nil {
 		t.Fatal(err)
 	}
-	// call/start releases the permit; only the response read needs it back.
-	if got := recorder.recorded(); got != "call/start,capacity/resume" {
+	// call/start releases the permit; the completion call takes it back.
+	if got := recorder.recorded(); got != "call/start" {
 		t.Fatalf("bridge calls %s", got)
 	}
 	transport.releaseResponse(cache)
@@ -217,7 +217,7 @@ func TestLongDocumentsRenderInOrderedParallelChunks(t *testing.T) {
 	if _, err := os.Stat(worker); err != nil {
 		t.Skip("run bun run build:go to build the PDFium worker")
 	}
-	renderer := pdf.New([]string{worker, "render"}, nil, 3, true)
+	renderer := pdf.New([]string{worker, "serve"}, nil, 3, true)
 	defer renderer.Close()
 	recorder := &countingBridge{}
 	bridgeServer := recorder.server(t)

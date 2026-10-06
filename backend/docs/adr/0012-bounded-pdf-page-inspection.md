@@ -1,5 +1,7 @@
 # Bounded PDF page inspection
 
+Superseded by [ADR-0025](0025-pdfium-as-the-only-pdf-engine.md): inspection runs in PDFium workers with a memory ceiling; the guarded pdf-lib parser is removed.
+
 Source size limits compressed input. It does not limit the memory needed to decode a PDF. Previously, page counting loaded the PDF in the API process before model preparation admission. A small compressed object stream could use much more memory than its upload reservation. This could block every Workspace.
 
 Document submission and Template generation inspect page counts in isolated Bun subprocesses. Throughput measurements showed that starting a new interpreter and loading the parser for every file constrained admission. A bounded pool now reuses each inspector for up to 32 documents or 64 MiB of input, retiring it sooner when its sampled RSS reaches 128 MiB. Idle workers exit after five seconds. Parser errors, timeout, cancellation, and shutdown also retire workers. The runtime limits concurrent inspections and queued requests; timeout or cancellation waits for child exit before releasing the permit.

@@ -113,6 +113,8 @@ export function createLocalLiveUpdateHub() {
     }) => {
       deliver(workspaceId, { type: "workspace_context_invalidated", reason, occurred_at: occurredAt });
     },
+    /** Lets producers skip building events nobody can receive. */
+    observes: (workspaceId: string) => Boolean(socketsByWorkspace.get(workspaceId)?.size),
     broadcastJob: (workspaceId: string, job: LocalLiveUpdateJob) => {
       deliver(workspaceId, {
         type: "extraction_job_lifecycle",

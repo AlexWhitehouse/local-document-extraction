@@ -22,8 +22,12 @@ var adapterHTTP = &http.Client{Transport: &http.Transport{
 type Bridge struct {
 	URL, Token string
 	HTTP       *http.Client
-	mu         sync.Mutex
-	suspended  bool
+	// mu serializes permit releases; state guards the flags below.
+	mu        sync.Mutex
+	state     sync.Mutex
+	suspended bool
+	// resume asks the next adapter call to reacquire the permit before it runs.
+	resume bool
 }
 
 func (b *Bridge) Call(ctx context.Context, operation string, input, output any) error {
@@ -37,11 +41,26 @@ func (b *Bridge) Call(ctx context.Context, operation string, input, output any) 
 	}
 	req.Header.Set("Authorization", "Bearer "+b.Token)
 	req.Header.Set("Content-Type", "application/json")
+	b.state.Lock()
+	resume := b.resume
+	b.state.Unlock()
+	if resume {
+		req.Header.Set("X-Resume-Capacity", "1")
+	}
 	res, err := b.HTTP.Do(req)
 	if err != nil {
 		return errors.New("durable adapter unavailable")
 	}
 	defer res.Body.Close()
+	if resume {
+		// The adapter reacquires the permit before running the operation, even
+		// when the operation itself then fails.
+		b.state.Lock()
+		if b.resume {
+			b.resume, b.suspended = false, false
+		}
+		b.state.Unlock()
+	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
 	if err != nil {
 		return err
@@ -64,28 +83,34 @@ func (b *Bridge) Call(ctx context.Context, operation string, input, output any) 
 func (b *Bridge) Suspend(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.suspended {
+	b.state.Lock()
+	suspended := b.suspended
+	// A pending resume has not reached the adapter yet, so nothing to release.
+	b.resume = false
+	b.state.Unlock()
+	if suspended {
 		return nil
 	}
 	if err := b.Call(ctx, "capacity/suspend", nil, nil); err != nil {
 		return err
 	}
+	b.state.Lock()
 	b.suspended = true
+	b.state.Unlock()
 	return nil
 }
 
-// Resume waits for a local permit; returning responses take priority over new work.
+// Resume marks the permit to be reacquired by the next adapter call, which waits
+// for it there; returning responses take priority over new work. This saves a
+// round trip per model call. Response bodies read before that call are bounded
+// by the response byte budget, not the permit.
 func (b *Bridge) Resume(ctx context.Context) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if !b.suspended {
-		return nil
+	b.state.Lock()
+	defer b.state.Unlock()
+	if b.suspended {
+		b.resume = true
 	}
-	if err := b.Call(ctx, "capacity/resume", nil, nil); err != nil {
-		return err
-	}
-	b.suspended = false
-	return nil
+	return ctx.Err()
 }
 
 // Wait runs wait without a local permit unless try obtains the resource at once.
@@ -102,15 +127,15 @@ func (b *Bridge) Wait(ctx context.Context, try func() bool, wait func() error) e
 // StartCall records the pending usage receipt; the adapter also releases the
 // local permit for the provider wait, saving a separate suspension round trip.
 func (b *Bridge) StartCall(ctx context.Context) (string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
 	var receipt struct {
 		ID string `json:"id"`
 	}
 	if err := b.Call(ctx, "call/start", nil, &receipt); err != nil {
 		return "", err
 	}
-	b.suspended = true
+	b.state.Lock()
+	b.suspended, b.resume = true, false
+	b.state.Unlock()
 	return receipt.ID, nil
 }
 

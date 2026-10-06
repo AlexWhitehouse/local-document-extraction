@@ -557,8 +557,9 @@ func (t *Transport) Call(ctx context.Context, workspace string, task ModelTask, 
 	if response != nil {
 		defer response.Body.Close()
 	}
-	// Read and normalize bodies only with local capacity. TCP backpressure keeps
-	// a simultaneous burst of provider responses from becoming unbounded RAM.
+	// Normalization reacquires local capacity on the completion call. The
+	// response byte budget and TCP backpressure keep a simultaneous burst of
+	// provider responses from becoming unbounded RAM.
 	if resumeErr := b.Resume(ctx); resumeErr != nil {
 		return nil, resumeErr
 	}

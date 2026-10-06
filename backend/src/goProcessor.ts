@@ -36,6 +36,9 @@ export async function startGoProcessor(binary: string, options: GoProcessingOpti
 
       try {
         const body: JsonValue = parseJson(await request.text());
+
+        // Go defers reacquiring its permit to the call that next needs it.
+        if (request.headers.get("x-resume-capacity") === "1") await session("capacity/resume", null);
         const result = await session(parts.join("/"), body);
 
         return Response.json(result);
@@ -66,8 +69,6 @@ export async function startGoProcessor(binary: string, options: GoProcessingOpti
         ...process.env,
         GO_PROCESSOR_TOKEN: token,
         GO_PROCESSOR_PAGE_CACHE: cacheDirectory,
-        GO_PROCESSOR_BUN: process.execPath,
-        GO_PROCESSOR_PDF_SCRIPT: fileURLToPath(new URL("./lib/pdfPageOperationProcess.ts", import.meta.url)),
         GO_RESPONSE_BUFFER_MIB: process.env.GO_RESPONSE_BUFFER_MIB ?? String(Math.max(64, Math.min(512, Math.floor(totalmem() / (16 * 1024 * 1024))))),
         GO_PREPARED_ARTIFACT_MIB: process.env.GO_PREPARED_ARTIFACT_MIB ?? String(artifactMiB),
         GO_PDF_WORKERS: process.env.GO_PDF_WORKERS ?? String(Math.max(1, Math.min(cpus().length, Math.floor(totalmem() / (4 * 384 * 1024 * 1024))))),

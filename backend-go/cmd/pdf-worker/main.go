@@ -1,5 +1,8 @@
-// Command document-extraction-pdf is an isolated PDFium rendering process for
-// the Go processor. A crash, deadline or memory breach loses one process.
+// Command document-extraction-pdf is the application's only PDF engine: an
+// isolated PDFium process that inspects uploads, renders pages and previews,
+// verifies blank pages and copies page subsets into new PDFs. The Go processor
+// and the Bun API both run it. A crash, deadline or memory breach loses one
+// process.
 package main
 
 import (
@@ -7,12 +10,15 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
-	"syscall"
+	"sync/atomic"
 	"time"
 
 	"document-extraction.local/backend/internal/pdfium"
@@ -23,20 +29,34 @@ const (
 	artifactLimit      = 32 << 20
 	totalArtifactLimit = 64 << 20
 	metadataLimit      = 128 << 10
+	previewLimit       = 16 << 20
 	pageLimit          = 10_000
+	groupLimit         = 100
 	// Requests with more than 20 images reject edges above 2000 px at some
 	// providers. 2× (144 DPI) is kept for ordinary page sizes.
 	renderScale   = 2
 	maxRenderEdge = 2000
-	recycleRSS    = 384 << 20
-	hardRSS       = 1 << 30
 )
+
+// Callers tune recycling and the in-operation memory ceiling per pool: upload
+// inspectors use a lower ceiling than renderers.
+var (
+	recycleRSS = megabytes("GO_PDF_WORKER_RECYCLE_RSS_MIB", 384)
+	hardRSS    = megabytes("GO_PDF_WORKER_HARD_RSS_MIB", 1024)
+)
+
+func megabytes(name string, fallback uint64) uint64 {
+	if value, err := strconv.ParseUint(os.Getenv(name), 10, 32); err == nil && value > 0 {
+		return value << 20
+	}
+	return fallback << 20
+}
 
 var errSelection = errors.New("invalid page selection")
 
 func main() {
-	if len(os.Args) != 2 || os.Args[1] != "render" {
-		os.Stderr.WriteString("usage: document-extraction-pdf render\n")
+	if len(os.Args) != 2 || os.Args[1] != "serve" {
+		os.Stderr.WriteString("usage: document-extraction-pdf serve\n")
 		os.Exit(2)
 	}
 	library, err := pdfium.Open(libraryPath())
@@ -75,22 +95,35 @@ func watchMemory() {
 	}
 }
 
+var peak atomic.Uint64
+
+// peakRSS is the largest resident size sampled since this process started.
 func peakRSS() uint64 {
-	var usage syscall.Rusage
-	if syscall.Getrusage(syscall.RUSAGE_SELF, &usage) != nil {
-		return 0
+	current := currentRSS()
+	for previous := peak.Load(); current > previous; previous = peak.Load() {
+		if peak.CompareAndSwap(previous, current) {
+			return current
+		}
 	}
-	if runtime.GOOS == "darwin" {
-		return uint64(usage.Maxrss)
-	}
-	return uint64(usage.Maxrss) << 10
+	return peak.Load()
 }
 
 type renderRequest struct {
-	Operation   string `json:"operation"`
-	SourcePath  string `json:"source_path"`
-	Pages       []int  `json:"pages"`
-	Compression string `json:"compression"`
+	Operation   string  `json:"operation"`
+	SourcePath  string  `json:"source_path"`
+	Page        int     `json:"page"`
+	Pages       []int   `json:"pages"`
+	Groups      [][]int `json:"groups"`
+	Compression string  `json:"compression"`
+	// source holds inline bytes when the source frame is not empty.
+	source []byte
+}
+
+func (r renderRequest) open(library *pdfium.Library) (*pdfium.Document, error) {
+	if r.source != nil {
+		return library.OpenBytes(r.source, sourceLimit)
+	}
+	return library.OpenFile(r.SourcePath, sourceLimit)
 }
 
 func serveRender(library *pdfium.Library, in *bufio.Reader, out *bufio.Writer) {
@@ -111,16 +144,42 @@ func serveRender(library *pdfium.Library, in *bufio.Reader, out *bufio.Writer) {
 		if _, err := io.ReadFull(in, metadata); err != nil {
 			return
 		}
-		// The processor passes a path, never inline bytes, so the source frame is empty.
-		if _, err := io.ReadFull(in, header); err != nil || binary.BigEndian.Uint32(header) != 0 {
+		// An empty source frame means the metadata names a private source path.
+		if _, err := io.ReadFull(in, header); err != nil {
 			return
 		}
+		var source []byte
+		if size := binary.BigEndian.Uint32(header); size > sourceLimit {
+			return
+		} else if size > 0 {
+			source = make([]byte, size)
+			if _, err := io.ReadFull(in, source); err != nil {
+				return
+			}
+		}
 		var request renderRequest
-		if err := json.Unmarshal(metadata, &request); err != nil || request.Operation != "render" {
+		if err := json.Unmarshal(metadata, &request); err != nil {
 			fail(out, 21)
 			return
 		}
-		if err := render(library, request, out); err != nil {
+		request.source = source
+		var err error
+		switch request.Operation {
+		case "inspect":
+			err = inspect(library, request, out)
+		case "render":
+			err = render(library, request, out)
+		case "preview":
+			err = preview(library, request, out)
+		case "blank":
+			err = blank(library, request, out)
+		case "materialize":
+			err = materialize(library, request, out)
+		default:
+			fail(out, 21)
+			return
+		}
+		if err != nil {
 			code := int32(21)
 			if errors.Is(err, pdfium.ErrLimit) {
 				code = 22
@@ -158,7 +217,7 @@ type encodedPage struct {
 // encoded page is outstanding, and artifacts are emitted in page order.
 func render(library *pdfium.Library, request renderRequest, out *bufio.Writer) error {
 	started := time.Now()
-	document, err := library.OpenFile(request.SourcePath, sourceLimit)
+	document, err := request.open(library)
 	if err != nil {
 		return err
 	}
@@ -227,6 +286,134 @@ func render(library *pdfium.Library, request renderRequest, out *bufio.Writer) e
 	_, _ = out.Write(frame[:])
 	_, err = out.Write(metrics)
 	return err
+}
+
+// materialize writes one PDF per group. Like the pdf-lib materializer it
+// replaced, each group's pages are unique, in range and kept in ascending order,
+// and no page appears in two groups.
+func materialize(library *pdfium.Library, request renderRequest, out *bufio.Writer) error {
+	document, err := request.open(library)
+	if err != nil {
+		return err
+	}
+	defer document.Close()
+	count := document.PageCount()
+	if len(request.Groups) == 0 || len(request.Groups) > groupLimit {
+		return errSelection
+	}
+	used := make(map[int]bool)
+	for _, group := range request.Groups {
+		if err := validatePages(group, count); err != nil {
+			return err
+		}
+		for _, page := range group {
+			if used[page] {
+				return errSelection
+			}
+			used[page] = true
+		}
+	}
+	written := 0
+	for _, group := range request.Groups {
+		pages := slices.Sorted(slices.Values(group))
+		data, err := document.Subset(pages, min(artifactLimit, totalArtifactLimit-written))
+		if err != nil {
+			return err
+		}
+		written += len(data)
+		if err := writeArtifact(out, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeArtifact(out *bufio.Writer, data []byte) error {
+	var frame [4]byte
+	binary.BigEndian.PutUint32(frame[:], uint32(len(data)))
+	_, _ = out.Write(frame[:])
+	_, err := out.Write(data)
+	return err
+}
+
+// inspect admits an upload: PDFium must open it and read every page's size from
+// its page dictionary. Content is not parsed, so streams the application never
+// needs are never decoded; the process memory ceiling and the caller's deadline
+// bound whatever PDFium does decode.
+func inspect(library *pdfium.Library, request renderRequest, out *bufio.Writer) error {
+	document, err := request.open(library)
+	if err != nil {
+		return err
+	}
+	defer document.Close()
+	count := document.PageCount()
+	if count < 1 {
+		return pdfium.ErrInvalid
+	}
+	if count > pageLimit {
+		return pdfium.ErrLimit
+	}
+	for page := 1; page <= count; page++ {
+		width, height, err := document.PageSize(page)
+		if err != nil {
+			return err
+		}
+		if !(width > 0 && height > 0) || math.IsInf(width, 0) || math.IsInf(height, 0) {
+			return pdfium.ErrInvalid
+		}
+	}
+	return writeArtifact(out, []byte(fmt.Sprintf(`{"pages":%d}`, count)))
+}
+
+// preview renders one page as it is sent to models.
+func preview(library *pdfium.Library, request renderRequest, out *bufio.Writer) error {
+	document, err := request.open(library)
+	if err != nil {
+		return err
+	}
+	defer document.Close()
+	if err := validatePages([]int{request.Page}, document.PageCount()); err != nil {
+		return err
+	}
+	raster, err := document.Render(request.Page, renderScale, maxRenderEdge)
+	if err != nil {
+		return err
+	}
+	png := pdfium.EncodePNG(raster, false)
+	if len(png) > previewLimit {
+		png = pdfium.EncodePNG(raster, true)
+	}
+	if len(png) > previewLimit {
+		return pdfium.ErrLimit
+	}
+	return writeArtifact(out, png)
+}
+
+// blank returns the requested pages verified blank, as a JSON array.
+func blank(library *pdfium.Library, request renderRequest, out *bufio.Writer) error {
+	document, err := request.open(library)
+	if err != nil {
+		return err
+	}
+	defer document.Close()
+	if err := validatePages(request.Pages, document.PageCount()); err != nil {
+		return err
+	}
+	verified := []int{}
+	for _, page := range request.Pages {
+		empty, err := document.Blank(page, renderScale, maxRenderEdge)
+		if err != nil {
+			return err
+		}
+		if empty {
+			verified = append(verified, page)
+		}
+	}
+	data, err := json.Marshal(verified)
+	if err != nil {
+		return err
+	}
+	return writeArtifact(out, data)
 }
 
 func validatePages(pages []int, count int) error {

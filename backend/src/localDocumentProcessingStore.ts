@@ -283,20 +283,23 @@ export function createDocumentProcessingStore(database: Database, store: () => L
       )
       .all(...tags);
 
-    return rows.map((row) => ({
-      ...row,
-      tags: database
-        .query<
-          {
-            name: string;
-          },
-          SQLQueryBindings[]
-        >(
-          `SELECT t.name FROM template_tags t JOIN template_tag_assignments a ON a.tag_id=t.id WHERE a.template_id=? ORDER BY t.name`,
-        )
-        .all(row.id)
-        .map((t) => t.name),
-    }));
+    if (!rows.length) return [];
+    // One query for every candidate's tags rather than one per candidate.
+    const tagsByTemplate = new Map<string, string[]>();
+
+    for (const { template_id, name } of database
+      .query<{ template_id: string; name: string }, SQLQueryBindings[]>(
+        `SELECT a.template_id,t.name FROM template_tags t JOIN template_tag_assignments a ON a.tag_id=t.id
+      WHERE a.template_id IN (${rows.map(() => "?").join(",")}) ORDER BY a.template_id,t.name`,
+      )
+      .all(...rows.map((row) => row.id))) {
+      const tags = tagsByTemplate.get(template_id);
+
+      if (tags) tags.push(name);
+      else tagsByTemplate.set(template_id, [name]);
+    }
+
+    return rows.map((row) => ({ ...row, tags: tagsByTemplate.get(row.id) ?? [] }));
   };
 
   const getSource = (ownerId: string): ProcessingSource | null => {
@@ -318,6 +321,21 @@ export function createDocumentProcessingStore(database: Database, store: () => L
         source_retained_remotely: Boolean(row.retained_object_key),
       }
     );
+  };
+
+  /** One child slot with the packet fields its materialization needs, without
+   * rebuilding every sibling's summary as getPacket does. */
+  const getPacketChild = (packetId: string, jobId: string) => {
+    const row = database
+      .query<
+        Pick<PacketRow, "status" | "template_id" | "template_version" | "template_tags" | "source_name"> & Pick<PacketChildSlot, "state"> & { pages: string },
+        SQLQueryBindings[]
+      >(
+        "SELECT p.status,p.template_id,p.template_version,p.template_tags,p.source_name,c.pages,c.state FROM document_packets p JOIN document_packet_children c ON c.packet_id=p.id WHERE p.id=? AND c.job_id=?",
+      )
+      .get(packetId, jobId);
+
+    return row && { ...row, template_tags: JSON.parse(row.template_tags), pages: JSON.parse(row.pages) };
   };
 
   const getPacket = (packetId: string): DocumentPacket | null => {
@@ -535,6 +553,7 @@ export function createDocumentProcessingStore(database: Database, store: () => L
         })
         .immediate(),
     getDocumentPacket: getPacket,
+    getDocumentPacketChild: getPacketChild,
     listDocumentPackets: (
       input: {
         limit?: number;
@@ -745,12 +764,11 @@ export function createDocumentProcessingStore(database: Database, store: () => L
     }) =>
       database
         .transaction(() => {
-          const packet = getPacket(input.packetId),
-            slot = packet?.child_slots.find((c) => c.job_id === input.jobId);
+          const packet = getPacketChild(input.packetId, input.jobId);
 
-          if (!packet || !slot || slot.state !== "reserved" || packet.status !== "materializing") return null;
+          if (!packet || packet.state !== "reserved" || packet.status !== "materializing") return null;
 
-          if (input.sourceFilePageCount !== slot.pages.length)
+          if (input.sourceFilePageCount !== packet.pages.length)
             throw new DocumentAssessmentValidationError("Derived source page count does not match its committed group");
           const source = getSource(input.packetId);
 
@@ -760,7 +778,7 @@ export function createDocumentProcessingStore(database: Database, store: () => L
             templateVersion: packet.template_version,
             templateTags: packet.template_tags,
             parentPacketId: input.packetId,
-            sourcePages: slot.pages,
+            sourcePages: packet.pages,
             sourceFileKey: input.sourceFileKey,
             sourceMimeType: "application/pdf",
             sourceName: packet.source_name,

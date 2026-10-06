@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
-import { isString, isBoolean, isNumber, isJsonObject, parseJson } from "../../../shared/json";
-import { createPdfProcessPool, type PdfProcessWorker } from "./pdfProcessPool";
+import { isString, isNumber, isJsonObject, parseJson } from "../../../shared/json";
+import { createPdfProcessPool, exchangePdfWorker, PdfWorkerFailure, type PdfProcessWorker } from "./pdfProcessPool";
 import { PDF_INSPECTION_LIMITS as limits } from "./pdfInspectionLimits";
 
 export class InvalidPdfSourceFileError extends Error {
@@ -24,7 +24,7 @@ export class PdfSourceFileCapacityError extends Error {
   }
 }
 
-/** Recycled subprocesses keep PDF intern pools bounded and outside the API. */
+/** Isolated, recycled PDFium workers keep hostile uploads outside the API process. */
 export function createPdfSourceFilePageCounter({
   maxConcurrent = limits.concurrent,
   maxQueued = limits.queued,
@@ -42,7 +42,13 @@ export function createPdfSourceFilePageCounter({
     queueTimeoutMs < 1
   )
     throw new Error("Invalid PDF inspection capacity");
-  const pool = createPdfProcessPool(new URL("./pdfInspectionProcess.ts", import.meta.url), limits.workerIdleMs);
+
+  const pool = createPdfProcessPool(limits.workerIdleMs, {
+    documents: limits.workerDocuments,
+    recycleRssBytes: limits.workerRssBytes,
+    hardRssBytes: limits.workerHardRssBytes,
+  });
+
   let accepting = true;
   const closeWaiters: Array<() => void> = [];
   let active = 0;
@@ -114,13 +120,11 @@ export function createPdfSourceFilePageCounter({
     async count(sourceBytes: ArrayBuffer | Uint8Array | string, signal?: AbortSignal): Promise<number> {
       signal?.throwIfAborted();
 
-      const path = isString(sourceBytes) ? sourceBytes : null;
       const sourceSize = isString(sourceBytes) ? (await stat(sourceBytes)).size : sourceBytes.byteLength;
 
       if (sourceSize > limits.sourceBytes) throw new PdfSourceFileLimitError();
-      const frame = isString(sourceBytes) ? new TextEncoder().encode(sourceBytes) : sourceBytes;
 
-      if (path !== null && frame.byteLength > 4096) throw new InvalidPdfSourceFileError();
+      if (isString(sourceBytes) && new TextEncoder().encode(sourceBytes).byteLength > 4096) throw new InvalidPdfSourceFileError();
       await acquire(sourceSize, signal);
       let worker: PdfProcessWorker | undefined;
       let reusable = false;
@@ -140,50 +144,22 @@ export function createPdfSourceFilePageCounter({
         }, timeoutMs);
         signal?.addEventListener("abort", terminate, { once: true });
         signal?.throwIfAborted();
-        const header = new Uint8Array(4);
-        new DataView(header.buffer).setUint32(0, frame.byteLength + (path === null ? 0 : 0x80000000));
-        worker.child.stdin.write(header);
-        worker.child.stdin.write(frame);
-        await worker.child.stdin.flush();
-        const responseHeader = await worker.reader.read(4);
-
-        if (!responseHeader) throw new InvalidPdfSourceFileError();
-        const responseSize = new DataView(responseHeader.buffer).getUint32(0);
-
-        if (!responseSize || responseSize > 256) throw new InvalidPdfSourceFileError();
-        const response = await worker.reader.read(responseSize);
-
-        if (!response) throw new InvalidPdfSourceFileError();
+        const source = isString(sourceBytes) ? sourceBytes : sourceBytes instanceof Uint8Array ? sourceBytes : new Uint8Array(sourceBytes);
+        const result = await exchangePdfWorker(worker, { operation: "inspect" }, source, { maxArtifacts: 1, artifactBytes: 256, totalBytes: 256 });
 
         if (timedOut) throw new PdfSourceFileLimitError();
-        const output = new TextDecoder().decode(response);
         signal?.throwIfAborted();
-        const result = parseJson(output);
+        const output = result.artifacts[0] ? parseJson(new TextDecoder().decode(result.artifacts[0])) : null;
+        const pages = isJsonObject(output) ? output.pages : null;
 
-        if (!isJsonObject(result) || !isBoolean(result.retire)) throw new InvalidPdfSourceFileError();
+        if (!isNumber(pages) || !Number.isSafeInteger(pages) || pages < 1 || pages > limits.pages) throw new InvalidPdfSourceFileError();
+        reusable = result.reusable;
 
-        if ("error" in result) {
-          if (result.error === "limit") throw new PdfSourceFileLimitError();
-
-          if (result.error === "configuration")
-            console.error("PDF inspection adapter requires the qualified pdf-lib 1.17.1 implementation.");
-          throw new InvalidPdfSourceFileError();
-        }
-
-        if (
-          !isNumber(result.pages) ||
-          !Number.isSafeInteger(result.pages) ||
-          result.pages < 1 ||
-          result.pages > limits.pages
-        )
-          throw new InvalidPdfSourceFileError();
-        reusable = !result.retire;
-
-        return result.pages;
+        return pages;
       } catch (error) {
         if (signal?.aborted) throw new DOMException("PDF inspection cancelled", "AbortError");
 
-        if (timedOut) throw new PdfSourceFileLimitError();
+        if (timedOut || (error instanceof PdfWorkerFailure && error.status === 22)) throw new PdfSourceFileLimitError();
 
         if (error instanceof InvalidPdfSourceFileError || error instanceof PdfSourceFileLimitError) throw error;
         throw new InvalidPdfSourceFileError();

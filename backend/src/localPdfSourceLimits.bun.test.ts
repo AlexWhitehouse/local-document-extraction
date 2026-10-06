@@ -9,7 +9,8 @@ import { createLocalApplication } from "./localApplication";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 import { configureTestWorkspace } from "./testing/workspaceModelFixture";
-import { pdfWithCompressedObjectStreams } from "./testing/pdfSourceFixtures";
+import { pdfWithPageTreeInObjectStream } from "./testing/pdfSourceFixtures";
+import { PDF_INSPECTION_LIMITS } from "./lib/pdfInspectionLimits";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 
@@ -99,8 +100,9 @@ test.each(["/v1/extract", "/v1/templates/generate"])(
       );
     };
 
-    const bomb = pdfWithCompressedObjectStreams([32 * 1024 * 1024]);
-    expect(bomb.byteLength).toBeLessThan(40 * 1024);
+    // The page tree must be decoded to count pages, past the inspector's memory ceiling.
+    const bomb = pdfWithPageTreeInObjectStream(PDF_INSPECTION_LIMITS.workerHardRssBytes + 64 * 1024 * 1024);
+    expect(bomb.byteLength).toBeLessThan(1024 * 1024);
     const response = await submit(bomb);
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: "pdf_source_file_limit_exceeded" } });

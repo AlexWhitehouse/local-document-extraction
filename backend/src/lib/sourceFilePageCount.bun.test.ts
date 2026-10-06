@@ -6,87 +6,41 @@ import { describe, expect, it, spyOn } from "bun:test";
 import { deflateSync } from "node:zlib";
 
 import { countPdfSourceFilePages, createPdfSourceFilePageCounter } from "./sourceFilePageCount";
-import { pdfWithCompressedObjectStreams } from "../testing/pdfSourceFixtures";
+import { PDF_INSPECTION_LIMITS } from "./pdfInspectionLimits";
+import { pdfWithCompressedObjectStreams, pdfWithPageTreeInObjectStream } from "../testing/pdfSourceFixtures";
+
+// Inflates past the inspector's memory ceiling.
+const BEYOND_INSPECTION_CEILING = PDF_INSPECTION_LIMITS.workerHardRssBytes + 64 * 1024 * 1024;
 
 describe("Source file page count", () => {
-  it("rejects small PDFs whose compressed metadata exceeds the decoded byte limit", async () => {
-    const bytes = pdfWithCompressedObjectStreams([32 * 1024 * 1024]);
-    expect(bytes.length).toBeLessThan(40 * 1024);
-    await expect(countPdfSourceFilePages(bytes)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+  it("rejects a page tree whose object stream inflates past the inspector memory ceiling", async () => {
+    await expect(countPdfSourceFilePages(pdfWithPageTreeInObjectStream(0))).resolves.toBe(1);
+    const bomb = pdfWithPageTreeInObjectStream(BEYOND_INSPECTION_CEILING);
+    expect(bomb.length).toBeLessThan(1024 * 1024);
+    await expect(countPdfSourceFilePages(bomb)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
   });
 
-  it("budgets allocations across multiple otherwise acceptable compressed streams", async () => {
-    const small = pdfWithCompressedObjectStreams([8 * 1024 * 1024]);
-    await expect(countPdfSourceFilePages(small)).resolves.toBe(1);
-    const aggregate = pdfWithCompressedObjectStreams([8 * 1024 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024]);
-    await expect(countPdfSourceFilePages(aggregate)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
-  });
-
-  it("bounds intermediate decoder allocations in chained filters", async () => {
-    const content = Buffer.alloc(32 * 1024 * 1024, 32);
-    content.write("100 0 << /Synthetic true >>");
-    const encoded = Buffer.from(deflateSync(content).toString("hex") + ">");
-
-    const source = metadataPdf([
-      streamObject(4, "/Type /ObjStm /N 1 /First 6 /Filter [/ASCIIHexDecode /FlateDecode]", encoded),
-    ]);
-
+  it("rejects page counts beyond the page limit", async () => {
+    const source = metadataPdf([Buffer.from(`2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count ${PDF_INSPECTION_LIMITS.pages + 1} >>\nendobj\n`)]);
     await expect(countPdfSourceFilePages(source)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
   });
 
+  // PDFium parses lazily: a page count never decodes streams or objects outside
+  // the page tree, so expensive structures there cost nothing at admission.
   it.each([
-    ["object stream entry count", "/Type /ObjStm /N 100000000 /First 0"],
-    ["xref entry count with zero-width fields", "/Type /XRef /Size 100000000 /W [0 0 0]"],
-    ["xref field width", "/Type /XRef /Size 1 /W [100000000 0 0]"],
-    ["eager LZW decoder chains", `/Type /ObjStm /N 0 /First 0 /Filter [${"/LZWDecode ".repeat(9)}]`],
-  ])("bounds %s before allocating or looping", async (_name, dictionary) => {
-    const source = metadataPdf([streamObject(4, dictionary, new Uint8Array())]);
-    await expect(countPdfSourceFilePages(source)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
-  });
-
-  it("counts xref entries across all streams, including ones with no decoded bytes", async () => {
-    const source = metadataPdf(
-      [4, 5].map((id) => streamObject(id, "/Type /XRef /Root 1 0 R /Size 30000 /W [0 0 0]", new Uint8Array())),
-    );
-
-    await expect(countPdfSourceFilePages(source)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
-  });
-
-  it.each([
-    ["nested arrays", `${"[".repeat(100)}0${"]".repeat(100)}`],
-    ["large string tokens", `(${"a".repeat(256 * 1024 + 1)})`],
-    ["large numeric tokens", "0".repeat(256 * 1024 + 1)],
-  ])("bounds %s", async (_name, object) => {
-    await expect(
-      countPdfSourceFilePages(metadataPdf([Buffer.from(`4 0 obj\n${object}\nendobj\n`)])),
-    ).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
-  });
-
-  it("budgets reparsing the same string through repeated object-stream offsets", async () => {
-    const count = 80;
-    const offsets = Array.from({ length: count }, (_, index) => `${100 + index} 0 `).join("");
-    const contents = Buffer.from(offsets + `(${"a".repeat(128 * 1024)})`);
-
-    const source = metadataPdf([
-      streamObject(4, `/Type /ObjStm /N ${count} /First ${offsets.length} /Filter /FlateDecode`, deflateSync(contents)),
-    ]);
-
-    await expect(countPdfSourceFilePages(source)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
-  });
-
-  it("budgets raw stream copies made through repeated object-stream offsets", async () => {
-    const count = 70;
-    const offsets = Array.from({ length: count }, (_, index) => `${100 + index} 0 `).join("");
-
-    const contents = Buffer.from(
-      offsets + `<< /Length ${1024 * 1024} >>\nstream\n${"a".repeat(1024 * 1024)}\nendstream`,
-    );
-
-    const source = metadataPdf([
-      streamObject(4, `/Type /ObjStm /N ${count} /First ${offsets.length} /Filter /FlateDecode`, deflateSync(contents)),
-    ]);
-
-    await expect(countPdfSourceFilePages(source)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+    ["a metadata stream that inflates to 32 MiB", pdfWithCompressedObjectStreams([32 * 1024 * 1024])],
+    ["several 8 MiB metadata streams", pdfWithCompressedObjectStreams([8 * 1024 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024])],
+    ["chained filters", metadataPdf([streamObject(4, "/Type /ObjStm /N 1 /First 6 /Filter [/ASCIIHexDecode /FlateDecode]", Buffer.from(deflateSync(Buffer.alloc(32 * 1024 * 1024, 32)).toString("hex") + ">"))])],
+    ["an oversized object stream entry count", metadataPdf([streamObject(4, "/Type /ObjStm /N 100000000 /First 0", new Uint8Array())])],
+    ["an oversized xref entry count", metadataPdf([streamObject(4, "/Type /XRef /Size 100000000 /W [0 0 0]", new Uint8Array())])],
+    ["an oversized xref field width", metadataPdf([streamObject(4, "/Type /XRef /Size 1 /W [100000000 0 0]", new Uint8Array())])],
+    ["LZW decoder chains", metadataPdf([streamObject(4, `/Type /ObjStm /N 0 /First 0 /Filter [${"/LZWDecode ".repeat(9)}]`, new Uint8Array())])],
+    ["nested arrays", metadataPdf([Buffer.from(`4 0 obj\n${"[".repeat(100)}0${"]".repeat(100)}\nendobj\n`)])],
+    ["large string tokens", metadataPdf([Buffer.from(`4 0 obj\n(${"a".repeat(256 * 1024 + 1)})\nendobj\n`)])],
+  ])("admits %s outside the page tree without decoding it", async (_name, source) => {
+    const started = performance.now();
+    await expect(countPdfSourceFilePages(source)).resolves.toBe(1);
+    expect(performance.now() - started).toBeLessThan(PDF_INSPECTION_LIMITS.wallTimeMs);
   });
 
   it("rejects cyclic page trees without recursive traversal", async () => {
@@ -138,12 +92,12 @@ describe("PDF inspection process lifecycle", () => {
       pdf.addPage();
       const second = await pdf.save();
 
-      for (let index = 0; index < 129; index++) {
+      for (let index = 0; index <= PDF_INSPECTION_LIMITS.workerDocuments; index++) {
         expect(await counter.count(index % 2 ? second : first)).toBe(index % 2 ? 2 : 1);
       }
 
       expect(counter.diagnostics().spawned).toBe(2);
-      await expect(counter.count(pdfWithCompressedObjectStreams([32 * 1024 * 1024]))).rejects.toMatchObject({
+      await expect(counter.count(pdfWithPageTreeInObjectStream(BEYOND_INSPECTION_CEILING))).rejects.toMatchObject({
         code: "pdf_source_file_limit_exceeded",
       });
       await expect(counter.count(first)).resolves.toBe(1);
@@ -154,9 +108,9 @@ describe("PDF inspection process lifecycle", () => {
 
     expect(counter.diagnostics()).toMatchObject({ active: 0, queued: 0, reservedBytes: 0, idle: 0 });
     await expect(counter.count(metadataPdf([]))).rejects.toMatchObject({ code: "pdf_validation_capacity_unavailable" });
-  });
+  }, 30_000);
   it("keeps the caller responsive while rejecting compressed expansion", async () => {
-    const source = pdfWithCompressedObjectStreams([32 * 1024 * 1024]);
+    const source = pdfWithPageTreeInObjectStream(BEYOND_INSPECTION_CEILING);
     const events: string[] = [];
 
     const parsing = countPdfSourceFilePages(source).catch(() => {
@@ -295,7 +249,7 @@ it("keeps a bounded inspector warm between short upload bursts", async () => {
 });
 
 
-it("file-backed inspection preserves page counts and parser limits without transporting source bytes", async () => {
+it("file-backed inspection preserves page counts and memory limits without transporting source bytes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pdf-path-inspection-"));
   const counter = createPdfSourceFilePageCounter();
 
@@ -306,9 +260,24 @@ it("file-backed inspection preserves page counts and parser limits without trans
     const path = join(directory, "source.pdf");
     await Bun.write(path, await pdf.save());
     expect(await counter.count(path)).toBe(2);
-    await Bun.write(path, pdfWithCompressedObjectStreams([32 * 1024 * 1024]));
+    await Bun.write(path, pdfWithPageTreeInObjectStream(BEYOND_INSPECTION_CEILING));
     await expect(counter.count(path)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
     await Bun.write(path, "invalid PDF");
     await expect(counter.count(path)).rejects.toMatchObject({ code: "invalid_pdf_source_file" });
   } finally { await counter.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+it("does not retire or kill inspectors for the API process's own memory use", async () => {
+  // Linux preserves getrusage's peak across execve; a worker must measure its own.
+  const resident = Buffer.alloc(PDF_INSPECTION_LIMITS.workerHardRssBytes + 64 * 1024 * 1024, 1);
+  const counter = createPdfSourceFilePageCounter({ maxConcurrent: 1 });
+
+  try {
+    expect(await counter.count(metadataPdf([]))).toBe(1);
+    expect(await counter.count(metadataPdf([]))).toBe(1);
+    expect(counter.diagnostics().spawned).toBe(1);
+    expect(resident[resident.length - 1]).toBe(1);
+  } finally {
+    await counter.close();
+  }
 });

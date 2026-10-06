@@ -1,5 +1,5 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { renderPdfPagesToPng } from "./consumer/pdfPageRenderer";
+import { renderPdfPages } from "./lib/pdfPageOperations";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -126,8 +126,12 @@ goTest("Go completes smart splitting, smart template selection, extraction, acco
 
     for (const [index, parts] of f.attachments.entries()) {
       expect(parts).toHaveLength(1);
-      const pdf = await PDFDocument.load(Buffer.from(parts[0]!.split(",")[1]!, "base64"));
+      const bytes = Buffer.from(parts[0]!.split(",")[1]!, "base64");
+      const pdf = await PDFDocument.load(bytes);
       expect(pdf.getPageCount()).toBe(index === 0 ? 2 : 1);
+
+      // Selecting every page sends the original rather than a re-saved copy.
+      if (index === 0) expect(bytes.equals(f.original())).toBe(true);
     }
 
     expect(packet.costs?.total).toMatchObject({ amount: 0.05, complete: true, reported_calls: 5, unreported_calls: 0 });
@@ -193,7 +197,7 @@ goTest("Go renders a Document once across template selection and extraction", as
     await f.submit(false, true);
     expect(f.store.getExtractionJobSummary("document_test")?.status).toBe("completed");
     expect((await f.processor.diagnostics()).pdf_operations).toBe(1);
-    const pages = await renderPdfPagesToPng(Uint8Array.from(f.original()).buffer);
+    const pages = await renderPdfPages(f.original());
 
     const geometry = async (png: Buffer) => {
       const image = await loadImage(png);
@@ -204,10 +208,10 @@ goTest("Go renders a Document once across template selection and extraction", as
       return { width: image.width, height: image.height, inked: pixels.some((value, index) => index % 4 !== 3 && value < 128) };
     };
 
-    // PDFium renders at the same geometry as PDF.js; the stages share one rendering.
-    const expected = await Promise.all(pages.map((page) => geometry(Buffer.from(page))));
+    // The API and the processor share one renderer, at 2× for 100-point pages; the stages share one rendering.
+    expect(f.attachments[0]).toEqual(pages.map((page) => `data:image/png;base64,${Buffer.from(page).toString("base64")}`));
     const rendered = await Promise.all(f.attachments[0]!.map((dataUrl) => geometry(Buffer.from(dataUrl.split(",")[1]!, "base64"))));
-    expect(rendered).toEqual(expected.map((page) => ({ ...page, inked: true })));
+    expect(rendered).toEqual(pages.map(() => ({ width: 200, height: 200, inked: true })));
     expect(f.attachments[0]).toEqual(f.attachments[1]);
     const database = new Database(join(f.stateDirectory, "data", "workspaces", `${f.workspaceId}.sqlite`), { readonly: true });
 

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-func TestProviderWaitReleasesUploadCapacityAndResumesBeforeReading(t *testing.T) {
+func TestProviderWaitReleasesUploadCapacityAndCompletionResumes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	resume := make(chan struct{})
@@ -24,10 +24,7 @@ func TestProviderWaitReleasesUploadCapacityAndResumesBeforeReading(t *testing.T)
 	modelResponse := make(chan struct{})
 	var suspended atomic.Bool
 	bridgeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "capacity/suspend"):
-			suspended.Store(true)
-		case strings.HasSuffix(r.URL.Path, "capacity/resume"):
+		if r.Header.Get("X-Resume-Capacity") == "1" {
 			resuming <- struct{}{}
 			select {
 			case <-resume:
@@ -35,6 +32,12 @@ func TestProviderWaitReleasesUploadCapacityAndResumesBeforeReading(t *testing.T)
 				return
 			}
 			suspended.Store(false)
+		}
+		switch {
+		case strings.HasSuffix(r.URL.Path, "capacity/suspend"):
+			suspended.Store(true)
+		case strings.HasSuffix(r.URL.Path, "capacity/resume"):
+			t.Error("resume needs no separate round trip")
 		case strings.HasSuffix(r.URL.Path, "call/start"):
 			// The adapter releases the permit as part of recording the receipt.
 			suspended.Store(true)
@@ -112,22 +115,38 @@ func TestProviderWaitReleasesUploadCapacityAndResumesBeforeReading(t *testing.T)
 		t.Fatal("durable source removed before commit")
 	}
 	close(modelResponse)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	// The body is read under the response budget; the permit returns with the
+	// completion call, which waits for it before normalization.
+	if !suspended.Load() {
+		t.Fatal("permit reacquired by a separate round trip")
+	}
+	if cache.responseBytes == 0 || transport.Responses.Used() != cache.responseBytes {
+		t.Fatal("response credit released before normalization")
+	}
+	completed := make(chan error, 1)
+	go func() { completed <- bridge.Call(ctx, "extract/complete-with-usage", nil, nil) }()
 	select {
 	case <-resuming:
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
 	select {
-	case <-done:
-		t.Fatal("response processed before resume")
+	case <-completed:
+		t.Fatal("completion ran before its permit")
 	default:
 	}
 	close(resume)
-	if err := <-done; err != nil {
+	if err := <-completed; err != nil {
 		t.Fatal(err)
 	}
-	if cache.responseBytes == 0 || transport.Responses.Used() != cache.responseBytes {
-		t.Fatal("response credit released before normalization")
+	if suspended.Load() {
+		t.Fatal("completion did not reacquire the permit")
+	}
+	if err := bridge.Call(ctx, "next", nil, nil); err != nil {
+		t.Fatal(err)
 	}
 	transport.releaseResponse(cache)
 	if transport.Responses.Used() != 0 {
