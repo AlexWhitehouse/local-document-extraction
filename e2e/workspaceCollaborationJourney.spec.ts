@@ -107,9 +107,12 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
 
 async function invite(page: Page, email: string) {
   const openInvite = page.getByRole("button", { name: "+ Invite user", exact: true });
+  const inviteEmail = page.getByLabel("Invite email");
+
+  await expect(openInvite.or(inviteEmail)).toBeVisible();
 
   if (await openInvite.count()) await openInvite.click();
-  await page.getByLabel("Invite email").fill(email);
+  await inviteEmail.fill(email);
   await page.getByRole("button", { name: "Invite user" }).click();
   await expect(page.getByText(`Successfully invited ${email}`)).toBeVisible();
 }
