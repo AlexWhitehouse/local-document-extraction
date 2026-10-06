@@ -2,7 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { candidateBusy } from "./useEvaluations.js";
 import { normalizeReferenceDates, scalarValue, validateReference } from "./evaluationScoring.js";
 import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
-import { display, seconds } from "./evaluationFormat.js";
+import { display, dollars, seconds } from "./evaluationFormat.js";
 
 const SCALAR_TYPES = ["string", "number", "date", "boolean"];
 
@@ -67,6 +67,25 @@ export function Mark({ state }) {
   );
 }
 
+export function RunCost({ result }) {
+  if (!result) return null;
+  const label = result.cost ? dollars(result.cost) : "Unavailable";
+
+  return (
+    <span
+      className={`evaluation-cost${result.cost?.amount == null ? " evaluation-muted" : ""}`}
+      title={
+        result.cost?.amount == null
+          ? "The model endpoint did not report a cost for this run."
+          : `${dollars(result.cost, { full: true })} for the successful attempt${result.cost.complete ? "" : " · some calls did not report cost"}`
+      }
+      aria-label={`Run cost: ${label}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 export function Meter({ value, best }) {
   return (
     <span className={`evaluation-meter ${best ? "best" : ""}`} aria-hidden="true">
@@ -107,6 +126,12 @@ function RunDetails({ candidate }) {
         <dt>Processing</dt>
         <dd>
           {seconds(result.processingMs)} · {result.attempts} attempt(s)
+        </dd>
+      </div>
+      <div>
+        <dt>Cost</dt>
+        <dd>
+          {result.cost ? `${dollars(result.cost, { full: true })} · successful attempt only` : "Unavailable"}
         </dd>
       </div>
       <div>

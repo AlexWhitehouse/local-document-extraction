@@ -5,7 +5,7 @@ import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ReferenceModal } from "./ReferenceModal.jsx";
 import { TableComparison } from "./TableComparison.jsx";
-import { CandidateMenu, ExpectedInline, Mark, Meter, StatusLine } from "./EvaluationParts.jsx";
+import { CandidateMenu, ExpectedInline, Mark, Meter, RunCost, StatusLine } from "./EvaluationParts.jsx";
 import { LinkSavedAnswer, LinkedNote, ReviewPrompt } from "./EvaluationLibrary.jsx";
 import { display, percent, templateLabel } from "./evaluationFormat.js";
 import { MAX_CANDIDATES, candidateBusy } from "./useEvaluations.js";
@@ -519,6 +519,7 @@ export function DocumentMatrix({
                       <div className="evaluation-candidate-score">
                         <strong>{accuracy ? percent(accuracy.ratio) : "—"}</strong>
                         {best && <span className="status-chip good">Best</span>}
+                        <RunCost result={candidate.result} />
                         <Meter value={accuracy?.ratio} best={best} />
                       </div>
                       {candidate.message && (

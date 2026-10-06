@@ -123,6 +123,57 @@ describe("DocumentContextList", () => {
     expect(row.classList.contains("status-failed")).toBe(true);
   });
 
+  it("flags a split packet whose child is waiting for a template while siblings still extract", () => {
+    const { container } = render(
+      <DocumentContextList
+        search=""
+        packets={[
+          {
+            packet_id: "packet_split",
+            source_name: "split.pdf",
+            status: "processing_children",
+            plan: { groups: [{ pages: [1] }, { pages: [2] }] },
+            children: [
+              { job_id: "child_a", status: "completed" },
+              { job_id: "child_b", status: "processing" },
+            ],
+          },
+        ]}
+        documents={[{ job_id: "child_b", parent_packet_id: "packet_split", status: "awaiting_template" }]}
+        onSearchChange={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onLoadMoreDocuments={vi.fn()}
+      />,
+    );
+
+    const row = within(container).getByRole("listitem");
+    expect(row.classList.contains("context-item-packet")).toBe(true);
+    expect(row.classList.contains("status-failed")).toBe(true);
+    expect(within(row).getByText("2 documents · Template needed")).toBeTruthy();
+  });
+
+  it("keeps virtualised rows at the natural row height", () => {
+    const documents = Array.from({ length: 101 }, (_, index) => ({
+      job_id: `job_${index}`,
+      status: "completed",
+      created_at: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+    }));
+
+    const { container } = render(
+      <DocumentContextList
+        search=""
+        documents={documents}
+        onSearchChange={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onLoadMoreDocuments={vi.fn()}
+      />,
+    );
+
+    const rows = within(container).getAllByRole("listitem");
+    expect(rows[1].style.top).toBe("40px");
+    expect(rows[1].style.height).toBe("40px");
+  });
+
   it("keeps unresolved and genuinely split documents in packet rows, including a sole surviving child", () => {
     const packets = [
       {
@@ -227,7 +278,7 @@ describe("DocumentContextList", () => {
     rerender(<DocumentContextList {...props} selectedDocumentId="job_999" />);
     expect(within(container).getByRole("button", { name: /invoice-999\.pdf/ })).toBe(document.activeElement);
     const list = container.querySelector(".context-list");
-    fireEvent.scroll(list, { target: { scrollTop: 500 * 60 } });
+    fireEvent.scroll(list, { target: { scrollTop: 500 * 40 } });
     expect(within(container).getByRole("checkbox", { name: "Select document job_500" }).checked).toBe(true);
     expect(container.querySelectorAll('[role="listitem"]').length).toBeLessThan(30);
   });

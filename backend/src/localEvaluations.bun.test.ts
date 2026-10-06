@@ -268,6 +268,57 @@ test("configuration snapshots survive retry; changed revision blocks future subm
   expect(f.files()).toEqual([]);
 });
 
+test("success reports the successful attempt's model call cost without persisting receipts", async () => {
+  let attempts = 0;
+
+  const receipt = (cost: number | null) => ({
+    cost,
+    currency: cost === null ? null : ("USD" as const),
+    cost_source: cost === null ? null : ("usage.cost" as const),
+    request_id: null,
+    input_tokens: 10,
+    output_tokens: 2,
+    cached_input_tokens: null,
+  });
+
+  const f = fixture({
+    extract: async (env) => {
+      const observer = env.modelCallObserver!;
+      attempts++;
+
+      if (attempts === 1) {
+        observer.finished(observer.started(), receipt(0.5));
+        throw new RetryableError("transient");
+      }
+
+      observer.finished(observer.started(), receipt(0.002));
+      observer.finished(observer.started(), receipt(0.001));
+
+      return [{ field_id: "total", status: "ok", answer: 12 }];
+    },
+  });
+
+  const updates = await events(
+    await f.submit({ candidates: [{ id: "c", revision: 0, model: "model", pdf: false, structured: false, fields }] }),
+  );
+
+  const cost = updates.find((e) => e.type === "success").result.cost;
+  expect(cost.amount).toBeCloseTo(0.003);
+  expect(cost).toMatchObject({ complete: true, reported_calls: 2, unreported_calls: 0 });
+
+  const unreported = fixture({
+    extract: async (env) => {
+      const observer = env.modelCallObserver!;
+      observer.finished(observer.started(), receipt(null));
+
+      return [{ field_id: "total", status: "ok", answer: 12 }];
+    },
+  });
+
+  const [single] = (await events(await unreported.submit())).filter((e) => e.type === "success");
+  expect(single.result.cost).toEqual({ amount: null, complete: false, reported_calls: 0, unreported_calls: 1 });
+});
+
 test("revoked queued work never reaches the gateway or sends results", async () => {
   let calls = 0;
   const queue = createLocalExtractionQueue();

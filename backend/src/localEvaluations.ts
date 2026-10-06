@@ -14,6 +14,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { runExtraction, RetryableError, type ExtractionUsage } from "./consumer/modelGateway";
 import { normalizeModelResults } from "./consumer/modelResultNormalizer";
+import type { ModelCallUsage } from "./consumer/modelUsage";
+import { costAmount, type CostAmount } from "../../shared/processingCosts";
 import { HttpError } from "./lib/http";
 import { validateSourceFileMetadata, validateTemplatePayload } from "./lib/validation";
 import type { FieldDefinition } from "./lib/types";
@@ -85,6 +87,18 @@ type Action = {
 const MAX_ACTIONS_PER_SESSION = 16;
 
 const invalid = () => new HttpError(400, "invalid_evaluation", "Provide one to eight valid Evaluation candidates.");
+
+/** The successful attempt's model calls, summed like Document costs; unreported calls mark it incomplete. */
+function receiptCost(receipts: ModelCallUsage[]): CostAmount | null {
+  if (!receipts.length) return null;
+  const reported = receipts.filter((receipt) => receipt.cost !== null);
+
+  return costAmount(
+    reported.reduce((sum, receipt) => sum + (receipt.cost ?? 0), 0),
+    reported.length,
+    receipts.length - reported.length,
+  );
+}
 
 const isId = (v: unknown): v is string => typeof v === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(v);
 
@@ -808,6 +822,8 @@ export function createLocalEvaluations({
 
                       try {
                         let usage: ExtractionUsage | null = null;
+                        // Receipts stay in memory: evaluation spend is shown per run, never persisted.
+                        const receipts: ModelCallUsage[] = [];
 
                         const extracted = await extract(
                           {
@@ -819,6 +835,10 @@ export function createLocalEvaluations({
                             MODEL_GATEWAY_SEQUENTIAL_CALLS: String(captured.sequential_calls),
                             MODEL_SUPPORTS_PDF_INPUT: String(candidate.pdf),
                             MODEL_SUPPORTS_STRUCTURED_OUTPUT: String(candidate.structured),
+                            modelCallObserver: {
+                              started: () => String(receipts.length),
+                              finished: (_, receipt) => receipts.push(receipt),
+                            },
                           },
                           candidate.fields,
                           Bun.file(sourcePath),
@@ -868,6 +888,7 @@ export function createLocalEvaluations({
                             processingMs,
                             attempts: attempt,
                             usage,
+                            cost: receiptCost(receipts),
                           },
                         });
                         terminal();

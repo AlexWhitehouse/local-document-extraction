@@ -854,3 +854,35 @@ it("finds added, removed and retyped fields together and preserves unchanged ans
   );
   expect(references["name:string"].value).toBe("Example");
 });
+
+it("shows each candidate's run cost in its column head and marks partial or missing costs", () => {
+  const cost = (amount, unreported = 0) => ({
+    amount,
+    complete: unreported === 0,
+    reported_calls: amount === null ? 0 : 1,
+    unreported_calls: unreported,
+  });
+
+  const candidate = (id, runCost) => ({
+    id,
+    revision: 0,
+    model: "model",
+    pdf: false,
+    structured: false,
+    status: "success",
+    template,
+    result: { ...result(template.fields, [{ field_id: "total", status: "ok", answer: 10 }]), cost: runCost },
+  });
+
+  setup({
+    candidates: [
+      candidate("a", cost(0.00369663)),
+      candidate("b", cost(0.0012, 1)),
+      candidate("c", cost(null, 1)),
+    ],
+  });
+
+  expect(screen.getByLabelText("Run cost: $0.0037").title).toBe("$0.00369663 for the successful attempt");
+  expect(screen.getByLabelText("Run cost: $0.0012+")).toBeTruthy();
+  expect(screen.getByLabelText("Run cost: Unavailable").classList.contains("evaluation-muted")).toBe(true);
+});

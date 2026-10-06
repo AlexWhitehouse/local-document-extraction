@@ -89,7 +89,8 @@ export function DocumentContextList({
   const focusSelection = useRef(false);
   const [viewport, setViewport] = useState({ top: 0, height: 600 });
   const virtual = items.length > 100;
-  const rowStride = 60;
+  // Matches the natural .context-item-card height so rows keep their size past the virtual threshold.
+  const rowStride = 40;
   const start = virtual ? Math.max(0, Math.min(items.length - 1, Math.floor(viewport.top / rowStride) - 5)) : 0;
   const end = virtual ? Math.min(items.length, start + Math.ceil(viewport.height / rowStride) + 10) : items.length;
   useEffect(() => {
@@ -198,7 +199,7 @@ export function DocumentContextList({
                 role="listitem"
                 aria-posinset={start + offset + 1}
                 aria-setsize={items.length}
-                style={virtual ? { position: "absolute", top: (start + offset) * rowStride, height: 54 } : undefined}
+                style={virtual ? { position: "absolute", top: (start + offset) * rowStride, height: rowStride } : undefined}
                 className={`context-item-card context-item-document${item.displayKind === "packet" ? " context-item-packet" : ""}${item.tone ? ` status-${item.tone}` : ""}${isActive ? " active" : ""}${
                   isChecked ? " checked" : ""
                 }${rowMotion(item.key)}`}
@@ -292,6 +293,7 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
     packets.flatMap((packet) => (Array.isArray(packet.children) ? packet.children : []).map((child) => child.job_id)),
   );
 
+  const documentsById = new Map(documents.map((job) => [job.job_id, job]));
   const items = [];
 
   for (const packet of packets) {
@@ -299,12 +301,21 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
     const childCount = Array.isArray(packet.children) ? packet.children.length : 0;
     const single = isSingleDocumentPacket(packet);
     const child = singlePacketDocument(packet);
-    const document = child && (documents.find((job) => job.job_id === child.job_id) || child);
+    const document = child && (documentsById.get(child.job_id) || child);
+
+    // A loaded document row is fresher than the packet's cached child summary.
+    const childStatuses = (Array.isArray(packet.children) ? packet.children : []).map(
+      (entry) => documentsById.get(entry.job_id)?.status || entry.status,
+    );
+
+    const isAwaitingTemplate = childStatuses.includes("awaiting_template");
 
     const status =
       packet.outcome === "no_documents"
         ? "No documents to extract"
-        : PACKET_STATUS_LABELS[packet.status] || String(packet.status || "queued").replaceAll("_", " ");
+        : isAwaitingTemplate
+          ? "Template needed"
+          : PACKET_STATUS_LABELS[packet.status] || String(packet.status || "queued").replaceAll("_", " ");
 
     items.push({
       kind: "packet",
@@ -319,7 +330,11 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
         : childCount
           ? `${childCount} ${childCount === 1 ? "document" : "documents"} · ${status}`
           : status,
-      tone: document ? documentStatusTone(document.status) : packetStatusTone(packet.status),
+      tone: document
+        ? documentStatusTone(document.status)
+        : childStatuses.some((childStatus) => documentStatusTone(childStatus) === "failed")
+          ? "failed"
+          : packetStatusTone(packet.status),
     });
   }
 
