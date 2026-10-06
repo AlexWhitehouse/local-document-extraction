@@ -1,7 +1,7 @@
 export function createLocalSubmissionAdmission({
   canReserve = () => true,
-  maxConcurrent = 8,
-  maxReservedBytes = 128 * 1024 * 1024,
+  maxConcurrent = 24,
+  maxReservedBytes = 288 * 1024 * 1024,
   unknownRequestBytes = 11 * 1024 * 1024,
   retryAfterSeconds = 1,
 }: {
@@ -11,8 +11,8 @@ export function createLocalSubmissionAdmission({
   unknownRequestBytes?: number;
   retryAfterSeconds?: number;
 } = {}) {
-  const normalizedMaxConcurrent = positiveInteger(maxConcurrent, 8);
-  const normalizedMaxReservedBytes = positiveInteger(maxReservedBytes, 128 * 1024 * 1024);
+  const normalizedMaxConcurrent = positiveInteger(maxConcurrent, 24);
+  const normalizedMaxReservedBytes = positiveInteger(maxReservedBytes, 288 * 1024 * 1024);
   const normalizedUnknownRequestBytes = positiveInteger(unknownRequestBytes, 11 * 1024 * 1024);
   const normalizedRetryAfterSeconds = positiveInteger(retryAfterSeconds, 1);
   let active = 0;

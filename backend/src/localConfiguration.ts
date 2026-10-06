@@ -191,7 +191,7 @@ export function readLocalConfiguration({
   if (fromName.length > 200 || /[\r\n\0]/.test(fromName))
     throw new Error("EMAIL_FROM_NAME must be a single line of at most 200 characters.");
   const maxSourceFileBytes = integer("MAX_SOURCE_FILE_BYTES", 10 * 1024 * 1024, 1, Number.MAX_SAFE_INTEGER - 65536);
-  const submissionMaxReservedBytes = integer("SUBMISSION_MAX_RESERVED_BYTES", 128 * 1024 * 1024);
+  const submissionMaxReservedBytes = integer("SUBMISSION_MAX_RESERVED_BYTES", 288 * 1024 * 1024);
 
   if (submissionMaxReservedBytes < localDocumentRequestBodyLimit(maxSourceFileBytes))
     throw new Error(
@@ -226,7 +226,7 @@ export function readLocalConfiguration({
     extractionMaximumConcurrency,
     extractionMaxBuffered: integer("EXTRACTION_MAX_BUFFERED", 10000),
     extractionReconcileIntervalMs: integer("EXTRACTION_RECONCILE_INTERVAL_MS", 60000, 1, 2147483647),
-    submissionMaxConcurrency: integer("SUBMISSION_MAX_CONCURRENCY", 8),
+    submissionMaxConcurrency: integer("SUBMISSION_MAX_CONCURRENCY", 24),
     submissionMaxReservedBytes,
     extractionAdaptiveConcurrency: boolean("EXTRACTION_ADAPTIVE_CONCURRENCY", true),
     localCpuLimitRatio: ratio("LOCAL_CPU_LIMIT_RATIO", 0.85),

@@ -16,6 +16,9 @@ test("a clean local install has usable private defaults and a secret-free public
   expect(config.extractionMaxConcurrency).toBe(8);
   expect(config.extractionMaximumConcurrency).toBe(8);
   expect(config.extractionAdaptiveConcurrency).toBe(true);
+  expect(config.submissionMaxConcurrency).toBe(24);
+  expect(config.submissionMaxReservedBytes).toBe(288 * 1024 * 1024);
+  expect(config.extractionMaxBuffered).toBe(10000);
   expect(publicLocalConfiguration(config)).toEqual({
     auth: {
       emailPasswordEnabled: true,
@@ -158,7 +161,7 @@ test("provider completeness and capacity relationships are checked before startu
     { AUTH_EMAIL_PASSWORD_ENABLED: "false" },
     { EMAIL_PROVIDER: "cloudflare" },
     { CLOUDFLARE_ACCOUNT_ID: "a".repeat(32) },
-    { MAX_SOURCE_FILE_BYTES: String(128 * 1024 * 1024) },
+    { MAX_SOURCE_FILE_BYTES: String(288 * 1024 * 1024) },
     { EXTRACTION_MAX_CONCURRENCY: "33" },
   ])
     expect(() => read(environment)).toThrow();
@@ -176,6 +179,9 @@ test("provider completeness and capacity relationships are checked before startu
     extractionMaximumConcurrency: 16,
     extractionAdaptiveConcurrency: false,
   });
+  expect(
+    read({ SUBMISSION_MAX_CONCURRENCY: "5", SUBMISSION_MAX_RESERVED_BYTES: String(64 * 1024 * 1024) }),
+  ).toMatchObject({ submissionMaxConcurrency: 5, submissionMaxReservedBytes: 64 * 1024 * 1024 });
 });
 
 test("state configuration cannot chmod shared filesystem roots", () => {

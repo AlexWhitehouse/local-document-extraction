@@ -71,7 +71,7 @@ export async function startGoProcessor(binary: string, options: GoProcessingOpti
         GO_RESPONSE_BUFFER_MIB: process.env.GO_RESPONSE_BUFFER_MIB ?? String(Math.max(64, Math.min(512, Math.floor(totalmem() / (16 * 1024 * 1024))))),
         GO_PREPARED_ARTIFACT_MIB: process.env.GO_PREPARED_ARTIFACT_MIB ?? String(artifactMiB),
         GO_PDF_WORKERS: process.env.GO_PDF_WORKERS ?? String(Math.max(1, Math.min(cpus().length, Math.floor(totalmem() / (4 * 384 * 1024 * 1024))))),
-        GO_MODEL_CONCURRENCY: process.env.GO_MODEL_CONCURRENCY ?? process.env.EXTRACTION_MAX_CONCURRENCY ?? "24",
+        GO_MODEL_CONCURRENCY: process.env.GO_MODEL_CONCURRENCY ?? process.env.EXTRACTION_MAX_CONCURRENCY ?? "96",
       },
       stdin: "pipe", stdout: "pipe", stderr: "inherit",
     });
