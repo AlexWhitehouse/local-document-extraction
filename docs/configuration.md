@@ -212,16 +212,25 @@ Set both Cloudflare values or neither, even with local email.
 | --- | --- | --- |
 | `MAX_SOURCE_FILE_BYTES` | 10 MiB (`10485760`) | Largest PDF, PNG, JPEG, or WebP file that can be uploaded. |
 | `MAX_JSON_REQUEST_BYTES` | 1 MiB (`1048576`) | Largest JSON request body (everything except file uploads). |
-| `SUBMISSION_MAX_CONCURRENCY` | `8` | How many uploads can be received at once. |
-| `SUBMISSION_MAX_RESERVED_BYTES` | 128 MiB (`134217728`) | Total space shared by uploads in progress. Must be at least `MAX_SOURCE_FILE_BYTES + 40960` (40 KiB of multipart overhead). |
+| `SUBMISSION_MAX_CONCURRENCY` | `24` | How many uploads can be received at once. |
+| `SUBMISSION_MAX_RESERVED_BYTES` | 288 MiB (`301989888`) | Total space shared by uploads in progress. Must be at least `MAX_SOURCE_FILE_BYTES + 40960` (40 KiB of multipart overhead). |
 | `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` | 5 minutes (`300000`) | How long to wait for the model to answer. |
 | `EXTRACTION_RETRY_DELAY_MS` | `1000` | Wait before retrying after a temporary model failure. |
 | `EXTRACTION_MAX_CONCURRENCY` | CPU/RAM-derived | Initial local processing permits; provider waits release these permits. |
 | `EXTRACTION_MAX_CONCURRENCY_LIMIT` | CPU/RAM-derived | Maximum local permits when adaptive concurrency scales up. |
-| `GO_MODEL_CONCURRENCY` | `24`, or explicit `EXTRACTION_MAX_CONCURRENCY` | Independent maximum simultaneous model requests. |
+| `GO_MODEL_CONCURRENCY` | `96`, or explicit `EXTRACTION_MAX_CONCURRENCY` | Independent maximum simultaneous model requests. |
 | `EXTRACTION_ADAPTIVE_CONCURRENCY` | `true` | Scale the number of simultaneous extractions up or down with the machine's load. |
 | `EXTRACTION_MAX_BUFFERED` | `10000` | How many queued jobs are held in memory. All jobs are also stored in the database. |
 | `EXTRACTION_RECONCILE_INTERVAL_MS` | 1 minute (`60000`) | How often the queue is checked against the database to pick up missed work. |
+
+The upload and model-call concurrency defaults match the measured throughput
+benchmark. The 288 MiB upload reservation accommodates 24 uploads at the default
+10 MiB file limit, including the metadata allowance reserved for streamed uploads
+without a Content-Length. Local processing and rendering still scale
+with CPU and RAM, and adaptive slowdown remains enabled. Lower
+`GO_MODEL_CONCURRENCY` when your provider supports fewer simultaneous requests.
+The 10,000-job memory buffer can overflow into durable SQLite-backed work; the
+benchmark's offered-load backlog is not a production queue limit.
 
 Some limits are fixed in the code rather than configurable:
 

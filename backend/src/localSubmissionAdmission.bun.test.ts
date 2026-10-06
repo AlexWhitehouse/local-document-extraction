@@ -3,6 +3,43 @@ import { expect, test } from "bun:test";
 
 import { createLocalSubmissionAdmission } from "./localSubmissionAdmission";
 
+test.each([10 * 1024 * 1024 + 40960, null])("default admission accommodates 24 maximum-size uploads with content length %s and rejects the next attempt", async (contentLength) => {
+  const admission = createLocalSubmissionAdmission();
+  const requestBytes = contentLength ?? 11 * 1024 * 1024;
+  const uploads: Array<Promise<Response>> = [];
+  let release: (() => void) | undefined;
+
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  try {
+    for (let index = 0; index < 24; index += 1) {
+      uploads.push(admission.run(requestWithBody(contentLength), async () => {
+        await held;
+
+        return new Response(null, { status: 202 });
+      }));
+    }
+
+    await Promise.resolve();
+    expect(admission.snapshot()).toMatchObject({ active: 24, reservedBytes: 24 * requestBytes });
+
+    const rejected = await admission.run(requestWithBody(contentLength), () => new Response(null, { status: 202 }));
+
+    expect(rejected.status).toBe(503);
+    expect(rejected.headers.get("retry-after")).toBe("1");
+  } finally {
+    release?.();
+
+    const responses = await Promise.all(uploads);
+
+    expect(responses.every((response) => response.status === 202)).toBe(true);
+    expect(admission.snapshot()).toMatchObject({ active: 0, reservedBytes: 0 });
+    await admission.close();
+  }
+});
+
 test("submission admission bounds active multipart work and safely drains overload", async () => {
   const admission = createLocalSubmissionAdmission({
     maxConcurrent: 1,

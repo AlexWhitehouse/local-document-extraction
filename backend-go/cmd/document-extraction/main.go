@@ -66,7 +66,7 @@ func main() {
 	if cacheDirectory == "" {
 		cacheMiB = 0
 	}
-	engine := &pipeline.Engine{Transport: pipeline.NewTransport(pool, renderer, positive("GO_MODEL_CONCURRENCY", 24), int64(artifactMiB-cacheMiB)<<20, int64(responseMiB)<<20)}
+	engine := &pipeline.Engine{Transport: pipeline.NewTransport(pool, renderer, positive("GO_MODEL_CONCURRENCY", 96), int64(artifactMiB-cacheMiB)<<20, int64(responseMiB)<<20)}
 	if cacheMiB > 0 {
 		engine.Transport.EnablePageCache(cacheDirectory, int64(cacheMiB)<<20)
 		defer os.RemoveAll(cacheDirectory)

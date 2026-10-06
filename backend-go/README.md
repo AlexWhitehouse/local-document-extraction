@@ -115,7 +115,7 @@ flowchart LR
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GO_PROCESSOR_BINARY` | `backend-go/bin/document-extraction` | Override the processor binary path. |
-| `GO_MODEL_CONCURRENCY` | `EXTRACTION_MAX_CONCURRENCY`, or 24 | Maximum concurrent model HTTP calls. |
+| `GO_MODEL_CONCURRENCY` | `EXTRACTION_MAX_CONCURRENCY`, or 96 | Maximum concurrent model HTTP calls. |
 | `GO_PDF_WORKERS` | CPUs, capped by one quarter of RAM at 384 MiB/worker | Concurrent rendering processes. |
 | `GO_PDF_WORKER_DOCUMENTS` | 128 | Renderer operation recycling threshold; the RSS threshold still applies. |
 | `GO_PDF_WORKER_BINARY` | `document-extraction-pdf` beside the processor | Override the PDFium renderer binary. |
