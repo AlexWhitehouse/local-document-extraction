@@ -93,3 +93,5 @@ To report a security vulnerability, use [SECURITY.md](SECURITY.md). Do not open 
 ## License
 
 The project uses the [MIT License](LICENSE). Contributions use the same license terms. Keep existing copyright and license notices, including notices in third-party code.
+
+Background document processing requires Go matching `backend-go/go.mod`. Run `bun run build` before starting the app; `bun run dev` rebuilds the Go binary before starting Bun watch mode. After editing Go while developing, restart `bun run dev`. See [the processor guide](backend-go/README.md).

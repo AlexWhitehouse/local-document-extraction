@@ -262,31 +262,7 @@ export async function runExtraction(
   onUsage?: (usage: ExtractionUsage) => void,
 ): Promise<ModelFieldResult[]> {
   return withPreparedModelSource(env, source, sourceMimeType, signal, async (sourceContentParts, onPrepared) => {
-    const model = getExtractionModelName(env);
-
-    const renderPdfAsImages =
-      sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
-
-    const request: ModelRequest = {
-      model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.",
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: buildPrompt(fields, sourceMimeType, renderPdfAsImages) },
-            ...sourceContentParts,
-          ],
-        },
-      ],
-    };
-
-    if (readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT))
-      request.response_format = buildResponseFormat(model, fields);
+    const request = buildExtractionRequest(env, fields, sourceMimeType, sourceContentParts);
     const requestBody = JSON.stringify(request);
 
     onPrepared(requestBody.length);
@@ -304,34 +280,73 @@ export async function runExtraction(
         scope: "successful attempt",
       });
 
-    let parsed: JsonValue | undefined;
-
-    try {
-      parsed = parseJson(content);
-    } catch {
-      throw new RetryableError("Model response content was not valid JSON");
-    }
-
-    const results = isJsonObject(parsed) ? parsed.results : undefined;
-
-    if (!isJsonArray(results)) {
-      throw new RetryableError("Model JSON missing results array");
-    }
-
-    return results.map((row): ModelFieldResult => {
-      if (
-        !isJsonObject(row) ||
-        !isString(row.field_id) ||
-        !row.field_id.trim() ||
-        !isString(row.status) ||
-        !("answer" in row)
-      ) {
-        throw new RetryableError("Model JSON contains invalid result entries");
-      }
-
-      return { ...row, field_id: row.field_id, status: row.status, answer: row.answer };
-    });
+    return parseExtractionContent(content);
   });
+}
+
+export function parseExtractionContent(content: string): ModelFieldResult[] {
+  let parsed: JsonValue | undefined;
+
+  try {
+    parsed = parseJson(content);
+  } catch {
+    throw new RetryableError("Model response content was not valid JSON");
+  }
+
+  const results = isJsonObject(parsed) ? parsed.results : undefined;
+
+  if (!isJsonArray(results)) {
+    throw new RetryableError("Model JSON missing results array");
+  }
+
+  return results.map((row): ModelFieldResult => {
+    if (
+      !isJsonObject(row) ||
+      !isString(row.field_id) ||
+      !row.field_id.trim() ||
+      !isString(row.status) ||
+      !("answer" in row)
+    ) {
+      throw new RetryableError("Model JSON contains invalid result entries");
+    }
+
+    return { ...row, field_id: row.field_id, status: row.status, answer: row.answer };
+  });
+}
+
+export function buildExtractionRequest(
+  env: ModelGatewayConfiguration,
+  fields: FieldDefinition[],
+  sourceMimeType: string,
+  sourceContentParts: ModelContentPart[],
+): ModelRequest {
+  const model = getExtractionModelName(env);
+
+  const renderPdfAsImages =
+    sourceMimeType === "application/pdf" && !readBooleanConfiguration(env.MODEL_SUPPORTS_PDF_INPUT);
+
+  const request: ModelRequest = {
+    model,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You extract fields from document content. Use only source data, do not guess, return JSON only, and use status=not_found with answer=null when missing.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: buildPrompt(fields, sourceMimeType, renderPdfAsImages) },
+          ...sourceContentParts,
+        ],
+      },
+    ],
+  };
+
+  if (readBooleanConfiguration(env.MODEL_SUPPORTS_STRUCTURED_OUTPUT))
+    request.response_format = buildResponseFormat(model, fields);
+
+  return request;
 }
 
 function buildResponseFormat(model: string, fields: FieldDefinition[]): JsonObject {

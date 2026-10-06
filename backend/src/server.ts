@@ -1,3 +1,4 @@
+import { defaultGoProcessorBinary, startGoProcessor } from "./goProcessor";
 import { createLocalEvaluations, EVALUATION_METADATA_BYTES } from "./localEvaluations";
 import { createLocalEvaluationDocuments } from "./localEvaluationDocuments";
 import { getModelPreparationSnapshot } from "./consumer/modelGateway";
@@ -149,6 +150,7 @@ const localAuth = await createLocalAuthRuntime({
 
 const localExtractionQueue = createLocalExtractionQueue({
   maxBuffered: extractionMaxBuffered,
+  maxWaiting: Number(process.env.GO_MODEL_CONCURRENCY ?? extractionMaxConcurrency),
   maxConcurrent: extractionMaxConcurrency,
   getWorkspaceMaxConcurrent: (workspaceId) => {
     try {
@@ -266,26 +268,32 @@ const localWorkspaceDeletion = createLocalWorkspaceDeletion({
 
 await localWorkspaceDeletion.reconcileInterruptedDeletions();
 
-const localExtractionRunner = createLocalExtractionRunner({
-  modelGatewayRequestTimeoutMs: String(configuration.modelGatewayRequestTimeoutMs),
-  onGatewayOutcome: localResourceController.recordGatewayOutcome,
-  onJobLifecycleChange: (workspaceId, job) => {
+const goProcessor = await startGoProcessor(process.env.GO_PROCESSOR_BINARY || defaultGoProcessorBinary, {
+  productAnalytics: localProductAnalytics,
+  stateDirectory,
+  sourceFiles: localSourceFiles,
+  sourceObjects: retainedSourceObjects,
+  timeoutMs: configuration.modelGatewayRequestTimeoutMs,
+  retryDelayMs: extractionRetryDelayMs,
+  schedule: localExtractionQueue.schedule,
+  notify: (workspaceId, job) => {
     localLiveUpdateHub.broadcastJob(workspaceId, job);
 
     if (job.status === "completed") localResourceController.recordCompletedJob();
   },
-  productAnalytics: localProductAnalytics,
-  retryDelayMs: extractionRetryDelayMs,
+  outcome: localResourceController.recordGatewayOutcome,
+});
+
+const localExtractionRunner = createLocalExtractionRunner({
+  execute: goProcessor.run,
   scheduleJob: localExtractionQueue.schedule,
-  sourceObjects: retainedSourceObjects,
-  sourceFileStore: localSourceFiles,
   stateDirectory,
   workspaceControl: localAuth.workspaceControl,
   workspaceProductOperations: localWorkspaceProductOperations,
   productStoreRegistry: localProductStoreRegistry,
 });
 
-localExtractionQueue.subscribe((job) => localExtractionRunner.run(job));
+localExtractionQueue.subscribe((job, capacity) => localExtractionRunner.run(job, capacity));
 
 const extractionRefills = new Set<Promise<void>>();
 
@@ -370,8 +378,9 @@ const application = createLocalApplication({
   evaluations: localEvaluations,
   modelGatewayRequestTimeoutMs: String(configuration.modelGatewayRequestTimeoutMs),
   auth: localAuth.auth,
-  diagnostics: () => {
+  diagnostics: async () => {
     const snapshot = {
+      goProcessor: await goProcessor.diagnostics().catch(() => ({})),
       admission: localSubmissionAdmission.snapshot(),
       extractionQueue: localExtractionQueue.snapshot(),
       modelPreparation: getModelPreparationSnapshot(),
@@ -384,6 +393,7 @@ const application = createLocalApplication({
       productStores: localProductStoreRegistry.diagnostics(),
       resources: localResourceController.snapshot(),
       runtime: {
+        documentProcessor: "go",
         bunRevision: Bun.revision,
         bunVersion: Bun.version,
         nodeVersion: process.versions.node,
@@ -430,7 +440,10 @@ const runtimeShutdown = createLocalRuntimeShutdown({
   },
   closeAuth: localAuth.close,
   closeProductStores: localProductStoreRegistry.closeAll,
-  closeQueue: localExtractionQueue.close,
+  closeQueue: async () => {
+    await localExtractionQueue.close();
+    await goProcessor.close();
+  },
   flushAnalytics: () => localProductAnalytics?.flush() ?? Promise.resolve(),
   forceAfterMs: shutdownTimeoutMs,
   stopRecurringWork: async () => {

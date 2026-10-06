@@ -19,9 +19,8 @@ import { createLocalAuth } from "../src/localAuth";
 import {
   createLocalExtractionQueue,
   type LocalExtractionQueue,
-  type LocalQueuedExtractionJob,
 } from "../src/localExtractionQueue";
-import { createLocalExtractionRunner } from "../src/localExtractionRunner";
+import { createLocalExtractionRunner } from "../src/testing/processingAdapter";
 import { ensureLocalStateDirectories } from "../src/localRuntime";
 import { createLocalSourceFileStore } from "../src/localSourceFileStore";
 import { createLocalWorkspaceControl } from "../src/localWorkspaceControl";
@@ -708,7 +707,7 @@ async function drainRequestBody(body: ReadableStream<Uint8Array> | null): Promis
 }
 
 function createInstrumentedBaselineQueue(): PrototypeQueue {
-  const handlers = new Set<(job: LocalQueuedExtractionJob) => void | Promise<void>>();
+  const handlers = new Set<Parameters<LocalExtractionQueue["subscribe"]>[0]>();
   let active = 0;
   let peakActive = 0;
 
@@ -716,7 +715,7 @@ function createInstrumentedBaselineQueue(): PrototypeQueue {
     schedule: async (job) => {
       active += 1;
       peakActive = Math.max(peakActive, active);
-      void Promise.all(Array.from(handlers, (handler) => handler(job))).finally(() => {
+      void Promise.all(Array.from(handlers, (handler) => handler(job, { suspend() {}, resume: async () => {} }))).finally(() => {
         active -= 1;
       });
     },
@@ -741,12 +740,12 @@ function createBoundedPrototypeQueue(maxConcurrent: number): PrototypeQueue {
       peakPending = Math.max(peakPending, queue.snapshot().pending);
     },
     subscribe: (handler) =>
-      queue.subscribe(async (job) => {
+      queue.subscribe(async (job, capacity) => {
         active += 1;
         peakActive = Math.max(peakActive, active);
 
         try {
-          await handler(job);
+          await handler(job, capacity);
         } finally {
           active -= 1;
         }

@@ -13,8 +13,8 @@ test("a clean local install has usable private defaults and a secret-free public
   const config = read();
   expect(config.stateDirectory).toBe("/tmp/document-extraction-config-test/.local");
   expect(config.host).toBe("127.0.0.1");
-  expect(config.extractionMaxConcurrency).toBe(16);
-  expect(config.extractionMaximumConcurrency).toBe(32);
+  expect(config.extractionMaxConcurrency).toBe(8);
+  expect(config.extractionMaximumConcurrency).toBe(8);
   expect(config.extractionAdaptiveConcurrency).toBe(true);
   expect(publicLocalConfiguration(config)).toEqual({
     auth: {
@@ -181,4 +181,15 @@ test("provider completeness and capacity relationships are checked before startu
 test("state configuration cannot chmod shared filesystem roots", () => {
   for (const directory of ["/", ".", homedir(), tmpdir(), "/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"])
     expect(() => read({ DOCUMENT_EXTRACTION_STATE_DIR: directory })).toThrow("dedicated application state");
+});
+
+test("Go local concurrency scales with CPU and response memory, independently of provider capacity", () => {
+  const environment = { GO_MODEL_CONCURRENCY: "1500" };
+  const large = readLocalConfiguration({ environment, cpuCount: 6, totalMemoryBytes: 12 * 1024 ** 3 });
+  expect(large.extractionMaxConcurrency).toBe(96);
+  expect(large.extractionMaximumConcurrency).toBe(96);
+  const small = readLocalConfiguration({ environment, cpuCount: 6, totalMemoryBytes: 1024 ** 3 });
+  expect(small.extractionMaxConcurrency).toBe(8);
+  const explicit = readLocalConfiguration({ environment: { ...environment, EXTRACTION_MAX_CONCURRENCY: "12" }, cpuCount: 6, totalMemoryBytes: 12 * 1024 ** 3 });
+  expect(explicit.extractionMaxConcurrency).toBe(12);
 });

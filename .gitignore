@@ -40,3 +40,5 @@ config.env
 # Local agent metadata
 .agents/
 .scratch/
+
+backend-go/bin/

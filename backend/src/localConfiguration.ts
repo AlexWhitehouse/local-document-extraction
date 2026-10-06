@@ -1,5 +1,5 @@
 import { dirname, resolve } from "node:path";
-import { homedir, tmpdir, totalmem } from "node:os";
+import { homedir, tmpdir, totalmem, cpus } from "node:os";
 import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { localDocumentRequestBodyLimit } from "./localDocumentBodyLimit";
@@ -41,7 +41,8 @@ export function readLocalConfiguration({
   environment: env = process.env,
   repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../.."),
   totalMemoryBytes = totalmem(),
-}: { environment?: Environment; repositoryRoot?: string; totalMemoryBytes?: number } = {}) {
+  cpuCount = Math.max(1, cpus().length),
+}: { environment?: Environment; repositoryRoot?: string; totalMemoryBytes?: number; cpuCount?: number } = {}) {
   const text = (name: string) => env[name]?.trim() || undefined;
 
   const integer = (name: string, fallback: number, minimum = 1, maximum = Number.MAX_SAFE_INTEGER) => {
@@ -196,8 +197,13 @@ export function readLocalConfiguration({
     throw new Error(
       "SUBMISSION_MAX_RESERVED_BYTES must accommodate MAX_SOURCE_FILE_BYTES plus 40960 bytes of multipart overhead.",
     );
-  const extractionMaxConcurrency = integer("EXTRACTION_MAX_CONCURRENCY", 16);
-  const extractionMaximumConcurrency = integer("EXTRACTION_MAX_CONCURRENCY_LIMIT", 32);
+
+  if (!Number.isSafeInteger(cpuCount) || cpuCount < 1) throw new Error("Invalid CPU count.");
+  // Provider waits have their own allowance. Bound local work using CPU and
+  // space for maximum-size responses, rather than the provider's latency.
+  const goLocalConcurrency = Math.max(1, Math.min(cpuCount * 16, 256, Math.floor(totalMemoryBytes / (128 * 1024 * 1024))));
+  const extractionMaxConcurrency = integer("EXTRACTION_MAX_CONCURRENCY", goLocalConcurrency);
+  const extractionMaximumConcurrency = integer("EXTRACTION_MAX_CONCURRENCY_LIMIT", goLocalConcurrency);
 
   if (extractionMaxConcurrency > extractionMaximumConcurrency)
     throw new Error("EXTRACTION_MAX_CONCURRENCY must not exceed EXTRACTION_MAX_CONCURRENCY_LIMIT.");

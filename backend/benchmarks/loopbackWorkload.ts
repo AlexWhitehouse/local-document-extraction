@@ -22,10 +22,12 @@ export function scenarioWorkload(scenario: BenchmarkScenario, pages: number) {
 /** The real gateway request selects the response; unknown contracts fail instead of masking drift. */
 type SimulatedModelResponse = { stage: ModelStage; content: string };
 
+export function benchmarkFieldId(index: number): string { return index === 0 ? "reference" : `reference_${index + 1}`; }
+
 export function simulateModelResponse(body: {
   response_format?: { json_schema?: { name?: string } };
   messages?: Array<{ role?: string; content?: JsonValue }>;
-}): SimulatedModelResponse {
+}, answerBytes = 0, fieldCount = 1): SimulatedModelResponse {
   const name = body.response_format?.json_schema?.name;
   const user = body.messages?.find((message) => message.role === "user");
   const parts = Array.isArray(user?.content) ? user.content.filter(isJsonObject) : [];
@@ -86,15 +88,13 @@ export function simulateModelResponse(body: {
   return {
     stage: "extraction",
     content: JSON.stringify({
-      results: [
-        {
-          field_id: "reference",
+      results: Array.from({ length: fieldCount }, (_, index) => ({
+          field_id: benchmarkFieldId(index),
           status: "ok",
-          answer: "LOOPBACK",
+          answer: answerBytes ? "R".repeat(answerBytes) : "LOOPBACK",
           confidence: 1,
           evidence: "Synthetic loopback benchmark response",
-        },
-      ],
+        })),
     }),
   };
 }

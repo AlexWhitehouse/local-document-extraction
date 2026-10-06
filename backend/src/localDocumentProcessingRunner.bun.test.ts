@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PDFDocument } from "pdf-lib";
-import { createLocalExtractionRunner } from "./localExtractionRunner";
+import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createConfiguredTestProductStore } from "./testing/workspaceModelFixture";
@@ -836,7 +836,8 @@ test("partial remote fan-out failure preserves committed children, releases fail
   expect(await f.sourceFiles.read(failed.child_slots[1]!.source_file_key!)).toBeNull();
   expect(deleting).toEqual([`remote-${failed.child_slots[1]!.job_id}`]);
   await runner.recover(f.workspaceId);
-  expect(f.scheduled.map((job) => job.job_id)).toEqual([failed.child_slots[0]!.job_id]);
+  // The child is scheduled immediately and rediscovered by reconciliation; the queue deduplicates its identity.
+  expect(f.scheduled.map((job) => job.job_id)).toEqual([failed.child_slots[0]!.job_id, failed.child_slots[0]!.job_id]);
   await runner.run(f.scheduled[0]!);
   await runner.run(f.queued("pkt_partial", "packet"));
   expect(f.store.getDocumentPacket("pkt_partial")?.status).toBe("failed");
@@ -845,13 +846,10 @@ test("partial remote fan-out failure preserves committed children, releases fail
   expect(writes).toBe(2);
 });
 
-test("materialized artifacts remain under shared memory admission through persistence and release on failure", async () => {
-  const { getModelPreparationSnapshot } = await import("./consumer/modelGateway");
+test("materialization failure leaves no runnable children and preserves the accepted plan", async () => {
   const f = await fixture();
   f.template("tpl_invoice");
   await f.addPacket("pkt_memory", { templateId: "tpl_invoice" });
-  const baseline = getModelPreparationSnapshot().reservedBytes;
-  let reservedDuringMaterialization = 0;
 
   const runner = f.runner({
     splitDocument: async () =>
@@ -860,14 +858,12 @@ test("materialized artifacts remain under shared memory admission through persis
         [3, 4],
       ]),
     materializePages: async () => {
-      reservedDuringMaterialization = getModelPreparationSnapshot().reservedBytes;
       throw new Error("Bounded artifact generation failed");
     },
   });
 
   await runner.run(f.queued("pkt_memory", "packet"));
-  expect(reservedDuringMaterialization).toBeGreaterThan(baseline);
-  expect(getModelPreparationSnapshot().reservedBytes).toBe(baseline);
+  expect(f.store.getDocumentPacket("pkt_memory")?.plan_accepted).toBe(true);
   expect(f.store.getDocumentPacket("pkt_memory")?.status).toBe("failed");
   expect(f.scheduled).toHaveLength(0);
 });
@@ -899,39 +895,4 @@ test("manual all-blank completion immediately cleans the unretained original wit
   expect(await f.sourceFiles.read(original)).toBeNull();
   expect(f.scheduled).toHaveLength(0);
   expect(f.store.getDocumentPacket("pkt_manual_blank")?.status).toBe("completed");
-});
-
-test("temporary PDF capacity retries materialization without repeating assessment or child identities", async () => {
-  const { PdfSourceFileCapacityError } = await import("./lib/sourceFilePageCount");
-  const { materializePdfPageGroups } = await import("./lib/pdfPageOperations");
-  const f = await fixture();
-  f.template("tpl_invoice");
-  await f.addPacket("pkt_capacity", { templateId: "tpl_invoice" });
-  let assessments = 0;
-  let materializations = 0;
-
-  const runner = f.runner({
-    splitDocument: async () => {
-      assessments++;
-
-      return plan([
-        [1, 2],
-        [3, 4],
-      ]);
-    },
-    materializePages: async (...args) => {
-      if (++materializations === 1) throw new PdfSourceFileCapacityError();
-
-      return materializePdfPageGroups(...args);
-    },
-  });
-
-  await runner.run(f.queued("pkt_capacity", "packet"));
-
-  for (const child of f.scheduled) await runner.run(child);
-  expect(assessments).toBe(1);
-  expect(materializations).toBe(2);
-  expect(f.scheduled).toHaveLength(2);
-  expect(new Set(f.scheduled.map((child) => child.job_id)).size).toBe(2);
-  expect(f.store.getDocumentPacket("pkt_capacity")).toMatchObject({ status: "completed", assessment_rounds: 1 });
 });

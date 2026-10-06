@@ -65,6 +65,7 @@ test("the Bun server supports the complete local product path", async () => {
     const health = await fetchJsonObject(`${origin}/v1/health`);
 
     expect(jsonPath(health, "diagnostics", "runtime")).toMatchObject({
+      documentProcessor: "go",
       bunVersion: Bun.version,
       nodeVersion: process.versions.node,
     });

@@ -1,4 +1,5 @@
-import { isBoolean, isNumber, isJsonObject, parseJson } from "../../../shared/json";
+import { stat } from "node:fs/promises";
+import { isString, isBoolean, isNumber, isJsonObject, parseJson } from "../../../shared/json";
 import { createPdfProcessPool, type PdfProcessWorker } from "./pdfProcessPool";
 import { PDF_INSPECTION_LIMITS as limits } from "./pdfInspectionLimits";
 
@@ -110,11 +111,16 @@ export function createPdfSourceFilePageCounter({
 
       if (active) await new Promise<void>((resolve) => closeWaiters.push(resolve));
     },
-    async count(sourceBytes: ArrayBuffer | Uint8Array, signal?: AbortSignal): Promise<number> {
+    async count(sourceBytes: ArrayBuffer | Uint8Array | string, signal?: AbortSignal): Promise<number> {
       signal?.throwIfAborted();
 
-      if (sourceBytes.byteLength > limits.sourceBytes) throw new PdfSourceFileLimitError();
-      const sourceSize = sourceBytes.byteLength;
+      const path = isString(sourceBytes) ? sourceBytes : null;
+      const sourceSize = isString(sourceBytes) ? (await stat(sourceBytes)).size : sourceBytes.byteLength;
+
+      if (sourceSize > limits.sourceBytes) throw new PdfSourceFileLimitError();
+      const frame = isString(sourceBytes) ? new TextEncoder().encode(sourceBytes) : sourceBytes;
+
+      if (path !== null && frame.byteLength > 4096) throw new InvalidPdfSourceFileError();
       await acquire(sourceSize, signal);
       let worker: PdfProcessWorker | undefined;
       let reusable = false;
@@ -135,9 +141,9 @@ export function createPdfSourceFilePageCounter({
         signal?.addEventListener("abort", terminate, { once: true });
         signal?.throwIfAborted();
         const header = new Uint8Array(4);
-        new DataView(header.buffer).setUint32(0, sourceSize);
+        new DataView(header.buffer).setUint32(0, frame.byteLength + (path === null ? 0 : 0x80000000));
         worker.child.stdin.write(header);
-        worker.child.stdin.write(sourceBytes);
+        worker.child.stdin.write(frame);
         await worker.child.stdin.flush();
         const responseHeader = await worker.reader.read(4);
 

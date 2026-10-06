@@ -15,8 +15,8 @@ export const PDF_INSPECTION_LIMITS = Object.freeze({
   wallTimeMs: 5_000,
   concurrent: 8,
   queued: 8,
-  workerDocuments: 32,
-  workerSourceBytes: 64 * 1024 * 1024,
+  workerDocuments: 128,
+  workerSourceBytes: 256 * 1024 * 1024,
   workerRssBytes: 128 * 1024 * 1024,
   workerIdleMs: 5_000,
 });

@@ -1,0 +1,163 @@
+{
+  "label": "large-results-only",
+  "variant": "intermediate or pre-publication-barrier baseline",
+  "sourceLog": ".scratch/go-backend/optimization/large-results-only.log",
+  "runDirectory": "/home/ubuntu/local-document-extraction/.scratch/loopback-gateway-saturation/runs/2026-10-05T22-39-08-916Z",
+  "results": [
+    {
+      "admission": {
+        "acceptedUploadsPerSecond": 74.6,
+        "responseP50Ms": 473.5131059999985,
+        "responseP95Ms": 642.3166899999997,
+        "responseMaxMs": 1006.939747999997
+      },
+      "accepted": 4623,
+      "scenario": "explicit",
+      "jobsPerSubmission": 1,
+      "app": {
+        "peakProcessTreeRssBytes": 1007558656,
+        "peakProcessTreeCpuCoreEquivalents": 5.439000000000001,
+        "minimumPermits": 96,
+        "peakCpuCoreEquivalents": 1.69,
+        "peakEventLoopLagMs": 117,
+        "peakHealthNormalizedCpu": 0.21269447206204017,
+        "peakRssBytes": 368537600
+      },
+      "client": {
+        "cpuCoreEquivalents": 0.1734649632018523,
+        "networkErrors": 0,
+        "rejected": 551,
+        "unexpectedResponses": []
+      },
+      "drainElapsedMs": 7280,
+      "fixture": {
+        "bytes": 1052228,
+        "pages": 2,
+        "sha256": "66f2d39684cdd26616a788a3981f4b2886b3779d2b96248126776fa9f0f2180f"
+      },
+      "gateway": {
+        "active": 0,
+        "bytesReceived": 6492638283,
+        "cpuCoreEquivalents": 0.4679133870256678,
+        "cpuSystemMs": 16485.88,
+        "cpuUserMs": 15515.72,
+        "elapsedMs": 68392.144545,
+        "peakActive": 675,
+        "peakRssBytes": 282025984,
+        "requests": 4623,
+        "requestsByStage": {
+          "extraction": 4623,
+          "classification": 0,
+          "splitting": 0
+        },
+        "invalidRequests": 0
+      },
+      "loadElapsedMs": 60465,
+      "loadStartedAt": "2026-10-05T22:39:10.818Z",
+      "loadStoppedAt": "2026-10-05T22:40:11.283Z",
+      "mode": "inline-pdf",
+      "observations": 63,
+      "profile": {
+        "path": null,
+        "topFunctions": []
+      },
+      "queue": {
+        "peakWaiting": 670,
+        "peakInFlight": 734,
+        "peakActive": 84,
+        "peakPending": 0
+      },
+      "serverTiming": {
+        "completed": 4623,
+        "failed": 0,
+        "other": 0,
+        "lifecycleP50Ms": 7628,
+        "lifecycleP95Ms": 7837,
+        "measurementCompleted": 3045,
+        "measurementJobsPerSecond": 75.25021623625355,
+        "completionSpanJobsPerSecond": 77.42821724126378,
+        "submissions": {
+          "completed": 4623,
+          "failed": 0,
+          "other": 0,
+          "lifecycleP50Ms": 7628,
+          "lifecycleP95Ms": 7837,
+          "measurementCompleted": 3045,
+          "measurementJobsPerSecond": 75.25021623625355,
+          "completionSpanJobsPerSecond": 77.42821724126378
+        }
+      },
+      "stateDirectory": "/home/ubuntu/local-document-extraction/.scratch/loopback-gateway-saturation/runs/2026-10-05T22-39-08-916Z/inline-pdf/explicit/state"
+    }
+  ],
+  "settings": {
+    "cpuProfile": false,
+    "memoryLimitRatio": 0.25,
+    "preparationMaxBytes": 536870912,
+    "scenarios": [
+      "explicit"
+    ],
+    "backlog": 2000,
+    "drainTimeoutSeconds": 180,
+    "durationSeconds": 60,
+    "gatewayLatencyMs": 7000,
+    "responseAnswerBytes": 65536,
+    "inlinePayloadBytes": 1048576,
+    "modes": [
+      "inline-pdf"
+    ],
+    "renderPages": 2,
+    "runnerConcurrency": 96,
+    "submitters": 48,
+    "warmupSeconds": 20
+  },
+  "runtime": {
+    "version": "1.4.2",
+    "revision": "744846f844374847c902b5e7fd59b4342a51ef99",
+    "processor": "go",
+    "pngEncoder": "fast",
+    "pdfWorkers": null,
+    "modelConcurrency": 1500
+  },
+  "lastObservedProcessor": {
+    "active": 52,
+    "completed": 4571,
+    "failed": 1,
+    "materialize_operations": 0,
+    "model_in_flight": 50,
+    "page_cache": {
+      "bytes": 0,
+      "hits": 0,
+      "limit": 536870912,
+      "misses": 0,
+      "pages": 0
+    },
+    "pdf_operations": 0,
+    "pdf_process_starts": 0,
+    "pid": 2959390,
+    "prepared_artifact_bytes": 262424,
+    "render_operations": 0,
+    "renderer": {
+      "encode_micros": 0,
+      "load_micros": 0,
+      "operations": 0,
+      "pages": 0,
+      "peak_worker_rss": 0,
+      "raster_micros": 0,
+      "recycles": 0,
+      "starts": 0
+    },
+    "response_buffer_bytes": 131702,
+    "uploading": 0
+  },
+  "audit": {
+    "expectedStageCounts": {
+      "extraction": 4623,
+      "classification": 0,
+      "splitting": 0
+    },
+    "acceptedWorkDrained": true,
+    "persistedResultRows": 4623,
+    "allExpectedAnswersPersisted": true
+  }
+}

@@ -1,3 +1,4 @@
+import { commitProductWrite } from "./localProductWriteBatch";
 import { isJsonObject, parseJson, type JsonObject, type JsonValue, isString, isBoolean } from "../../shared/json";
 import { effectiveDocumentProcessingPolicy } from "./workspaceDocumentProcessing";
 import { handleWorkspaceDocumentProcessingSettings } from "./workspaceDocumentProcessingHttp";
@@ -127,7 +128,7 @@ export function createLocalApplication({
   /** The session-only Evaluation library; it applies its own origin, body and no-store rules. */
   evaluationDocuments?: { handle(request: Request): Promise<Response> };
   auth?: LocalAuth;
-  diagnostics?: () => JsonObject;
+  diagnostics?: () => JsonObject | Promise<JsonObject>;
   jobPageSize?: number;
   maxSourceFileBytes?: number;
   maxJsonRequestBytes?: number;
@@ -171,7 +172,7 @@ export function createLocalApplication({
 
     if (auth) {
       product = {
-        auth,
+              auth,
         access: createLocalWorkspaceProductDataAccess({ registry, operations }),
         operations,
         sourceFileStore: files,
@@ -239,7 +240,7 @@ export function createLocalApplication({
 
       const health: HealthResponse = { ok: true, service: "document-extraction-api" };
 
-      if (diagnostics) health.diagnostics = diagnostics();
+      if (diagnostics) health.diagnostics = await diagnostics();
 
       return Response.json(health);
     }
@@ -523,7 +524,7 @@ function handleTemplateGeneration({
       temporaryPath = sample.source.temporaryPath;
 
       if (sample.source.mimeType === "application/pdf") {
-        await countLocalSourceFilePages(sample.source.mimeType, await Bun.file(temporaryPath).arrayBuffer(), signal);
+        await countLocalSourceFilePages(sample.source.mimeType, temporaryPath, signal);
       }
 
       const template = await generateTemplate(
@@ -720,6 +721,9 @@ function handleLocalDocumentSubmission({
     request,
     async ({ store: productStore, signal: workspaceSignal, workspace }) => {
       const workspaceId = workspace.id;
+
+      const accept = <T>(operation: () => T) => commitProductWrite(productStore, workspaceSignal, operation);
+
       // Captured once, when the server begins accepting the upload; later setting changes apply to later uploads.
       const sourceRetained = retainsNewOriginals(sourceStorage, workspace);
       const maximumBytes = workspace.max_source_file_bytes ?? maxSourceFileBytes;
@@ -774,9 +778,7 @@ function handleLocalDocumentSubmission({
 
           if (templateId && !template) throw new HttpError(404, "template_not_found", "Template not found");
 
-          if (temporaryPath && sourceMimeType === "application/pdf")
-            sourceBytes = await Bun.file(temporaryPath).arrayBuffer();
-          let sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, sourceBytes!, signal);
+          let sourceFilePageCount = await countLocalSourceFilePages(sourceMimeType, temporaryPath ?? sourceBytes!, signal);
 
           if (pages) validatePdfPageSelection(pages, sourceFilePageCount!);
 
@@ -791,7 +793,7 @@ function handleLocalDocumentSubmission({
             : [];
 
           if (pages && !isPacket) {
-            const selected = await materializePdfPages(sourceBytes!, pages, signal);
+            const selected = await materializePdfPages(temporaryPath ? Bun.file(temporaryPath) : sourceBytes!, pages, signal);
             sourceBytes = Uint8Array.from(selected).buffer;
             sourceFilePageCount = pages.length;
 
@@ -834,7 +836,7 @@ function handleLocalDocumentSubmission({
             let packet;
 
             try {
-              packet = productStore.createDocumentPacket({
+              packet = await accept(() => productStore.createDocumentPacket({
                 packetId: jobId,
                 templateId: template?.template_id ?? null,
                 templateVersion: template?.template_version ?? null,
@@ -848,7 +850,7 @@ function handleLocalDocumentSubmission({
                 sourceRetained,
                 retainedObjectKey,
                 submittedAt,
-              });
+              }));
             } catch (error) {
               if (!productStore.getDocumentPacket(jobId)) {
                 if (retainedObjectKey) product.sourceObjects!.manifest.markDeleting({ objectKey: retainedObjectKey });
@@ -904,7 +906,7 @@ function handleLocalDocumentSubmission({
             if (templateTags.length || !template) submission.templateTags = templateTags;
 
             if (pages) submission.sourcePages = pages;
-            queued = productStore.createQueuedExtractionJob(submission);
+            queued = await accept(() => productStore.createQueuedExtractionJob(submission));
           } catch (error) {
             // Only an uncommitted job may release its files; a committed one owns them.
             if (!productStore.getExtractionJobSummary(jobId)) {
@@ -1831,7 +1833,7 @@ async function authorizeLocalProductRequest(
 
 export async function countLocalSourceFilePages(
   sourceMimeType: string,
-  sourceBytes: ArrayBuffer,
+  sourceBytes: ArrayBuffer | string,
   signal?: AbortSignal,
 ): Promise<number | null> {
   if (sourceMimeType !== "application/pdf") return null;

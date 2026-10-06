@@ -1,0 +1,180 @@
+{
+  "command": "LOOPBACK_BENCH_DURATION_SECONDS=40 LOOPBACK_BENCH_WARMUP_SECONDS=14 LOOPBACK_BENCH_MODES=inline-pdf LOOPBACK_BENCH_SCENARIOS=explicit LOOPBACK_BENCH_RUNNER_CONCURRENCY=96 LOOPBACK_BENCH_SUBMITTERS=48 LOOPBACK_BENCH_BACKLOG=2000 LOOPBACK_BENCH_GATEWAY_LATENCY_MS=7000 LOOPBACK_BENCH_RESPONSE_ANSWER_BYTES=0 LOOPBACK_BENCH_INLINE_PAYLOAD_BYTES=1048576 LOOPBACK_BENCH_CPU_PROFILE=true LOOPBACK_BENCH_MEMORY_LIMIT_RATIO=0.25 LOOPBACK_BENCH_PREPARATION_MAX_BYTES=536870912 LOOPBACK_BENCH_RENDER_PAGES=2 LOOPBACK_BENCH_DRAIN_TIMEOUT_SECONDS=180 bun run benchmark:loopback-saturation",
+  "generatedAt": "2026-10-05T21:33:16.122Z",
+  "host": {
+    "architecture": "x64",
+    "cpuCount": 6,
+    "cpuModel": "Intel Core Processor (Haswell, no TSX)",
+    "memoryBytes": 12238245888,
+    "platform": "linux"
+  },
+  "repositoryRevision": "63659401fa8fceccf2ecf53fa56b052dd7bac19e",
+  "runtime": {
+    "version": "1.4.2",
+    "revision": "744846f844374847c902b5e7fd59b4342a51ef99",
+    "processor": "go",
+    "pngEncoder": "fast",
+    "pdfWorkers": null,
+    "modelConcurrency": 1500
+  },
+  "processingLimits": {
+    "inspection": {
+      "sourceBytes": 33554432,
+      "reservedSourceBytes": 67108864,
+      "decodedStreamBytes": 16777216,
+      "decodedAllocations": 33554432,
+      "copiedBytes": 67108864,
+      "scannedBytes": 67108864,
+      "tokenBytes": 262144,
+      "totalTokenBytes": 8388608,
+      "objects": 100000,
+      "nesting": 64,
+      "streamEntries": 50000,
+      "pages": 10000,
+      "wallTimeMs": 5000,
+      "concurrent": 8,
+      "queued": 8,
+      "workerDocuments": 128,
+      "workerSourceBytes": 268435456,
+      "workerRssBytes": 134217728,
+      "workerIdleMs": 5000
+    },
+    "pageOperations": {
+      "sourceBytes": 33554432,
+      "artifactBytes": 33554432,
+      "totalArtifactBytes": 67108864,
+      "previewBytes": 16777216,
+      "groups": 100,
+      "pages": 10000,
+      "wallTimeMs": 20000,
+      "concurrent": 4,
+      "queued": 8,
+      "metadataBytes": 131072,
+      "workerDocuments": 32,
+      "workerSourceBytes": 67108864,
+      "workerRssBytes": 134217728,
+      "workerIdleMs": 5000
+    }
+  },
+  "results": [
+    {
+      "admission": {
+        "acceptedUploadsPerSecond": 53.46153846153846,
+        "responseP50Ms": 475.63853100000415,
+        "responseP95Ms": 706.1756779999996,
+        "responseMaxMs": 1284.6877760000025
+      },
+      "accepted": 2428,
+      "scenario": "explicit",
+      "jobsPerSubmission": 1,
+      "app": {
+        "peakProcessTreeRssBytes": 3706814464,
+        "peakProcessTreeCpuCoreEquivalents": 6.747999999999999,
+        "minimumPermits": 0,
+        "peakCpuCoreEquivalents": 1.65,
+        "peakEventLoopLagMs": 111,
+        "peakHealthNormalizedCpu": 0.19928218677301426,
+        "peakRssBytes": 3133947904
+      },
+      "client": {
+        "cpuCoreEquivalents": 0.15989017774555636,
+        "networkErrors": 0,
+        "rejected": 593,
+        "unexpectedResponses": []
+      },
+      "drainElapsedMs": 1570,
+      "fixture": {
+        "bytes": 1052228,
+        "pages": 2,
+        "sha256": "66f2d39684cdd26616a788a3981f4b2886b3779d2b96248126776fa9f0f2180f"
+      },
+      "gateway": {
+        "active": 0,
+        "bytesReceived": 3409934188,
+        "cpuCoreEquivalents": 0.4869684422188445,
+        "cpuSystemMs": 8403.597,
+        "cpuUserMs": 12215.508,
+        "elapsedMs": 42341.768402999995,
+        "peakActive": 599,
+        "peakRssBytes": 202067968,
+        "requests": 2428,
+        "requestsByStage": {
+          "extraction": 2428,
+          "classification": 0,
+          "splitting": 0
+        },
+        "invalidRequests": 0
+      },
+      "loadElapsedMs": 40001,
+      "loadStartedAt": "2026-10-05T21:32:33.799Z",
+      "loadStoppedAt": "2026-10-05T21:33:13.800Z",
+      "mode": "inline-pdf",
+      "observations": 41,
+      "profile": {
+        "path": "/home/ubuntu/local-document-extraction/.scratch/loopback-gateway-saturation/runs/2026-10-05T21-32-31-753Z/inline-pdf/explicit/profile/app-cpu.md",
+        "topFunctions": [
+          "26.2% — 11.13s — 26.2% — 11.13s — `run` — `[native code]`",
+          "8.0% — 3.42s — 8.0% — 3.42s — `onNativePullFulfilled` — `[native code]`",
+          "7.9% — 3.37s — 7.9% — 3.37s — `get` — `[native code]`",
+          "5.4% — 2.31s — 5.4% — 2.31s — `prepare` — `[native code]`",
+          "3.8% — 1.64s — 53.6% — 22.75s — `(anonymous)` — `[native code]`",
+          "2.1% — 901.8ms — 3.6% — 1.56s — `feed` — `/home/ubuntu/.bun/install/cache/links/streamsearch@1.1.0-245f0792a8fe1294/node_modules/streamsearch/lib/sbmh.js:248`",
+          "2.0% — 854.5ms — 2.8% — 1.19s — `feed` — `/home/ubuntu/.bun/install/cache/links/streamsearch@1.1.0-245f0792a8fe1294/node_modules/streamsearch/lib/sbmh.js:219`",
+          "1.9% — 820.7ms — 1.9% — 820.7ms — `all` — `[native code]`",
+          "1.3% — 564.8ms — 1.5% — 636.9ms — `async (anonymous)` — `/home/ubuntu/local-document-extraction/backend/src/localApplication.ts:247`",
+          "1.0% — 428.7ms — 1.0% — 428.7ms — `memoryUsage` — `[native code]`",
+          "0.8% — 378.1ms — 0.8% — 378.1ms — `defineProperties` — `[native code]`",
+          "0.8% — 374.1ms — 0.8% — 374.1ms — `Buffer` — `[native code]`"
+        ]
+      },
+      "queue": {
+        "peakWaiting": 598,
+        "peakInFlight": 661,
+        "peakActive": 76,
+        "peakPending": 0
+      },
+      "serverTiming": {
+        "completed": 2428,
+        "failed": 0,
+        "other": 0,
+        "lifecycleP50Ms": 7778,
+        "lifecycleP95Ms": 8031,
+        "measurementCompleted": 1977,
+        "measurementJobsPerSecond": 76.03553709472712,
+        "completionSpanJobsPerSecond": 73.11782604766066,
+        "submissions": {
+          "completed": 2428,
+          "failed": 0,
+          "other": 0,
+          "lifecycleP50Ms": 7778,
+          "lifecycleP95Ms": 8031,
+          "measurementCompleted": 1977,
+          "measurementJobsPerSecond": 76.03553709472712,
+          "completionSpanJobsPerSecond": 73.11782604766066
+        }
+      },
+      "stateDirectory": "/home/ubuntu/local-document-extraction/.scratch/loopback-gateway-saturation/runs/2026-10-05T21-32-31-753Z/inline-pdf/explicit/state"
+    }
+  ],
+  "settings": {
+    "cpuProfile": true,
+    "memoryLimitRatio": 0.25,
+    "preparationMaxBytes": 536870912,
+    "scenarios": [
+      "explicit"
+    ],
+    "backlog": 2000,
+    "drainTimeoutSeconds": 180,
+    "durationSeconds": 40,
+    "gatewayLatencyMs": 7000,
+    "responseAnswerBytes": 0,
+    "inlinePayloadBytes": 1048576,
+    "modes": [
+      "inline-pdf"
+    ],
+    "renderPages": 2,
+    "runnerConcurrency": 96,
+    "submitters": 48,
+    "warmupSeconds": 14
+  }
+}

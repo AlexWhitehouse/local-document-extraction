@@ -7,10 +7,11 @@ import { Database } from "bun:sqlite";
 
 import { createLocalAuth } from "./localAuth";
 import { RetryableError } from "./consumer/modelGateway";
-import { createLocalExtractionRunner } from "./localExtractionRunner";
+import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import type { LocalWorkspaceExtractionJobSummary } from "./localWorkspaceProductStore";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
+import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";
 import { createConfiguredTestProductStore as createLocalWorkspaceProductStore } from "./testing/workspaceModelFixture";
@@ -152,6 +153,7 @@ test("late queue deliveries after hard deletion do not recreate a Workspace prod
 });
 
 test("a retryable extraction failure does not requeue work after its Workspace is deleted", async () => {
+  const workspaceProductOperations = createLocalWorkspaceProductOperations();
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-late-retry-"));
   const database = new Database(":memory:");
 
@@ -226,6 +228,7 @@ test("a retryable extraction failure does not requeue work after its Workspace i
     });
 
     const runner = createLocalExtractionRunner({
+      workspaceProductOperations,
       extract: async () => {
         extractionStarted();
 
@@ -254,16 +257,21 @@ test("a retryable extraction failure does not requeue work after its Workspace i
     });
 
     await extractionStartedPromise;
-    await createLocalWorkspaceDeletion({
+
+    const deletion = createLocalWorkspaceDeletion({
+      workspaceProductOperations,
       sourceFileStore: sourceFiles,
       stateDirectory,
       workspaceControl,
-    }).deleteWorkspace({
+    });
+
+    const deleting = deletion.deleteWorkspace({
       workspaceId: retryWorkspace.workspace_id,
       userId: user.user.id,
     });
+
     failExtraction(new RetryableError("Temporary model failure"));
-    await running;
+    await Promise.all([running, deleting]);
 
     expect(scheduledJobs).toEqual([]);
     expect(analyticsEvents).toEqual([]);

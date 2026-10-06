@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createLocalWorkspaceProductStore } from "./localWorkspaceProductStore";
-import { createLocalExtractionRunner } from "./localExtractionRunner";
+import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 
 test("each claimed attempt checks configuration before reading Source bytes, without gateway retries or outcomes", async () => {

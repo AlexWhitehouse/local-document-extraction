@@ -216,8 +216,9 @@ Set both Cloudflare values or neither, even with local email.
 | `SUBMISSION_MAX_RESERVED_BYTES` | 128 MiB (`134217728`) | Total space shared by uploads in progress. Must be at least `MAX_SOURCE_FILE_BYTES + 40960` (40 KiB of multipart overhead). |
 | `MODEL_GATEWAY_REQUEST_TIMEOUT_MS` | 5 minutes (`300000`) | How long to wait for the model to answer. |
 | `EXTRACTION_RETRY_DELAY_MS` | `1000` | Wait before retrying after a temporary model failure. |
-| `EXTRACTION_MAX_CONCURRENCY` | `16` | How many documents are extracted at once, to start with. |
-| `EXTRACTION_MAX_CONCURRENCY_LIMIT` | `32` | The most documents extracted at once when adaptive concurrency scales up. |
+| `EXTRACTION_MAX_CONCURRENCY` | CPU/RAM-derived | Initial local processing permits; provider waits release these permits. |
+| `EXTRACTION_MAX_CONCURRENCY_LIMIT` | CPU/RAM-derived | Maximum local permits when adaptive concurrency scales up. |
+| `GO_MODEL_CONCURRENCY` | `24`, or explicit `EXTRACTION_MAX_CONCURRENCY` | Independent maximum simultaneous model requests. |
 | `EXTRACTION_ADAPTIVE_CONCURRENCY` | `true` | Scale the number of simultaneous extractions up or down with the machine's load. |
 | `EXTRACTION_MAX_BUFFERED` | `10000` | How many queued jobs are held in memory. All jobs are also stored in the database. |
 | `EXTRACTION_RECONCILE_INTERVAL_MS` | 1 minute (`60000`) | How often the queue is checked against the database to pick up missed work. |
@@ -297,3 +298,5 @@ The browser shows a single-page upload or an accepted one-document split as a no
 One-page PDF uploads skip splitting and blank-page checks and create ordinary extraction jobs. The API exposes a packet for multi-page PDF uploads accepted with splitting enabled, even if only one page is selected. This includes one-child and all-blank results.
 
 Members can view effective settings under **Workspaces → Document processing**. Owners and admins can change the toggles. To resolve a held document, open it in **Documents**. Select a Template or confirm its page groups. See [Reviewing documents](../mkdocs/docs/usage/document-extraction.md#progress-and-review) for browser steps. See the [packet API](../mkdocs/docs/api/overview.md#document-packets-and-review) to poll progress from an integration.
+
+The standard [Go document processor](../backend-go/README.md) uses separate renderer, upload, provider, response-memory and prepared-file budgets. Local permits default to the minimum of 16×CPU count, 256, and RAM divided by 128 MiB (at least one). Renderer workers preserve exact pixels and recycle after 128 operations, 64 MiB source input or 384 MiB sampled RSS. Downgrades to application versions without logical PDF Sources are unsupported.

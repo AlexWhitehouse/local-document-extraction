@@ -60,7 +60,7 @@ const files = [
       .filter(
         (file) =>
           roots.has(file) ||
-          /^(backend|frontend|shared|scripts|docs|mkdocs|e2e|postman|\.github)\//.test(file) ||
+          /^(backend-go|backend|frontend|shared|scripts|docs|mkdocs|e2e|postman|\.github)\//.test(file) ||
           file.startsWith("tools/oxlint/anti-slop/"),
       ),
   ),
@@ -78,12 +78,15 @@ for (const required of [
   "scripts/install.sh",
   "scripts/installApplication.ts",
   "backend/src/checkConfiguration.ts",
+  "backend-go/go.mod",
+  "backend-go/cmd/document-extraction/main.go",
+  "scripts/buildGo.ts",
   "oxlint.config.ts",
   "tools/oxlint/anti-slop/index.ts",
   "tools/oxlint/anti-slop/LICENSE",
   "tools/oxlint/anti-slop/UPSTREAM.md",
 ]) {
-  if (!files.includes(required)) throw new Error(`Required release file is missing: ${required}`);
+  if (!files.includes(required) || !(await Bun.file(join(root, required)).exists())) throw new Error(`Required release file is missing: ${required}`);
 }
 
 const staging = await mkdtemp(join(tmpdir(), "document-extraction-release-"));
@@ -92,12 +95,27 @@ try {
   for (const file of files) {
     const source = join(root, file);
 
+    if (!(await Bun.file(source).exists())) continue;
+
     if (!(await lstat(source)).isFile()) throw new Error(`Release entry is not a regular file: ${file}`);
 
     if (!(await realpath(source)).startsWith(`${canonicalRoot}/`))
       throw new Error(`Release entry escapes the checkout: ${file}`);
     await mkdir(dirname(join(staging, file)), { recursive: true });
     await copyFile(source, join(staging, file));
+  }
+
+  for (const [platform, goos] of [["linux", "linux"], ["darwin", "darwin"]]) {
+    for (const [architecture, goarch] of [["x64", "amd64"], ["arm64", "arm64"]]) {
+      const destination = join(staging, "backend-go", "bin", `${platform}-${architecture}`, "document-extraction");
+      await mkdir(dirname(destination), { recursive: true });
+
+      const result = spawnSync("go", ["build", "-trimpath", "-o", destination, "./cmd/document-extraction"], {
+        cwd: join(root, "backend-go"), stdio: "inherit", env: { ...process.env, CGO_ENABLED: "0", GOOS: goos, GOARCH: goarch },
+      });
+
+      if (result.error || result.status !== 0) throw new Error(`Could not build processor for ${platform}-${architecture}`);
+    }
   }
 
   const revision = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim();

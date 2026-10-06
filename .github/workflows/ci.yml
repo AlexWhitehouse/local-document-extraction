@@ -75,6 +75,11 @@ jobs:
           bun --version
           bun --revision
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend-go/go.mod
+          cache-dependency-path: backend-go/go.mod
+
       - name: Install dependencies
         run: bun ci
 
@@ -141,6 +146,28 @@ jobs:
           name: backend-test-parallel-${{ matrix.os }}
           path: backend-test-parallel-${{ matrix.os }}.md
 
+  go-processing:
+    name: Go document processing
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend-go/go.mod
+          cache-dependency-path: backend-go/go.mod
+      - run: bun ci
+      - name: Verify Go formatting
+        run: test -z "$(gofmt -l backend-go)"
+      - name: Go race checks and processing integration
+        run: bun run test:go
+
   backend-flake:
     name: Backend randomized repetition lane
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -154,6 +181,11 @@ jobs:
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend-go/go.mod
+          cache-dependency-path: backend-go/go.mod
 
       - name: Install dependencies
         run: bun ci
@@ -171,6 +203,9 @@ jobs:
           name: package-hygiene-ubuntu-24.04-${{ github.job }}
           if-no-files-found: error
           path: .scratch/ci/package-hygiene/
+
+      - name: Build document processor
+        run: bun run build:go
 
       - name: Run randomized repeated backend tests
         run: bun run --cwd backend test:bun:flake
@@ -199,6 +234,11 @@ jobs:
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend-go/go.mod
+          cache-dependency-path: backend-go/go.mod
 
       - name: Install dependencies
         run: bun ci

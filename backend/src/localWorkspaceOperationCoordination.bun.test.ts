@@ -174,7 +174,8 @@ test("Workspace deletion drains admitted product work and rejects new product HT
     }
 
     releaseSourceWrite();
-    expect((await admittedSubmission).status).toBe(202);
+    // Deletion cancels the pending durable commit before acceptance.
+    expect((await admittedSubmission).status).toBe(499);
     expect((await deletion).status).toBe(200);
     await expect(
       stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`)),

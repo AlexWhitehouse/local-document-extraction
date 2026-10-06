@@ -1,0 +1,174 @@
+{
+  "label": "rendered-repeat",
+  "configuration": {
+    "GO_INTAKE": "0",
+    "GO_MODEL_CONCURRENCY": "96",
+    "LOOPBACK_BENCH_MODES": "rendered-pages",
+    "LOOPBACK_BENCH_SCENARIOS": "split-automatic",
+    "LOOPBACK_BENCH_GATEWAY_LATENCY_MS": "0",
+    "LOOPBACK_BENCH_BACKLOG": "192",
+    "LOOPBACK_BENCH_SUBMITTERS": "24",
+    "LOOPBACK_BENCH_DURATION_SECONDS": "40",
+    "LOOPBACK_BENCH_WARMUP_SECONDS": "10"
+  },
+  "runDirectory": "/home/ubuntu/local-document-extraction/.scratch/loopback-gateway-saturation/runs/2026-10-05T23-00-03-936Z",
+  "results": [
+    {
+      "admission": {
+        "acceptedUploadsPerSecond": 15.033333333333333,
+        "responseP50Ms": 1024.1909929999965,
+        "responseP95Ms": 1447.237924000001,
+        "responseMaxMs": 2148.116693
+      },
+      "accepted": 659,
+      "scenario": "split-automatic",
+      "jobsPerSubmission": 2,
+      "app": {
+        "peakProcessTreeRssBytes": 2392297472,
+        "peakProcessTreeCpuCoreEquivalents": 8.024,
+        "minimumPermits": 96,
+        "peakCpuCoreEquivalents": 1.64,
+        "peakEventLoopLagMs": 64,
+        "peakHealthNormalizedCpu": 0.16256140350877193,
+        "peakRssBytes": 194588672
+      },
+      "client": {
+        "cpuCoreEquivalents": 0.038459475,
+        "networkErrors": 0,
+        "rejected": 39,
+        "unexpectedResponses": []
+      },
+      "drainElapsedMs": 9922,
+      "fixture": {
+        "bytes": 2946,
+        "pages": 2,
+        "sha256": "eb608f2d970cd2294192b24d589dcc996897356388a8aacc42fd38e12d7d908c"
+      },
+      "gateway": {
+        "active": 0,
+        "bytesReceived": 1073603260,
+        "cpuCoreEquivalents": 0.15741140395556374,
+        "cpuSystemMs": 2533.734,
+        "cpuUserMs": 5428.993,
+        "elapsedMs": 50585.451879,
+        "peakActive": 35,
+        "peakRssBytes": 151805952,
+        "requests": 3295,
+        "requestsByStage": {
+          "extraction": 1318,
+          "classification": 1318,
+          "splitting": 659
+        },
+        "invalidRequests": 0
+      },
+      "loadElapsedMs": 40000,
+      "loadStartedAt": "2026-10-05T23:00:05.798Z",
+      "loadStoppedAt": "2026-10-05T23:00:45.798Z",
+      "mode": "rendered-pages",
+      "observations": 48,
+      "profile": {
+        "path": null,
+        "topFunctions": []
+      },
+      "queue": {
+        "peakWaiting": 180,
+        "peakInFlight": 191,
+        "peakActive": 96,
+        "peakPending": 182
+      },
+      "serverTiming": {
+        "completed": 1318,
+        "failed": 0,
+        "other": 0,
+        "lifecycleP50Ms": 2945,
+        "lifecycleP95Ms": 6358,
+        "measurementCompleted": 931,
+        "measurementJobsPerSecond": 31.033333333333335,
+        "completionSpanJobsPerSecond": 28.096,
+        "submissions": {
+          "completed": 659,
+          "failed": 0,
+          "other": 0,
+          "lifecycleP50Ms": 12241,
+          "lifecycleP95Ms": 19963,
+          "measurementCompleted": 461,
+          "measurementJobsPerSecond": 15.366666666666667,
+          "completionSpanJobsPerSecond": 14.038531288003242
+        }
+      },
+      "stateDirectory": "/home/ubuntu/local-document-extraction/.scratch/loopback-gateway-saturation/runs/2026-10-05T23-00-03-936Z/rendered-pages/split-automatic/state"
+    }
+  ],
+  "settings": {
+    "cpuProfile": false,
+    "memoryLimitRatio": 0.25,
+    "preparationMaxBytes": 536870912,
+    "scenarios": [
+      "split-automatic"
+    ],
+    "backlog": 192,
+    "drainTimeoutSeconds": 180,
+    "durationSeconds": 40,
+    "gatewayLatencyMs": 0,
+    "resultFields": 1,
+    "responseAnswerBytes": 0,
+    "inlinePayloadBytes": 1048576,
+    "modes": [
+      "rendered-pages"
+    ],
+    "renderPages": 2,
+    "runnerConcurrency": 96,
+    "submitters": 24,
+    "warmupSeconds": 10
+  },
+  "runtime": {
+    "version": "1.4.2",
+    "revision": "744846f844374847c902b5e7fd59b4342a51ef99",
+    "processor": "go",
+    "pngEncoder": "fast",
+    "pdfWorkers": null,
+    "modelConcurrency": 96
+  },
+  "lastObservedProcessor": {
+    "active": 44,
+    "completed": 1911,
+    "failed": 0,
+    "materialize_operations": 0,
+    "model_in_flight": 6,
+    "page_cache": {
+      "bytes": 7085461,
+      "hits": 1295,
+      "limit": 536870912,
+      "misses": 1318,
+      "pages": 35
+    },
+    "pdf_operations": 659,
+    "pdf_process_starts": 6,
+    "pid": 2985850,
+    "prepared_artifact_bytes": 10916910,
+    "prepared_results": 0,
+    "render_operations": 659,
+    "renderer": {
+      "encode_micros": 304083225,
+      "load_micros": 6474563,
+      "operations": 659,
+      "pages": 1318,
+      "peak_worker_rss": 318345216,
+      "raster_micros": 85375761,
+      "recycles": 0,
+      "starts": 6
+    },
+    "response_buffer_bytes": 3230,
+    "uploading": 5
+  },
+  "audit": {
+    "expectedStageCounts": {
+      "extraction": 1318,
+      "classification": 1318,
+      "splitting": 659
+    },
+    "acceptedWorkDrained": true,
+    "persistedResultRows": 1318,
+    "allExpectedAnswersPersisted": true
+  }
+}

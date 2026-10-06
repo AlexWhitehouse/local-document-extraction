@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { createLocalAuth } from "./localAuth";
-import { createLocalExtractionRunner } from "./localExtractionRunner";
+import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";

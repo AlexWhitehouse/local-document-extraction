@@ -1,0 +1,310 @@
+{
+  "results": [
+    {
+      "name": "text-color",
+      "width": 1190,
+      "height": 1684,
+      "milliseconds": {
+        "pdfjs": [
+          368.1962239999999,
+          125.74510700000019,
+          104.54001500000004,
+          106.03875199999993
+        ],
+        "mupdf": [
+          113.87736299999983,
+          77.16830600000003,
+          82.08825200000001,
+          75.25772599999982
+        ],
+        "poppler": [
+          407.65190700000016,
+          363.2775140000001,
+          342.95317399999976,
+          337.2750350000001
+        ]
+      },
+      "comparisons": [
+        {
+          "engine": "mupdf",
+          "sameDimensions": true,
+          "width": 1190,
+          "height": 1684,
+          "differentPixels": 118012,
+          "rmse": 8.699897138401514
+        },
+        {
+          "engine": "poppler",
+          "sameDimensions": true,
+          "width": 1190,
+          "height": 1684,
+          "differentPixels": 111621,
+          "rmse": 13.933744131906677
+        }
+      ]
+    },
+    {
+      "name": "scan",
+      "width": 1190,
+      "height": 1684,
+      "milliseconds": {
+        "pdfjs": [
+          429.54829500000005,
+          444.7726789999997,
+          385.1086000000005,
+          365.154364
+        ],
+        "mupdf": [
+          109.31376900000032,
+          121.64841999999953,
+          106.61221999999998,
+          114.05828500000007
+        ],
+        "poppler": [
+          455.8855600000006,
+          464.35698799999955,
+          489.4388140000001,
+          462.4107789999998
+        ]
+      },
+      "comparisons": [
+        {
+          "engine": "mupdf",
+          "sameDimensions": true,
+          "width": 1190,
+          "height": 1684,
+          "differentPixels": 2199,
+          "rmse": 1.552223612009389
+        },
+        {
+          "engine": "poppler",
+          "sameDimensions": true,
+          "width": 1190,
+          "height": 1684,
+          "differentPixels": 170824,
+          "rmse": 12.523147005141857
+        }
+      ]
+    },
+    {
+      "name": "crop-rotate",
+      "width": 1300,
+      "height": 800,
+      "milliseconds": {
+        "pdfjs": [
+          252.84242300000096,
+          219.81056100000023,
+          232.33237000000008,
+          210.84148300000015
+        ],
+        "mupdf": [
+          37.992825999999695,
+          42.427787000000535,
+          38.707610000001296,
+          40.22527600000103
+        ],
+        "poppler": [
+          109.60929700000088,
+          119.31662300000062,
+          168.1164200000003,
+          115.36899899999844
+        ]
+      },
+      "comparisons": [
+        {
+          "engine": "mupdf",
+          "sameDimensions": true,
+          "width": 1300,
+          "height": 800,
+          "differentPixels": 4524,
+          "rmse": 4.695450718719458
+        },
+        {
+          "engine": "poppler",
+          "sameDimensions": true,
+          "width": 1300,
+          "height": 800,
+          "differentPixels": 3682,
+          "rmse": 2.291811353241395
+        }
+      ]
+    },
+    {
+      "name": "form",
+      "width": 1190,
+      "height": 1684,
+      "milliseconds": {
+        "pdfjs": [
+          430.0738509999992,
+          387.8664809999991,
+          412.9863350000014,
+          376.3085800000008
+        ],
+        "mupdf": [
+          79.03168800000094,
+          73.72204799999963,
+          68.20789899999909,
+          92.05253799999991
+        ],
+        "poppler": [
+          199.3289019999993,
+          161.10304700000052,
+          173.64862399999947,
+          183.3916820000013
+        ]
+      },
+      "comparisons": [
+        {
+          "engine": "mupdf",
+          "sameDimensions": true,
+          "width": 1190,
+          "height": 1684,
+          "differentPixels": 6525,
+          "rmse": 4.808248823287086
+        },
+        {
+          "engine": "poppler",
+          "sameDimensions": true,
+          "width": 1190,
+          "height": 1684,
+          "differentPixels": 5334,
+          "rmse": 1.8673039624831187
+        }
+      ]
+    },
+    {
+      "name": "transparency",
+      "width": 1190,
+      "height": 1684,
+      "milliseconds": {
+        "pdfjs": [
+          52.121203999999125,
+          55.39417700000013,
+          57.857960999999705,
+          81.53552299999865
+        ],
+        "mupdf": [
+          64.03368199999932,
+          61.387290999999095,
+          72.52521900000102,
+          90.4146010000004
+        ],
+        "poppler": [
+          170.66496299999926,
+          161.64285399999972,
+          198.69551800000045,
+          196.65599800000018
+        ]
+      },
+      "comparisons": [
+        {
+          "engine": "mupdf",
+          "sameDimensions": true,
+          "width": 1190,
+          "height": 1684,
+          "differentPixels": 7113,
+          "rmse": 2.2354146504070953
+        },
+        {
+          "engine": "poppler",
+          "sameDimensions": true,
+          "width": 1190,
+          "height": 1684,
+          "differentPixels": 5588,
+          "rmse": 0.6115116196829017
+        }
+      ]
+    },
+    {
+      "name": "large-page",
+      "width": 2048,
+      "height": 1639,
+      "milliseconds": {
+        "pdfjs": [
+          610.1424889999998,
+          713.7103599999991,
+          662.3887139999988,
+          670.6658779999998
+        ],
+        "mupdf": [
+          98.4454139999998,
+          103.77923799999917,
+          132.44942900000024,
+          107.20165899999847
+        ],
+        "poppler": [
+          238.92361500000152,
+          217.0946500000009,
+          242.07759499999884,
+          248.4140750000006
+        ]
+      },
+      "comparisons": [
+        {
+          "engine": "mupdf",
+          "sameDimensions": true,
+          "width": 2048,
+          "height": 1639,
+          "differentPixels": 2714,
+          "rmse": 1.5628284575072144
+        },
+        {
+          "engine": "poppler",
+          "sameDimensions": true,
+          "width": 2048,
+          "height": 1639,
+          "differentPixels": 2499,
+          "rmse": 0.65917038059705
+        }
+      ]
+    },
+    {
+      "name": "jbig2",
+      "width": 1191,
+      "height": 1684,
+      "milliseconds": {
+        "pdfjs": [
+          432.05694199999925,
+          450.5961380000008,
+          474.2565849999992,
+          413.2147270000023
+        ],
+        "mupdf": [
+          84.17972499999814,
+          59.70496600000115,
+          63.149428000000626,
+          71.38649900000019
+        ],
+        "poppler": [
+          165.08914000000004,
+          160.34715399999914,
+          135.93859599999996,
+          160.6541709999983
+        ]
+      },
+      "comparisons": [
+        {
+          "engine": "mupdf",
+          "sameDimensions": true,
+          "width": 1191,
+          "height": 1684,
+          "differentPixels": 1918,
+          "rmse": 6.829174173110522
+        },
+        {
+          "engine": "poppler",
+          "sameDimensions": true,
+          "width": 1191,
+          "height": 1684,
+          "differentPixels": 3429,
+          "rmse": 9.131195272641133
+        }
+      ]
+    }
+  ],
+  "versions": {
+    "mupdf": "mutool version 1.27.0",
+    "poppler": "pdftoppm version 26.01.0\nCopyright 2005-2026 The Poppler Developers - http://poppler.freedesktop.org\nCopyright 1996-2011, 2022 Glyph & Cog, LLC"
+  },
+  "files": 28
+}

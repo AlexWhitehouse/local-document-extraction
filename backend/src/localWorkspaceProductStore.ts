@@ -257,6 +257,7 @@ export type LocalWorkspaceProductStore = DocumentProcessingStore &
       updatedAt: string;
     }): StoredWorkspaceModelConfiguration | null;
     clearModelConfiguration(expectedRevision: number): boolean;
+    batch?<T>(operation: () => T): T;
     diagnostics(): {
       busyTimeoutMs: number;
       foreignKeys: boolean;
@@ -495,6 +496,9 @@ const EVALUATION_DOCUMENT_SELECT = `${EVALUATION_DOCUMENT_SUMMARY_SELECT}, refer
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
 
 function createProductStore(database: Database): LocalWorkspaceProductStore {
+  // Processing, accounting and API reads share more than the runtime's default
+  // twenty SQL statements. Keep their bounded working set compiled.
+  Database.MAX_QUERY_CACHE_SIZE = Math.max(Database.MAX_QUERY_CACHE_SIZE, 128);
   database.exec("PRAGMA foreign_keys = ON");
   database.exec("PRAGMA busy_timeout = 250");
   database.exec("PRAGMA synchronous = FULL");
@@ -743,6 +747,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       .get(operationId);
 
   const store: LocalWorkspaceProductStore = {
+    batch: (operation) => database.transaction(operation).immediate(),
     ...processing,
     ...modelCosts,
     ...workspaceCosts,
@@ -1205,33 +1210,34 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
 
         if (!job || job.status !== "processing" || job.current_attempt !== input.attempt) return false;
 
-        const insertResult = database.query(
-          `INSERT INTO job_results (
-           job_id, field_id, status, answer_json, normalized_value, confidence, evidence_text, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(job_id, field_id)
-         DO UPDATE SET
-           status = excluded.status,
-           answer_json = excluded.answer_json,
-           normalized_value = excluded.normalized_value,
-           confidence = excluded.confidence,
-           evidence_text = excluded.evidence_text,
-           updated_at = excluded.updated_at`,
-        );
-
-        for (const row of input.results) {
-          insertResult.run(
-            input.jobId,
-            row.field_id,
-            row.status,
-            JSON.stringify(row.answer),
-            row.normalized_value,
-            row.confidence,
-            row.evidence,
-            input.completedAt,
-            input.completedAt,
+          const insertResult = database.query(
+            `INSERT INTO job_results (
+             job_id, field_id, status, answer_json, normalized_value, confidence, evidence_text, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(job_id, field_id)
+           DO UPDATE SET
+             status = excluded.status,
+             answer_json = excluded.answer_json,
+             normalized_value = excluded.normalized_value,
+             confidence = excluded.confidence,
+             evidence_text = excluded.evidence_text,
+             updated_at = excluded.updated_at`,
           );
-        }
+
+          for (const row of input.results) {
+            insertResult.run(
+              input.jobId,
+              row.field_id,
+              row.status,
+              JSON.stringify(row.answer),
+              row.normalized_value,
+              row.confidence,
+              row.evidence,
+              input.completedAt,
+              input.completedAt,
+            );
+          }
+
 
         return (
           database
