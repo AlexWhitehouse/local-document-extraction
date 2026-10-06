@@ -21,6 +21,7 @@ import {
   benchmarkTemplateTag,
   scenarioWorkload,
   simulateModelResponse,
+  benchmarkFieldId,
   submissionRetryDelayMs,
   summarizeOutcomes,
   waitForBenchmarkDrain,
@@ -32,6 +33,8 @@ import {
 type BenchmarkMode = "inline-pdf" | "rendered-pages";
 
 type ExtractionQueueSnapshot = {
+  waiting?: number;
+  inFlight?: number;
   active: number;
   deferred: number;
   maxConcurrent: number;
@@ -89,6 +92,8 @@ type BenchmarkSettings = {
   drainTimeoutSeconds: number;
   durationSeconds: number;
   gatewayLatencyMs: number;
+  responseAnswerBytes: number;
+  resultFields: number;
   inlinePayloadBytes: number;
   memoryLimitRatio: number;
   preparationMaxBytes: number;
@@ -111,7 +116,15 @@ type PersistedTiming = ReturnType<typeof summarizeOutcomes> & {
   submissions: ReturnType<typeof summarizeOutcomes>;
 };
 
+type AdmissionReport = {
+  acceptedUploadsPerSecond: number;
+  responseP50Ms: number;
+  responseP95Ms: number;
+  responseMaxMs: number;
+};
+
 type ModeResult = {
+  admission: AdmissionReport;
   accepted: number;
   scenario: BenchmarkScenario;
   jobsPerSubmission: number;
@@ -143,6 +156,8 @@ type ModeResult = {
     topFunctions: string[];
   };
   queue: {
+    peakWaiting: number;
+    peakInFlight: number;
     peakActive: number;
     peakPending: number;
   };
@@ -161,7 +176,7 @@ type BenchmarkEvidence = {
     platform: string;
   };
   repositoryRevision: string;
-  runtime: { version: string; revision: string };
+  runtime: { version: string; revision: string; processor: string; pngEncoder: string; pdfWorkers: string | null; modelConcurrency: number };
   processingLimits: { inspection: typeof PDF_INSPECTION_LIMITS; pageOperations: typeof PDF_PAGE_OPERATION_LIMITS };
   results: ModeResult[];
   settings: BenchmarkSettings;
@@ -239,6 +254,8 @@ async function runCoordinator(): Promise<void> {
       `LOOPBACK_BENCH_SUBMITTERS=${settings.submitters}`,
       `LOOPBACK_BENCH_BACKLOG=${settings.backlog}`,
       `LOOPBACK_BENCH_GATEWAY_LATENCY_MS=${settings.gatewayLatencyMs}`,
+      `LOOPBACK_BENCH_RESPONSE_ANSWER_BYTES=${settings.responseAnswerBytes}`,
+      `LOOPBACK_BENCH_RESULT_FIELDS=${settings.resultFields}`,
       `LOOPBACK_BENCH_INLINE_PAYLOAD_BYTES=${settings.inlinePayloadBytes}`,
       `LOOPBACK_BENCH_CPU_PROFILE=${settings.cpuProfile ? "true" : "false"}`,
       `LOOPBACK_BENCH_MEMORY_LIMIT_RATIO=${settings.memoryLimitRatio}`,
@@ -256,7 +273,7 @@ async function runCoordinator(): Promise<void> {
       platform: platform(),
     },
     repositoryRevision: await gitRevision(),
-    runtime: { version: Bun.version, revision: Bun.revision },
+    runtime: { version: Bun.version, revision: Bun.revision, processor: "go", pngEncoder: process.env.GO_PDF_PNG_ENCODER ?? "fast", pdfWorkers: process.env.GO_PDF_WORKERS ?? null, modelConcurrency: Number(process.env.GO_MODEL_CONCURRENCY ?? settings.runnerConcurrency) },
     processingLimits: { inspection: PDF_INSPECTION_LIMITS, pageOperations: PDF_PAGE_OPERATION_LIMITS },
     results,
     settings,
@@ -295,8 +312,8 @@ async function runMode({
   const fixtureIdentity = identityForFixture(fixture, settings.renderPages);
   const workload = scenarioWorkload(scenario, fixtureIdentity.pages);
   await writeFile(join(modeDirectory, "fixture.pdf"), fixture);
-  const workspace = await setupWorkspace(stateDirectory, mode);
-  const gateway = await startGateway(settings.gatewayLatencyMs);
+  const workspace = await setupWorkspace(stateDirectory, mode, settings.resultFields);
+  const gateway = await startGateway(settings.gatewayLatencyMs, settings.responseAnswerBytes, settings.resultFields);
   let app: Awaited<ReturnType<typeof startApplication>> | null = null;
 
   try {
@@ -379,6 +396,7 @@ async function runMode({
     const observations = load.observations;
 
     return {
+      admission: load.admission,
       accepted: load.accepted,
       scenario,
       jobsPerSubmission: workload.jobsPerSubmission,
@@ -421,6 +439,8 @@ async function runMode({
         topFunctions: readTopProfileFunctions(profileMarkdown),
       },
       queue: {
+        peakWaiting: max(observations.map((sample) => sample.health.diagnostics.extractionQueue.waiting ?? 0)),
+        peakInFlight: max(observations.map((sample) => sample.health.diagnostics.extractionQueue.inFlight ?? sample.health.diagnostics.extractionQueue.active)),
         peakActive: max(observations.map((sample) => sample.health.diagnostics.extractionQueue.active)),
         peakPending: max(observations.map((sample) => sample.health.diagnostics.extractionQueue.pending)),
       },
@@ -473,6 +493,7 @@ async function generateLoad({
   templateId: string;
   workspaceId: string;
 }): Promise<{
+  admission: AdmissionReport;
   accepted: number;
   clientCpuCoreEquivalents: number;
   drainElapsedMs: number;
@@ -488,6 +509,8 @@ async function generateLoad({
   let rejected = 0;
   let networkErrors = 0;
   let sequence = 0;
+  let measurementAccepted = 0;
+  const admissionDurations: number[] = [];
   const unexpectedResponses: string[] = [];
   const observations: Observation[] = [];
   const terminalJobIds = new Set<string>();
@@ -557,6 +580,7 @@ async function generateLoad({
         new File([fixtureBlob], `loopback-${submitter}-${index}.pdf`, { type: "application/pdf" }),
       );
       let response: Response;
+      const sentAt = performance.now();
 
       try {
         response = await fetch(`${app.origin}/v1/extract`, {
@@ -573,6 +597,12 @@ async function generateLoad({
       if (response.status === 202) {
         accepted += 1;
         const body = parseJson(await response.text());
+        const receivedAt = Date.now();
+
+        if (receivedAt >= loadStartedMs + settings.warmupSeconds * 1000 && receivedAt <= loadDeadline) {
+          measurementAccepted++;
+          admissionDurations.push(performance.now() - sentAt);
+        }
 
         if (!isJsonObject(body)) throw new Error("Submission did not return an object");
         const id = workload.splitting ? body.packet_id : body.job_id;
@@ -647,7 +677,16 @@ async function generateLoad({
     );
   }
 
+  admissionDurations.sort((left, right) => left - right);
+  const percentile = (fraction: number) => admissionDurations[Math.max(0, Math.ceil(admissionDurations.length * fraction) - 1)] ?? 0;
+
   return {
+    admission: {
+      acceptedUploadsPerSecond: measurementAccepted / (settings.durationSeconds - settings.warmupSeconds),
+      responseP50Ms: percentile(0.5),
+      responseP95Ms: percentile(0.95),
+      responseMaxMs: percentile(1),
+    },
     accepted,
     clientCpuCoreEquivalents,
     drainElapsedMs: Date.now() - drainStartedAt,
@@ -661,7 +700,7 @@ async function generateLoad({
   };
 }
 
-async function setupWorkspace(stateDirectory: string, mode: BenchmarkMode): Promise<WorkspaceSetup> {
+async function setupWorkspace(stateDirectory: string, mode: BenchmarkMode, fieldCount: number): Promise<WorkspaceSetup> {
   await ensureLocalStateDirectories(stateDirectory);
   const authSecret = "loopback-benchmark-auth-secret-0123456789";
   await writeFile(join(stateDirectory, "data", "better-auth-secret"), `${authSecret}\n`, {
@@ -764,14 +803,12 @@ async function setupWorkspace(stateDirectory: string, mode: BenchmarkMode): Prom
       productStore.createTemplate({
         createdAt: new Date().toISOString(),
         description: "Synthetic loopback saturation benchmark Template",
-        fields: [
-          {
-            data_type: "string",
+        fields: Array.from({ length: fieldCount }, (_, index) => ({
+            data_type: "string" as const,
             description: "Synthetic benchmark reference",
-            id: "reference",
-            name: "Reference",
-          },
-        ],
+            id: benchmarkFieldId(index),
+            name: index === 0 ? "Reference" : `Reference ${index + 1}`,
+          })),
         name: "Loopback saturation",
         tags: [benchmarkTemplateTag],
         templateId,
@@ -796,6 +833,8 @@ async function setupWorkspace(stateDirectory: string, mode: BenchmarkMode): Prom
 
 async function createFixture(mode: BenchmarkMode, settings: BenchmarkSettings): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
+  pdf.setCreationDate(new Date("2026-01-01T00:00:00Z"));
+  pdf.setModificationDate(new Date("2026-01-01T00:00:00Z"));
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const pages = settings.renderPages;
 
@@ -861,7 +900,7 @@ function identityForFixture(fixture: Uint8Array, pages: number): FixtureIdentity
   };
 }
 
-async function startGateway(latencyMs: number): Promise<{
+async function startGateway(latencyMs: number, answerBytes: number, fieldCount: number): Promise<{
   flushLogs(directory: string): Promise<void>;
   origin: string;
   stop(): Promise<void>;
@@ -879,6 +918,8 @@ async function startGateway(latencyMs: number): Promise<{
       cwd: backendDirectory,
       env: minimalEnvironment({
         LOOPBACK_GATEWAY_LATENCY_MS: String(latencyMs),
+        LOOPBACK_GATEWAY_ANSWER_BYTES: String(answerBytes),
+        LOOPBACK_GATEWAY_RESULT_FIELDS: String(fieldCount),
         LOOPBACK_GATEWAY_TOKEN: gatewayToken,
       }),
       stderr: "pipe",
@@ -959,6 +1000,13 @@ async function startApplication({
       {
         cwd: backendDirectory,
         env: minimalEnvironment({
+          GO_PROCESSOR_BINARY: process.env.GO_PROCESSOR_BINARY ?? "",
+          GO_PDF_OVERLAP: process.env.GO_PDF_OVERLAP ?? "1",
+          GO_PDF_WORKER_DOCUMENTS: process.env.GO_PDF_WORKER_DOCUMENTS ?? "128",
+          GO_PDF_WORKERS: process.env.GO_PDF_WORKERS ?? "6",
+          GO_PDF_PNG_ENCODER: process.env.GO_PDF_PNG_ENCODER ?? "fast",
+          GO_PDF_PREPARATION_WORKERS: process.env.GO_PDF_PREPARATION_WORKERS ?? "4",
+          GO_MODEL_CONCURRENCY: process.env.GO_MODEL_CONCURRENCY ?? String(settings.runnerConcurrency),
           DOCUMENT_EXTRACTION_ASSETS_DIR: resolve(repositoryRoot, "frontend", "dist"),
           DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
           EXTRACTION_ADAPTIVE_CONCURRENCY: "false",
@@ -1004,8 +1052,9 @@ async function startApplication({
 
   const origin = await Promise.race([
     ready,
-    captured.child.exited.then((code) => {
-      throw new Error(`Application exited with code ${code} before readiness`);
+    captured.child.exited.then(async (code) => {
+      await captured.streamsDone;
+      throw new Error(`Application exited with code ${code} before readiness: ${captured.output().stderr}`);
     }),
     timeout(20_000, "Application did not become ready"),
   ]);
@@ -1620,6 +1669,8 @@ function readSettings(): BenchmarkSettings {
       0,
       "LOOPBACK_BENCH_GATEWAY_LATENCY_MS",
     ),
+    resultFields: positiveInteger(process.env.LOOPBACK_BENCH_RESULT_FIELDS, 1, "LOOPBACK_BENCH_RESULT_FIELDS"),
+    responseAnswerBytes: nonNegativeInteger(process.env.LOOPBACK_BENCH_RESPONSE_ANSWER_BYTES, 0, "LOOPBACK_BENCH_RESPONSE_ANSWER_BYTES"),
     inlinePayloadBytes: nonNegativeInteger(
       process.env.LOOPBACK_BENCH_INLINE_PAYLOAD_BYTES,
       1024 * 1024,
@@ -1729,6 +1780,14 @@ function errorMessage(cause: unknown): string {
 async function runGatewayChild(): Promise<void> {
   const latencyMs = nonNegativeInteger(process.env.LOOPBACK_GATEWAY_LATENCY_MS, 0, "LOOPBACK_GATEWAY_LATENCY_MS");
 
+  const answerBytes = nonNegativeInteger(process.env.LOOPBACK_GATEWAY_ANSWER_BYTES, 0, "LOOPBACK_GATEWAY_ANSWER_BYTES");
+
+  const fieldCount = positiveInteger(process.env.LOOPBACK_GATEWAY_RESULT_FIELDS, 1, "LOOPBACK_GATEWAY_RESULT_FIELDS");
+
+  if (fieldCount > 128) throw new Error("Benchmark field count exceeds 128");
+
+  if (answerBytes > 1024 * 1024) throw new Error("Benchmark answer exceeds 1 MiB");
+
   const expectedToken = process.env.LOOPBACK_GATEWAY_TOKEN || gatewayToken;
   const startedAt = performance.now();
   const cpuStartedAt = process.cpuUsage();
@@ -1793,7 +1852,7 @@ async function runGatewayChild(): Promise<void> {
         const body = await request.arrayBuffer();
         bytesReceived += body.byteLength;
         requests += 1;
-        const simulated = simulateModelResponse(JSON.parse(new TextDecoder().decode(body)));
+        const simulated = simulateModelResponse(JSON.parse(new TextDecoder().decode(body)), answerBytes, fieldCount);
         requestsByStage[simulated.stage] += 1;
 
         if (latencyMs > 0) await Bun.sleep(latencyMs);

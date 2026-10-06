@@ -11,7 +11,7 @@ import { PDFDocument } from "pdf-lib";
 import { createLocalApplication } from "./localApplication";
 
 import type { S3SourceStorageConfiguration } from "./localConfiguration";
-import { createLocalExtractionRunner } from "./localExtractionRunner";
+import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import { createLocalSourceFileRetention } from "./localSourceFileRetention";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";

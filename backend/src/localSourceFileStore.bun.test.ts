@@ -1,5 +1,6 @@
+import { PDFDocument } from "pdf-lib";
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -87,4 +88,35 @@ test("library directory listings resume after a cursor so every saved original i
   } finally {
     await rm(stateDirectory, { recursive: true, force: true });
   }
+});
+
+
+test("PDF Source views survive parent deletion and reopening, and isolate pages and Workspace ownership", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "source-views-"));
+
+  try {
+    let files = createLocalSourceFileStore({ stateDirectory });
+    const pdf = await PDFDocument.create();
+    pdf.addPage([100, 150]);
+    pdf.addPage([200, 250]);
+    pdf.addPage([300, 350]);
+    const source = await files.write({ workspaceId: "a", jobId: "parent", mimeType: "application/pdf", bytes: await pdf.save() });
+    const child = await files.createPdfView!({ workspaceId: "a", jobId: "child", sourceFileKey: source, pages: [1, 3] });
+    const nested = await files.createPdfView!({ workspaceId: "a", jobId: "nested", sourceFileKey: child, pages: [2] });
+    const original = await files.resolveProcessingSource!(source);
+    const view = await files.resolveProcessingSource!(child);
+    expect((await stat(view.path)).ino).toBe((await stat(original.path)).ino);
+    expect(view.pages).toEqual([1, 3]);
+    await expect(files.createPdfView!({ workspaceId: "b", jobId: "child", sourceFileKey: source, pages: [1] })).rejects.toThrow("Workspace");
+    await files.delete(source);
+    files = createLocalSourceFileStore({ stateDirectory });
+    const downloaded = await PDFDocument.load((await files.read(child))!);
+    expect(downloaded.getPages().map((page) => page.getWidth())).toEqual([100, 300]);
+    await files.delete(child);
+    const remaining = await PDFDocument.load((await files.read(nested))!);
+    expect(remaining.getPages().map((page) => page.getWidth())).toEqual([300]);
+    await files.delete(nested);
+    await files.delete(nested);
+    expect(await files.open!(nested)).toBeNull();
+  } finally { await rm(stateDirectory, { recursive: true, force: true }); }
 });

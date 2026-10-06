@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it, spyOn } from "bun:test";
 import { deflateSync } from "node:zlib";
@@ -135,7 +138,7 @@ describe("PDF inspection process lifecycle", () => {
       pdf.addPage();
       const second = await pdf.save();
 
-      for (let index = 0; index < 33; index++) {
+      for (let index = 0; index < 129; index++) {
         expect(await counter.count(index % 2 ? second : first)).toBe(index % 2 ? 2 : 1);
       }
 
@@ -289,4 +292,23 @@ it("keeps a bounded inspector warm between short upload bursts", async () => {
   } finally {
     await counter.close();
   }
+});
+
+
+it("file-backed inspection preserves page counts and parser limits without transporting source bytes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pdf-path-inspection-"));
+  const counter = createPdfSourceFilePageCounter();
+
+  try {
+    const pdf = await PDFDocument.create();
+    pdf.addPage();
+    pdf.addPage();
+    const path = join(directory, "source.pdf");
+    await Bun.write(path, await pdf.save());
+    expect(await counter.count(path)).toBe(2);
+    await Bun.write(path, pdfWithCompressedObjectStreams([32 * 1024 * 1024]));
+    await expect(counter.count(path)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+    await Bun.write(path, "invalid PDF");
+    await expect(counter.count(path)).rejects.toMatchObject({ code: "invalid_pdf_source_file" });
+  } finally { await counter.close(); await rm(directory, { recursive: true, force: true }); }
 });

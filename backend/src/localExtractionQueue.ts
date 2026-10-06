@@ -28,7 +28,14 @@ type TransientAdmission = "accepted" | "duplicate" | "full" | "closed";
 const isTransient = (job: ScheduledWork): job is LocalTransientExtractionTask =>
   "kind" in job && job.kind === "evaluation";
 
+export type LocalProcessingCapacity = {
+  suspend(): void;
+  resume(): Promise<void>;
+};
+
 export type LocalExtractionQueueSnapshot = {
+  waiting?: number;
+  inFlight?: number;
   accepting: boolean;
   active: number;
   deferred: number;
@@ -47,7 +54,7 @@ export type LocalExtractionQueue = {
   discardTransient(owner: string): void;
   setMaxConcurrent(maxConcurrent: number): void;
   snapshot(): LocalExtractionQueueSnapshot;
-  subscribe(handler: (job: LocalQueuedExtractionJob) => void | Promise<void>): () => void;
+  subscribe(handler: (job: LocalQueuedExtractionJob, capacity: LocalProcessingCapacity) => void | Promise<void>): () => void;
   waitForIdle(): Promise<void>;
 };
 
@@ -59,6 +66,7 @@ type DeferredJob = {
 export function createLocalExtractionQueue({
   maxBuffered = 10_000,
   maxConcurrent = 16,
+  maxWaiting = 1_500,
   now = Date.now,
   scheduleTimer = (handler, delayMs) => setTimeout(handler, delayMs),
   cancelTimer = (timer) => clearTimeout(timer),
@@ -69,6 +77,7 @@ export function createLocalExtractionQueue({
 }: {
   maxBuffered?: number;
   maxConcurrent?: number;
+  maxWaiting?: number;
   now?: () => number;
   scheduleTimer?: (handler: () => void, delayMs: number) => ReturnType<typeof setTimeout> | number | undefined;
   cancelTimer?: (timer: ReturnType<typeof setTimeout> | number | undefined) => void;
@@ -81,7 +90,7 @@ export function createLocalExtractionQueue({
 
   const normalizedMaxBuffered = Number.isSafeInteger(maxBuffered) && maxBuffered > 0 ? maxBuffered : 10_000;
 
-  const handlers = new Set<(job: LocalQueuedExtractionJob) => void | Promise<void>>();
+  const handlers = new Set<(job: LocalQueuedExtractionJob, capacity: LocalProcessingCapacity) => void | Promise<void>>();
   const workspaceQueues = new Map<string, ScheduledWork[]>();
   const readyWorkspaces: string[] = [];
   const readyWorkspaceSet = new Set<string>();
@@ -91,6 +100,11 @@ export function createLocalExtractionQueue({
   const idleWaiters: Array<() => void> = [];
   let accepting = true;
   let active = 0;
+  let waiting = 0;
+  let inFlight = 0;
+  let drainConcurrency = currentMaxConcurrent;
+  const resumptions: Array<() => void> = [];
+  const waitingLimit = Number.isSafeInteger(maxWaiting) && maxWaiting > 0 ? maxWaiting : 1_500;
   let pending = 0;
   let overflowed = false;
   const activeByWorkspace = new Map<string, number>();
@@ -100,13 +114,13 @@ export function createLocalExtractionQueue({
   let deferredTimerDueAt: number | null = null;
 
   const settleIdle = () => {
-    if (active !== 0 || pending !== 0 || deferredJobs.length !== 0) return;
+    if (inFlight !== 0 || pending !== 0 || deferredJobs.length !== 0) return;
 
     for (const resolve of idleWaiters.splice(0)) resolve();
   };
 
   const settleClose = () => {
-    if (accepting || active !== 0) return;
+    if (accepting || inFlight !== 0) return;
 
     for (const resolve of closeWaiters.splice(0)) resolve();
   };
@@ -137,11 +151,18 @@ export function createLocalExtractionQueue({
   };
 
   const pump = () => {
+    // Returning responses release memory and disk, including under pressure or shutdown.
+    const responseCapacity = Math.max(1, accepting ? currentMaxConcurrent : drainConcurrency);
+
+    while (resumptions.length && active < responseCapacity) resumptions.shift()!();
+
+    if (!accepting || waiting >= waitingLimit) return;
+
     if (handlers.size === 0 && ![...workspaceQueues.values()].some((queue) => queue[0] && isTransient(queue[0])))
       return;
     let skipped = 0;
 
-    while (active < currentMaxConcurrent && readyWorkspaces.length > skipped) {
+    while (active < currentMaxConcurrent && waiting < waitingLimit && readyWorkspaces.length > skipped) {
       const workspaceId = readyWorkspaces.shift()!;
       const workspaceActive = activeByWorkspace.get(workspaceId) ?? 0;
       const queue = workspaceQueues.get(workspaceId);
@@ -186,17 +207,70 @@ export function createLocalExtractionQueue({
       }
 
       active += 1;
+      inFlight += 1;
+      let suspended = false;
+      let finished = false;
+      let resumption: Promise<void> | undefined;
+      let finishResumption: (() => void) | undefined;
+
+      const capacity: LocalProcessingCapacity = {
+        suspend: () => {
+          if (suspended || finished) return;
+          suspended = true;
+          active -= 1;
+          waiting += 1;
+          // Avoid recursively starting handlers which immediately suspend.
+          queueMicrotask(pump);
+        },
+        resume: () => {
+          if (!suspended || finished) return Promise.resolve();
+
+          if (resumption) return resumption;
+          resumption = new Promise<void>((resolve) => {
+            finishResumption = () => {
+              if (!finished) {
+                suspended = false;
+                waiting -= 1;
+                active += 1;
+              }
+
+              resumption = undefined;
+              finishResumption = undefined;
+              resolve();
+            };
+
+            resumptions.push(finishResumption);
+          });
+          const result = resumption;
+          pump();
+
+          return result;
+        },
+      };
+
       activeByWorkspace.set(workspaceId, workspaceActive + 1);
       void (async () => {
         if (isTransient(job)) await Promise.resolve().then(() => job.run());
-        else await Promise.all(Array.from(handlers, (handler) => handler(job)));
+        else await Promise.all(Array.from(handlers, (handler) => handler(job, capacity)));
       })()
         .catch((error) => {
           if (isTransient(job)) job.discard();
           else onHandlerError(error, job);
         })
         .finally(() => {
-          active -= 1;
+          finished = true;
+          inFlight -= 1;
+
+          if (suspended) waiting -= 1;
+          else active -= 1;
+
+          if (finishResumption) {
+            const index = resumptions.indexOf(finishResumption);
+
+            if (index >= 0) resumptions.splice(index, 1);
+            finishResumption();
+          }
+
           const remaining = (activeByWorkspace.get(workspaceId) ?? 1) - 1;
 
           if (remaining) activeByWorkspace.set(workspaceId, remaining);
@@ -265,6 +339,7 @@ export function createLocalExtractionQueue({
   return {
     close: async () => {
       if (accepting) {
+        drainConcurrency = Math.max(1, currentMaxConcurrent);
         accepting = false;
         currentMaxConcurrent = 0;
 
@@ -285,7 +360,7 @@ export function createLocalExtractionQueue({
         settleIdle();
       }
 
-      if (active === 0) return;
+      if (inFlight === 0) return;
       await new Promise<void>((resolve) => closeWaiters.push(resolve));
     },
     schedule: async (job) => {
@@ -358,6 +433,8 @@ export function createLocalExtractionQueue({
     snapshot: () => ({
       accepting,
       active,
+      waiting,
+      inFlight,
       deferred: deferredJobs.length,
       durableDeferrals,
       maxBuffered: normalizedMaxBuffered,
@@ -375,7 +452,7 @@ export function createLocalExtractionQueue({
       return () => handlers.delete(handler);
     },
     waitForIdle: async () => {
-      if (active === 0 && pending === 0 && deferredJobs.length === 0) return;
+      if (inFlight === 0 && pending === 0 && deferredJobs.length === 0) return;
       await new Promise<void>((resolve) => idleWaiters.push(resolve));
     },
   };

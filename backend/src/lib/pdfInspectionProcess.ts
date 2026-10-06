@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { createPdfFrameReader } from "./pdfProcessPool";
 import { PDF_INSPECTION_LIMITS as limits, type PdfInspectionResult } from "./pdfInspectionLimits";
 import { inspectPdfPages, PdfInspectionConfigurationError, PdfInspectionLimitError } from "./pdfInspectionParser";
@@ -16,15 +17,30 @@ try {
     const header = await reader.read(4);
 
     if (!header) break;
-    const size = new DataView(header.buffer).getUint32(0);
+    const frame = new DataView(header.buffer).getUint32(0);
+    const pathFrame = (frame & 0x80000000) !== 0;
+    const size = frame & 0x7fffffff;
 
-    if (!size || size > limits.sourceBytes) break;
+    if (!size || size > (pathFrame ? 4096 : limits.sourceBytes)) break;
+    let inspectedBytes = size;
     let result: PdfInspectionResult;
 
     try {
-      const bytes = await reader.read(size);
+      let bytes = await reader.read(size);
 
       if (!bytes) break;
+
+      if (pathFrame) {
+        const path = new TextDecoder().decode(bytes);
+        const info = await stat(path);
+
+        if (!info.isFile() || info.size > limits.sourceBytes) throw new PdfInspectionLimitError();
+        bytes = new Uint8Array(await Bun.file(path).arrayBuffer());
+
+        if (bytes.byteLength !== info.size || bytes.byteLength > limits.sourceBytes) throw new PdfInspectionLimitError();
+        inspectedBytes = bytes.byteLength;
+      }
+
       result = { pages: await inspectPdfPages(bytes) };
     } catch (error) {
       result = {
@@ -38,7 +54,7 @@ try {
     }
 
     documents++;
-    sourceBytes += size;
+    sourceBytes += inspectedBytes;
 
     const retire =
       "error" in result ||

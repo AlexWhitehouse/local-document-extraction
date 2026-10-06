@@ -13,7 +13,7 @@ import { createLocalApplication } from "./localApplication";
 import { createConfiguredTestProductStore } from "./testing/workspaceModelFixture";
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
-import { createLocalExtractionRunner } from "./localExtractionRunner";
+import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 
 import type { LocalAuth } from "./localAuth";

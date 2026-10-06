@@ -106,7 +106,11 @@ beforeAll(async () => {
   );
   archive = join(output, "document-extraction.tar.gz");
   checksum = (await readFile(`${archive}.sha256`, "utf8")).split(" ")[0]!;
-}, 30_000);
+  const noCompiler = join(temporary, "without-go-compiler");
+  await mkdir(noCompiler);
+  await writeFile(join(noCompiler, "go"), "#!/bin/sh\necho Installation must use the bundled processor >&2\nexit 99\n", { mode: 0o755 });
+  path = `${noCompiler}:${path}`;
+}, 180_000);
 
 afterAll(async () => {
   if (launcher && (await Bun.file(launcher).exists())) await command([launcher, "stop"]);

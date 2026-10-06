@@ -129,7 +129,7 @@ A logical item submitted for extraction, either directly or as a page group with
 _Avoid_: image, upload, input file
 
 **Source file**:
-The binary input owned by a **Document** or **Document packet**. A split child owns a **Derived Source file** containing only its assigned pages.
+The binary input owned by a **Document** or **Document packet**. A split child owns a **Derived Source file** exposing only its assigned pages.
 _Avoid_: object-store record, file blob
 
 **Document packet**:
@@ -141,7 +141,7 @@ The division of a Document packet's selected physical pages into logical Documen
 _Avoid_: template selection, page reorder, extraction result
 
 **Derived Source file**:
-An independent PDF containing exactly one child Document's assigned pages, with their original physical page references retained separately.
+A child-owned PDF representation containing exactly its assigned pages. It may be stored as a physical PDF or a durable page view over immutable shared bytes; APIs and model calls expose only those pages. Original physical page references are retained.
 _Avoid_: parent original, shared working file
 
 **Smart splitting**:
@@ -185,7 +185,7 @@ The background execution path that performs model extraction work for an **Extra
 _Avoid_: job state owner, queue state machine
 
 **Local extraction runner**:
-The local background processor that claims, retries, and completes persisted **Extraction jobs** inside the Bun backend runtime.
+The Bun component that recovers persisted work, holds Workspace leases, and dispatches **Extraction jobs** to the Go processor.
 _Avoid_: external worker, cron task
 
 **Model gateway**:
@@ -541,6 +541,10 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - An **Extraction job** is interpreted against its fixed **Template binding**: the version captured at explicit submission, or at successful automatic/manual resolution.
 - An **Extraction result** may include confidence and evidence when requested.
 - Authoritative **Template** existence, status, current version, field count, version creation, and deletion checks belong to **Workspace product data**.
+
+## Processing implementations
+
+The **Go document processor** executes Document processing stages through a private durable adapter. Bun remains the owner of Workspace product data and public API behavior. ADR-0019 revises the single-runtime execution boundary; Template binding, split-plan, accounting, retention and recovery rules above apply to the Go processor and its Bun adapter. ADR-0020 adds durable local Source views and bounded reuse of packet pixels by children. ADR-0021 adds bounded render/encode overlap. ADR-0022 makes Go the sole background processor and removes unsuccessful intake/result experiments; the SQLite acceptance and result/accounting transaction remains authoritative.
 
 ## Relationships
 

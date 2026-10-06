@@ -73,7 +73,7 @@ export function createPdfFrameReader(stream: ReadableStream<Uint8Array>) {
   let pending: Uint8Array = new Uint8Array(0);
 
   return {
-    async read(length: number): Promise<Uint8Array | null> {
+    async read(length: number): Promise<Uint8Array<ArrayBuffer> | null> {
       const output = new Uint8Array(length);
       let offset = 0;
 

@@ -11,11 +11,11 @@
     "benchmark:global-store": "bun scripts/benchmarkGlobalStore.ts",
     "benchmark:bun-runtime": "bun run --cwd backend benchmark:bun-runtime",
     "benchmark:loopback-saturation": "bun run --cwd backend benchmark:loopback-saturation",
-    "build": "bun run --cwd frontend build",
+    "build": "bun run build:go && bun run --cwd frontend build",
     "check:agent": "bun backend/scripts/runAgentChecks.ts",
     "ci": "bun run ci:quality && bun run test:e2e",
     "ci:quality": "bun run typecheck && bun run lint && bun run test && bun run --cwd frontend test:coverage && bun run build",
-    "dev": "bun --watch backend/src/server.ts",
+    "dev": "bun run build:go && bun --watch backend/src/server.ts",
     "dev:frontend": "bun run --cwd frontend dev",
     "migrate": "bun run --cwd backend migrate",
     "package:diff-evidence": "bun scripts/generatePackageDiffEvidence.ts",
@@ -26,12 +26,14 @@
     "lint": "bun run lint:eslint && bun run lint:anti-slop",
     "lint:eslint": "bunx eslint .",
     "lint:anti-slop": "bun --bun oxlint --deny-warnings .",
-    "test": "bun run --cwd backend test && bun run --cwd frontend test",
+    "test": "bun run build:go && bun run --cwd backend test && bun run --cwd frontend test",
     "test:e2e": "bun run build && bun test e2e/support/browserEvidence.bun.test.ts && playwright test",
     "test:installer": "bun test scripts/installer.bun.test.ts scripts/installerConfiguration.bun.test.ts --timeout 180000",
     "typecheck": "bun run --cwd backend typecheck && bun run typecheck:e2e && bun run typecheck:scripts",
     "typecheck:scripts": "bunx tsc --noEmit -p scripts/tsconfig.json",
-    "typecheck:e2e": "bunx tsc --noEmit -p e2e/tsconfig.json"
+    "typecheck:e2e": "bunx tsc --noEmit -p e2e/tsconfig.json",
+    "build:go": "bun scripts/buildGo.ts",
+    "test:go": "bun run build:go && cd backend-go && go test -race -count=1 ./... && go vet ./... && cd .. && bun test backend/src/goProcessor.bun.test.ts backend/src/localProductWriteBatch.bun.test.ts"
   },
   "overrides": {
     "uuid": "11.1.1"

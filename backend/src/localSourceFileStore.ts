@@ -1,3 +1,6 @@
+import { publishSourceFile } from "./localSourcePublication";
+import { readPdfSourceView, writePdfSourceView, deletePdfSourceView, type LocalPdfSourceView } from "./localPdfSourceView";
+import { materializePdfPages, validatePdfPageSelection } from "./lib/pdfPageOperations";
 import { mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 
@@ -18,6 +21,8 @@ export type LocalEvaluationDocumentDirectory = {
 
 export type LocalSourceFileStore = {
   delete(sourceFileKey: string): Promise<void>;
+  resolveProcessingSource?(sourceFileKey: string): Promise<{ path: string; pages?: number[]; identity: string }>;
+  createPdfView?(input: { workspaceId: string; jobId: string; sourceFileKey: string; pages: number[] }): Promise<string>;
   eraseWorkspace(workspaceId: string): Promise<void>;
   /** Moves a library save's own upload into its Saved Evaluation document directory. */
   promoteEvaluationDocument?(input: {
@@ -53,10 +58,42 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
   const temporaryDirectory = resolve(stateDirectory, "temporary", "submissions");
   const libraryTemporaryDirectory = resolve(stateDirectory, "temporary", "evaluation-documents");
 
+  const openSource = async (sourceFileKey: string): Promise<Blob | null> => {
+    const path = pathForKey(rootDirectory, sourceFileKey);
+    const file = Bun.file(path);
+
+    if (!await file.exists()) return null;
+    const view = await readPdfSourceView(path);
+
+    if (!view) return file;
+    const bytes = await materializePdfPages(Bun.file(view.path), view.pages);
+
+    return new Blob([Uint8Array.from(bytes)], { type: "application/pdf" });
+  };
+
   return {
+    resolveProcessingSource: async (sourceFileKey) => {
+      const path = pathForKey(rootDirectory, sourceFileKey);
+
+      return await readPdfSourceView(path) ?? { path, identity: sourceFileKey };
+    },
+    createPdfView: async ({ workspaceId, jobId, sourceFileKey, pages }) => {
+      const destinationKey = newSourceFileKey(workspaceId, jobId, "application/pdf").replace(/pdf$/, "view");
+
+      if (!sourceFileKey.startsWith(`workspaces/${workspaceId}/`)) throw new Error("Source view must stay within its Workspace");
+      const path = pathForKey(rootDirectory, sourceFileKey);
+      const prior = await readPdfSourceView(path);
+      const selected = validatePdfPageSelection(pages, prior?.pages.length ?? 10_000);
+      const source: LocalPdfSourceView = { path: prior?.path ?? path, identity: prior?.identity ?? sourceFileKey, pages: prior ? selected.map((page) => prior.pages[page - 1]!) : selected };
+      await writePdfSourceView(pathForKey(rootDirectory, destinationKey), source);
+
+      return destinationKey;
+    },
     delete: async (sourceFileKey) => {
       const path = pathForKey(rootDirectory, sourceFileKey);
-      await rm(path, { force: true });
+
+      if (sourceFileKey.endsWith("/source.view")) await deletePdfSourceView(path);
+      else await rm(path, { force: true });
 
       // Only remove an empty owner directory, never recursively erase siblings.
       if (
@@ -79,6 +116,7 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
       const destination = pathForKey(rootDirectory, sourceFileKey);
       await mkdir(dirname(destination), { recursive: true });
       await rename(temporaryPath, destination);
+      await publishSourceFile(destination).catch(async (error) => { await rm(destination, { force: true }).catch(() => {}); throw error; });
 
       return sourceFileKey;
     },
@@ -132,26 +170,29 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
         force: true,
       });
     },
-    open: async (sourceFileKey) => {
-      const file = Bun.file(pathForKey(rootDirectory, sourceFileKey));
-
-      return (await file.exists()) ? file : null;
-    },
+    open: openSource,
     promoteTemporary: async ({ workspaceId, jobId, mimeType, temporaryPath }) => {
       const sourceFileKey = newSourceFileKey(workspaceId, jobId, mimeType);
       assertPathWithinRoot(temporaryDirectory, temporaryPath, "Temporary Source file");
       const destination = pathForKey(rootDirectory, sourceFileKey);
       await mkdir(dirname(destination), { recursive: true });
       await rename(temporaryPath, destination);
+      await publishSourceFile(destination).catch(async (error) => { await rm(destination, { force: true }).catch(() => {}); throw error; });
 
       return sourceFileKey;
     },
-    read: async (sourceFileKey) => readFile(pathForKey(rootDirectory, sourceFileKey)).catch(() => null),
+    read: async (sourceFileKey) => {
+      if (!sourceFileKey.endsWith("/source.view")) return readFile(pathForKey(rootDirectory, sourceFileKey)).catch(() => null);
+      const source = await openSource(sourceFileKey);
+
+      return source ? new Uint8Array(await source.arrayBuffer()) : null;
+    },
     write: async ({ workspaceId, jobId, mimeType, bytes }) => {
       const sourceFileKey = newSourceFileKey(workspaceId, jobId, mimeType);
       const path = pathForKey(rootDirectory, sourceFileKey);
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, new Uint8Array(bytes));
+      await publishSourceFile(path).catch(async (error) => { await rm(path, { force: true }).catch(() => {}); throw error; });
 
       return sourceFileKey;
     },

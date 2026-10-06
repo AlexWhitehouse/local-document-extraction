@@ -12,7 +12,7 @@ import { PDFDocument } from "pdf-lib";
 import { createLocalApplication } from "./localApplication";
 import { createLocalAuth } from "./localAuth";
 import type { LocalSourceStorageConfiguration } from "./localConfiguration";
-import { createLocalExtractionRunner } from "./localExtractionRunner";
+import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import { createLocalSourceFileRetention } from "./localSourceFileRetention";
 import { createLocalSourceFileStore, type LocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalWorkspaceControl } from "./localWorkspaceControl";

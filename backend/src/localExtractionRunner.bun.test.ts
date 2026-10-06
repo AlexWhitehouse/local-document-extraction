@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
-import { createLocalExtractionRunner } from "./localExtractionRunner";
+import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import type { LocalProductAnalytics, LocalWorkspaceProductAnalyticsEvent } from "./localProductAnalytics";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import {
@@ -263,7 +263,7 @@ test("the local extraction runner records durable failures for missing Source fi
       status: "failed",
       error_code: "missing_source_file",
       error_message: "Source file is missing from local storage",
-      model_name: null,
+      model_name: "failure/model",
       results: [],
     });
     expect(productStore.getExtractionJob("job_model_failure")).toMatchObject({

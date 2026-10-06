@@ -280,3 +280,74 @@ test("packet backlog and extraction alternate without starving either stage or r
   expect(order).toEqual(["packet_1", "child_1", "packet_2", "child_2", "packet_3", "child_3"]);
   await queue.close();
 });
+
+test("provider waits release local permits but retain job ownership and shutdown waits", async () => {
+  const queue = createLocalExtractionQueue({ maxConcurrent: 1, maxWaiting: 2 });
+  const release = Promise.withResolvers<void>();
+  const started: string[] = [];
+  queue.subscribe(async (job, capacity) => {
+    started.push(job.job_id);
+    capacity.suspend();
+    await release.promise;
+    await capacity.resume();
+  });
+  await queue.schedule(job("remote-a", "workspace_a"));
+  await queue.schedule(job("remote-b", "workspace_a"));
+  await queue.schedule(job("remote-a", "workspace_a"));
+  await queue.schedule(job("pending", "workspace_a"));
+  expect(started).toEqual(["remote-a", "remote-b"]);
+  expect(queue.snapshot()).toMatchObject({ active: 0, waiting: 2, inFlight: 2, pending: 1 });
+  let closed = false;
+  const closing = queue.close().then(() => { closed = true; });
+  await Promise.resolve();
+  expect(closed).toBe(false);
+  release.resolve();
+  await closing;
+  expect(queue.snapshot()).toMatchObject({ active: 0, waiting: 0, inFlight: 0 });
+  expect(started).toEqual(["remote-a", "remote-b"]);
+});
+
+test("returning responses precede fresh work and can drain during resource pressure", async () => {
+  const queue = createLocalExtractionQueue({ maxConcurrent: 1 });
+  const remote = Promise.withResolvers<void>();
+  const busy = Promise.withResolvers<void>();
+  const order: string[] = [];
+  queue.subscribe(async (job, capacity) => {
+    if (job.job_id === "remote") {
+      capacity.suspend();
+      await remote.promise;
+      await capacity.resume();
+      order.push("response");
+    } else if (job.job_id === "busy") await busy.promise;
+    else order.push("new");
+  });
+  await queue.schedule(job("remote", "workspace_a"));
+  await queue.schedule(job("busy", "workspace_a"));
+  await queue.schedule(job("new", "workspace_a"));
+  remote.resolve();
+  await Promise.resolve();
+  queue.setMaxConcurrent(0);
+  busy.resolve();
+  await waitFor(() => order.length === 1);
+  expect(order).toEqual(["response"]);
+  queue.setMaxConcurrent(1);
+  await queue.waitForIdle();
+  expect(order).toEqual(["response", "new"]);
+});
+
+test("failed suspended work releases waiting capacity without losing queued work", async () => {
+  const failures: unknown[] = [];
+  const queue = createLocalExtractionQueue({ maxConcurrent: 1, maxWaiting: 1, onHandlerError: (error) => { failures.push(error); } });
+  let count = 0;
+  queue.subscribe(async (_, capacity) => {
+    capacity.suspend();
+    count += 1;
+    throw new Error("provider interrupted");
+  });
+  await queue.schedule(job("first", "workspace_a"));
+  await queue.schedule(job("second", "workspace_a"));
+  await queue.waitForIdle();
+  expect(count).toBe(2);
+  expect(failures).toHaveLength(2);
+  expect(queue.snapshot()).toMatchObject({ active: 0, waiting: 0, inFlight: 0 });
+});

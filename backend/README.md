@@ -184,3 +184,9 @@ The loopback benchmark defaults to a process RSS threshold of 25% of physical RA
 CPU profiling is disabled by default. Set `LOOPBACK_BENCH_CPU_PROFILE=true` only for short diagnostic runs. [Bun 1.4.2 retains sampled closures under `--cpu-prof`](https://github.com/oven-sh/bun/issues/42377), which can retain document buffers and inflate RSS by gigabytes. Use unprofiled runs for throughput and memory comparisons; the benchmark records the profiling setting in its evidence.
 
 Packet processing and ready extraction alternate within a Workspace, preserving FIFO within each stage. This prevents large split-upload backlogs from blocking child completion. PDF page copying uses four isolated subprocesses; preview and blank checks load rendering dependencies only when needed. Benchmark RSS includes both the API and a separate process-tree total for its PDF workers.
+
+## Go document processing
+
+Go executes all background document stages. Bun owns the public API, authentication and durable Workspace data. `bun run build && bun run start` builds and starts both runtimes. Source builds require Go matching `backend-go/go.mod`; release archives include platform binaries. See [the processor guide](../backend-go/README.md) for architecture, tests and benchmarks.
+
+The latest Go processing evaluation is in [rendering overlap and Go data handoffs](../backend-go/OPTIMIZATION-BENCHMARKS.md), including stronger Source publication durability and experiments left disabled after benchmarking.

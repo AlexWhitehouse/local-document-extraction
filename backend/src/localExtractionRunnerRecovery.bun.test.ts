@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createLocalExtractionRunner } from "./localExtractionRunner";
+import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import { RetryableError } from "./consumer/modelGateway";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import {
