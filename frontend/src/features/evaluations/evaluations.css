@@ -80,10 +80,12 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .studio-main .evaluation-candidate-top input:not([type=checkbox]):hover { border-color: var(--rule-strong); }
 .studio-main .evaluation-candidate-top input:not([type=checkbox]):focus { border-color: var(--accent); background: var(--field-bg); }
 .evaluation-candidate-top strong { flex: 1; min-width: 0; padding: 0 6px; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.evaluation-candidate-score { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px 8px; margin: 8px 0; }
+.evaluation-candidate-score { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 6px 8px; margin: 8px 0; }
 .evaluation-candidate-score strong { font: 500 22px/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .evaluation-candidate-score .status-chip { justify-self: start; }
 .evaluation-candidate-score .evaluation-meter { grid-column: 1 / -1; }
+.evaluation-candidate-score .evaluation-cost { grid-column: -2; justify-self: end; min-width: 0; font: 11px var(--font-mono); color: var(--text-1); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.evaluation-candidate-score .evaluation-cost.evaluation-muted { color: var(--text-3); }
 .evaluation-candidate-alert { margin: 0 0 6px; font-size: 10.5px; color: var(--rose-text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .evaluation-candidate-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .evaluation-candidate-foot small { flex: 1; min-width: 0; font: 10px var(--font-mono); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
