@@ -190,3 +190,19 @@ A separate installation downloaded published v1.3.1 and upgraded through its ins
 Both installations matched the published archive checksum and tagged revision. Both were stopped, and their temporary application, configuration, and state directories were removed. Downloaded verification assets were removed after inspection; small logs and verification results remain in `.scratch/release-v2.0.0/` and are not distributed.
 
 These published-download checks used noninteractive defaults on an existing Linux host. They did not qualify fresh machines, published downloads on macOS, Intel macOS, older operating systems, or live model routes. Live Google sign-in and Cloudflare email delivery were not tested. CI separately qualified its three listed runners. Downgrades from logical PDF Sources to v1.x were not tested or supported.
+
+## v2.1.1 release qualification (2026-10-06)
+
+[v2.1.1](https://github.com/AlexWhitehouse/local-document-extraction/releases/tag/v2.1.1) was published from `f477df5f1bdf014606ca3fbe740df505e09ef77d`. [Release workflow 37519937317](https://github.com/AlexWhitehouse/local-document-extraction/actions/runs/37519937317) passed for that exact commit with Bun 1.4.2. Platform verification covered quality, dependency hygiene, coverage, build, native PDF rendering, and installer tests on Ubuntu 24.04 x64 and arm64, and macOS 15 arm64. Go document processing, Linux Chromium journeys, the complete-history secret scan, the license gate, and packaging passed. The scheduled/manual randomized backend lane was skipped as configured.
+
+A clean detached checkout without local configuration or state passed frozen dependency installation, typechecks, lint, 623 backend tests, the runtime smoke test, all 601 frontend tests, and the production build with Bun 1.4.2 on the existing Ubuntu 26.04.1 x64 host. The lockfile remained unchanged. The frontend coverage gate was not run locally. The temporary checkout was removed after verification.
+
+All three published assets downloaded without GitHub authentication. The archive SHA256 was `78dfcb16c54e19ae8c6d1e785b6e8047aeb238af1fe9310e40c31af84f485d1a` and matched the published checksum file. Its 743 entries included the project license, Go processors and PDFium renderers for Linux/macOS x64/arm64, and clean metadata identifying v2.1.1 and the tagged commit. The archive excluded private configuration, runtime state, dependencies, and scratch files. The published installer matched the copy inside the archive.
+
+The exact README installation command passed using empty isolated XDG directories with spaces, the default loopback port, and a PATH without the host's Bun or Go toolchain. Status, health diagnostics with a running Go processor, SPA fallback, `doctor`, PDFium availability, private configuration and state permissions, shutdown, and restart passed. The served assets included this release's Evaluation cost display.
+
+A separate installation downloaded published v2.1.0 and created a local account with a browser session. Its installed `document-extraction update v2.1.1` command refused to run while the application was running, then upgraded after `document-extraction stop`. Configuration bytes, the generated authentication secret, the account, and the pre-upgrade session survived, and password sign-in succeeded. The update wrote a pre-upgrade backup. Health was served after the upgrade.
+
+Both installations were stopped, and their temporary application, configuration, and state directories were removed. Small logs remain in `.scratch/release-v2.1.1/` and are not distributed.
+
+These published-download checks used noninteractive defaults on an existing Linux host. They did not qualify fresh machines, published downloads on macOS, Intel macOS, older operating systems, Workspace model credentials, documents, or live model routes. Live Google sign-in and Cloudflare email delivery were not tested. CI separately qualified its three listed runners.
