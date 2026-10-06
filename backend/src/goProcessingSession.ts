@@ -72,6 +72,8 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
   let model: { modelName: string; route: string } | null = null;
   const receipts = new Map<string, ModelCallObserver>();
   let pendingUsage: { id: string; observer: ModelCallObserver; usage: ModelCallUsage } | null = null;
+  // The stage most recently claimed through "next", for failures reported without one.
+  let currentStage = "";
 
   const write = async <T>(operation: () => T): Promise<T> => {
     const usage = pendingUsage;
@@ -174,11 +176,14 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
 
     const source = await sourcePath();
     sourceByteSize = (await stat(source)).size;
+    const selected = sourceView?.pages ? (pages ? pages.map((page) => sourceView!.pages![page - 1]!) : sourceView.pages) : pages;
 
     return {
       url: buildChatCompletionsUrl(env), credential: env.LITELLM_KEY,
       prefix: body.slice(0, index), suffix: body.slice(index + sourceMarker.length),
-      source, mime, pages: sourceView?.pages ? (pages ? pages.map((page) => sourceView!.pages![page - 1]!) : sourceView.pages) : pages,
+      source, mime, pages: selected,
+      // Lets Go split long whole-document renders across PDF workers.
+      page_count: selected ? undefined : store.getProcessingSource(ownerId)?.source_file_page_count ?? undefined,
       cache_id: sourceView?.identity ?? source,
       render: mime === "application/pdf" && env.MODEL_SUPPORTS_PDF_INPUT !== "true",
       sequential: env.MODEL_GATEWAY_SEQUENTIAL_CALLS === "true",
@@ -239,18 +244,26 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
         signal.throwIfAborted();
 
         return {};
-      case "state": {
+      case "next": {
+        let stage: "split" | "route" | "extract" | "materialize";
+
         if (job.kind === "packet") {
           const current = store.getDocumentPacket(ownerId);
 
           if (current?.status === "completed" && current.outcome === "no_documents") await cleanup();
 
-          return { packet: true, accepted: current?.plan_accepted ?? false, done: !current || ["awaiting_review", "failed", "processing_children", "completed"].includes(current.status) };
+          if (!current || ["awaiting_review", "failed", "processing_children", "completed"].includes(current.status)) return { stage: "done" };
+          stage = current.plan_accepted ? "materialize" : "split";
+        } else {
+          const current = store.getExtractionJobSummary(ownerId);
+
+          if (!current || ["awaiting_template", "failed", "completed"].includes(current.status)) return { stage: "done" };
+          stage = current.template_id == null ? "route" : "extract";
         }
 
-        const current = store.getExtractionJobSummary(ownerId);
+        currentStage = stage;
 
-        return { packet: false, bound: current?.template_id != null, done: !current || ["awaiting_template", "failed", "completed"].includes(current.status) };
+        return { stage, task: await execute(`${stage}/claim`, null) };
       }
 
       case "route/claim": {
@@ -460,13 +473,28 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
       }
 
       case "extract/claim": {
-        claimed = await write(() => store.claimExtractionJobForProcessing({ jobId: ownerId, attempt, claimedAt: updatedAt }));
+        // Resolve the configuration first so the claim and model record share one
+        // commit; a configuration failure still surfaces after the claim, as before.
+        let resolved: ReturnType<typeof environment> | null = null;
+
+        try { resolved = environment("extraction"); } catch { /* Re-raised after the claim below. */ }
+
+        let recorded = false;
+
+        claimed = await write(() => {
+          const current = store.claimExtractionJobForProcessing({ jobId: ownerId, attempt, claimedAt: updatedAt });
+
+          if (current && resolved)
+            recorded = store.recordExtractionJobModel({ jobId: ownerId, attempt, configurationRevision: resolved.revision, modelName: resolved.env.AI_MODEL!, route: new URL(resolved.env.MODEL_GATEWAY_URL!).hostname });
+
+          return current;
+        });
 
         if (!claimed) return { done: true };
         notify();
-        const { env, revision } = environment("extraction");
+        const { env } = resolved ?? environment("extraction");
 
-        if (!await write(() => store.recordExtractionJobModel({ jobId: ownerId, attempt, configurationRevision: revision, modelName: env.AI_MODEL!, route: new URL(env.MODEL_GATEWAY_URL!).hostname }))) return { done: true };
+        if (!recorded) return { done: true };
         const marker = newId("source");
 
         return { ...await descriptor(env, buildExtractionRequest(env, claimed.fields, claimed.source_mime_type, [{ type: "text", text: marker }]), claimed.source_mime_type, marker) };
@@ -496,6 +524,8 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
         const currentObserver = observer;
         const id = await write(() => currentObserver.started());
         receipts.set(id, observer);
+        // The provider wait needs no local permit; Go resumes before reading the response.
+        context.capacity?.suspend();
 
         return { id };
       }
@@ -521,7 +551,12 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
 
         if (modelCallStarted) outcome(failure.status === 429 ? "throttled" : /timed out|timeout/i.test(message) ? "timeout" : "failed");
 
-        if (payload.stage === "route") store.holdDocumentRouting({ jobId: ownerId, reason: message, updatedAt });
+        const stage = isString(payload.stage) && payload.stage ? payload.stage : currentStage;
+
+        // Nothing was claimed: interrupt the run so durable recovery retries it.
+        if (!stage) throw new Error("Document processing interrupted before a stage was claimed");
+
+        if (stage === "route") store.holdDocumentRouting({ jobId: ownerId, reason: message, updatedAt });
         else if (job.kind === "packet") {
           const current = store.getDocumentPacket(ownerId);
 

@@ -32,6 +32,7 @@ export type ProcessingSource = {
   retained_object_key: string | null;
   source_mime_type: string;
   source_name: string | null;
+  source_file_page_count: number | null;
   source_retained: boolean;
   source_retained_remotely: boolean;
 };
@@ -306,7 +307,7 @@ export function createDocumentProcessingStore(database: Database, store: () => L
         },
         SQLQueryBindings[]
       >(
-        `SELECT key AS source_file_key,retained_key AS retained_object_key,mime_type AS source_mime_type,name AS source_name,retained AS source_retained FROM source_files WHERE job_id=? AND (deleted_at IS NULL OR retained_key IS NOT NULL)`,
+        `SELECT key AS source_file_key,retained_key AS retained_object_key,mime_type AS source_mime_type,name AS source_name,page_count AS source_file_page_count,retained AS source_retained FROM source_files WHERE job_id=? AND (deleted_at IS NULL OR retained_key IS NOT NULL)`,
       )
       .get(ownerId);
 

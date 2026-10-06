@@ -36,6 +36,8 @@ func TestProviderWaitReleasesUploadCapacityAndResumesBeforeReading(t *testing.T)
 			}
 			suspended.Store(false)
 		case strings.HasSuffix(r.URL.Path, "call/start"):
+			// The adapter releases the permit as part of recording the receipt.
+			suspended.Store(true)
 			io.WriteString(w, `{"id":"receipt"}`)
 			return
 		}

@@ -14,7 +14,7 @@ This guide follows the quick installation in the [README](../README.md). It cove
 
 ### Supported systems
 
-The installer supports **macOS** and **Linux distributions that use glibc**, including most common Linux distributions. Supported processors are Intel/AMD (x64) and ARM (arm64). Installation requires Bash, `curl`, `tar`, and `unzip`. The installer downloads its own Bun runtime. Release archives include the Go document processor; a Go compiler is not needed for release installations.
+The installer supports **macOS** and **Linux distributions that use glibc**, including most common Linux distributions. Supported processors are Intel/AMD (x64) and ARM (arm64). Installation requires Bash, `curl`, `tar`, and `unzip`. The installer downloads its own Bun runtime. Release archives include the Go document processor and its PDFium renderer; a Go compiler is not needed for release installations. Source builds download a pinned, checksum-verified PDFium library once.
 
 The installer uses your user account. It does not use `sudo` or install a system service. The app does not start automatically at login.
 

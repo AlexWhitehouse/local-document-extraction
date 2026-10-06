@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -26,7 +27,7 @@ func TestWarmWorkerSurvivesCompletedOperationCancellation(t *testing.T) {
 	if output, err := generate.CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %v: %s", err, output)
 	}
-	pool := New(bun, filepath.Join(backend, "src/lib/pdfPageOperationProcess.ts"), 2, true)
+	pool := New(pdfiumWorker(t), nil, 2, true)
 	defer pool.Close()
 	for i := 0; i < 40; i++ {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -66,7 +67,7 @@ const output=Buffer.alloc(11);output.writeInt32BE(3);output.write("png",4);outpu
 	if err := os.WriteFile(source, []byte("source"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	pool := New(bun, script, 1, true)
+	pool := New([]string{bun, script}, nil, 1, true)
 	defer pool.Close()
 	artifacts := t.TempDir()
 	_, err = pool.Run(context.Background(), source, artifacts, map[string]string{"operation": "render"})
@@ -78,3 +79,47 @@ const output=Buffer.alloc(11);output.writeInt32BE(3);output.write("png",4);outpu
 		t.Fatalf("partial files retained: %v %v", files, err)
 	}
 }
+
+// pdfiumWorker returns the worker built by `bun run build:go`.
+func pdfiumWorker(t *testing.T) []string {
+	t.Helper()
+	worker, err := filepath.Abs("../../bin/document-extraction-pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(worker); err != nil {
+		t.Skip("run bun run build:go to build the PDFium worker")
+	}
+	return []string{worker, "render"}
+}
+
+func TestTryAdmitNeverOvertakesQueuedWork(t *testing.T) {
+	pool := New([]string{"unused"}, nil, 1, true)
+	defer pool.Close()
+	release, ok := pool.TryAdmit()
+	if !ok {
+		t.Fatal("free slot refused")
+	}
+	if _, ok := pool.TryAdmit(); ok {
+		t.Fatal("full pool admitted")
+	}
+	admitted := make(chan func(), 1)
+	go func() {
+		next, err := pool.Admit(context.Background(), false)
+		if err != nil {
+			t.Error(err)
+		}
+		admitted <- next
+	}()
+	for pool.admission.queued() == 0 {
+		runtime.Gosched()
+	}
+	release()
+	next := <-admitted
+	if _, ok := pool.TryAdmit(); ok {
+		t.Fatal("try overtook a granted waiter")
+	}
+	next()
+}
+
+func (a *admission) queued() int { a.mu.Lock(); defer a.mu.Unlock(); return len(a.waiting) }

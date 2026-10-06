@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -21,6 +22,8 @@ var adapterHTTP = &http.Client{Transport: &http.Transport{
 type Bridge struct {
 	URL, Token string
 	HTTP       *http.Client
+	mu         sync.Mutex
+	suspended  bool
 }
 
 func (b *Bridge) Call(ctx context.Context, operation string, input, output any) error {
@@ -56,16 +59,59 @@ func (b *Bridge) Call(ctx context.Context, operation string, input, output any) 
 	return nil
 }
 
-// Wait releases local processing capacity without releasing durable job ownership.
-func (b *Bridge) Wait(ctx context.Context, wait func() error) error {
+// Suspend releases the job's local processing permit while keeping durable job
+// ownership. The permit stays released until Resume; repeated calls are free.
+func (b *Bridge) Suspend(ctx context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.suspended {
+		return nil
+	}
 	if err := b.Call(ctx, "capacity/suspend", nil, nil); err != nil {
 		return err
 	}
-	err := wait()
-	if resumeErr := b.Call(ctx, "capacity/resume", nil, nil); resumeErr != nil {
-		return resumeErr
+	b.suspended = true
+	return nil
+}
+
+// Resume waits for a local permit; returning responses take priority over new work.
+func (b *Bridge) Resume(ctx context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.suspended {
+		return nil
 	}
-	return err
+	if err := b.Call(ctx, "capacity/resume", nil, nil); err != nil {
+		return err
+	}
+	b.suspended = false
+	return nil
+}
+
+// Wait runs wait without a local permit unless try obtains the resource at once.
+func (b *Bridge) Wait(ctx context.Context, try func() bool, wait func() error) error {
+	if try != nil && try() {
+		return nil
+	}
+	if err := b.Suspend(ctx); err != nil {
+		return err
+	}
+	return wait()
+}
+
+// StartCall records the pending usage receipt; the adapter also releases the
+// local permit for the provider wait, saving a separate suspension round trip.
+func (b *Bridge) StartCall(ctx context.Context) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var receipt struct {
+		ID string `json:"id"`
+	}
+	if err := b.Call(ctx, "call/start", nil, &receipt); err != nil {
+		return "", err
+	}
+	b.suspended = true
+	return receipt.ID, nil
 }
 
 type RunRequest struct {
@@ -81,11 +127,11 @@ type Engine struct {
 	Completed atomic.Uint64
 	Failed    atomic.Uint64
 }
-type state struct {
-	Done     bool `json:"done"`
-	Packet   bool `json:"packet"`
-	Bound    bool `json:"bound"`
-	Accepted bool `json:"accepted"`
+
+// step is the adapter's next stage together with its durable claim.
+type step struct {
+	Stage string          `json:"stage"`
+	Task  json.RawMessage `json:"task"`
 }
 
 func (e *Engine) Run(ctx context.Context, input RunRequest) error {
@@ -101,35 +147,33 @@ func (e *Engine) Run(ctx context.Context, input RunRequest) error {
 		e.Transport.Artifacts.release(cache.bytes)
 	}()
 	for {
-		var current state
-		if err := bridge.Call(ctx, "state", nil, &current); err != nil {
-			return err
+		var next step
+		if err := bridge.Call(ctx, "next", nil, &next); err != nil {
+			return e.fail(ctx, bridge, "", err)
 		}
-		if current.Done {
+		if next.Stage == "done" {
 			e.Completed.Add(1)
 			return nil
 		}
-		stage := "extract"
-		if current.Packet {
-			if current.Accepted {
-				if err := e.materialize(ctx, bridge, input, cache); err != nil {
-					return e.fail(ctx, bridge, "materialize", err)
-				}
-				e.Completed.Add(1)
-				return nil
+		if next.Stage == "materialize" {
+			if err := e.materialize(ctx, bridge, input, cache, next.Task); err != nil {
+				return e.fail(ctx, bridge, "materialize", err)
 			}
-			stage = "split"
-		} else if !current.Bound {
-			stage = "route"
+			e.Completed.Add(1)
+			return nil
+		}
+		stage := next.Stage
+		if stage != "split" && stage != "route" && stage != "extract" {
+			return errors.New("unknown processing stage")
 		}
 		var task ModelTask
-		if err := bridge.Call(ctx, stage+"/claim", nil, &task); err != nil {
+		if err := json.Unmarshal(next.Task, &task); err != nil {
 			return e.fail(ctx, bridge, stage, err)
 		}
 		if task.Done {
 			return nil
 		}
-		task.Continuation = !current.Packet
+		task.Continuation = stage != "split"
 		task.Final = stage == "extract"
 		tries := 1
 		if stage != "extract" {
@@ -156,7 +200,7 @@ func (e *Engine) Run(ctx context.Context, input RunRequest) error {
 			if delay > 60*time.Second {
 				break
 			}
-			if err := bridge.Wait(ctx, func() error {
+			if err := bridge.Wait(ctx, nil, func() error {
 				timer := time.NewTimer(delay)
 				defer timer.Stop()
 				select {
@@ -192,13 +236,13 @@ func (e *Engine) fail(ctx context.Context, b *Bridge, stage string, err error) e
 	return b.Call(ctx, "failure", map[string]any{"stage": stage, "failure": failure}, nil)
 }
 
-func (e *Engine) materialize(ctx context.Context, b *Bridge, input RunRequest, cache *preparationCache) error {
+func (e *Engine) materialize(ctx context.Context, b *Bridge, input RunRequest, cache *preparationCache, claim json.RawMessage) error {
 	var task struct {
 		Source  string  `json:"source"`
 		Groups  [][]int `json:"groups"`
 		Virtual bool    `json:"virtual"`
 	}
-	if err := b.Call(ctx, "materialize/claim", nil, &task); err != nil {
+	if err := json.Unmarshal(claim, &task); err != nil {
 		return err
 	}
 	if task.Virtual {
@@ -229,7 +273,7 @@ func (e *Engine) materialize(ctx context.Context, b *Bridge, input RunRequest, c
 	artifacts := []string{}
 	if len(task.Groups) > 0 {
 		reserve := func() error {
-			if err := e.Transport.Artifacts.acquire(ctx, 64<<20); err != nil {
+			if err := e.Transport.reserveArtifacts(ctx, b, 64<<20); err != nil {
 				return err
 			}
 			cache.bytes += 64 << 20

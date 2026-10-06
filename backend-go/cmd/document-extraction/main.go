@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -32,14 +33,26 @@ func positive(name string, fallback int) int {
 	return n
 }
 
+func workerBinary() string {
+	if path := os.Getenv("GO_PDF_WORKER_BINARY"); path != "" {
+		return path
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return filepath.Join(filepath.Dir(executable), "document-extraction-pdf")
+}
+
 func main() {
 	os.Setenv("GO_PDF_WORKER_DOCUMENTS", strconv.Itoa(positive("GO_PDF_WORKER_DOCUMENTS", 128)))
 	token := os.Getenv("GO_PROCESSOR_TOKEN")
 	if len(token) < 32 {
 		log.Fatal("GO_PROCESSOR_TOKEN must contain at least 32 characters")
 	}
-	pool := pdf.New(os.Getenv("GO_PROCESSOR_BUN"), os.Getenv("GO_PROCESSOR_PDF_SCRIPT"), positive("GO_PDF_PREPARATION_WORKERS", 4), false)
-	renderer := pdf.New(os.Getenv("GO_PROCESSOR_BUN"), os.Getenv("GO_PROCESSOR_PDF_SCRIPT"), positive("GO_PDF_WORKERS", runtime.GOMAXPROCS(0)), true)
+	// Subset PDFs still use the product's pdf-lib workers; rendering uses PDFium.
+	pool := pdf.New([]string{os.Getenv("GO_PROCESSOR_BUN"), "--no-env-file", os.Getenv("GO_PROCESSOR_PDF_SCRIPT")}, []string{"GO_PDF_FILE_INPUT=1"}, positive("GO_PDF_PREPARATION_WORKERS", 4), false)
+	renderer := pdf.New([]string{workerBinary(), "render"}, nil, positive("GO_PDF_WORKERS", runtime.GOMAXPROCS(0)), true)
 	artifactMiB := positive("GO_PREPARED_ARTIFACT_MIB", 1024)
 	if artifactMiB < 96 {
 		log.Fatal("GO_PREPARED_ARTIFACT_MIB must be at least 96")

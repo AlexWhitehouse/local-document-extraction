@@ -5,6 +5,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, tmpdir, totalmem } from "node:os";
 import { join, resolve } from "node:path";
 
+import { createCanvas } from "@napi-rs/canvas";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { createLocalAuth } from "../src/localAuth";
@@ -56,6 +57,7 @@ type HealthSnapshot = {
     admission: { active: number; rejected: number; reservedBytes: number };
     extractionQueue: ExtractionQueueSnapshot;
     resources: ResourceSnapshot;
+    goProcessor?: { renderer?: { pages?: number; raster_micros?: number; encode_micros?: number } };
   };
   ok: boolean;
 };
@@ -100,6 +102,7 @@ type BenchmarkSettings = {
   cpuProfile: boolean;
   modes: BenchmarkMode[];
   scenarios: BenchmarkScenario[];
+  fixture: "vector" | "scan";
   renderPages: number;
   runnerConcurrency: number;
   submitters: number;
@@ -151,6 +154,8 @@ type ModeResult = {
   loadStoppedAt: string;
   mode: BenchmarkMode;
   observations: number;
+  // Summed renderer phase time across workers; under CPU contention it includes waiting.
+  renderer: { pages: number; rendererSeconds: number; pagesPerRendererSecond: number | null };
   profile: {
     path: string | null;
     topFunctions: string[];
@@ -176,7 +181,7 @@ type BenchmarkEvidence = {
     platform: string;
   };
   repositoryRevision: string;
-  runtime: { version: string; revision: string; processor: string; pngEncoder: string; pdfWorkers: string | null; modelConcurrency: number };
+  runtime: { version: string; revision: string; processor: string; renderer: string; pdfWorkers: string | null; modelConcurrency: number };
   processingLimits: { inspection: typeof PDF_INSPECTION_LIMITS; pageOperations: typeof PDF_PAGE_OPERATION_LIMITS };
   results: ModeResult[];
   settings: BenchmarkSettings;
@@ -261,6 +266,7 @@ async function runCoordinator(): Promise<void> {
       `LOOPBACK_BENCH_MEMORY_LIMIT_RATIO=${settings.memoryLimitRatio}`,
       `LOOPBACK_BENCH_PREPARATION_MAX_BYTES=${settings.preparationMaxBytes}`,
       `LOOPBACK_BENCH_RENDER_PAGES=${settings.renderPages}`,
+      `LOOPBACK_BENCH_FIXTURE=${settings.fixture}`,
       `LOOPBACK_BENCH_DRAIN_TIMEOUT_SECONDS=${settings.drainTimeoutSeconds}`,
       "bun run benchmark:loopback-saturation",
     ].join(" "),
@@ -273,7 +279,7 @@ async function runCoordinator(): Promise<void> {
       platform: platform(),
     },
     repositoryRevision: await gitRevision(),
-    runtime: { version: Bun.version, revision: Bun.revision, processor: "go", pngEncoder: process.env.GO_PDF_PNG_ENCODER ?? "fast", pdfWorkers: process.env.GO_PDF_WORKERS ?? null, modelConcurrency: Number(process.env.GO_MODEL_CONCURRENCY ?? settings.runnerConcurrency) },
+    runtime: { version: Bun.version, revision: Bun.revision, processor: "go", renderer: "pdfium", pdfWorkers: process.env.GO_PDF_WORKERS ?? null, modelConcurrency: Number(process.env.GO_MODEL_CONCURRENCY ?? settings.runnerConcurrency) },
     processingLimits: { inspection: PDF_INSPECTION_LIMITS, pageOperations: PDF_PAGE_OPERATION_LIMITS },
     results,
     settings,
@@ -434,6 +440,7 @@ async function runMode({
       loadStoppedAt: load.loadStoppedAt,
       mode,
       observations: observations.length,
+      renderer: rendererThroughput(observations.at(-1)?.health),
       profile: {
         path: settings.cpuProfile ? profilePath : null,
         topFunctions: readTopProfileFunctions(profileMarkdown),
@@ -840,6 +847,12 @@ async function createFixture(mode: BenchmarkMode, settings: BenchmarkSettings): 
 
   for (let pageIndex = 0; pageIndex < pages; pageIndex += 1) {
     const page = pdf.addPage([612, 792]);
+
+    if (settings.fixture === "scan") {
+      page.drawImage(await pdf.embedJpg(await scannedPage(pageIndex)), { x: 0, y: 0, width: 612, height: 792 });
+      continue;
+    }
+
     page.drawText(`Loopback saturation benchmark page ${pageIndex + 1}`, {
       color: rgb(0.08, 0.14, 0.25),
       font,
@@ -876,6 +889,23 @@ async function createFixture(mode: BenchmarkMode, settings: BenchmarkSettings): 
   }
 
   return Uint8Array.from(await pdf.save({ useObjectStreams: true }));
+}
+
+/** A 200 DPI grayscale JPEG page, as a scanner produces. */
+async function scannedPage(pageIndex: number) {
+  const canvas = createCanvas(1700, 2200);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#f4f2ec";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#1c1c1c";
+  context.font = "34px serif";
+  context.fillText(`Scanned benchmark page ${pageIndex + 1}`, 120, 160);
+  context.font = "26px serif";
+
+  for (let row = 0; row < 60; row += 1)
+    context.fillText(`Reference ${pageIndex + 1}-${row + 1}: deterministic scanned extraction data 123.45`, 120, 240 + row * 31);
+
+  return canvas.encode("jpeg", 80);
 }
 
 function deterministicBytes(length: number): Uint8Array {
@@ -1001,10 +1031,8 @@ async function startApplication({
         cwd: backendDirectory,
         env: minimalEnvironment({
           GO_PROCESSOR_BINARY: process.env.GO_PROCESSOR_BINARY ?? "",
-          GO_PDF_OVERLAP: process.env.GO_PDF_OVERLAP ?? "1",
           GO_PDF_WORKER_DOCUMENTS: process.env.GO_PDF_WORKER_DOCUMENTS ?? "128",
           GO_PDF_WORKERS: process.env.GO_PDF_WORKERS ?? "6",
-          GO_PDF_PNG_ENCODER: process.env.GO_PDF_PNG_ENCODER ?? "fast",
           GO_PDF_PREPARATION_WORKERS: process.env.GO_PDF_PREPARATION_WORKERS ?? "4",
           GO_MODEL_CONCURRENCY: process.env.GO_MODEL_CONCURRENCY ?? String(settings.runnerConcurrency),
           DOCUMENT_EXTRACTION_ASSETS_DIR: resolve(repositoryRoot, "frontend", "dist"),
@@ -1162,6 +1190,14 @@ async function flushChildLogs(process: CapturedChild, directory: string, name: s
     writeFile(join(directory, `${name}.stdout.log`), output.stdout, "utf8"),
     writeFile(join(directory, `${name}.stderr.log`), output.stderr, "utf8"),
   ]);
+}
+
+function rendererThroughput(health: HealthSnapshot | undefined): ModeResult["renderer"] {
+  const renderer = health?.diagnostics.goProcessor?.renderer;
+  const pages = renderer?.pages ?? 0;
+  const rendererSeconds = ((renderer?.raster_micros ?? 0) + (renderer?.encode_micros ?? 0)) / 1e6;
+
+  return { pages, rendererSeconds, pagesPerRendererSecond: rendererSeconds > 0 ? pages / rendererSeconds : null };
 }
 
 async function readHealth(origin: string): Promise<HealthSnapshot> {
@@ -1517,7 +1553,7 @@ export function renderReport(evidence: BenchmarkEvidence, runDirectory: string):
     evidence.command,
     "```",
     "",
-    "Useful controls: `LOOPBACK_BENCH_SCENARIOS`, `LOOPBACK_BENCH_GATEWAY_LATENCY_MS`, `LOOPBACK_BENCH_DURATION_SECONDS`, `LOOPBACK_BENCH_MODES`, `LOOPBACK_BENCH_RUNNER_CONCURRENCY`, `LOOPBACK_BENCH_SUBMITTERS`, `LOOPBACK_BENCH_BACKLOG`, `LOOPBACK_BENCH_INLINE_PAYLOAD_BYTES`, and `LOOPBACK_BENCH_RENDER_PAGES`.",
+    "Useful controls: `LOOPBACK_BENCH_SCENARIOS`, `LOOPBACK_BENCH_GATEWAY_LATENCY_MS`, `LOOPBACK_BENCH_DURATION_SECONDS`, `LOOPBACK_BENCH_MODES`, `LOOPBACK_BENCH_RUNNER_CONCURRENCY`, `LOOPBACK_BENCH_SUBMITTERS`, `LOOPBACK_BENCH_BACKLOG`, `LOOPBACK_BENCH_INLINE_PAYLOAD_BYTES`, `LOOPBACK_BENCH_RENDER_PAGES`, and `LOOPBACK_BENCH_FIXTURE` (`vector` or `scan`).",
     "",
     `Raw logs, isolated state, fixtures, profiles, and JSON evidence: \`${runDirectory}\``,
   ];
@@ -1677,6 +1713,7 @@ function readSettings(): BenchmarkSettings {
       "LOOPBACK_BENCH_INLINE_PAYLOAD_BYTES",
     ),
     modes,
+    fixture: benchmarkFixture(process.env.LOOPBACK_BENCH_FIXTURE),
     renderPages: positiveInteger(process.env.LOOPBACK_BENCH_RENDER_PAGES, 2, "LOOPBACK_BENCH_RENDER_PAGES"),
     runnerConcurrency,
     submitters: positiveInteger(
@@ -1693,6 +1730,13 @@ function readSettings(): BenchmarkSettings {
       ),
     ),
   };
+}
+
+function benchmarkFixture(value: string | undefined): BenchmarkSettings["fixture"] {
+  if (value === undefined || value === "" || value === "vector") return "vector";
+
+  if (value === "scan") return "scan";
+  throw new Error("LOOPBACK_BENCH_FIXTURE must be vector or scan");
 }
 
 function minimalEnvironment(extra: Record<string, string>) {

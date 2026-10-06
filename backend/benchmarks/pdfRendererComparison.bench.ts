@@ -84,7 +84,7 @@ for (const name of names) {
   for (let repeat = 0; repeat < 4; repeat++) {
     let started = performance.now();
 
-    for await (const page of iteratePdfPagesToPng(bytes.slice(0), undefined, undefined, undefined, { fastPng: true, overlapEncoding: true })) await writeFile(join(directory, `${name}-pdfjs.png`), new Uint8Array(page));
+    for await (const page of iteratePdfPagesToPng(bytes.slice(0))) await writeFile(join(directory, `${name}-pdfjs.png`), new Uint8Array(page));
     times.pdfjs!.push(performance.now() - started);
     const reference = await decode(join(directory, `${name}-pdfjs.png`));
     dimensions = { width: reference.width, height: reference.height };

@@ -19,6 +19,16 @@ type admission struct {
 	waiting                         []*waiter
 }
 
+func (a *admission) tryAcquire() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.active >= a.capacity || len(a.waiting) > 0 {
+		return false
+	}
+	a.active++
+	return true
+}
+
 func (a *admission) acquire(ctx context.Context, continuation bool) error {
 	if err := ctx.Err(); err != nil {
 		return err

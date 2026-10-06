@@ -52,7 +52,7 @@ describe("renderPdfPagesToPng", () => {
   });
 });
 
-it("fast encoding preserves selected page pixels, order and dimensions", async () => {
+it("selected pages match a rendered subset in pixels, order and dimensions", async () => {
   const pdf = await PDFDocument.create();
 
   for (const width of [100, 130, 170]) pdf.addPage([width, 90]).drawText(`Page width ${width}`, { x: 5, y: 20, size: 10 });
@@ -76,31 +76,8 @@ it("fast encoding preserves selected page pixels, order and dimensions", async (
   for await (const png of iteratePdfPagesToPng(subsetBytes)) expected.push(await decode(png));
   const actual = [];
 
-  for await (const png of iteratePdfPagesToPng(source.slice(0), undefined, undefined, [1, 3], { fastPng: true })) actual.push(await decode(png));
+  for await (const png of iteratePdfPagesToPng(source.slice(0), undefined, undefined, [1, 3])) actual.push(await decode(png));
   expect(actual).toEqual(expected);
   expect(actual.map((page) => [page.width, page.height])).toEqual([[200, 180], [180, 340]]);
 });
 
-it("overlapped encoding preserves page order, bytes and cancellation limits", async () => {
-  const document = await PDFDocument.create();
-
-  for (let index = 0; index < 5; index++) document.addPage([100 + index * 10, 100]).drawText(`PAGE ${index}`, { x: 5, y: 50, size: 10 });
-  const source = Uint8Array.from(await document.save()).buffer;
-
-  const collect = async (overlapEncoding: boolean) => {
-    const pages = [];
-
-    for await (const page of iteratePdfPagesToPng(source.slice(0), undefined, undefined, [1, 3, 5], { fastPng: true, overlapEncoding })) pages.push(Buffer.from(page));
-
-    return pages;
-  };
-
-  expect(await collect(true)).toEqual(await collect(false));
-  const limited = iteratePdfPagesToPng(source.slice(0), undefined, 1, undefined, { fastPng: true, overlapEncoding: true });
-  await expect(limited.next()).rejects.toBeInstanceOf(PdfPreparationLimitError);
-  const controller = new AbortController();
-  const cancelled = iteratePdfPagesToPng(source.slice(0), controller.signal, undefined, undefined, { fastPng: true, overlapEncoding: true });
-  await cancelled.next();
-  controller.abort();
-  await expect(cancelled.next()).rejects.toMatchObject({ name: "AbortError" });
-});
