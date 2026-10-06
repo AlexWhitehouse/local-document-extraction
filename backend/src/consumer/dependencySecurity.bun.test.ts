@@ -7,12 +7,11 @@ import { describe, expect, it } from "bun:test";
 const require = createRequire(import.meta.url);
 
 describe("security-sensitive parser dependencies", () => {
-  it("uses a PDF.js release containing the malicious-PDF execution fix", () => {
-    const packagePath = require.resolve("pdfjs-dist/package.json");
+  it("ships no JavaScript PDF parser; PDFium in isolated workers is the only PDF engine", () => {
+    const manifest = jsonObject(parseJson(readFileSync(new URL("../../package.json", import.meta.url), "utf8")));
+    const dependencies = jsonObject(manifest.dependencies);
 
-    const packageMetadata = jsonObject(parseJson(readFileSync(packagePath, "utf8")));
-
-    expect(compareVersions(jsonText(packageMetadata.version), "6.2.108")).toBeGreaterThanOrEqual(0);
+    for (const parser of ["pdfjs-dist", "pdf-lib"]) expect(dependencies[parser]).toBeUndefined();
   });
 
   it("uses a UUID release containing the buffer-bounds fix", () => {

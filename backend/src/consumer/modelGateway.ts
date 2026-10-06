@@ -9,7 +9,8 @@ import {
 } from "../../../shared/json";
 import type { FieldDefinition } from "../lib/types";
 import type { ModelFieldResult } from "./modelResultNormalizer";
-import { iteratePdfPagesToPng, MAX_RENDERED_PDF_BYTES, PdfPreparationLimitError } from "./pdfPageRenderer";
+import { MAX_RENDERED_PDF_BYTES, renderPdfPages, withPdfOperationCapacity } from "../lib/pdfPageOperations";
+import { PdfSourceFileLimitError } from "../lib/sourceFilePageCount";
 import { createByteBudget } from "../lib/byteBudget";
 import { localMemoryLimits } from "../localMemoryLimits";
 import { readModelCallUsage, type ModelCallObserver } from "./modelUsage";
@@ -229,22 +230,19 @@ async function prepareSourceContent(
   signal?: AbortSignal,
 ): Promise<ModelContentPart[]> {
   if (!renderPdfAsImages) return [buildInlineSourceContentPart(sourceBytes, sourceMimeType)];
-  const parts: ModelContentPart[] = [];
 
   try {
-    for await (const pageBytes of iteratePdfPagesToPng(sourceBytes, signal)) {
-      parts.push(buildInlineImageContentPart(pageBytes, "image/png"));
-    }
+    const pages = await withPdfOperationCapacity(() => renderPdfPages(sourceBytes, signal), signal ?? new AbortController().signal);
+
+    return pages.map((page) => buildInlineImageContentPart(page, "image/png"));
   } catch (error) {
     if (signal?.aborted) throw new ExtractionCancelledError("PDF page rendering cancelled");
 
-    if (error instanceof PdfPreparationLimitError) throw new ModelGatewayRequestError(error.message);
+    if (error instanceof PdfSourceFileLimitError) throw new ModelGatewayRequestError("Rendered PDF exceeds the model payload limit");
     throw new RetryableError(
       `PDF Source file could not be prepared for the model: ${error instanceof Error ? error.message : "unknown error"}`,
     );
   }
-
-  return parts;
 }
 
 export type ExtractionUsage = {
@@ -511,11 +509,11 @@ function buildInlineSourceContentPart(sourceBytes: ArrayBuffer, sourceMimeType: 
   return buildInlineImageContentPart(sourceBytes, sourceMimeType);
 }
 
-function buildInlineImageContentPart(sourceBytes: ArrayBuffer, sourceMimeType: string): ModelContentPart {
+function buildInlineImageContentPart(sourceBytes: ArrayBuffer | Uint8Array, sourceMimeType: string): ModelContentPart {
   return {
     type: "image_url",
     image_url: {
-      url: `data:${sourceMimeType};base64,${Buffer.from(sourceBytes).toString("base64")}`,
+      url: `data:${sourceMimeType};base64,${(sourceBytes instanceof Uint8Array ? Buffer.from(sourceBytes.buffer, sourceBytes.byteOffset, sourceBytes.byteLength) : Buffer.from(sourceBytes)).toString("base64")}`,
     },
   };
 }

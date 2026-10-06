@@ -90,7 +90,7 @@ func pdfiumWorker(t *testing.T) []string {
 	if _, err := os.Stat(worker); err != nil {
 		t.Skip("run bun run build:go to build the PDFium worker")
 	}
-	return []string{worker, "render"}
+	return []string{worker, "serve"}
 }
 
 func TestTryAdmitNeverOvertakesQueuedWork(t *testing.T) {

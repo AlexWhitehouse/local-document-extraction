@@ -14,9 +14,11 @@ export function commitProductWrite<T>(store: LocalWorkspaceProductStoreHandle, s
     let batch = pending.get(store);
 
     if (!batch) {
-      batch = [];
-      pending.set(store, batch);
-      setTimeout(() => flush(store), 4);
+      const created: PendingWrite[] = [];
+      batch = created;
+      pending.set(store, created);
+      // A full batch may already have flushed; this timer must not cut its successor short.
+      setTimeout(() => { if (pending.get(store) === created) flush(store); }, 4);
     }
 
     batch.push({

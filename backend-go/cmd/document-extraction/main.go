@@ -50,9 +50,10 @@ func main() {
 	if len(token) < 32 {
 		log.Fatal("GO_PROCESSOR_TOKEN must contain at least 32 characters")
 	}
-	// Subset PDFs still use the product's pdf-lib workers; rendering uses PDFium.
-	pool := pdf.New([]string{os.Getenv("GO_PROCESSOR_BUN"), "--no-env-file", os.Getenv("GO_PROCESSOR_PDF_SCRIPT")}, []string{"GO_PDF_FILE_INPUT=1"}, positive("GO_PDF_PREPARATION_WORKERS", 4), false)
-	renderer := pdf.New([]string{workerBinary(), "render"}, nil, positive("GO_PDF_WORKERS", runtime.GOMAXPROCS(0)), true)
+	// Subset PDFs and rendering both use PDFium, in separate pools so neither
+	// queues behind the other. Subsets keep the 20-second materialization deadline.
+	pool := pdf.New([]string{workerBinary(), "serve"}, nil, positive("GO_PDF_PREPARATION_WORKERS", 4), false)
+	renderer := pdf.New([]string{workerBinary(), "serve"}, nil, positive("GO_PDF_WORKERS", runtime.GOMAXPROCS(0)), true)
 	artifactMiB := positive("GO_PREPARED_ARTIFACT_MIB", 1024)
 	if artifactMiB < 96 {
 		log.Fatal("GO_PREPARED_ARTIFACT_MIB must be at least 96")

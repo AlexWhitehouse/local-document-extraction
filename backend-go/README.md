@@ -54,7 +54,7 @@ flowchart LR
   Adapter --> Events[Existing live updates and accounting]
 ```
 
-* Separate pools handle PDF materialization and rendering. Rendering runs in
+* Separate pools handle PDF materialization and rendering. Both run in
   isolated `document-extraction-pdf` processes that load PDFium through
   [purego](https://github.com/ebitengine/purego), so both binaries still build with
   `CGO_ENABLED=0`. Pages render over white at up to 2× scale (144 DPI) with each edge
@@ -65,9 +65,10 @@ flowchart LR
   compression. Each page's encoding overlaps the next page's rasterization.
   Documents longer than eight pages render in parallel eight-page chunks, in order.
   Renderer processes recycle after 128 operations or 384 MiB peak RSS, exit at 1 GiB,
-  and idle out after five seconds. Materialization still uses the pinned pdf-lib
-  workers, retains the 128 MiB recycling threshold and has a cancellable 20-second
-  deadline. Rendering remains cancellable for the whole Document.
+  and idle out after five seconds. Materialization copies each page group into a new
+  PDF with PDFium's page import, in ascending page order, and has a cancellable
+  20-second deadline. A selection of every page in order sends the original file
+  without a copy. Rendering remains cancellable for the whole Document.
 * PDF admission alternates two continuation/child turns with one new-parent turn,
   preserving FIFO within each class. Artifact space is reserved when work enters
   the pool, not while it waits behind other PDFs.
@@ -82,9 +83,11 @@ flowchart LR
   and abandoned entries expire after one idle minute (five-second sweeps).
 * File-backed admission inspection and Go PDF workers read private source paths
   directly, avoiding whole-PDF copies through the public Bun heap and IPC pipes.
-  PDFium maps the immutable source read-only. Upload admission keeps the guarded
-  pdf-lib inspector: it rejects decompression bombs, oversized xrefs and cyclic page
-  trees that PDFium would accept.
+  PDFium maps the immutable source read-only. PDFium is the application's only PDF
+  engine: the Bun API runs the same `document-extraction-pdf` binary for upload
+  inspection, previews, blank-page checks, subsets and its own model calls. Upload
+  inspectors use a 256 MiB in-operation memory ceiling; see
+  [ADR-0025](../backend/docs/adr/0025-pdfium-as-the-only-pdf-engine.md).
 * Go reads artifacts through a bounded buffer and streams base64 into the request.
   It supplies an exact Content-Length and does not allocate a complete encoded
   document or serialized model request. Network concurrency is independent of PDF
@@ -107,8 +110,7 @@ flowchart LR
   PDFium build from [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries),
   verifies its SHA-256 and places `libpdfium` and its third-party licenses beside the
   binaries. Release archives bundle all four platforms, so installation needs neither
-  Go nor network access to PDFium. Materialization uses the repository's pinned Bun
-  dependencies.
+  Go nor network access to PDFium.
 
 ## Controls
 
@@ -117,8 +119,8 @@ flowchart LR
 | `GO_PROCESSOR_BINARY` | `backend-go/bin/document-extraction` | Override the processor binary path. |
 | `GO_MODEL_CONCURRENCY` | `EXTRACTION_MAX_CONCURRENCY`, or 24 | Maximum concurrent model HTTP calls. |
 | `GO_PDF_WORKERS` | CPUs, capped by one quarter of RAM at 384 MiB/worker | Concurrent rendering processes. |
-| `GO_PDF_WORKER_DOCUMENTS` | 128 | Renderer operation recycling threshold; the RSS threshold still applies. |
-| `GO_PDF_WORKER_BINARY` | `document-extraction-pdf` beside the processor | Override the PDFium renderer binary. |
+| `GO_PDF_WORKER_DOCUMENTS` | 128 | PDFium worker operation recycling threshold; the RSS threshold still applies. |
+| `GO_PDF_WORKER_BINARY` | `document-extraction-pdf` beside the processor | Override the PDFium worker binary. |
 | `PDFIUM_LIBRARY` | `libpdfium` beside the renderer | Override the PDFium shared library. |
 | `GO_RESPONSE_BUFFER_MIB` | 1/16 of host RAM, 64–512 MiB | Response-body allowance held through validation and commit. |
 | `GO_PREPARED_ARTIFACT_MIB` | Quarter of free disk, 96–4096 MiB | Global prepared-artifact byte allowance. |
@@ -150,7 +152,9 @@ sequential turn or retry timer releases the local permit while retaining durable
 ownership. Each resource is tried first; only a real wait costs a suspension round
 trip, and the permit stays released until the job next needs it. Recording the
 model call's usage receipt also releases the permit, so the provider wait needs no
-separate round trip. One `next` adapter call claims each stage; the extraction claim
+separate round trip. The permit is reacquired by the completion call itself, which
+waits for it before validation; the response body is read beforehand under the
+response byte allowance. One `next` adapter call claims each stage; the extraction claim
 and its model record share one commit.
 Response bodies share a byte allowance through validation and commit. Unknown
 lengths reserve the response limit; known lengths reserve their bounded size.

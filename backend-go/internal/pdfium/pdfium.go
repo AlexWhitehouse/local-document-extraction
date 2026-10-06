@@ -4,11 +4,13 @@
 package pdfium
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
 	"os"
 	"syscall"
+	"unicode"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -46,9 +48,20 @@ type Library struct {
 	afterLoadPage    func(page, forms uintptr)
 	beforeClosePage  func(page, forms uintptr)
 	drawForms        func(forms, bitmap, page uintptr, x, y, width, height, rotation, flags int32)
+	createDocument   func() uintptr
+	importPages      func(destination, source uintptr, indices unsafe.Pointer, length uintptr, index int32) int32
+	saveAsCopy       func(document uintptr, writer unsafe.Pointer, flags uint32) int32
+	pageSize         func(document uintptr, index int32, size unsafe.Pointer) int32
+	loadText         func(page uintptr) uintptr
+	closeText        func(text uintptr)
+	countChars       func(text uintptr) int32
+	charAt           func(text uintptr, index int32) uint32
+	annotationCount  func(page uintptr) int32
 	// FPDF_FORMFILLINFO version 1 with no callbacks. PDFium keeps this pointer
 	// for the form environment's lifetime, so it lives outside the Go heap.
 	formInfo []byte
+	// FPDF_FILEWRITE version 1 for saves: an int version, then WriteBlock.
+	fileWrite []byte
 }
 
 // Open loads the shared library once per worker process.
@@ -86,11 +99,26 @@ func Open(path string) (library *Library, err error) {
 	bind(&l.afterLoadPage, "FORM_OnAfterLoadPage")
 	bind(&l.beforeClosePage, "FORM_OnBeforeClosePage")
 	bind(&l.drawForms, "FPDF_FFLDraw")
+	bind(&l.createDocument, "FPDF_CreateNewDocument")
+	bind(&l.importPages, "FPDF_ImportPagesByIndex")
+	bind(&l.saveAsCopy, "FPDF_SaveAsCopy")
+	bind(&l.pageSize, "FPDF_GetPageSizeByIndexF")
+	bind(&l.loadText, "FPDFText_LoadPage")
+	bind(&l.closeText, "FPDFText_ClosePage")
+	bind(&l.countChars, "FPDFText_CountChars")
+	bind(&l.charAt, "FPDFText_GetUnicode")
+	bind(&l.annotationCount, "FPDFPage_GetAnnotCount")
 	l.formInfo, err = syscall.Mmap(-1, 0, 4096, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANON|syscall.MAP_PRIVATE)
 	if err != nil {
 		return nil, err
 	}
 	l.formInfo[0] = 1
+	l.fileWrite, err = syscall.Mmap(-1, 0, 4096, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANON|syscall.MAP_PRIVATE)
+	if err != nil {
+		return nil, err
+	}
+	binary.NativeEndian.PutUint32(l.fileWrite, 1)
+	binary.NativeEndian.PutUint64(l.fileWrite[8:], uint64(purego.NewCallback(writeBlock)))
 	l.initLibrary()
 	return l, nil
 }
@@ -120,6 +148,24 @@ func (l *Library) OpenFile(path string, maxBytes int64) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
+	return l.open(mapping)
+}
+
+// OpenBytes copies source bytes outside the Go heap, where PDFium may keep
+// pointers into them for the document's lifetime.
+func (l *Library) OpenBytes(data []byte, maxBytes int64) (*Document, error) {
+	if len(data) < 1 || int64(len(data)) > maxBytes {
+		return nil, ErrLimit
+	}
+	mapping, err := syscall.Mmap(-1, 0, len(data), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANON|syscall.MAP_PRIVATE)
+	if err != nil {
+		return nil, err
+	}
+	copy(mapping, data)
+	return l.open(mapping)
+}
+
+func (l *Library) open(mapping []byte) (*Document, error) {
 	handle := l.loadDocument(unsafe.Pointer(&mapping[0]), uintptr(len(mapping)), nil)
 	if handle == 0 {
 		code := l.lastError()
@@ -138,6 +184,56 @@ func (l *Library) OpenFile(path string, maxBytes int64) (*Document, error) {
 }
 
 func (d *Document) PageCount() int { return int(d.library.pageCount(d.handle)) }
+
+// PageSize reads a 1-based page's size in points from its page dictionary,
+// without parsing its content.
+func (d *Document) PageSize(number int) (width, height float64, err error) {
+	var size [2]float32
+	if d.library.pageSize(d.handle, int32(number-1), unsafe.Pointer(&size[0])) == 0 {
+		return 0, 0, ErrInvalid
+	}
+	return float64(size[0]), float64(size[1]), nil
+}
+
+// Blank reports whether a 1-based page has no text, no annotations and renders
+// entirely white. Like the PDF.js check it replaced, any doubt means not blank.
+func (d *Document) Blank(number int, scale float64, maxEdge int) (bool, error) {
+	l := d.library
+	page := l.loadPage(d.handle, int32(number-1))
+	if page == 0 {
+		return false, ErrInvalid
+	}
+	annotations := l.annotationCount(page)
+	text := l.loadText(page)
+	visibleText := text == 0
+	if text != 0 {
+		for i := range l.countChars(text) {
+			if character := rune(l.charAt(text, i)); character != 0 && !unicode.IsSpace(character) {
+				visibleText = true
+				break
+			}
+		}
+		l.closeText(text)
+	}
+	l.closePage(page)
+	if annotations != 0 || visibleText {
+		return false, nil
+	}
+	raster, err := d.Render(number, scale, maxEdge)
+	if err != nil {
+		return false, err
+	}
+	rowBytes := len(raster.Rows) / raster.Height
+	for y := range raster.Height {
+		// Each row starts with its PNG filter byte.
+		for _, sample := range raster.Rows[y*rowBytes+1 : (y+1)*rowBytes] {
+			if sample != 255 {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
+}
 
 func (d *Document) Close() {
 	if d.forms != 0 {
@@ -229,4 +325,50 @@ func scanlines(pixels []byte, w, h, stride int) *Raster {
 		}
 	}
 	return &Raster{Width: w, Height: h, Gray: gray, Rows: rows}
+}
+
+// The worker is single-threaded, so one sink serves the only save in progress.
+var saved struct {
+	data     []byte
+	limit    int
+	exceeded bool
+}
+
+func writeBlock(_ uintptr, data unsafe.Pointer, size uintptr) uintptr {
+	if size > uintptr(saved.limit-len(saved.data)) {
+		saved.exceeded = true
+		return 0
+	}
+	saved.data = append(saved.data, unsafe.Slice((*byte)(data), size)...)
+	return 1
+}
+
+// Subset copies 1-based pages, in the given order, into a new PDF of at most
+// limit bytes. Pages keep their resources, annotations and widget appearances.
+func (d *Document) Subset(pages []int, limit int) ([]byte, error) {
+	l := d.library
+	indices := make([]int32, len(pages))
+	for i, page := range pages {
+		indices[i] = int32(page - 1)
+	}
+	subset := l.createDocument()
+	if subset == 0 {
+		return nil, ErrInvalid
+	}
+	defer l.closeDocument(subset)
+	if l.importPages(subset, d.handle, unsafe.Pointer(&indices[0]), uintptr(len(indices)), 0) == 0 {
+		return nil, ErrInvalid
+	}
+	saved.data, saved.limit, saved.exceeded = make([]byte, 0, 1<<16), limit, false
+	defer func() { saved.data = nil }()
+	const noIncremental = 2
+	ok := l.saveAsCopy(subset, unsafe.Pointer(&l.fileWrite[0]), noIncremental) != 0
+	// PDFium can report success after WriteBlock refused data.
+	if saved.exceeded {
+		return nil, ErrLimit
+	}
+	if !ok {
+		return nil, ErrInvalid
+	}
+	return saved.data, nil
 }

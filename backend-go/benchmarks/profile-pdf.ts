@@ -8,7 +8,7 @@ if (!path) throw new Error("Usage: bun backend-go/benchmarks/profile-pdf.ts <fix
 
 const worker = process.env.GO_PDF_WORKER_BINARY ?? fileURLToPath(new URL("../bin/document-extraction-pdf", import.meta.url));
 
-const child = Bun.spawn([worker, "render"], { stdin: "pipe", stdout: "pipe", stderr: "inherit" });
+const child = Bun.spawn([worker, "serve"], { stdin: "pipe", stdout: "pipe", stderr: "inherit" });
 
 const reader = createPdfFrameReader(child.stdout);
 

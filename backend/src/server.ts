@@ -276,11 +276,9 @@ const goProcessor = await startGoProcessor(process.env.GO_PROCESSOR_BINARY || de
   timeoutMs: configuration.modelGatewayRequestTimeoutMs,
   retryDelayMs: extractionRetryDelayMs,
   schedule: localExtractionQueue.schedule,
-  notify: (workspaceId, job) => {
-    localLiveUpdateHub.broadcastJob(workspaceId, job);
-
-    if (job.status === "completed") localResourceController.recordCompletedJob();
-  },
+  notify: localLiveUpdateHub.broadcastJob,
+  observes: localLiveUpdateHub.observes,
+  completed: () => localResourceController.recordCompletedJob(),
   outcome: localResourceController.recordGatewayOutcome,
 });
 

@@ -1,9 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { PDFDocument, rgb } from "pdf-lib";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { fileURLToPath } from "node:url";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
+  PDF_PAGE_OPERATION_LIMITS,
   createPdfPageOperations,
   materializePdfPageGroups,
   materializePdfPages,
@@ -11,7 +10,7 @@ import {
   validatePdfPageSelection,
   verifyPdfBlankPages,
 } from "./pdfPageOperations";
-import { pdfWithCompressedObjectStreams } from "../testing/pdfSourceFixtures";
+import { pdfWithPageContent } from "../testing/pdfSourceFixtures";
 
 async function fixture() {
   const pdf = await PDFDocument.create();
@@ -27,34 +26,13 @@ async function fixture() {
   return Uint8Array.from(await pdf.save());
 }
 
-async function text(bytes: Uint8Array) {
-  const loading = getDocument({
-    data: Uint8Array.from(bytes),
-    standardFontDataUrl: fileURLToPath(new URL("./standard_fonts/", import.meta.resolve("pdfjs-dist/package.json"))),
-  });
-
-  try {
-    const pdf = await loading.promise;
-    const values: string[] = [];
-
-    for (let i = 1; i <= pdf.numPages; i++)
-      values.push(
-        (await (await pdf.getPage(i)).getTextContent()).items.map((item) => ("str" in item ? item.str : "")).join(" "),
-      );
-
-    return values;
-  } finally {
-    await loading.destroy();
-  }
-}
-
 describe("isolated PDF page operations", () => {
-  it("materializes noncontiguous page groups in original order with no sibling page content", async () => {
+  it("materializes noncontiguous page groups in original order with no sibling pages", async () => {
     const source = await fixture();
     const [left, right] = await materializePdfPageGroups(source, [[4, 1], [3]]);
+    // Each fixture page has a distinct width, so widths identify the copied pages.
     expect((await PDFDocument.load(left!)).getPages().map((page) => page.getWidth())).toEqual([101, 104]);
-    expect(await text(left!)).toEqual(["DOCUMENT 1", "HIDDEN BUT NOT BLANK"]);
-    expect(await text(right!)).toEqual(["DOCUMENT 3"]);
+    expect((await PDFDocument.load(right!)).getPages().map((page) => page.getWidth())).toEqual([103]);
     expect((await PDFDocument.load(source)).getPageCount()).toBe(4);
   });
 
@@ -85,11 +63,22 @@ describe("isolated PDF page operations", () => {
     expect(validatePdfPageSelection([3, 1], 3)).toEqual([1, 3]);
   });
 
-  it("keeps parser expansion guards active when copying or previewing", async () => {
-    const malicious = pdfWithCompressedObjectStreams([32 * 1024 * 1024]);
-    await expect(materializePdfPages(malicious, [1])).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
-    await expect(renderPdfPagePreview(malicious, 1)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
-  });
+  it("bounds drawing a page whose content inflates past the worker memory ceiling", async () => {
+    const ceiling = 128 * 1024 * 1024;
+    const operations = createPdfPageOperations({ workerHardRssBytes: ceiling });
+    const bomb = pdfWithPageContent(ceiling + 64 * 1024 * 1024);
+
+    try {
+      // Copying a page keeps its content encoded; drawing it must decode it.
+      expect(await operations.materialize(bomb, [[1]])).toHaveLength(1);
+      await expect(operations.preview(bomb, 1)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+      await expect(operations.blank(bomb, [1])).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+      await expect(operations.render(bomb)).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+      expect(await operations.blank(pdfWithPageContent(1024), [1])).toEqual([1]);
+    } finally {
+      await operations.close();
+    }
+  }, 30_000);
 
   it("kills timed-out processes and frees capacity", async () => {
     const operations = createPdfPageOperations({ timeoutMs: 1 });
@@ -129,21 +118,21 @@ describe("isolated PDF page operations", () => {
   });
 });
 
-it("recycles page workers with fresh parser guards and retires malformed inputs", async () => {
+it("recycles page workers after bounded use and retires them after malformed inputs", async () => {
   const operations = createPdfPageOperations({ maxConcurrent: 1 });
   const source = await fixture();
 
   try {
-    for (let index = 0; index < 33; index++) {
+    for (let index = 0; index <= PDF_PAGE_OPERATION_LIMITS.workerDocuments; index++) {
       const page = (index % 4) + 1;
       const [output] = await operations.materialize(source, [[page]]);
       expect((await PDFDocument.load(output!)).getPages().map((item) => item.getWidth())).toEqual([100 + page]);
     }
 
     expect(operations.diagnostics().spawned).toBe(2);
-    await expect(
-      operations.materialize(pdfWithCompressedObjectStreams([32 * 1024 * 1024]), [[1]]),
-    ).rejects.toMatchObject({ code: "pdf_source_file_limit_exceeded" });
+    await expect(operations.materialize(new TextEncoder().encode("not a PDF"), [[1]])).rejects.toMatchObject({
+      code: "invalid_pdf_source_file",
+    });
     const [output] = await operations.materialize(source, [[2]]);
     expect((await PDFDocument.load(output!)).getPageCount()).toBe(1);
     expect(operations.diagnostics().spawned).toBe(3);

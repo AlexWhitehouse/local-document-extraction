@@ -928,7 +928,7 @@ function handleLocalDocumentSubmission({
           }
 
           try {
-            const queuedJob = productStore.getExtractionJob(jobId);
+            const queuedJob = liveUpdateHub?.observes(workspaceId) ? productStore.getExtractionJob(jobId) : null;
 
             if (queuedJob) liveUpdateHub?.broadcastJob(workspaceId, queuedJob);
           } catch (error) {
@@ -969,7 +969,7 @@ function handleLocalDocumentSubmission({
               });
 
               if (failed) {
-                const failedJob = productStore.getExtractionJob(jobId);
+                const failedJob = liveUpdateHub?.observes(workspaceId) ? productStore.getExtractionJob(jobId) : null;
 
                 if (failedJob) liveUpdateHub?.broadcastJob(workspaceId, failedJob);
 

@@ -29,7 +29,7 @@ Preparation renders PDF pages and encodes the model request. A shared budget res
 
 ## Uploads
 
-- Eight isolated PDF inspectors and four isolated page-operation workers reuse their parser for up to 32 requests or 64 MiB of source input. Workers retire on errors, at 128 MiB sampled RSS, and after five seconds idle. Per-document parser limits and cancellation remain active; this is a sampled recycling threshold, not an OS memory ceiling.
+- Upload inspection, previews, blank-page checks and page copies run in isolated PDFium workers (`document-extraction-pdf`), the same engine the Go processor uses. Eight inspectors are reused for up to 2,048 requests and retire at 128 MiB sampled RSS; a breach of 256 MiB during an operation ends the inspector and rejects the upload with `pdf_source_file_limit_exceeded`. Four page-operation workers are reused for up to 128 requests, retire at 384 MiB and stop at 1 GiB. Workers also retire on errors and after five seconds idle. Memory is sampled every 25 milliseconds; it is not an operating-system limit.
 - If resource sampling fails, admission drains the upload and returns a retryable `503` before accepting work. A later retry can proceed after sampling recovers.
 - The free-space check does not scan old upload folders. File deletion removes empty job folders. A slower background task maintains storage totals.
 - Browser batch uploads send two files at a time. A file can have at most two retries. Retries apply only when the server reports temporary capacity exhaustion before acceptance.

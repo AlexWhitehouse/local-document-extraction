@@ -600,7 +600,7 @@ export function createLocalEvaluations({
         }
 
         if (mimeType! === "application/pdf")
-          await countPdfSourceFilePages(await Bun.file(path!).arrayBuffer(), request.signal);
+          await countPdfSourceFilePages(path!, request.signal);
         const sourcePath = path!;
         const sourceMimeType = mimeType!;
         const owner = randomUUID();

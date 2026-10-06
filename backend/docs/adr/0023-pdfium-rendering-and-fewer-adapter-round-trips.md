@@ -2,6 +2,7 @@
 
 Status: implemented. Supersedes the renderer in ADR-0021 and ADR-0022's statement
 that rendering uses PDF.js workers. Upload admission and materialization are unchanged.
+Materialization later moved to PDFium in [ADR-0024](0024-cpu-work-removal-pdfium-subsets-and-deferred-permits.md).
 
 When a model cannot accept PDFs, the Go processor renders pages before the model
 call. After ADR-0022 that work still ran in PDF.js under Bun subprocesses, and its

@@ -66,7 +66,7 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
     const view = await readPdfSourceView(path);
 
     if (!view) return file;
-    const bytes = await materializePdfPages(Bun.file(view.path), view.pages);
+    const bytes = await materializePdfPages(view.path, view.pages);
 
     return new Blob([Uint8Array.from(bytes)], { type: "application/pdf" });
   };

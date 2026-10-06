@@ -43,3 +43,49 @@ test("workspace cancellation before the commit batch prevents mutation", async (
     expect(store.getTemplate("canceled")).toBeNull();
   } finally { store.close(); await rm(stateDirectory, { recursive: true, force: true }); }
 });
+
+test("a full batch's window timer leaves the next batch its own window", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "go-window-"));
+  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: "workspace_window" });
+  const signal = new AbortController().signal;
+  const timers: Array<() => void> = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalBatch = store.batch;
+
+  if (!originalBatch) throw new Error("Workspace stores batch their writes");
+  let depth = 0;
+  let commits = 0;
+
+  store.batch = (operation) => {
+    if (!depth) commits++;
+    depth++;
+
+    try { return originalBatch(operation); } finally { depth--; }
+  };
+
+  const insert = (id: string) => commitProductWrite(store, signal, () => store.createTemplate({ templateId: id, name: id, description: null, fields: [], createdAt: new Date().toISOString() }));
+
+  try {
+    globalThis.setTimeout = Object.assign((handler: () => void) => {
+      timers.push(handler);
+
+      return 0;
+    }, originalSetTimeout);
+    const full = Promise.all(Array.from({ length: 64 }, (_, index) => insert(`full_${index}`)));
+    const next = [insert("next_first")];
+    globalThis.setTimeout = originalSetTimeout;
+    await full;
+    expect(commits).toBe(1);
+
+    // The full batch's timer fires while the next batch is still collecting.
+    timers[0]!();
+    next.push(insert("next_second"));
+    timers[1]!();
+    await Promise.all(next);
+    expect(commits).toBe(2);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    store.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});

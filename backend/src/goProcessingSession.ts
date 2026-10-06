@@ -47,6 +47,9 @@ export type GoProcessingOptions = {
   retryDelayMs: number;
   schedule(job: LocalQueuedExtractionJob): void | Promise<void>;
   notify(workspaceId: string, job: LocalWorkspaceExtractionJobSummary): void;
+  /** When false, job summaries are not built for notify; completion is still reported. */
+  observes?(workspaceId: string): boolean;
+  completed?(workspaceId: string): void;
   outcome(outcome: "success" | "failed" | "throttled" | "timeout"): void;
 };
 
@@ -93,6 +96,7 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
   };
 
   const notify = (id = ownerId) => {
+    if (options.observes?.(workspaceId) === false) return;
     const summary = store.getExtractionJobSummary(id);
 
     if (summary) {
@@ -176,16 +180,22 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
 
     const source = await sourcePath();
     sourceByteSize = (await stat(source)).size;
-    const selected = sourceView?.pages ? (pages ? pages.map((page) => sourceView!.pages![page - 1]!) : sourceView.pages) : pages;
+    const render = mime === "application/pdf" && env.MODEL_SUPPORTS_PDF_INPUT !== "true";
+    const pageCount = store.getProcessingSource(ownerId)?.source_file_page_count ?? undefined;
+    let selected = sourceView?.pages ? (pages ? pages.map((page) => sourceView!.pages![page - 1]!) : sourceView.pages) : pages;
+
+    // Every page in order is the original file, so a PDF-input model needs no subset
+    // copy. Rendering keeps the page list, which keys the shared page cache.
+    if (!render && !sourceView?.pages && selected && selected.length === pageCount && selected.every((page, index) => page === index + 1)) selected = undefined;
 
     return {
       url: buildChatCompletionsUrl(env), credential: env.LITELLM_KEY,
       prefix: body.slice(0, index), suffix: body.slice(index + sourceMarker.length),
       source, mime, pages: selected,
       // Lets Go split long whole-document renders across PDF workers.
-      page_count: selected ? undefined : store.getProcessingSource(ownerId)?.source_file_page_count ?? undefined,
+      page_count: selected ? undefined : pageCount,
       cache_id: sourceView?.identity ?? source,
-      render: mime === "application/pdf" && env.MODEL_SUPPORTS_PDF_INPUT !== "true",
+      render,
       sequential: env.MODEL_GATEWAY_SEQUENTIAL_CALLS === "true",
       timeout_ms: options.timeoutMs,
       maximum_response_bytes: job.kind === "packet" || !claimed ? 192 * 1024 : 32 * 1024 * 1024,
@@ -366,7 +376,7 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
 
           if (plan.exclusions.length) {
             const path = await sourcePath();
-            const blank = new Set(await withPdfOperationCapacity(() => verifyPdfBlankPages(Bun.file(path), plan.exclusions.map((exclusion) => exclusion.page), signal), signal));
+            const blank = new Set(await withPdfOperationCapacity(() => verifyPdfBlankPages(path, plan.exclusions.map((exclusion) => exclusion.page), signal), signal));
 
             if (plan.exclusions.some((exclusion) => !blank.has(exclusion.page))) throw new DocumentAssessmentValidationError("Proposed blank exclusions contain visible content, text, or annotations; retain those pages and reassess their placement");
           }
@@ -431,11 +441,11 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
             else if (options.sourceFiles.promoteTemporary) await options.sourceFiles.promoteTemporary({ workspaceId, jobId: slot.job_id, mimeType: "application/pdf", temporaryPath });
             else await options.sourceFiles.write({ workspaceId, jobId: slot.job_id, mimeType: "application/pdf", bytes: await Bun.file(temporaryPath).arrayBuffer() });
             signal.throwIfAborted();
-            packet = store.getDocumentPacket(ownerId);
 
-            if (!packet || packet.child_slots.find((child) => child.job_id === slot.job_id)?.state !== "reserved") continue;
+            if (store.getDocumentPacketChild(ownerId, slot.job_id)?.state !== "reserved") continue;
+            const packetSource = store.getProcessingSource(ownerId);
 
-            if (packet.source_retained && store.getProcessingSource(ownerId)?.retained_object_key) {
+            if (packetSource?.source_retained && packetSource.retained_object_key) {
               const objects = options.sourceObjects;
 
               if (!objects) throw new Error("Retained document storage unavailable");
@@ -507,6 +517,9 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
 
         if (await write(() => store.completeExtractionJob({ jobId: ownerId, attempt, completedAt: updatedAt, modelName: model!.modelName, route: model!.route, results }))) {
           notify();
+
+          try { options.completed?.(workspaceId); }
+          catch { /* Diagnostics cannot change processing outcomes. */ }
 
           try {
             options.productAnalytics?.record({ type: "extraction_completed", workspaceId, templateId: claimed.template_id, templateVersion: claimed.template_version, extractionJobId: ownerId, status: "completed", attempt, sourceMimeType: claimed.source_mime_type, sourceByteSize, modelName: model.modelName, fieldCount: claimed.fields.length });
