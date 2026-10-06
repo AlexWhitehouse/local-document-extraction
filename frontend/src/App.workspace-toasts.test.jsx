@@ -145,7 +145,7 @@ describe("Workspace action toast feedback", () => {
     expect(toastMock.success).not.toHaveBeenCalledWith("Workspace access changed. Switched to Remaining Workspace.");
   });
 
-  it("revalidates a second browser's Workspace context after a live access invalidation", async () => {
+  it("revalidates a second browser's explicit Workspace route after a live access invalidation", async () => {
     const sockets = [];
 
     class WebSocketStub {
@@ -173,6 +173,7 @@ describe("Workspace action toast feedback", () => {
       }
     });
 
+    window.history.replaceState(null, "", "/workspaces/ws_1");
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
@@ -195,7 +196,9 @@ describe("Workspace action toast feedback", () => {
     });
 
     expect(await screen.findByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
-    expect(toastMock.success).toHaveBeenCalledWith("Workspace access changed. Switched to Remaining Workspace.");
+    expect(screen.getByText(/Workspace or invitation is unavailable/)).toBeTruthy();
+    expect(window.location.pathname).toBe("/workspaces/ws_1");
+    expect(toastMock.success).not.toHaveBeenCalledWith("Workspace access changed. Switched to Remaining Workspace.");
   });
 
   it("generates a one-time visible Workspace API key for owners without persisting the secret", async () => {
