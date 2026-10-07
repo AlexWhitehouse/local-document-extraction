@@ -1,6 +1,6 @@
 import { isJsonObject } from "../../../../shared/json.ts";
 import React, { useState } from "react";
-import { getDataTypeLabel, hydrateFieldFromTemplate } from "../templates/templateFields.js";
+import { getDataTypeLabel } from "../templates/templateFields.js";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ReferenceModal } from "./ReferenceModal.jsx";
@@ -200,14 +200,8 @@ export function DocumentMatrix({
     else if (row.omitted) changes.set(row.identity, "Not requested · saved answer kept");
     else if (!saved[row.identity]) changes.set(row.identity, "No saved answer · verify this field");
     else if (changedTableCandidate(row)) changes.set(row.identity, "Table columns updated");
-    else if (
-      Object.values(row.candidates).some(
-        (field) =>
-          field.name !== row.field.name ||
-          hydrateFieldFromTemplate(field).description !== hydrateFieldFromTemplate(row.field).description,
-      )
-    )
-      changes.set(row.identity, "Field name or instructions updated");
+    else if (Object.values(row.candidates).some((field) => field.name !== row.field.name))
+      changes.set(row.identity, "Field name updated");
   }
 
   const visible = allRows.filter((row) => {
@@ -248,10 +242,10 @@ export function DocumentMatrix({
 
       if (!field) continue;
 
+      // Extraction instructions do not change the expected answer's schema.
       const signature = JSON.stringify([
         field.data_type,
-        hydrateFieldFromTemplate(field).description,
-        tableColumns(field),
+        tableColumns(field).map(({ key, heading, data_type }) => [key, heading, data_type]),
       ]);
 
       if (seen.has(signature)) continue;

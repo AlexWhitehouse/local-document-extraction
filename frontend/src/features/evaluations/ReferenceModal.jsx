@@ -2,7 +2,7 @@ import { isJsonObject } from "../../../../shared/json.ts";
 import React, { useId, useRef, useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
-import { getDataTypeLabel, hydrateFieldFromTemplate } from "../templates/templateFields.js";
+import { getDataTypeLabel } from "../templates/templateFields.js";
 import {
   normalizeReferenceDates,
   referenceProblem,
@@ -122,8 +122,6 @@ function ReferenceEditor({
   const columns = tableColumns(row.field);
   const changes = tableSchemaChanges(previousField, row.field);
   const sourceChanges = tableSchemaChanges(sourceField, row.field);
-  const previousDescription = hydrateFieldFromTemplate(previousField).description || "";
-  const description = hydrateFieldFromTemplate(row.field).description || "";
   const [columnMappings, setColumnMappings] = useState(initial.columnMappings || {});
 
   const [value, setValue] = useState(() =>
@@ -289,13 +287,6 @@ function ReferenceEditor({
         ) : (
           <p className="evaluation-muted">Using {schemas[schema].label}</p>
         )}
-        {description !== previousDescription && (
-          <details className="evaluation-schema-notice">
-            <summary>Field instructions changed</summary>
-            <p><strong>Previous:</strong> {previousDescription || "No instructions"}</p>
-            <p><strong>Current:</strong> {description || "No instructions"}</p>
-          </details>
-        )}
         {previousField.data_type !== row.field.data_type && (
           <div className="evaluation-schema-notice" role="status">
             <strong>
@@ -321,9 +312,6 @@ function ReferenceEditor({
                 <li key={`name:${column.key}`}>
                   Renamed: {old.heading} → {column.heading}. Existing answers are kept.
                 </li>
-              ))}
-              {changes.updated.map(([column]) => (
-                <li key={`instructions:${column.key}`}>Instructions updated: {column.heading}.</li>
               ))}
               {changes.reordered && <li>Column order changed. Existing answers stay with their columns.</li>}
               {changes.removed.map((column) => (
