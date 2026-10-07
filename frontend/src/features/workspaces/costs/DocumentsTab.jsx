@@ -6,6 +6,7 @@ import { costLabel, percent, plural, shortDate } from "./costFormat.js";
 import { useChartTip } from "./costHooks.js";
 import { useCostResource } from "./useCostResource.js";
 import { CostResourceStatus } from "./WorkspaceCosts.jsx";
+import { EmptyState } from "../../ui/States.jsx";
 
 const STACK = ["split", "auto_template", "extraction"];
 
@@ -123,11 +124,14 @@ function DocumentResults({ request, base, queryString, sort }) {
             ))}
           </ul>
           {!items.length && resource.data ? (
-            <p className="cp-muted">
-              {resource.data.cursor
-                ? "No matches in this batch. Continue searching for more results."
-                : "Nothing matches this range and filter."}
-            </p>
+            <EmptyState
+              variant="inline"
+              message={
+                resource.data.cursor
+                  ? "No matches in this batch. Continue searching for more results."
+                  : "Nothing matches this range and filter."
+              }
+            />
           ) : null}
           <div className="cp-pagination">
             <button

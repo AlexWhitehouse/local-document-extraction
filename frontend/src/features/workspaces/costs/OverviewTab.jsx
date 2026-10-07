@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ChartTip, FigureStrip, Segmented, StageLegend, StageTipRows } from "./costShared.jsx";
+import { EmptyState } from "../../ui/States.jsx";
 import { costLabel, niceMax, percent, plural, shortDate, usd, weightedQuantile } from "./costFormat.js";
 import { useChartTip, useWidth } from "./costHooks.js";
 
@@ -75,6 +76,7 @@ function SpendCharts({ buckets, unit, totals }) {
   const [ref, width] = useWidth(720);
   const { tip, show, hide } = useChartTip();
   const [view, setView] = useState("chart");
+  const hasSpend = buckets.some((bucket) => bucket.documents > 0 || bucket.costs.total.amount > 0);
   const plotWidth = Math.max(240, width - PAD.left - PAD.right);
   const band = plotWidth / buckets.length;
   const barWidth = Math.min(24, band * 0.62);
@@ -149,18 +151,22 @@ function SpendCharts({ buckets, unit, totals }) {
           <h2>Spend over time</h2>
           <p>{unit === "hour" ? "Hourly" : "Daily"} model cost, stacked by processing stage.</p>
         </div>
-        <Segmented
-          label="Display"
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "chart", label: "Chart" },
-            { value: "table", label: "Table" },
-          ]}
-        />
+        {hasSpend ? (
+          <Segmented
+            label="Display"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "chart", label: "Chart" },
+              { value: "table", label: "Table" },
+            ]}
+          />
+        ) : null}
       </div>
-      <StageLegend costs={totals} />
-      {view === "chart" ? (
+      {hasSpend ? <StageLegend costs={totals} /> : null}
+      {!hasSpend ? (
+        <EmptyState message="No costs in this range" variant="panel" />
+      ) : view === "chart" ? (
         <div ref={ref} className="cp-chart">
           <svg width={width} height={columnHeight + 28} role="group" aria-label="Spend by stage">
             {grid(columnHeight, columnMax, [0, 0.5, 1])}
@@ -463,7 +469,7 @@ function CostSpread({ documents, sampled, population }) {
           </table>
         </>
       ) : (
-        <p className="cp-muted">No priced documents in this range.</p>
+        <EmptyState message="No priced documents in this range" variant="inline" />
       )}
       <ChartTip tip={tip} />
     </section>

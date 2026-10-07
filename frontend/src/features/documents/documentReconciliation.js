@@ -43,6 +43,10 @@ function emptySnapshot(scopeKey = "") {
     nextCursor: null,
     hasMore: false,
     loadingMore: false,
+    // "loading" until the first Document list read settles; errors keep their cause for Try again.
+    listStatus: "loading",
+    listError: null,
+    loadMoreError: null,
     statusCounts: { queued: 0, processing: 0, completed: 0, failed: 0 },
     loadingDocumentId: "",
     selectedDocumentError: "",
@@ -342,7 +346,7 @@ export function createDocumentReconciliation({
     const countsRequestId = ++ctx.countsRequest;
     const revision = ctx.revision;
     const { debouncedSearch: search, filters, nextCursor } = snapshot;
-    publish(ctx, { loadingMore: append });
+    publish(ctx, append ? { loadingMore: true, loadMoreError: null } : { loadingMore: false });
 
     try {
       const jobs = [],
@@ -439,6 +443,9 @@ export function createDocumentReconciliation({
             : snapshot.statusCounts,
         nextCursor: data?.next_cursor || null,
         hasMore: Boolean(data?.has_more),
+        // A settled first page clears the list error; a load-more page leaves the list state alone.
+        listStatus: append ? snapshot.listStatus : "ready",
+        listError: append ? snapshot.listError : null,
       });
 
       // Partial/filtered lists cannot disprove a deep link. A complete list
@@ -459,6 +466,8 @@ export function createDocumentReconciliation({
       }
     } catch (error) {
       if (isCurrent(ctx) && queryRevision === ctx.queryRevision && requestId === ctx.listRequest) {
+        publish(ctx, append ? { loadMoreError: error } : { listStatus: "error", listError: error });
+
         if (error.status === 403) emit(ctx, "onAccessDenied");
       }
     } finally {

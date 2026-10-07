@@ -1,10 +1,13 @@
 import React, { useId, useRef } from "react";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import { formatUploadLimit } from "./sourceFileValidation.js";
+import { pluralize } from "../../lib/text";
 
 export function DocumentUploadPanel({
   label = "Source files",
   multiple = true,
   sourceFiles = [],
+  rejections = [],
   isDragActive = false,
   disabled = false,
   maxSourceFileBytes = 10 * 1024 * 1024,
@@ -58,20 +61,18 @@ export function DocumentUploadPanel({
             if (!disabled) onDrop?.(event);
           }}
         >
-          <strong>{multiple ? "Drag and drop source files here" : "Drag and drop a sample document here"}</strong>
-          <span>or click to browse Documents (PNG, JPG, WEBP, PDF)</span>
-          <span>
-            Maximum file size:{" "}
-            {new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(maxSourceFileBytes / (1024 * 1024))}{" "}
-            MiB
-          </span>
-          <em>
-            {sourceFiles.length
-              ? `${sourceFiles.length} Source file${sourceFiles.length === 1 ? "" : "s"} selected`
-              : "No Source files selected"}
-          </em>
+          <strong>{multiple ? "Drop files or click to browse" : "Drop a sample document or click to browse"}</strong>
+          <span>PDF, PNG, JPG or WEBP · up to {formatUploadLimit(maxSourceFileBytes)}</span>
+          {sourceFiles.length ? <em>{pluralize(sourceFiles.length, "file")} selected</em> : null}
         </button>
       )}
+      {rejections.length ? (
+        <ul className="upload-rejections" role="alert">
+          {rejections.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      ) : null}
       {sourceFiles.length ? (
         <div className="upload-file-list" role="list">
           {sourceFiles.map((entry) => (

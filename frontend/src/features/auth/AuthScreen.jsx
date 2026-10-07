@@ -18,7 +18,10 @@ export function AuthScreen({
   email,
   password,
   confirmPassword,
-  busy,
+  isSigningIn,
+  isCreatingAccount,
+  isSendingResetLink,
+  isAuthPending,
   fieldErrors = {},
   formError,
   focusRequest,
@@ -102,7 +105,7 @@ export function AuthScreen({
               <button
                 type="button"
                 className="auth-primary-action"
-                disabled={busy}
+                disabled={isAuthPending}
                 onClick={() => onSwitchMode("signin")}
               >
                 Back to sign in
@@ -120,7 +123,7 @@ export function AuthScreen({
               <button
                 type="button"
                 className="auth-primary-action"
-                disabled={busy}
+                disabled={isAuthPending}
                 onClick={() => onSwitchMode("signin")}
               >
                 Back to sign in
@@ -185,7 +188,7 @@ export function AuthScreen({
                             <SwitchModeButton
                               className="auth-forgot-password-link"
                               mode="reset-request"
-                              busy={busy}
+                              disabled={isAuthPending}
                               onSwitchMode={onSwitchMode}
                             >
                               Forgot password?
@@ -248,13 +251,13 @@ export function AuthScreen({
                   {formAlert}
                   {isSignIn ? (
                     <>
-                      <button type="submit" className="auth-primary-action" disabled={busy}>
-                        {busy ? "Signing in…" : "Sign in"}
+                      <button type="submit" className="auth-primary-action" disabled={isSigningIn}>
+                        {isSigningIn ? "Signing in…" : "Sign in"}
                       </button>
                       {signupEnabled ? (
                         <p className="auth-switch-copy">
                           Don&apos;t have an account?{" "}
-                          <SwitchModeButton mode="signup" busy={busy} onSwitchMode={onSwitchMode}>
+                          <SwitchModeButton mode="signup" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
                             Sign up
                           </SwitchModeButton>
                         </p>
@@ -264,24 +267,24 @@ export function AuthScreen({
                     </>
                   ) : isResetRequest ? (
                     <>
-                      <button type="submit" className="auth-primary-action" disabled={busy}>
-                        {busy ? "Sending link…" : "Send reset link"}
+                      <button type="submit" className="auth-primary-action" disabled={isSendingResetLink}>
+                        {isSendingResetLink ? "Sending link…" : "Send reset link"}
                       </button>
                       <p className="auth-switch-copy">
                         Remember your password?{" "}
-                        <SwitchModeButton mode="signin" busy={busy} onSwitchMode={onSwitchMode}>
+                        <SwitchModeButton mode="signin" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
                           Sign in
                         </SwitchModeButton>
                       </p>
                     </>
                   ) : (
                     <>
-                      <button type="submit" className="auth-primary-action" disabled={busy}>
-                        {busy ? "Creating account…" : "Create Account"}
+                      <button type="submit" className="auth-primary-action" disabled={isCreatingAccount}>
+                        {isCreatingAccount ? "Creating account…" : "Create account"}
                       </button>
                       <p className="auth-switch-copy">
                         Already have an account?{" "}
-                        <SwitchModeButton mode="signin" busy={busy} onSwitchMode={onSwitchMode}>
+                        <SwitchModeButton mode="signin" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
                           Sign in
                         </SwitchModeButton>
                       </p>
@@ -301,7 +304,7 @@ export function AuthScreen({
                   <button
                     type="button"
                     className="secondary auth-provider-action"
-                    disabled={busy}
+                    disabled={isAuthPending}
                     onClick={onProviderSignIn}
                   >
                     Sign in with Google
@@ -327,12 +330,12 @@ function FieldError({ id, message }) {
   ) : null;
 }
 
-function SwitchModeButton({ className = "", mode, busy, onSwitchMode, children }) {
+function SwitchModeButton({ className = "", mode, disabled, onSwitchMode, children }) {
   return (
     <button
       type="button"
       className={`auth-text-button ${className}`.trim()}
-      disabled={busy}
+      disabled={disabled}
       onClick={() => onSwitchMode(mode)}
     >
       {children}

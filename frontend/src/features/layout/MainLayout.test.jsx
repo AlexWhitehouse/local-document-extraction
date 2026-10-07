@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MainLayout } from "./MainLayout.jsx";
 
@@ -48,5 +48,79 @@ describe("MainLayout sidebar collapse", () => {
     expect(frame.classList.contains("sidebar-collapsed")).toBe(true);
     fireEvent.keyDown(document.body, { key: "[" });
     expect(frame.classList.contains("sidebar-collapsed")).toBe(false);
+  });
+});
+
+describe("MainLayout upload and connectivity", () => {
+  function renderWith(props = {}) {
+    const onNavigate = vi.fn();
+    const onUploadDocument = vi.fn();
+
+    const utils = render(
+      <MainLayout
+        activePage="documents"
+        counts={{}}
+        onNavigate={onNavigate}
+        onUploadDocument={onUploadDocument}
+        profileSlot={null}
+        contextSidebar={null}
+        {...props}
+      >
+        <p>Page</p>
+      </MainLayout>,
+    );
+
+    return { ...utils, onNavigate, onUploadDocument };
+  }
+
+  it("navigates to the Workspace page instead of opening the upload modal when no Model gateway is set up", () => {
+    const { onNavigate, onUploadDocument } = renderWith({ isModelSetupRequired: true });
+    const button = screen.getByRole("button", { name: "Upload Document" });
+
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(button.getAttribute("title")).toBe("Set up a Model gateway on the Workspace page to upload");
+
+    fireEvent.click(button);
+    expect(onNavigate).toHaveBeenCalledWith("workspace");
+    expect(onUploadDocument).not.toHaveBeenCalled();
+  });
+
+  it("opens the upload modal when the Model gateway is ready", () => {
+    const { onNavigate, onUploadDocument } = renderWith();
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload Document" }));
+    expect(onUploadDocument).toHaveBeenCalledTimes(1);
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("shows the paused live-updates banner until the socket reconnects", () => {
+    const { rerender } = renderWith({ liveUpdatesPaused: true });
+
+    expect(screen.getByRole("status").textContent).toBe("Live updates paused, reconnecting…");
+
+    rerender(
+      <MainLayout activePage="documents" counts={{}} onNavigate={() => {}} onUploadDocument={() => {}} profileSlot={null} contextSidebar={null}>
+        <p>Page</p>
+      </MainLayout>,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("shows an offline banner from the browser's network events and clears it when back online", () => {
+    const original = Object.getOwnPropertyDescriptor(window.navigator, "onLine");
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => false });
+
+    try {
+      renderWith();
+      expect(screen.getByRole("status").textContent).toBe("You're offline");
+
+      Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => true });
+      fireEvent(window, new Event("online"));
+      expect(screen.queryByRole("status")).toBeNull();
+    } finally {
+      if (original) Object.defineProperty(window.navigator, "onLine", original);
+      else delete window.navigator.onLine;
+    }
   });
 });

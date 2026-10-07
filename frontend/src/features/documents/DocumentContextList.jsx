@@ -6,8 +6,11 @@ import { useRowMotion } from "../context/useRowMotion.js";
 import { NavigationLink } from "../context/NavigationLink.jsx";
 import { appPath } from "../../lib/appRoutes";
 import { isPacketListed, isSingleDocumentPacket, singlePacketDocument, PACKET_STATUS_LABELS } from "./packetListing.js";
+import { EmptyState, ErrorState, Skeleton } from "../ui/States.jsx";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
+
+const MODEL_SETUP_MESSAGE = "Set up a Model gateway on the Workspace page to upload";
 
 export function DocumentContextList({
   workspaceId,
@@ -30,6 +33,12 @@ export function DocumentContextList({
   hasActiveFilters = false,
   hasMoreDocuments,
   isLoadingMoreDocuments,
+  listStatus = "ready",
+  listError = null,
+  loadMoreError = null,
+  onRetryDocumentList,
+  canUploadDocuments = false,
+  onUploadDocument,
   isDeletingDocuments = false,
   isExportingDocuments = false,
   onSearchChange,
@@ -261,10 +270,29 @@ export function DocumentContextList({
             );
           })}
         </div>
-        {!items.length ? (
-          <p className="muted">
-            {debouncedSearch || hasActiveFilters ? "No documents match these filters." : "No documents uploaded yet."}
-          </p>
+        {listStatus === "error" ? (
+          <ErrorState variant="inline" error={listError} onRetry={onRetryDocumentList} />
+        ) : null}
+        {!items.length && listStatus === "loading" ? <Skeleton rows={4} height={44} /> : null}
+        {!items.length && listStatus === "ready" && (debouncedSearch || hasActiveFilters) ? (
+          <p className="muted">No documents match these filters.</p>
+        ) : null}
+        {!items.length && listStatus === "ready" && !(debouncedSearch || hasActiveFilters) ? (
+          <EmptyState
+            variant="inline"
+            message="No documents yet"
+            action={
+              <button
+                type="button"
+                className="secondary"
+                disabled={!canUploadDocuments}
+                title={canUploadDocuments ? undefined : MODEL_SETUP_MESSAGE}
+                onClick={onUploadDocument}
+              >
+                Upload documents
+              </button>
+            }
+          />
         ) : null}
         {hasMoreDocuments || hasMorePackets ? (
           <button
@@ -283,6 +311,7 @@ export function DocumentContextList({
             </span>
           </button>
         ) : null}
+        {loadMoreError ? <ErrorState variant="inline" error={loadMoreError} onRetry={onLoadMoreDocuments} /> : null}
       </ScrollArea>
     </>
   );

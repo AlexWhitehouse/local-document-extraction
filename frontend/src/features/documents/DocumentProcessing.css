@@ -103,3 +103,11 @@ label.upload-tag-option:has(input:focus-visible) { box-shadow: 0 0 0 1px var(--a
   .split-review-columns { grid-template-columns: 1fr; }
   .split-page-preview { position: static; }
 }
+
+.upload-rejections {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--rose-text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

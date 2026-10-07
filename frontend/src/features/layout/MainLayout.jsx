@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { MagicIcon } from "../templates/MagicIcon.jsx";
 import { NavigationLink } from "../context/NavigationLink.jsx";
+import "./ConnectivityBanner.css";
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "studio.sidebarCollapsed";
+
+const MODEL_SETUP_MESSAGE = "Set up a Model gateway on the Workspace page to upload";
 
 const SIDEBAR_ITEMS = [
   { id: "workspace", label: "Workspaces", icon: "WS" },
@@ -18,8 +21,9 @@ export function MainLayout({
   contentClassName = "",
   contentSelection = "",
   counts,
-  uploadAriaDisabled,
   isUploadDisabled,
+  isModelSetupRequired = false,
+  liveUpdatesPaused = false,
   onNavigate,
   navigationHref,
   onUploadDocument,
@@ -34,6 +38,13 @@ export function MainLayout({
   const collapseLabel = isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
   const mainRef = useRef(null);
   useContentFade(mainRef, activePage, contentSelection);
+  const isOnline = useOnlineStatus();
+
+  const connectivityMessage = !isOnline
+    ? "You're offline"
+    : liveUpdatesPaused
+      ? "Live updates paused, reconnecting…"
+      : "";
 
   return (
     <div className={isSidebarCollapsed ? "app-frame sidebar-collapsed" : "app-frame"}>
@@ -70,9 +81,10 @@ export function MainLayout({
           type="button"
           className="sidebar-upload-button"
           data-tour="upload-open"
-          aria-disabled={uploadAriaDisabled}
+          aria-disabled={isModelSetupRequired ? "true" : undefined}
+          title={isModelSetupRequired ? MODEL_SETUP_MESSAGE : undefined}
           disabled={isUploadDisabled}
-          onClick={onUploadDocument}
+          onClick={isModelSetupRequired ? () => onNavigate("workspace") : onUploadDocument}
         >
           <span className="sidebar-upload-icon" aria-hidden="true">
             +
@@ -88,6 +100,11 @@ export function MainLayout({
       {contextSidebar}
 
       <main ref={mainRef} className={`main-content ${contentClassName}`}>
+        {connectivityMessage ? (
+          <div role="status" className="connectivity-banner">
+            {connectivityMessage}
+          </div>
+        ) : null}
         {impersonationSlot}
         {children}
       </main>
@@ -95,6 +112,25 @@ export function MainLayout({
       {modalSlot}
     </div>
   );
+}
+
+// Tracks the browser's network state; the banner clears as soon as the browser reports it back.
+function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
+
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine !== false);
+
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
+  return isOnline;
 }
 
 // Softens the content swap when moving between pages or picking a different
@@ -214,7 +250,7 @@ export function WorkspaceToolbar({
   workspaceId,
   workspacePrimaryAction,
   isDeletingWorkspace,
-  isWorkspaceBusy = false,
+  isCreatingWorkspace = false,
   isDeletingTemplate,
   isDeletingDocument,
   isExportingDocuments = false,
@@ -327,10 +363,10 @@ export function WorkspaceToolbar({
                   type="button"
                   className="secondary"
                   data-tour="create-workspace"
-                  disabled={isWorkspaceBusy}
+                  disabled={isCreatingWorkspace}
                   onClick={onCreateWorkspace}
                 >
-                  Create Workspace
+                  {isCreatingWorkspace ? "Creating…" : "Create workspace"}
                 </button>
               )}
               {activePage === "workspace" && !isWorkspaceInvitationSelected ? (

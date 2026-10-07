@@ -12,8 +12,6 @@ function renderProfile(authClient) {
     hasSession: true,
     sessionUserName: "Ada Lovelace",
     sessionUserEmail: "ada@example.com",
-    busy: false,
-    setBusy: vi.fn(),
     onClearWorkspaceScopedTemplates: vi.fn(),
     onClearWorkspaceScopedDocuments: vi.fn(),
     onClearSessionWorkspaceData: vi.fn(),
@@ -78,7 +76,28 @@ describe("profile menu feedback", () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't sign out. Try again.", expect.anything()));
     expect(props.onClearSessionWorkspaceData).not.toHaveBeenCalled();
-    expect(props.setBusy).toHaveBeenLastCalledWith(false);
+    expect(result.current.profileMenu.isSigningOut).toBe(false);
+  });
+
+  it("marks only sign out as pending while the request runs", async () => {
+    let finishSignOut;
+    authClient.signOut.mockImplementation(() => new Promise((resolve) => (finishSignOut = resolve)));
+    const { result } = renderProfile(authClient);
+
+    let signOut;
+    act(() => {
+      signOut = result.current.profileMenu.onSignOut();
+    });
+
+    expect(result.current.profileMenu.isSigningOut).toBe(true);
+    expect(result.current.authScreen.isAuthPending).toBe(false);
+
+    await act(async () => {
+      finishSignOut();
+      await signOut;
+    });
+
+    expect(result.current.profileMenu.isSigningOut).toBe(false);
   });
 });
 
@@ -94,8 +113,6 @@ describe("auth form feedback", () => {
       hasSession: false,
       sessionUserName: "",
       sessionUserEmail: "",
-      busy: false,
-      setBusy: vi.fn(),
       onClearWorkspaceScopedTemplates: vi.fn(),
       onClearWorkspaceScopedDocuments: vi.fn(),
       onClearSessionWorkspaceData: vi.fn(),

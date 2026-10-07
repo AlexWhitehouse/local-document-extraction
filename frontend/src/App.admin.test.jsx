@@ -231,7 +231,7 @@ describe("Application admin page gate", () => {
 
     const inlineError = await screen.findByRole("alert");
     expect(within(inlineError).getByText("Unable to load users.")).toBeTruthy();
-    expect(within(inlineError).getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(within(inlineError).getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("removes another admin after stronger confirmation but prevents self-demotion", async () => {
@@ -567,7 +567,7 @@ describe("Application admin page gate", () => {
     expect(screen.getByRole("heading", { name: "Accounts" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Account list" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Workspace toolbar" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Create Workspace" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Create user" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete user" })).toBeNull();
     expect(screen.queryByRole("button", { name: /password/i })).toBeNull();

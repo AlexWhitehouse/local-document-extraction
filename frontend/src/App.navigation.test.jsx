@@ -307,7 +307,7 @@ describe("stable app navigation", () => {
     open("/workspaces/b/templates/two");
     await screen.findByRole("heading", { name: "Workspace could not be loaded. Try again." });
     failed = false;
-    await userEvent.click(screen.getByRole("button", { name: "Retry Workspace" }));
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template two"));
     expect(window.location.pathname).toBe("/workspaces/b/templates/two");
   });

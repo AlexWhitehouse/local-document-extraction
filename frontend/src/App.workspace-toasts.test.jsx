@@ -104,7 +104,7 @@ describe("Workspace action toast feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
     expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(true);
@@ -268,6 +268,33 @@ describe("Workspace action toast feedback", () => {
     expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("rotated"), expect.anything());
   });
 
+  it("labels only the API key button while a key is generating", async () => {
+    const user = userEvent.setup();
+    let finishGeneration;
+    routeFetch((url, method) => {
+      if (url.endsWith("/workspaces")) return workspaceList(workspace({ has_api_key: false }));
+
+      if (url.endsWith("/workspaces/ws_1/api-key") && method === "POST") {
+        return new Promise((resolve) => {
+          finishGeneration = () => resolve(jsonResponse({ workspace_id: "ws_1", api_key: "generated-key" }));
+        });
+      }
+    });
+
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+    await user.click(await screen.findByRole("button", { name: "Generate API key" }));
+
+    const generating = await screen.findByRole("button", { name: "Generating…" });
+    expect(generating.disabled).toBe(true);
+    expect(screen.getByLabelText("Workspace name").disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Save name" }).disabled).toBe(true);
+
+    await act(async () => finishGeneration());
+
+    expect(await screen.findByRole("button", { name: "Rotate API key" })).toBeTruthy();
+  });
+
   it("keeps the generated key and its copy callout until the key is copied", async () => {
     const user = userEvent.setup();
     const generatedKey = "manual-copy-secret-key";
@@ -347,7 +374,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("button", { name: "Create Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create workspace" }));
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace created: New Workspace", expect.anything());
@@ -998,6 +1025,57 @@ describe("Workspace action toast feedback", () => {
       expect(await screen.findByText("2 members")).toBeTruthy();
     });
 
+    it("shows a retry instead of an empty member list when loading fails", async () => {
+      let memberListCalls = 0;
+      routeFetch((url, method) => {
+        if (url.endsWith("/workspaces/ws_1/users") && method === "GET") {
+          memberListCalls += 1;
+
+          return memberListCalls === 1
+            ? jsonResponse({ error: "unavailable" }, { status: 500 })
+            : jsonResponse({ users: [workspaceMember()] });
+        }
+      });
+
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+      expect(await screen.findByRole("button", { name: "Try again" })).toBeTruthy();
+      expect(screen.queryByText("No workspace users found.")).toBeNull();
+
+      await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+
+      expect(await screen.findByText("Grace Hopper")).toBeTruthy();
+      expect(screen.getByText("1 member")).toBeTruthy();
+      expect(memberListCalls).toBe(2);
+    });
+
+    it("keeps pending invitations visible with a retry when they fail to load", async () => {
+      let invitationListCalls = 0;
+      routeFetch((url, method) => {
+        if (url.endsWith("/workspaces/ws_1/users") && method === "GET") {
+          return jsonResponse({ users: [workspaceMember()] });
+        }
+
+        if (url.endsWith("/workspaces/ws_1/invitations") && method === "GET") {
+          invitationListCalls += 1;
+
+          return invitationListCalls === 1
+            ? jsonResponse({ error: "unavailable" }, { status: 500 })
+            : jsonResponse({ invitations: [] });
+        }
+      });
+
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+      expect(await screen.findByRole("heading", { name: "Pending invitations" })).toBeTruthy();
+      expect(screen.queryByText("No pending invitations.")).toBeNull();
+
+      await userEvent.setup().click(await screen.findByRole("button", { name: "Try again" }));
+
+      await waitFor(() => expect(invitationListCalls).toBe(2));
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Pending invitations" })).toBeNull());
+    });
+
     it("hides the Joined label when a member has no join date", async () => {
       routeUsers([workspaceMember({ created_at: null })]);
 
@@ -1202,7 +1280,7 @@ describe("Workspace action toast feedback", () => {
     expect(toastMock.success).not.toHaveBeenCalledWith(expect.stringContaining("Workspace access changed"), expect.anything());
   });
 
-  it("uses Source file language in document upload controls", async () => {
+  it("describes accepted files in the upload drop zone", async () => {
     const user = userEvent.setup();
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
@@ -1213,8 +1291,8 @@ describe("Workspace action toast feedback", () => {
       screen.getByText("Choose a template or tags for automatic selection, then add your source files."),
     ).toBeTruthy();
     expect(screen.getByText("Source files")).toBeTruthy();
-    expect(screen.getByText("Drag and drop source files here")).toBeTruthy();
-    expect(screen.getByText("No Source files selected")).toBeTruthy();
+    expect(screen.getByText("Drop files or click to browse")).toBeTruthy();
+    expect(screen.getByText("PDF, PNG, JPG or WEBP · up to 10 MB")).toBeTruthy();
     expect(screen.queryByText("Document file")).toBeNull();
     expect(screen.queryByText("Drag and drop files here")).toBeNull();
     expect(screen.queryByText("No files selected")).toBeNull();

@@ -12,7 +12,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
     isSavingProfile,
     canSaveProfile,
     saveError,
-    busy,
+    isSigningOut,
     onToggle,
     onDraftNameChange,
     onSaveProfile,
@@ -110,8 +110,8 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         <strong>End this session</strong>
                         <span>You’ll need to sign in again to access local workspaces.</span>
                       </div>
-                      <button type="button" className="danger" disabled={busy || isSavingProfile} onClick={onSignOut}>
-                        Sign out
+                      <button type="button" className="danger" disabled={isSigningOut || isSavingProfile} onClick={onSignOut}>
+                        {isSigningOut ? "Signing out…" : "Sign out"}
                       </button>
                     </div>
                   </div>

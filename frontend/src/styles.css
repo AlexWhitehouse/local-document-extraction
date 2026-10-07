@@ -316,7 +316,6 @@ button.danger:hover:not(:disabled) {
   font-size: 15px;
 }
 
-.context-sidebar > label,
 .context-search-field {
   padding: 9px 12px 10px;
   border-bottom: 1px solid var(--rule);
@@ -333,7 +332,6 @@ button.danger:hover:not(:disabled) {
   color: inherit;
 }
 
-.context-sidebar > label > input,
 .context-search-shell > input {
   height: 28px;
   padding: 4px 9px;
@@ -393,6 +391,11 @@ button.danger:hover:not(:disabled) {
 .context-search-shell > input {
   min-width: 0;
   border-right: 0;
+}
+
+/* A search with no trailing control (templates, workspaces, admin) uses the full width. */
+.context-search-shell:not(:has(> :nth-child(2))) {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .context-search-shell > input:focus {

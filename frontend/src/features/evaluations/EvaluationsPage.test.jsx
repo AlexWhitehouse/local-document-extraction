@@ -451,7 +451,7 @@ it("uses the shared uploader to add documents and keeps invalid uploads in the d
   const evaluation = setup({ document: null });
   fireEvent.click(screen.getByRole("button", { name: "Upload document" }));
   const dialog = screen.getByRole("dialog", { name: "Upload evaluation document" });
-  expect(within(dialog).getByRole("button", { name: /Drag and drop source files/ })).toBeTruthy();
+  expect(within(dialog).getByRole("button", { name: /Drop files or click to browse/ })).toBeTruthy();
   const input = within(dialog).getByLabelText("Document");
   expect(input.multiple).toBe(true);
   fireEvent.change(input, {

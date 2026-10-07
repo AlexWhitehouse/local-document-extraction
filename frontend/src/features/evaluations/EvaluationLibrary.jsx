@@ -17,6 +17,7 @@ import {
 } from "./evaluationLibrary.js";
 import { documentRunnable } from "./useEvaluations.js";
 import { confirmDialog } from "../ui/confirm.jsx";
+import { EmptyState, ErrorState } from "../ui/States.jsx";
 import { describeError } from "../../lib/describeError";
 
 export function Chips({ list }) {
@@ -78,6 +79,7 @@ function useLibraryList(evaluation) {
     query,
     setQuery,
     loadMore: () => load(list.next, query),
+    reload: () => load(null, query),
     replace: (entry) =>
       setList((previous) => ({ ...previous, entries: previous.entries.map((e) => (e.id === entry.id ? entry : e)) })),
     drop: (id) => setList((previous) => ({ ...previous, entries: previous.entries.filter((e) => e.id !== id) })),
@@ -187,16 +189,26 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
                 </tr>
               );
             })}
-            {!list.entries.length && !list.loading && (
-              <tr>
-                <td colSpan={4 + Number(!!onToggle) + Number(!!actions)} className="evaluation-empty-row">
-                  {list.error ||
-                    (list.query
+            {!list.entries.length &&
+              !list.loading &&
+              (list.error ? (
+                <ErrorState
+                  variant="tableRow"
+                  colSpan={4 + Number(!!onToggle) + Number(!!actions)}
+                  message={list.error}
+                  onRetry={list.reload}
+                />
+              ) : (
+                <EmptyState
+                  variant="tableRow"
+                  colSpan={4 + Number(!!onToggle) + Number(!!actions)}
+                  message={
+                    list.query
                       ? "No saved documents match."
-                      : "No saved documents yet. Save an uploaded document from an Evaluation to reuse it.")}
-                </td>
-              </tr>
-            )}
+                      : "No saved documents yet. Save an uploaded document from an Evaluation to reuse it."
+                  }
+                />
+              ))}
           </tbody>
         </table>
       </ScrollArea>

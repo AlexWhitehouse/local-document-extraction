@@ -5,7 +5,7 @@ export const TOUR_STEPS = [
   {
     id: "create-workspace",
     title: "A space for your documents",
-    text: "Workspaces keep templates, documents and teammates together. Click Create Workspace to create a real workspace for this walkthrough.",
+    text: "Workspaces keep templates, documents and teammates together. Click Create workspace to create a real workspace for this walkthrough.",
     action: "workspace",
   },
   {

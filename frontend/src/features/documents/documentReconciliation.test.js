@@ -314,6 +314,46 @@ describe("Document reconciliation", () => {
     expect(requests.listDocuments).toHaveBeenCalledTimes(3);
   });
 
+  it("reports a failed first list as an error with its cause, then clears it on Try again", async () => {
+    const { module, requests, callbacks, snapshot } = setup();
+    expect(snapshot().listStatus).toBe("loading");
+
+    const failure = Object.assign(new Error("Server down"), { status: 500 });
+    requests.listDocuments.mockRejectedValueOnce(failure);
+    await module.refresh();
+
+    expect(snapshot()).toMatchObject({ listStatus: "error", listError: failure, documents: [] });
+    expect(callbacks.onAccessDenied).not.toHaveBeenCalled();
+
+    requests.listDocuments.mockResolvedValueOnce(page([job("a")]));
+    await module.refresh();
+
+    expect(snapshot()).toMatchObject({ listStatus: "ready", listError: null });
+    expect(snapshot().documents.map((row) => row.job_id)).toEqual(["a"]);
+  });
+
+  it("keeps the loaded list when a load-more page fails and reports the failure beside it", async () => {
+    const { module, requests, snapshot } = setup();
+    requests.listDocuments.mockResolvedValueOnce(page([job("a")], { has_more: true, next_cursor: "page-2" }));
+    await module.refresh();
+
+    const failure = Object.assign(new Error("Page failed"), { status: 500 });
+    requests.listDocuments.mockRejectedValueOnce(failure);
+    await module.refresh({ append: true });
+
+    expect(snapshot()).toMatchObject({ listStatus: "ready", loadMoreError: failure, loadingMore: false });
+    expect(snapshot().documents.map((row) => row.job_id)).toEqual(["a"]);
+  });
+
+  it("still reports 403 as access denied", async () => {
+    const { module, requests, callbacks, snapshot } = setup();
+    requests.listDocuments.mockRejectedValueOnce(Object.assign(new Error("Forbidden"), { status: 403 }));
+    await module.refresh();
+
+    expect(callbacks.onAccessDenied).toHaveBeenCalledTimes(1);
+    expect(snapshot().listStatus).toBe("error");
+  });
+
   it("accepts only the latest list request and invalidates old pagination when the query changes", async () => {
     const { module, requests, snapshot } = setup();
 

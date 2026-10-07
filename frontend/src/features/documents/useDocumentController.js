@@ -5,6 +5,7 @@ import { usePacketController } from "./usePacketController.js";
 import { isPacketListed, isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
 import { useDocumentReconciliation } from "./useDocumentReconciliation";
 import { confirmDialog } from "../ui/confirm.jsx";
+import { validateSourceFiles } from "./sourceFileValidation.js";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
@@ -34,7 +35,6 @@ export function useDocumentController({
   showDocumentUploadToast,
   hasApiAccess,
   hasWorkspaceApiAccess,
-  isAppBusy,
   isWorkspaceDeletionInProgress = false,
   sessionId,
   workspaceId,
@@ -52,6 +52,8 @@ export function useDocumentController({
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
   const [uploadFiles, setUploadFiles] = useState([]);
+  // Reasons the last picked files were refused, shown inline in the drop zone.
+  const [uploadRejections, setUploadRejections] = useState([]);
   const [uploadTags, setUploadTags] = useState([]);
   const [isResolvingTemplate, setIsResolvingTemplate] = useState(false);
   const actionScopeRef = useRef(null);
@@ -225,6 +227,7 @@ export function useDocumentController({
   useEffect(() => {
     setShowUploadModal(false);
     setUploadFiles([]);
+    setUploadRejections([]);
     setUploadTags([]);
     setIsResolvingTemplate(false);
     setIsUploadDragActive(false);
@@ -264,7 +267,7 @@ export function useDocumentController({
   }, [hasApiAccess, normalizedWorkspaceId, sessionId, routePacketId, routeDocumentId, onDocumentNavigation]);
 
   function openUploadModal() {
-    if (!modelReady || isAppBusy) {
+    if (!modelReady) {
       return;
     }
 
@@ -273,6 +276,7 @@ export function useDocumentController({
     setUploadTags([]);
     setUploadTemplateId(selectedUploadTemplateId || templates[0]?.id || "");
     setUploadFiles([]);
+    setUploadRejections([]);
     setIsUploadDragActive(false);
     setShowUploadModal(true);
   }
@@ -281,6 +285,7 @@ export function useDocumentController({
   // through its toast.
   function closeUploadModal() {
     setIsUploadDragActive(false);
+    setUploadRejections([]);
     setShowUploadModal(false);
   }
 
@@ -294,11 +299,18 @@ export function useDocumentController({
       return;
     }
 
+    const { accepted, rejections } = validateSourceFiles(nextFiles, maxSourceFileBytes);
+    setUploadRejections(rejections);
+
+    if (!accepted.length) {
+      return;
+    }
+
     setUploadFiles((prev) => {
       const existingKeys = new Set(prev.map((entry) => fileDedupKey(entry.file)));
       const additions = [];
 
-      for (const file of nextFiles) {
+      for (const file of accepted) {
         const key = fileDedupKey(file);
 
         if (existingKeys.has(key)) {
@@ -944,6 +956,12 @@ export function useDocumentController({
       hasActiveFilters: Object.values(snapshot.filters).some(Boolean),
       hasMoreDocuments: snapshot.hasMore,
       isLoadingMoreDocuments: snapshot.loadingMore,
+      listStatus: snapshot.listStatus,
+      listError: snapshot.listError,
+      loadMoreError: snapshot.loadMoreError,
+      onRetryDocumentList: () => reconciliation.refresh(),
+      canUploadDocuments: hasWorkspaceApiAccess && modelReady,
+      onUploadDocument: openUploadModal,
       isDeletingDocuments: isDeletingDocument,
       isExportingDocuments,
       onSearchChange: reconciliation.setSearch,
@@ -967,6 +985,7 @@ export function useDocumentController({
       ].sort(),
       onSelectTags: setUploadTags,
       sourceFiles: uploadFiles,
+      uploadRejections,
       isDragActive: isUploadDragActive,
       isUploadingDocuments,
       hasApiAccess: hasWorkspaceApiAccess && modelReady,
@@ -1019,10 +1038,13 @@ export function useDocumentController({
           : selectPacketChild,
         loadPagePreview: packetController.loadPagePreview,
       },
+      hasDocuments: documents.length > 0 || packetController.packets.length > 0,
       selectedDocumentTemplateName,
       loadingDocumentDetailsId,
       loadOriginal,
     },
+    // True while the live-update socket is down and reconnecting (the polling fallback).
+    liveUpdatesPaused: canOpenLiveUpdates && liveUpdatesUnavailable,
     statusCounts: snapshot.statusCounts,
     actions: {
       cancelPendingSubmissions: reconciliation.cancelPendingSubmissions,

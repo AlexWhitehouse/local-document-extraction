@@ -10,7 +10,7 @@ import { ProcessingCost } from "./ProcessingCost.jsx";
 
 const NARROW_SPLIT_WIDTH = 600;
 
-export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, ...detail }) {
+export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, hasDocuments = false, ...detail }) {
   if (selectedPacketId) {
     if (isSingleDocumentPacket(packetPage?.packet)) {
       return <SinglePacketDocument {...detail} packetPage={packetPage} />;
@@ -24,8 +24,9 @@ export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, .
     );
   }
 
+  // An empty Workspace is explained by the list's own empty state, so the body stays blank.
   if (!selectedDocument)
-    return <p className="studio-empty-state">Select an uploaded document, or upload one to get started.</p>;
+    return hasDocuments ? <p className="studio-empty-state">Select an uploaded document to see its results.</p> : null;
 
   return <DocumentDetail {...detail} selectedDocument={selectedDocument} />;
 }

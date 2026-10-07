@@ -3,6 +3,7 @@ import { RangePicker } from "./costShared.jsx";
 import { rangeLabel, resolveRange } from "./costRange.js";
 import { useCostResource } from "./useCostResource.js";
 import { OverviewTab } from "./OverviewTab.jsx";
+import { ErrorState, LoadingState } from "../../ui/States.jsx";
 import { DocumentsTab } from "./DocumentsTab.jsx";
 import "./workspaceCosts.css";
 
@@ -82,21 +83,9 @@ function Overview({ request, path }) {
 
 export function CostResourceStatus({ resource }) {
   if (resource.error)
-    return (
-      <div role="alert" className="cp-load-status">
-        {resource.error}{" "}
-        <button type="button" className="secondary" onClick={resource.reload}>
-          Retry
-        </button>
-      </div>
-    );
+    return <ErrorState message={resource.error} onRetry={resource.reload} />;
 
-  if (!resource.data && resource.loading)
-    return (
-      <p role="status" className="cp-load-status">
-        Loading cost history…
-      </p>
-    );
+  if (!resource.data && resource.loading) return <LoadingState label="Loading cost history…" />;
 
   if (resource.data?.updating)
     return (

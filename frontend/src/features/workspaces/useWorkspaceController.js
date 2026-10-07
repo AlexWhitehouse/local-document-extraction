@@ -4,6 +4,7 @@ import { createWorkspaceRequestLayer } from "../../lib/appRuntime";
 import { copyWithFeedback } from "../../lib/copyWithFeedback";
 import { describeError } from "../../lib/describeError";
 import { confirmDialog } from "../ui/confirm.jsx";
+import { useAsyncAction } from "../ui/useAsyncAction";
 import { createWorkspaceRequestAdapter } from "./workspaceRequestAdapter";
 import {
   canShowWorkspaceUserAction,
@@ -39,8 +40,6 @@ export function useWorkspaceController({
   hasSession,
   sessionUserId,
   sessionId = sessionUserId,
-  isAppBusy,
-  setBusy,
   onActivePageChange,
   onClearWorkspaceScopedData,
   beforeWorkspaceSelection,
@@ -64,7 +63,6 @@ export function useWorkspaceController({
   routeRef.current = { requestedWorkspaceId, requestedInvitationId, onWorkspaceNavigation, sessionId };
   const [selectedWorkspaceInvitationId, setSelectedWorkspaceInvitationId] = useState("");
   const [workspaceUsers, setWorkspaceUsers] = useState([]);
-  const [isLoadingWorkspaceUsers, setIsLoadingWorkspaceUsers] = useState(false);
   const [workspaceInvitations, setWorkspaceInvitations] = useState([]);
   const [workspaceUserActionTarget, setWorkspaceUserActionTarget] = useState(null);
   const [isAcceptingWorkspaceInvitation, setIsAcceptingWorkspaceInvitation] = useState(false);
@@ -73,6 +71,10 @@ export function useWorkspaceController({
   const [inviteRole, setInviteRole] = useState("member");
   const [inviteError, setInviteError] = useState("");
   const [isInvitingUser, setIsInvitingUser] = useState(false);
+  const [workspaceUsersStatus, setWorkspaceUsersStatus] = useState("loading");
+  const [workspaceUsersError, setWorkspaceUsersError] = useState(null);
+  const [workspaceInvitationsStatus, setWorkspaceInvitationsStatus] = useState("loading");
+  const [workspaceInvitationsError, setWorkspaceInvitationsError] = useState(null);
 
   const isRecoveringForbiddenWorkspaceRef = useRef(false);
   const workspaceUsersRequestRef = useRef(0);
@@ -202,7 +204,10 @@ export function useWorkspaceController({
     onClearWorkspaceScopedData?.({ sessionEnded });
     workspaceUsersRequestRef.current += 1;
     setWorkspaceUsers([]);
-    setIsLoadingWorkspaceUsers(isSwitchingAcceptedWorkspace);
+    setWorkspaceUsersStatus(isSwitchingAcceptedWorkspace ? "loading" : "idle");
+    setWorkspaceUsersError(null);
+    setWorkspaceInvitationsStatus("idle");
+    setWorkspaceInvitationsError(null);
     setWorkspaceInvitations([]);
   }
 
@@ -262,9 +267,12 @@ export function useWorkspaceController({
   // The key stays visible until the user leaves the Workspace; the copy is their explicit action.
   const copyVisibleWorkspaceApiKey = () => (apiKey ? copyWithFeedback(toast, apiKey, "API key") : false);
 
-  async function createWorkspace() {
-    setBusy(true);
+  const [isCreatingWorkspace, runCreateWorkspace] = useAsyncAction(createWorkspace);
+  const [isIssuingApiKey, runIssueApiKey] = useAsyncAction(issueWorkspaceApiKey);
+  // The user action dialog shows its own pending label, so this only guards against double submits.
+  const [, runApplyWorkspaceUserAction] = useAsyncAction(applyWorkspaceUserAction);
 
+  async function createWorkspace() {
     try {
       const data = await request(
         "/workspaces",
@@ -289,8 +297,6 @@ export function useWorkspaceController({
       });
     } catch (error) {
       showActionToast("workspace.create", "failure", { error });
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -300,26 +306,6 @@ export function useWorkspaceController({
     }
 
     const wasRotation = selectedWorkspaceHasApiKey;
-    let data = null;
-
-    const issueKey = async () => {
-      setBusy(true);
-
-      try {
-        data = await request(`/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/api-key`, { method: "POST" }, true, false);
-
-        const rotatedWorkspaceId = data.workspace_id || normalizedWorkspaceId;
-        setWorkspaceId(rotatedWorkspaceId);
-        setApiKey(data.api_key || "");
-        setUserWorkspaces((prev) =>
-          prev.map((workspace) =>
-            String(workspace.id || "") === String(rotatedWorkspaceId) ? { ...workspace, has_api_key: true } : workspace,
-          ),
-        );
-      } finally {
-        setBusy(false);
-      }
-    };
 
     if (wasRotation) {
       // Rotation is confirmed first; a failed request stays inline in the dialog.
@@ -328,7 +314,7 @@ export function useWorkspaceController({
         body: "Apps using the current key will stop working. This can't be undone.",
         confirmLabel: "Rotate key",
         pendingLabel: "Rotating…",
-        action: issueKey,
+        action: runIssueApiKey,
       });
 
       if (!confirmed) {
@@ -336,7 +322,7 @@ export function useWorkspaceController({
       }
     } else {
       try {
-        await issueKey();
+        await runIssueApiKey();
       } catch (error) {
         showActionToast("workspace.apiKey.generate", "failure", { error });
 
@@ -345,6 +331,24 @@ export function useWorkspaceController({
     }
 
     showActionToast(wasRotation ? "workspace.apiKey.rotate" : "workspace.apiKey.generate", "success");
+  }
+
+  async function issueWorkspaceApiKey() {
+    const data = await request(
+      `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/api-key`,
+      { method: "POST" },
+      true,
+      false,
+    );
+
+    const rotatedWorkspaceId = data.workspace_id || normalizedWorkspaceId;
+    setWorkspaceId(rotatedWorkspaceId);
+    setApiKey(data.api_key || "");
+    setUserWorkspaces((prev) =>
+      prev.map((workspace) =>
+        String(workspace.id || "") === String(rotatedWorkspaceId) ? { ...workspace, has_api_key: true } : workspace,
+      ),
+    );
   }
 
   // Resolves to the accepted Workspace that became selected, or null.
@@ -519,21 +523,28 @@ export function useWorkspaceController({
 
       if (!hasSessionRef.current || !targetWorkspaceId || !canListWorkspaceUsers) {
         setWorkspaceUsers([]);
-        setIsLoadingWorkspaceUsers(false);
+        setWorkspaceUsersStatus("idle");
+        setWorkspaceUsersError(null);
 
         return;
       }
 
-      setIsLoadingWorkspaceUsers(true);
+      setWorkspaceUsersStatus("loading");
+      setWorkspaceUsersError(null);
 
       try {
         const users = await workspaceRequestsRef.current.listWorkspaceUsers(targetWorkspaceId);
 
-        if (workspaceUsersRequestRef.current === requestId) setWorkspaceUsers(users);
-      } catch {
-        if (workspaceUsersRequestRef.current === requestId) setWorkspaceUsers([]);
-      } finally {
-        if (workspaceUsersRequestRef.current === requestId) setIsLoadingWorkspaceUsers(false);
+        if (workspaceUsersRequestRef.current !== requestId) return;
+
+        setWorkspaceUsers(users);
+        setWorkspaceUsersStatus("ready");
+      } catch (error) {
+        if (workspaceUsersRequestRef.current !== requestId) return;
+
+        setWorkspaceUsers([]);
+        setWorkspaceUsersError(error);
+        setWorkspaceUsersStatus("error");
       }
     },
     [canListWorkspaceUsers],
@@ -543,14 +554,22 @@ export function useWorkspaceController({
     async (targetWorkspaceId) => {
       if (!hasSessionRef.current || !targetWorkspaceId || !canManageWorkspaceInvitations) {
         setWorkspaceInvitations([]);
+        setWorkspaceInvitationsStatus("idle");
+        setWorkspaceInvitationsError(null);
 
         return;
       }
 
+      setWorkspaceInvitationsStatus("loading");
+      setWorkspaceInvitationsError(null);
+
       try {
         setWorkspaceInvitations(await workspaceRequestsRef.current.listWorkspaceInvitations(targetWorkspaceId));
-      } catch {
+        setWorkspaceInvitationsStatus("ready");
+      } catch (error) {
         setWorkspaceInvitations([]);
+        setWorkspaceInvitationsError(error);
+        setWorkspaceInvitationsStatus("error");
       }
     },
     [canManageWorkspaceInvitations],
@@ -576,8 +595,6 @@ export function useWorkspaceController({
 
     const actionToast = WORKSPACE_MEMBER_ACTION_TOASTS[action] || "workspaceMember.remove";
 
-    setBusy(true);
-
     try {
       await workspaceRequests.applyWorkspaceMemberAction({
         workspaceId: normalizedWorkspaceId,
@@ -597,8 +614,6 @@ export function useWorkspaceController({
       showActionToast(actionToast, "failure", { targetName: targetDisplay, error });
 
       return false;
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -664,14 +679,8 @@ export function useWorkspaceController({
       return;
     }
 
-    setBusy(true);
-
-    try {
-      await listWorkspaceInvitations(normalizedWorkspaceId);
-      showActionToast("workspaceInvitation.cancel", "success", { targetEmail: invitationEmail });
-    } finally {
-      setBusy(false);
-    }
+    await listWorkspaceInvitations(normalizedWorkspaceId);
+    showActionToast("workspaceInvitation.cancel", "success", { targetEmail: invitationEmail });
   }
 
   function isActionablePendingInvitation(invitation) {
@@ -890,7 +899,7 @@ export function useWorkspaceController({
     setWorkspaceResolutionStatus("idle");
     setUnavailableRoute(false);
     setResolvedSessionId("");
-    setIsLoadingWorkspaceUsers(false);
+    setWorkspaceUsersStatus("idle");
     window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
   }
 
@@ -931,7 +940,7 @@ export function useWorkspaceController({
 
     if (!hasSession || !targetWorkspaceId) {
       setWorkspaceUsers([]);
-      setIsLoadingWorkspaceUsers(false);
+      setWorkspaceUsersStatus("idle");
       setWorkspaceInvitations([]);
 
       return;
@@ -977,7 +986,8 @@ export function useWorkspaceController({
       workspaceId,
       workspacePrimaryAction,
       isDeletingWorkspace,
-      onCreateWorkspace: createWorkspace,
+      isCreatingWorkspace,
+      onCreateWorkspace: runCreateWorkspace,
       onWorkspacePrimaryAction: workspacePrimaryAction.type === "leave" ? leaveWorkspace : deleteWorkspace,
     },
     acceptedPage: {
@@ -991,9 +1001,10 @@ export function useWorkspaceController({
         ? "Rotate API key to view again"
         : "Generate an API key to view",
       onCopyVisibleWorkspaceApiKey: copyVisibleWorkspaceApiKey,
-      busy: isAppBusy,
+      isIssuingApiKey,
       canRotateWorkspaceApiKey,
       workspaceApiKeyActionLabel: selectedWorkspaceHasApiKey ? "Rotate API key" : "Generate API key",
+      workspaceApiKeyPendingLabel: selectedWorkspaceHasApiKey ? "Rotating…" : "Generating…",
       onRefreshApiKey: refreshApiKey,
       inviteEmail,
       onInviteEmailChange: changeInviteEmail,
@@ -1003,13 +1014,18 @@ export function useWorkspaceController({
       onInviteRoleChange: setInviteRole,
       hasApiAccess,
       onInviteUser: inviteUser,
-      isLoadingWorkspaceUsers,
+      workspaceUsersStatus,
+      workspaceUsersError,
+      onRetryWorkspaceUsers: () => listWorkspaceUsers(normalizedWorkspaceId),
       workspaceUsers,
       canShowWorkspaceUserAction: (user) => canShowWorkspaceUserAction(memberPermissions, user.role),
       sessionUserId,
       onSelectWorkspaceUserActionTarget: setWorkspaceUserActionTarget,
       canManageWorkspaceInvitations,
       workspaceInvitations,
+      workspaceInvitationsStatus,
+      workspaceInvitationsError,
+      onRetryWorkspaceInvitations: () => listWorkspaceInvitations(normalizedWorkspaceId),
       onCancelWorkspaceInvitation: cancelWorkspaceInvitation,
     },
     invitationPage: {
@@ -1024,9 +1040,8 @@ export function useWorkspaceController({
       options: workspaceUserActionTarget
         ? getWorkspaceUserActions(memberPermissions, workspaceUserActionTarget.role)
         : [],
-      busy: isAppBusy,
       onClose: () => setWorkspaceUserActionTarget(null),
-      onApplyAction: (action, options) => applyWorkspaceUserAction(workspaceUserActionTarget, action, options),
+      onApplyAction: (action, options) => runApplyWorkspaceUserAction(workspaceUserActionTarget, action, options),
     },
     actions: {
       clearSessionWorkspaceData,

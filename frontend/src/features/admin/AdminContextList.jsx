@@ -2,12 +2,15 @@ import React from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
+import { ListStatus } from "../ui/States.jsx";
 import { accountFlags, displayName, isApplicationAdmin, safeText, userIdOf } from "./adminAccounts.js";
 
 export function AdminContextList({ admin }) {
   const rowMotion = useRowMotion(admin.users, userKey);
   const selectedId = userIdOf(admin.selectedUser);
   const isSearching = Boolean(admin.submittedSearch.value.trim());
+  // Keep rows on screen while a later page loads; only a first load or an empty result shows the skeleton.
+  const status = admin.listError ? "error" : admin.isLoading && !admin.users.length ? "loading" : "ready";
 
   return (
     <>
@@ -30,57 +33,46 @@ export function AdminContextList({ admin }) {
           </select>
         </div>
       </form>
-      {admin.listError ? (
-        <p className="processing-error context-list-error" role="alert">
-          {admin.listError}{" "}
-          <button type="button" className="studio-text-button" onClick={admin.onRetry}>
-            Retry
-          </button>
-        </p>
-      ) : null}
       <ScrollArea className="context-list admin-account-list" role="region" aria-label="Account list" tabIndex={0}>
-        {admin.users.map((user) => {
-          const isActive = userIdOf(user) === selectedId;
-          const email = safeText(user.email);
+        <ListStatus
+          status={status}
+          errorMessage={admin.listError}
+          onRetry={admin.onRetry}
+          isEmpty={!admin.users.length}
+          emptyMessage={isSearching ? "No users match this search." : "No users found."}
+        >
+          {admin.users.map((user) => {
+            const isActive = userIdOf(user) === selectedId;
+            const email = safeText(user.email);
 
-          return (
-            <div
-              key={userKey(user)}
-              className={
-                [
-                  "context-item-card context-item-account",
-                  user.banned ? "is-banned" : isApplicationAdmin(user) ? "is-admin" : "",
-                  isActive ? "active" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ") + rowMotion(userKey(user))
-              }
-            >
-              <button
-                type="button"
-                className={isActive ? "context-item-main active" : "context-item-main"}
-                aria-current={isActive ? "true" : undefined}
-                onClick={() => admin.onSelectUser(user)}
+            return (
+              <div
+                key={userKey(user)}
+                className={
+                  [
+                    "context-item-card context-item-account",
+                    user.banned ? "is-banned" : isApplicationAdmin(user) ? "is-admin" : "",
+                    isActive ? "active" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ") + rowMotion(userKey(user))
+                }
               >
-                <strong>{displayName(user)}</strong>
-                <span>{email}</span>
-                <AccountFlags user={user} />
-              </button>
-              <ContextCopyButton ariaLabel={`Copy email ${email}`} label="Email" value={user.email || ""} />
-            </div>
-          );
-        })}
-        {!admin.users.length ? (
-          <p className="muted">
-            {admin.isLoading ? (
-              <span role="status">Loading users…</span>
-            ) : isSearching ? (
-              "No users match this search."
-            ) : (
-              "No users found."
-            )}
-          </p>
-        ) : null}
+                <button
+                  type="button"
+                  className={isActive ? "context-item-main active" : "context-item-main"}
+                  aria-current={isActive ? "true" : undefined}
+                  onClick={() => admin.onSelectUser(user)}
+                >
+                  <strong>{displayName(user)}</strong>
+                  <span>{email}</span>
+                  <AccountFlags user={user} />
+                </button>
+                <ContextCopyButton ariaLabel={`Copy email ${email}`} label="Email" value={user.email || ""} />
+              </div>
+            );
+          })}
+        </ListStatus>
       </ScrollArea>
     </>
   );

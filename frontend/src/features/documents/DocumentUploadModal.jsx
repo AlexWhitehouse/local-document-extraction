@@ -12,6 +12,7 @@ export function DocumentUploadModal({
   availableTags = [],
   onSelectTags,
   sourceFiles,
+  uploadRejections = [],
   isDragActive,
   isUploadingDocuments,
   hasApiAccess,
@@ -32,6 +33,9 @@ export function DocumentUploadModal({
   }
 
   const isDirty = !isUploadingDocuments && sourceFiles.length > 0;
+  const hintId = `${titleId}-submit-hint`;
+  // The hint names what is missing; a template chosen without tags is explained by the tag picker.
+  const submitBlocked = !isUploadingDocuments && (!selectedTemplateId || !sourceFiles.length);
 
   // Cancel asks before discarding picked files; the upload itself is never aborted.
   async function requestClose() {
@@ -74,6 +78,7 @@ export function DocumentUploadModal({
         ) : null}
         <DocumentUploadPanel
           sourceFiles={sourceFiles}
+          rejections={uploadRejections}
           isDragActive={isDragActive}
           disabled={isUploadingDocuments}
           maxSourceFileBytes={maxSourceFileBytes}
@@ -86,17 +91,22 @@ export function DocumentUploadModal({
         />
       </div>
       <ModalFooter>
+        {submitBlocked ? (
+          <p className="hint upload-submit-hint" id={hintId}>
+            Choose a template and at least one file
+          </p>
+        ) : null}
         <button type="button" className="secondary" onClick={requestClose}>
           Cancel
         </button>
         <button
           type="button"
           data-tour="upload-submit"
+          aria-describedby={submitBlocked ? hintId : undefined}
           disabled={
             isUploadingDocuments ||
             !hasApiAccess ||
-            !sourceFiles.length ||
-            !selectedTemplateId ||
+            submitBlocked ||
             (selectedTemplateId === "automatic" && !selectedTags.length)
           }
           onClick={onSubmit}

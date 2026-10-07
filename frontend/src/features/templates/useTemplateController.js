@@ -126,6 +126,9 @@ export function useTemplateController({
     Array.isArray(initialWorkspace.templates) ? initialWorkspace.templates : [],
   );
 
+  const [listStatus, setListStatus] = useState("loading");
+  const [listError, setListError] = useState(null);
+
   const [templateName, setTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
 
   const [templateDescription, setTemplateDescription] = useState(DEFAULT_TEMPLATE_DESCRIPTION);
@@ -343,12 +346,19 @@ export function useTemplateController({
       if (!isCurrent()) return [];
       const list = Array.isArray(data?.templates) ? data.templates : [];
       setTemplates(list);
+      setListError(null);
+      setListStatus("ready");
       setSelectedUploadTemplateId((currentTemplateId) =>
         currentTemplateId || !list[0]?.id ? currentTemplateId : list[0].id,
       );
 
       return list;
-    } catch {
+    } catch (error) {
+      if (isCurrent()) {
+        setListError(error);
+        setListStatus("error");
+      }
+
       return [];
     }
   }, []);
@@ -867,8 +877,11 @@ export function useTemplateController({
     clearWorkspaceScopedTemplates();
 
     if (hasApiAccess) {
+      setListStatus("loading");
       void listTemplates();
       void listTemplateTags();
+    } else {
+      setListStatus("ready");
     }
 
     return () => {
@@ -906,6 +919,28 @@ export function useTemplateController({
     };
   }, [hasApiAccess, workspaceId, sessionId, routeTemplateId]);
 
+  function createTemplate(options) {
+    const startDraft = () => {
+      if (onTemplateNavigation && !onTemplateNavigation("new")) return;
+      startNewTemplateDraft(options);
+    };
+
+    // Stays synchronous unless the discard prompt has to ask.
+    if (onTemplateNavigation && !updateTemplateId && hasUnsavedChanges) {
+      return confirmDialog({ ...DISCARD_CHANGES }).then((discard) => {
+        if (discard) startDraft();
+      });
+    }
+
+    startDraft();
+  }
+
+  function autoGenerateTemplate() {
+    touchDraft();
+    cancelAssistant();
+    templateGeneration.open({ createNew: true });
+  }
+
   return {
     navigation: {
       hasUnsavedChanges,
@@ -923,9 +958,14 @@ export function useTemplateController({
     contextList: {
       search: templateSearch,
       templates: contextTemplates,
+      status: listStatus,
+      error: listError,
+      onRetry: () => listTemplates(),
       selectedTemplateId: updateTemplateId,
       isEditingTemplate,
       onSearchChange: setTemplateSearch,
+      onCreateTemplate: () => createTemplate(),
+      onAutoGenerateTemplate: () => autoGenerateTemplate(),
       onSelectDraftTemplate: onTemplateNavigation ? () => onTemplateNavigation("new") : startNewTemplateDraft,
       onSelectTemplate: (templateId) => {
         if (onTemplateNavigation) {
@@ -1015,26 +1055,8 @@ export function useTemplateController({
     toolbar: {
       isDeletingTemplate,
       selectedTemplateId: updateTemplateId,
-      onCreateTemplate: (options) => {
-        const startDraft = () => {
-          if (onTemplateNavigation && !onTemplateNavigation("new")) return;
-          startNewTemplateDraft(options);
-        };
-
-        // Stays synchronous unless the discard prompt has to ask.
-        if (onTemplateNavigation && !updateTemplateId && hasUnsavedChanges) {
-          return confirmDialog({ ...DISCARD_CHANGES }).then((discard) => {
-            if (discard) startDraft();
-          });
-        }
-
-        startDraft();
-      },
-      onAutoGenerateTemplate: () => {
-        touchDraft();
-        cancelAssistant();
-        templateGeneration.open({ createNew: true });
-      },
+      onCreateTemplate: createTemplate,
+      onAutoGenerateTemplate: autoGenerateTemplate,
       onDeleteTemplate: deleteTemplate,
     },
     actions: {

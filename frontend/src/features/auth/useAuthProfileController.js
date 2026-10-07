@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createNotifier, defaultToast } from "../../lib/notify";
+import { useAsyncAction } from "../ui/useAsyncAction";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 
 const PROFILE_SAVE_ERROR = "Profile could not be saved. Please try again.";
@@ -25,14 +26,13 @@ export function useAuthProfileController({
   hasSession,
   sessionUserName,
   sessionUserEmail,
-  busy,
-  setBusy,
   onClearWorkspaceScopedTemplates,
   onClearWorkspaceScopedDocuments,
   onClearSessionWorkspaceData,
   onSessionChanging,
 }) {
   const [authMode, setAuthMode] = useState(initialAuthMode);
+  const [isStartingGoogleSignIn, setIsStartingGoogleSignIn] = useState(false);
   const [authName, setAuthName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -118,6 +118,11 @@ export function useAuthProfileController({
     setFormError("");
   }
 
+  const [isSigningIn, runSignIn] = useAsyncAction(signIn);
+  const [isCreatingAccount, runSignUp] = useAsyncAction(signUp);
+  const [isSendingResetLink, runRequestAccountPasswordReset] = useAsyncAction(requestAccountPasswordReset);
+  const [isSigningOut, runSignOut] = useAsyncAction(signOut);
+
   async function signIn() {
     const errors = compactErrors({
       email: getEmailError(authEmail),
@@ -131,7 +136,6 @@ export function useAuthProfileController({
     }
 
     clearSubmitErrors();
-    setBusy(true);
 
     try {
       const result = await authClient.signIn.email({
@@ -147,8 +151,6 @@ export function useAuthProfileController({
       await refetchSession();
     } catch (error) {
       setFormError(getSignInErrorMessage(error.message, authOptions.mailDelivery));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -169,7 +171,6 @@ export function useAuthProfileController({
     }
 
     clearSubmitErrors();
-    setBusy(true);
 
     try {
       const result = await authClient.signUp.email({
@@ -195,13 +196,11 @@ export function useAuthProfileController({
       }
     } catch (error) {
       setFormError(getSignUpErrorMessage(error.message));
-    } finally {
-      setBusy(false);
     }
   }
 
   async function signInWithGoogle() {
-    setBusy(true);
+    setIsStartingGoogleSignIn(true);
 
     try {
       const result = await authClient.signIn.social({
@@ -214,7 +213,7 @@ export function useAuthProfileController({
       }
     } catch {
       setFormError("Google sign-in could not start. Try again.");
-      setBusy(false);
+      setIsStartingGoogleSignIn(false);
     }
   }
 
@@ -229,7 +228,6 @@ export function useAuthProfileController({
 
     const requestedEmail = authEmail.trim();
     clearSubmitErrors();
-    setBusy(true);
 
     try {
       const result = await authClient.requestPasswordReset({
@@ -244,8 +242,6 @@ export function useAuthProfileController({
       setAccountPasswordResetRequestedEmail(requestedEmail);
     } catch {
       setFormError("Password reset request failed. Try again.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -255,18 +251,18 @@ export function useAuthProfileController({
     if (!authOptions.emailPasswordEnabled || (authMode === "signup" && !authOptions.signupEnabled)) return;
 
     if (authMode === "reset-request") {
-      await requestAccountPasswordReset();
+      await runRequestAccountPasswordReset();
 
       return;
     }
 
     if (authMode === "signin") {
-      await signIn();
+      await runSignIn();
 
       return;
     }
 
-    await signUp();
+    await runSignUp();
   }
 
   function switchAuthMode(nextMode) {
@@ -303,8 +299,6 @@ export function useAuthProfileController({
   }
 
   async function signOut() {
-    setBusy(true);
-
     try {
       onSessionChanging?.();
       await authClient.signOut();
@@ -315,8 +309,6 @@ export function useAuthProfileController({
     } catch (error) {
       // A failed sign out keeps the current session in place.
       notify("auth.signOut", "failure", { error });
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -351,6 +343,8 @@ export function useAuthProfileController({
     }
   }
 
+  const isAuthPending = isSigningIn || isCreatingAccount || isSendingResetLink || isStartingGoogleSignIn;
+
   return {
     authScreen: {
       authOptions,
@@ -359,7 +353,11 @@ export function useAuthProfileController({
       email: authEmail,
       password: authPassword,
       confirmPassword: authConfirmPassword,
-      busy,
+      isSigningIn,
+      isCreatingAccount,
+      isSendingResetLink,
+      isStartingGoogleSignIn,
+      isAuthPending,
       fieldErrors,
       formError,
       focusRequest,
@@ -397,14 +395,14 @@ export function useAuthProfileController({
       isSavingProfile,
       canSaveProfile,
       saveError: profileSaveError,
-      busy,
+      isSigningOut,
       onToggle: () => setIsProfileMenuOpen((currentOpen) => !currentOpen),
       onDraftNameChange: (value) => {
         setProfileSaveError("");
         setProfileDraftName(value);
       },
       onSaveProfile: saveProfile,
-      onSignOut: signOut,
+      onSignOut: runSignOut,
     },
   };
 }

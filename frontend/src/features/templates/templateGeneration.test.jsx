@@ -208,7 +208,7 @@ it("accepts a dropped sample, rejects multiple samples, and locks uploads during
   const onFileChange = vi.fn();
   const props = { isOpen: true, instructions: "", hasApiAccess: true, onFileChange, onClose: vi.fn() };
   const view = render(<TemplateGenerationModal {...props} />);
-  const dropzone = screen.getByRole("button", { name: /Drag and drop a sample document/ });
+  const dropzone = screen.getByRole("button", { name: /Drop a sample document or click to browse/ });
   fireEvent.drop(dropzone, { dataTransfer: { files: [file, file] } });
   expect(screen.getByRole("alert").textContent).toContain("one sample");
   expect(onFileChange).not.toHaveBeenCalled();
@@ -216,7 +216,7 @@ it("accepts a dropped sample, rejects multiple samples, and locks uploads during
   expect(onFileChange).toHaveBeenCalledWith(file);
   expect(screen.queryByRole("alert")).toBeNull();
   view.rerender(<TemplateGenerationModal {...props} file={file} isGenerating />);
-  expect(screen.queryByRole("button", { name: /Drag and drop a sample document/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Drop a sample document or click to browse/ })).toBeNull();
   expect(onFileChange).toHaveBeenCalledTimes(1);
 });
 

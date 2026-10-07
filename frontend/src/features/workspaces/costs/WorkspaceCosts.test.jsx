@@ -140,8 +140,21 @@ describe("workspace costs", () => {
   it("offers recovery when loading fails", async () => {
     const request = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(overview);
     render(<WorkspaceCosts {...props} request={request} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     await screen.findByLabelText("Headline figures");
+  });
+
+  it("replaces empty chart axes with a plain message when the range has no costs", async () => {
+    const empty = {
+      ...overview,
+      totals: { ...metrics, documents: 0, pages: 0, costs: costs(0) },
+      buckets: [{ ...metrics, documents: 0, pages: 0, costs: costs(0), key: "2026-09-01", date: "2026-09-01", hour: 0 }],
+    };
+
+    render(<WorkspaceCosts {...props} request={vi.fn().mockResolvedValue(empty)} />);
+    expect(await screen.findByText("No costs in this range")).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Spend by stage" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Table" })).toBeNull();
   });
 });
 

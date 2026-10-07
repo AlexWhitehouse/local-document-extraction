@@ -13,7 +13,7 @@ function renderMenu(overrides = {}) {
     canSaveProfile: true,
     saveError: "",
     isSavingProfile: false,
-    busy: false,
+    isSigningOut: false,
     onToggle: vi.fn(),
     onDraftNameChange: vi.fn(),
     onSaveProfile: vi.fn(),

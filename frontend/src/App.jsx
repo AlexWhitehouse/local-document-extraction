@@ -41,6 +41,7 @@ import { useWorkspaceSourceRetention } from "./features/workspaces/useWorkspaceS
 import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
 import { hasUnsavedEdits, runDiscardChecks } from "./lib/unsavedChanges.js";
 import { DISCARD_CHANGES, confirmDialog } from "./features/ui/confirm.jsx";
+import { LoadingState } from "./features/ui/States.jsx";
 import "./features/layout/StudioLayouts.css";
 
 const API_BASE = "/v1";
@@ -96,7 +97,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
 
   const { data: session, isPending: isSessionPending, refetch: refetchSession } = authClient.useSession();
 
-  const [busy, setBusy] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
   const [isStoppingImpersonation, setIsStoppingImpersonation] = useState(false);
   const activePage = route.page;
@@ -133,8 +133,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     hasSession,
     sessionUserId,
     sessionId,
-    isAppBusy: busy,
-    setBusy,
     onActivePageChange: setActivePage,
     requestedWorkspaceId: route.workspaceId,
     requestedInvitationId: route.invitationId,
@@ -234,7 +232,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     showDocumentUploadToast,
     hasApiAccess,
     hasWorkspaceApiAccess,
-    isAppBusy: busy,
     isWorkspaceDeletionInProgress: workspaceContext.isDeletingWorkspace,
     workspaceId,
     sessionId,
@@ -430,8 +427,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     hasSession,
     sessionUserName,
     sessionUserEmail,
-    busy,
-    setBusy,
     onClearWorkspaceScopedTemplates: templateController.actions.clearWorkspaceScopedTemplates,
     onClearWorkspaceScopedDocuments: documentController.actions.clearWorkspaceScopedDocuments,
     onClearSessionWorkspaceData: workspaceController.actions.clearSessionWorkspaceData,
@@ -452,7 +447,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   }
 
   if (isSessionPending) {
-    return null;
+    return <AppLoadingShell />;
   }
 
   if (!hasSession) {
@@ -518,8 +513,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     activePage !== "admin" &&
     (workspaceContext.isWorkspaceContextLoading || templateLoading || documentLoading || packetLoading);
 
-  const hideRouteContent = Boolean(routeMessage || routeLoading);
-
   const selectedDocument = documentController.documentPage.selectedDocument;
 
   const pageTitle =
@@ -562,8 +555,9 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
           templates: hasApiAccess ? templates.length : 0,
           documents: hasApiAccess ? documentToolbar.documentCount : 0,
         }}
-        uploadAriaDisabled={busy || !hasWorkspaceApiAccess || !workspaceModel.ready}
-        isUploadDisabled={!hasWorkspaceApiAccess || !workspaceModel.ready}
+        isUploadDisabled={!hasWorkspaceApiAccess}
+        isModelSetupRequired={hasWorkspaceApiAccess && !workspaceModel.ready}
+        liveUpdatesPaused={documentController.liveUpdatesPaused}
         showAdminNavigation={isApplicationAdmin}
         impersonationSlot={
           isImpersonating ? (
@@ -596,7 +590,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               template={templateController.templatePage}
               model={workspaceModel}
               upload={documentController.uploadModal}
-              busy={busy}
+              busy={workspaceToolbar.isCreatingWorkspace}
               onActiveChange={setIsTourActive}
               returnFocusRef={profileMenu.panelRef}
               renderProfile={(tourAction) => (
@@ -709,29 +703,27 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             </button>
             {templateLoad.status === "error" && templateUnavailable ? (
               <button type="button" onClick={templateController.navigation.retry}>
-                Retry
+                Try again
               </button>
             ) : null}
             {documentUnavailable === "error" ? (
               <button type="button" onClick={documentController.navigation.retry}>
-                Retry
+                Try again
               </button>
             ) : null}
             {packetUnavailable === "error" ? (
               <button type="button" onClick={documentController.navigation.retryPacket}>
-                Retry
+                Try again
               </button>
             ) : null}
             {workspaceResolutionFailed ? (
               <button type="button" onClick={workspaceController.sidebar.onRetryResolution}>
-                Retry Workspace
+                Try again
               </button>
             ) : null}
           </section>
-        ) : routeLoading ? (
-          <p role="status">Loading linked page…</p>
         ) : null}
-        {!hideRouteContent ? (
+        {!routeMessage ? (
           <>
             {visiblePage !== "admin" && visiblePage !== "evaluations" && visiblePage !== "costs" ? (
               <WorkspaceToolbar
@@ -744,7 +736,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                 workspaceId={workspaceToolbar.workspaceId}
                 workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
                 isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
-                isWorkspaceBusy={busy}
+                isCreatingWorkspace={workspaceToolbar.isCreatingWorkspace}
                 isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
                 isDeletingDocument={documentToolbar.isDeletingDocument}
                 isExportingDocuments={documentToolbar.isExportingDocuments}
@@ -772,9 +764,10 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               />
             ) : null}
 
-            {visiblePage === "admin" ? <ApplicationAdminPage admin={adminController} /> : null}
+            {routeLoading ? <LoadingState variant="panel" label="Loading…" /> : null}
+            {!routeLoading && visiblePage === "admin" ? <ApplicationAdminPage admin={adminController} /> : null}
 
-            {visiblePage === "costs" ? (
+            {!routeLoading && visiblePage === "costs" ? (
               <WorkspaceCosts
                 key={`${sessionUserId}:${workspaceId}`}
                 workspaceId={workspaceId}
@@ -787,7 +780,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               />
             ) : null}
 
-            {visiblePage === "workspace" ? (
+            {!routeLoading && visiblePage === "workspace" ? (
               isWorkspaceInvitationSelected && workspaceContext.selectedWorkspaceInvitation ? (
                 <WorkspaceInvitationPage {...workspaceController.invitationPage} />
               ) : (
@@ -803,8 +796,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               )
             ) : null}
 
-            {visiblePage === "templates" ? <TemplatePage {...templateController.templatePage} /> : null}
-            {visiblePage === "evaluations" ? (
+            {!routeLoading && visiblePage === "templates" ? <TemplatePage {...templateController.templatePage} /> : null}
+            {!routeLoading && visiblePage === "evaluations" ? (
               <EvaluationsPage
                 evaluation={evaluation}
                 toast={toast}
@@ -816,7 +809,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                 workspaceLabel={workspaceToolbar.workspaceLabel}
               />
             ) : null}
-            {visiblePage === "documents" ? (
+            {!routeLoading && visiblePage === "documents" ? (
               <DocumentPage
                 {...documentController.documentPage}
                 viewingLayout={documentViewingLayout}
@@ -828,6 +821,25 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         ) : null}
       </MainLayout>
     </>
+  );
+}
+
+// Keeps the app frame while the session loads, so the sign-in screen never flashes in.
+function AppLoadingShell() {
+  return (
+    <div className="app-frame">
+      <aside className="left-sidebar" aria-hidden="true">
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-text">
+            <p className="eyebrow">Document Extraction</p>
+          </div>
+        </div>
+        <div className="sidebar-spacer" />
+      </aside>
+      <main className="main-content">
+        <LoadingState variant="panel" label="Loading…" />
+      </main>
+    </div>
   );
 }
 

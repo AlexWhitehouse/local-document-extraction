@@ -77,6 +77,18 @@ async function fillSignUp(user, { name = "Ada Lovelace", password = "Password1!"
 }
 
 describe("auth sign-in feedback", () => {
+  it("keeps the app frame with a loading status while the session loads, without the sign-in form", () => {
+    authClientMock.useSession.mockReturnValue({ data: null, isPending: true, refetch: authClientMock.refetchSession });
+
+    const { container } = render(
+      <App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />,
+    );
+
+    expect(container.querySelector(".app-frame")).toBeTruthy();
+    expect(screen.getByText("Loading…")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
   it("shows field errors under empty sign-in fields without a toast", async () => {
     const user = userEvent.setup();
 
@@ -380,14 +392,14 @@ describe("auth sign-up password policy feedback", () => {
     await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "Password1!");
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
     expect(toastMock.error).not.toHaveBeenCalled();
     expect(screen.getByText("Confirm your password.")).toBeTruthy();
 
     await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(screen.getByText("Check your email to verify your account.")).toBeTruthy();
     expect(toastMock.error).not.toHaveBeenCalled();
@@ -423,7 +435,7 @@ describe("auth sign-up password policy feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await fillSignUp(user, { confirmPassword: "Password2!" });
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
     expect(toastMock.error).not.toHaveBeenCalled();
@@ -500,7 +512,7 @@ describe("auth sign-up password policy feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await fillSignUp(user, { password: "password" });
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
     expect(toastMock.error).not.toHaveBeenCalled();
@@ -513,7 +525,7 @@ describe("auth sign-up password policy feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.click(screen.getByRole("button", { name: "Sign up" }));
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
     expect(toastMock.error).not.toHaveBeenCalled();
@@ -539,7 +551,7 @@ describe("auth sign-up password policy feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await fillSignUp(user);
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(toastMock.error).not.toHaveBeenCalled();
     expect((await screen.findByRole("alert")).textContent).toBe(alertMessage);
@@ -593,7 +605,7 @@ describe("deployment auth configuration", () => {
       />,
     );
     await fillSignUp(user, { name: "Ada" });
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
     expect(screen.getByRole("heading", { name: "Open your local verification link." })).toBeTruthy();
     expect(screen.getByText("document-extraction mail")).toBeTruthy();
   });
@@ -603,7 +615,7 @@ describe("deployment auth configuration", () => {
     authClientMock.signUpEmail.mockResolvedValue({ data: { user: { email: "ada@example.com" } } });
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
     await fillSignUp(user, { name: "Ada" });
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
     expect(authClientMock.refetchSession).toHaveBeenCalledOnce();
     expect(screen.queryByText(/Open your local verification link/)).toBeNull();
   });
