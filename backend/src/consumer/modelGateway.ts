@@ -26,6 +26,8 @@ export class RetryableError extends Error {
   }
 }
 
+export class ModelResponseFormatError extends RetryableError {}
+
 export class ModelGatewayRequestError extends Error {
   constructor(
     message: string,
@@ -286,15 +288,18 @@ export function parseExtractionContent(content: string): ModelFieldResult[] {
   let parsed: JsonValue | undefined;
 
   try {
-    parsed = parseJson(content);
+    // Accept one enclosing Markdown fence; JSON and result validation still apply to its entire contents.
+    const fenced = content.trim().match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
+
+    parsed = parseJson(fenced?.[1] ?? content);
   } catch {
-    throw new RetryableError("Model response content was not valid JSON");
+    throw new ModelResponseFormatError("Model response content was not valid JSON");
   }
 
   const results = isJsonObject(parsed) ? parsed.results : undefined;
 
   if (!isJsonArray(results)) {
-    throw new RetryableError("Model JSON missing results array");
+    throw new ModelResponseFormatError("Model JSON missing results array");
   }
 
   return results.map((row): ModelFieldResult => {
@@ -305,7 +310,7 @@ export function parseExtractionContent(content: string): ModelFieldResult[] {
       !isString(row.status) ||
       !("answer" in row)
     ) {
-      throw new RetryableError("Model JSON contains invalid result entries");
+      throw new ModelResponseFormatError("Model JSON contains invalid result entries");
     }
 
     return { ...row, field_id: row.field_id, status: row.status, answer: row.answer };
@@ -607,7 +612,7 @@ function buildPrompt(fields: FieldDefinition[], sourceMimeType: string, pdfRende
 
 export function readRunResultContent(payload: JsonValue | undefined): string {
   if (!isJsonObject(payload) && !isJsonArray(payload)) {
-    throw new RetryableError("Model gateway returned empty response");
+    throw new ModelResponseFormatError("Model gateway returned empty response");
   }
 
   const record = isJsonObject(payload) ? payload : {};
@@ -621,7 +626,7 @@ export function readRunResultContent(payload: JsonValue | undefined): string {
     if (content) return content;
   }
 
-  throw new RetryableError("Model response did not include readable text content");
+  throw new ModelResponseFormatError("Model response did not include readable text content");
 }
 
 function readContentValue(value: JsonValue | undefined): string | null {
@@ -713,7 +718,7 @@ export async function runViaModelGateway(
       : await response.text();
 
     if (!bodyText.trim()) {
-      throw new RetryableError("Model gateway returned empty response");
+      throw new ModelResponseFormatError("Model gateway returned empty response");
     }
 
     try {
@@ -721,7 +726,7 @@ export async function runViaModelGateway(
 
       return responseBody;
     } catch {
-      throw new RetryableError("Model gateway returned invalid JSON");
+      throw new ModelResponseFormatError("Model gateway returned invalid JSON");
     }
   } catch (error) {
     if (signal?.aborted) {
