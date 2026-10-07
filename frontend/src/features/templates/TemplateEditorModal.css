@@ -1,7 +1,5 @@
 /* The portalled editor uses the same Studio field styling as the Templates tab. */
 .template-editor-modal.modal-card {
-  --studio-rule: var(--rule);
-  --studio-muted: #8e9cb0;
   width: min(1120px, 95vw);
   max-width: 1120px;
   height: min(800px, calc(100dvh - 48px));
@@ -10,7 +8,6 @@
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 0;
   padding: 0;
-  border-radius: 0;
   overflow: hidden;
   background: var(--pane-main);
 }
@@ -20,11 +17,11 @@
   justify-content: space-between;
   gap: 16px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--studio-rule);
+  border-bottom: 1px solid var(--rule);
   background: var(--pane-nav);
 }
-.template-editor-modal-header h2 { margin: 0; font: 500 15px/1.3 var(--font-display); letter-spacing: -.01em; }
-.template-editor-modal-header p { margin: 4px 0 0; color: var(--studio-muted); font-size: 12px; line-height: 1.5; }
+.template-editor-modal-header h2 { margin: 0; font: 500 var(--font-size-6)/1.3 var(--font-body); letter-spacing: -.01em; }
+.template-editor-modal-header p { margin: 4px 0 0; color: var(--text-2); font-size: var(--font-size-4); line-height: 1.5; }
 .template-editor-modal .studio-template-meta { padding: 12px 16px; margin: 0; gap: 16px; }
 .template-editor-modal .field-editor { overflow: hidden; }
 .template-editor-modal .field-studio { height: 100%; flex: 1; grid-template-columns: 232px minmax(0, 1fr); }
@@ -32,11 +29,11 @@
 .template-editor-modal .field-detail { padding: 16px 20px; }
 .template-editor-modal .field-detail-head { margin-bottom: 16px; }
 .template-editor-modal .field-detail-head h2 { text-align: left; }
-.template-editor-modal-footer { padding: 10px 16px; border-top: 1px solid var(--studio-rule); }
+.template-editor-modal-footer { padding: 10px 16px; border-top: 1px solid var(--rule); }
 .template-editor-modal-footer .actions { margin: 0; display: flex; justify-content: flex-end; gap: 8px; }
-.template-editor-modal-footer > p { margin: 0 0 10px; font-size: 12px; }
-.template-editor-modal-footer button { min-height: 28px; padding: 0 11px; font-size: 11.5px; }
-@media (max-width: 700px) {
+.template-editor-modal-footer > p { margin: 0 0 10px; font-size: var(--font-size-4); }
+.template-editor-modal-footer button { min-height: var(--control-h-sm); padding: 0 11px; font-size: var(--font-size-3); }
+@media (max-width: 600px) {
   .template-editor-modal.modal-card { width: calc(100vw - 24px); height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); }
   .template-editor-modal-header, .template-editor-modal .studio-template-meta { padding: 16px; }
   .template-editor-modal .studio-template-meta { grid-template-columns: 1fr; gap: 12px; }

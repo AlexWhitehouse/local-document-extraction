@@ -28,7 +28,7 @@ function StepNumber({ number, complete }) {
   return (
     <span className={complete ? "evaluation-step-complete" : undefined} title={complete ? "Complete" : "Incomplete"}>
       {number}
-      <span className="evaluation-visually-hidden">{complete ? " complete" : " incomplete"}</span>
+      <span className="sr-only">{complete ? " complete" : " incomplete"}</span>
     </span>
   );
 }

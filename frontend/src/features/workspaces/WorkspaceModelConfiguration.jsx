@@ -336,7 +336,7 @@ function ModelRoles({ record }) {
     <td key={field}>
       {record.configured ? (
         <span className={values[field] ? "workspace-model-flag on" : "workspace-model-flag"}>
-          <span className="workspace-model-sr-only">{`${title}: ${values[field] ? "yes" : "no"}`}</span>
+          <span className="sr-only">{`${title}: ${values[field] ? "yes" : "no"}`}</span>
         </span>
       ) : (
         <span aria-label={`${title}: not configured`}>—</span>

@@ -110,7 +110,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
             <tr>
               {onToggle && (
                 <th>
-                  <span className="evaluation-visually-hidden">Select</span>
+                  <span className="sr-only">Select</span>
                 </th>
               )}
               <th>Document</th>
@@ -119,7 +119,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
               <th>Updated</th>
               {actions && (
                 <th>
-                  <span className="evaluation-visually-hidden">Actions</span>
+                  <span className="sr-only">Actions</span>
                 </th>
               )}
             </tr>
