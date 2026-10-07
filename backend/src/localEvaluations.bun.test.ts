@@ -10,7 +10,7 @@ import { createLocalExtractionQueue } from "./localExtractionQueue";
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 import { createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 
-import { RetryableError } from "./consumer/modelGateway";
+import { parseExtractionContent, RetryableError } from "./consumer/modelGateway";
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -134,6 +134,81 @@ const events = async (response: Response) =>
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+
+test("a fenced extraction response completes an Evaluation without retries", async () => {
+  let calls = 0;
+
+  const f = fixture({
+    extract: async () => {
+      calls++;
+
+      return parseExtractionContent('```json\n{"results":[{"field_id":"total","status":"ok","answer":12}]}\n```');
+    },
+  });
+
+  const updates = await events(
+    await f.submit({
+      candidates: [{ id: "c", revision: 0, model: "model", pdf: false, structured: false, fields }],
+    }),
+  );
+
+  expect(calls).toBe(1);
+  expect(updates.find((event) => event.type === "success")).toMatchObject({
+    attempt: 1,
+    result: { raw: [{ field_id: "total", status: "ok", answer: 12 }] },
+  });
+  expect(updates.some((event) => event.type === "failure" || event.type === "retrying")).toBe(false);
+  expect(f.files()).toEqual([]);
+});
+
+test.each(["{broken}", "{}", '{"results":[null]}'])(
+  "malformed extraction response %s reports a parsing failure after the retry limit",
+  async (content) => {
+    let calls = 0;
+
+    const f = fixture({
+      extract: async () => {
+        calls++;
+
+        return parseExtractionContent(`\`\`\`json\n${content}\n\`\`\``);
+      },
+    });
+
+    const updates = await events(
+      await f.submit({
+        candidates: [{ id: "c", revision: 0, model: "model", pdf: false, structured: false, fields }],
+      }),
+    );
+
+    expect(calls).toBe(3);
+    expect(updates.find((event) => event.type === "failure")).toMatchObject({
+      attempt: 3,
+      message: "The model response could not be parsed as valid extraction JSON. Try again or choose another model.",
+    });
+    expect(updates.some((event) => event.type === "success")).toBe(false);
+    expect(f.files()).toEqual([]);
+  },
+);
+
+test("unexpected extraction errors keep a generic Evaluation failure message", async () => {
+  const f = fixture({
+    extract: async () => {
+      throw new Error("private-upstream-response");
+    },
+  });
+
+  const updates = await events(
+    await f.submit({
+      candidates: [{ id: "c", revision: 0, model: "model", pdf: false, structured: false, fields }],
+    }),
+  );
+
+  expect(updates.find((event) => event.type === "failure")).toMatchObject({
+    attempt: 1,
+    message: "Extraction failed. Check the model and try again.",
+  });
+  expect(JSON.stringify(updates)).not.toContain("private-upstream-response");
+});
 
 test("eight candidates share one Source and scheduler with Documents without persisted jobs", async () => {
   let calls = 0,

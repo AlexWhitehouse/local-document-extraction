@@ -12,7 +12,12 @@ import { extractionRetryDelay, EXTRACTION_MAX_ATTEMPTS } from "./extractionRetry
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { runExtraction, RetryableError, type ExtractionUsage } from "./consumer/modelGateway";
+import {
+  runExtraction,
+  RetryableError,
+  ModelResponseFormatError,
+  type ExtractionUsage,
+} from "./consumer/modelGateway";
 import { normalizeModelResults } from "./consumer/modelResultNormalizer";
 import type { ModelCallUsage } from "./consumer/modelUsage";
 import { costAmount, type CostAmount } from "../../shared/processingCosts";
@@ -917,7 +922,10 @@ export function createLocalEvaluations({
                           );
                         } else {
                           event("failure", attempt, {
-                            message: "Extraction failed. Check the model and try again.",
+                            message:
+                              error instanceof ModelResponseFormatError
+                                ? "The model response could not be parsed as valid extraction JSON. Try again or choose another model."
+                                : "Extraction failed. Check the model and try again.",
                             queueMs,
                             processingMs,
                           });

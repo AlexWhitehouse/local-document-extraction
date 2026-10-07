@@ -299,6 +299,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - **Document** deletion commits durable Source-file cleanup intent with metadata deletion. The intent survives crashes and unlink failures until immediate cleanup or retention removes the binary.
 - Numeric **Extraction results** accept finite numbers, signed decimal/scientific strings, and decimal currency amounts. Amounts can have `$`, `£`, or `€` prefixes and comma groups of three digits. Unsupported formats keep the raw answer with `invalid_type`.
 - Malformed Model gateway result envelopes or entries are retryable failures, including JSON `null`.
+- Extraction accepts JSON enclosed by one complete Markdown code fence, either unlabeled or labeled `json`. Surrounding prose, multiple blocks, and malformed JSON or result entries remain retryable failures. Evaluations identify response-format failures with a fixed message that excludes model output.
 
 - **Account password policy** requires at least 8 characters, one ASCII uppercase letter, one ASCII number, and one special character.
 - **Account email verification** is optional and disabled by default; `AUTH_REQUIRE_EMAIL_VERIFICATION=true` requires it before email/password access.

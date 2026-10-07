@@ -627,13 +627,53 @@ describe("runExtraction", () => {
     expect(failure.message).toBe("Model gateway request failed with HTTP 429");
   });
 
+  it.each(["```json\n", "```\n", " \n```JSON \r\n"])(
+    "accepts a complete JSON response enclosed by %j",
+    async (opening) => {
+      const fetchMock = stubGatewayResponse(
+        successfulGatewayPayload(`${opening}${successfulModelJson()}\n\`\`\` \n`),
+      );
+
+      await expect(
+        runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
+      ).resolves.toEqual([{ field_id: "patient_name", status: "ok", answer: "Ada Lovelace" }]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("preserves backticks inside JSON answer strings", async () => {
+    const result = { field_id: "patient_name", status: "ok", answer: "Literal ```json and ``` text" };
+    const content = JSON.stringify({ results: [result] });
+
+    stubGatewayResponse(successfulGatewayPayload(`\`\`\`json\n${content}\n\`\`\``));
+    await expect(
+      runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
+    ).resolves.toEqual([result]);
+  });
+
+  it.each([
+    `Here is the result:\n\`\`\`json\n${successfulModelJson()}\n\`\`\``,
+    `\`\`\`json\n${successfulModelJson()}\n\`\`\`\nDone.`,
+    `\`\`\`json\n${successfulModelJson()}\n\`\`\`\n\`\`\`json\n${successfulModelJson()}\n\`\`\``,
+    `\`\`\`json\n${successfulModelJson()}`,
+    `\`\`\`javascript\n${successfulModelJson()}\n\`\`\``,
+    "```json\n{broken}\n```",
+  ])("rejects prose, incomplete fences, multiple blocks, and invalid JSON: %s", async (content) => {
+    stubGatewayResponse(successfulGatewayPayload(content));
+    await expect(
+      runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
+    ).rejects.toThrow("Model response content was not valid JSON");
+  });
+
   it.each(["null", "[]", "{}", '{"results":[null]}', '{"results":[{}]}', '{"results":[{"field_id":1,"status":"ok"}]}'])(
     "retries malformed generated result shape %s",
     async (content) => {
-      stubGatewayResponse(successfulGatewayPayload(content));
-      await expect(
-        runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
-      ).rejects.toBeInstanceOf(RetryableError);
+      for (const wrapped of [content, `\`\`\`json\n${content}\n\`\`\``]) {
+        stubGatewayResponse(successfulGatewayPayload(wrapped));
+        await expect(
+          runExtraction(createEnv(), fields, new Uint8Array([1, 2, 3]).buffer, "image/png"),
+        ).rejects.toBeInstanceOf(RetryableError);
+      }
     },
   );
 
