@@ -86,7 +86,6 @@ function DocumentDetail({
   templates = [],
   onResolveTemplate,
   isResolvingTemplate,
-  templateResolutionError,
   loadingDocumentDetailsId,
   documentError,
   onRetryDocument,
@@ -172,7 +171,6 @@ function DocumentDetail({
           templates={templates}
           onResolve={onResolveTemplate}
           busy={isResolvingTemplate}
-          error={templateResolutionError}
         />
       ) : null}
       {layout === "side-by-side" ? (
@@ -320,7 +318,7 @@ function SideBySide({ document, loadOriginal, children }) {
   );
 }
 
-function TemplateHold({ job, templates, onResolve, busy, error }) {
+function TemplateHold({ job, templates, onResolve, busy }) {
   const [templateId, setTemplateId] = useState("");
   useEffect(() => setTemplateId(""), [job.job_id]);
 
@@ -354,11 +352,6 @@ function TemplateHold({ job, templates, onResolve, busy, error }) {
           {busy ? "Continuing…" : "Use template and continue"}
         </button>
       </form>
-      {error ? (
-        <p role="alert" className="processing-error">
-          {error}
-        </p>
-      ) : null}
     </section>
   );
 }

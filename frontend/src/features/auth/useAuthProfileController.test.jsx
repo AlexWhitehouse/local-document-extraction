@@ -49,7 +49,7 @@ describe("profile menu feedback", () => {
     await act(async () => result.current.profileMenu.onSaveProfile());
 
     expect(authClient.updateUser).toHaveBeenCalledWith({ name: "Ada Byron" });
-    expect(toast.success).toHaveBeenCalledWith("Profile updated");
+    expect(toast.success).toHaveBeenCalledWith("Profile updated", expect.anything());
     expect(result.current.profileMenu.isOpen).toBe(false);
   });
 
@@ -76,8 +76,87 @@ describe("profile menu feedback", () => {
 
     await act(async () => result.current.profileMenu.onSignOut());
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't sign out. Try again."));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't sign out. Try again.", expect.anything()));
     expect(props.onClearSessionWorkspaceData).not.toHaveBeenCalled();
     expect(props.setBusy).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe("auth form feedback", () => {
+  function renderAuth(authClient, initialAuthMode = "signin") {
+    const toast = { error: vi.fn(), success: vi.fn() };
+
+    const props = {
+      toast,
+      authClient,
+      refetchSession: vi.fn(async () => {}),
+      initialAuthMode,
+      hasSession: false,
+      sessionUserName: "",
+      sessionUserEmail: "",
+      busy: false,
+      setBusy: vi.fn(),
+      onClearWorkspaceScopedTemplates: vi.fn(),
+      onClearWorkspaceScopedDocuments: vi.fn(),
+      onClearSessionWorkspaceData: vi.fn(),
+    };
+
+    const { result } = renderHook(() => useAuthProfileController(props));
+
+    return { result, toast, props };
+  }
+
+  const event = () => ({ preventDefault: vi.fn() });
+
+  it("shows field errors under empty sign-in fields without a toast or auth call", async () => {
+    const authClient = { signIn: { email: vi.fn() } };
+    const { result, toast } = renderAuth(authClient);
+
+    await act(async () => result.current.authScreen.onSubmit(event()));
+
+    expect(authClient.signIn.email).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(result.current.authScreen.fieldErrors).toEqual({
+      email: "Enter your email address.",
+      password: "Enter your password.",
+    });
+    expect(result.current.authScreen.focusRequest).toEqual({ field: "email" });
+  });
+
+  it("shows a form-level message when sign-in is rejected and keeps the email", async () => {
+    const authClient = { signIn: { email: vi.fn(async () => ({ error: { message: "Invalid credentials" } })) } };
+    const { result, toast } = renderAuth(authClient);
+
+    act(() => result.current.authScreen.onEmailChange("ada@example.com"));
+    act(() => result.current.authScreen.onPasswordChange("wrong"));
+    await act(async () => result.current.authScreen.onSubmit(event()));
+
+    expect(result.current.authScreen.formError).toBe("Sign in failed. Check your email and password and try again.");
+    expect(result.current.authScreen.email).toBe("ada@example.com");
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("reports a sign-up mismatch under the confirm field without calling auth", async () => {
+    const authClient = { signUp: { email: vi.fn() } };
+    const { result, toast } = renderAuth(authClient, "signup");
+
+    act(() => result.current.authScreen.onNameChange("Ada"));
+    act(() => result.current.authScreen.onEmailChange("ada@example.com"));
+    act(() => result.current.authScreen.onPasswordChange("Passw0rd!"));
+    act(() => result.current.authScreen.onConfirmPasswordChange("Other0rd!"));
+    await act(async () => result.current.authScreen.onSubmit(event()));
+
+    expect(authClient.signUp.email).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(result.current.authScreen.fieldErrors).toEqual({ confirmPassword: "Passwords do not match." });
+  });
+
+  it("clears a field error when that field changes", async () => {
+    const { result } = renderAuth({ signIn: { email: vi.fn() } });
+
+    await act(async () => result.current.authScreen.onSubmit(event()));
+    act(() => result.current.authScreen.onEmailChange("a"));
+
+    expect(result.current.authScreen.fieldErrors).toEqual({ password: "Enter your password." });
   });
 });

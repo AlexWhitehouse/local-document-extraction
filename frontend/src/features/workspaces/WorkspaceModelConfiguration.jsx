@@ -143,6 +143,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                   >
                     {testing ? "Testing…" : "Test connection"}
                   </button>
+                  <ConnectionTestResult result={controller.testResult} />
                 </div>
               </div>
             </div>
@@ -263,6 +264,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                   >
                     {testing ? "Testing…" : "Test connection"}
                   </button>
+                  <ConnectionTestResult result={controller.testResult} />
                   <button type="submit" disabled={saving || conflict || !controller.dirty}>
                     {saving ? "Saving…" : "Save configuration"}
                   </button>
@@ -286,6 +288,17 @@ export function WorkspaceModelConfiguration({ controller }) {
         </div>
       )}
     </article>
+  );
+}
+
+// Connection test state stays beside the Test button; it is not an action outcome, so it is not toasted.
+function ConnectionTestResult({ result }) {
+  if (!result) return null;
+
+  return (
+    <span role="status" className={result.passed ? "workspace-model-test-result" : "workspace-model-test-result form-error"}>
+      {result.message}
+    </span>
   );
 }
 

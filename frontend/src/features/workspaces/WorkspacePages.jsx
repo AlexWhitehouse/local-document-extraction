@@ -1,4 +1,4 @@
-import React, { useId, useState } from "react";
+import React, { useId, useRef, useState } from "react";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { pluralize } from "../../lib/text";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
@@ -7,6 +7,18 @@ import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { CopyIcon, EditIcon } from "../layout/Icons.jsx";
 import { SettingToggle } from "./SettingToggle.jsx";
+import "./WorkspacePages.css";
+
+const INVITE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Returns the message for the first problem with an invite email, or "" when it is usable.
+function validateInviteEmail(value) {
+  const email = String(value || "").trim();
+
+  if (!email) return "Enter an email address.";
+
+  return INVITE_EMAIL_PATTERN.test(email) ? "" : "Enter an email address like name@example.com.";
+}
 
 export function WorkspaceInvitationPage({
   invitation,
@@ -151,6 +163,8 @@ export function AcceptedWorkspacePage({
   onRefreshApiKey,
   inviteEmail,
   onInviteEmailChange,
+  inviteError,
+  isInvitingUser,
   inviteRole,
   onInviteRoleChange,
   hasApiAccess,
@@ -165,6 +179,9 @@ export function AcceptedWorkspacePage({
   onCancelWorkspaceInvitation,
 }) {
   const [inviteOpen, setInviteOpen] = useState(false);
+  // Remembers which key was copied, so the one-time callout hides for that key only.
+  const [copiedApiKey, setCopiedApiKey] = useState("");
+  const showApiKeyCallout = Boolean(apiKey) && copiedApiKey !== apiKey;
 
   return (
     <div className="studio-workspace-page">
@@ -234,13 +251,20 @@ export function AcceptedWorkspacePage({
                     type="button"
                     className="icon-action-button workspace-key-copy-button"
                     aria-label="Copy API key"
-                    onClick={onCopyVisibleWorkspaceApiKey}
+                    onClick={async () => {
+                      if (await onCopyVisibleWorkspaceApiKey()) setCopiedApiKey(apiKey);
+                    }}
                   >
                     <CopyIcon size={14} />
                   </button>
                 ) : null}
               </div>
             </label>
+            {showApiKeyCallout ? (
+              <p role="status" className="workspace-key-callout">
+                This key won't be shown again. Copy it now.
+              </p>
+            ) : null}
             <div className="studio-api-footer">
               <span>For inbound requests to this workspace.</span>
               <button
@@ -282,41 +306,16 @@ export function AcceptedWorkspacePage({
           </button>
         </div>
         {inviteOpen ? (
-          <form
-            noValidate
-            id="workspace-invite-form"
-            className="studio-invite-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void onInviteUser();
-            }}
-          >
-            <label>
-              Invite email
-              <input
-                type="email"
-                required
-                disabled={busy}
-                value={inviteEmail}
-                onChange={(event) => onInviteEmailChange(event.target.value)}
-                placeholder="teammate@example.com"
-              />
-            </label>
-            <label>
-              Invite role
-              <select disabled={busy} value={inviteRole} onChange={(event) => onInviteRoleChange(event.target.value)}>
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </select>
-            </label>
-            <button
-              type="submit"
-              className="secondary"
-              disabled={busy || !hasApiAccess || !canManageWorkspaceInvitations}
-            >
-              Invite user
-            </button>
-          </form>
+          <WorkspaceInviteForm
+            disabled={busy || !hasApiAccess || !canManageWorkspaceInvitations}
+            email={inviteEmail}
+            error={inviteError}
+            isInviting={isInvitingUser}
+            role={inviteRole}
+            onEmailChange={onInviteEmailChange}
+            onRoleChange={onInviteRoleChange}
+            onSubmit={onInviteUser}
+          />
         ) : null}
         {/* Render nothing while users load so switching Workspaces doesn't flash a placeholder. */}
         {isLoadingWorkspaceUsers ? null : workspaceUsers.length ? (
@@ -446,6 +445,84 @@ function formatTimestamp(value) {
   }
 
   return date.toLocaleString();
+}
+
+function WorkspaceInviteForm({ disabled, email, error, isInviting, role, onEmailChange, onRoleChange, onSubmit }) {
+  const emailId = useId();
+  const emailErrorId = `${emailId}-error`;
+  const emailRef = useRef(null);
+  const [emailError, setEmailError] = useState("");
+
+  // Validates on blur and on submit. The message clears as soon as the user edits the address.
+  function checkEmail() {
+    const message = validateInviteEmail(email);
+
+    setEmailError(message);
+
+    return message;
+  }
+
+  return (
+    <form
+      noValidate
+      id="workspace-invite-form"
+      className="studio-invite-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+
+        if (checkEmail()) {
+          emailRef.current?.focus();
+
+          return;
+        }
+
+        void onSubmit();
+      }}
+    >
+      <div className="studio-invite-field">
+        <label>
+          Invite email
+          <input
+            ref={emailRef}
+            type="email"
+            required
+            disabled={disabled}
+            value={email}
+            aria-invalid={emailError ? "true" : undefined}
+            aria-describedby={emailError ? emailErrorId : undefined}
+            onChange={(event) => {
+              onEmailChange(event.target.value);
+              setEmailError("");
+            }}
+            onBlur={checkEmail}
+            placeholder="teammate@example.com"
+          />
+        </label>
+        {emailError ? (
+          <span id={emailErrorId} className="form-error studio-invite-field-error">
+            {emailError}
+          </span>
+        ) : null}
+      </div>
+      <label>
+        Invite role
+        <select disabled={disabled} value={role} onChange={(event) => onRoleChange(event.target.value)}>
+          <option value="member">Member</option>
+          <option value="admin">Admin</option>
+        </select>
+      </label>
+      <div className="studio-invite-submit">
+        {error ? (
+          <p role="alert" className="form-error">
+            {error}
+          </p>
+        ) : null}
+        <button type="submit" className="secondary" disabled={disabled || isInviting}>
+          {isInviting ? "Inviting…" : "Invite user"}
+        </button>
+      </div>
+    </form>
+  );
 }
 
 export function WorkspaceUserActionModal({ target, options, busy, onClose, onApplyAction }) {

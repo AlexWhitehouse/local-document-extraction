@@ -1,0 +1,42 @@
+.auth-field-error {
+  margin: 0;
+  color: var(--rose-text);
+  font-size: 12px;
+}
+
+.auth-form-error {
+  margin: 12px 0 0;
+  color: var(--rose-text);
+  font-size: 12px;
+}
+
+/* Mode switches are buttons, styled as the inline links they replace. */
+button.auth-text-button {
+  background: transparent;
+  border: 0;
+  height: auto;
+  padding: 0;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transform: none;
+}
+
+button.auth-text-button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text-0);
+  transform: none;
+}
+
+button.auth-text-button.auth-forgot-password-link {
+  color: inherit;
+  font-size: 11px;
+  text-decoration: none;
+}
+
+button.auth-text-button.auth-forgot-password-link:hover:not(:disabled) {
+  color: var(--text-1);
+  text-decoration: underline;
+}

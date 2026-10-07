@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createWorkspaceRequestLayer } from "../../lib/appRuntime";
+import { copyWithFeedback } from "../../lib/copyWithFeedback";
+import { describeError } from "../../lib/describeError";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { createWorkspaceRequestAdapter } from "./workspaceRequestAdapter";
 import {
@@ -33,6 +35,7 @@ function loadStoredWorkspacePreference() {
 export function useWorkspaceController({
   coreRequest,
   showActionToast,
+  toast,
   hasSession,
   sessionUserId,
   sessionId = sessionUserId,
@@ -68,6 +71,8 @@ export function useWorkspaceController({
   const [isDecliningWorkspaceInvitation, setIsDecliningWorkspaceInvitation] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
+  const [inviteError, setInviteError] = useState("");
+  const [isInvitingUser, setIsInvitingUser] = useState(false);
 
   const isRecoveringForbiddenWorkspaceRef = useRef(false);
   const workspaceUsersRequestRef = useRef(0);
@@ -254,15 +259,8 @@ export function useWorkspaceController({
     );
   }, [hasSession, workspaceResolutionStatus, workspaceName, workspaceId, unavailableRoute]);
 
-  async function copyToClipboard(value) {
-    try {
-      await navigator.clipboard.writeText(value);
-
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  // The key stays visible until the user leaves the Workspace; the copy is their explicit action.
+  const copyVisibleWorkspaceApiKey = () => (apiKey ? copyWithFeedback(toast, apiKey, "API key") : false);
 
   async function createWorkspace() {
     setBusy(true);
@@ -346,9 +344,7 @@ export function useWorkspaceController({
       }
     }
 
-    const copied = data.api_key ? await copyToClipboard(String(data.api_key)) : false;
-    const verb = wasRotation ? "rotate" : "generate";
-    showActionToast(`workspace.apiKey.${verb}.${copied ? "copied" : "manualCopy"}`, "success", data);
+    showActionToast(wasRotation ? "workspace.apiKey.rotate" : "workspace.apiKey.generate", "success");
   }
 
   // Resolves to the accepted Workspace that became selected, or null.
@@ -588,9 +584,9 @@ export function useWorkspaceController({
         targetUserId,
         action,
       });
-      await listWorkspaces();
-      await listWorkspaceUsers(normalizedWorkspaceId);
       showActionToast(actionToast, "success", { targetName: targetDisplay });
+      // Lists refresh after the success toast. A failed refresh must not report the action as failed.
+      void Promise.allSettled([listWorkspaces(), listWorkspaceUsers(normalizedWorkspaceId)]);
 
       return true;
     } catch (error) {
@@ -598,7 +594,7 @@ export function useWorkspaceController({
         throw error;
       }
 
-      showActionToast(actionToast, "failure", { error });
+      showActionToast(actionToast, "failure", { targetName: targetDisplay, error });
 
       return false;
     } finally {
@@ -611,15 +607,13 @@ export function useWorkspaceController({
       return;
     }
 
+    // The form validates the email before calling this, so only server failures reach the catch.
     const email = inviteEmail.trim();
 
-    if (!email) {
-      showActionToast("workspaceInvitation.create", "validation", { reason: "email" });
+    if (!email) return;
 
-      return;
-    }
-
-    setBusy(true);
+    setInviteError("");
+    setIsInvitingUser(true);
 
     try {
       await request(`/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/invitations`, {
@@ -629,12 +623,17 @@ export function useWorkspaceController({
       });
       showActionToast("workspaceInvitation.create", "success", { targetEmail: email });
       setInviteEmail("");
-      await listWorkspaceInvitations(normalizedWorkspaceId);
+      void listWorkspaceInvitations(normalizedWorkspaceId);
     } catch (error) {
-      showActionToast("workspaceInvitation.create", "failure", { error });
+      setInviteError(describeError(error, "Workspace invitation could not be created. Please try again."));
     } finally {
-      setBusy(false);
+      setIsInvitingUser(false);
     }
+  }
+
+  function changeInviteEmail(value) {
+    setInviteEmail(value);
+    setInviteError("");
   }
 
   async function cancelWorkspaceInvitation(invitation) {
@@ -991,13 +990,15 @@ export function useWorkspaceController({
       workspaceApiKeyPlaceholder: selectedWorkspaceHasApiKey
         ? "Rotate API key to view again"
         : "Generate an API key to view",
-      onCopyVisibleWorkspaceApiKey: () => (apiKey ? copyToClipboard(apiKey) : undefined),
+      onCopyVisibleWorkspaceApiKey: copyVisibleWorkspaceApiKey,
       busy: isAppBusy,
       canRotateWorkspaceApiKey,
       workspaceApiKeyActionLabel: selectedWorkspaceHasApiKey ? "Rotate API key" : "Generate API key",
       onRefreshApiKey: refreshApiKey,
       inviteEmail,
-      onInviteEmailChange: setInviteEmail,
+      onInviteEmailChange: changeInviteEmail,
+      inviteError,
+      isInvitingUser,
       inviteRole,
       onInviteRoleChange: setInviteRole,
       hasApiAccess,

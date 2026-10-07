@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { toast as defaultToast } from "sonner";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createNotifier, defaultToast } from "../../lib/notify";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
-import { getActionToast } from "../../lib/toastNotifications.js";
 
 const PROFILE_SAVE_ERROR = "Profile could not be saved. Please try again.";
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const ACCOUNT_PASSWORD_REQUIREMENTS = [
   { label: "At least 8 characters", test: (password) => password.length >= 8 },
@@ -38,6 +39,10 @@ export function useAuthProfileController({
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authPasswordTouched, setAuthPasswordTouched] = useState(false);
   const [signUpSubmitAttempted, setSignUpSubmitAttempted] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [formError, setFormError] = useState("");
+  const [focusRequest, setFocusRequest] = useState(null);
+  const notify = useMemo(() => createNotifier(toast), [toast]);
 
   const [accountVerificationPromptEmail, setAccountVerificationPromptEmail] = useState("");
 
@@ -63,9 +68,6 @@ export function useAuthProfileController({
   );
 
   const shouldShowAccountPasswordRequirements = authMode === "signup" && (authPasswordTouched || signUpSubmitAttempted);
-
-  const hasSignUpPasswordMismatch =
-    authMode === "signup" && authConfirmPassword.length > 0 && authPassword !== authConfirmPassword;
 
   useEffect(() => {
     if (!hasSession) {
@@ -104,13 +106,31 @@ export function useAuthProfileController({
     };
   }, [isProfileMenuOpen]);
 
+  // Field errors sit under their inputs; the first invalid field takes focus.
+  function rejectSubmit(errors) {
+    setFieldErrors(errors);
+    setFormError("");
+    setFocusRequest({ field: Object.keys(errors)[0] });
+  }
+
+  function clearSubmitErrors() {
+    setFieldErrors({});
+    setFormError("");
+  }
+
   async function signIn() {
-    if (!authEmail.trim() || !authPassword.trim()) {
-      toast.error("Email and password are required.");
+    const errors = compactErrors({
+      email: getEmailError(authEmail),
+      password: authPassword.trim() ? "" : "Enter your password.",
+    });
+
+    if (Object.keys(errors).length > 0) {
+      rejectSubmit(errors);
 
       return;
     }
 
+    clearSubmitErrors();
     setBusy(true);
 
     try {
@@ -126,7 +146,7 @@ export function useAuthProfileController({
       setAuthPassword("");
       await refetchSession();
     } catch (error) {
-      toast.error(getSignInErrorToastMessage(error.message, authOptions.mailDelivery));
+      setFormError(getSignInErrorMessage(error.message, authOptions.mailDelivery));
     } finally {
       setBusy(false);
     }
@@ -134,48 +154,21 @@ export function useAuthProfileController({
 
   async function signUp() {
     setSignUpSubmitAttempted(true);
-    const missingSignUpFields = [];
 
-    if (!authName.trim()) missingSignUpFields.push("Name");
+    const errors = compactErrors({
+      name: authName.trim() ? "" : "Enter your name.",
+      email: getEmailError(authEmail),
+      password: getSignUpPasswordError(authPassword, unmetAccountPasswordRequirements),
+      confirmPassword: getConfirmPasswordError(authPassword, authConfirmPassword),
+    });
 
-    if (!authEmail.trim()) missingSignUpFields.push("email");
-
-    if (!authPassword.trim()) missingSignUpFields.push("password");
-
-    if (!authConfirmPassword.trim()) {
-      missingSignUpFields.push("confirm password");
-    }
-
-    if (missingSignUpFields.length > 0) {
-      const lastField = missingSignUpFields[missingSignUpFields.length - 1];
-      const leadingFields = missingSignUpFields.slice(0, -1);
-
-      const fieldList =
-        leadingFields.length === 0
-          ? lastField
-          : leadingFields.length === 1
-            ? `${leadingFields[0]} and ${lastField}`
-            : `${leadingFields.join(", ")}, and ${lastField}`;
-
-      const requiredVerb = missingSignUpFields.length === 1 ? "is" : "are";
-      const displayFieldList = fieldList[0].toUpperCase() + fieldList.slice(1);
-      toast.error(`${displayFieldList} ${requiredVerb} required.`);
+    if (Object.keys(errors).length > 0) {
+      rejectSubmit(errors);
 
       return;
     }
 
-    if (unmetAccountPasswordRequirements.length > 0) {
-      toast.error("Password must meet all complexity requirements.");
-
-      return;
-    }
-
-    if (hasSignUpPasswordMismatch) {
-      toast.error("Passwords do not match.");
-
-      return;
-    }
-
+    clearSubmitErrors();
     setBusy(true);
 
     try {
@@ -201,7 +194,7 @@ export function useAuthProfileController({
         await refetchSession();
       }
     } catch (error) {
-      toast.error(getSignUpErrorToastMessage(error.message));
+      setFormError(getSignUpErrorMessage(error.message));
     } finally {
       setBusy(false);
     }
@@ -220,19 +213,22 @@ export function useAuthProfileController({
         throw new Error(result.error.message || "Google sign in failed");
       }
     } catch {
-      toast.error("Google sign-in could not start. Please try again.");
+      setFormError("Google sign-in could not start. Try again.");
       setBusy(false);
     }
   }
 
   async function requestAccountPasswordReset() {
-    if (!authEmail.trim()) {
-      toast.error("Email is required.");
+    const emailError = getEmailError(authEmail);
+
+    if (emailError) {
+      rejectSubmit({ email: emailError });
 
       return;
     }
 
     const requestedEmail = authEmail.trim();
+    clearSubmitErrors();
     setBusy(true);
 
     try {
@@ -247,7 +243,7 @@ export function useAuthProfileController({
 
       setAccountPasswordResetRequestedEmail(requestedEmail);
     } catch {
-      toast.error("Password reset request failed. Please try again.");
+      setFormError("Password reset request failed. Try again.");
     } finally {
       setBusy(false);
     }
@@ -282,12 +278,28 @@ export function useAuthProfileController({
     setSignUpSubmitAttempted(false);
     setAccountVerificationPromptEmail("");
     setAccountPasswordResetRequestedEmail("");
+    clearSubmitErrors();
   }
 
-  function showOutcomeToast(action, outcome, options) {
-    const { severity, message } = getActionToast(action, outcome, options);
+  // Blur checks only fields the user has filled in; empty required fields wait for submit.
+  function checkFieldOnBlur(field) {
+    const value = { name: authName, email: authEmail, confirmPassword: authConfirmPassword }[field];
 
-    toast[severity](message);
+    if (!value?.trim()) return;
+
+    const error =
+      field === "email"
+        ? getEmailError(authEmail)
+        : field === "confirmPassword"
+          ? getConfirmPasswordError(authPassword, authConfirmPassword)
+          : "";
+
+    setFieldErrors((previous) => withFieldError(previous, field, error));
+  }
+
+  function updateField(field, setValue, value) {
+    setValue(value);
+    setFieldErrors((previous) => withFieldError(previous, field, ""));
   }
 
   async function signOut() {
@@ -302,7 +314,7 @@ export function useAuthProfileController({
       await refetchSession();
     } catch (error) {
       // A failed sign out keeps the current session in place.
-      showOutcomeToast("auth.signOut", "failure", { error });
+      notify("auth.signOut", "failure", { error });
     } finally {
       setBusy(false);
     }
@@ -330,7 +342,7 @@ export function useAuthProfileController({
       setAuthName(nextName);
       await refetchSession();
       setIsProfileMenuOpen(false);
-      showOutcomeToast("profile.update", "success");
+      notify("profile.update", "success");
     } catch {
       // A failed save keeps the menu open with the draft name for another attempt.
       setProfileSaveError(PROFILE_SAVE_ERROR);
@@ -348,20 +360,30 @@ export function useAuthProfileController({
       password: authPassword,
       confirmPassword: authConfirmPassword,
       busy,
-      hasPasswordMismatch: hasSignUpPasswordMismatch,
+      fieldErrors,
+      formError,
+      focusRequest,
       shouldShowPasswordRequirements: shouldShowAccountPasswordRequirements,
       unmetPasswordRequirements: unmetAccountPasswordRequirements,
       accountVerificationPromptEmail,
       accountPasswordResetRequestedEmail,
       onSubmit: submitAuthForm,
-      onNameChange: setAuthName,
+      onNameChange: (value) => updateField("name", setAuthName, value),
       onEmailChange: (nextEmail) => {
-        setAuthEmail(nextEmail);
+        updateField("email", setAuthEmail, nextEmail);
         setAccountVerificationPromptEmail("");
       },
-      onPasswordChange: setAuthPassword,
-      onConfirmPasswordChange: setAuthConfirmPassword,
+      onPasswordChange: (value) => {
+        updateField("password", setAuthPassword, value);
+
+        // A mismatch clears as soon as the passwords agree again.
+        if (authConfirmPassword && value === authConfirmPassword) {
+          setFieldErrors((previous) => withFieldError(previous, "confirmPassword", ""));
+        }
+      },
+      onConfirmPasswordChange: (value) => updateField("confirmPassword", setAuthConfirmPassword, value),
       onPasswordTouched: () => setAuthPasswordTouched(true),
+      onFieldBlur: checkFieldOnBlur,
       onProviderSignIn: signInWithGoogle,
       onSwitchMode: switchAuthMode,
     },
@@ -387,7 +409,42 @@ export function useAuthProfileController({
   };
 }
 
-function getSignInErrorToastMessage(message, mailDelivery) {
+function compactErrors(errors) {
+  return Object.fromEntries(Object.entries(errors).filter(([, message]) => message));
+}
+
+function withFieldError(errors, field, message) {
+  if (!message && !(field in errors)) return errors;
+
+  const next = { ...errors };
+
+  if (message) next[field] = message;
+  else delete next[field];
+
+  return next;
+}
+
+function getEmailError(email) {
+  const trimmed = email.trim();
+
+  if (!trimmed) return "Enter your email address.";
+
+  return EMAIL_PATTERN.test(trimmed) ? "" : "Enter a valid email address.";
+}
+
+function getSignUpPasswordError(password, unmetRequirements) {
+  if (!password.trim()) return "Enter a password.";
+
+  return unmetRequirements.length > 0 ? "Password doesn't meet all the requirements below." : "";
+}
+
+function getConfirmPasswordError(password, confirmPassword) {
+  if (!confirmPassword.trim()) return "Confirm your password.";
+
+  return password !== confirmPassword ? "Passwords do not match." : "";
+}
+
+function getSignInErrorMessage(message, mailDelivery) {
   const normalized = String(message || "").toLowerCase();
 
   if (normalized.includes("verify") || normalized.includes("verified") || normalized.includes("verification")) {
@@ -399,7 +456,7 @@ function getSignInErrorToastMessage(message, mailDelivery) {
   return "Sign in failed. Check your email and password and try again.";
 }
 
-function getSignUpErrorToastMessage(message) {
+function getSignUpErrorMessage(message) {
   const normalized = String(message || "").toLowerCase();
 
   if (normalized.includes("already") || normalized.includes("exists")) {

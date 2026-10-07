@@ -5,6 +5,7 @@ import {
   validateAssistantOutput,
 } from "../../../../shared/templateAssistant.ts";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import { describeError } from "../../lib/describeError";
 import { suggestTemplateRequests } from "./templateAssistantSuggestions.js";
 
 const SUGGESTION_DELAY_MS = 400;
@@ -261,7 +262,7 @@ export function useTemplateAssistant({
       setSelectedIds(new Set(output.groups.map((group) => group.id)));
     } catch (failure) {
       if (isCurrent(captured) && !controller.signal.aborted)
-        setError(failure.message || "Assistance failed. Your draft is unchanged; please retry.");
+        setError(describeError(failure, "Assistance failed. Your draft is unchanged. Try again."));
     } finally {
       if (isCurrent(captured)) {
         lifetime.current.controller = null;
@@ -393,7 +394,11 @@ export function useTemplateAssistant({
       });
     } catch (failure) {
       if (state.open && !controller.signal.aborted && generation === state.generation)
-        setPicker((previous) => ({ ...previous, loading: false, error: failure.message }));
+        setPicker((previous) => ({
+          ...previous,
+          loading: false,
+          error: describeError(failure, "Couldn't load past jobs. Try again."),
+        }));
     }
   }
 
@@ -419,7 +424,11 @@ export function useTemplateAssistant({
       setPicker((previous) => ({ ...previous, isOpen: false, loading: false }));
     } catch (failure) {
       if (state.open && !controller.signal.aborted && generation === state.generation)
-        setPicker((previous) => ({ ...previous, loading: false, error: failure.message }));
+        setPicker((previous) => ({
+          ...previous,
+          loading: false,
+          error: describeError(failure, "Couldn't load that job. Try again."),
+        }));
     }
   }
 

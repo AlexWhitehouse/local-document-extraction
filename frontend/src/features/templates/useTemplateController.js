@@ -3,10 +3,14 @@ import { useTemplateAssistant } from "./useTemplateAssistant.js";
 import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { useTemplateGeneration } from "./useTemplateGeneration.js";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { copyWithFeedback } from "../../lib/copyWithFeedback";
+import { describeError } from "../../lib/describeError";
+import { defaultToast } from "../../lib/notify";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   EMPTY_FIELD,
+  describeJsonSyntaxError,
   hydrateFieldFromTemplate,
   serializeTemplatePayload,
   validateTemplateJsonPayload,
@@ -103,6 +107,7 @@ export function useTemplateController({
   initialWorkspace = {},
   request,
   showActionToast,
+  toast = defaultToast,
   hasApiAccess,
   workspaceId,
   sessionId = "",
@@ -365,7 +370,7 @@ export function useTemplateController({
 
       if (isCurrent()) setWorkspaceTags(Array.isArray(data?.tags) ? data.tags : []);
     } catch (error) {
-      if (isCurrent()) setTagListError(error.message || "Unable to load template tags.");
+      if (isCurrent()) setTagListError(describeError(error, "Couldn't load tags. Try again."));
     } finally {
       if (isCurrent()) setIsLoadingTags(false);
     }
@@ -423,6 +428,8 @@ export function useTemplateController({
           .flatMap((item) => (item.id === tag.id ? (nextName === null ? [] : [{ ...item, ...data }]) : [item]))
           .sort((a, b) => a.name.localeCompare(b.name)),
       );
+      const actionKey = normalizedName === undefined ? "tag.delete" : "tag.rename";
+      showActionToast(actionKey, "success", { targetName: nextName ?? tag.name });
       // A list started before the mutation must not restore the old shared name.
       tagListRequestRef.current?.abort();
       listRequestRef.current += 1;
@@ -431,7 +438,13 @@ export function useTemplateController({
       return isCurrent();
     } catch (error) {
       if (!isCurrent()) return false;
-      throw error;
+
+      // A duplicate name is a field problem, so the tag popover shows it inline.
+      if (error.code === "tag_name_conflict") throw error;
+
+      showActionToast(normalizedName === undefined ? "tag.delete" : "tag.rename", "failure", { error });
+
+      return false;
     } finally {
       if (isCurrent()) {
         tagMutationRef.current = null;
@@ -562,15 +575,12 @@ export function useTemplateController({
   }
 
   async function copyTemplateJson() {
-    try {
-      await navigator.clipboard.writeText(templateJsonDraft);
-      setTemplateJsonCopied(true);
-      showActionToast("clipboard.copyTemplateJson", "success");
-      window.setTimeout(() => setTemplateJsonCopied(false), 1600);
-    } catch (error) {
-      setTemplateJsonError(`Copy failed: ${error.message}`);
-      showActionToast("clipboard.copyTemplateJson", "failure", { error });
-    }
+    // copyWithFeedback owns the only message; the button's check mark is the in-place cue.
+    const copied = await copyWithFeedback(toast, templateJsonDraft, "Template JSON");
+
+    setTemplateJsonCopied(copied);
+
+    if (copied) window.setTimeout(() => setTemplateJsonCopied(false), 1600);
   }
 
   async function saveTemplateJsonDraft() {
@@ -585,8 +595,8 @@ export function useTemplateController({
     try {
       parsed = JSON.parse(templateJsonDraft);
     } catch (error) {
-      setTemplateJsonError(`Request body must be valid JSON: ${error.message}`);
-      showActionToast("template.save", "validation", { reason: "json" });
+      // Errors inside the open modal are inline only; no toast repeats them.
+      setTemplateJsonError(describeJsonSyntaxError(error, templateJsonDraft));
 
       return;
     }
@@ -601,7 +611,6 @@ export function useTemplateController({
     } catch (error) {
       setTemplateJsonError(error.message);
       setTemplateJsonDiagnostics(error.diagnostics || []);
-      showActionToast("template.save", "validation", { reason: "json" });
 
       return;
     }
@@ -667,9 +676,8 @@ export function useTemplateController({
       await Promise.all([listTemplates(), listTemplateTags()]);
     } catch (error) {
       if (!isCurrent()) return;
-      setTemplateJsonError(error.message);
+      setTemplateJsonError(describeError(error, "Couldn't save the template. Try again."));
       setTemplateJsonDiagnostics(error.diagnostics || []);
-      showActionToast("template.save", "failure", { error });
     } finally {
       if (isCurrent()) setIsSavingTemplate(false);
     }

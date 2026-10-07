@@ -3,6 +3,24 @@ import { CopyIcon } from "../layout/Icons.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 8.5 6.5 12 13 4.5" />
+    </svg>
+  );
+}
+
 export function TemplateJsonModal({
   isOpen,
   isDirty = false,
@@ -46,10 +64,10 @@ export function TemplateJsonModal({
             type="button"
             className="icon-action-button template-json-copy-button"
             aria-label="Copy template JSON"
-            title={copied ? "Copied" : "Copy JSON"}
+            title="Copy JSON"
             onClick={onCopy}
           >
-            <CopyIcon />
+            {copied ? <CheckIcon /> : <CopyIcon />}
           </button>
           <button
             type="button"
@@ -80,8 +98,6 @@ export function TemplateJsonModal({
       <div className="template-json-modal-footer">
         {error ? (
           <p id="template-json-validation" className="form-error" role="alert">{error}</p>
-        ) : copied ? (
-          <p className="hint" role="status">Copied JSON to clipboard.</p>
         ) : (
           <p className="hint">Changes are validated and applied when you save.</p>
         )}

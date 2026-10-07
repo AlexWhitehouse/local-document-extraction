@@ -106,7 +106,7 @@ describe("Template generation", () => {
     expect(result.current.generationModal).toMatchObject({
       isOpen: true,
       isGenerating: false,
-      error: "Gateway timed out",
+      error: "Template generation failed. Try again.",
       file,
     });
   });
@@ -152,7 +152,8 @@ describe("Template generation", () => {
     function Harness() {
       const controller = useTemplateController(
         propsFor(async (path) => {
-          if (path === "/templates/generate") throw new Error("Model is not configured");
+          if (path === "/templates/generate")
+            throw Object.assign(new Error("Model is not configured"), { code: "workspace_model_not_configured" });
 
           return { templates: [] };
         }),

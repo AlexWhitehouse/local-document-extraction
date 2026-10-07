@@ -49,7 +49,9 @@ describe("Template tag dropdown", () => {
 
     const onRename = vi
       .fn()
-      .mockRejectedValueOnce(new Error("A tag with this name already exists"))
+      .mockRejectedValueOnce(
+        Object.assign(new Error("A tag with this name already exists"), { code: "tag_name_conflict" }),
+      )
       .mockResolvedValue(true);
 
     const onDelete = vi.fn().mockResolvedValue(true);

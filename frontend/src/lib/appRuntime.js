@@ -1,11 +1,9 @@
-import { getActionToast, getDocumentUploadToast } from "./toastNotifications";
+import { createNotifier } from "./notify";
 
 export function createAppRuntimeCore({ apiBase, toast }) {
   const baseUrl = apiBase.replace(/\/+$/, "");
 
-  function showNotification(notification) {
-    toast[notification.severity](notification.message);
-  }
+  const notify = createNotifier(toast);
 
   async function request(path, options = {}) {
     const { responseType, ...fetchOptions } = options;
@@ -39,7 +37,8 @@ export function createAppRuntimeCore({ apiBase, toast }) {
     const data = rawText ? tryParseJson(rawText) : null;
 
     if (!response.ok) {
-      const message = data?.error?.message || data?.message || rawText || `Request failed (${response.status})`;
+      // Never surface a raw response body: proxies return HTML error pages.
+      const message = data?.error?.message || data?.message || `Request failed (${response.status})`;
 
       const error = new Error(message);
       error.status = response.status;
@@ -62,8 +61,8 @@ export function createAppRuntimeCore({ apiBase, toast }) {
 
   return {
     request,
-    showActionToast: (action, outcome, options) => showNotification(getActionToast(action, outcome, options)),
-    showDocumentUploadToast: (options) => showNotification(getDocumentUploadToast(options)),
+    showActionToast: notify,
+    showDocumentUploadToast: notify.documentUpload,
   };
 }
 

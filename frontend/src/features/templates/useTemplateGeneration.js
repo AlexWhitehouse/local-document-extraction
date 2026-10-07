@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { validateTemplateJsonPayload } from "./templateFields.js";
+import { describeError } from "../../lib/describeError";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 
 export function useTemplateGeneration({
@@ -109,7 +110,7 @@ export function useTemplateGeneration({
       onApply(payload, { createNew });
       cancel();
     } catch (failure) {
-      if (isCurrent()) setError(failure.message || "Template generation failed. Please try again.");
+      if (isCurrent()) setError(describeError(failure, "Template generation failed. Try again."));
     } finally {
       if (isCurrent()) {
         pending.current = null;

@@ -1,0 +1,27 @@
+.workspace-key-callout {
+  margin: 8px 0 0;
+  color: var(--amber-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.studio-invite-form .studio-invite-submit {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.studio-invite-form .studio-invite-submit .form-error {
+  margin: 0;
+}
+
+.studio-invite-field-error {
+  display: block;
+  margin-top: 4px;
+}
+
+.studio-invite-field {
+  min-width: 0;
+}

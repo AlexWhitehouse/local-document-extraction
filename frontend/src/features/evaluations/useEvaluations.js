@@ -4,6 +4,7 @@ import { validateTemplateJsonPayload } from "../templates/templateFields.js";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { createLibraryClient, documentDirty, emptyReferenceSet, parseReferenceSet } from "./evaluationLibrary.js";
 import { createResultCache } from "./resultCache.js";
+import { describeError } from "../../lib/describeError";
 
 const id = () => crypto.randomUUID();
 
@@ -226,7 +227,7 @@ export function useEvaluations({
       })
       .catch((error) => {
         if (current === generation.current && error.name !== "AbortError")
-          setState((previous) => ({ ...previous, error: error.message }));
+          setState((previous) => ({ ...previous, error: describeError(error, "Evaluations couldn’t be loaded. Try again.") }));
       })
       .finally(() => requests.current.delete(controller));
     library
@@ -294,14 +295,14 @@ export function useEvaluations({
 
       return {
         ...previous,
-        cacheError: previous.cacheError || { message: error.message, code: error.code },
+        cacheError: previous.cacheError || { message: describeError(error, "Browser storage is unavailable."), code: error.code },
         pairs: { ...previous.pairs, [docKey]: { ...previous.pairs[docKey], [candidateId]: next } },
       };
     });
 
   const pauseStaging = (error) => {
     staging.current.paused = true;
-    patch({ cacheError: { message: error.message, code: error.code } });
+    patch({ cacheError: { message: describeError(error, "Browser storage is unavailable."), code: error.code } });
   };
 
   // ---------- Staged execution ----------
@@ -589,10 +590,13 @@ export function useEvaluations({
           patchDocument(docKey, { availability: source[0] });
           apply((pair) => (pairBusy(pair) ? { status: "failure", message: source[1] } : {}));
         } else {
-          if (error.code === "configuration_changed") patch({ stale: true, error: error.message });
+          if (error.code === "configuration_changed") patch({
+            stale: true,
+            error: describeError(error, "Settings changed while this ran. Run again to use the current settings."),
+          });
           apply((pair) =>
             pairBusy(pair)
-              ? { status: "interrupted", message: error.message || "Connection lost. Run again manually." }
+              ? { status: "interrupted", message: describeError(error, "Connection lost. Run again manually.") }
               : {},
           );
         }
@@ -806,7 +810,7 @@ export function useEvaluations({
       try {
         await cacheRef.current.probe();
       } catch (error) {
-        if (current === generation.current) patch({ cacheError: { message: error.message, code: error.code } });
+        if (current === generation.current) patch({ cacheError: { message: describeError(error, "Browser storage is unavailable."), code: error.code } });
 
         return false;
       }
@@ -982,7 +986,7 @@ export function useEvaluations({
                 : { ...previous, documents: [...previous.documents, savedDocument(loaded)] },
             );
           } catch (error) {
-            failed.push({ entry, message: error.message });
+            failed.push({ entry, message: describeError(error, "This document couldn’t be added. Try again.") });
           }
 
           onProgress?.(++done, pending.length);
@@ -1124,7 +1128,7 @@ export function useEvaluations({
           saveError:
             SAVE_FAILURES[error.code] ||
             (error.code === "save_unavailable"
-              ? error.message
+              ? describeError(error, "Saving to the library isn’t available right now.")
               : "Couldn’t save. Nothing was added to the library; your document and answers are still in this tab. Try again."),
         });
 
@@ -1164,7 +1168,7 @@ export function useEvaluations({
 
         if (error.code === "document_not_found") entryDeleted(document.entry.id);
 
-        return { error: error.message };
+        return { error: describeError(error, "The saved answers couldn’t be updated. Try again.") };
       }
     },
     // A rename never touches answers, so a working copy loaded at the renamed revision stays current.

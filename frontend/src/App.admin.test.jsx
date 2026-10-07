@@ -230,7 +230,7 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
 
     const inlineError = await screen.findByRole("alert");
-    expect(within(inlineError).getByText("Admin list unavailable")).toBeTruthy();
+    expect(within(inlineError).getByText("Unable to load users.")).toBeTruthy();
     expect(within(inlineError).getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
@@ -356,7 +356,7 @@ describe("Application admin page gate", () => {
     await user.click(within(screen.getByRole("dialog", { name: "Ban alan@example.com" })).getByRole("button", { name: "Ban user" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("User could not be banned. Please try again.");
+      expect(toast.error).toHaveBeenCalledWith("User could not be banned. Please try again.", expect.anything());
     });
     expect(screen.getByRole("dialog", { name: "Ban alan@example.com" })).toBeTruthy();
 
@@ -365,7 +365,7 @@ describe("Application admin page gate", () => {
     await user.click(within(screen.getByRole("dialog", { name: "Unban grace@example.com" })).getByRole("button", { name: "Unban user" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("User could not be unbanned. Please try again.");
+      expect(toast.error).toHaveBeenCalledWith("User could not be unbanned. Please try again.", expect.anything());
     });
     expect(screen.getByRole("dialog", { name: "Unban grace@example.com" })).toBeTruthy();
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
@@ -443,7 +443,7 @@ describe("Application admin page gate", () => {
     await confirmInDialog(user, "Impersonate alan@example.com");
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be started. Please try again.");
+      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be started. Please try again.", expect.anything());
     });
     expect(accountDetails().getByRole("heading", { name: "Alan Turing" })).toBeTruthy();
     expect(accountList().getByText("alan@example.com")).toBeTruthy();
@@ -501,7 +501,7 @@ describe("Application admin page gate", () => {
     });
     expect(window.localStorage.removeItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
     expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
-    expect(toast.success).toHaveBeenCalledWith("Impersonation stopped");
+    expect(toast.success).toHaveBeenCalledWith("Impersonation stopped", expect.anything());
     await waitFor(() => {
       expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(3);
     });
@@ -519,7 +519,7 @@ describe("Application admin page gate", () => {
     await user.click(await screen.findByRole("button", { name: "Stop impersonating" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be stopped. Please try again.");
+      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be stopped. Please try again.", expect.anything());
     });
     expect(screen.getByRole("status", { name: "Impersonation mode" })).toBeTruthy();
     expect(screen.getByText("Impersonating alan@example.com")).toBeTruthy();

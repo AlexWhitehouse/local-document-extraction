@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { normalizeTemplateTagName, normalizeTemplateTags } from "../../../../shared/templateTags.ts";
+import { describeError } from "../../lib/describeError";
 import { confirmDialog } from "../ui/confirm.jsx";
 import "./TemplateTags.css";
 
@@ -25,7 +26,6 @@ export function TemplateTags({
   const [editing, setEditing] = useState(null);
   const [name, setName] = useState("");
   const [actionError, setActionError] = useState("");
-  const [status, setStatus] = useState("");
   const busy = disabled || isManaging;
 
   const close = () => {
@@ -82,15 +82,20 @@ export function TemplateTags({
   async function rename(event) {
     event.preventDefault();
     setActionError("");
-    setStatus("");
 
     try {
-      if (await onRename(editing, name)) {
-        setStatus(`Renamed “${editing.name}” to “${normalizeTemplateTagName(name)}” across this Workspace.`);
-        setEditing(null);
-      }
+      normalizeTemplateTagName(name);
     } catch (failure) {
       setActionError(failure.message);
+
+      return;
+    }
+
+    try {
+      // The controller reports success and failure as toasts; only a duplicate name stays here.
+      if (await onRename(editing, name)) setEditing(null);
+    } catch (failure) {
+      setActionError(describeError(failure, "Couldn't rename the tag. Try again."));
     }
   }
 
@@ -106,15 +111,11 @@ export function TemplateTags({
 
     if (!confirmed) return;
     setActionError("");
-    setStatus("");
 
     try {
-      if (await onDelete(tag)) {
-        setStatus(`Deleted “${tag.name}” across this Workspace.`);
-        setEditing(null);
-      }
+      if (await onDelete(tag)) setEditing(null);
     } catch (failure) {
-      setActionError(failure.message);
+      setActionError(describeError(failure, "Couldn't delete the tag. Try again."));
     }
   }
 
@@ -154,7 +155,6 @@ export function TemplateTags({
           setManaging(false);
           setSearch("");
           setActionError("");
-          setStatus("");
         }}
       >
         {value.length ? (
@@ -262,7 +262,6 @@ export function TemplateTags({
                             setEditing(tag);
                             setName(tag.name);
                             setActionError("");
-                            setStatus("");
                           }}
                         >
                           Rename
@@ -370,7 +369,6 @@ export function TemplateTags({
                   onClick={() => {
                     setManaging(true);
                     setActionError("");
-                    setStatus("");
                   }}
                 >
                   Manage tags
@@ -381,11 +379,6 @@ export function TemplateTags({
           {actionError || (!managing && searchError) ? (
             <p role="alert" className="template-tags-error">
               {actionError || searchError}
-            </p>
-          ) : null}
-          {status ? (
-            <p role="status" className="template-tags-note template-tags-status">
-              {status}
             </p>
           ) : null}
         </div>

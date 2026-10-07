@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
+import { describeError } from "../../lib/describeError";
 
 export function TemplateVersionDialog({
   templates,
@@ -34,7 +35,7 @@ export function TemplateVersionDialog({
       onSelect(selected);
       onClose();
     } catch (failure) {
-      if (!controller.signal.aborted) setError(failure.message);
+      if (!controller.signal.aborted) setError(describeError(failure, "This version couldn’t be loaded. Try again."));
     } finally {
       if (!controller.signal.aborted) {
         request.current = null;

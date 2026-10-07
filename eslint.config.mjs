@@ -118,6 +118,15 @@ export default tseslint.config(
         { object: "window", property: "alert", message: "Use a toast or an inline message." },
         { object: "window", property: "prompt", message: "Use a form in a ModalDialog." },
       ],
+      "no-restricted-imports": [
+        "error",
+        { name: "sonner", message: "Report outcomes through lib/notify.js so every toast uses the shared messages." },
+      ],
     },
+  },
+  {
+    // The toast library is wired up in exactly two places: the notifier and the root Toaster.
+    files: ["frontend/src/lib/notify.js", "frontend/src/App.jsx"],
+    rules: { "no-restricted-imports": "off" },
   },
 );

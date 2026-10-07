@@ -42,7 +42,6 @@ button.template-tags-create:hover:not(:disabled) { background: var(--row-hover);
 .template-tags-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 4px 12px; color: var(--text-3); font-size: 11px; }
 .template-tags-note, .template-tags-empty { margin: 0; padding: 0 12px 10px; color: var(--studio-muted, var(--text-2)); font-size: 11px; line-height: 1.5; }
 .template-tags-empty { padding: 12px; }
-.template-tags-status { padding-top: 0; color: var(--accent-text); }
 .template-tags-error { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; padding: 0 12px 10px; color: var(--rose-muted); font-size: 11px; overflow-wrap: anywhere; }
 
 @container (max-width: 620px) { .studio-template-page .studio-template-meta.template-meta-with-tags { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } .studio-template-page .template-tags { grid-column: 1 / -1; } .template-tags-popup { left: 0; right: 0; width: auto; } }

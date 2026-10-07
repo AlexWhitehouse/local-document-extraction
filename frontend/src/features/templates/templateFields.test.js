@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { validateTemplateJsonPayload } from "./templateFields.js";
+import { describeJsonSyntaxError, validateTemplateJsonPayload } from "./templateFields.js";
 
 const tableField = (name, columns) => ({
   name,
@@ -86,4 +86,23 @@ it("rejects too many fields and unsupported raw types instead of normalizing the
       fields: [{ name: "Value", data_type: "NUMBER", description: "Read value" }],
     }),
   ).toThrow("unsupported data_type");
+});
+
+describe("JSON syntax error copy", () => {
+  it("names the line when the engine reports a line or a position", () => {
+    const text = '{\n  "name": "Invoice",\n  "fields" [\n}';
+
+    expect(describeJsonSyntaxError(new SyntaxError("Unexpected token at line 3"), text)).toBe(
+      "This isn't valid JSON (line 3).",
+    );
+    expect(describeJsonSyntaxError(new SyntaxError("Unexpected token in JSON at position 30"), text)).toBe(
+      "This isn't valid JSON (line 3).",
+    );
+  });
+
+  it("falls back to the generic sentence without a location", () => {
+    expect(describeJsonSyntaxError(new SyntaxError("JSON Parse error: Unexpected EOF"), "{")).toBe(
+      "This isn't valid JSON.",
+    );
+  });
 });

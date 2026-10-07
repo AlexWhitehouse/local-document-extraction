@@ -1,10 +1,9 @@
+import { describeError } from "./describeError";
 import { pluralize } from "./text";
 
 const successMessages = {
-  "workspace.apiKey.generate.copied": () => "Workspace API key generated and copied",
-  "workspace.apiKey.rotate.copied": () => "Workspace API key rotated and copied",
-  "workspace.apiKey.generate.manualCopy": () => "Workspace API key generated. Copy it before leaving this page.",
-  "workspace.apiKey.rotate.manualCopy": () => "Workspace API key rotated. Copy it before leaving this page.",
+  "workspace.apiKey.generate": () => "API key generated",
+  "workspace.apiKey.rotate": () => "API key rotated",
   "workspace.create": ({ target }) => withTarget("Workspace created", target),
   "workspace.rename": ({ target }) => withTarget("Workspace renamed", target),
   "workspace.access.changed": ({ target }) =>
@@ -14,7 +13,7 @@ const successMessages = {
   "workspace.delete": () => "Workspace deleted",
   "template.save": ({ target }) => withTarget("Template saved", target),
   "template.delete": ({ target }) => withTarget("Template deleted", target),
-  "workspaceInvitation.create": ({ target }) => `Successfully invited ${target}`,
+  "workspaceInvitation.create": ({ target }) => `Invited ${target}`,
   "workspaceInvitation.cancel": ({ target }) =>
     target ? `Invitation cancelled for ${target}` : "Invitation cancelled",
   "workspaceInvitation.accept": () => "Workspace invitation accepted",
@@ -27,7 +26,7 @@ const successMessages = {
   "applicationUser.unban": ({ target }) => withTarget("User unbanned", target),
   "applicationUser.stopImpersonating": () => "Impersonation stopped",
   "document.delete": ({ target }) => withTarget("Document deleted", target),
-  "document.bulkDelete": ({ target }) => (target ? `${target} deleted` : "Selected documents deleted"),
+  "document.bulkDelete": ({ removed = 0 }) => `Deleted ${pluralize(removed, "document")}`,
   "document.export": ({ exportedCount = 0, skippedCount = 0 }) => {
     const exported = `Exported ${pluralize(exportedCount, "document")}`;
 
@@ -35,14 +34,24 @@ const successMessages = {
       ? `${exported}; skipped ${skippedCount} unavailable or in-progress ${skippedCount === 1 ? "document" : "documents"}`
       : exported;
   },
-  "clipboard.copyTemplateJson": () => "Template JSON copied",
   "workspace.documentProcessing": ({ setting, enabled }) => `${setting} turned ${enabled ? "on" : "off"}`,
   "workspace.sourceRetention": ({ enabled }) =>
     enabled ? "New uploads will keep their original documents" : "New uploads will keep only their extraction results",
   "workspace.modelGateway.save": () => "Model gateway saved",
   "workspace.modelGateway.clear": () => "Model gateway cleared",
-  "workspace.modelGateway.test": ({ message }) => message || "Connection test passed",
   "profile.update": () => "Profile updated",
+  "evaluation.templateSave": ({ target }) => withTarget("Template saved", target),
+  "library.save": ({ target }) => `Saved “${target}” to the Workspace library`,
+  "library.updateSaved": ({ target }) => withTarget("Saved answers updated", target),
+  "library.useSaved": () => "Loaded the current saved answers. Local changes were discarded",
+  "library.rename": ({ target }) => `Renamed to “${target}”`,
+  "library.delete": ({ target }) => `Deleted “${target}” from the library`,
+  "library.restoreOriginal": () => "The saved original is available again. Run it when you’re ready",
+  "tag.rename": ({ target }) => withTarget("Tag renamed", target),
+  "tag.delete": ({ target }) => withTarget("Tag deleted", target),
+  "document.useTemplate": ({ target, templateName }) =>
+    `Processing ${target || "document"}${templateName ? ` with ${templateName}` : ""}`,
+  "packet.confirmPlan": () => "Split plan confirmed",
 };
 
 const failureMessages = {
@@ -58,39 +67,42 @@ const failureMessages = {
   "workspaceInvitation.cancel": () => "Workspace invitation could not be cancelled. Please try again.",
   "workspaceInvitation.accept": () => "Workspace invitation could not be accepted. Please try again.",
   "workspaceInvitation.decline": () => "Workspace invitation could not be declined. Please try again.",
-  "workspaceMember.remove": () => "Workspace member action failed. Please try again.",
-  "workspaceMember.makeAdmin": () => "Workspace member action failed. Please try again.",
-  "workspaceMember.transferOwnership": () => "Workspace member action failed. Please try again.",
+  "workspaceMember.remove": ({ target }) => (target ? `Couldn't remove ${target}.` : "Couldn't remove this member."),
+  "workspaceMember.makeAdmin": ({ target }) =>
+    target ? `Couldn't make ${target} an admin.` : "Couldn't make this member an admin.",
+  "workspaceMember.transferOwnership": () => "Couldn't transfer ownership.",
   "applicationRole.change": () => "Application role could not be updated. Please try again.",
   "applicationUser.ban": () => "User could not be banned. Please try again.",
   "applicationUser.unban": () => "User could not be unbanned. Please try again.",
   "applicationUser.impersonate": () => "Impersonation could not be started. Please try again.",
   "applicationUser.stopImpersonating": () => "Impersonation could not be stopped. Please try again.",
   "document.delete": () => "Document could not be deleted. Please try again.",
-  "document.bulkDelete": () => "Some selected documents could not be deleted. Try again.",
+  "document.bulkDelete": ({ removed = 0, total = 0 }) =>
+    `Deleted ${removed} of ${total}. ${total - removed} couldn't be deleted.`,
   "document.export": () => "Selected documents could not be exported. Please try again.",
   "document.downloadOriginal": () =>
     "The original document couldn't be downloaded because storage can't be reached. Please try again.",
   "document.downloadOriginalMissing": () =>
     "The original document couldn't be downloaded because it's missing from storage.",
-  "clipboard.copyTemplateJson": () => "Template JSON could not be copied. Please try again.",
   "workspace.documentProcessing": () => "Document processing settings could not be saved. Please try again.",
   "workspace.sourceRetention": () => "Document retention could not be updated. Please try again.",
   "workspace.modelGateway.save": () =>
     "Model gateway could not be saved. Replace an unavailable credential or try again.",
   "workspace.modelGateway.clear": () => "Model gateway could not be cleared. Please try again.",
-  "workspace.modelGateway.test": ({ message }) =>
-    message || "Connection test failed. Check the gateway, models and credential.",
   "auth.signOut": () => "Couldn't sign out. Try again.",
+  "library.rename": ({ target }) => `Couldn't rename “${target}”.`,
+  "library.restoreOriginal": () => "Couldn't make the saved original available.",
+  "library.loadLatest": () => "Couldn't load the latest saved answers.",
+  "tag.rename": () => "Couldn't rename the tag.",
+  "tag.delete": () => "Couldn't delete the tag.",
+  "document.useTemplate": () => "Couldn't use that template for this document.",
+  "packet.confirmPlan": () => "Couldn't confirm the split plan.",
 };
 
 const validationMessages = {
   "template.save": {
     draft: "Template draft is incomplete. Fix required fields before saving.",
     json: "Template JSON is invalid. Fix it before saving.",
-  },
-  "workspaceInvitation.create": {
-    email: "Enter an email address before inviting a teammate.",
   },
   "document.upload": {
     template: "Choose a template before uploading documents.",
@@ -120,12 +132,17 @@ export function getActionToast(action, outcome, options = {}) {
     };
   }
 
-  return {
-    severity: "error",
-    message:
-      (outcome === "failure" && failureMessages[action]?.({ ...options, target })) ||
-      "Action failed. Please try again.",
-  };
+  const message =
+    (outcome === "failure" && failureMessages[action]?.({ ...options, target })) || "Action failed. Please try again.";
+
+  return { severity: "error", message: withReason(message, options.error) };
+}
+
+// Adds the mapped reason (permission, conflict, limit…) when one is known.
+function withReason(message, error) {
+  const reason = error ? describeError(error, "") : "";
+
+  return reason && !message.includes(reason) ? `${message} ${reason}` : message;
 }
 
 export function getDocumentUploadToast({ queued = 0, failed = 0 }) {

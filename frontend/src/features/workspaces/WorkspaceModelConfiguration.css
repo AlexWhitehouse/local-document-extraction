@@ -62,3 +62,9 @@
   .workspace-model-roles thead tr { display:grid; grid-template-columns:1fr 44px 76px; }
   .workspace-model-roles thead th:nth-child(n+3), .workspace-model-roles td:nth-child(n+3) { width:auto; }
 }
+
+.workspace-model-test-result {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--text-2);
+}

@@ -54,7 +54,6 @@ export function useDocumentController({
   const [uploadFiles, setUploadFiles] = useState([]);
   const [uploadTags, setUploadTags] = useState([]);
   const [isResolvingTemplate, setIsResolvingTemplate] = useState(false);
-  const [templateResolutionError, setTemplateResolutionError] = useState("");
   const actionScopeRef = useRef(null);
   const actionScope = useMemo(() => ({ sessionId, workspaceId, hasApiAccess }), [sessionId, workspaceId, hasApiAccess]);
   actionScopeRef.current = actionScope;
@@ -192,6 +191,7 @@ export function useDocumentController({
     enabled: hasApiAccess,
     onAccessDenied: revalidateWorkspaceAccessNow,
     onJobsChanged: () => reconciliation.refresh(),
+    showActionToast,
     listing: documentRequests.listDocumentEntries
       ? {
           packets: snapshot.packets,
@@ -227,7 +227,6 @@ export function useDocumentController({
     setUploadFiles([]);
     setUploadTags([]);
     setIsResolvingTemplate(false);
-    setTemplateResolutionError("");
     setIsUploadDragActive(false);
     packetTabRequestRef.current += 1;
     setPacketChildId("");
@@ -252,7 +251,6 @@ export function useDocumentController({
     loadingDocumentDetailsId,
   ]);
   useEffect(() => () => clearWorkspaceCapacityRefreshTimer(), [clearWorkspaceCapacityRefreshTimer]);
-  useEffect(() => setTemplateResolutionError(""), [selectedDocumentId]);
   useEffect(() => {
     if (hasApiAccess && routeDocumentId) void reconciliation.loadDetails(routeDocumentId, { showLoading: true });
   }, [reconciliation, hasApiAccess, normalizedWorkspaceId, sessionId, routeDocumentId]);
@@ -366,19 +364,21 @@ export function useDocumentController({
   async function resolveTemplate(documentId, templateId) {
     if (isResolvingTemplate) return;
     const scope = actionScopeRef.current;
+    const targetName = selectedDocument?.job_id === documentId ? selectedDocument.source_name : "";
+    const templateName = templates.find((template) => String(template.id) === String(templateId))?.name || "";
     setIsResolvingTemplate(true);
-    setTemplateResolutionError("");
 
     try {
       const result = await documentRequests.resolveTemplate(documentId, templateId);
 
       if (scope !== actionScopeRef.current) return;
       reconciliation.receiveLiveUpdates([result], documentScopeKey(sessionId, normalizedWorkspaceId, hasApiAccess));
+      showActionToast("document.useTemplate", "success", { targetName, templateName });
       await reconciliation.loadDetails(documentId);
       void reconciliation.refresh();
     } catch (error) {
       if (scope !== actionScopeRef.current) return;
-      setTemplateResolutionError(error.message || "Template selection could not be saved.");
+      showActionToast("document.useTemplate", "failure", { error, targetName });
 
       if (error.status === 403) revalidateWorkspaceAccessNow();
 
@@ -621,13 +621,13 @@ export function useDocumentController({
       body,
       confirmLabel,
       pendingLabel: "Deleting…",
-      action: () => removeSelection(targetDocuments, targetPackets, { scope, packetId, isBulkDelete, parts, target }),
+      action: () => removeSelection(targetDocuments, targetPackets, { scope, packetId, isBulkDelete, target }),
     });
   }
 
   // Runs the confirmed removal. Partial failures are reported by toast; a removal that
   // removed nothing throws so the confirmation shows the error inline instead.
-  async function removeSelection(targetDocuments, targetPackets, { scope, packetId, isBulkDelete, parts, target }) {
+  async function removeSelection(targetDocuments, targetPackets, { scope, packetId, isBulkDelete, target }) {
     let removedPackets = [];
 
     if (targetPackets.length) {
@@ -642,13 +642,12 @@ export function useDocumentController({
     const report = (removedDocuments, documentTotal) => {
       if (isBulkDelete) {
         const removedTotal = removedDocuments + removedPackets.length;
-        showActionToast(
-          "document.bulkDelete",
-          removedTotal === documentTotal + targetPackets.length ? "success" : "failure",
-          {
-            targetName: parts,
-          },
-        );
+        const total = documentTotal + targetPackets.length;
+
+        showActionToast("document.bulkDelete", removedTotal === total ? "success" : "failure", {
+          removed: removedTotal,
+          total,
+        });
       }
     };
 
@@ -1003,7 +1002,6 @@ export function useDocumentController({
       templates,
       onResolveTemplate: resolveTemplate,
       isResolvingTemplate,
-      templateResolutionError,
       packetPage: {
         packet: packetController.selectedPacket,
         busy: packetController.busy,

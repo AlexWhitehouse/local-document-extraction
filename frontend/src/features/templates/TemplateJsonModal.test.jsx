@@ -46,3 +46,13 @@ describe("TemplateJsonModal closing", () => {
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("TemplateJsonModal copy feedback", () => {
+  it("shows a check mark on the copy button without repeating the outcome inline", () => {
+    renderModal({ copied: true });
+
+    expect(screen.getByRole("button", { name: "Copy template JSON" })).toBeTruthy();
+    expect(screen.queryByText("Copied JSON to clipboard.")).toBeNull();
+    expect(screen.getByText("Changes are validated and applied when you save.")).toBeTruthy();
+  });
+});

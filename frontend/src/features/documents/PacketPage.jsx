@@ -1,3 +1,4 @@
+import { describeError } from "../../lib/describeError";
 import { statusLabel } from "../../lib/status.js";
 import { isString } from "../../../../shared/json.ts";
 import React, { useEffect, useId, useState } from "react";
@@ -209,7 +210,13 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
 
   const failure =
     packet.status === "failed"
-      ? packet.error_message || (isString(packet.error) ? packet.error : packet.error?.message)
+      ? describeError(
+          {
+            code: packet.error_code || packet.error?.code,
+            message: packet.error_message || (isString(packet.error) ? packet.error : packet.error?.message),
+          },
+          "This packet couldn't be processed. Try again.",
+        )
       : "";
 
   return (
@@ -547,7 +554,8 @@ function PacketPagePreview({ packetId, page, loadPreview }) {
         setState({ url, error: "" });
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setState({ url: "", error: error.message || "Page preview is unavailable." });
+        if (!controller.signal.aborted)
+          setState({ url: "", error: describeError(error, "Page preview is unavailable.") });
       });
 
     return () => {

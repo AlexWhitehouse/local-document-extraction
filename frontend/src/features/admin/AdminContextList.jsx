@@ -66,7 +66,7 @@ export function AdminContextList({ admin }) {
                 <span>{email}</span>
                 <AccountFlags user={user} />
               </button>
-              <ContextCopyButton ariaLabel={`Copy email ${email}`} value={user.email || ""} />
+              <ContextCopyButton ariaLabel={`Copy email ${email}`} label="Email" value={user.email || ""} />
             </div>
           );
         })}

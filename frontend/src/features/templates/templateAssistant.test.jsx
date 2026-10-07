@@ -322,7 +322,8 @@ describe("Template assistance", () => {
 
   it("keeps evidence failures visible without submitting reduced evidence automatically", async () => {
     const request = vi.fn(async (path) => {
-      if (path.includes("/assist/evidence/")) throw new Error("This job no longer exists");
+      if (path.includes("/assist/evidence/"))
+        throw Object.assign(new Error("This job no longer exists"), { status: 404 });
 
       return { templates: [] };
     });

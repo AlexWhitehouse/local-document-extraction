@@ -17,6 +17,7 @@ import {
 } from "./evaluationLibrary.js";
 import { documentRunnable } from "./useEvaluations.js";
 import { confirmDialog } from "../ui/confirm.jsx";
+import { describeError } from "../../lib/describeError";
 
 export function Chips({ list }) {
   return (
@@ -54,7 +55,12 @@ function useLibraryList(evaluation) {
           error: "",
         }));
     } catch (error) {
-      if (current === request.current) setList((previous) => ({ ...previous, loading: false, error: error.message }));
+      if (current === request.current)
+        setList((previous) => ({
+          ...previous,
+          loading: false,
+          error: describeError(error, "The library couldn’t be loaded. Try again."),
+        }));
     }
   };
 
@@ -306,7 +312,7 @@ export function LibraryPicker({ evaluation, fields, onClose }) {
 }
 
 // Answers open in a working copy; updates to the shared library stay explicit.
-export function ManageLibrary({ evaluation, fields, onClose }) {
+export function ManageLibrary({ evaluation, fields, onClose, notify }) {
   const list = useLibraryList(evaluation);
   const [renaming, setRenaming] = useState(null);
   const [message, setMessage] = useState("");
@@ -324,7 +330,7 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
     try {
       if (await evaluation.editSaved(entry, controller.signal)) onClose();
     } catch (error) {
-      if (!controller.signal.aborted) setMessage(error.message);
+      if (!controller.signal.aborted) setMessage(describeError(error, "This document couldn’t be opened. Try again."));
     } finally {
       if (!controller.signal.aborted) setEditing(null);
     }
@@ -342,16 +348,19 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
       list.replace(document);
       evaluation.entryChanged(document, expectedRevision);
       setRenaming(null);
-      setMessage("");
+      notify("library.rename", "success", { targetName: document.name });
     } catch (error) {
       if (error.code === "revision_conflict" && error.body?.current)
         setRenaming({ id: entry.id, name, conflict: error.body.current.document });
-      else if (error.code === "document_not_found") {
-        list.drop(entry.id);
-        evaluation.entryDeleted(entry.id);
-        setRenaming(null);
-        setMessage("That document was already deleted from the library.");
-      } else setMessage(error.message);
+      else {
+        if (error.code === "document_not_found") {
+          list.drop(entry.id);
+          evaluation.entryDeleted(entry.id);
+          setRenaming(null);
+        }
+
+        notify("library.rename", "failure", { targetName: entry.name, error });
+      }
     }
   };
 
@@ -365,7 +374,8 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
         try {
           await evaluation.library.remove(entry.id);
         } catch (error) {
-          // Already gone on the server: drop it locally and report nothing.
+          // Other failures stay inline in the confirmation; already gone on the
+          // server means drop it locally and report nothing.
           if (error.code !== "document_not_found") throw error;
 
           list.drop(entry.id);
@@ -376,7 +386,7 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
 
         list.drop(entry.id);
         evaluation.entryDeleted(entry.id);
-        setMessage(`Deleted “${entry.name}”.`);
+        notify("library.delete", "success", { targetName: entry.name });
       },
     });
 
@@ -504,7 +514,7 @@ export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {
 
   const save = async (fresh) => {
     if (await evaluation.saveDocument(document.key, name.trim(), { fresh })) {
-      onSaved?.(`Saved “${name.trim()}” to the Workspace library.`);
+      onSaved?.(name.trim());
       onClose();
     }
   };
@@ -614,7 +624,7 @@ export function UpdateReview({ evaluation, document, onClose, onDone }) {
     setBusy(false);
 
     if (outcome.ok) {
-      onDone?.("Saved answers updated for the Workspace.");
+      onDone?.("library.updateSaved");
       onClose();
     } else if (outcome.conflict) setConflict(outcome.conflict);
     else if (outcome.error) setError(outcome.error);
@@ -695,9 +705,7 @@ export function UpdateReview({ evaluation, document, onClose, onDone }) {
             className="secondary"
             onClick={() => {
               evaluation.useSavedVersion(document.key, conflict);
-              onDone?.(
-                "Loaded the current saved answers. Your local changes were discarded; scores recompute without rerunning.",
-              );
+              onDone?.("library.useSaved");
               onClose();
             }}
           >
@@ -828,7 +836,7 @@ export function ReviewPrompt({ field, definition, reference, onReview }) {
   );
 }
 
-export function DocumentBanner({ evaluation, document, toast }) {
+export function DocumentBanner({ evaluation, document, notify }) {
   const [retrying, setRetrying] = useState(false);
 
   const retry = async () => {
@@ -836,9 +844,9 @@ export function DocumentBanner({ evaluation, document, toast }) {
 
     try {
       await evaluation.retrySource(document.key);
-      toast.success("The saved original is available again. Run it when you’re ready.");
+      notify("library.restoreOriginal", "success");
     } catch (error) {
-      toast.error(error.message);
+      notify("library.restoreOriginal", "failure", { error });
     } finally {
       setRetrying(false);
     }
@@ -868,7 +876,9 @@ export function DocumentBanner({ evaluation, document, toast }) {
         <button
           type="button"
           className="studio-text-button"
-          onClick={() => evaluation.loadLatest(document.key).catch((error) => toast.error(error.message))}
+          onClick={() =>
+            evaluation.loadLatest(document.key).catch((error) => notify("library.loadLatest", "failure", { error }))
+          }
         >
           Load latest
         </button>
@@ -894,7 +904,7 @@ export function DocumentPreview({ evaluation, document, onClose }) {
         if (current) setSource({ url: URL.createObjectURL(blob), type: blob.type || document.entry.mime_type });
       })
       .catch((failure) => {
-        if (current) setError(failure.message);
+        if (current) setError(describeError(failure, "The original document couldn’t be loaded. Try again."));
       });
 
     return () => {

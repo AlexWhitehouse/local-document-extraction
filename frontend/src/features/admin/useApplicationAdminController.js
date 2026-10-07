@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { describeError } from "../../lib/describeError";
 import { confirmDialog } from "../ui/confirm.jsx";
 
 const ADMIN_USERS_PAGE_SIZE = 25;
@@ -93,7 +94,7 @@ export function useApplicationAdminController({
 
         setUsers([]);
         setTotal(0);
-        setListError(error?.message || "Unable to load users.");
+        setListError(describeError(error, "Unable to load users."));
       } finally {
         if (isCurrent) {
           setIsLoading(false);

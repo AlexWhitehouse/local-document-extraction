@@ -1649,11 +1649,6 @@ input[type="checkbox"]:disabled {
   box-shadow: 0 0 0 1px var(--rose);
 }
 
-.auth-password-mismatch {
-  margin: 8px 0 0;
-  color: var(--rose-text);
-  font-size: 12px;
-}
 
 .auth-divider {
   position: relative;
@@ -1682,15 +1677,7 @@ input[type="checkbox"]:disabled {
   font-size: 12px;
 }
 
-.auth-switch-link {
-  color: var(--accent-strong);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
 
-.auth-switch-link:hover {
-  color: var(--text-0);
-}
 
 .impersonation-banner {
   border: 1px solid rgba(244, 184, 79, 0.45);

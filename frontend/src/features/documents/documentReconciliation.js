@@ -1,4 +1,5 @@
 import { createCompletedDocumentCache } from "../../lib/completedDocumentCache";
+import { describeError } from "../../lib/describeError";
 
 const LIVE_STATUSES = new Set(["queued", "processing"]);
 
@@ -764,7 +765,7 @@ export function createDocumentReconciliation({
           if (!acceptsBatch()) continue;
 
           if (preview) revokePreview(preview);
-          onProgress?.(entry.id, "failed", error.message || "Queue failed");
+          onProgress?.(entry.id, "failed", describeError(error, "Couldn't queue this document. Try again."));
 
           if (error.status === 403) emit(ctx, "onAccessDenied");
         }

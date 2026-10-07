@@ -197,7 +197,7 @@ it("edits saved answers from Manage library without configuring or running a mod
   const review = screen.getByRole("dialog", { name: "Review saved answer update" });
   expect(within(review).getByText("3500 ✓")).toBeTruthy();
   fireEvent.click(within(review).getByRole("button", { name: "Update saved answers" }));
-  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated for the Workspace."));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated: Harbour invoice", expect.anything()));
   expect(library.evd_a.reference.references["total:number"].value).toBe("3500");
   expect(streams).toHaveLength(0);
   expect(fetch.mock.calls.some(([url]) => url === "/v1/evaluations/actions")).toBe(false);
@@ -227,7 +227,7 @@ it("keeps Manage library open with a retryable error if the saved entry cannot l
   render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
-  await screen.findByText("Try opening again.");
+  await screen.findByText("This document couldn’t be opened. Try again.");
   expect(screen.getByRole("button", { name: "Edit Harbour invoice" }).disabled).toBe(false);
   expect(screen.queryByRole("region", { name: "Comparison matrix" })).toBeNull();
 });
@@ -281,7 +281,7 @@ it("loads the latest Template into the library editor and saves reviewed changes
   expect(library.evd_a.reference).toEqual(saved);
   fireEvent.click(screen.getByRole("button", { name: "Update saved answers…" }));
   fireEvent.click(within(screen.getByRole("dialog", { name: "Review saved answer update" })).getByRole("button", { name: "Update saved answers" }));
-  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated for the Workspace."));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated: Harbour invoice", expect.anything()));
   expect(library.evd_a.reference.references["total:number"]).toEqual(saved.references["total:number"]);
   expect(library.evd_a.reference.references["items:array<object>"].value).toEqual([{ quantity: 7 }]);
   expect(library.evd_a.reference.definitions["items:array<object>"].object_schema.columns[0].data_type).toBe("number");
@@ -353,7 +353,7 @@ it.each(["", "1"])("saves edits to the selected library Template version '%s', w
   editor = within(screen.getByRole("dialog", { name: "Edit Template" }));
   fireEvent.change(editor.getByRole("combobox", { name: "Type" }), { target: { value: "string" } });
   fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
-  await editor.findByText("Could not save Template. Try again.");
+  await editor.findByText("Couldn't save the template. Try again.");
   expect(screen.getByTitle(`Invoice · fields v${version || 3}`)).toBeTruthy();
   expect(library.evd_a.reference).toEqual(savedAnswers);
   fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
@@ -364,7 +364,7 @@ it.each(["", "1"])("saves edits to the selected library Template version '%s', w
     { fields: [{ name: "Total", description: "Amount payable", data_type: "string" }, { name: "Supplier", description: "Issuer", data_type: "string" }] },
   ]);
   expect(onTemplateSaved).toHaveBeenCalledTimes(1);
-  expect(toast.success).toHaveBeenCalledWith("Template saved: Invoice");
+  expect(toast.success).toHaveBeenCalledWith("Template saved: Invoice", expect.anything());
   expect(screen.getAllByRole("rowheader", { name: /^Total/ })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Review as Text" })).toBeTruthy();
   expect(library.evd_a.reference).toEqual(savedAnswers);
@@ -398,7 +398,7 @@ it("keeps the library draft after a Template load failure and allows retry", asy
   const picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
   fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
-  expect(await picker.findByRole("alert")).toHaveProperty("textContent", "Template field version not found.");
+  expect(await picker.findByRole("alert")).toHaveProperty("textContent", "This item no longer exists.");
   expect(screen.getByRole("button", { name: "Edit expected Total" }).textContent).toContain("3420");
   delete overrides["GET /evaluations/templates/invoice"];
   fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
@@ -606,4 +606,35 @@ it("links a renamed field to its saved answer for this Evaluation only, without 
   fireEvent.click(within(matrix).getByRole("button", { name: "Unlink Total from saved Amount due" }));
   await waitFor(() => expect(within(matrix).queryByText("100%")).toBeNull());
   expect(within(matrix).getByRole("combobox", { name: "Link saved Amount due to a field" })).toBeTruthy();
+});
+
+it("confirms a library rename and reports a failed rename with a toast", async () => {
+  overrides["PATCH /evaluations/documents/evd_a"] = (options) => {
+    const body = JSON.parse(options.body);
+
+    if (body.name === "Broken name") return Response.json({ error: { message: "Unexpected" } }, { status: 500 });
+
+    library.evd_a = { ...library.evd_a, document: summary("evd_a", body.name, 2) };
+
+    return Response.json({ document: library.evd_a.document });
+  };
+
+  render(<Harness />);
+  fireEvent.change(screen.getByLabelText("Evaluation document"), { target: { files: [upload("keep.pdf")] } });
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  const manager = await screen.findByRole("dialog", { name: "Manage library" });
+
+  fireEvent.click(await within(manager).findByRole("button", { name: "Rename Harbour invoice" }));
+  let input = within(manager).getByRole("textbox", { name: "New name for Harbour invoice" });
+  fireEvent.change(input, { target: { value: "Renamed invoice" } });
+  fireEvent.submit(input.closest("form"));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Renamed to “Renamed invoice”", expect.anything()));
+
+  fireEvent.click(within(manager).getByRole("button", { name: "Rename Renamed invoice" }));
+  input = within(manager).getByRole("textbox", { name: "New name for Renamed invoice" });
+  fireEvent.change(input, { target: { value: "Broken name" } });
+  fireEvent.submit(input.closest("form"));
+  await waitFor(() =>
+    expect(toast.error).toHaveBeenCalledWith("Couldn't rename “Renamed invoice”.", expect.anything()),
+  );
 });

@@ -1,6 +1,15 @@
-import React from "react";
-import { Toaster } from "sonner";
+import React, { useEffect } from "react";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
+import "./AuthScreen.css";
+
+const FIELD_IDS = {
+  name: "auth-name",
+  email: "auth-email",
+  password: "auth-password",
+  confirmPassword: "auth-confirm-password",
+};
+
+const REQUIREMENTS_ID = "auth-password-requirements";
 
 export function AuthScreen({
   authOptions = DEFAULT_RUNTIME_CONFIGURATION.auth,
@@ -10,7 +19,9 @@ export function AuthScreen({
   password,
   confirmPassword,
   busy,
-  hasPasswordMismatch,
+  fieldErrors = {},
+  formError,
+  focusRequest,
   shouldShowPasswordRequirements,
   unmetPasswordRequirements,
   accountVerificationPromptEmail,
@@ -21,6 +32,7 @@ export function AuthScreen({
   onPasswordChange,
   onConfirmPasswordChange,
   onPasswordTouched,
+  onFieldBlur,
   onProviderSignIn,
   onSwitchMode,
 }) {
@@ -30,10 +42,26 @@ export function AuthScreen({
   const isSignIn = !isSignUp && !isResetRequest;
   const localMail = mailDelivery === "local";
   const formTitle = isResetRequest ? "Reset password" : isSignIn ? "Sign in" : "Create account";
+  const showRequirements = shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0;
+
+  const passwordDescribedBy =
+    [fieldErrors.password ? `${FIELD_IDS.password}-error` : "", showRequirements ? REQUIREMENTS_ID : ""]
+      .filter(Boolean)
+      .join(" ") || undefined;
+
+  // Focus the first invalid field after a rejected submit (the controller sets focusRequest).
+  useEffect(() => {
+    if (focusRequest) document.getElementById(FIELD_IDS[focusRequest.field])?.focus();
+  }, [focusRequest]);
+
+  const formAlert = formError ? (
+    <p role="alert" className="auth-form-error">
+      {formError}
+    </p>
+  ) : null;
 
   return (
     <>
-      <Toaster richColors theme="dark" />
       <div className="auth-shell">
         <section className="auth-card">
           <div className="auth-header">
@@ -99,7 +127,7 @@ export function AuthScreen({
               </button>
             </div>
           ) : (
-            <form className="panel auth-panel" onSubmit={onSubmit}>
+            <form className="panel auth-panel" onSubmit={onSubmit} noValidate>
               <h2>{formTitle}</h2>
               <p className="muted">
                 {!emailPasswordEnabled
@@ -112,47 +140,66 @@ export function AuthScreen({
                 <>
                   <div className={isSignUp ? "row two-up auth-form-grid" : "row auth-form-grid"}>
                     {isSignUp ? (
-                      <label>
-                        Name
+                      <div className="auth-field">
+                        <label htmlFor={FIELD_IDS.name} className="auth-field-label">
+                          Name
+                        </label>
                         <input
+                          id={FIELD_IDS.name}
                           value={name}
+                          autoComplete="name"
+                          aria-invalid={Boolean(fieldErrors.name) || undefined}
+                          aria-describedby={fieldErrors.name ? `${FIELD_IDS.name}-error` : undefined}
+                          className={fieldErrors.name ? "auth-input-error" : ""}
                           onChange={(event) => onNameChange(event.target.value)}
                           placeholder="Jane Doe"
                         />
-                      </label>
+                        <FieldError id={`${FIELD_IDS.name}-error`} message={fieldErrors.name} />
+                      </div>
                     ) : null}
-                    <label>
-                      Email
+                    <div className="auth-field">
+                      <label htmlFor={FIELD_IDS.email} className="auth-field-label">
+                        Email
+                      </label>
                       <input
+                        id={FIELD_IDS.email}
                         type="email"
                         value={email}
+                        autoComplete="email"
+                        aria-invalid={Boolean(fieldErrors.email) || undefined}
+                        aria-describedby={fieldErrors.email ? `${FIELD_IDS.email}-error` : undefined}
+                        className={fieldErrors.email ? "auth-input-error" : ""}
                         onChange={(event) => onEmailChange(event.target.value)}
+                        onBlur={() => onFieldBlur("email")}
                         placeholder="jane@example.com"
                       />
-                    </label>
+                      <FieldError id={`${FIELD_IDS.email}-error`} message={fieldErrors.email} />
+                    </div>
                     {isResetRequest ? null : (
                       <div className="auth-field">
                         <div className="auth-password-label-row">
-                          <label htmlFor="auth-password" className="auth-field-label">
+                          <label htmlFor={FIELD_IDS.password} className="auth-field-label">
                             Password
                           </label>
                           {isSignIn ? (
-                            <SwitchModeLink
+                            <SwitchModeButton
                               className="auth-forgot-password-link"
                               mode="reset-request"
                               busy={busy}
                               onSwitchMode={onSwitchMode}
                             >
                               Forgot password?
-                            </SwitchModeLink>
+                            </SwitchModeButton>
                           ) : null}
                         </div>
                         <input
-                          id="auth-password"
+                          id={FIELD_IDS.password}
                           type="password"
                           value={password}
-                          aria-invalid={hasPasswordMismatch}
-                          className={hasPasswordMismatch ? "auth-input-error" : ""}
+                          autoComplete={isSignUp ? "new-password" : "current-password"}
+                          aria-invalid={Boolean(fieldErrors.password) || undefined}
+                          aria-describedby={passwordDescribedBy}
+                          className={fieldErrors.password ? "auth-input-error" : ""}
                           onChange={(event) => {
                             onPasswordChange(event.target.value);
 
@@ -162,41 +209,54 @@ export function AuthScreen({
                           }}
                           placeholder="************"
                         />
+                        <FieldError id={`${FIELD_IDS.password}-error`} message={fieldErrors.password} />
                       </div>
                     )}
                     {isSignUp ? (
-                      <label>
-                        Confirm Password
+                      <div className="auth-field">
+                        <label htmlFor={FIELD_IDS.confirmPassword} className="auth-field-label">
+                          Confirm Password
+                        </label>
                         <input
+                          id={FIELD_IDS.confirmPassword}
                           type="password"
                           value={confirmPassword}
-                          aria-invalid={hasPasswordMismatch}
-                          className={hasPasswordMismatch ? "auth-input-error" : ""}
+                          autoComplete="new-password"
+                          aria-invalid={Boolean(fieldErrors.confirmPassword) || undefined}
+                          aria-describedby={
+                            fieldErrors.confirmPassword ? `${FIELD_IDS.confirmPassword}-error` : undefined
+                          }
+                          className={fieldErrors.confirmPassword ? "auth-input-error" : ""}
                           onChange={(event) => onConfirmPasswordChange(event.target.value)}
+                          onBlur={() => onFieldBlur("confirmPassword")}
                           placeholder="Repeat password"
                         />
-                      </label>
+                        <FieldError
+                          id={`${FIELD_IDS.confirmPassword}-error`}
+                          message={fieldErrors.confirmPassword}
+                        />
+                      </div>
                     ) : null}
                   </div>
-                  {hasPasswordMismatch ? <p className="auth-password-mismatch">Passwords do not match.</p> : null}
                   {shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0 ? (
-                    <ul className="auth-password-requirements">
+                    <ul id={REQUIREMENTS_ID} className="auth-password-requirements">
                       {unmetPasswordRequirements.map((requirement) => (
                         <li key={requirement.label}>{requirement.label}</li>
                       ))}
                     </ul>
                   ) : null}
+                  {formAlert}
                   {isSignIn ? (
                     <>
                       <button type="submit" className="auth-primary-action" disabled={busy}>
-                        Sign in
+                        {busy ? "Signing in…" : "Sign in"}
                       </button>
                       {signupEnabled ? (
                         <p className="auth-switch-copy">
                           Don&apos;t have an account?{" "}
-                          <SwitchModeLink mode="signup" busy={busy} onSwitchMode={onSwitchMode}>
+                          <SwitchModeButton mode="signup" busy={busy} onSwitchMode={onSwitchMode}>
                             Sign up
-                          </SwitchModeLink>
+                          </SwitchModeButton>
                         </p>
                       ) : (
                         <p className="muted">Account registration is closed. Contact the administrator for access.</p>
@@ -205,25 +265,25 @@ export function AuthScreen({
                   ) : isResetRequest ? (
                     <>
                       <button type="submit" className="auth-primary-action" disabled={busy}>
-                        Send reset link
+                        {busy ? "Sending link…" : "Send reset link"}
                       </button>
                       <p className="auth-switch-copy">
                         Remember your password?{" "}
-                        <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>
+                        <SwitchModeButton mode="signin" busy={busy} onSwitchMode={onSwitchMode}>
                           Sign in
-                        </SwitchModeLink>
+                        </SwitchModeButton>
                       </p>
                     </>
                   ) : (
                     <>
                       <button type="submit" className="auth-primary-action" disabled={busy}>
-                        Create Account
+                        {busy ? "Creating account…" : "Create Account"}
                       </button>
                       <p className="auth-switch-copy">
                         Already have an account?{" "}
-                        <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>
+                        <SwitchModeButton mode="signin" busy={busy} onSwitchMode={onSwitchMode}>
                           Sign in
-                        </SwitchModeLink>
+                        </SwitchModeButton>
                       </p>
                     </>
                   )}
@@ -235,7 +295,9 @@ export function AuthScreen({
                     <div className="auth-divider" aria-hidden="true">
                       <span>or continue with</span>
                     </div>
-                  ) : null}
+                  ) : (
+                    formAlert
+                  )}
                   <button
                     type="button"
                     className="secondary auth-provider-action"
@@ -257,18 +319,23 @@ export function AuthScreen({
   );
 }
 
-function SwitchModeLink({ className = "auth-switch-link", mode, busy, onSwitchMode, children }) {
-  return (
-    <a
-      href="#"
-      className={className}
-      onClick={(event) => {
-        event.preventDefault();
+function FieldError({ id, message }) {
+  return message ? (
+    <p id={id} className="auth-field-error">
+      {message}
+    </p>
+  ) : null;
+}
 
-        if (!busy) onSwitchMode(mode);
-      }}
+function SwitchModeButton({ className = "", mode, busy, onSwitchMode, children }) {
+  return (
+    <button
+      type="button"
+      className={`auth-text-button ${className}`.trim()}
+      disabled={busy}
+      onClick={() => onSwitchMode(mode)}
     >
       {children}
-    </a>
+    </button>
   );
 }

@@ -86,7 +86,7 @@ export function WorkspaceContextList({
                   ) : null}
                   {workspace.connected ? <span>Connected</span> : null}
                 </NavigationLink>
-                <ContextCopyButton ariaLabel={`Copy workspace ID ${workspace.id}`} value={workspace.id} />
+                <ContextCopyButton ariaLabel={`Copy workspace ID ${workspace.id}`} label="Workspace ID" value={workspace.id} />
               </div>
             );
           })

@@ -57,7 +57,6 @@ const initialState = (scope) => ({
   dirty: false,
   conflict: false,
   error: "",
-  feedback: "",
   testResult: null,
 });
 
@@ -193,7 +192,6 @@ export function useWorkspaceModelConfiguration({
         dirty: true,
         testResult: null,
         testing: false,
-        feedback: "",
         error: previous.conflict ? previous.error : "",
       };
     });
@@ -207,7 +205,6 @@ export function useWorkspaceModelConfiguration({
       dirty: false,
       testing: false,
       testResult: null,
-      feedback: "",
       error: previous.conflict ? previous.error : "",
     }));
   };
@@ -220,7 +217,6 @@ export function useWorkspaceModelConfiguration({
       record,
       etag: configurationETag(response),
       draft: draftFrom(record),
-      feedback: record.configured ? "Model gateway saved." : "Model gateway cleared.",
     });
   };
 
@@ -239,7 +235,7 @@ export function useWorkspaceModelConfiguration({
     const token = ++operation.current;
     mutationPending.current = true;
     draftVersion.current += 1;
-    setState((previous) => ({ ...previous, saving: true, error: "", feedback: "", testing: false, testResult: null }));
+    setState((previous) => ({ ...previous, saving: true, error: "", testing: false, testResult: null }));
 
     try {
       const options = {
@@ -308,7 +304,7 @@ export function useWorkspaceModelConfiguration({
     }
 
     const version = ++draftVersion.current;
-    setState((previous) => ({ ...previous, testing: true, testResult: null, error: "", feedback: "" }));
+    setState((previous) => ({ ...previous, testing: true, testResult: null, error: "" }));
 
     try {
       const headers = { "content-type": "application/json" };
@@ -332,7 +328,6 @@ export function useWorkspaceModelConfiguration({
 
       if (activeScope.current === scope && draftVersion.current === version) {
         setState((previous) => ({ ...previous, testing: false, testResult: { passed: true, message: passedMessage } }));
-        notify.current?.("workspace.modelGateway.test", "success", { message: passedMessage });
       }
     } catch (error) {
       const failedModel =
@@ -354,7 +349,6 @@ export function useWorkspaceModelConfiguration({
           conflict: error.status === 412,
           testResult: { passed: false, message },
         }));
-        notify.current?.("workspace.modelGateway.test", "failure", { message });
       }
     }
   }

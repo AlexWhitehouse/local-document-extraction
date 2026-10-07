@@ -13,8 +13,9 @@ import {
   UpdateReview,
 } from "./EvaluationLibrary.jsx";
 import { Meter } from "./EvaluationParts.jsx";
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { toast as defaultToast } from "sonner";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createNotifier, defaultToast } from "../../lib/notify";
+import { describeError } from "../../lib/describeError";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
 import { validateTemplateJsonPayload } from "../templates/templateFields.js";
 import { templateLabel } from "./evaluationFormat.js";
@@ -44,6 +45,7 @@ export function EvaluationsPage({
   const [autoRun, setAutoRun] = useState(null);
   const [replacement, setReplacement] = useState(null);
   const [localError, setLocalError] = useState("");
+  const notify = useMemo(() => createNotifier(toast), [toast]);
   const [dialog, setDialog] = useState(null);
   const [view, setView] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -187,7 +189,7 @@ export function EvaluationsPage({
 
       if (runNow) setAutoRun(ids);
     } catch (error) {
-      if (owner === lifetime.current) setLocalError(error.message);
+      if (owner === lifetime.current) setLocalError(describeError(error, "The evaluation couldn’t be started. Try again."));
     }
   };
 
@@ -220,7 +222,7 @@ export function EvaluationsPage({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      toast.success(`Template saved: ${payload.name}`);
+      notify("evaluation.templateSave", "success", { targetName: payload.name });
       await onTemplateSaved?.();
     } else if (editor.documentKey && editor.initial.source) {
       const initial = editor.initial;
@@ -250,7 +252,7 @@ export function EvaluationsPage({
         current_version: saved.version,
         source: { id: initial.source.id, version: changes.fields ? saved.version : initial.source.version },
       }, editor.documentKey);
-      toast.success(`Template saved: ${payload.name}`);
+      notify("evaluation.templateSave", "success", { targetName: payload.name });
       await onTemplateSaved?.();
     } else if (editor.documentKey) {
       const next = { ...payload };
@@ -560,7 +562,7 @@ export function EvaluationsPage({
               )}
             </div>
           </div>
-          {document && <DocumentBanner evaluation={evaluation} document={document} toast={toast} />}
+          {document && <DocumentBanner evaluation={evaluation} document={document} notify={notify} />}
           {document && (
             <div className="evaluation-toolbar-row">
               <FieldFilters value={filter} onChange={setFilter} editing={editingLibrary} />
@@ -691,7 +693,7 @@ export function EvaluationsPage({
         <LibraryPicker evaluation={evaluation} fields={dialogFields} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === "manage" && (
-        <ManageLibrary evaluation={evaluation} fields={dialogFields} onClose={() => setDialog(null)} />
+        <ManageLibrary evaluation={evaluation} fields={dialogFields} onClose={() => setDialog(null)} notify={notify} />
       )}
       {dialog?.kind === "clear" && <ClearDialog evaluation={evaluation} onClose={() => setDialog(null)} />}
       {dialog?.kind === "save" && dialogDocument && (
@@ -699,7 +701,7 @@ export function EvaluationsPage({
           evaluation={evaluation}
           document={dialogDocument}
           fields={dialogFields}
-          onSaved={toast.success}
+          onSaved={(name) => notify("library.save", "success", { targetName: name })}
           onClose={() => setDialog(null)}
         />
       )}
@@ -707,7 +709,7 @@ export function EvaluationsPage({
         <UpdateReview
           evaluation={evaluation}
           document={dialogDocument}
-          onDone={toast.success}
+          onDone={(action) => notify(action, "success", { targetName: dialogDocument.name })}
           onClose={() => setDialog(null)}
         />
       )}

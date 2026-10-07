@@ -3,6 +3,7 @@ import "./TemplateEditorModal.css";
 import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { focusDiagnostic } from "./focusDiagnostic.js";
 import { DiagnosticMessages, TemplateProblems } from "./TemplateDiagnostics.jsx";
+import { describeError } from "../../lib/describeError";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "./templateFields.js";
@@ -36,15 +37,25 @@ export function TemplateEditorModal({
   };
 
   const submit = async () => {
+    let payload;
+
     try {
-      const payload = validateTemplateJsonPayload(draft);
-      setSaving(true);
-      setError("");
-      await onSubmit(payload);
-      onClose();
+      payload = validateTemplateJsonPayload(draft);
     } catch (failure) {
       setError(failure.message);
       focus(failure.diagnostics?.[0] || issues[0]);
+
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      await onSubmit(payload);
+      onClose();
+    } catch (failure) {
+      setError(describeError(failure, "Couldn't save the template. Try again."));
     } finally {
       setSaving(false);
     }

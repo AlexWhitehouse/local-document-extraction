@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Toaster, toast } from "sonner";
+import { Toaster } from "sonner";
+import { defaultToast } from "./lib/notify";
 import { createRuntimeAuthClient } from "./lib/authClient";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
 import { appPath } from "./lib/appRoutes";
@@ -59,32 +60,33 @@ const CONTEXT_SIDEBAR_TITLES = {
 export function App({
   configuration = DEFAULT_RUNTIME_CONFIGURATION,
   createAuthClient = createRuntimeAuthClient,
-  notifications = toast,
+  notifications = defaultToast,
 }) {
   const navigation = useAppNavigation();
 
   const resetPasswordRoute =
     navigation.route.page === "reset-password" ? getAccountPasswordResetRoute(window.location) : null;
 
-  if (resetPasswordRoute) {
-    return (
-      <AccountPasswordResetRoute
-        authOptions={configuration.auth}
-        createAuthClient={createAuthClient}
-        toast={notifications}
-        resetState={resetPasswordRoute}
-        onResetComplete={() => navigation.navigate("/", { replace: true, force: true })}
-      />
-    );
-  }
-
   return (
-    <AuthenticatedApp
-      configuration={configuration}
-      navigation={navigation}
-      createAuthClient={createAuthClient}
-      toast={notifications}
-    />
+    <>
+      <Toaster richColors closeButton theme="dark" />
+      {resetPasswordRoute ? (
+        <AccountPasswordResetRoute
+          authOptions={configuration.auth}
+          createAuthClient={createAuthClient}
+          toast={notifications}
+          resetState={resetPasswordRoute}
+          onResetComplete={() => navigation.navigate("/", { replace: true, force: true })}
+        />
+      ) : (
+        <AuthenticatedApp
+          configuration={configuration}
+          navigation={navigation}
+          createAuthClient={createAuthClient}
+          toast={notifications}
+        />
+      )}
+    </>
   );
 }
 
@@ -127,6 +129,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   const workspaceController = useWorkspaceController({
     coreRequest,
     showActionToast,
+    toast,
     hasSession,
     sessionUserId,
     sessionId,
@@ -197,6 +200,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     maxSourceFileBytes,
     request: documentRequests.request,
     showActionToast,
+    toast,
     hasApiAccess,
     workspaceId,
     sessionId,
@@ -539,7 +543,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
 
   return (
     <>
-      <Toaster richColors theme="dark" />
       <MainLayout
         contentClassName={`studio-main studio-main-${visiblePage}`}
         activePage={visiblePage === "costs" ? "workspace" : visiblePage}
@@ -863,6 +866,8 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const authClient = useMemo(() => createAuthClient(), [createAuthClient]);
 
@@ -899,24 +904,29 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
       event.preventDefault();
       setSubmitAttempted(true);
 
-      if (unmetPasswordRequirements.length > 0) {
-        toast.error("Password must meet all complexity requirements.");
+      const errors = {
+        password: !newPassword.trim()
+          ? "Enter a new password."
+          : unmetPasswordRequirements.length > 0
+            ? "Password doesn't meet all the requirements below."
+            : "",
+        confirmPassword: !confirmNewPassword.trim()
+          ? "Confirm your new password."
+          : hasPasswordMismatch
+            ? "Passwords do not match."
+            : "",
+      };
+
+      if (errors.password || errors.confirmPassword) {
+        setFieldErrors(errors);
+        setFormError("");
+        document.getElementById(errors.password ? "reset-new-password" : "reset-confirm-password")?.focus();
 
         return;
       }
 
-      if (!confirmNewPassword.trim()) {
-        toast.error("Confirm password is required.");
-
-        return;
-      }
-
-      if (hasPasswordMismatch) {
-        toast.error("Passwords do not match.");
-
-        return;
-      }
-
+      setFieldErrors({});
+      setFormError("");
       setBusy(true);
 
       try {
@@ -935,7 +945,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
         setSubmitAttempted(false);
         onResetComplete();
       } catch {
-        toast.error("Password reset failed. Please request a new reset link.");
+        setFormError("Password reset failed. Request a new reset link.");
       } finally {
         setBusy(false);
       }
@@ -943,8 +953,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
 
     return (
       <>
-        <Toaster richColors theme="dark" />
-        <div className="auth-shell">
+          <div className="auth-shell">
           <section className="auth-card">
             <div className="auth-header">
               <p className="eyebrow">Document Extraction</p>
@@ -955,42 +964,84 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
               <h2>Set new password</h2>
               <p className="muted">Your new password must meet the Account password policy.</p>
               <div className="row auth-form-grid">
-                <label>
-                  New password
+                <div className="auth-field">
+                  <label htmlFor="reset-new-password" className="auth-field-label">
+                    New password
+                  </label>
                   <input
+                    id="reset-new-password"
                     type="password"
                     value={newPassword}
-                    aria-invalid={hasPasswordMismatch}
-                    className={hasPasswordMismatch ? "auth-input-error" : ""}
+                    autoComplete="new-password"
+                    aria-invalid={Boolean(fieldErrors.password) || undefined}
+                    aria-describedby={
+                      [
+                        fieldErrors.password ? "reset-new-password-error" : "",
+                        shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0
+                          ? "reset-password-requirements"
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ") || undefined
+                    }
+                    className={fieldErrors.password ? "auth-input-error" : ""}
                     onChange={(event) => {
                       setNewPassword(event.target.value);
                       setPasswordTouched(true);
+                      setFieldErrors((previous) => ({ ...previous, password: "" }));
                     }}
                     placeholder="************"
                   />
-                </label>
-                <label>
-                  Confirm new password
+                  {fieldErrors.password ? (
+                    <p id="reset-new-password-error" className="auth-field-error">
+                      {fieldErrors.password}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="auth-field">
+                  <label htmlFor="reset-confirm-password" className="auth-field-label">
+                    Confirm new password
+                  </label>
                   <input
+                    id="reset-confirm-password"
                     type="password"
                     value={confirmNewPassword}
-                    aria-invalid={hasPasswordMismatch}
-                    className={hasPasswordMismatch ? "auth-input-error" : ""}
-                    onChange={(event) => setConfirmNewPassword(event.target.value)}
+                    autoComplete="new-password"
+                    aria-invalid={Boolean(fieldErrors.confirmPassword) || undefined}
+                    aria-describedby={fieldErrors.confirmPassword ? "reset-confirm-password-error" : undefined}
+                    className={fieldErrors.confirmPassword ? "auth-input-error" : ""}
+                    onChange={(event) => {
+                      setConfirmNewPassword(event.target.value);
+                      setFieldErrors((previous) => ({ ...previous, confirmPassword: "" }));
+                    }}
+                    onBlur={() => {
+                      if (confirmNewPassword && hasPasswordMismatch) {
+                        setFieldErrors((previous) => ({ ...previous, confirmPassword: "Passwords do not match." }));
+                      }
+                    }}
                     placeholder="Repeat password"
                   />
-                </label>
+                  {fieldErrors.confirmPassword ? (
+                    <p id="reset-confirm-password-error" className="auth-field-error">
+                      {fieldErrors.confirmPassword}
+                    </p>
+                  ) : null}
+                </div>
               </div>
-              {hasPasswordMismatch ? <p className="auth-password-mismatch">Passwords do not match.</p> : null}
               {shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0 ? (
-                <ul className="auth-password-requirements">
+                <ul id="reset-password-requirements" className="auth-password-requirements">
                   {unmetPasswordRequirements.map((requirement) => (
                     <li key={requirement}>{requirement}</li>
                   ))}
                 </ul>
               ) : null}
+              {formError ? (
+                <p role="alert" className="auth-form-error">
+                  {formError}
+                </p>
+              ) : null}
               <button type="submit" className="auth-primary-action" disabled={busy}>
-                Set new password
+                {busy ? "Setting password…" : "Set new password"}
               </button>
             </form>
           </section>
@@ -1003,7 +1054,6 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
 
   return (
     <>
-      <Toaster richColors theme="dark" />
       <div className="auth-shell">
         <section className="auth-card">
           <div className="auth-header">
