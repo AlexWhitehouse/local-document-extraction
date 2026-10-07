@@ -2,6 +2,7 @@ import { normalizeTemplateTagName, normalizeTemplateTags } from "../../../../sha
 import { useTemplateAssistant } from "./useTemplateAssistant.js";
 import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { useTemplateGeneration } from "./useTemplateGeneration.js";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -688,22 +689,36 @@ export function useTemplateController({
     const deletedTemplateName =
       templates.find((template) => String(template.id || "") === deletedTemplateId)?.name || templateName;
 
-    if (!window.confirm(`Delete template "${deletedTemplateName}"? This action cannot be undone.`)) {
+    let generation = null;
+
+    const confirmed = await confirmDialog({
+      title: `Delete "${deletedTemplateName}"?`,
+      body: "Documents already extracted with it keep their results. This can't be undone.",
+      confirmLabel: "Delete template",
+      pendingLabel: "Deleting…",
+      // Runs only once the user confirms; a failure stays inline in the dialog.
+      action: async () => {
+        touchDraft();
+        cancelAssistant();
+        cancelGeneration();
+        generation = generationRef.current;
+        setIsDeletingTemplate(true);
+
+        await request(`/templates/${encodeURIComponent(deletedTemplateId)}`, {
+          method: "DELETE",
+        });
+      },
+    });
+
+    if (!confirmed) {
+      setIsDeletingTemplate(false);
+
       return;
     }
 
-    touchDraft();
-    cancelAssistant();
-    cancelGeneration();
-    const generation = generationRef.current;
     const isCurrent = () => generation === generationRef.current;
-    setIsDeletingTemplate(true);
 
     try {
-      await request(`/templates/${encodeURIComponent(deletedTemplateId)}`, {
-        method: "DELETE",
-      });
-
       if (!isCurrent()) return;
       showActionToast("template.delete", "success", {
         targetName: deletedTemplateName,
@@ -889,7 +904,7 @@ export function useTemplateController({
       isDraft: showDraftTemplateNav,
       load: routeLoad,
       retry: () => loadTemplateForEditing(routeTemplateId),
-      confirmDiscard: () => !hasUnsavedChanges || window.confirm("Discard unsaved Template changes?"),
+      confirmDiscard: () => !hasUnsavedChanges || confirmDialog({ ...DISCARD_CHANGES }),
       invalidatePendingLoad: () => {
         editorRequestRef.current += 1;
       },
@@ -970,6 +985,7 @@ export function useTemplateController({
     generationModal: templateGeneration.modal,
     jsonModal: {
       isOpen: showTemplateJsonModal,
+      isDirty: isJsonDraftDirty,
       draft: templateJsonDraft,
       error: templateJsonError,
       diagnostics: templateJsonDiagnostics,
@@ -992,16 +1008,19 @@ export function useTemplateController({
       isDeletingTemplate,
       selectedTemplateId: updateTemplateId,
       onCreateTemplate: (options) => {
-        if (
-          onTemplateNavigation &&
-          !updateTemplateId &&
-          hasUnsavedChanges &&
-          !window.confirm("Discard unsaved Template changes?")
-        )
-          return;
+        const startDraft = () => {
+          if (onTemplateNavigation && !onTemplateNavigation("new")) return;
+          startNewTemplateDraft(options);
+        };
 
-        if (onTemplateNavigation && !onTemplateNavigation("new")) return;
-        startNewTemplateDraft(options);
+        // Stays synchronous unless the discard prompt has to ask.
+        if (onTemplateNavigation && !updateTemplateId && hasUnsavedChanges) {
+          return confirmDialog({ ...DISCARD_CHANGES }).then((discard) => {
+            if (discard) startDraft();
+          });
+        }
+
+        startDraft();
       },
       onAutoGenerateTemplate: () => {
         touchDraft();

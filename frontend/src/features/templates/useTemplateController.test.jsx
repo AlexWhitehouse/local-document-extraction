@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useTemplateController } from "./useTemplateController";
 
@@ -10,6 +10,14 @@ function deferred() {
   });
 
   return { promise, resolve };
+}
+
+// Confirms or cancels the in-app dialog that delete flows open.
+async function answerDialog(name) {
+  const button = await screen.findByRole("button", { name });
+  await act(async () => {
+    fireEvent.click(button);
+  });
 }
 
 const template = (id) => ({ id, name: id, fields: [{ id: "total", name: "Total", data_type: "number" }] });
@@ -139,7 +147,6 @@ describe("template deletion", () => {
   });
 
   it("names the template and keeps the assistant open when the confirmation is cancelled", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const internal = { ...template("t_internal"), name: "Invoice Pack" };
     const request = vi.fn(async (path) => (path === "/templates" ? { templates: [internal] } : internal));
     const props = propsFor(request);
@@ -149,16 +156,16 @@ describe("template deletion", () => {
     await waitFor(() => expect(result.current.templatePage.isEditingTemplate).toBe(true));
     act(() => result.current.templatePage.onOpenAssistant());
     expect(result.current.templatePage.assistant.isOpen).toBe(true);
-    await act(async () => result.current.toolbar.onDeleteTemplate());
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('"Invoice Pack"'));
-    expect(confirm.mock.calls[0][0]).not.toContain("t_internal");
+    const deleting = result.current.toolbar.onDeleteTemplate();
+    const dialog = await screen.findByRole("alertdialog", { name: 'Delete "Invoice Pack"?' });
+    expect(dialog.textContent).not.toContain("t_internal");
+    await answerDialog("Cancel");
+    await act(() => deleting);
     expect(result.current.templatePage.assistant.isOpen).toBe(true);
     expect(request.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false);
   });
 
   it("cancels the assistant only after the deletion is confirmed", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
     const request = vi.fn(async (path, options) => {
       if (options?.method === "DELETE") return {};
 
@@ -171,7 +178,10 @@ describe("template deletion", () => {
     act(() => result.current.contextList.onSelectTemplate("t_internal"));
     await waitFor(() => expect(result.current.templatePage.isEditingTemplate).toBe(true));
     act(() => result.current.templatePage.onOpenAssistant());
-    await act(async () => result.current.toolbar.onDeleteTemplate());
+    const deleting = result.current.toolbar.onDeleteTemplate();
+    expect(result.current.templatePage.assistant.isOpen).toBe(true);
+    await answerDialog("Delete template");
+    await act(() => deleting);
 
     expect(request.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(true);
     expect(result.current.templatePage.assistant.isOpen).toBe(false);

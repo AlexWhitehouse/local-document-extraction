@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { pluralize } from "../../lib/text";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
 import { WorkspaceDocumentProcessingSettings } from "./WorkspaceDocumentProcessingSettings.jsx";
-import { ModalHeader } from "../layout/ModalDialog.jsx";
+import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
+import { confirmDialog } from "../ui/confirm.jsx";
 import { CopyIcon, EditIcon } from "../layout/Icons.jsx";
 import { SettingToggle } from "./SettingToggle.jsx";
 
@@ -463,12 +464,14 @@ export function WorkspaceUserActionModal({ target, options, busy, onClose, onApp
   );
 }
 
-// Mounted only while a target is selected, so confirmation state resets each time the modal opens.
+// Mounted only while a target is selected, so pending state resets each time the modal opens.
 function WorkspaceUserActionDialog({ target, options, busy, onClose, onApplyAction }) {
-  const [confirmingAction, setConfirmingAction] = useState("");
+  const titleId = useId();
   const [pendingAction, setPendingAction] = useState("");
   const displayName = String(target.name || "").trim() || String(target.email || "").trim() || "this user";
-  const confirmation = WORKSPACE_USER_CONFIRMATIONS[confirmingAction];
+
+  // Destructive actions go last.
+  const orderedOptions = [...options.filter((action) => action !== "remove_user"), ...options.filter((action) => action === "remove_user")];
 
   async function applyAction(action) {
     setPendingAction(action);
@@ -484,72 +487,56 @@ function WorkspaceUserActionDialog({ target, options, busy, onClose, onApplyActi
     setPendingAction("");
   }
 
-  function closeUnlessPending() {
-    if (!pendingAction) {
+  async function confirmAction(action) {
+    const confirmation = WORKSPACE_USER_CONFIRMATIONS[action];
+
+    // The request runs inside the confirmation, so failures stay inline there.
+    const applied = await confirmDialog({
+      ...confirmation.dialog(displayName),
+      action: () => onApplyAction(action, { inline: true }),
+    });
+
+    if (applied) {
       onClose();
     }
   }
 
   return (
-    <div className="modal-backdrop" onClick={closeUnlessPending}>
-      <div
-        className="modal-card workspace-user-action-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Manage workspace user"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <ModalHeader
-          title="Manage user"
-          description={`${String(target.name || "Unknown user")} · ${formatRoleLabel(target.role)}`}
-          onClose={closeUnlessPending}
-          closeDisabled={Boolean(pendingAction)}
-        />
-        {confirmation ? (
-          <div className="workspace-user-action-list">
-            <p>{confirmation.message(displayName)}</p>
+    <ModalDialog
+      labelledBy={titleId}
+      className="workspace-user-action-modal"
+      onClose={onClose}
+      closeDisabled={Boolean(pendingAction)}
+    >
+      <ModalHeader
+        title="Manage user"
+        titleId={titleId}
+        description={`${String(target.name || "Unknown user")} · ${formatRoleLabel(target.role)}`}
+        onClose={onClose}
+        closeDisabled={Boolean(pendingAction)}
+      />
+      {orderedOptions.length ? (
+        <div className="workspace-user-action-list">
+          {orderedOptions.map((action) => (
             <button
+              key={action}
               type="button"
-              className="ghost"
-              disabled={Boolean(pendingAction)}
-              onClick={() => setConfirmingAction("")}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className={confirmation.danger ? "danger" : undefined}
+              className={action === "remove_user" ? "danger" : "ghost"}
               disabled={busy || Boolean(pendingAction)}
-              onClick={() => applyAction(confirmingAction)}
+              onClick={() =>
+                WORKSPACE_USER_CONFIRMATIONS[action] ? confirmAction(action) : applyAction(action)
+              }
             >
-              {pendingAction === confirmingAction
-                ? WORKSPACE_USER_ACTION_LABELS[confirmingAction].pending
-                : confirmation.confirmLabel(displayName)}
+              {pendingAction === action
+                ? WORKSPACE_USER_ACTION_LABELS[action].pending
+                : WORKSPACE_USER_ACTION_LABELS[action].label}
             </button>
-          </div>
-        ) : options.length ? (
-          <div className="workspace-user-action-list">
-            {options.map((action) => (
-              <button
-                key={action}
-                type="button"
-                className={action === "remove_user" ? "danger" : "ghost"}
-                disabled={busy || Boolean(pendingAction)}
-                onClick={() =>
-                  WORKSPACE_USER_CONFIRMATIONS[action] ? setConfirmingAction(action) : applyAction(action)
-                }
-              >
-                {pendingAction === action
-                  ? WORKSPACE_USER_ACTION_LABELS[action].pending
-                  : WORKSPACE_USER_ACTION_LABELS[action].label}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="muted">No actions available for this user.</p>
-        )}
-      </div>
-    </div>
+          ))}
+        </div>
+      ) : (
+        <p className="muted">No actions available for this user.</p>
+      )}
+    </ModalDialog>
   );
 }
 
@@ -561,12 +548,20 @@ const WORKSPACE_USER_ACTION_LABELS = {
 
 const WORKSPACE_USER_CONFIRMATIONS = {
   remove_user: {
-    message: (name) => `Remove ${name} from this workspace?`,
-    confirmLabel: (name) => `Remove ${name}`,
-    danger: true,
+    dialog: (name) => ({
+      title: `Remove ${name} from this workspace?`,
+      confirmLabel: `Remove ${name}`,
+      pendingLabel: "Removing…",
+      tone: "danger",
+    }),
   },
   make_owner: {
-    message: (name) => `Make ${name} the owner? You'll become an admin and can't undo this yourself.`,
-    confirmLabel: () => "Make owner",
+    dialog: (name) => ({
+      title: `Make ${name} the owner?`,
+      body: "You'll become an admin and can't undo this yourself.",
+      confirmLabel: "Make owner",
+      pendingLabel: "Transferring…",
+      tone: "danger",
+    }),
   },
 };

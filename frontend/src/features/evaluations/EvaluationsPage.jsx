@@ -474,7 +474,7 @@ export function EvaluationsPage({
                       type="button"
                       disabled={anyBusy}
                       aria-pressed={state.mode === mode}
-                      onClick={() => evaluation.changeMode(mode)}
+                      onClick={() => void evaluation.changeMode(mode)}
                     >
                       {label}
                     </button>

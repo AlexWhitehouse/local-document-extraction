@@ -65,6 +65,13 @@ async function clickUserAction(user, email, actionName) {
   await user.click(actionButton(actionName));
 }
 
+// Confirmations render as an in-app alertdialog; the action button is scoped to it.
+async function confirmInDialog(user, buttonName) {
+  const dialog = await screen.findByRole("alertdialog");
+
+  await user.click(within(dialog).getByRole("button", { name: buttonName }));
+}
+
 describe("Application admin page gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -229,7 +236,6 @@ describe("Application admin page gate", () => {
 
   it("removes another admin after stronger confirmation but prevents self-demotion", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
     listUsersReturns(currentAdmin(), adminUser());
     authClientMock.setRole.mockResolvedValue({ data: {}, error: null });
@@ -242,9 +248,10 @@ describe("Application admin page gate", () => {
     expect(actionButton("Ban user")).toBeNull();
     await clickUserAction(user, "grace@example.com", "Remove admin");
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Remove Application admin access from grace@example.com? This revokes application-wide account management access.",
-    );
+    expect(
+      await screen.findByRole("alertdialog", { name: "Remove Application admin access from grace@example.com?" }),
+    ).toBeTruthy();
+    await confirmInDialog(user, "Change role");
     await waitFor(() => {
       expect(authClientMock.setRole).toHaveBeenCalledWith({
         userId: "user_admin_2",
@@ -256,7 +263,6 @@ describe("Application admin page gate", () => {
 
   it("shows a failure Action toast without reloading when a role change fails", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
     listUsersReturns(alan());
     authClientMock.setRole.mockResolvedValue({
@@ -266,14 +272,19 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Make admin");
+    await confirmInDialog(user, "Change role");
 
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Application role could not be updated. Please try again.");
-    });
+    expect(await within(screen.getByRole("alertdialog")).findByText("Something went wrong. Try again.")).toBeTruthy();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
     expect(accountList().getByText("alan@example.com")).toBeTruthy();
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
     expect(authClientMock.refetchSession).not.toHaveBeenCalled();
     expect(authClientMock.signOut).not.toHaveBeenCalled();
+
+    // Leave the confirmation closed so it doesn't leak into later tests.
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 
   it("shows inline validation and does not call Better Auth when a ban reason is missing", async () => {
@@ -283,7 +294,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Ban user");
-    await user.click(screen.getByRole("button", { name: "Confirm ban" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Ban alan@example.com" })).getByRole("button", { name: "Ban user" }));
 
     expect(await screen.findByText("Enter a ban reason before banning this user.")).toBeTruthy();
     expect(authClientMock.banUser).not.toHaveBeenCalled();
@@ -305,6 +316,30 @@ describe("Application admin page gate", () => {
     expect(screen.getByText("You are banning another Application admin."));
   });
 
+  it("asks before discarding a typed ban reason and keeps the dialog on Keep editing", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    listUsersReturns(alan());
+
+    await openAdminPage(user);
+    await clickUserAction(user, "alan@example.com", "Ban user");
+    await user.type(screen.getByLabelText("Ban reason"), "Compromised account");
+    await user.keyboard("{Escape}");
+
+    const prompt = await screen.findByRole("alertdialog", { name: "Discard changes?" });
+    await user.click(within(prompt).getByRole("button", { name: "Keep editing" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Ban alan@example.com" })).toBeTruthy();
+    expect(authClientMock.banUser).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Ban alan@example.com" })).toBeNull());
+    expect(authClientMock.banUser).not.toHaveBeenCalled();
+  });
+
   it("shows failure Action toasts without reloading when ban and unban operations fail", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
@@ -318,7 +353,7 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Ban user");
     await user.type(screen.getByLabelText("Ban reason"), "Compromised account");
-    await user.click(screen.getByRole("button", { name: "Confirm ban" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Ban alan@example.com" })).getByRole("button", { name: "Ban user" }));
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("User could not be banned. Please try again.");
@@ -327,7 +362,7 @@ describe("Application admin page gate", () => {
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await clickUserAction(user, "grace@example.com", "Unban user");
-    await user.click(screen.getByRole("button", { name: "Confirm unban" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Unban grace@example.com" })).getByRole("button", { name: "Unban user" }));
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("User could not be unbanned. Please try again.");
@@ -368,7 +403,6 @@ describe("Application admin page gate", () => {
 
   it("clears session-scoped UI state, refetches the session, and moves to Workspace after impersonation", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
     listUsersReturns(alan());
     authClientMock.impersonateUser.mockResolvedValue({ data: {}, error: null });
@@ -380,6 +414,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Impersonate user");
+    await confirmInDialog(user, "Impersonate alan@example.com");
 
     await waitFor(() => {
       expect(authClientMock.refetchSession).toHaveBeenCalled();
@@ -396,7 +431,6 @@ describe("Application admin page gate", () => {
 
   it("shows recoverable failure feedback without losing admin list state when impersonation fails", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
     listUsersReturns(alan());
     authClientMock.impersonateUser.mockResolvedValue({
@@ -406,6 +440,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Impersonate user");
+    await confirmInDialog(user, "Impersonate alan@example.com");
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("Impersonation could not be started. Please try again.");
@@ -429,7 +464,6 @@ describe("Application admin page gate", () => {
 
   it("stops impersonating immediately through Better Auth and disables the action while in flight", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm");
     currentSession = impersonatedSession();
     const stopRequest = deferred();
     authClientMock.stopImpersonating.mockReturnValue(stopRequest.promise);
@@ -439,7 +473,7 @@ describe("Application admin page gate", () => {
     const stopButton = await screen.findByRole("button", { name: "Stop impersonating" });
     await user.click(stopButton);
 
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(authClientMock.stopImpersonating).toHaveBeenCalledWith();
     expect(stopButton.disabled).toBe(true);
 

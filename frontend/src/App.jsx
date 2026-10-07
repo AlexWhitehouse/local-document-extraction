@@ -38,7 +38,8 @@ import { useWorkspaceDocumentProcessingSettings } from "./features/workspaces/us
 import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
 import { useWorkspaceSourceRetention } from "./features/workspaces/useWorkspaceSourceRetention.js";
 import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
-import { hasUnsavedEdits } from "./lib/unsavedChanges.js";
+import { hasUnsavedEdits, runDiscardChecks } from "./lib/unsavedChanges.js";
+import { DISCARD_CHANGES, confirmDialog } from "./features/ui/confirm.jsx";
 import "./features/layout/StudioLayouts.css";
 
 const API_BASE = "/v1";
@@ -298,25 +299,23 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
 
     // Evaluation dialogs hold unapplied local form state, while accepted inputs
     // and results live in the controller and survive section navigation.
-    if (
-      activePage === "evaluations" &&
-      (next.page !== "evaluations" || changingWorkspace) &&
-      hasUnsavedEdits() &&
-      !window.confirm("Leave Evaluations and discard unapplied changes in the open dialog?")
-    )
-      return false;
+    const leavingEvaluationDialog =
+      activePage === "evaluations" && (next.page !== "evaluations" || changingWorkspace) && hasUnsavedEdits();
 
-    if ((changingWorkspace || changingTemplate) && !templateController.navigation.confirmDiscard()) return false;
-
-    if (changingWorkspace && !evaluation.confirmDiscard()) return false;
-    templateController.navigation.invalidatePendingLoad();
-
-    return true;
+    return runDiscardChecks(
+      [
+        () => !leavingEvaluationDialog || confirmDialog(DISCARD_CHANGES),
+        () => !(changingWorkspace || changingTemplate) || templateController.navigation.confirmDiscard(),
+        () => !changingWorkspace || evaluation.confirmDiscard(),
+      ],
+      () => templateController.navigation.invalidatePendingLoad(),
+    );
   };
 
   navigation.hasUnsavedChanges.current =
     hasSession &&
     (templateController.navigation.hasUnsavedChanges ||
+      hasUnsavedEdits() ||
       Boolean(evaluation.state.documents.length || evaluation.state.candidates.length));
   const navigationGuard = navigation.guard;
   const navigationUnsaved = navigation.hasUnsavedChanges;

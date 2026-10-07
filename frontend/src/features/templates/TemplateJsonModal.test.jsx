@@ -1,0 +1,48 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import { TemplateJsonModal } from "./TemplateJsonModal.jsx";
+
+function renderModal(overrides = {}) {
+  const props = {
+    isOpen: true,
+    isDirty: false,
+    draft: "{}",
+    error: "",
+    diagnostics: [],
+    copied: false,
+    isSavingTemplate: false,
+    hasApiAccess: true,
+    onDraftChange: vi.fn(),
+    onSave: vi.fn(),
+    onClose: vi.fn(),
+    onCopy: vi.fn(),
+    ...overrides,
+  };
+
+  render(<TemplateJsonModal {...props} />);
+
+  return props;
+}
+
+describe("TemplateJsonModal closing", () => {
+  it("closes on Escape when the draft is clean", () => {
+    const props = renderModal();
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Export / Import Template" }), { key: "Escape" });
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks before discarding an edited draft from Escape and Cancel", async () => {
+    const user = userEvent.setup();
+    const props = renderModal({ isDirty: true });
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Export / Import Template" }), { key: "Escape" });
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+    expect(props.onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+});

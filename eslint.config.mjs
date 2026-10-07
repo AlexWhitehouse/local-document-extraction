@@ -101,4 +101,23 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Native dialogs can't be labelled or styled; use confirmDialog from features/ui/confirm.jsx.
+    files: ["frontend/src/**/*.{js,jsx}"],
+    ignores: ["frontend/src/**/*.test.{js,jsx}", "frontend/src/test/**"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        { name: "confirm", message: "Use confirmDialog from features/ui/confirm.jsx." },
+        { name: "alert", message: "Use a toast or an inline message." },
+        { name: "prompt", message: "Use a form in a ModalDialog." },
+      ],
+      "no-restricted-properties": [
+        "error",
+        { object: "window", property: "confirm", message: "Use confirmDialog from features/ui/confirm.jsx." },
+        { object: "window", property: "alert", message: "Use a toast or an inline message." },
+        { object: "window", property: "prompt", message: "Use a form in a ModalDialog." },
+      ],
+    },
+  },
 );

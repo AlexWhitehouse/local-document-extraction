@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useDocumentController } from "./useDocumentController.js";
 
@@ -89,6 +89,13 @@ async function setup(initialPacket = finished, initialDocuments = []) {
   };
 }
 
+// Answers the confirmation dialog that a delete opened.
+async function answerDialog(name) {
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("button", { name }));
+  await act(async () => {});
+}
+
 describe("Single-document smart split actions", () => {
   it("opens the only document automatically when assessment finishes while selected", async () => {
     const f = await setup({ ...finished, status: "processing", plan_accepted: false, plan: null, children: [] });
@@ -107,16 +114,19 @@ describe("Single-document smart split actions", () => {
 
   it("deletes the displayed document and its hidden packet together", async () => {
     const f = await setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     await act(async () => {
       f.result.current.contextList.onSelectPacket("single_packet");
     });
+    let deletion;
     await act(async () => {
-      await f.result.current.toolbar.onDeleteDocument();
+      deletion = f.result.current.toolbar.onDeleteDocument();
     });
-    expect(confirm).toHaveBeenCalledWith(
-      'Delete "invoice.pdf"? This will permanently remove it from the workspace.',
-    );
+    await act(async () => {});
+    expect(screen.getByRole("alertdialog", { name: 'Delete "invoice.pdf"?' })).toBeTruthy();
+    await answerDialog("Delete document");
+    await act(async () => {
+      await deletion;
+    });
     expect(f.requests.deletePacket).toHaveBeenCalledWith("single_packet");
     expect(f.requests.deleteDocument).not.toHaveBeenCalled();
     expect(f.result.current.contextList.packets).toEqual([]);
@@ -157,7 +167,6 @@ describe("Single-document smart split actions", () => {
 
   it("does not continue mixed deletion or report success in a different workspace", async () => {
     const f = await setup(finished, [{ ...child, job_id: "ordinary_job", parent_packet_id: null }]);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     act(() => {
       f.result.current.contextList.onToggleDocumentSelection("ordinary_job", true);
       f.result.current.contextList.onTogglePacketSelection("single_packet", true);
@@ -174,6 +183,7 @@ describe("Single-document smart split actions", () => {
     act(() => {
       deletion = f.result.current.toolbar.onDeleteDocument();
     });
+    await answerDialog("Delete 2 documents");
     await act(async () => {
       f.rerender({ workspaceId: "another_workspace" });
     });

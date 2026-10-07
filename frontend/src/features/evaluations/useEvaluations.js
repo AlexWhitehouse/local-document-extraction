@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { validateTemplateJsonPayload } from "../templates/templateFields.js";
+import { confirmDialog } from "../ui/confirm.jsx";
 import { createLibraryClient, documentDirty, emptyReferenceSet, parseReferenceSet } from "./evaluationLibrary.js";
 import { createResultCache } from "./resultCache.js";
 
@@ -872,18 +873,24 @@ export function useEvaluations({
     },
     // Mode changes discard candidates, results and unsaved answer edits; the selected documents stay,
     // with saved documents back at the answers they were loaded with.
-    changeMode(mode) {
-      const current = stateRef.current;
+    async changeMode(mode) {
+      const requested = stateRef.current;
 
-      if (anyBusy() || mode === current.mode) return;
+      if (anyBusy() || mode === requested.mode) return;
 
       if (
-        current.candidates.length &&
-        !window.confirm(
-          "Change mode and discard candidate drafts, results and unsaved expected answer changes? Documents are kept; saved documents return to their loaded answers.",
-        )
+        requested.candidates.length &&
+        !(await confirmDialog({
+          title: "Change mode?",
+          body: "Candidates, results and unsaved answer changes are discarded. Documents are kept.",
+          confirmLabel: "Change mode",
+          tone: "default",
+        }))
       )
         return;
+      // Re-read after the prompt so edits made before it answered are not lost.
+      const current = stateRef.current;
+
       dropPairs(current, () => false);
       patch({
         mode,
@@ -904,9 +911,15 @@ export function useEvaluations({
       if (!current.documents.length && !current.candidates.length) return true;
       const unsaved = current.documents.filter((d) => d.kind === "upload" || documentDirty(d)).length;
 
-      return window.confirm(
-        `Discard this temporary Evaluation and switch Workspace?${unsaved ? ` ${unsaved} ${unsaved === 1 ? "document has" : "documents have"} unsaved uploads or answer changes.` : ""}`,
-      );
+      return confirmDialog({
+        title: "Discard this evaluation?",
+        body: unsaved
+          ? `${unsaved} ${unsaved === 1 ? "document has" : "documents have"} unsaved uploads or answer changes. This can't be undone.`
+          : "Its documents, candidates and results are discarded. This can't be undone.",
+        confirmLabel: "Discard",
+        cancelLabel: "Keep evaluation",
+        tone: "default",
+      });
     },
     addUploads(files) {
       const added = files.map(uploadDocument);

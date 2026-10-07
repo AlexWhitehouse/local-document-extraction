@@ -1,5 +1,6 @@
 import React from "react";
-import { createPortal } from "react-dom";
+import { ModalDialog } from "../layout/ModalDialog.jsx";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 
 export const ProfileMenu = React.forwardRef(function ProfileMenu(
   {
@@ -20,6 +21,11 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
   },
   ref,
 ) {
+  // Escape and the backdrop go through ModalDialog's dirty check; the × does too.
+  const requestClose = async () => {
+    if (!isDirty || (await confirmDialog({ ...DISCARD_CHANGES }))) onToggle();
+  };
+
   return (
     <div className="sidebar-profile" ref={ref}>
       <button
@@ -41,16 +47,10 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
         </span>
       </button>
 
-      {isOpen
-        ? createPortal(
-            <div className="settings-modal-backdrop" onClick={onToggle}>
-              <div
-                className="settings-modal"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="settings-modal-title"
-                onClick={(event) => event.stopPropagation()}
-              >
+      {isOpen ? (
+        <ModalDialog labelledBy="settings-modal-title" className="settings-modal" isDirty={isDirty} onClose={onToggle}>
+          {/* Not a ModalHeader: the × sits in the content column, not a header strip. */}
+          <>
                 <aside className="settings-modal-sidebar">
                   <div className="settings-modal-brand">
                     <span className="eyebrow">Local Studio</span>
@@ -66,7 +66,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                       <span className="eyebrow">Identity</span>
                       <h3>Account</h3>
                     </div>
-                    <button type="button" className="modal-close" aria-label="Close settings" onClick={onToggle}>
+                    <button type="button" className="modal-close" aria-label="Close settings" onClick={requestClose}>
                       ×
                     </button>
                   </header>
@@ -116,11 +116,9 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                     </div>
                   </div>
                 </section>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+          </>
+        </ModalDialog>
+      ) : null}
     </div>
   );
 });

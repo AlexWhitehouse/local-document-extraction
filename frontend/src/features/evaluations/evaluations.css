@@ -457,3 +457,7 @@ label.evaluation-link-field { display: flex; flex-direction: row; flex-wrap: wra
 .evaluation-block .studio-text-button { min-height: 0; padding: 0 0 0 8px; color: var(--accent-strong); }
 /* Moving between the documents of a multi-document Evaluation. */
 .evaluation-doc-nav { display: flex; align-items: center; gap: 10px; white-space: nowrap; font-size: 11.5px; }
+
+.actions .evaluation-reference-remove {
+  margin-right: auto;
+}

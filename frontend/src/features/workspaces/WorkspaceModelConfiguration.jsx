@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import "./WorkspaceModelConfiguration.css";
+import { useUnsavedGuard } from "../../lib/unsavedChanges";
+import { confirmDialog } from "../ui/confirm.jsx";
 
 const TASK_ROLES = [
   ["assistant", "Template assistant", "Assistant, suggestions and Auto generate"],
@@ -12,7 +14,6 @@ const CAPABILITIES = [
 ];
 
 export function WorkspaceModelConfiguration({ controller }) {
-  const [confirmClear, setConfirmClear] = useState(false);
   const [editing, setEditing] = useState(false);
 
   const { record, canManage, draft, loading, saving, testing, error, conflict } = controller;
@@ -33,9 +34,26 @@ export function WorkspaceModelConfiguration({ controller }) {
   const showForm = canManage && Boolean(record) && (editing || conflict);
   const showSummary = canManage && !loading && Boolean(record) && !showForm;
 
+  useUnsavedGuard(Boolean(showForm && controller.dirty), "Model gateway");
+
   const closeEditor = () => {
-    setConfirmClear(false);
     setEditing(false);
+  };
+
+  const clearGateway = async () => {
+    const cleared = await confirmDialog({
+      title: "Clear the Model gateway?",
+      body: "Documents can't be processed in this workspace until a gateway is set up again.",
+      confirmLabel: "Clear gateway",
+      pendingLabel: "Clearing…",
+      action: async () => {
+        if (!(await controller.clear({ inline: true }))) {
+          throw new Error("The Model gateway couldn't be cleared.");
+        }
+      },
+    });
+
+    if (cleared) closeEditor();
   };
 
   return (
@@ -224,17 +242,6 @@ export function WorkspaceModelConfiguration({ controller }) {
               ) : null}
               <div className="workspace-model-actions">
                 <div>
-                  <button type="submit" disabled={saving || conflict || !controller.dirty}>
-                    {saving ? "Saving…" : "Save configuration"}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={saving || testing || conflict}
-                    onClick={controller.testConnection}
-                  >
-                    {testing ? "Testing…" : "Test connection"}
-                  </button>
                   {!conflict ? (
                     <button
                       type="button"
@@ -248,13 +255,24 @@ export function WorkspaceModelConfiguration({ controller }) {
                       Cancel
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={saving || testing || conflict}
+                    onClick={controller.testConnection}
+                  >
+                    {testing ? "Testing…" : "Test connection"}
+                  </button>
+                  <button type="submit" disabled={saving || conflict || !controller.dirty}>
+                    {saving ? "Saving…" : "Save configuration"}
+                  </button>
                 </div>
                 {configured ? (
                   <button
                     type="button"
                     className="workspace-model-clear"
                     disabled={saving || conflict}
-                    onClick={() => setConfirmClear(true)}
+                    onClick={clearGateway}
                   >
                     Clear configuration
                   </button>
@@ -263,35 +281,6 @@ export function WorkspaceModelConfiguration({ controller }) {
               <p className="workspace-model-footnote">
                 Testing is optional and does not save. Saving does not contact the gateway.
               </p>
-              {confirmClear ? (
-                <div
-                  className="workspace-model-confirm"
-                  role="alertdialog"
-                  aria-label="Clear Model gateway configuration"
-                >
-                  <strong>Clear this Workspace’s Model gateway?</strong>
-                  <p>
-                    New document requests will be rejected. Queued jobs and retries will stop at their next attempt;
-                    in-flight attempts can finish.
-                  </p>
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="danger"
-                      disabled={saving}
-                      onClick={() => {
-                        closeEditor();
-                        void controller.clear();
-                      }}
-                    >
-                      Confirm clear
-                    </button>
-                    <button type="button" className="secondary" onClick={() => setConfirmClear(false)}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </form>
           )}
         </div>

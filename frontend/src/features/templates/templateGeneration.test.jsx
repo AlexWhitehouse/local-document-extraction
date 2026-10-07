@@ -1,5 +1,6 @@
 import React from "react";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { useTemplateController } from "./useTemplateController.js";
 import { TemplateGenerationModal } from "./TemplateGenerationModal.jsx";
@@ -172,7 +173,12 @@ describe("Template generation", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Model is not configured"));
     expect(screen.getByText("Try again")).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // The sample is a draft, so Escape asks before discarding it.
+    await userEvent.click(await screen.findByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("dialog", { name: "Auto generate template" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await userEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
 

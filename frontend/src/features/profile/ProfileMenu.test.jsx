@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ProfileMenu } from "./ProfileMenu.jsx";
@@ -40,5 +40,26 @@ describe("ProfileMenu saving", () => {
     renderMenu({ isDirty: true, saveError: "Profile could not be saved. Please try again." });
 
     expect(screen.getByRole("alert").textContent).toBe("Profile could not be saved. Please try again.");
+  });
+});
+
+describe("ProfileMenu settings dialog", () => {
+  it("closes on Escape when the name is unchanged", () => {
+    const props = renderMenu({ isDirty: false });
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Settings" }), { key: "Escape" });
+    expect(props.onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks before discarding an edited name", async () => {
+    const props = renderMenu({ isDirty: true });
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Settings" }), { key: "Escape" });
+    await userEvent.click(await screen.findByRole("button", { name: "Keep editing" }));
+    expect(props.onToggle).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Settings" }), { key: "Escape" });
+    await userEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    expect(props.onToggle).toHaveBeenCalledTimes(1);
   });
 });

@@ -50,7 +50,6 @@
 .workspace-model-test { margin:0; }
 .workspace-model-test.passed { color:var(--accent); }
 .workspace-model-repair { border-left:2px solid var(--rose); padding-left:12px; }
-.workspace-model-confirm { border:1px solid var(--line-1); background:var(--bg-2); border-radius:0; padding:16px; font-size:13px; }
 .workspace-model-member { border-top:1px solid var(--line-0); padding:8px 24px 16px; }
 @media(max-width:760px) { .workspace-model-header { flex-wrap:wrap; gap:16px; } .workspace-model-fields { grid-template-columns:1fr; } .workspace-model-body { padding:20px; } }
 /* Narrow panes: the role name moves above its model so inputs keep a usable width. */

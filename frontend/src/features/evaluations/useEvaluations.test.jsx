@@ -1,8 +1,15 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useEvaluations } from "./useEvaluations.js";
 import { createResultCache } from "./resultCache.js";
 import { FakeKeyRange, createFakeIndexedDB } from "../../test/fakeIndexedDB.js";
+
+// Answers the confirmation dialog that the hook opened.
+async function answerDialog(name) {
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name }));
+  });
+}
 
 const template = {
   name: "Invoice",
@@ -254,16 +261,31 @@ it("duplicate inherits edits only; a mode change keeps documents but discards un
   expect(result.current.state.candidates[2]).toMatchObject({ model: "changed", revision: 0 });
   const doc = result.current.state.documents[0].key;
   act(() => result.current.setReference(doc, "total:number", { verified: true, value: "10" }, template.fields[0]));
-  vi.spyOn(window, "confirm").mockReturnValue(false);
-  act(() => result.current.changeMode("templates"));
+  act(() => {
+    void result.current.changeMode("templates");
+  });
+  await answerDialog("Cancel");
   expect(result.current.state.mode).toBe("models");
-  window.confirm.mockReturnValue(true);
-  act(() => result.current.changeMode("templates"));
-  expect(result.current.state.mode).toBe("templates");
+  act(() => {
+    void result.current.changeMode("templates");
+  });
+  await answerDialog("Change mode");
+  await waitFor(() => expect(result.current.state.mode).toBe("templates"));
   expect(result.current.state.candidates).toEqual([]);
   expect(result.current.state.documents.map((d) => d.key)).toEqual([doc]);
   expect(result.current.state.documents[0].reference.references).toEqual({});
-  window.confirm.mockRestore();
+});
+
+it("asks before discarding a temporary Evaluation and keeps it when the prompt is declined", async () => {
+  const { result } = await initialized();
+  let verdict;
+  act(() => {
+    verdict = result.current.confirmDiscard();
+  });
+  expect(verdict).toBeInstanceOf(Promise);
+  await answerDialog("Keep evaluation");
+  await expect(verdict).resolves.toBe(false);
+  expect(result.current.state.documents).toHaveLength(1);
 });
 
 it("ignores an old Workspace denial after switching scope", async () => {

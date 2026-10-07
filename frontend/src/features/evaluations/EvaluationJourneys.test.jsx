@@ -514,7 +514,7 @@ it("saves an upload from the results after running, retries a lost response with
   const guard = screen.getByRole("dialog", { name: "Clear Evaluation" });
   expect(within(guard).getByText("other.pdf")).toBeTruthy();
   expect(within(guard).queryByText("Fenwick print")).toBeNull();
-  fireEvent.click(within(guard).getByRole("button", { name: "Clear Evaluation" }));
+  fireEvent.click(within(guard).getByRole("button", { name: "Clear evaluation" }));
   await waitFor(() => expect(screen.queryByText("other.pdf", { selector: "strong" })).toBeNull());
 });
 

@@ -4,6 +4,7 @@ import { documentScopeKey } from "./documentReconciliation";
 import { usePacketController } from "./usePacketController.js";
 import { isPacketListed, isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
 import { useDocumentReconciliation } from "./useDocumentReconciliation";
+import { confirmDialog } from "../ui/confirm.jsx";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
@@ -278,11 +279,9 @@ export function useDocumentController({
     setShowUploadModal(true);
   }
 
+  // Closing during an upload only hides the modal; the upload keeps running and reports
+  // through its toast.
   function closeUploadModal() {
-    if (isUploadingDocuments) {
-      return;
-    }
-
     setIsUploadDragActive(false);
     setShowUploadModal(false);
   }
@@ -545,25 +544,28 @@ export function useDocumentController({
     );
   }
 
-  function deleteSelectedPacket() {
+  async function deleteSelectedPacket() {
     const id = packetController.selectedId;
     const scope = actionScopeRef.current;
+    const name = openPacket?.source_name;
 
     if (!id || packetController.busy) return;
 
-    if (
-      !window.confirm(
-        `Delete ${openPacket?.source_name ? `"${openPacket.source_name}"` : "this packet"} and all its child documents? This permanently removes their results and available originals.`,
-      )
-    )
-      return;
-    setPacketChildId("");
-    void packetController.removeMany([id]).then((removed) => {
-      if (scope !== actionScopeRef.current) return;
-      setSelectedPacketIds((current) => current.filter((value) => !removed.includes(value)));
-      showActionToast("document.delete", removed.length ? "success" : "failure", {
-        targetName: openPacket?.source_name || id,
-      });
+    await confirmDialog({
+      title: name ? `Delete "${name}"?` : "Delete this packet?",
+      body: "Its documents and their results are deleted too. This can't be undone.",
+      confirmLabel: "Delete packet",
+      pendingLabel: "Deleting…",
+      action: async () => {
+        setPacketChildId("");
+        const removed = await packetController.removeMany([id]);
+
+        if (!removed.length) throw new Error("Packet could not be deleted.");
+
+        if (scope !== actionScopeRef.current) return;
+        setSelectedPacketIds((current) => current.filter((value) => !removed.includes(value)));
+        showActionToast("document.delete", "success", { targetName: name || id });
+      },
     });
   }
 
@@ -574,7 +576,7 @@ export function useDocumentController({
       // A normal-looking single document owns a hidden packet and its original too.
       if (isSingleDocument && openPacket) await deleteDocuments([], [openPacket]);
       else if (actionDocument) await deleteDocuments([actionDocument], []);
-      else if (openPacket) deleteSelectedPacket();
+      else if (openPacket) await deleteSelectedPacket();
 
       return;
     }
@@ -595,7 +597,6 @@ export function useDocumentController({
     const target = targetDocuments[0] || targetPackets[0];
 
     if (!target) return;
-    const childCount = visiblePackets.reduce((total, packet) => total + packetChildren(packet).length, 0);
 
     const parts = [
       documentCount ? `${documentCount} document${documentCount === 1 ? "" : "s"}` : "",
@@ -604,11 +605,29 @@ export function useDocumentController({
       .filter(Boolean)
       .join(" and ");
 
-    const message = isBulkDelete
-      ? `Delete ${parts.replace(/^(\d+) /, "$1 selected ")}${childCount ? `, including ${childCount} document${childCount === 1 ? "" : "s"} split from ${visiblePackets.length === 1 ? "the packet" : "the packets"}` : ""}? This will permanently remove ${targetDocuments.length + targetPackets.length === 1 ? "it" : "them"} from the workspace.`
-      : `Delete ${target.source_name ? `"${target.source_name}"` : "this document"}? This will permanently remove it from the workspace.`;
+    const title = isBulkDelete
+      ? `Delete ${parts.replace(/^(\d+) /, "$1 selected ")}?`
+      : target.source_name
+        ? `Delete "${target.source_name}"?`
+        : "Delete this document?";
 
-    if (!window.confirm(message)) return;
+    const body = `${isBulkDelete ? "Their" : "Its"} ${visiblePackets.length ? "documents and " : ""}results are deleted too. This can't be undone.`;
+    let confirmLabel = "Delete document";
+
+    if (isBulkDelete) confirmLabel = visiblePackets.length ? `Delete ${parts}` : `Delete ${documentCount} documents`;
+
+    await confirmDialog({
+      title,
+      body,
+      confirmLabel,
+      pendingLabel: "Deleting…",
+      action: () => removeSelection(targetDocuments, targetPackets, { scope, packetId, isBulkDelete, parts, target }),
+    });
+  }
+
+  // Runs the confirmed removal. Partial failures are reported by toast; a removal that
+  // removed nothing throws so the confirmation shows the error inline instead.
+  async function removeSelection(targetDocuments, targetPackets, { scope, packetId, isBulkDelete, parts, target }) {
     let removedPackets = [];
 
     if (targetPackets.length) {
@@ -634,41 +653,42 @@ export function useDocumentController({
     };
 
     if (!targetDocuments.length) {
+      if (!removedPackets.length) throw new Error("Could not be deleted.");
+
       if (isBulkDelete) report(0, 0);
-      else
-        showActionToast("document.delete", removedPackets.length ? "success" : "failure", {
-          targetName: target.source_name || target.packet_id,
-        });
+      else showActionToast("document.delete", "success", { targetName: target.source_name || target.packet_id });
 
       return;
     }
 
+    let results = [];
+
     await reconciliation.deleteDocuments(
       targetDocuments.map((job) => job.job_id),
       {
-        onComplete: (results) => {
-          if (scope !== actionScopeRef.current) return;
-
-          if (packetId && !removedPackets.includes(packetId)) {
-            setPacketChildId("");
-            packetController.select(packetId);
-          }
-
-          const removed = results.filter((result) => result.removed);
-
-          if (isBulkDelete) report(removed.length, results.length);
-          else {
-            showActionToast(
-              "document.delete",
-              results[0].removed ? (results[0].alreadyRemoved ? "alreadyRemoved" : "success") : "failure",
-              {
-                targetName: target.source_name || target.job_id,
-              },
-            );
-          }
+        onComplete: (outcome) => {
+          results = outcome;
         },
       },
     );
+
+    if (scope !== actionScopeRef.current) return;
+
+    const removed = results.filter((result) => result.removed);
+
+    if (!removed.length && !removedPackets.length) throw new Error("Could not be deleted.");
+
+    if (packetId && !removedPackets.includes(packetId)) {
+      setPacketChildId("");
+      packetController.select(packetId);
+    }
+
+    if (isBulkDelete) report(removed.length, results.length);
+    else {
+      showActionToast("document.delete", results[0].alreadyRemoved ? "alreadyRemoved" : "success", {
+        targetName: target.source_name || target.job_id,
+      });
+    }
   }
 
   async function exportSelectedDocuments() {

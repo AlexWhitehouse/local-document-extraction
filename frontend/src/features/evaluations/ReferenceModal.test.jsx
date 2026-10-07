@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { ReferenceModal } from "./ReferenceModal.jsx";
 
@@ -182,7 +182,7 @@ it("shows an incompatible previous boolean value until the user chooses an answe
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ value: false, verified: true }));
 });
 
-it("retains separate drafts when choosing between candidate schemas and keeps cancel non-destructive", () => {
+it("retains separate drafts when choosing between candidate schemas and asks before Cancel discards edits", async () => {
   const updated = {
     ...table,
     object_schema: {
@@ -223,7 +223,9 @@ it("retains separate drafts when choosing between candidate schemas and keeps ca
   });
   expect(screen.getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("Edited");
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(onClose).toHaveBeenCalled();
+  expect(onClose).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(onClose).toHaveBeenCalled());
   expect(onSave).not.toHaveBeenCalled();
   expect(initial.value).toEqual([{ sku: "A", qty: 2 }]);
 });

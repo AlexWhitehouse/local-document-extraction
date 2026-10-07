@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { normalizeTemplateTagName, normalizeTemplateTags } from "../../../../shared/templateTags.ts";
+import { confirmDialog } from "../ui/confirm.jsx";
 import "./TemplateTags.css";
 
 export function TemplateTags({
@@ -96,12 +97,14 @@ export function TemplateTags({
   async function remove(tag) {
     const count = tag.template_count;
 
-    if (
-      !window.confirm(
-        `Delete tag “${tag.name}”? This removes it from ${count} template${count === 1 ? "" : "s"} across this Workspace. Templates will not be deleted. This action cannot be undone.`,
-      )
-    )
-      return;
+    const confirmed = await confirmDialog({
+      title: `Delete tag "${tag.name}"?`,
+      body: `Removes it from ${count} template${count === 1 ? "" : "s"}. The templates are kept. This can't be undone.`,
+      confirmLabel: "Delete tag",
+      pendingLabel: "Deleting…",
+    });
+
+    if (!confirmed) return;
     setActionError("");
     setStatus("");
 

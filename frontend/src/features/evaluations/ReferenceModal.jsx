@@ -1,8 +1,9 @@
 import { pluralize } from "../../lib/text.js";
 import { isJsonObject } from "../../../../shared/json.ts";
-import React, { useId, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
 import { getDataTypeLabel } from "../templates/templateFields.js";
 import {
@@ -78,14 +79,25 @@ export function ReferenceModal({
   onRemoveVerification,
   onClose,
 }) {
-  useUnsavedGuard(true, "Expected answer");
   const [schema, setSchema] = useState(0);
+  const [isDirty, setIsDirty] = useState(false);
+  const dirtySchemas = useRef(new Map());
   const drafts = useRef(new Map());
   const field = schemas[schema].field;
+
+  // A draft parked by switching Template keeps counting as unsaved until it is saved or closed.
+  const reportDirty = useCallback((index, dirty) => {
+    dirtySchemas.current.set(index, dirty);
+    setIsDirty([...dirtySchemas.current.values()].some(Boolean));
+  }, []);
+
+  useUnsavedGuard(isDirty, "Expected answer");
 
   return (
     <ReferenceEditor
       key={schema}
+      isDirty={isDirty}
+      onDirtyChange={reportDirty}
       row={{ ...row, field }}
       initial={drafts.current.get(schema) || adaptReferenceDraft(initial, sourceField, field, true)}
       sourceField={sourceField}
@@ -120,6 +132,8 @@ function ReferenceEditor({
   onSave,
   onRemoveVerification,
   onClose,
+  isDirty,
+  onDirtyChange,
 }) {
   const table = row.field.data_type === "array<object>";
   const columns = tableColumns(row.field);
@@ -148,6 +162,19 @@ function ReferenceEditor({
   const [error, setError] = useState(null);
   const errorId = useId();
   const clearError = () => setError(null);
+
+  const snapshot = JSON.stringify({ value, absent, exact, rows, cellStates, columnMappings, dateOrder });
+  const [baseline] = useState(() => initial.pristine ?? snapshot);
+  const dirty = snapshot !== baseline;
+
+  useEffect(() => {
+    onDirtyChange?.(schema, dirty);
+  }, [dirty, schema, onDirtyChange]);
+
+  // Cancel and × ask before discarding edits; Escape and the backdrop are handled by ModalDialog.
+  async function requestClose() {
+    if (!isDirty || (await confirmDialog(DISCARD_CHANGES))) onClose();
+  }
 
   const changeCell = (key, answer) => {
     clearError();
@@ -248,6 +275,7 @@ function ReferenceEditor({
     <ModalDialog
       className={`evaluation-reference ${table ? "object-schema-modal evaluation-table-reference" : ""}`}
       label="Verify expected answer"
+      isDirty={isDirty}
       onClose={onClose}
     >
       <div className={table ? "object-schema-modal-head" : "evaluation-heading"}>
@@ -255,7 +283,7 @@ function ReferenceEditor({
           <h2>{row.field.name} · Expected answer</h2>
           <p>Review against the document before verifying. Only verified answers affect scores.</p>
         </div>
-        <button type="button" className="modal-close" aria-label="Close expected answer editor" onClick={onClose}>
+        <button type="button" className="modal-close" aria-label="Close expected answer editor" onClick={requestClose}>
           ×
         </button>
       </div>
@@ -276,6 +304,7 @@ function ReferenceEditor({
                   dateOrder,
                   selected,
                   columnMappings,
+                  pristine: baseline,
                 })
               }
             >
@@ -551,14 +580,18 @@ function ReferenceEditor({
         )}
         {table && error && !error.column && errorMessage}
         <div className="actions">
-          <button type="button" className="secondary" onClick={onClose}>
-            Cancel
-          </button>
           {onRemoveVerification && (
-            <button type="button" className="secondary" onClick={onRemoveVerification}>
+            <button
+              type="button"
+              className="studio-text-button studio-destructive evaluation-reference-remove"
+              onClick={onRemoveVerification}
+            >
               Remove verification
             </button>
           )}
+          <button type="button" className="secondary" onClick={requestClose}>
+            Cancel
+          </button>
           <button type="button" onClick={verify}>
             Use as expected answer
           </button>

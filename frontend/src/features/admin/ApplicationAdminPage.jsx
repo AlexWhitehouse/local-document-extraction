@@ -150,18 +150,21 @@ function getUserActions(admin, user) {
 
 function UnbanUserDialog({ admin, user }) {
   const email = safeText(user.email);
+  const pending = admin.mutatingUserId === String(user.id || "").trim();
 
   return (
     <ModalDialog
       className="admin-user-action-modal"
       label={`Unban ${email}`}
       initialFocus=".actions button"
+      closeDisabled={pending}
       onClose={admin.onCloseUnbanDialog}
     >
       <ModalHeader
         title={`Unban ${email}`}
-        description="Restoring access allows this Better Auth account to sign in again."
+        description="They'll be able to sign in again."
         onClose={admin.onCloseUnbanDialog}
+        closeDisabled={pending}
       />
       <dl className="admin-user-action-details">
         <div>
@@ -177,12 +180,8 @@ function UnbanUserDialog({ admin, user }) {
         <button type="button" className="secondary" onClick={admin.onCloseUnbanDialog}>
           Cancel
         </button>
-        <button
-          type="button"
-          disabled={admin.mutatingUserId === String(user.id || "").trim()}
-          onClick={admin.onConfirmUnban}
-        >
-          Confirm unban
+        <button type="button" disabled={pending} onClick={admin.onConfirmUnban}>
+          {pending ? "Unbanning…" : "Unban user"}
         </button>
       </div>
     </ModalDialog>
@@ -191,18 +190,22 @@ function UnbanUserDialog({ admin, user }) {
 
 function BanUserDialog({ admin, user }) {
   const email = safeText(user.email);
+  const pending = admin.mutatingUserId === String(user.id || "").trim();
 
   return (
     <ModalDialog
       className="admin-user-action-modal"
       label={`Ban ${email}`}
       initialFocus="textarea"
+      isDirty={Boolean(admin.banReason.trim())}
+      closeDisabled={pending}
       onClose={admin.onCloseBanDialog}
     >
       <ModalHeader
         title={`Ban ${email}`}
-        description="This permanently blocks Better Auth account access. Workspace data is unchanged."
+        description="They won't be able to sign in until you unban them. Their workspace data is kept."
         onClose={admin.onCloseBanDialog}
+        closeDisabled={pending}
       />
       <form className="admin-user-action-form" onSubmit={admin.onConfirmBan}>
         {isApplicationAdmin(user) ? <p className="form-warning">You are banning another Application admin.</p> : null}
@@ -223,8 +226,8 @@ function BanUserDialog({ admin, user }) {
           <button type="button" className="secondary" onClick={admin.onCloseBanDialog}>
             Cancel
           </button>
-          <button type="submit" className="danger" disabled={admin.mutatingUserId === String(user.id || "").trim()}>
-            Confirm ban
+          <button type="submit" className="danger" disabled={pending}>
+            {pending ? "Banning…" : "Ban user"}
           </button>
         </div>
       </form>

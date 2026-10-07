@@ -16,6 +16,7 @@ import {
   unavailableText,
 } from "./evaluationLibrary.js";
 import { documentRunnable } from "./useEvaluations.js";
+import { confirmDialog } from "../ui/confirm.jsx";
 
 export function Chips({ list }) {
   return (
@@ -354,26 +355,30 @@ export function ManageLibrary({ evaluation, fields, onClose }) {
     }
   };
 
-  const remove = async (entry) => {
-    if (
-      !window.confirm(
-        `Delete “${entry.name}” for everyone in this Workspace? Its original and Expected answers are removed. Open Evaluations keep results already shown but can’t rerun it.`,
-      )
-    )
-      return;
+  const remove = (entry) =>
+    confirmDialog({
+      title: `Delete "${entry.name}"?`,
+      body: "Its original and expected answers are removed for everyone in this Workspace. This can't be undone.",
+      confirmLabel: "Delete document",
+      pendingLabel: "Deleting…",
+      action: async () => {
+        try {
+          await evaluation.library.remove(entry.id);
+        } catch (error) {
+          // Already gone on the server: drop it locally and report nothing.
+          if (error.code !== "document_not_found") throw error;
 
-    try {
-      await evaluation.library.remove(entry.id);
-      list.drop(entry.id);
-      evaluation.entryDeleted(entry.id);
-      setMessage(`Deleted “${entry.name}”.`);
-    } catch (error) {
-      if (error.code === "document_not_found") {
+          list.drop(entry.id);
+          evaluation.entryDeleted(entry.id);
+
+          return;
+        }
+
         list.drop(entry.id);
         evaluation.entryDeleted(entry.id);
-      } else setMessage(error.message);
-    }
-  };
+        setMessage(`Deleted “${entry.name}”.`);
+      },
+    });
 
   const actions = {
     name: (entry) =>
@@ -749,7 +754,7 @@ export function ClearDialog({ evaluation, onClose }) {
             onClose();
           }}
         >
-          Clear Evaluation
+          Clear evaluation
         </button>
       </div>
     </ModalDialog>

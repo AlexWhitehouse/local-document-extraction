@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const authClientMock = {
@@ -205,7 +205,6 @@ describe("Workspace action toast feedback", () => {
     const user = userEvent.setup();
     const generatedKey = "generated-secret-key";
     const writeText = installClipboard();
-    const confirmSpy = vi.spyOn(window, "confirm");
     routeApiKeyGeneration({ hasApiKey: false, apiKey: generatedKey });
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
@@ -215,7 +214,7 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace API key generated and copied");
     });
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(writeText).toHaveBeenCalledWith(generatedKey);
     expect(screen.getByDisplayValue(generatedKey)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Dismiss API key" })).toBeNull();
@@ -231,17 +230,17 @@ describe("Workspace action toast feedback", () => {
     const user = userEvent.setup();
     const rotatedKey = "rotated-secret-key";
     const writeText = installClipboard();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     routeApiKeyGeneration({ hasApiKey: true, apiKey: rotatedKey });
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(await screen.findByRole("button", { name: "Rotate API key" }));
+    expect(await screen.findByRole("alertdialog", { name: "Rotate the API key?" })).toBeTruthy();
+    await confirmInDialog(user, "Rotate key");
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace API key rotated and copied");
     });
-    expect(confirmSpy).toHaveBeenCalledOnce();
     expect(writeText).toHaveBeenCalledWith(rotatedKey);
     expect(screen.getByDisplayValue(rotatedKey)).toBeTruthy();
     expect(toastMock.success).not.toHaveBeenCalledWith(expect.stringContaining(rotatedKey));
@@ -375,7 +374,6 @@ describe("Workspace action toast feedback", () => {
   it("confirms Leave Workspace with replacement personal Workspace wording", async () => {
     const user = userEvent.setup();
     let leaveRequested = false;
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     routeFetch((url, method) => {
       if (url.endsWith("/workspaces/ws_1/leave") && method === "POST") {
         leaveRequested = true;
@@ -397,6 +395,7 @@ describe("Workspace action toast feedback", () => {
     await screen.findByRole("link", { name: /Research Workspace/ });
 
     await user.click(screen.getByRole("button", { name: "Leave Workspace" }));
+    await confirmInDialog(user, "Leave workspace");
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace left. Replacement personal Workspace created.");
@@ -405,7 +404,6 @@ describe("Workspace action toast feedback", () => {
 
   it("confirms Workspace deletion by name and selects a remaining Workspace", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const remaining = workspace({ id: "ws_2", name: "Remaining Workspace", created_at: "2026-01-02T00:00:00.000Z" });
     let workspaceListCalls = 0;
     routeFetch((url, method) => {
@@ -425,23 +423,25 @@ describe("Workspace action toast feedback", () => {
     await screen.findByRole("link", { name: /Research Workspace/ });
 
     await user.click(screen.getByRole("button", { name: "Delete Workspace" }));
+    expect(
+      await screen.findByRole("alertdialog", { name: 'Delete "Research Workspace"?' }),
+    ).toBeTruthy();
+    await confirmInDialog(user, "Delete workspace");
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace deleted");
     });
-    expect(confirmSpy).toHaveBeenCalledWith('Delete "Research Workspace"? This action cannot be undone.');
     expect(await screen.findByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
   });
 
   it("stays quiet when Workspace deletion confirmation is cancelled", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await screen.findByRole("link", { name: /Research Workspace/ });
 
     await user.click(screen.getByRole("button", { name: "Delete Workspace" }));
+    await confirmInDialog(user, "Cancel");
 
     expectNoToasts();
   });
@@ -624,14 +624,16 @@ describe("Workspace action toast feedback", () => {
       });
     }
 
-    async function cancelInvitation() {
+    async function cancelInvitation(confirmName = "Cancel invitation") {
       const user = userEvent.setup();
       render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
       await user.click(await screen.findByRole("button", { name: "Cancel invitation for grace@example.com" }));
+      await confirmInDialog(user, confirmName);
+
+      return user;
     }
 
     it("confirms cancelling a pending Workspace invitation", async () => {
-      vi.spyOn(window, "confirm").mockReturnValue(true);
       routeInvitationCancel(jsonResponse({ cancelled: true }));
 
       await cancelInvitation();
@@ -642,10 +644,9 @@ describe("Workspace action toast feedback", () => {
     });
 
     it("stays quiet when cancelling a Workspace invitation confirmation is cancelled", async () => {
-      vi.spyOn(window, "confirm").mockReturnValue(false);
       routeInvitationCancel();
 
-      await cancelInvitation();
+      await cancelInvitation("Keep invitation");
 
       expectNoToasts();
       expect(globalThis.fetch).not.toHaveBeenCalledWith(
@@ -655,14 +656,15 @@ describe("Workspace action toast feedback", () => {
     });
 
     it("shows friendly failure copy when cancelling a Workspace invitation fails", async () => {
-      vi.spyOn(window, "confirm").mockReturnValue(true);
       routeInvitationCancel(jsonResponse({ error: "permission trace" }, { status: 403 }));
 
-      await cancelInvitation();
+      const user = await cancelInvitation();
 
-      await waitFor(() => {
-        expect(toastMock.error).toHaveBeenCalledWith("Workspace invitation could not be cancelled. Please try again.");
-      });
+      expect(await within(screen.getByRole("alertdialog")).findByText("You don't have permission to do that.")).toBeTruthy();
+      expect(toastMock.error).not.toHaveBeenCalled();
+
+      await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Keep invitation" }));
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     });
 
     it("confirms accepting a Workspace invitation", async () => {
@@ -795,12 +797,12 @@ describe("Workspace action toast feedback", () => {
       const user = await openMemberModal();
 
       await user.click(await screen.findByRole("button", { name: actionName }));
-      await user.click(screen.getByRole("button", { name: confirmName }));
+      await confirmInDialog(user, confirmName);
 
       await waitFor(() => {
         expect(toastMock.success).toHaveBeenCalledWith(message);
       });
-      expect(screen.queryByRole("dialog", { name: "Manage workspace user" })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Manage user" })).toBeNull();
     });
 
     it("makes admins without a confirmation step", async () => {
@@ -819,11 +821,12 @@ describe("Workspace action toast feedback", () => {
 
       await user.click(await screen.findByRole("button", { name: "Remove user" }));
 
-      expect(screen.getByText("Remove Grace Hopper from this workspace?")).toBeTruthy();
+      expect(await screen.findByRole("alertdialog", { name: "Remove Grace Hopper from this workspace?" })).toBeTruthy();
       expect(memberMutationCalls()).toEqual([]);
 
-      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
 
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
       expect(screen.getByRole("button", { name: "Remove user" })).toBeTruthy();
       expect(memberMutationCalls()).toEqual([]);
     });
@@ -834,10 +837,12 @@ describe("Workspace action toast feedback", () => {
 
       await user.click(await screen.findByRole("button", { name: "Make owner" }));
 
-      expect(
-        screen.getByText("Make Grace Hopper the owner? You'll become an admin and can't undo this yourself."),
-      ).toBeTruthy();
+      const dialog = await screen.findByRole("alertdialog", { name: "Make Grace Hopper the owner?" });
+      expect(within(dialog).getByText("You'll become an admin and can't undo this yourself.")).toBeTruthy();
       expect(memberMutationCalls()).toEqual([]);
+
+      await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     });
 
     it("keeps the member modal open with a pending label until the removal settles", async () => {
@@ -851,17 +856,17 @@ describe("Workspace action toast feedback", () => {
       const user = await openMemberModal();
 
       await user.click(await screen.findByRole("button", { name: "Remove user" }));
-      await user.click(screen.getByRole("button", { name: "Remove Grace Hopper" }));
+      await confirmInDialog(user, "Remove Grace Hopper");
 
       const pendingButton = screen.getByRole("button", { name: "Removing…" });
       expect(pendingButton.disabled).toBe(true);
-      expect(screen.getByRole("dialog", { name: "Manage workspace user" })).toBeTruthy();
+      expect(screen.getByRole("dialog", { name: "Manage user" })).toBeTruthy();
       expect(memberMutationCalls()).toHaveLength(1);
 
       finishRemoval();
 
       await waitFor(() => {
-        expect(screen.queryByRole("dialog", { name: "Manage workspace user" })).toBeNull();
+        expect(screen.queryByRole("dialog", { name: "Manage user" })).toBeNull();
       });
       expect(toastMock.success).toHaveBeenCalledWith("Removed Grace Hopper from workspace");
     });
@@ -871,13 +876,13 @@ describe("Workspace action toast feedback", () => {
       const user = await openMemberModal();
 
       await user.click(await screen.findByRole("button", { name: "Remove user" }));
-      await user.click(screen.getByRole("button", { name: "Remove Grace Hopper" }));
+      await confirmInDialog(user, "Remove Grace Hopper");
 
-      await waitFor(() => {
-        expect(toastMock.error).toHaveBeenCalledWith("Workspace member action failed. Please try again.");
-      });
-      expect(screen.getByRole("dialog", { name: "Manage workspace user" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Remove Grace Hopper" }).disabled).toBe(false);
+      const dialog = await screen.findByRole("alertdialog");
+      expect(await within(dialog).findByText("You don't have permission to do that.")).toBeTruthy();
+      expect(toastMock.error).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog", { name: "Manage user" })).toBeTruthy();
+      expect(within(dialog).getByRole("button", { name: "Remove Grace Hopper" }).disabled).toBe(false);
     });
 
     it("shows friendly failure copy when a Workspace member action fails", async () => {
@@ -994,7 +999,6 @@ describe("Workspace action toast feedback", () => {
 
   it("confirms deleting a template and stays quiet when deletion is cancelled", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     globalThis.fetch.mockImplementation(
       mockTemplateFetch({
         id: "tpl_delete",
@@ -1009,12 +1013,14 @@ describe("Workspace action toast feedback", () => {
     await screen.findByRole("button", { name: "Save changes" });
 
     await user.click(screen.getByRole("button", { name: "Delete Template" }));
-
-    expect(confirmSpy).toHaveBeenCalledWith('Delete template "Delete Me"? This action cannot be undone.');
+    const cancelDialog = await screen.findByRole("alertdialog", { name: 'Delete "Delete Me"?' });
+    await user.click(within(cancelDialog).getByRole("button", { name: "Cancel" }));
     expect(toastMock.success).not.toHaveBeenCalledWith("Template deleted: Delete Me");
     expect(toastMock.error).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Delete Template" }));
+    const confirmDialogEl = await screen.findByRole("alertdialog", { name: 'Delete "Delete Me"?' });
+    await user.click(within(confirmDialogEl).getByRole("button", { name: "Delete template" }));
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Template deleted: Delete Me");
@@ -1319,12 +1325,12 @@ describe("Workspace action toast feedback", () => {
       await act(async () => {
         fireEvent.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
       });
-      expect(screen.getByRole("dialog", { name: "Upload document" })).toBeTruthy();
+      expect(screen.getByRole("dialog", { name: "Upload documents" })).toBeTruthy();
       expect(getPreview()).toBe(preview);
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
       });
-      expect(screen.queryByRole("dialog", { name: "Upload document" })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Upload documents" })).toBeNull();
       await act(async () => {
         fireEvent.click(screen.getByRole("checkbox", { name: "Select document job_completed_1" }));
       });
@@ -1339,7 +1345,7 @@ describe("Workspace action toast feedback", () => {
   );
 
   describe("document deletion", () => {
-    async function deleteOpenDocument(deleteResponse) {
+    async function deleteOpenDocument(deleteResponse, confirmName = "Delete document") {
       const user = userEvent.setup();
       routeFetch((url, method) => {
         if (url.endsWith("/jobs?group_packets=true") && method === "GET") return jobList(failedDocument());
@@ -1351,11 +1357,10 @@ describe("Workspace action toast feedback", () => {
 
       await user.click(screen.getByRole("link", { name: /Documents/ }));
       await user.click(screen.getByRole("button", { name: "Delete" }));
+      await confirmInDialog(user, confirmName);
     }
 
     it("confirms deleting a document", async () => {
-      vi.spyOn(window, "confirm").mockReturnValue(true);
-
       await deleteOpenDocument(jsonResponse({ deleted: true, job_id: "job_failed_1" }));
 
       await waitFor(() => {
@@ -1365,8 +1370,6 @@ describe("Workspace action toast feedback", () => {
     });
 
     it("treats delete 404 cleanup as already removed", async () => {
-      vi.spyOn(window, "confirm").mockReturnValue(true);
-
       await deleteOpenDocument(jsonResponse({ error: "already gone" }, { status: 404 }));
 
       await waitFor(() => {
@@ -1376,9 +1379,7 @@ describe("Workspace action toast feedback", () => {
     });
 
     it("stays quiet when document deletion confirmation is cancelled", async () => {
-      vi.spyOn(window, "confirm").mockReturnValue(false);
-
-      await deleteOpenDocument();
+      await deleteOpenDocument(undefined, "Cancel");
 
       expectNoToasts();
     });
@@ -1386,7 +1387,6 @@ describe("Workspace action toast feedback", () => {
 
   it("deletes all ticked documents as one bulk action", async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const deletedDocumentIds = [];
     routeFetch((url, method) => {
       if (url.endsWith("/jobs?group_packets=true") && method === "GET") {
@@ -1409,13 +1409,12 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getByRole("link", { name: /Documents/ }));
     await user.click(screen.getByRole("checkbox", { name: "Select all available documents" }));
     await user.click(screen.getByRole("button", { name: "Delete 2" }));
+    expect(await screen.findByRole("alertdialog", { name: "Delete 2 selected documents?" })).toBeTruthy();
+    await confirmInDialog(user, "Delete 2 documents");
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("2 documents deleted");
     });
-    expect(confirm).toHaveBeenCalledWith(
-      "Delete 2 selected documents? This will permanently remove them from the workspace.",
-    );
     expect(deletedDocumentIds.sort()).toEqual(["job_failed_1", "job_failed_2"]);
     expect(screen.queryByRole("checkbox", { name: "Select document job_failed_1" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "Select document job_failed_2" })).toBeNull();
@@ -1590,6 +1589,14 @@ function stubObjectUrls(url) {
   return { createObjectURL, revokeObjectURL };
 }
 
+// Confirmations render as an in-app alertdialog; the action button is scoped to the newest one,
+// so a dialog left open by an earlier test can't be matched.
+async function confirmInDialog(user, buttonName) {
+  const dialog = (await screen.findAllByRole("alertdialog")).at(-1);
+
+  await user.click(within(dialog).getByRole("button", { name: buttonName }));
+}
+
 function expectNoToasts() {
   expect(toastMock.success).not.toHaveBeenCalled();
   expect(toastMock.error).not.toHaveBeenCalled();
@@ -1597,7 +1604,7 @@ function expectNoToasts() {
 
 async function uploadFiles(user, container, files) {
   await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
-  fireEvent.change(container.querySelector('input[type="file"]'), { target: { files } });
+  fireEvent.change(document.querySelector('input[type="file"]'), { target: { files } });
   await user.click(screen.getByRole("button", { name: "Upload Documents" }));
 }
 

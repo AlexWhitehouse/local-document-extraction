@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { DocumentUploadPanel } from "../documents/DocumentUploadPanel.jsx";
-import { ModalHeader } from "../layout/ModalDialog.jsx";
+import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 
 export function TemplateGenerationModal({
   isOpen,
@@ -18,20 +19,22 @@ export function TemplateGenerationModal({
   onClose,
   onGenerate,
 }) {
-  const dialog = useRef(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const [uploadError, setUploadError] = useState("");
   useEffect(() => {
     if (!isOpen) return;
     setIsDragActive(false);
     setUploadError("");
-    const previous = document.activeElement;
-    dialog.current?.querySelector(".upload-dropzone")?.focus();
-
-    return () => previous?.focus();
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  // The sample and instructions are a draft, so closing asks first.
+  const isDirty = Boolean(file) || Boolean(instructions?.trim());
+
+  const requestClose = async () => {
+    if (!isDirty || (await confirmDialog({ ...DISCARD_CHANGES }))) onClose();
+  };
 
   function selectFiles(files) {
     if (files.length > 1) {
@@ -45,43 +48,14 @@ export function TemplateGenerationModal({
     if (files[0]) onFileChange(files[0]);
   }
 
-  function onKeyDown(event) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-    }
-
-    if (event.key !== "Tab") return;
-
-    const controls = [
-      ...dialog.current.querySelectorAll(
-        'input:not(:disabled):not([tabindex="-1"]), textarea:not(:disabled), button:not(:disabled)',
-      ),
-    ];
-
-    const first = controls[0];
-    const last = controls.at(-1);
-
-    if (event.shiftKey && (document.activeElement === first || !controls.includes(document.activeElement))) {
-      event.preventDefault();
-      last?.focus();
-    } else if (!event.shiftKey && (document.activeElement === last || !controls.includes(document.activeElement))) {
-      event.preventDefault();
-      first?.focus();
-    }
-  }
-
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        ref={dialog}
-        className="modal-card template-generation-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="template-generation-title"
-        onKeyDown={onKeyDown}
-        onClick={(event) => event.stopPropagation()}
-      >
+    <ModalDialog
+      labelledBy="template-generation-title"
+      className="template-generation-modal"
+      initialFocus=".upload-dropzone"
+      isDirty={isDirty}
+      onClose={onClose}
+    >
         <ModalHeader
           title="Auto generate template"
           titleId="template-generation-title"
@@ -141,7 +115,7 @@ export function TemplateGenerationModal({
           </p>
         )}
         <div className="actions">
-          <button type="button" className="secondary" onClick={onClose}>
+          <button type="button" className="secondary" onClick={requestClose}>
             Cancel
           </button>
           <button
@@ -152,8 +126,7 @@ export function TemplateGenerationModal({
             {isGenerating ? "Generating…" : error ? "Try again" : "Generate template"}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalDialog>
   );
 }
 

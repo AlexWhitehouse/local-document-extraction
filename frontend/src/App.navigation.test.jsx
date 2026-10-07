@@ -162,7 +162,6 @@ describe("stable app navigation", () => {
 
   it("preserves a Template draft across sections and rejects destructive history traversal", async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     open("/workspaces/a/templates/one");
     await screen.findByLabelText("Template name");
     await user.click(screen.getByRole("link", { name: /Template two/ }));
@@ -172,15 +171,15 @@ describe("stable app navigation", () => {
     await screen.findByText("Value first");
     await user.click(nav(/Templates/));
     expect(screen.getByLabelText("Template name").value).toBe("Unsaved edit");
-    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     await history("back");
     await history("back");
     await history("back");
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/a/templates/two"));
     expect(screen.getByLabelText("Template name").value).toBe("Unsaved edit");
-    expect(confirm).toHaveBeenCalledWith("Discard unsaved Template changes?");
-    confirm.mockReturnValue(true);
     await history("back");
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template one"));
     await history("forward");
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template two"));
@@ -188,15 +187,15 @@ describe("stable app navigation", () => {
 
   it("confirms a dirty Template before changing Workspace", async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     open("/workspaces/a/templates/one");
     await screen.findByLabelText("Template name");
     fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Unsaved" } });
     await user.click(nav(/Workspaces/));
     await user.click(screen.getByRole("link", { name: /Workspace b/ }));
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
     expect(window.location.pathname).toBe("/workspaces/a");
-    confirm.mockReturnValue(true);
     await user.click(screen.getByRole("link", { name: /Workspace b/ }));
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/b"));
     await user.click(nav(/Templates/));
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template one"));
@@ -210,7 +209,6 @@ describe("stable app navigation", () => {
 
   it("preserves temporary Evaluation uploads between sections and confirms Workspace changes", async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     open("/workspaces/a/evaluations");
     const input = await screen.findByLabelText("Evaluation document");
     await user.upload(input, new File(["test"], "evaluation.pdf", { type: "application/pdf" }));
@@ -219,16 +217,16 @@ describe("stable app navigation", () => {
     await screen.findByText("Value first");
     await history("back");
     expect(await screen.findByText("evaluation.pdf")).toBeTruthy();
-    expect(confirm).not.toHaveBeenCalled();
     const unload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
     await user.click(nav(/Workspaces/));
     await user.click(screen.getByRole("link", { name: /Workspace b/ }));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Discard this temporary Evaluation"));
+    expect(await screen.findByRole("alertdialog", { name: "Discard this evaluation?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Keep evaluation" }));
     expect(window.location.pathname).toBe("/workspaces/a");
-    confirm.mockReturnValue(true);
     await user.click(screen.getByRole("link", { name: /Workspace b/ }));
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
     await screen.findByRole("heading", { name: "Workspace b", exact: true });
     await user.click(nav(/Evaluations/));
     await screen.findByLabelText("Evaluation document");
@@ -237,7 +235,6 @@ describe("stable app navigation", () => {
 
   it("does not warn when leaving Evaluations with only a non-draft popover open", async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     open("/workspaces/a/evaluations");
     await screen.findByLabelText("Evaluation document");
     const popover = document.createElement("div");
@@ -245,15 +242,15 @@ describe("stable app navigation", () => {
     document.body.append(popover);
     await user.click(nav(/Documents/));
     await waitFor(() => expect(window.location.pathname).toMatch(/^\/workspaces\/a\/documents/));
-    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     popover.remove();
   });
 
   it("keeps a deleted Document URL on recovery and allows returning to the list", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     open("/workspaces/a/documents/first");
     await screen.findByText("Value first");
     await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    await userEvent.click(await screen.findByRole("button", { name: "Delete document" }));
     await screen.findByText(/This Document is unavailable/);
     expect(window.location.pathname).toBe("/workspaces/a/documents/first");
     await userEvent.click(screen.getByRole("button", { name: "Back to Documents" }));

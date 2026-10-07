@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { confirmDialog } from "../ui/confirm.jsx";
 
 const ADMIN_USERS_PAGE_SIZE = 25;
 
@@ -113,8 +114,9 @@ export function useApplicationAdminController({
     setSubmittedSearch({ field: searchField, value: searchInput.trim() });
   }
 
-  // Runs a Better Auth admin mutation for one user, then reloads the list.
-  async function mutateUser(user, toastAction, mutate, fallbackMessage) {
+  // Runs a Better Auth admin mutation for one user, then reloads the list. With `inline`,
+  // failures throw so a confirmation dialog can show them instead of a toast.
+  async function mutateUser(user, toastAction, mutate, fallbackMessage, { inline = false } = {}) {
     const userId = userIdOf(user);
 
     if (!userId) {
@@ -134,7 +136,9 @@ export function useApplicationAdminController({
       setReloadToken((current) => current + 1);
 
       return true;
-    } catch {
+    } catch (error) {
+      if (inline) throw error;
+
       showActionToast(toastAction, "failure");
 
       return false;
@@ -149,22 +153,27 @@ export function useApplicationAdminController({
     }
 
     const email = userLabel(user);
+    const removing = role === "user";
 
-    const message =
-      role === "user"
-        ? `Remove Application admin access from ${email}? This revokes application-wide account management access.`
-        : `Make ${email} an Application admin? This grants application-wide account management access.`;
-
-    if (!window.confirm(message)) {
-      return;
-    }
-
-    await mutateUser(
-      user,
-      "applicationRole.change",
-      (userId) => authClient.admin.setRole({ userId, role }),
-      "Unable to update application role.",
-    );
+    await confirmDialog({
+      title: removing
+        ? `Remove Application admin access from ${email}?`
+        : `Make ${email} an Application admin?`,
+      body: removing
+        ? "This revokes application-wide account management access."
+        : "This grants application-wide account management access.",
+      confirmLabel: "Change role",
+      pendingLabel: "Changing role…",
+      tone: "default",
+      action: () =>
+        mutateUser(
+          user,
+          "applicationRole.change",
+          (userId) => authClient.admin.setRole({ userId, role }),
+          "Unable to update application role.",
+          { inline: true },
+        ),
+    });
   }
 
   function openBanDialog(user) {
@@ -217,11 +226,16 @@ export function useApplicationAdminController({
       return;
     }
 
-    if (
-      !window.confirm(
-        `Start impersonating ${userLabel(user)}? You will leave the Admin page and enter this user's normal app experience.`,
-      )
-    ) {
+    const name = userLabel(user);
+
+    const confirmed = await confirmDialog({
+      title: `Impersonate ${name}?`,
+      body: "You'll leave the Admin page and enter this user's normal app experience.",
+      confirmLabel: `Impersonate ${name}`,
+      tone: "default",
+    });
+
+    if (!confirmed) {
       return;
     }
 

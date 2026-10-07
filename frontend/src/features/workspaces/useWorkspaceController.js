@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createWorkspaceRequestLayer } from "../../lib/appRuntime";
+import { confirmDialog } from "../ui/confirm.jsx";
 import { createWorkspaceRequestAdapter } from "./workspaceRequestAdapter";
 import {
   canShowWorkspaceUserAction,
@@ -300,42 +301,54 @@ export function useWorkspaceController({
       return;
     }
 
-    if (
-      selectedWorkspaceHasApiKey &&
-      !window.confirm(
-        "Rotate this Workspace API key? Existing external clients using the current key will stop working.",
-      )
-    ) {
-      return;
-    }
-
     const wasRotation = selectedWorkspaceHasApiKey;
-    setBusy(true);
+    let data = null;
 
-    try {
-      const data = await request(
-        `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/api-key`,
-        { method: "POST" },
-        true,
-        false,
-      );
+    const issueKey = async () => {
+      setBusy(true);
 
-      const rotatedWorkspaceId = data.workspace_id || normalizedWorkspaceId;
-      setWorkspaceId(rotatedWorkspaceId);
-      setApiKey(data.api_key || "");
-      setUserWorkspaces((prev) =>
-        prev.map((workspace) =>
-          String(workspace.id || "") === String(rotatedWorkspaceId) ? { ...workspace, has_api_key: true } : workspace,
-        ),
-      );
-      const copied = data.api_key ? await copyToClipboard(String(data.api_key)) : false;
-      const verb = wasRotation ? "rotate" : "generate";
-      showActionToast(`workspace.apiKey.${verb}.${copied ? "copied" : "manualCopy"}`, "success", data);
-    } catch (error) {
-      showActionToast(wasRotation ? "workspace.apiKey.rotate" : "workspace.apiKey.generate", "failure", { error });
-    } finally {
-      setBusy(false);
+      try {
+        data = await request(`/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/api-key`, { method: "POST" }, true, false);
+
+        const rotatedWorkspaceId = data.workspace_id || normalizedWorkspaceId;
+        setWorkspaceId(rotatedWorkspaceId);
+        setApiKey(data.api_key || "");
+        setUserWorkspaces((prev) =>
+          prev.map((workspace) =>
+            String(workspace.id || "") === String(rotatedWorkspaceId) ? { ...workspace, has_api_key: true } : workspace,
+          ),
+        );
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    if (wasRotation) {
+      // Rotation is confirmed first; a failed request stays inline in the dialog.
+      const confirmed = await confirmDialog({
+        title: "Rotate the API key?",
+        body: "Apps using the current key will stop working. This can't be undone.",
+        confirmLabel: "Rotate key",
+        pendingLabel: "Rotating…",
+        action: issueKey,
+      });
+
+      if (!confirmed) {
+        return;
+      }
+    } else {
+      try {
+        await issueKey();
+      } catch (error) {
+        showActionToast("workspace.apiKey.generate", "failure", { error });
+
+        return;
+      }
     }
+
+    const copied = data.api_key ? await copyToClipboard(String(data.api_key)) : false;
+    const verb = wasRotation ? "rotate" : "generate";
+    showActionToast(`workspace.apiKey.${verb}.${copied ? "copied" : "manualCopy"}`, "success", data);
   }
 
   // Resolves to the accepted Workspace that became selected, or null.
@@ -548,10 +561,15 @@ export function useWorkspaceController({
   );
 
   // Resolves to true when the member action succeeded, so the modal knows whether to close.
-  async function applyWorkspaceUserAction(targetUser, action) {
+  // With `inline`, failures throw so the caller's confirmation dialog can show them instead.
+  async function applyWorkspaceUserAction(targetUser, action, { inline = false } = {}) {
     const targetUserId = String(targetUser.user_id || "").trim();
 
     if (!normalizedWorkspaceId || !targetUserId) {
+      if (inline) {
+        throw new Error("This user can't be changed right now.");
+      }
+
       return false;
     }
 
@@ -576,6 +594,10 @@ export function useWorkspaceController({
 
       return true;
     } catch (error) {
+      if (inline) {
+        throw error;
+      }
+
       showActionToast(actionToast, "failure", { error });
 
       return false;
@@ -624,23 +646,30 @@ export function useWorkspaceController({
 
     const invitationEmail = String(invitation.email || "this invitation").trim();
 
-    if (!window.confirm(`Cancel pending invitation for ${invitationEmail}?`)) {
+    const cancelled = await confirmDialog({
+      title: `Cancel the invitation for ${invitationEmail}?`,
+      body: "They won't be able to accept it. This can't be undone.",
+      confirmLabel: "Cancel invitation",
+      cancelLabel: "Keep invitation",
+      pendingLabel: "Cancelling…",
+      action: () =>
+        request(
+          `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/invitations/${encodeURIComponent(invitationId)}`,
+          { method: "DELETE" },
+          true,
+          false,
+        ),
+    });
+
+    if (!cancelled) {
       return;
     }
 
     setBusy(true);
 
     try {
-      await request(
-        `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/invitations/${encodeURIComponent(invitationId)}`,
-        { method: "DELETE" },
-        true,
-        false,
-      );
       await listWorkspaceInvitations(normalizedWorkspaceId);
       showActionToast("workspaceInvitation.cancel", "success", { targetEmail: invitationEmail });
-    } catch (error) {
-      showActionToast("workspaceInvitation.cancel", "failure", { error });
     } finally {
       setBusy(false);
     }
@@ -741,14 +770,21 @@ export function useWorkspaceController({
 
     const savedName = selectedWorkspaceName.trim();
 
-    if (!window.confirm(`Delete ${savedName ? `"${savedName}"` : "this workspace"}? This action cannot be undone.`)) {
+    const deleted = await confirmDialog({
+      title: savedName ? `Delete "${savedName}"?` : "Delete this workspace?",
+      body: "Members lose access to it. This can't be undone.",
+      confirmLabel: "Delete workspace",
+      pendingLabel: "Deleting…",
+      action: () => workspaceRequests.deleteWorkspace(workspaceId),
+    });
+
+    if (!deleted) {
       return;
     }
 
     setIsDeletingWorkspace(true);
 
     try {
-      await workspaceRequests.deleteWorkspace(workspaceId);
       clearWorkspaceScopedData();
       setWorkspaceId("");
       setWorkspaceName("");
@@ -767,23 +803,51 @@ export function useWorkspaceController({
       return;
     }
 
-    if (!window.confirm("Leave this workspace? You will lose access unless you are invited again.")) {
+    let leaveResult = null;
+
+    const left = await confirmDialog({
+      title: "Leave this workspace?",
+      body: "You'll lose access unless someone invites you again.",
+      confirmLabel: "Leave workspace",
+      pendingLabel: "Leaving…",
+      action: async () => {
+        leaveResult = await workspaceRequests.leaveWorkspace(normalizedWorkspaceId);
+      },
+    });
+
+    if (!left) {
       return;
     }
 
     setIsDeletingWorkspace(true);
 
     try {
-      const data = await workspaceRequests.leaveWorkspace(normalizedWorkspaceId);
       await listWorkspaces({ ignoreRoute: true });
       showActionToast("workspace.leave", "success", {
-        replacementPersonalWorkspaceCreated: Boolean(data?.replacement_workspace),
+        replacementPersonalWorkspaceCreated: Boolean(leaveResult?.replacement_workspace),
       });
     } catch (error) {
       showActionToast("workspace.leave", "failure", { error });
     } finally {
       setIsDeletingWorkspace(false);
     }
+  }
+
+  // Selection stays synchronous unless a discard check has to ask first.
+  function whenSelectionAllowed(apply) {
+    const verdict = beforeWorkspaceSelection ? beforeWorkspaceSelection() : true;
+
+    if (verdict === true) {
+      apply();
+
+      return undefined;
+    }
+
+    if (verdict === false) return undefined;
+
+    return Promise.resolve(verdict).then((allowed) => {
+      if (allowed) apply();
+    });
   }
 
   function selectInvitedWorkspace(workspace) {
@@ -793,9 +857,10 @@ export function useWorkspaceController({
       return;
     }
 
-    if (beforeWorkspaceSelection && !beforeWorkspaceSelection()) return;
-    applyWorkspaceContextUpdate({ selectedWorkspaceInvitationId: String(workspace.invitation_id || "") });
-    onActivePageChange("workspace");
+    return whenSelectionAllowed(() => {
+      applyWorkspaceContextUpdate({ selectedWorkspaceInvitationId: String(workspace.invitation_id || "") });
+      onActivePageChange("workspace");
+    });
   }
 
   function selectAcceptedWorkspace(workspace) {
@@ -805,8 +870,13 @@ export function useWorkspaceController({
       return;
     }
 
-    if (workspace.id !== workspaceIdRef.current && beforeWorkspaceSelection && !beforeWorkspaceSelection()) return;
-    applyWorkspaceContextUpdate(selectAcceptedWorkspaceContext(workspace));
+    if (workspace.id === workspaceIdRef.current) {
+      applyWorkspaceContextUpdate(selectAcceptedWorkspaceContext(workspace));
+
+      return;
+    }
+
+    return whenSelectionAllowed(() => applyWorkspaceContextUpdate(selectAcceptedWorkspaceContext(workspace)));
   }
 
   function clearSessionWorkspaceData() {
@@ -955,7 +1025,7 @@ export function useWorkspaceController({
         : [],
       busy: isAppBusy,
       onClose: () => setWorkspaceUserActionTarget(null),
-      onApplyAction: (action) => applyWorkspaceUserAction(workspaceUserActionTarget, action),
+      onApplyAction: (action, options) => applyWorkspaceUserAction(workspaceUserActionTarget, action, options),
     },
     actions: {
       clearSessionWorkspaceData,

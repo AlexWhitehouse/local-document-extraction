@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useId } from "react";
 import "./DocumentProcessing.css";
 import { DocumentUploadPanel } from "./DocumentUploadPanel.jsx";
-import { ModalHeader } from "../layout/ModalDialog.jsx";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { ModalDialog, ModalFooter, ModalHeader } from "../layout/ModalDialog.jsx";
 
 export function DocumentUploadModal({
   isOpen,
@@ -24,84 +25,86 @@ export function DocumentUploadModal({
   onRemoveSourceFile,
   onSubmit,
 }) {
+  const titleId = useId();
+
   if (!isOpen) {
     return null;
   }
 
+  const isDirty = !isUploadingDocuments && sourceFiles.length > 0;
+
+  // Cancel asks before discarding picked files; the upload itself is never aborted.
+  async function requestClose() {
+    if (!isDirty || (await confirmDialog(DISCARD_CHANGES))) onClose();
+  }
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Upload document"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <ModalHeader
-          title="Upload Document"
-          description="Choose a template or tags for automatic selection, then add your source files."
-          onClose={onClose}
-        />
-        <div className="row">
-          <label>
-            Template
-            <select
-              data-tour="upload-template"
-              value={selectedTemplateId}
-              onChange={(event) => onSelectTemplate(event.target.value)}
-            >
-              <option value="">Select template</option>
-              <option value="automatic">Automatic — select by tags</option>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {selectedTemplateId === "automatic" ? (
-            <UploadTagPicker
-              tags={availableTags}
-              templates={templates}
-              selectedTags={selectedTags}
-              disabled={isUploadingDocuments}
-              onChange={onSelectTags}
-            />
-          ) : null}
-          <DocumentUploadPanel
-            sourceFiles={sourceFiles}
-            isDragActive={isDragActive}
-            disabled={isUploadingDocuments}
-            maxSourceFileBytes={maxSourceFileBytes}
-            onSelectSourceFiles={onSelectSourceFiles}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-            onRemoveSourceFile={onRemoveSourceFile}
-            tourTarget="upload-files"
-          />
-        </div>
-        <div className="actions">
-          <button type="button" className="secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            data-tour="upload-submit"
-            disabled={
-              isUploadingDocuments ||
-              !hasApiAccess ||
-              !sourceFiles.length ||
-              !selectedTemplateId ||
-              (selectedTemplateId === "automatic" && !selectedTags.length)
-            }
-            onClick={onSubmit}
+    <ModalDialog labelledBy={titleId} isDirty={isDirty} onClose={onClose}>
+      <ModalHeader
+        titleId={titleId}
+        title="Upload documents"
+        description="Choose a template or tags for automatic selection, then add your source files."
+        onClose={onClose}
+      />
+      <div className="row">
+        <label>
+          Template
+          <select
+            data-tour="upload-template"
+            value={selectedTemplateId}
+            onChange={(event) => onSelectTemplate(event.target.value)}
           >
-            {isUploadingDocuments ? "Uploading…" : "Upload Documents"}
-          </button>
-        </div>
+            <option value="">Select template</option>
+            <option value="automatic">Automatic — select by tags</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedTemplateId === "automatic" ? (
+          <UploadTagPicker
+            tags={availableTags}
+            templates={templates}
+            selectedTags={selectedTags}
+            disabled={isUploadingDocuments}
+            onChange={onSelectTags}
+          />
+        ) : null}
+        <DocumentUploadPanel
+          sourceFiles={sourceFiles}
+          isDragActive={isDragActive}
+          disabled={isUploadingDocuments}
+          maxSourceFileBytes={maxSourceFileBytes}
+          onSelectSourceFiles={onSelectSourceFiles}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          onRemoveSourceFile={onRemoveSourceFile}
+          tourTarget="upload-files"
+        />
       </div>
-    </div>
+      <ModalFooter>
+        <button type="button" className="secondary" onClick={requestClose}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          data-tour="upload-submit"
+          disabled={
+            isUploadingDocuments ||
+            !hasApiAccess ||
+            !sourceFiles.length ||
+            !selectedTemplateId ||
+            (selectedTemplateId === "automatic" && !selectedTags.length)
+          }
+          onClick={onSubmit}
+        >
+          {isUploadingDocuments ? "Uploading…" : "Upload Documents"}
+        </button>
+      </ModalFooter>
+    </ModalDialog>
   );
 }
 

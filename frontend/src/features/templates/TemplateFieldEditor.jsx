@@ -4,6 +4,7 @@ import { diagnoseTemplateDraft, groupIssuesByLocation } from "../../../../shared
 import { focusDiagnostic } from "./focusDiagnostic.js";
 import { DiagnosticMessages } from "./TemplateDiagnostics.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
+import { ModalDialog } from "../layout/ModalDialog.jsx";
 
 import {
   DATA_TYPES,
@@ -486,7 +487,7 @@ function ObjectSchemaModal({
   onRemoveColumn,
   onClose,
 }) {
-  const dialogRef = useRef(null);
+  const headRef = useRef(null);
   const prefix = useId();
   const at = (columnIndex, property) => `column:${fieldIndex}:${columnIndex}:${property}`;
 
@@ -499,51 +500,20 @@ function ObjectSchemaModal({
   const messages = (key) => <DiagnosticMessages compact id={`${prefix}-${key}`} issues={grouped.byKey.get(key)} />;
   useEffect(() => {
     if (focusRequest?.issue?.location?.scope !== "column") return;
-    const timer = setTimeout(() => focusDiagnostic(dialogRef.current, focusRequest.issue.location), 0);
+    const timer = setTimeout(() => focusDiagnostic(headRef.current?.closest(".modal-card"), focusRequest.issue.location), 0);
 
     return () => clearTimeout(timer);
   }, [focusRequest]);
-  useEffect(() => {
-    const previousFocus = document.activeElement;
-    dialogRef.current?.querySelector("button:not(:disabled)")?.focus();
-
-    return () => previousFocus?.focus();
-  }, []);
-
-  function keepFocusInDialog(event) {
-    if (event.key !== "Tab") return;
-
-    const controls = Array.from(
-      dialogRef.current.querySelectorAll(
-        "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
-      ),
-    );
-
-    const first = controls[0];
-    const last = controls.at(-1);
-
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last?.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first?.focus();
-    }
-  }
 
   return (
-    <div className="modal-backdrop object-schema-modal-backdrop" onClick={onClose}>
-      <div
-        ref={dialogRef}
-        className="modal-card object-schema-modal"
-        data-tour="schema-editor"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="object-schema-modal-title"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={keepFocusInDialog}
-      >
-        <div className="object-schema-modal-head">
+    <ModalDialog
+      labelledBy="object-schema-modal-title"
+      className="object-schema-modal"
+      data-tour="schema-editor"
+      initialFocus="button:not(:disabled)"
+      onClose={onClose}
+    >
+        <div className="object-schema-modal-head" ref={headRef}>
           <div>
             <p className="eyebrow">{fieldName || "Object Field"}</p>
             <h2 id="object-schema-modal-title">Object schema builder</h2>
@@ -685,7 +655,6 @@ function ObjectSchemaModal({
             Done
           </button>
         </div>
-      </div>
-    </div>
+    </ModalDialog>
   );
 }

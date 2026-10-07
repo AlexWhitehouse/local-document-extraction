@@ -45,7 +45,7 @@
 .tour-popover .tour-hint { color: var(--text-2); font-size: 11px; line-height: 1.5; }
 .tour-popover p.tour-hint { margin-top: 12px; }
 /* Reserve room for the guide while the wide schema editor is spotlighted. */
-.object-schema-modal-backdrop:has([data-tour="schema-editor"][aria-describedby~="tour-description"]) {
+.modal-backdrop:has(> .object-schema-modal[data-tour="schema-editor"][aria-describedby~="tour-description"]) {
   padding-top: 320px;
 }
 [data-tour="schema-editor"][aria-describedby~="tour-description"] {

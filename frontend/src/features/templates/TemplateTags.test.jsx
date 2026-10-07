@@ -53,7 +53,6 @@ describe("Template tag dropdown", () => {
       .mockResolvedValue(true);
 
     const onDelete = vi.fn().mockResolvedValue(true);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     render(
       <TemplateTags tags={[invoice]} value={["invoice"]} onChange={vi.fn()} onRename={onRename} onDelete={onDelete} />,
     );
@@ -69,9 +68,15 @@ describe("Template tag dropdown", () => {
     expect(onRename).toHaveBeenLastCalledWith(invoice, "Finance");
     expect(screen.queryByLabelText("New tag name")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Delete invoice" }));
+    const dialog = await screen.findByRole("alertdialog", { name: 'Delete tag "invoice"?' });
+    expect(dialog.textContent).toContain("Removes it from 2 templates.");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onDelete).not.toHaveBeenCalled();
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("removes it from 2 templates across this Workspace"));
+
+    await user.click(screen.getByRole("button", { name: "Template tags" }));
+    await user.click(screen.getByRole("button", { name: "Manage tags" }));
     await user.click(screen.getByRole("button", { name: "Delete invoice" }));
+    await user.click(await screen.findByRole("button", { name: "Delete tag" }));
     expect(onDelete).toHaveBeenCalledWith(invoice);
   });
 

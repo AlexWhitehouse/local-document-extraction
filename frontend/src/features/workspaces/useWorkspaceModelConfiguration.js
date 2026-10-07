@@ -224,7 +224,8 @@ export function useWorkspaceModelConfiguration({
     });
   };
 
-  async function mutate(clear = false) {
+  // With `inline`, failures throw (no toast) so a confirmation dialog can show them.
+  async function mutate(clear = false, { inline = false } = {}) {
     const snapshot = current.current;
 
     if (!scope || snapshot.scope !== scope || !canManage || snapshot.saving || snapshot.conflict) return false;
@@ -275,9 +276,11 @@ export function useWorkspaceModelConfiguration({
               : "",
         }));
 
-        if (error.status !== 412)
+        if (error.status !== 412 && !inline)
           notify.current?.(clear ? "workspace.modelGateway.clear" : "workspace.modelGateway.save", "failure");
       }
+
+      if (inline) throw error;
 
       return false;
     } finally {
@@ -370,7 +373,7 @@ export function useWorkspaceModelConfiguration({
     update,
     discard,
     save: () => mutate(),
-    clear: () => mutate(true),
+    clear: (options) => mutate(true, options),
     testConnection,
     reload: () => load(),
     invalidate: () => load(true),

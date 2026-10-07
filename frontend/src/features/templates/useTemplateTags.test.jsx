@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useTemplateController } from "./useTemplateController.js";
 
@@ -84,6 +84,14 @@ const server = () => {
 };
 
 afterEach(() => vi.restoreAllMocks());
+
+// Confirms or cancels the in-app dialog that delete flows open.
+async function answerDialog(name) {
+  const button = await screen.findByRole("button", { name });
+  await act(async () => {
+    fireEvent.click(button);
+  });
+}
 
 describe("Template tag draft lifetime", () => {
   it("creates associations only on Save, resets abandoned drafts, and navigates to stored tags", async () => {
@@ -183,11 +191,12 @@ describe("Template tag draft lifetime", () => {
 
   it("refreshes shared tag counts after deleting a template", async () => {
     const request = server();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
     await act(async () => result.current.contextList.onSelectTemplate("one"));
     expect(result.current.templatePage.tagPicker.tags[0].template_count).toBe(1);
-    await act(() => result.current.toolbar.onDeleteTemplate());
+    const deleting = result.current.toolbar.onDeleteTemplate();
+    await answerDialog("Delete template");
+    await act(() => deleting);
     expect(result.current.templatePage.tagPicker.tags[0].template_count).toBe(0);
     expect(result.current.templatePage.templateTags).toEqual([]);
   });

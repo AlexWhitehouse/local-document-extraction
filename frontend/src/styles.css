@@ -1252,16 +1252,13 @@ input[type="checkbox"]:disabled {
   to { opacity: 1; }
 }
 
-.settings-modal-backdrop {
-  position: fixed;
-  inset: 0;
+.modal-backdrop:has(> .settings-modal) {
   z-index: 50;
   padding: 24px;
-  display: grid;
-  place-items: center;
-  background: rgba(2, 4, 8, 0.8);
-  backdrop-filter: blur(2px);
-  animation: modal-backdrop-in 160ms ease-out both;
+}
+
+.modal-card.settings-modal {
+  padding: 0;
 }
 
 .settings-modal {
@@ -2339,7 +2336,7 @@ button.modal-close:hover:not(:disabled) {
   flex: 0 0 auto;
 }
 
-.modal-backdrop.object-schema-modal-backdrop {
+.modal-backdrop:has(> .object-schema-modal) {
   z-index: 45;
 }
 
@@ -3004,7 +3001,7 @@ details summary:hover {
 }
 
 @media (max-width: 700px) {
-  .settings-modal-backdrop {
+  .modal-backdrop:has(> .settings-modal) {
     padding: 10px;
   }
 
@@ -3112,7 +3109,6 @@ details summary:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settings-modal-backdrop,
   .settings-modal,
   .modal-backdrop,
   .modal-backdrop > .modal-card {
@@ -3235,4 +3231,28 @@ details summary:hover {
 
 :root [data-sonner-toaster] [data-sonner-toast] [data-description] {
   color: var(--text-2);
+}
+
+.modal-card.confirm-dialog {
+  width: min(420px, 100%);
+}
+
+.confirm-dialog-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.confirm-dialog-body {
+  margin: 0 0 12px;
+  color: var(--text-2);
+}
+
+.confirm-dialog-actions {
+  justify-content: flex-end;
+}
+
+/* Confirmation prompts can open above another dialog. */
+.modal-backdrop:has(> .confirm-dialog) {
+  z-index: 60;
 }
