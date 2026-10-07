@@ -9,10 +9,8 @@
   padding: 0 28px 40px;
   container-type: inline-size;
 }
-.studio-main button { height: 28px; padding: 0 11px; font-size: 11.5px; font-weight: 500; }
-.studio-main input:not([type="checkbox"]), .studio-main select { height: 30px; min-height: 0; padding: 5px 9px; font-size: 12px; }
-.studio-main textarea { padding: 6px 9px; font-size: 12px; min-height: 64px; line-height: 1.55; }
-.studio-main label { color: #a0aec1; font-size: 11px; font-weight: 400; gap: 5px; }
+/* Control sizes (buttons, fields, labels) come from styles.css; Studio pages only tighten textareas. */
+.studio-main textarea { min-height: 64px; }
 /* A full-width title bar that lines up with the sidebar pane headers. */
 .studio-page-heading {
   display: grid;
@@ -121,36 +119,36 @@ button.studio-text-button.studio-save-action { color: var(--accent-strong); }
 /* Template: independently scrollable outline and inspector. */
 .studio-template-page { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
 .studio-template-meta { display: grid; grid-template-columns: 1fr 2fr; gap: 18px; padding: 16px 0; border-bottom: 1px solid var(--studio-rule); flex-shrink: 0; }
-.studio-main .field-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; padding: 0; margin: 0; border: 0; background: transparent; }
-.studio-main .field-studio { display: grid; grid-template-columns: 232px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; min-height: 0; height: clamp(320px, 60dvh, 700px); overflow: hidden; }
-.studio-main .field-nav, .studio-main .field-detail { min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; scrollbar-gutter: stable; }
-.studio-main .field-nav:focus-visible, .studio-main .field-detail:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-.studio-main .field-nav { max-height: none; gap: 0; border-right: 1px solid var(--studio-rule); padding: 0; }
-.studio-main .field-nav[data-scroll-bottom="true"] { --scroll-fade-bottom: 48px; }
-.studio-main .field-nav-item { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 8px; width: 100%; height: auto; min-height: 34px; padding: 6px 12px 6px 4px; border: 0; border-bottom: 1px solid var(--studio-rule); background: transparent; color: #b8c8db; text-align: left; }
-.studio-main .field-nav-item:hover:not(:disabled) { transform: none; background: var(--row-hover); }
-.studio-main .field-nav-item.active { background: var(--row-selected); box-shadow: inset 2px 0 var(--accent); color: #d9f5ef; }
+.field-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; padding: 0; margin: 0; border: 0; background: transparent; }
+.field-studio { display: grid; grid-template-columns: 232px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; min-height: 0; height: clamp(320px, 60dvh, 700px); overflow: hidden; }
+.field-nav, .field-detail { min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; scrollbar-gutter: stable; }
+.field-nav:focus-visible, .field-detail:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.field-nav { max-height: none; gap: 0; border-right: 1px solid var(--studio-rule); padding: 0; }
+.field-nav[data-scroll-bottom="true"] { --scroll-fade-bottom: 48px; }
+.field-nav-item { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 8px; width: 100%; height: auto; min-height: 34px; padding: 6px 12px 6px 4px; border: 0; border-bottom: 1px solid var(--studio-rule); background: transparent; color: #b8c8db; text-align: left; }
+.field-nav-item:hover:not(:disabled) { transform: none; background: var(--row-hover); }
+.field-nav-item.active { background: var(--row-selected); box-shadow: inset 2px 0 var(--accent); color: #d9f5ef; }
 .studio-row-number { color: #536980; font: 10px var(--font-mono); }
-.studio-main .field-nav-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
-.studio-main .field-nav-label strong { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.studio-main .field-nav-label span { flex-shrink: 0; color: #70849b; font: 10px var(--font-mono); }
-.studio-main .studio-add-field { border: 0; background: transparent; color: var(--accent); text-align: left; font-size: 11.5px; height: auto; min-height: 34px; padding: 6px 12px 6px 34px; }
-.studio-main .studio-add-field:hover:not(:disabled) { background: var(--row-hover); color: var(--accent-strong); transform: none; }
-.studio-main .field-detail { border: 0; background: transparent; padding: 16px 6px 16px 24px; }
-.studio-main .field-detail-head { display: block; padding: 0; margin: 0 0 16px; border: 0; }
-.studio-main .field-detail-head h2 { margin: 6px 0 3px; font: 500 17px var(--font-display); letter-spacing: -.02em; }
-.studio-main .field-detail-head p:not(.studio-eyebrow) { margin: 0; color: var(--studio-muted); font-size: 12px; }
-.studio-main .field-detail > .row { margin-bottom: 11px; gap: 12px; }
-.studio-main .field-detail textarea { min-height: 72px; line-height: 1.6; }
+.field-nav-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.field-nav-label strong { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-nav-label span { flex-shrink: 0; color: #70849b; font: 10px var(--font-mono); }
+.studio-add-field { border: 0; background: transparent; color: var(--accent); text-align: left; font-size: 11.5px; height: auto; min-height: 34px; padding: 6px 12px 6px 34px; }
+.studio-add-field:hover:not(:disabled) { background: var(--row-hover); color: var(--accent-strong); transform: none; }
+.field-detail { border: 0; background: transparent; padding: 16px 6px 16px 24px; }
+.field-detail-head { display: block; padding: 0; margin: 0 0 16px; border: 0; }
+.field-detail-head h2 { margin: 6px 0 3px; font: 500 17px var(--font-display); letter-spacing: -.02em; }
+.field-detail-head p:not(.studio-eyebrow) { margin: 0; color: var(--studio-muted); font-size: 12px; }
+.field-detail > .row { margin-bottom: 11px; gap: 12px; }
+.field-detail textarea { min-height: 72px; line-height: 1.6; }
 .studio-field-id { display: flex; gap: 14px; font-size: 10px; color: var(--studio-muted); margin: 12px 0; }
 .studio-field-id code { font: 10px var(--font-mono); overflow-wrap: anywhere; }
-.studio-main .field-controls { border: 0; background: transparent; padding: 0; margin-top: 12px; gap: 12px; }
+.field-controls { border: 0; background: transparent; padding: 0; margin-top: 12px; gap: 12px; }
 .studio-field-order, .studio-field-save { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
 .studio-field-save { margin-left: auto; gap: 16px; flex-wrap: nowrap; }
-.studio-main .field-controls .studio-text-button { font-size: 11px; }
-.studio-main .object-schema-launch { border: 0; border-top: 1px solid var(--studio-rule); background: transparent; padding: 12px 0 0; margin-top: 14px; }
+.field-controls .studio-text-button { font-size: 11px; }
+.object-schema-launch { border: 0; border-top: 1px solid var(--studio-rule); background: transparent; padding: 12px 0 0; margin-top: 14px; }
 .studio-editor-footer { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 8px; border-top: 1px solid var(--studio-rule); color: var(--studio-muted); font: 10.5px var(--font-mono); }
-.studio-main .studio-generate-button { min-height: 28px; padding: 0 11px; font-size: 11.5px; }
+.studio-generate-button { min-height: 28px; padding: 0 11px; font-size: 11.5px; }
 
 /* Document: a ledger of values and evidence; structured fields retain their own columns. */
 /* Sized for the 26px view switch so a packet's summary and its documents' summaries sit level. */
@@ -211,8 +209,8 @@ button.studio-text-button.studio-save-action { color: var(--accent-strong); }
   .studio-workspace-settings { gap: 22px; }
   .studio-workspace-model-settings { padding-left: 22px; }
   .studio-main .workspace-model-fields { grid-template-columns: 1fr; }
-  .studio-main .field-studio { grid-template-columns: 195px minmax(0, 1fr); }
-  .studio-main .field-detail { padding-left: 20px; }
+  .field-studio { grid-template-columns: 195px minmax(0, 1fr); }
+  .field-detail { padding-left: 20px; }
   .studio-confidence-track { width: 22px; }
   .studio-main .studio-results-table tbody :is(th, td) { padding-inline: 8px; }
 }
@@ -220,9 +218,9 @@ button.studio-text-button.studio-save-action { color: var(--accent-strong); }
   .studio-workspace-settings { grid-template-columns: 1fr; }
   .studio-workspace-model-settings { border-left: 0; border-top: 1px solid var(--studio-rule); padding: 20px 0 0; }
   .studio-template-meta { grid-template-columns: 1fr; gap: 14px; }
-  .studio-main .field-studio { grid-template-columns: 150px minmax(0, 1fr); }
-  .studio-main .field-detail { padding-left: 16px; }
-  .studio-main .field-detail .row.two-up { grid-template-columns: 1fr; }
+  .field-studio { grid-template-columns: 150px minmax(0, 1fr); }
+  .field-detail { padding-left: 16px; }
+  .field-detail .row.two-up { grid-template-columns: 1fr; }
   .studio-main .studio-results-table { min-width: 540px; }
   .studio-document-summary time { margin-left: 0; }
 }
@@ -233,8 +231,8 @@ button.studio-text-button.studio-save-action { color: var(--accent-strong); }
   .studio-heading-actions button { font-size: 10px; padding-inline: 7px; }
   .studio-invite-form { grid-template-columns: minmax(0, 1fr) 100px; }
   .studio-user-role small { display: none; }
-  .studio-main .field-studio { grid-template-columns: 115px minmax(0, 1fr); }
-  .studio-main .field-nav-item { grid-template-columns: minmax(0, 1fr); }
+  .field-studio { grid-template-columns: 115px minmax(0, 1fr); }
+  .field-nav-item { grid-template-columns: minmax(0, 1fr); }
   .studio-row-number { display: none; }
 }
 

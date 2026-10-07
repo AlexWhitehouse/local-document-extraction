@@ -14,8 +14,7 @@
 /* Shared pieces */
 .evaluation-muted { color: var(--text-3); }
 .evaluation-bad-text { margin: 0; color: var(--rose-text); font-size: 11px; }
-.evaluation-warn-text { color: var(--amber-text) !important; }
-.studio-main .studio-text-button.evaluation-danger-text, .evaluation-menu .studio-text-button.evaluation-danger-text { color: var(--rose-muted); }
+.studio-text-button.evaluation-danger-text, .evaluation-menu .studio-text-button.evaluation-danger-text { color: var(--rose-muted); }
 .evaluation-index { font: 10px var(--font-mono); color: var(--text-3); font-variant-numeric: tabular-nums; }
 .evaluation-type { display: block; margin-top: 3px; color: var(--text-3); font: 9.5px var(--font-mono); letter-spacing: .04em; }
 .evaluation-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
@@ -39,7 +38,6 @@
 .evaluation-meter i { display: block; height: 100%; background: var(--text-3); transition: width 300ms ease; }
 .evaluation-meter.best i { background: var(--meter-fill); }
 label.evaluation-check { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--text-1); font-size: 11.5px; font-weight: 400; }
-.studio-main .icon-action-button { width: 26px; height: 26px; padding: 0; display: inline-grid; place-items: center; }
 
 /* Context bar and filters */
 .evaluation-contextbar { display: grid; grid-template-columns: minmax(0, 1.3fr) auto minmax(0, 1.1fr) minmax(170px, .8fr); border-bottom: 1px solid var(--rule); }
@@ -49,8 +47,7 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-context-item small { font: 9.5px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
 .evaluation-context-value { max-width: 100%; font-size: 12px; color: var(--text-0); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .evaluation-context-actions { display: flex; gap: 14px; }
-.studio-main .evaluation-context-actions .studio-text-button { min-height: 0; color: var(--accent-strong); }
-.studio-main .evaluation-context-item input { height: 26px; }
+.evaluation-context-actions .studio-text-button { min-height: 0; color: var(--accent-strong); }
 .evaluation-context-progress .evaluation-meter { width: 100%; }
 .evaluation-toolbar-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; }
 .evaluation-toolbar-row:has(.evaluation-doc-nav) { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; }
@@ -58,7 +55,7 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-toolbar-row .evaluation-doc-nav { grid-column: 2; }
 
 /* Matrix */
-.evaluation-body { flex: 1 !important; min-height: 180px; display: grid; grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--rule); }
+.evaluation-body { flex: 1; min-height: 180px; display: grid; grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--rule); }
 .evaluation-body.inspecting { grid-template-columns: minmax(0, 1fr) 360px; }
 .evaluation-comparison-scroll { overflow: auto; min-height: 0; }
 .evaluation-matrix { border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; font-size: 12px; background: transparent; }
@@ -68,17 +65,17 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-matrix thead th { position: sticky; top: 0; z-index: 2; background: var(--pane-nav); vertical-align: bottom; border-bottom-color: var(--rule-strong); }
 .evaluation-matrix thead th.evaluation-field-col, .evaluation-matrix thead th.evaluation-expected-col { z-index: 3; }
 .evaluation-matrix thead th.evaluation-candidate, .evaluation-matrix thead th.evaluation-add-col { font: 400 12px var(--font-body); letter-spacing: normal; text-transform: none; color: var(--text-0); }
-.evaluation-field-col { width: 180px; position: sticky; left: 0; z-index: 1; padding-left: var(--evaluation-page-gutter) !important; }
+.evaluation-matrix .evaluation-field-col { width: 180px; position: sticky; left: 0; z-index: 1; padding-left: var(--evaluation-page-gutter); }
 /* The sticky column's divider is drawn inside its own box so it can't cover the first candidate cell's selection outline. */
-.evaluation-expected-col { width: 210px; position: sticky; left: 180px; z-index: 1; background: var(--pane-raised) !important; box-shadow: inset -1px 0 0 var(--rule-strong); }
+.evaluation-matrix .evaluation-expected-col { width: 210px; position: sticky; left: 180px; z-index: 1; background: var(--pane-raised); box-shadow: inset -1px 0 0 var(--rule-strong); }
 .evaluation-matrix tbody th.evaluation-field-col { background: var(--pane-raised); }
 .evaluation-matrix tbody th strong { font-weight: 500; font-size: 12px; color: var(--text-0); }
-.studio-main .evaluation-compare-link.studio-text-button { display: block; margin-top: 6px; min-height: 0; font-size: 10.5px; color: var(--accent-strong); white-space: normal; text-align: left; }
+.evaluation-compare-link.studio-text-button { display: block; margin-top: 6px; min-height: 0; font-size: 10.5px; color: var(--accent-strong); white-space: normal; text-align: left; }
 .evaluation-candidate { width: 220px; }
 .evaluation-candidate-top { display: flex; align-items: center; gap: 6px; }
-.studio-main .evaluation-candidate-top input:not([type=checkbox]) { flex: 1; min-width: 0; height: 26px; padding: 3px 6px; border-color: transparent; background: transparent; font-weight: 500; font-size: 12px; }
-.studio-main .evaluation-candidate-top input:not([type=checkbox]):hover { border-color: var(--rule-strong); }
-.studio-main .evaluation-candidate-top input:not([type=checkbox]):focus { border-color: var(--accent); background: var(--field-bg); }
+.evaluation-candidate-top input:not([type=checkbox]) { flex: 1; min-width: 0; height: 26px; padding: 3px 6px; border-color: transparent; background: transparent; font-weight: 500; font-size: 12px; }
+.evaluation-candidate-top input:not([type=checkbox]):hover { border-color: var(--rule-strong); }
+.evaluation-candidate-top input:not([type=checkbox]):focus { border-color: var(--accent); background: var(--field-bg); }
 .evaluation-candidate-top strong { flex: 1; min-width: 0; padding: 0 6px; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .evaluation-candidate-score { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 6px 8px; margin: 8px 0; }
 .evaluation-candidate-score strong { font: 500 22px/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
@@ -89,33 +86,33 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-candidate-alert { margin: 0 0 6px; font-size: 10.5px; color: var(--rose-text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .evaluation-candidate-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .evaluation-candidate-foot small { flex: 1; min-width: 0; font: 10px var(--font-mono); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.studio-main .evaluation-candidate-foot button { flex-shrink: 0; width: 28px; height: 24px; padding: 0; font-size: 10px; }
+.evaluation-candidate-foot button { flex-shrink: 0; width: 28px; height: 24px; padding: 0; font-size: 10px; }
 .evaluation-add-col { width: 160px; }
 .evaluation-matrix thead .evaluation-add-col { vertical-align: middle; }
 .evaluation-add-col small { display: block; margin-top: 6px; font: 10px var(--font-mono); color: var(--text-3); }
 /* A 1px cell height lets the answer button stretch to the full row height. */
 .evaluation-matrix td.evaluation-cell { height: 1px; padding: 0; }
-.evaluation-cell.mismatch { background: rgba(255, 111, 143, .045) !important; }
-.evaluation-matrix td.evaluation-cell:has(.evaluation-cell-button:hover) { background: var(--row-hover) !important; }
-.evaluation-matrix td.evaluation-cell.mismatch:has(.evaluation-cell-button:hover) { background: rgba(255, 111, 143, .09) !important; }
+.evaluation-cell.mismatch { background: rgba(255, 111, 143, .045); }
+.evaluation-matrix td.evaluation-cell:has(.evaluation-cell-button:hover) { background: var(--row-hover); }
+.evaluation-matrix td.evaluation-cell.mismatch:has(.evaluation-cell-button:hover) { background: rgba(255, 111, 143, .09); }
 .evaluation-cell.active { box-shadow: inset 0 0 0 1px var(--accent); }
 .evaluation-cell > .evaluation-muted { display: block; padding: 9px 12px; font-size: 11px; }
-.studio-main .evaluation-cell-button { display: flex; align-items: flex-start; gap: 8px; width: 100%; height: 100%; min-height: 44px; padding: 9px 12px; border: 0; background: transparent; color: var(--text-0); text-align: left; font-weight: 400; font-size: 12px; white-space: normal; }
-.studio-main .evaluation-cell-button:hover:not(:disabled) { background: transparent; }
+.evaluation-cell-button { display: flex; align-items: flex-start; gap: 8px; width: 100%; height: 100%; min-height: 44px; padding: 9px 12px; border: 0; background: transparent; color: var(--text-0); text-align: left; font-weight: 400; font-size: 12px; white-space: normal; }
+.evaluation-cell-button:hover:not(:disabled) { background: transparent; }
 .evaluation-cell-value { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .evaluation-cell-value code { font: 11px var(--font-mono); }
 .evaluation-cell-value small { color: var(--rose-text); font-size: 10.5px; }
 
 /* Expected answers */
-.studio-main .evaluation-expected-button { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; min-height: 28px; padding: 5px 8px; border: 1px dashed var(--rule-strong); background: transparent; color: var(--text-1); font-size: 12px; font-weight: 400; text-align: left; white-space: normal; overflow-wrap: anywhere; }
-.studio-main .evaluation-expected-button.verified { border-style: solid; border-color: rgba(25, 193, 180, .3); background: rgba(25, 193, 180, .05); color: var(--text-0); }
-.studio-main .evaluation-expected-button.verified::before { content: "✓"; color: var(--accent); font: 600 10px var(--font-mono); }
-.studio-main .evaluation-expected-button:hover:not(:disabled) { border-color: var(--accent); background: var(--row-hover); }
+.evaluation-expected-button { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; min-height: 28px; padding: 5px 8px; border: 1px dashed var(--rule-strong); background: transparent; color: var(--text-1); font-size: 12px; font-weight: 400; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.evaluation-expected-button.verified { border-style: solid; border-color: rgba(25, 193, 180, .3); background: rgba(25, 193, 180, .05); color: var(--text-0); }
+.evaluation-expected-button.verified::before { content: "✓"; color: var(--accent); font: 600 10px var(--font-mono); }
+.evaluation-expected-button:hover:not(:disabled) { border-color: var(--accent); background: var(--row-hover); }
 .evaluation-expected-button em { margin-left: auto; font-style: normal; color: var(--accent); font-size: 10px; }
 .evaluation-expected-edit { display: grid; gap: 4px; }
 .evaluation-expected-actions { display: flex; flex-wrap: wrap; gap: 2px 12px; }
-.studio-main .evaluation-expected-actions .studio-text-button { min-height: 20px; font-size: 10.5px; }
-.studio-main .evaluation-expected-actions button[type=submit] { color: var(--accent-strong); }
+.evaluation-expected-actions .studio-text-button { min-height: 20px; font-size: 10.5px; }
+.evaluation-expected-actions button[type=submit] { color: var(--accent-strong); }
 
 /* Candidate menu */
 .evaluation-menu { position: relative; }
@@ -152,7 +149,7 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-inspector .evaluation-actions button { height: 26px; font-size: 11px; }
 
 /* Setup screen (empty or cleared Evaluation) */
-.evaluation-setup { flex: 1 !important; min-height: 0; overflow: auto; display: grid; grid-template-columns: minmax(0, 760px) minmax(240px, 300px); justify-content: start; gap: 48px; align-items: start; padding: 28px var(--evaluation-page-gutter) 48px; }
+.evaluation-setup { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: minmax(0, 760px) minmax(240px, 300px); justify-content: start; gap: 48px; align-items: start; padding: 28px var(--evaluation-page-gutter) 48px; }
 .evaluation-setup-head { padding-bottom: 20px; }
 .evaluation-setup-head h2 { margin: 6px 0 4px; font: 500 17px/1.3 var(--font-display); letter-spacing: -.015em; }
 .evaluation-setup-head > p:last-child { margin: 0; color: var(--text-2); font-size: 12px; }
@@ -164,6 +161,8 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-setup-label h3 { margin: 0; font-size: 12.5px; font-weight: 500; }
 .evaluation-setup-body { display: grid; gap: 10px; min-width: 0; }
 .evaluation-setup-hint { margin: 0; color: var(--text-3); font-size: 11px; }
+/* Declared after the hint so the warning colour wins at equal specificity. */
+.evaluation-warn-text { color: var(--amber-text); }
 /* Shares the upload dropzone surface: dashed --line-2 rule, field background, accent when a file is dragged over. */
 .evaluation-dropzone { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 18px; border: 1px dashed var(--line-2); background: var(--field-bg); transition: border-color 120ms, background 120ms; }
 .evaluation-dropzone.is-active { border-color: var(--accent); background: var(--row-selected); }
@@ -174,13 +173,13 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-setup-file small { display: block; margin-top: 3px; font: 10px var(--font-mono); color: var(--text-3); }
 .evaluation-setup-file { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--rule-strong); background: var(--pane-raised); }
 .evaluation-setup-file p { margin: 3px 0 0; font-size: 11px; color: var(--text-2); }
-.studio-main .evaluation-setup-thumb { display: grid; place-items: center; width: 40px; height: 44px; padding: 0; overflow: hidden; border: 1px solid var(--rule-strong); background: var(--field-bg); color: var(--text-2); font: 10px var(--font-mono); }
-.studio-main .evaluation-setup-thumb:hover:not(:disabled) { border-color: var(--accent); background: var(--row-hover); }
+.evaluation-setup-thumb { display: grid; place-items: center; width: 40px; height: 44px; padding: 0; overflow: hidden; border: 1px solid var(--rule-strong); background: var(--field-bg); color: var(--text-2); font: 10px var(--font-mono); }
+.evaluation-setup-thumb:hover:not(:disabled) { border-color: var(--accent); background: var(--row-hover); }
 .evaluation-setup-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
 .evaluation-mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.studio-main .evaluation-mode-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; height: auto; padding: 12px 14px; border: 1px solid var(--rule-strong); background: transparent; color: var(--text-1); text-align: left; font-weight: 400; white-space: normal; }
-.studio-main .evaluation-mode-card:hover:not(:disabled) { background: var(--row-hover); border-color: var(--line-2); }
-.studio-main .evaluation-mode-card[aria-checked=true] { border-color: var(--accent); background: var(--row-selected); box-shadow: inset 0 0 0 1px var(--accent); }
+.evaluation-mode-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; height: auto; padding: 12px 14px; border: 1px solid var(--rule-strong); background: transparent; color: var(--text-1); text-align: left; font-weight: 400; white-space: normal; }
+.evaluation-mode-card:hover:not(:disabled) { background: var(--row-hover); border-color: var(--line-2); }
+.evaluation-mode-card[aria-checked=true] { border-color: var(--accent); background: var(--row-selected); box-shadow: inset 0 0 0 1px var(--accent); }
 .evaluation-mode-card strong { display: block; font-size: 12.5px; font-weight: 500; color: var(--text-0); }
 .evaluation-mode-card em { display: block; margin-top: 2px; font-style: normal; font-size: 11px; color: var(--accent-strong); }
 .evaluation-mode-card small { display: block; margin-top: 6px; font-size: 11px; color: var(--text-2); line-height: 1.45; }
@@ -196,17 +195,17 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-setup-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .evaluation-setup-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .evaluation-setup-suggest small { margin-right: 4px; font: 9.5px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
-.studio-main .evaluation-chip { height: 22px; padding: 0 8px; border: 1px solid var(--rule-strong); background: transparent; color: var(--text-2); font: 10.5px var(--font-mono); }
-.studio-main .evaluation-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-strong); background: var(--row-selected); }
+.evaluation-chip { height: 22px; padding: 0 8px; border: 1px solid var(--rule-strong); background: transparent; color: var(--text-2); font: 10.5px var(--font-mono); }
+.evaluation-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-strong); background: var(--row-selected); }
 .evaluation-version-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
-.studio-main label.evaluation-version { display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--rule-strong); cursor: pointer; }
+label.evaluation-version { display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--rule-strong); cursor: pointer; }
 .evaluation-version:has(input:checked) { border-color: var(--accent); background: var(--row-selected); }
 .evaluation-version strong { display: block; font-size: 12px; font-weight: 500; color: var(--text-0); }
 .evaluation-version small { font: 10px var(--font-mono); color: var(--text-3); }
 .evaluation-setup-foot { display: flex; justify-content: flex-end; align-items: center; gap: 16px; padding-top: 16px; border-top: 1px solid var(--rule-strong); }
 .evaluation-setup-submit { display: flex; align-items: center; gap: 14px; }
 .evaluation-setup-submit small { font-size: 11px; text-align: right; }
-.studio-main .evaluation-setup-submit button { height: 32px; padding: 0 16px; font-size: 12px; flex-shrink: 0; }
+.evaluation-setup-submit button { height: 32px; padding: 0 16px; font-size: 12px; flex-shrink: 0; }
 .evaluation-setup-aside { position: sticky; top: 0; display: grid; gap: 14px; justify-items: start; padding-top: 4px; }
 .evaluation-setup-model { display: grid; gap: 4px; width: 100%; padding: 12px 14px; border: 1px solid var(--rule-strong); background: var(--pane-raised); }
 .evaluation-setup-model small { font: 9.5px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
@@ -249,7 +248,7 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-compare-rows td:last-child, .evaluation-compare-side td:last-child { width: auto; }
 .evaluation-compare-rows tbody tr:hover, .evaluation-compare-side tbody tr:hover { background: transparent; }
 .evaluation-compare-rows tbody th, .evaluation-compare-side tbody th { background: var(--pane-raised); color: var(--text-2); font-weight: 400; text-align: left; }
-.evaluation-compare-number { width: 52px; position: sticky; left: 0; z-index: 1; vertical-align: top; font: 10px var(--font-mono) !important; color: var(--text-3) !important; }
+.evaluation-compare-rows .evaluation-compare-number, .evaluation-compare-side .evaluation-compare-number { width: 52px; position: sticky; left: 0; z-index: 1; vertical-align: top; font: 10px var(--font-mono); color: var(--text-3); }
 .evaluation-compare-rows thead .evaluation-compare-number, .evaluation-compare-side thead .evaluation-compare-number { z-index: 3; }
 .evaluation-compare-source { width: 200px; }
 .evaluation-compare-source em { margin-left: 8px; font: 9.5px var(--font-mono); font-style: normal; color: var(--amber-text); }
@@ -455,6 +454,6 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
 }
 label.evaluation-link-field { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; font-weight: 400; color: var(--text-2); }
 .evaluation-link-field select { height: 24px; max-width: 100%; font-size: 11px; }
-.studio-main .evaluation-block .studio-text-button { min-height: 0; padding: 0 0 0 8px; color: var(--accent-strong); }
+.evaluation-block .studio-text-button { min-height: 0; padding: 0 0 0 8px; color: var(--accent-strong); }
 /* Moving between the documents of a multi-document Evaluation. */
 .evaluation-doc-nav { display: flex; align-items: center; gap: 10px; white-space: nowrap; font-size: 11.5px; }

@@ -213,7 +213,7 @@ function LibraryModal({ label, description, onClose, children, footer }) {
   return (
     <ModalDialog
       label={label}
-      className="studio-main evaluation-library-modal wide evaluation-library-browser"
+      className="evaluation-library-modal wide evaluation-library-browser"
       initialFocus="input[type=search]"
       onClose={onClose}
     >

@@ -52,7 +52,7 @@ export function TemplateEditorModal({
 
   return (
     <ModalDialog
-      className="studio-main template-editor-modal"
+      className="template-editor-modal"
       label={title}
       initialFocus="input"
       onClose={() => {

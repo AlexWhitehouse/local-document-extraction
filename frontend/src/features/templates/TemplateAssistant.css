@@ -19,9 +19,9 @@
   .template-problem-message { animation: popover-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 }
 
-.studio-main .field-nav-item.template-field-has-problems { box-shadow: inset 2px 0 0 var(--rose); }
-.studio-main .field-nav-item.template-field-has-problems.active { background: rgba(255, 111, 143, 0.06); }
-.studio-main .field-nav-label .template-problem-badge,
+.field-nav-item.template-field-has-problems { box-shadow: inset 2px 0 0 var(--rose); }
+.field-nav-item.template-field-has-problems.active { background: rgba(255, 111, 143, 0.06); }
+.field-nav-label .template-problem-badge,
 .template-problem-badge { color: var(--rose-text); font: 10px var(--font-mono); }
 
 /* ---- Problem strip between the metadata and the editor. */

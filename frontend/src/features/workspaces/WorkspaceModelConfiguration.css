@@ -39,13 +39,13 @@
 .workspace-model-flag { display:inline-block; width:7px; height:7px; border:1px solid var(--line-2); vertical-align:middle; }
 .workspace-model-flag.on { background:var(--accent); border-color:var(--accent); }
 .workspace-model-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
-.workspace-model-toggle { display:flex!important; align-items:flex-start; gap:10px!important; margin:13px 0; cursor:pointer; }
+.workspace-model-toggle { display:flex; align-items:flex-start; gap:10px; margin:13px 0; cursor:pointer; }
 .workspace-model-toggle input { margin:3px 0 0; }
 .workspace-model-toggle strong { display:block; margin-bottom:3px; font-size:11.5px; }
 .workspace-model-actions,.workspace-model-actions>div { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .workspace-model-actions { justify-content:space-between; }
 .workspace-model-actions button { font-size:11.5px; min-height:28px; }
-.workspace-model-clear { background:transparent!important; border:0; color:var(--rose-muted); padding:0!important; }
+.workspace-model-clear { background:transparent; border:0; color:var(--rose-muted); padding:0; }
 .workspace-model .workspace-model-footnote { margin:0; font-size:10.5px; color:var(--text-3); }
 .workspace-model-test { margin:0; }
 .workspace-model-test.passed { color:var(--accent); }

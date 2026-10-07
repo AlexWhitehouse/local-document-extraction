@@ -1774,9 +1774,8 @@ input[type="checkbox"]:disabled {
   margin: -2px -6px 0 0;
 }
 
-/* The one close control for every dialog. Doubled class outranks page-level
-   button sizing such as .studio-main button. */
-button.modal-close.modal-close {
+/* The one close control for every dialog. */
+button.modal-close {
   width: 28px;
   height: 28px;
   min-height: 28px;
@@ -1791,7 +1790,7 @@ button.modal-close.modal-close {
   transform: none;
 }
 
-button.modal-close.modal-close:hover:not(:disabled) {
+button.modal-close:hover:not(:disabled) {
   background: var(--row-hover);
   color: var(--text-0);
 }
@@ -2198,14 +2197,14 @@ button.modal-close.modal-close:hover:not(:disabled) {
 }
 
 /* One segmented control for every pick-one or toggle group (aria-pressed or
-   role=radio). Doubled class outranks page-level button sizing. */
+   role=radio). */
 .segmented {
   display: inline-flex;
   flex-wrap: wrap;
   border: 1px solid var(--rule-strong);
 }
 
-.segmented.segmented > button {
+.segmented > button {
   height: 24px;
   padding: 0 10px;
   border: 0;
@@ -2217,21 +2216,21 @@ button.modal-close.modal-close:hover:not(:disabled) {
   transform: none;
 }
 
-.segmented.segmented > button + button {
+.segmented > button + button {
   border-left: 1px solid var(--rule-strong);
 }
 
-.segmented.segmented > button:hover:not(:disabled):not([aria-pressed="true"]):not([aria-checked="true"]) {
+.segmented > button:hover:not(:disabled):not([aria-pressed="true"]):not([aria-checked="true"]) {
   background: var(--row-hover);
   color: var(--text-0);
 }
 
-.segmented.segmented > button:is([aria-pressed="true"], [aria-checked="true"]) {
+.segmented > button:is([aria-pressed="true"], [aria-checked="true"]) {
   background: var(--row-selected);
   color: var(--accent-strong);
 }
 
-.segmented.segmented > button:focus-visible {
+.segmented > button:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
   box-shadow: none;
@@ -2520,7 +2519,7 @@ button.modal-close.modal-close:hover:not(:disabled) {
 
 .object-schema-empty {
   height: 180px;
-  text-align: center !important;
+  text-align: center;
   color: var(--text-3);
 }
 
