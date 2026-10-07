@@ -737,6 +737,91 @@ it("preserves row matching when reviewing another result for an existing expecte
   expect(saved(evaluation, 0)["items:array<object>"].rows).toEqual({ mode: "key", key: "sku" });
 });
 
+it.each(["explicit", "embedded"])("reuses saved answers after instruction-only edits with %s table schemas", (schema) => {
+  const before = [template.fields[0], { ...itemsField, description: "Extract every item" }];
+
+  const after = before.map((field) => {
+    const updated = { ...field, description: "Revised extraction instructions" };
+
+    if (field.object_schema) {
+      const objectSchema = {
+        mode: "table",
+        columns: field.object_schema.columns.map((column) => ({ ...column, description: "Revised column instructions" })),
+      };
+
+      if (schema === "embedded") {
+        updated.description += `\n[[OBJECT_SCHEMA]]\n${JSON.stringify(objectSchema)}\n[[/OBJECT_SCHEMA]]`;
+        delete updated.object_schema;
+      } else updated.object_schema = objectSchema;
+    }
+
+    return updated;
+  });
+
+  const reference = {
+    definitions: { "total:number": before[0], "items:array<object>": before[1] },
+    references: {
+      "total:number": { verified: true, value: 10 },
+      "items:array<object>": {
+        verified: true,
+        value: [{ sku: "A", quantity: "" }, { sku: "B", quantity: "" }],
+        cellStates: [{ quantity: "absent" }, { quantity: "ignored" }],
+        rows: { mode: "key", key: "sku" },
+      },
+    },
+  };
+
+  const document = {
+    key: "doc", kind: "saved", savedId: "saved-doc", name: "Saved invoice", loadedRevision: 1,
+    reference, base: structuredClone(reference), availability: "ok",
+  };
+
+  const evaluation = setup({
+    documents: [document],
+    candidates: [before, after].map((fields, index) => ({
+      id: String(index), model: "model", status: "success", revision: 0,
+      template: { ...template, fields },
+      result: result(fields, [
+        { field_id: "total", status: "ok", answer: 10 },
+        { field_id: "items", status: "ok", answer: [{ sku: "A", quantity: null }, { sku: "B", quantity: 5 }] },
+      ]),
+    })),
+  });
+
+  expect(screen.getAllByLabelText("Match")).toHaveLength(4);
+  expect(screen.queryByRole("button", { name: "Review template changes" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Review field changes" })).toBeNull();
+  expect(screen.queryByText(/Needs review/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Edit expected Total" }));
+  fireEvent.click(screen.getByRole("button", { name: "More options" }));
+  let editor = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
+  expect(editor.queryByRole("combobox", { name: "Expected answer Template" })).toBeNull();
+  expect(editor.queryByText("Field instructions changed")).toBeNull();
+  expect(editor.getByRole("textbox", { name: "Expected value" }).value).toBe("10");
+  fireEvent.click(editor.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 2" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+  editor = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
+  expect(editor.queryByRole("combobox", { name: "Expected answer Template" })).toBeNull();
+  expect(editor.queryByText("Field instructions changed")).toBeNull();
+  expect(editor.queryByText("Template columns changed")).toBeNull();
+  expect(editor.getAllByText("Revised column instructions")).toHaveLength(2);
+  fireEvent.click(editor.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "2 rows verified" }));
+  editor = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
+  expect(editor.getByRole("combobox", { name: "Expected row 1 Quantity status" }).value).toBe("absent");
+  fireEvent.click(editor.getByRole("button", { name: "Select row 2" }));
+  expect(editor.getByRole("combobox", { name: "Expected row 2 Quantity status" }).value).toBe("ignored");
+  expect(editor.getByRole("combobox", { name: "Compare rows" }).value).toBe("sku");
+  fireEvent.click(editor.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Template changes", exact: true }));
+  expect(screen.getByText("No fields match this filter.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Update saved answers…" })).toBeNull();
+  expect(evaluation.setReference).not.toHaveBeenCalled();
+  expect(evaluation.reviewReference).not.toHaveBeenCalled();
+  expect(document.reference).toEqual(document.base);
+});
+
 it.each(["saved answer", "candidate result"])(
   "reviews a %s using updated boolean columns instead of the saved text schema",
   (source) => {

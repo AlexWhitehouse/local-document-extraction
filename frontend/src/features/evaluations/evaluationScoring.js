@@ -140,7 +140,6 @@ export function tableSchemaChanges(previous, next) {
   const removed = before.filter((old) => !pairs.some(([, matched]) => matched === old));
   const changed = pairs.filter(([column, old]) => old && column.data_type !== old.data_type);
   const renamed = pairs.filter(([column, old]) => old && column.heading !== old.heading);
-  const updated = pairs.filter(([column, old]) => old && (column.description || "") !== (old.description || ""));
 
   const reordered =
     pairs.flatMap(([, old]) => (old ? [old.key] : [])).join("\n") !==
@@ -157,10 +156,9 @@ export function tableSchemaChanges(previous, next) {
     removed,
     changed,
     renamed,
-    updated,
     reordered,
     needsReview,
-    hasChanges: needsReview || !!renamed.length || !!updated.length || reordered,
+    hasChanges: needsReview || !!renamed.length || reordered,
   };
 }
 
