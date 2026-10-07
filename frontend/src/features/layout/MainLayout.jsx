@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { MagicIcon } from "../templates/MagicIcon.jsx";
+import { CreateTemplateSplitButton } from "../templates/CreateTemplateSplitButton.jsx";
 import { NavigationLink } from "../context/NavigationLink.jsx";
+import { Button, IconButton } from "../ui/Button.jsx";
+import {
+  AdminIcon,
+  DocumentIcon,
+  EvaluationIcon,
+  SidebarIcon,
+  TemplateIcon,
+  UploadIcon,
+  WorkspaceIcon,
+} from "./Icons.jsx";
 import "./ConnectivityBanner.css";
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "studio.sidebarCollapsed";
@@ -8,13 +18,13 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = "studio.sidebarCollapsed";
 const MODEL_SETUP_MESSAGE = "Set up a Model gateway on the Workspace page to upload";
 
 const SIDEBAR_ITEMS = [
-  { id: "workspace", label: "Workspaces", icon: "WS" },
-  { id: "templates", label: "Templates", icon: "TP" },
-  { id: "documents", label: "Documents", icon: "DC" },
-  { id: "evaluations", label: "Evaluations", icon: "EV" },
+  { id: "workspace", label: "Workspaces", icon: WorkspaceIcon },
+  { id: "templates", label: "Templates", icon: TemplateIcon },
+  { id: "documents", label: "Documents", icon: DocumentIcon },
+  { id: "evaluations", label: "Evaluations", icon: EvaluationIcon },
 ];
 
-const ADMIN_SIDEBAR_ITEM = { id: "admin", label: "Admin", icon: "AD" };
+const ADMIN_SIDEBAR_ITEM = { id: "admin", label: "Admin", icon: AdminIcon };
 
 export function MainLayout({
   activePage,
@@ -57,16 +67,15 @@ export function MainLayout({
           <span className="sidebar-brand-mark" aria-hidden="true">
             DX
           </span>
-          <button
-            type="button"
-            className="sidebar-collapse-toggle"
-            aria-label={collapseLabel}
-            aria-expanded={!isSidebarCollapsed}
+          <IconButton
+            label={collapseLabel}
             title={`${collapseLabel} ([)`}
+            icon={SidebarIcon}
+            size="sm"
+            className="sidebar-collapse-toggle"
+            aria-expanded={!isSidebarCollapsed}
             onClick={toggleSidebar}
-          >
-            <SidebarToggleIcon collapsed={isSidebarCollapsed} />
-          </button>
+          />
         </div>
 
         <SidebarNavigation
@@ -87,9 +96,9 @@ export function MainLayout({
           onClick={isModelSetupRequired ? () => onNavigate("workspace") : onUploadDocument}
         >
           <span className="sidebar-upload-icon" aria-hidden="true">
-            +
+            <UploadIcon />
           </span>
-          <span className="sidebar-upload-label">Upload Document</span>
+          <span className="sidebar-upload-label">Upload documents</span>
         </button>
 
         <div className="sidebar-spacer" aria-hidden="true" />
@@ -195,46 +204,32 @@ function useSidebarCollapsed() {
   return [isCollapsed, toggle];
 }
 
-function SidebarToggleIcon({ collapsed }) {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="4" width="18" height="16" rx="1" />
-      <path d="M9 4v16" />
-      <path d={collapsed ? "M13 10l2 2-2 2" : "M16 10l-2 2 2 2"} />
-    </svg>
-  );
-}
-
 function SidebarNavigation({ activePage, counts, showAdminNavigation, onNavigate, navigationHref }) {
   const items = [...SIDEBAR_ITEMS, ...(showAdminNavigation ? [ADMIN_SIDEBAR_ITEM] : [])];
 
   return (
     <nav className="sidebar-nav" aria-label="Main navigation">
-      {items.map((item) => (
-        <NavigationLink
-          key={item.id}
-          data-tour={`nav-${item.id}`}
-          href={navigationHref?.(item.id)}
-          className={item.id === activePage ? "sidebar-link active" : "sidebar-link"}
-          onClick={() => onNavigate(item.id)}
-        >
-          <span className="sidebar-link-icon" aria-hidden="true">
-            {item.icon}
-          </span>
+      {items.map((item) => {
+        const ItemIcon = item.icon;
+
+        // The label doubles as the tooltip when the rail is collapsed, and it names the link.
+        return (
+          <NavigationLink
+            key={item.id}
+            data-tour={`nav-${item.id}`}
+            href={navigationHref?.(item.id)}
+            className={item.id === activePage ? "sidebar-link active" : "sidebar-link"}
+            title={item.label}
+            onClick={() => onNavigate(item.id)}
+          >
+            <span className="sidebar-link-icon" aria-hidden="true">
+              <ItemIcon />
+            </span>
           <span className="sidebar-link-label">{item.label}</span>
-          {item.id === "admin" ? null : <span className="sidebar-link-count">{counts[item.id] ?? ""}</span>}
-        </NavigationLink>
-      ))}
+            {item.id === "admin" ? null : <span className="sidebar-link-count">{counts[item.id] ?? ""}</span>}
+          </NavigationLink>
+        );
+      })}
     </nav>
   );
 }
@@ -265,6 +260,7 @@ export function WorkspaceToolbar({
   onExportDocuments,
   onWorkspacePrimaryAction,
   onDeleteTemplate,
+  onOpenJsonModal,
   onDeleteDocument,
   canDownloadOriginal = false,
   isDownloadingOriginal = false,
@@ -290,112 +286,92 @@ export function WorkspaceToolbar({
           (activePage === "documents" ? (
             <>
               {canDownloadOriginal ? (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={!hasApiAccess || isDownloadingOriginal}
+                <Button
+                  variant="secondary"
+                  disabled={!hasApiAccess}
+                  pending={isDownloadingOriginal}
+                  pendingLabel="Downloading…"
                   onClick={onDownloadOriginal}
                 >
-                  {isDownloadingOriginal ? "Downloading…" : "Download"}
-                </button>
+                  Download
+                </Button>
               ) : null}
-              <button
-                type="button"
-                className="danger"
-                disabled={
-                  !hasApiAccess ||
-                  isDeletingDocument ||
-                  isExportingDocuments ||
-                  (!selectedDocumentCount && !selectedDocumentId)
-                }
+              <Button
+                variant="secondary"
+                disabled={!hasApiAccess || isDeletingDocument || exportableDocumentCount === 0}
+                pending={isExportingDocuments}
+                pendingLabel="Exporting…"
+                title={exportHint}
+                onClick={onExportDocuments}
+              >
+                {selectedDocumentCount ? `Export ${selectedDocumentCount}` : "Export"}
+              </Button>
+              <Button
+                variant="danger"
+                disabled={!hasApiAccess || isExportingDocuments || (!selectedDocumentCount && !selectedDocumentId)}
+                pending={isDeletingDocument}
+                pendingLabel="Deleting…"
                 onClick={onDeleteDocument}
               >
-                {isDeletingDocument
-                  ? "Deleting…"
-                  : selectedDocumentCount
-                    ? `Delete ${selectedDocumentCount}`
-                    : "Delete"}
-              </button>
-              <button
-                type="button"
-                disabled={!hasApiAccess || isDeletingDocument || isExportingDocuments || exportableDocumentCount === 0}
-                onClick={onExportDocuments}
-                title={exportHint}
-              >
-                {isExportingDocuments
-                  ? "Exporting…"
-                  : selectedDocumentCount
-                    ? `Export ${selectedDocumentCount}`
-                    : "Export"}
-              </button>
+                {selectedDocumentCount ? `Delete ${selectedDocumentCount}` : "Delete"}
+              </Button>
             </>
           ) : (
             <>
               {activePage === "workspace" && onViewCosts ? (
-                <button type="button" className="secondary" onClick={onViewCosts}>
+                <Button variant="secondary" onClick={onViewCosts}>
                   Costs
-                </button>
+                </Button>
               ) : null}
               {activePage === "templates" ? (
-                <div className="studio-create-template-split" role="group" aria-label="Create template">
-                  <button
-                    type="button"
-                    className="secondary"
-                    data-tour="create-template"
-                    disabled={!hasApiAccess}
-                    onClick={onCreateTemplate}
-                  >
-                    Create Template
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary studio-create-template-magic"
-                    aria-label="Auto generate new template"
-                    title="Auto generate new template"
-                    disabled={!hasApiAccess}
-                    onClick={onAutoGenerateTemplate}
-                  >
-                    <MagicIcon />
-                  </button>
-                </div>
+                <CreateTemplateSplitButton
+                  disabled={!hasApiAccess}
+                  onCreate={onCreateTemplate}
+                  onAutoGenerate={onAutoGenerateTemplate}
+                />
               ) : (
-                <button
-                  type="button"
-                  className="secondary"
+                <Button
+                  variant="secondary"
                   data-tour="create-workspace"
-                  disabled={isCreatingWorkspace}
+                  pending={isCreatingWorkspace}
+                  pendingLabel="Creating…"
                   onClick={onCreateWorkspace}
                 >
-                  {isCreatingWorkspace ? "Creating…" : "Create workspace"}
-                </button>
+                  Create workspace
+                </Button>
               )}
               {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
-                <button
-                  type="button"
-                  className="danger"
+                <Button
+                  variant="danger"
+                  className="toolbar-destructive-action"
                   disabled={
                     isDeletingWorkspace ||
                     !hasApiAccess ||
                     !workspaceId.trim() ||
                     workspacePrimaryAction.type === "none"
                   }
+                  pending={isDeletingWorkspace}
+                  pendingLabel={workspacePrimaryAction.type === "leave" ? "Leaving…" : "Deleting…"}
                   onClick={onWorkspacePrimaryAction}
                 >
-                  {isDeletingWorkspace
-                    ? workspacePrimaryAction.type === "leave"
-                      ? "Leaving…"
-                      : "Deleting…"
-                    : workspacePrimaryAction.label || "Delete Workspace"}
-                </button>
+                  {workspacePrimaryAction.label || "Delete workspace"}
+                </Button>
               ) : activePage === "templates" ? (
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={isDeletingTemplate || !hasApiAccess || !updateTemplateId.trim()}
-                  onClick={onDeleteTemplate}
-                >
-                  {isDeletingTemplate ? "Deleting…" : "Delete Template"}
-                </button>
+                <>
+                  <Button variant="ghost" disabled={isDeletingTemplate || !hasApiAccess} onClick={onOpenJsonModal}>
+                    View JSON
+                  </Button>
+                  <Button
+                    variant="danger"
+                    className="toolbar-destructive-action"
+                    disabled={isDeletingTemplate || !hasApiAccess || !updateTemplateId.trim()}
+                    pending={isDeletingTemplate}
+                    pendingLabel="Deleting…"
+                    onClick={onDeleteTemplate}
+                  >
+                    Delete template
+                  </Button>
+                </>
               ) : null}
             </>
           ))}

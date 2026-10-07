@@ -3,6 +3,7 @@ import "./DocumentProcessing.css";
 import { DocumentUploadPanel } from "./DocumentUploadPanel.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { ModalDialog, ModalFooter, ModalHeader } from "../layout/ModalDialog.jsx";
+import { Button } from "../ui/Button.jsx";
 
 export function DocumentUploadModal({
   isOpen,
@@ -96,23 +97,23 @@ export function DocumentUploadModal({
             Choose a template and at least one file
           </p>
         ) : null}
-        <button type="button" className="secondary" onClick={requestClose}>
+        <Button variant="secondary" onClick={requestClose}>
           Cancel
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           data-tour="upload-submit"
           aria-describedby={submitBlocked ? hintId : undefined}
           disabled={
-            isUploadingDocuments ||
             !hasApiAccess ||
             submitBlocked ||
             (selectedTemplateId === "automatic" && !selectedTags.length)
           }
+          pending={isUploadingDocuments}
+          pendingLabel="Uploading…"
           onClick={onSubmit}
         >
-          {isUploadingDocuments ? "Uploading…" : "Upload Documents"}
-        </button>
+          Upload documents
+        </Button>
       </ModalFooter>
     </ModalDialog>
   );
@@ -130,9 +131,9 @@ function UploadTagPicker({ tags, templates, selectedTags, disabled, onChange }) 
         {selectedTags.length ? (
           <span className="upload-tag-picker-count">
             {selectedTags.length} selected
-            <button type="button" className="studio-text-button" onClick={() => onChange([])}>
+            <Button variant="text" onClick={() => onChange([])}>
               Clear
-            </button>
+            </Button>
           </span>
         ) : null}
       </legend>

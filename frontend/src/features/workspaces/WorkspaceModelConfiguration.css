@@ -44,7 +44,6 @@
 .workspace-model-actions,.workspace-model-actions>div { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .workspace-model-actions { justify-content:space-between; }
 .workspace-model-actions button { font-size:var(--font-size-3); min-height:var(--control-h-sm); }
-.workspace-model-clear { background:transparent; border:0; color:var(--tone-danger-text); padding:0; }
 .workspace-model .workspace-model-footnote { margin:0; font-size:var(--font-size-2); color:var(--text-3); }
 .workspace-model-repair { border-left:2px solid var(--rose); padding-left:12px; }
 .workspace-model-member { border-top:1px solid var(--rule-subtle); padding:8px 24px 16px; }

@@ -3,10 +3,11 @@ import React, { useMemo, useRef } from "react";
 import { diagnoseTemplateDraft, identityImpacts, previewRows } from "../../../../shared/templateAssistant.ts";
 import { getDataTypeLabel } from "./templateFields.js";
 import { pluralize } from "../../lib/text.js";
-import { MagicIcon } from "./MagicIcon.jsx";
+import { CloseIcon, MagicIcon } from "../layout/Icons.jsx";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import "./TemplateAssistant.css";
+import { Button, IconButton } from "../ui/Button.jsx";
 
 const TABS = [
   { id: "explain", label: "Explain issues" },
@@ -69,19 +70,11 @@ export function TemplateAssistant({ assistant, draft, issues = [], isEditing = f
           <p className="studio-eyebrow">Template</p>
           <h2>Assistant</h2>
         </div>
-        <button
-          type="button"
-          className="modal-close"
-          aria-label="Close assistant"
-          title="Close"
-          onClick={assistant.onClose}
-        >
-          ×
-        </button>
+        <IconButton label="Close assistant" icon={CloseIcon} onClick={assistant.onClose} />
       </header>
       <div className="template-assistant-tabs" role="tablist" aria-label="Assistant mode">
         {TABS.map((tab) => (
-          <button
+          <Button
             key={tab.id}
             type="button"
             role="tab"
@@ -95,7 +88,7 @@ export function TemplateAssistant({ assistant, draft, issues = [], isEditing = f
             {tab.id === "explain" && issues.length ? (
               <span className="template-assistant-count">{issues.length}</span>
             ) : null}
-          </button>
+          </Button>
         ))}
       </div>
       <ScrollArea
@@ -197,9 +190,9 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                 <strong>{jobName(job)}</strong>
                 <span>{job.job_id}</span>
               </div>
-              <button type="button" className="studio-text-button studio-destructive" onClick={assistant.onRemoveJob}>
+              <Button type="button" variant="danger-text" onClick={assistant.onRemoveJob}>
                 Remove
-              </button>
+              </Button>
             </div>
             <p>
               Extracted with{" "}
@@ -233,9 +226,9 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
             </p>
           </div>
         ) : (
-          <button type="button" className="secondary template-assistant-evidence-add" onClick={assistant.picker.onOpen}>
+          <Button type="button" variant="secondary" className="template-assistant-evidence-add" onClick={assistant.picker.onOpen}>
             Choose a completed Extraction job…
-          </button>
+          </Button>
         )}
 
         {file ? (
@@ -248,13 +241,13 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                   {job ? " · not linked to the selected result" : ""}
                 </span>
               </div>
-              <button
+              <Button
                 type="button"
-                className="studio-text-button studio-destructive"
+                variant="danger-text"
                 onClick={() => assistant.onFileChange(null)}
               >
                 Remove
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -271,13 +264,13 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                 event.target.value = "";
               }}
             />
-            <button
+            <Button
               type="button"
-              className="secondary template-assistant-evidence-add"
+              variant="secondary" className="template-assistant-evidence-add"
               onClick={() => fileInput.current?.click()}
             >
               Attach a sample file (PDF, PNG, JPEG, WebP)…
-            </button>
+            </Button>
           </>
         )}
 
@@ -286,7 +279,7 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
             <span className="template-assistant-label-text">File sent to the model (one at most)</span>
             <div className="segmented" role="radiogroup" aria-label="File sent to the model">
               {binaryOptions.map((option) => (
-                <button
+                <Button
                   key={option.id}
                   type="button"
                   role="radio"
@@ -296,7 +289,7 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                   onClick={() => chooseBinary(option.id)}
                 >
                   {option.label}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -424,9 +417,9 @@ function ResultView({ assistant }) {
             overwrite your newer edits. Regenerate it from the current draft.
           </p>
           <div className="template-assistant-note-actions">
-            <button type="button" onClick={assistant.onSubmit}>
+            <Button type="button" onClick={assistant.onSubmit}>
               Regenerate
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -686,33 +679,33 @@ function FooterActions({ assistant, issues }) {
 
   if (pending) {
     actions = (
-      <button type="button" className="secondary" onClick={assistant.onCancelRequest}>
+      <Button type="button" variant="secondary" onClick={assistant.onCancelRequest}>
         Cancel request
-      </button>
+      </Button>
     );
   } else if (response) {
     const count = selection?.selected.length || 0;
     actions = response.groups.length ? (
       <>
-        <button type="button" className="secondary" onClick={revise}>
+        <Button type="button" variant="secondary" onClick={revise}>
           Revise request
-        </button>
-        <button type="button" className="secondary" onClick={assistant.onClose}>
+        </Button>
+        <Button type="button" variant="secondary" onClick={assistant.onClose}>
           Discard
-        </button>
-        <button type="button" disabled={stale || !selection?.canApply} onClick={assistant.onApply}>
+        </Button>
+        <Button type="button" disabled={stale || !selection?.canApply} onClick={assistant.onApply}>
           {count ? `Apply ${count} change${count === 1 ? "" : "s"} to draft` : "Apply to draft"}
-        </button>
+        </Button>
       </>
     ) : (
       <>
-        <button type="button" className="secondary" onClick={revise}>
+        <Button type="button" variant="secondary" onClick={revise}>
           Ask something else
-        </button>
+        </Button>
         {action === "explain" && issues.length ? (
-          <button
+          <Button
             type="button"
-            className="studio-generate-button"
+
             onClick={() => {
               assistant.onActionChange("edit");
               assistant.onInstructionsChange("Fix the draft’s problems so the Template can save");
@@ -720,32 +713,32 @@ function FooterActions({ assistant, issues }) {
           >
             <MagicIcon />
             Propose fixes
-          </button>
+          </Button>
         ) : null}
       </>
     );
   } else if (applied) {
     actions = (
       <>
-        <button type="button" className="secondary" onClick={assistant.onClose}>
+        <Button type="button" variant="secondary" onClick={assistant.onClose}>
           Close
-        </button>
-        <button type="button" onClick={() => assistant.onInstructionsChange("")}>
+        </Button>
+        <Button type="button" onClick={() => assistant.onInstructionsChange("")}>
           New request
-        </button>
+        </Button>
       </>
     );
   } else {
     const canSend = action === "explain" || assistant.instructions.trim();
     actions = (
       <>
-        <button type="button" className="secondary" onClick={assistant.onClose}>
+        <Button type="button" variant="secondary" onClick={assistant.onClose}>
           Cancel
-        </button>
-        <button type="button" className="studio-generate-button" disabled={!canSend} onClick={assistant.onSubmit}>
+        </Button>
+        <Button type="button" disabled={!canSend} onClick={assistant.onSubmit}>
           <MagicIcon />
           {assistant.error || stale ? "Try again" : action === "explain" ? "Explain" : "Propose edits"}
-        </button>
+        </Button>
       </>
     );
   }
@@ -791,9 +784,9 @@ function RequestRecap({ assistant, onRevise }) {
         <p className="template-assistant-muted">{evidence || "No evidence attached"}</p>
       </div>
       {onRevise ? (
-        <button type="button" className="studio-text-button" onClick={onRevise}>
+        <Button type="button" variant="text" onClick={onRevise}>
           Revise
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -851,14 +844,14 @@ function JobPicker({ picker, selectedJobId }) {
                   </span>
                 </td>
                 <td>
-                  <button
+                  <Button
                     type="button"
-                    className="secondary"
+                    variant="secondary"
                     disabled={picker.loading}
                     onClick={() => picker.onChoose(job.job_id)}
                   >
                     {job.job_id === selectedJobId ? "Selected" : "Use"}
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -875,22 +868,22 @@ function JobPicker({ picker, selectedJobId }) {
       <div className="template-assistant-pager">
         <span>{picker.loading ? "Loading…" : `Page ${picker.page + 1}`}</span>
         <div className="actions compact">
-          <button
+          <Button
             type="button"
-            className="secondary"
+            variant="secondary"
             disabled={picker.loading || picker.page === 0}
             onClick={picker.onPrevious}
           >
             Previous
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="secondary"
+            variant="secondary"
             disabled={picker.loading || !picker.nextCursor}
             onClick={picker.onNext}
           >
             Next
-          </button>
+          </Button>
         </div>
       </div>
     </ModalDialog>

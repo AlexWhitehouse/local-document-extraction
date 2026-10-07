@@ -188,9 +188,9 @@ describe("workspace context display", () => {
 
 describe("Workspace roles", () => {
   it("uses Delete Workspace for owners and Leave Workspace for non-owner accepted Workspaces", () => {
-    expect(getWorkspacePrimaryAction("owner")).toEqual({ type: "delete", label: "Delete Workspace" });
-    expect(getWorkspacePrimaryAction("admin")).toEqual({ type: "leave", label: "Leave Workspace" });
-    expect(getWorkspacePrimaryAction("member")).toEqual({ type: "leave", label: "Leave Workspace" });
+    expect(getWorkspacePrimaryAction("owner")).toEqual({ type: "delete", label: "Delete workspace" });
+    expect(getWorkspacePrimaryAction("admin")).toEqual({ type: "leave", label: "Leave workspace" });
+    expect(getWorkspacePrimaryAction("member")).toEqual({ type: "leave", label: "Leave workspace" });
     expect(getWorkspacePrimaryAction("")).toEqual({ type: "none", label: "" });
   });
 

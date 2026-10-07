@@ -1,5 +1,7 @@
 import React from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
+import { ChevronDownIcon, CloseIcon } from "../layout/Icons.jsx";
+import { Button, IconButton } from "../ui/Button.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 
 export const ProfileMenu = React.forwardRef(function ProfileMenu(
@@ -43,7 +45,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
           <span>{displayEmail}</span>
         </span>
         <span className="sidebar-profile-chevron" aria-hidden="true">
-          ⌃
+          <ChevronDownIcon size={14} />
         </span>
       </button>
 
@@ -66,9 +68,13 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                       <span className="eyebrow">Identity</span>
                       <h3>Account</h3>
                     </div>
-                    <button type="button" className="modal-close" aria-label="Close settings" onClick={requestClose}>
-                      ×
-                    </button>
+                    <IconButton
+                      size="sm"
+                      label="Close settings"
+                      icon={CloseIcon}
+                      className="modal-close"
+                      onClick={requestClose}
+                    />
                   </header>
 
                   <div className="settings-section-body">
@@ -96,13 +102,14 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         </p>
                       ) : null}
                       <div className="settings-form-actions">
-                        <button
-                          type="button"
-                          disabled={isSavingProfile || !isDirty || !canSaveProfile}
+                        <Button
+                          pending={isSavingProfile}
+                          pendingLabel="Saving…"
+                          disabled={!isDirty || !canSaveProfile}
                           onClick={onSaveProfile}
                         >
-                          {isSavingProfile ? "Saving…" : "Save profile"}
-                        </button>
+                          Save profile
+                        </Button>
                       </div>
                     </div>
                     <div className="settings-danger-row">
@@ -110,9 +117,15 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         <strong>End this session</strong>
                         <span>You’ll need to sign in again to access local workspaces.</span>
                       </div>
-                      <button type="button" className="danger" disabled={isSigningOut || isSavingProfile} onClick={onSignOut}>
-                        {isSigningOut ? "Signing out…" : "Sign out"}
-                      </button>
+                      <Button
+                        variant="danger"
+                        pending={isSigningOut}
+                        pendingLabel="Signing out…"
+                        disabled={isSavingProfile}
+                        onClick={onSignOut}
+                      >
+                        Sign out
+                      </Button>
                     </div>
                   </div>
                 </section>

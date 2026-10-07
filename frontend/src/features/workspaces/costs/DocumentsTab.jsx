@@ -7,6 +7,7 @@ import { useChartTip } from "./costHooks.js";
 import { useCostResource } from "./useCostResource.js";
 import { CostResourceStatus } from "./WorkspaceCosts.jsx";
 import { EmptyState } from "../../ui/States.jsx";
+import { Button } from "../../ui/Button.jsx";
 
 const STACK = ["split", "auto_template", "extraction"];
 
@@ -134,23 +135,21 @@ function DocumentResults({ request, base, queryString, sort }) {
             />
           ) : null}
           <div className="cp-pagination">
-            <button
-              type="button"
-              className="secondary"
+            <Button
+              variant="secondary"
               disabled={cursors.length === 1 || resource.loading}
               onClick={() => setCursors((value) => value.slice(0, -1))}
             >
               Previous
-            </button>
+            </Button>
             <span className="cp-muted">Page {cursors.length}</span>
-            <button
-              type="button"
-              className="secondary"
+            <Button
+              variant="secondary"
               disabled={!resource.data?.cursor || resource.loading}
               onClick={() => setCursors((value) => [...value, resource.data.cursor])}
             >
               {resource.data?.searchContinuing ? "Continue search" : "Next"}
-            </button>
+            </Button>
           </div>
         </section>
         <div>

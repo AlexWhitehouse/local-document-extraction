@@ -1,5 +1,6 @@
 import React from "react";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
+import { Button } from "../ui/Button.jsx";
 import { displayName, isApplicationAdmin, isEmailVerified, safeText, userIdOf } from "./adminAccounts.js";
 
 export function ApplicationAdminPage({ admin }) {
@@ -15,15 +16,9 @@ export function ApplicationAdminPage({ admin }) {
         <div className="studio-heading-actions">
           {isCurrentUser ? <span className="status-chip good">Your account</span> : null}
           {actions.map((action) => (
-            <button
-              key={action.label}
-              type="button"
-              className={action.className}
-              disabled={action.disabled}
-              onClick={action.onClick}
-            >
+            <Button key={action.label} variant={action.variant} disabled={action.disabled} onClick={action.onClick}>
               {action.label}
-            </button>
+            </Button>
           ))}
         </div>
         <p className="studio-page-description">
@@ -120,9 +115,9 @@ function getUserActions(admin, user) {
   const isCurrentUser = userId && userId === String(admin.sessionUserId || "").trim();
   const disabled = admin.isLoading || admin.mutatingUserId === userId;
 
-  const action = (label, run, className) => ({
+  const action = (label, run, variant) => ({
     label,
-    className,
+    variant,
     disabled,
     onClick: () => run(user),
   });
@@ -177,12 +172,12 @@ function UnbanUserDialog({ admin, user }) {
         </div>
       </dl>
       <div className="actions">
-        <button type="button" className="secondary" onClick={admin.onCloseUnbanDialog}>
+        <Button variant="secondary" onClick={admin.onCloseUnbanDialog}>
           Cancel
-        </button>
-        <button type="button" disabled={pending} onClick={admin.onConfirmUnban}>
-          {pending ? "Unbanning…" : "Unban user"}
-        </button>
+        </Button>
+        <Button pending={pending} pendingLabel="Unbanning…" onClick={admin.onConfirmUnban}>
+          Unban user
+        </Button>
       </div>
     </ModalDialog>
   );
@@ -223,12 +218,12 @@ function BanUserDialog({ admin, user }) {
           </p>
         ) : null}
         <div className="actions">
-          <button type="button" className="secondary" onClick={admin.onCloseBanDialog}>
+          <Button variant="secondary" onClick={admin.onCloseBanDialog}>
             Cancel
-          </button>
-          <button type="submit" className="danger" disabled={pending}>
-            {pending ? "Banning…" : "Ban user"}
-          </button>
+          </Button>
+          <Button type="submit" variant="danger" pending={pending} pendingLabel="Banning…">
+            Ban user
+          </Button>
         </div>
       </form>
     </ModalDialog>

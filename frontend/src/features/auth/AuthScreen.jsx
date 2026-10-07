@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
+import { Button } from "../ui/Button.jsx";
 import "./AuthScreen.css";
 
 const FIELD_IDS = {
@@ -102,14 +103,9 @@ export function AuthScreen({
                   </>
                 )}
               </p>
-              <button
-                type="button"
-                className="auth-primary-action"
-                disabled={isAuthPending}
-                onClick={() => onSwitchMode("signin")}
-              >
+              <Button className="auth-primary-action" disabled={isAuthPending} onClick={() => onSwitchMode("signin")}>
                 Back to sign in
-              </button>
+              </Button>
             </div>
           ) : accountPasswordResetRequestedEmail ? (
             <div className="panel auth-verification-prompt" role="status">
@@ -120,14 +116,9 @@ export function AuthScreen({
                   ? "been saved in the server terminal and local mail capture. Run document-extraction mail after an installer setup, or inspect your state directory's mail folder."
                   : "been sent."}
               </p>
-              <button
-                type="button"
-                className="auth-primary-action"
-                disabled={isAuthPending}
-                onClick={() => onSwitchMode("signin")}
-              >
+              <Button className="auth-primary-action" disabled={isAuthPending} onClick={() => onSwitchMode("signin")}>
                 Back to sign in
-              </button>
+              </Button>
             </div>
           ) : (
             <form className="panel auth-panel" onSubmit={onSubmit} noValidate>
@@ -251,9 +242,9 @@ export function AuthScreen({
                   {formAlert}
                   {isSignIn ? (
                     <>
-                      <button type="submit" className="auth-primary-action" disabled={isSigningIn}>
-                        {isSigningIn ? "Signing in…" : "Sign in"}
-                      </button>
+                      <Button type="submit" className="auth-primary-action" pending={isSigningIn} pendingLabel="Signing in…">
+                        Sign in
+                      </Button>
                       {signupEnabled ? (
                         <p className="auth-switch-copy">
                           Don&apos;t have an account?{" "}
@@ -267,9 +258,9 @@ export function AuthScreen({
                     </>
                   ) : isResetRequest ? (
                     <>
-                      <button type="submit" className="auth-primary-action" disabled={isSendingResetLink}>
-                        {isSendingResetLink ? "Sending link…" : "Send reset link"}
-                      </button>
+                      <Button type="submit" className="auth-primary-action" pending={isSendingResetLink} pendingLabel="Sending link…">
+                        Send reset link
+                      </Button>
                       <p className="auth-switch-copy">
                         Remember your password?{" "}
                         <SwitchModeButton mode="signin" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
@@ -279,9 +270,9 @@ export function AuthScreen({
                     </>
                   ) : (
                     <>
-                      <button type="submit" className="auth-primary-action" disabled={isCreatingAccount}>
-                        {isCreatingAccount ? "Creating account…" : "Create account"}
-                      </button>
+                      <Button type="submit" className="auth-primary-action" pending={isCreatingAccount} pendingLabel="Creating account…">
+                        Create account
+                      </Button>
                       <p className="auth-switch-copy">
                         Already have an account?{" "}
                         <SwitchModeButton mode="signin" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
@@ -301,14 +292,9 @@ export function AuthScreen({
                   ) : (
                     formAlert
                   )}
-                  <button
-                    type="button"
-                    className="secondary auth-provider-action"
-                    disabled={isAuthPending}
-                    onClick={onProviderSignIn}
-                  >
+                  <Button variant="secondary" className="auth-provider-action" disabled={isAuthPending} onClick={onProviderSignIn}>
                     Sign in with Google
-                  </button>
+                  </Button>
                   {!emailPasswordEnabled && !signupEnabled ? (
                     <p className="muted">Account registration is closed. Contact the administrator for access.</p>
                   ) : null}
@@ -332,13 +318,8 @@ function FieldError({ id, message }) {
 
 function SwitchModeButton({ className = "", mode, disabled, onSwitchMode, children }) {
   return (
-    <button
-      type="button"
-      className={`auth-text-button ${className}`.trim()}
-      disabled={disabled}
-      onClick={() => onSwitchMode(mode)}
-    >
+    <Button variant="text" className={`auth-text-button ${className}`.trim()} disabled={disabled} onClick={() => onSwitchMode(mode)}>
       {children}
-    </button>
+    </Button>
   );
 }

@@ -6,7 +6,8 @@ import { WorkspaceDocumentProcessingSettings } from "./WorkspaceDocumentProcessi
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { ErrorState, ListStatus, Skeleton } from "../ui/States.jsx";
-import { CopyIcon, EditIcon } from "../layout/Icons.jsx";
+import { CloseIcon, CopyIcon, EditIcon, PlusIcon } from "../layout/Icons.jsx";
+import { Button, IconButton } from "../ui/Button.jsx";
 import { SettingToggle } from "./SettingToggle.jsx";
 import "./WorkspacePages.css";
 
@@ -83,12 +84,23 @@ export function WorkspaceInvitationPage({
           </div>
 
           <div className="actions invitation-actions">
-            <button type="button" disabled={actionsDisabled} onClick={onAcceptInvitation}>
-              {isAcceptingWorkspaceInvitation ? "Accepting…" : "Accept invitation"}
-            </button>
-            <button type="button" className="danger" disabled={actionsDisabled} onClick={onDeclineInvitation}>
-              {isDecliningWorkspaceInvitation ? "Declining…" : "Decline invitation"}
-            </button>
+            <Button
+              pending={isAcceptingWorkspaceInvitation}
+              pendingLabel="Accepting…"
+              disabled={actionsDisabled}
+              onClick={onAcceptInvitation}
+            >
+              Accept invitation
+            </Button>
+            <Button
+              variant="secondary"
+              pending={isDecliningWorkspaceInvitation}
+              pendingLabel="Declining…"
+              disabled={actionsDisabled}
+              onClick={onDeclineInvitation}
+            >
+              Decline invitation
+            </Button>
           </div>
         </article>
       </section>
@@ -138,9 +150,9 @@ function WorkspaceSourceRetention({ controller }) {
       {settings && error ? (
         <p role="alert" className="form-error">
           {error}{" "}
-          <button type="button" className="studio-text-button" onClick={controller.reload}>
+          <Button variant="text" onClick={controller.reload}>
             Try again
-          </button>
+          </Button>
         </p>
       ) : null}
     </section>
@@ -220,13 +232,15 @@ export function AcceptedWorkspacePage({
                 disabled={isSavingWorkspace || !hasApiAccess}
                 onChange={(event) => onWorkspaceNameChange(event.target.value)}
               />
-              <button
+              <Button
                 type="submit"
-                className="secondary"
-                disabled={isSavingWorkspace || !hasApiAccess || !isWorkspaceNameDirty}
+                variant="secondary"
+                pending={isSavingWorkspace}
+                pendingLabel="Saving…"
+                disabled={!hasApiAccess || !isWorkspaceNameDirty}
               >
-                {isSavingWorkspace ? "Saving…" : "Save name"}
-              </button>
+                Save name
+              </Button>
             </div>
           </form>
           <dl className="studio-workspace-facts">
@@ -258,16 +272,15 @@ export function AcceptedWorkspacePage({
                   placeholder={workspaceApiKeyPlaceholder}
                 />
                 {apiKey ? (
-                  <button
-                    type="button"
-                    className="icon-action-button workspace-key-copy-button"
-                    aria-label="Copy API key"
+                  <IconButton
+                    size="sm"
+                    label="Copy API key"
+                    icon={CopyIcon}
+                    className="workspace-key-copy-button"
                     onClick={async () => {
                       if (await onCopyVisibleWorkspaceApiKey()) setCopiedApiKey(apiKey);
                     }}
-                  >
-                    <CopyIcon size={14} />
-                  </button>
+                  />
                 ) : null}
               </div>
             </label>
@@ -278,14 +291,15 @@ export function AcceptedWorkspacePage({
             ) : null}
             <div className="studio-api-footer">
               <span>For inbound requests to this workspace.</span>
-              <button
-                type="button"
-                className="studio-text-button"
-                disabled={isIssuingApiKey || !canRotateWorkspaceApiKey}
+              <Button
+                variant="text"
+                pending={isIssuingApiKey}
+                pendingLabel={workspaceApiKeyPendingLabel}
+                disabled={!canRotateWorkspaceApiKey}
                 onClick={onRefreshApiKey}
               >
-                {isIssuingApiKey ? workspaceApiKeyPendingLabel : workspaceApiKeyActionLabel}
-              </button>
+                {workspaceApiKeyActionLabel}
+              </Button>
             </div>
           </section>
           {sourceRetention ? <WorkspaceSourceRetention controller={sourceRetention} /> : null}
@@ -305,16 +319,21 @@ export function AcceptedWorkspacePage({
             <h2>Workspace users</h2>
             <p>The people who can access this workspace.</p>
           </div>
-          <button
-            type="button"
-            className="secondary"
+          <Button
+            variant="secondary"
             disabled={!hasApiAccess || !canManageWorkspaceInvitations}
             aria-expanded={inviteOpen}
             aria-controls="workspace-invite-form"
             onClick={() => setInviteOpen(!inviteOpen)}
           >
-            {inviteOpen ? "Cancel" : "+ Invite user"}
-          </button>
+            {inviteOpen ? (
+              "Cancel"
+            ) : (
+              <>
+                <PlusIcon size={13} /> Invite user
+              </>
+            )}
+          </Button>
         </div>
         {inviteOpen ? (
           <WorkspaceInviteForm
@@ -356,14 +375,12 @@ export function AcceptedWorkspacePage({
                     {user.created_at ? <small>Joined {formatJoinedAt(user.created_at)}</small> : null}
                   </div>
                   {canShowWorkspaceUserAction(user) && String(user.user_id || "").trim() !== sessionUserId ? (
-                    <button
-                      type="button"
-                      className="icon-action-button"
-                      aria-label="Edit user"
+                    <IconButton
+                      size="sm"
+                      label={`Edit ${String(user.name || user.email || "user")}`}
+                      icon={EditIcon}
                       onClick={() => onSelectWorkspaceUserActionTarget(user)}
-                    >
-                      <EditIcon size={13} />
-                    </button>
+                    />
                   ) : (
                     <span />
                   )}
@@ -422,14 +439,13 @@ export function AcceptedWorkspacePage({
                       <td>{formatJoinedAt(invitation.created_at)}</td>
                       <td>{formatJoinedAt(invitation.expires_at)}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="icon-action-button"
-                          aria-label={`Cancel invitation for ${String(invitation.email || "invitee")}`}
+                        <IconButton
+                          size="sm"
+                          variant="danger"
+                          label={`Cancel invitation for ${String(invitation.email || "invitee")}`}
+                          icon={CloseIcon}
                           onClick={() => onCancelWorkspaceInvitation(invitation)}
-                        >
-                          ×
-                        </button>
+                        />
                       </td>
                     </tr>
                   ))}
@@ -541,9 +557,9 @@ function WorkspaceInviteForm({ disabled, email, error, isInviting, role, onEmail
             {error}
           </p>
         ) : null}
-        <button type="submit" className="secondary" disabled={disabled || isInviting}>
-          {isInviting ? "Inviting…" : "Invite user"}
-        </button>
+        <Button type="submit" variant="secondary" disabled={disabled} pending={isInviting} pendingLabel="Inviting…">
+          Invite user
+        </Button>
       </div>
     </form>
   );
@@ -618,19 +634,18 @@ function WorkspaceUserActionDialog({ target, options, onClose, onApplyAction }) 
       {orderedOptions.length ? (
         <div className="workspace-user-action-list">
           {orderedOptions.map((action) => (
-            <button
+            <Button
               key={action}
-              type="button"
-              className={action === "remove_user" ? "danger" : "ghost"}
+              variant={action === "remove_user" ? "danger" : "ghost"}
               disabled={Boolean(pendingAction)}
+              pending={pendingAction === action}
+              pendingLabel={WORKSPACE_USER_ACTION_LABELS[action].pending}
               onClick={() =>
                 WORKSPACE_USER_CONFIRMATIONS[action] ? confirmAction(action) : applyAction(action)
               }
             >
-              {pendingAction === action
-                ? WORKSPACE_USER_ACTION_LABELS[action].pending
-                : WORKSPACE_USER_ACTION_LABELS[action].label}
-            </button>
+              {WORKSPACE_USER_ACTION_LABELS[action].label}
+            </Button>
           ))}
         </div>
       ) : (

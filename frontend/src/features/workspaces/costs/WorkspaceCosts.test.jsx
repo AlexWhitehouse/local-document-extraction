@@ -331,7 +331,7 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
   expect(new URL(request.mock.calls[2][0], "http://localhost").searchParams.get("unit")).toBe("hour");
   fireEvent.click(screen.getByRole("tab", { name: "Documents" }));
   expect(onTab).toHaveBeenCalledWith("documents");
-  fireEvent.click(screen.getByRole("button", { name: "← Workspace" }));
+  fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
   expect(onBack).toHaveBeenCalledTimes(1);
 });
 

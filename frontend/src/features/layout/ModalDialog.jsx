@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { CloseIcon } from "./Icons.jsx";
 
 const FOCUSABLE = [
   "a[href]",
@@ -178,7 +179,7 @@ export function ModalHeader({
               disabled={closeDisabled}
               onClick={requestClose || onClose}
             >
-              ×
+              <CloseIcon />
             </button>
           ) : null}
         </div>

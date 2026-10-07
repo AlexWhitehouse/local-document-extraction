@@ -6,6 +6,8 @@ import { focusDiagnostic } from "./focusDiagnostic.js";
 import { DiagnosticMessages, TemplateProblems } from "./TemplateDiagnostics.jsx";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { pluralize } from "../../lib/text.js";
+import { Button } from "../ui/Button.jsx";
+import { AssistantIcon } from "../layout/Icons.jsx";
 
 export function TemplatePage({
   templateName,
@@ -24,7 +26,6 @@ export function TemplatePage({
   onTemplateNameChange,
   onTemplateDescriptionChange,
   onTemplateFieldsChange,
-  onOpenJsonModal,
   onSaveTemplate,
   assistant,
   onOpenAssistant,
@@ -52,23 +53,12 @@ export function TemplatePage({
     focus(validationFocus?.issue);
   }, [validationFocus, focus]);
 
-  const saveAction = (
-    <button
-      type="button"
-      className="studio-text-button studio-save-action"
-      data-tour="save-template"
-      disabled={
-        isSavingTemplate ||
-        isManagingTags ||
-        isGeneratingTemplate ||
-        !hasApiAccess ||
-        (isEditingTemplate && !isEditedTemplateDirty)
-      }
-      onClick={onSaveTemplate}
-    >
-      {isSavingTemplate ? "Saving…" : isEditingTemplate ? "Save changes" : "Save new template"}
-    </button>
-  );
+  const isSaveDisabled =
+    isSavingTemplate ||
+    isManagingTags ||
+    isGeneratingTemplate ||
+    !hasApiAccess ||
+    (isEditingTemplate && !isEditedTemplateDirty);
 
   return (
     <div className={`template-editor-workspace${assistant?.isOpen ? " template-assistant-layout" : ""}`}>
@@ -135,17 +125,6 @@ export function TemplatePage({
           diagnostics={issues}
           focusRequest={focusRequest}
           onChange={onTemplateFieldsChange}
-          saveAction={saveAction}
-          jsonAction={
-            <button
-              type="button"
-              className="studio-text-button"
-              disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
-              onClick={onOpenJsonModal}
-            >
-              View JSON
-            </button>
-          }
           disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
         />
         <footer className="studio-editor-footer">
@@ -170,10 +149,21 @@ export function TemplatePage({
             ) : null}
           </span>
           <span className="template-footer-actions">
+            <Button
+              variant="primary"
+              data-tour="save-template"
+              disabled={isSaveDisabled}
+              pending={isSavingTemplate}
+              pendingLabel="Saving…"
+              onClick={onSaveTemplate}
+            >
+              {isEditingTemplate ? "Save changes" : "Save new template"}
+            </Button>
             {/* One entry point: it opens on Explain issues while the draft has problems, otherwise on Propose edits. */}
-            <button
+            <Button
               type="button"
-              className="secondary template-assistant-button"
+              variant="secondary"
+              className="template-assistant-button"
               aria-expanded={Boolean(assistant?.isOpen)}
               disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
               onClick={() => {
@@ -183,7 +173,7 @@ export function TemplatePage({
               <AssistantIcon />
               Assistant
               {issues.length ? <span className="template-assistant-count">{issues.length}</span> : null}
-            </button>
+            </Button>
           </span>
         </footer>
       </section>
@@ -195,23 +185,5 @@ export function TemplatePage({
         isDirty={isEditedTemplateDirty}
       />
     </div>
-  );
-}
-
-function AssistantIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="square"
-    >
-      <path d="M4 5h16v11H9l-5 4Z" />
-      <path d="M9 10.5h.01M12 10.5h.01M15 10.5h.01" />
-    </svg>
   );
 }

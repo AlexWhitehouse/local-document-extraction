@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Button } from "../ui/Button.jsx";
 import { useDocumentOriginal } from "./documentViewing";
 
 // Only these types reach the viewer. A PDF iframe must never receive another type, because an
@@ -102,9 +103,9 @@ function AvailabilityNotice({ status, onRetry }) {
         <p>{message}</p>
       </div>
       {status === "unavailable" && onRetry ? (
-        <button type="button" className="secondary" onClick={onRetry}>
+        <Button variant="secondary" onClick={onRetry}>
           Retry
-        </button>
+        </Button>
       ) : null}
     </div>
   );

@@ -4,6 +4,8 @@ import { candidateBusy } from "./useEvaluations.js";
 import { normalizeReferenceDates, scalarValue, validateReference } from "./evaluationScoring.js";
 import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
 import { display, dollars, seconds } from "./evaluationFormat.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { ExternalIcon, MoreIcon } from "../layout/Icons.jsx";
 
 const SCALAR_TYPES = ["string", "number", "date", "boolean"];
 
@@ -179,15 +181,13 @@ export function CandidateMenu({ label, candidate, inputs, onInputChange, actions
 
   return (
     <div className="evaluation-menu" ref={root}>
-      <button
-        type="button"
-        className="icon-action-button"
-        aria-label={`${label} options`}
+      <IconButton
+        size="sm"
+        label={`${label} options`}
+        icon={MoreIcon}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-      >
-        ⋯
-      </button>
+      />
       {open && (
         <div className="evaluation-menu-panel" role="group" aria-label={`${label} options`}>
           <p className="evaluation-menu-title">Input{inputs.shared ? " · all candidates" : ""}</p>
@@ -213,10 +213,9 @@ export function CandidateMenu({ label, candidate, inputs, onInputChange, actions
             {actions.flatMap((action) =>
               action
                 ? [
-                    <button
+                    <Button
                       key={action.label}
-                      type="button"
-                      className={`studio-text-button ${action.danger ? "evaluation-danger-text" : ""}`}
+                      variant={action.danger ? "danger-text" : "text"}
                       disabled={action.disabled}
                       onClick={() => {
                         setOpen(false);
@@ -224,7 +223,7 @@ export function CandidateMenu({ label, candidate, inputs, onInputChange, actions
                       }}
                     >
                       {action.label}
-                    </button>,
+                    </Button>,
                   ]
                 : [],
             )}
@@ -265,7 +264,9 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
               : `${reference.value.length} ${reference.value.length === 1 ? "row" : "rows"} verified`
             : "Add expected rows"}
         </span>
-        <em aria-hidden="true">↗</em>
+        <em aria-hidden="true">
+          <ExternalIcon size={12} />
+        </em>
       </button>
     );
   }
@@ -391,40 +392,34 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
         </p>
       )}
       <div className="evaluation-expected-actions">
-        <button type="submit" className="studio-text-button">
+        <Button variant="text" type="submit">
           Verify
-        </button>
-        <button
-          type="button"
-          className="studio-text-button"
+        </Button>
+        <Button variant="text"
           onClick={() => {
             onSave({ verified: true, absent: true, exact: false, value: "" });
             setEditing(false);
           }}
         >
           Not in document
-        </button>
-        <button
-          type="button"
-          className="studio-text-button"
+        </Button>
+        <Button variant="text"
           onClick={() => {
             setEditing(false);
             onOpenEditor();
           }}
         >
           More options
-        </button>
+        </Button>
         {verified && (
-          <button
-            type="button"
-            className="studio-text-button evaluation-danger-text"
+          <Button variant="danger-text"
             onClick={() => {
               onSave({ ...reference, verified: false });
               setEditing(false);
             }}
           >
             Remove
-          </button>
+          </Button>
         )}
       </div>
     </form>

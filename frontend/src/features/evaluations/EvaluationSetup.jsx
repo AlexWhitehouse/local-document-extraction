@@ -3,6 +3,8 @@ import { MAX_CANDIDATES, documentRunnable } from "./useEvaluations.js";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 import { Chips } from "./EvaluationLibrary.jsx";
 import { documentChips, kilobytes, saveUnavailableMessage, unavailableText } from "./evaluationLibrary.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { CloseIcon, PlusIcon } from "../layout/Icons.jsx";
 
 const MODES = [
   {
@@ -180,8 +182,7 @@ export function EvaluationSetup({
                       key={document.key}
                       className={`evaluation-setup-file ${documentRunnable(document) ? "" : "unrunnable"}`}
                     >
-                      <button
-                        type="button"
+                      <Button
                         className="evaluation-setup-thumb"
                         aria-label={`View ${document.name}`}
                         onClick={() => onPreviewDocument(document)}
@@ -191,19 +192,17 @@ export function EvaluationSetup({
                             ? "IMG"
                             : "PDF"}
                         </span>
-                      </button>
+                      </Button>
                       <div className="evaluation-setup-file-info">
                         <div className="evaluation-setup-file-row">
                           <strong title={document.name}>{document.name}</strong>
                           <Chips list={chips.slice(0, 1)} />
-                          <button
-                            type="button"
-                            className="icon-action-button"
-                            aria-label={`Remove ${document.name}`}
+                          <IconButton
+                            size="sm"
+                            label={`Remove ${document.name}`}
+                            icon={CloseIcon}
                             onClick={() => onRemoveDocument(document.key)}
-                          >
-                            ×
-                          </button>
+                          />
                         </div>
                         <div className="evaluation-setup-file-row">
                           <small title={document.file?.name || document.entry?.source_name}>
@@ -248,12 +247,12 @@ export function EvaluationSetup({
                 </small>
               </div>
               <span className="evaluation-actions">
-                <button type="button" onClick={() => onChooseLibrary(fields)}>
+                <Button onClick={() => onChooseLibrary(fields)}>
                   Library
-                </button>
-                <button type="button" className="secondary" onClick={() => input.current.click()}>
+                </Button>
+                <Button variant="secondary" onClick={() => input.current.click()}>
                   Upload new
-                </button>
+                </Button>
               </span>
             </div>
             <input
@@ -385,40 +384,35 @@ export function EvaluationSetup({
                       {model.trim() && model.trim() === workspaceModel && (
                         <small className="status-chip">Workspace default</small>
                       )}
-                      <button
-                        type="button"
-                        className="icon-action-button"
-                        aria-label={`Remove candidate ${index + 1}`}
+                      <IconButton
+                        size="sm"
+                        label={`Remove candidate ${index + 1}`}
+                        icon={CloseIcon}
                         disabled={models.length <= 1}
                         onClick={() => setModels(models.filter((_, i) => i !== index))}
-                      >
-                        ×
-                      </button>
+                      />
                     </li>
                   ))}
                 </ol>
                 <div className="evaluation-setup-add">
-                  <button
-                    type="button"
-                    className="secondary"
+                  <Button variant="secondary"
                     disabled={models.length >= MAX_CANDIDATES}
                     onClick={() => setModels([...models, ""])}
                   >
-                    + Add model
-                  </button>
+                    <PlusIcon size={13} /> Add model
+                  </Button>
                   {suggestions.length > 0 && (
                     <span className="evaluation-setup-suggest">
                       <small>Used in this Workspace</small>
                       {suggestions.map((model) => (
-                        <button
+                        <Button
                           key={model}
-                          type="button"
                           className="evaluation-chip"
                           disabled={names.length >= MAX_CANDIDATES}
                           onClick={() => addSuggestion(model)}
                         >
-                          + {model}
-                        </button>
+                          <PlusIcon size={12} /> {model}
+                        </Button>
                       ))}
                     </span>
                   )}
@@ -463,9 +457,9 @@ export function EvaluationSetup({
         <footer className="evaluation-setup-foot">
           <div className="evaluation-setup-submit">
             {problems.length > 0 && <small className="evaluation-muted">{problems.join(" · ")}</small>}
-            <button type="button" disabled={!enabled || problems.length > 0 || starting} onClick={start}>
+            <Button disabled={!enabled || problems.length> 0 || starting} onClick={start}>
               {starting ? "Loading…" : willRun ? "Start and run" : "Start Evaluation"}
-            </button>
+            </Button>
           </div>
         </footer>
       </div>
@@ -474,9 +468,9 @@ export function EvaluationSetup({
         <div className="evaluation-setup-model evaluation-library-box">
           <small>Evaluation library</small>
           <p>Documents with Expected answers, shared with everyone in this Workspace.</p>
-          <button type="button" className="studio-text-button" onClick={() => onManageLibrary(fields)}>
+          <Button variant="text" onClick={() => onManageLibrary(fields)}>
             Manage library
-          </button>
+          </Button>
         </div>
         {mode === "templates" && (
           <div className="evaluation-setup-model">

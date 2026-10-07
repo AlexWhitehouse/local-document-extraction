@@ -7,6 +7,7 @@ import { PacketPage } from "./PacketPage.jsx";
 import { formatPages } from "./documentProcessing.js";
 import { isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
 import { ProcessingCost } from "./ProcessingCost.jsx";
+import { Button } from "../ui/Button.jsx";
 
 const NARROW_SPLIT_WIDTH = 600;
 
@@ -127,9 +128,9 @@ function DocumentDetail({
       {documentError ? (
         <div className="packet-message is-error">
           <p role="alert">{documentError}</p>
-          <button type="button" className="secondary" onClick={onRetryDocument}>
+          <Button variant="secondary" onClick={onRetryDocument}>
             Retry document
-          </button>
+          </Button>
         </div>
       ) : (
         <ExtractionResultDisplay
@@ -349,9 +350,9 @@ function TemplateHold({ job, templates, onResolve, busy }) {
             ))}
           </select>
         </label>
-        <button type="submit" disabled={busy || !templateId}>
-          {busy ? "Continuing…" : "Use template and continue"}
-        </button>
+        <Button type="submit" disabled={!templateId} pending={busy} pendingLabel="Continuing…">
+          Use template and continue
+        </Button>
       </form>
     </section>
   );

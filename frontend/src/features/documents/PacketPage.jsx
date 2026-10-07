@@ -6,6 +6,9 @@ import { formatPages, parsePageSelection, validateSplitPlan } from "./documentPr
 import { PACKET_STATUS_LABELS } from "./packetListing.js";
 import "./DocumentProcessing.css";
 import { ProcessingCost } from "./ProcessingCost.jsx";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { ListAddButton } from "../ui/ListAddButton.jsx";
+import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
 
 const LIVE_CHILD_STATUSES = new Set(["queued", "processing"]);
 
@@ -71,9 +74,9 @@ export function PacketPage({
         <div className="packet-message is-error">
           <p role="alert">{documentError}</p>
           {children.some((child) => child.job_id === documentErrorId) ? (
-            <button type="button" className="secondary" onClick={() => onSelectDocument?.(documentErrorId)}>
+            <Button variant="secondary" onClick={() => onSelectDocument?.(documentErrorId)}>
               Retry document
-            </button>
+            </Button>
           ) : null}
         </div>
       ) : null}
@@ -306,14 +309,13 @@ function PacketDocuments({ documents, templates, onSelectDocument }) {
               return (
                 <tr key={child.job_id}>
                   <th scope="row">
-                    <button
-                      type="button"
-                      className="studio-text-button"
+                    <Button
+                      variant="text"
                       aria-label={`Open document ${index + 1} · ${pagesLabel(child.source_pages)}`}
                       onClick={() => onSelectDocument?.(child.job_id)}
                     >
                       Document {index + 1}
-                    </button>
+                    </Button>
                   </th>
                   <td>{formatPages(child.source_pages)}</td>
                   <td>
@@ -396,19 +398,16 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
                     )
                   }
                 />
-                <button
-                  type="button"
-                  className="studio-text-button studio-destructive"
+                <Button
+                  variant="danger-text"
                   aria-label={`Remove document group ${index + 1}`}
                   onClick={() => setGroups((current) => current.filter((_, position) => position !== index))}
                 >
                   Remove
-                </button>
+                </Button>
               </div>
             ))}
-            <button type="button" className="split-plan-add" onClick={() => setGroups((current) => [...current, ""])}>
-              <span aria-hidden="true">+ </span>Add document group
-            </button>
+            <ListAddButton onClick={() => setGroups((current) => [...current, ""])}>Add document group</ListAddButton>
           </fieldset>
           <fieldset disabled={busy}>
             <legend className="packet-section-title">Excluded pages</legend>
@@ -443,23 +442,18 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
                     )
                   }
                 />
-                <button
-                  type="button"
-                  className="studio-text-button studio-destructive"
+                <Button
+                  variant="danger-text"
                   aria-label={`Remove exclusion ${index + 1}`}
                   onClick={() => setExclusions((current) => current.filter((_, position) => position !== index))}
                 >
                   Remove
-                </button>
+                </Button>
               </div>
             ))}
-            <button
-              type="button"
-              className="split-plan-add"
-              onClick={() => setExclusions((current) => [...current, { page: pages[0], reason: "" }])}
-            >
-              <span aria-hidden="true">+ </span>Exclude a page
-            </button>
+            <ListAddButton onClick={() => setExclusions((current) => [...current, { page: pages[0], reason: "" }])}>
+              Exclude a page
+            </ListAddButton>
           </fieldset>
           {error ? (
             <p className="packet-message is-error" role="alert">
@@ -474,23 +468,21 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
                   ? `Unassigned pages: ${formatPages(unassigned)}`
                   : "Every page is assigned"}
             </span>
-            <button type="submit" disabled={busy}>
-              {busy ? "Confirming…" : "Confirm plan and extract"}
-            </button>
+            <Button type="submit" pending={busy} pendingLabel="Confirming…">
+              Confirm plan and extract
+            </Button>
           </div>
         </form>
         {loadPagePreview ? (
           <div className="split-page-preview">
             <div className="split-page-preview-bar">
-              <button
-                type="button"
-                className="studio-text-button"
-                aria-label="Previous page"
+              <IconButton
+                label="Previous page"
+                icon={ChevronLeftIcon}
+                size="sm"
                 disabled={pageIndex <= 0}
                 onClick={() => setPage(pages[pageIndex - 1])}
-              >
-                ‹
-              </button>
+              />
               <label>
                 Original page
                 <select value={page} onChange={(event) => setPage(Number(event.target.value))}>
@@ -502,15 +494,13 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
                 </select>
               </label>
               <span>of {pages.length}</span>
-              <button
-                type="button"
-                className="studio-text-button"
-                aria-label="Next page"
+              <IconButton
+                label="Next page"
+                icon={ChevronRightIcon}
+                size="sm"
                 disabled={pageIndex >= pages.length - 1}
                 onClick={() => setPage(pages[pageIndex + 1])}
-              >
-                ›
-              </button>
+              />
             </div>
             <div className="split-page-preview-body">
               <PacketPagePreview packetId={packet.packet_id} page={page} loadPreview={loadPagePreview} />
@@ -568,9 +558,9 @@ function PacketPagePreview({ packetId, page, loadPreview }) {
   return state.error ? (
     <div role="status" className="source-preview-state">
       <p>{state.error}</p>
-      <button type="button" className="studio-text-button" onClick={() => setRetry((value) => value + 1)}>
+      <Button variant="text" onClick={() => setRetry((value) => value + 1)}>
         Retry preview
-      </button>
+      </Button>
     </div>
   ) : state.url ? (
     <img src={state.url} alt={`Original page ${page}`} />

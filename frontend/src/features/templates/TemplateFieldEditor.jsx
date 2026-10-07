@@ -5,6 +5,11 @@ import { focusDiagnostic } from "./focusDiagnostic.js";
 import { DiagnosticMessages } from "./TemplateDiagnostics.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
+import "./TemplateFieldEditor.css";
+import { ArrowDownIcon, ArrowUpIcon, CloseIcon, MoreIcon } from "../layout/Icons.jsx";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { ListAddButton } from "../ui/ListAddButton.jsx";
+import { TemplateActionMenu } from "./TemplateActionMenu.jsx";
 
 import {
   DATA_TYPES,
@@ -28,8 +33,6 @@ const editableSchema = (schema) => ({
 export function TemplateFieldEditor({
   fields,
   onChange,
-  saveAction,
-  jsonAction,
   disabled = false,
   diagnostics,
   focusRequest,
@@ -244,6 +247,8 @@ export function TemplateFieldEditor({
 
   function removeField(index) {
     onChange((prev) => prev.filter((_, i) => i !== index));
+
+    if (index < activeFieldIndex) setActiveFieldIndex(activeFieldIndex - 1);
   }
 
   function duplicateField(index) {
@@ -278,35 +283,64 @@ export function TemplateFieldEditor({
     <fieldset ref={rootRef} className="field-editor" disabled={disabled}>
       <div className="field-studio">
         <ScrollArea as="nav" className="field-nav" aria-label="Template fields" tabIndex={0}>
-          {fields.map((field, index) => (
-            <button
-              key={`${field.id || "field"}-${index}`}
-              type="button"
-              className={
-                (index === activeFieldIndex ? "field-nav-item active" : "field-nav-item") +
-                (grouped.byField.get(index)?.length ? " template-field-has-problems" : "")
-              }
-              aria-current={index === activeFieldIndex ? "true" : undefined}
-              onClick={() => setActiveFieldIndex(index)}
-            >
-              <span className="studio-row-number">{String(index + 1).padStart(2, "0")}</span>
-              <div className="field-nav-top">
-                <div className="field-nav-label">
-                  <strong>{field.name || `Field ${index + 1}`}</strong>
-                  {grouped.byField.get(index)?.length > 0 ? (
-                    <span className="template-problem-badge">
-                      {grouped.byField.get(index).length} problem{grouped.byField.get(index).length === 1 ? "" : "s"}
-                    </span>
-                  ) : (
-                    <span>{getDataTypeLabel(field.data_type)}</span>
-                  )}
+          {fields.map((field, index) => {
+            const fieldName = field.name || `Field ${index + 1}`;
+
+            return (
+              <div key={`${field.id || "field"}-${index}`} className="field-nav-row">
+                <button
+                  type="button"
+                  className={
+                    (index === activeFieldIndex ? "field-nav-item active" : "field-nav-item") +
+                    (grouped.byField.get(index)?.length ? " template-field-has-problems" : "")
+                  }
+                  aria-current={index === activeFieldIndex ? "true" : undefined}
+                  onClick={() => setActiveFieldIndex(index)}
+                >
+                  <span className="studio-row-number">{String(index + 1).padStart(2, "0")}</span>
+                  <div className="field-nav-top">
+                    <div className="field-nav-label">
+                      <strong>{fieldName}</strong>
+                      {grouped.byField.get(index)?.length > 0 ? (
+                        <span className="template-problem-badge">
+                          {grouped.byField.get(index).length} problem{grouped.byField.get(index).length === 1 ? "" : "s"}
+                        </span>
+                      ) : (
+                        <span>{getDataTypeLabel(field.data_type)}</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+                <div className="field-nav-row-actions">
+                  <IconButton
+                    label={`Move ${fieldName} up`}
+                    icon={ArrowUpIcon}
+                    size="sm"
+                    disabled={index === 0}
+                    onClick={() => moveField(index, -1)}
+                  />
+                  <IconButton
+                    label={`Move ${fieldName} down`}
+                    icon={ArrowDownIcon}
+                    size="sm"
+                    disabled={index === fields.length - 1}
+                    onClick={() => moveField(index, 1)}
+                  />
+                  <TemplateActionMenu
+                    label={`More actions for ${fieldName}`}
+                    icon={MoreIcon}
+                    items={[
+                      { key: "duplicate", label: "Duplicate", onSelect: () => duplicateField(index) },
+                      { key: "remove", label: "Remove field", danger: true, onSelect: () => removeField(index) },
+                    ]}
+                  />
                 </div>
               </div>
-            </button>
-          ))}
-          <button data-tour="add-field" className="studio-add-field" type="button" onClick={addField}>
-            + Add field
-          </button>
+            );
+          })}
+          <ListAddButton data-tour="add-field" onClick={addField}>
+            Add field
+          </ListAddButton>
         </ScrollArea>
 
         {activeField ? (
@@ -379,41 +413,6 @@ export function TemplateFieldEditor({
             <p className="studio-field-id">
               Field ID <code>{activeField.id || "Generated from the field name"}</code>
             </p>
-            <div className="field-controls">
-              <div className="studio-field-order">
-                <button
-                  type="button"
-                  className="studio-text-button"
-                  onClick={() => moveField(activeFieldIndex, -1)}
-                  disabled={activeFieldIndex === 0}
-                >
-                  ↑ Move up
-                </button>
-                <button
-                  type="button"
-                  className="studio-text-button"
-                  onClick={() => moveField(activeFieldIndex, 1)}
-                  disabled={activeFieldIndex === fields.length - 1}
-                >
-                  ↓ Move down
-                </button>
-                <button type="button" className="studio-text-button" onClick={() => duplicateField(activeFieldIndex)}>
-                  Duplicate
-                </button>
-              </div>
-              <div className="studio-field-save">
-                {jsonAction}
-                <button
-                  type="button"
-                  className="studio-text-button studio-destructive"
-                  onClick={() => removeField(activeFieldIndex)}
-                >
-                  Remove field
-                </button>
-                {saveAction}
-              </div>
-            </div>
-
             {isObjectLikeType(activeField.data_type) ? (
               <div className="object-schema-launch">
                 <div>
@@ -424,15 +423,15 @@ export function TemplateFieldEditor({
                       : "No columns defined yet"}
                   </p>
                 </div>
-                <button
+                <Button
                   type="button"
-                  className="secondary"
+                  variant="secondary"
                   data-tour="schema-open"
                   {...diagnosticProps(at("object_schema"))}
                   onClick={() => setSchemaEditorFieldIndex(activeFieldIndex)}
                 >
                   Edit schema
-                </button>
+                </Button>
                 {messages(at("object_schema"))}
               </div>
             ) : null}
@@ -440,10 +439,6 @@ export function TemplateFieldEditor({
         ) : (
           <div className="field-detail">
             <p className="muted">No fields yet. Add at least one.</p>
-            <div className="studio-field-save">
-              {jsonAction}
-              {saveAction}
-            </div>
           </div>
         )}
       </div>
@@ -520,24 +515,19 @@ function ObjectSchemaModal({
             <p>Define output columns and their order for table-style object extraction.</p>
           </div>
           <div className="actions compact object-schema-modal-head-actions">
-            <button
-              type="button"
+            <Button
               onClick={onAddColumn}
               disabled={disabled || columns.length >= MAX_TEMPLATE_OBJECT_COLUMNS}
               title={`Maximum ${MAX_TEMPLATE_OBJECT_COLUMNS} columns`}
             >
               Add column
-            </button>
-            <button
-              type="button"
-              className="modal-close"
-              aria-label="Close object schema editor"
+            </Button>
+            <IconButton
+              label="Close object schema editor"
+              icon={CloseIcon}
               data-tour="schema-close"
-              title="Close"
               onClick={onClose}
-            >
-              <span aria-hidden="true">×</span>
-            </button>
+            />
           </div>
         </div>
 
@@ -602,7 +592,7 @@ function ObjectSchemaModal({
                     </td>
                     <td>
                       <input
-                        aria-label="Column Description"
+                        aria-label="Column description"
                         disabled={disabled}
                         {...diagnosticProps(at(columnIndex, "description"))}
                         value={column.description}
@@ -613,33 +603,29 @@ function ObjectSchemaModal({
                     </td>
                     <td>
                       <div className="object-schema-row-actions">
-                        <button
-                          type="button"
-                          className="secondary"
-                          aria-label={`Move Column ${columnIndex + 1} Up`}
-                          onClick={() => onMoveColumn(columnIndex, -1)}
+                        <IconButton
+                          label={`Move column ${columnIndex + 1} up`}
+                          icon={ArrowUpIcon}
+                          size="sm"
                           disabled={disabled || columnIndex === 0}
-                        >
-                          Up
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary"
-                          aria-label={`Move Column ${columnIndex + 1} Down`}
-                          onClick={() => onMoveColumn(columnIndex, 1)}
+                          onClick={() => onMoveColumn(columnIndex, -1)}
+                        />
+                        <IconButton
+                          label={`Move column ${columnIndex + 1} down`}
+                          icon={ArrowDownIcon}
+                          size="sm"
                           disabled={disabled || columnIndex === columns.length - 1}
-                        >
-                          Down
-                        </button>
-                        <button
-                          className="danger"
-                          type="button"
-                          aria-label={`Remove Column ${columnIndex + 1}`}
+                          onClick={() => onMoveColumn(columnIndex, 1)}
+                        />
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          aria-label={`Remove column ${columnIndex + 1}`}
                           disabled={disabled}
                           onClick={() => onRemoveColumn(columnIndex)}
                         >
                           Remove
-                        </button>
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -651,9 +637,9 @@ function ObjectSchemaModal({
 
         <div className="object-schema-modal-footer">
           <p className="hint">Changes are applied to the current template draft as you edit.</p>
-          <button type="button" data-tour="schema-done" onClick={onClose}>
+          <Button data-tour="schema-done" onClick={onClose}>
             Done
-          </button>
+          </Button>
         </div>
     </ModalDialog>
   );

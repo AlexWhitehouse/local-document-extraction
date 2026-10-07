@@ -3,6 +3,8 @@ import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
 import { ListStatus } from "../ui/States.jsx";
+import { IconButton } from "../ui/Button.jsx";
+import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
 import { accountFlags, displayName, isApplicationAdmin, safeText, userIdOf } from "./adminAccounts.js";
 
 export function AdminContextList({ admin }) {
@@ -86,27 +88,21 @@ export function AdminContextFooter({ admin }) {
       <span className="status-chip">Total users {admin.total}</span>
       {pageCount > 1 ? (
         <div className="admin-context-pager">
-          <button
-            type="button"
-            className="secondary"
-            aria-label="Previous page"
+          <IconButton
+            label="Previous page"
+            icon={ChevronLeftIcon}
             disabled={admin.isLoading || !admin.hasPreviousPage}
             onClick={admin.onPreviousPage}
-          >
-            ‹
-          </button>
+          />
           <span>
             Page {admin.currentPage} of {pageCount}
           </span>
-          <button
-            type="button"
-            className="secondary"
-            aria-label="Next page"
+          <IconButton
+            label="Next page"
+            icon={ChevronRightIcon}
             disabled={admin.isLoading || !admin.hasNextPage}
             onClick={admin.onNextPage}
-          >
-            ›
-          </button>
+          />
         </div>
       ) : null}
     </>

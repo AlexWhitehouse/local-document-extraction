@@ -7,6 +7,8 @@ import { NavigationLink } from "../context/NavigationLink.jsx";
 import { appPath } from "../../lib/appRoutes";
 import { isPacketListed, isSingleDocumentPacket, singlePacketDocument, PACKET_STATUS_LABELS } from "./packetListing.js";
 import { EmptyState, ErrorState, Skeleton } from "../ui/States.jsx";
+import { Button } from "../ui/Button.jsx";
+import { FilterIcon, PacketIcon } from "../layout/Icons.jsx";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
 
@@ -220,7 +222,7 @@ export function DocumentContextList({
                 >
                   {item.displayKind === "packet" ? (
                     <span className="context-packet-mark" aria-hidden="true">
-                      <PacketIcon />
+                      <PacketIcon size={13} />
                     </span>
                   ) : null}
                   <input
@@ -282,15 +284,14 @@ export function DocumentContextList({
             variant="inline"
             message="No documents yet"
             action={
-              <button
-                type="button"
-                className="secondary"
+              <Button
+                variant="secondary"
                 disabled={!canUploadDocuments}
                 title={canUploadDocuments ? undefined : MODEL_SETUP_MESSAGE}
                 onClick={onUploadDocument}
               >
                 Upload documents
-              </button>
+              </Button>
             }
           />
         ) : null}
@@ -573,17 +574,16 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
           ) : null}
 
           <div className="context-filter-actions">
-            <button
-              type="button"
-              className="secondary"
+            <Button
+              variant="secondary"
               disabled={!activeFilterCount && !draftFilters.dateFrom && !draftFilters.dateTo && !draftFilters.model}
               onClick={clearFilters}
             >
               Clear
-            </button>
-            <button type="submit" disabled={hasInvalidDateRange}>
+            </Button>
+            <Button type="submit" disabled={hasInvalidDateRange}>
               Apply filters
-            </button>
+            </Button>
           </div>
         </form>
       ) : null}
@@ -597,45 +597,6 @@ function toDraftFilters(filters) {
     dateTo: String(filters.dateTo || ""),
     model: String(filters.model || ""),
   };
-}
-
-function PacketIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="13"
-      height="13"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M8 3h9a2 2 0 0 1 2 2v12" />
-      <rect x="5" y="7" width="11" height="14" rx="2" />
-    </svg>
-  );
-}
-
-function FilterIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 5h16" />
-      <path d="M7 12h10" />
-      <path d="M10 19h4" />
-    </svg>
-  );
 }
 
 function defaultUploadedName(sourceMimeType) {

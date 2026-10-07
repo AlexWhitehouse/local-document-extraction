@@ -82,7 +82,7 @@ describe("Template field editor", () => {
     const columnCard = screen.getByText("Column 1").closest(".object-column-card");
     await user.type(within(columnCard).getByLabelText("Column name"), "Dose #1");
     await user.selectOptions(within(columnCard).getByLabelText("Type"), "number");
-    await user.type(within(columnCard).getByLabelText("Column Description"), "Dose amount");
+    await user.type(within(columnCard).getByLabelText("Column description"), "Dose amount");
 
     expect(latestFields[0]).toMatchObject({
       data_type: "array<object>",
@@ -184,5 +184,59 @@ describe("Template field editor", () => {
       heading: "Quantity",
       key: "quantity",
     });
+  });
+
+  it("moves, duplicates and removes fields from the field list rows", async () => {
+    const user = userEvent.setup();
+    let latestFields = [];
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([
+        { id: "first", name: "First", description: "First value", data_type: "string" },
+        { id: "second", name: "Second", description: "Second value", data_type: "string" },
+      ]);
+
+      latestFields = fields;
+
+      return <TemplateFieldEditor fields={fields} onChange={setFields} />;
+    }
+
+    render(<TemplateFieldHarness />);
+
+    expect(screen.getByRole("button", { name: "Move First up" }).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Move Second up" }));
+    expect(latestFields.map((field) => field.name)).toEqual(["Second", "First"]);
+
+    await user.click(screen.getByRole("button", { name: "More actions for First" }));
+    const menu = screen.getByRole("menu", { name: "More actions for First" });
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["Duplicate", "Remove field"]);
+    await user.click(within(menu).getByRole("menuitem", { name: "Duplicate" }));
+    expect(latestFields.map((field) => field.name)).toEqual(["Second", "First", "First Copy"]);
+
+    await user.click(screen.getByRole("button", { name: "More actions for Second" }));
+    await user.click(screen.getByRole("menuitem", { name: "Remove field" }));
+    expect(latestFields.map((field) => field.name)).toEqual(["First", "First Copy"]);
+  });
+
+  it("closes the field actions menu on Escape and returns focus to its trigger", async () => {
+    const user = userEvent.setup();
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([{ id: "only", name: "Only", description: "Only value", data_type: "string" }]);
+
+      return <TemplateFieldEditor fields={fields} onChange={setFields} />;
+    }
+
+    render(<TemplateFieldHarness />);
+
+    const trigger = screen.getByRole("button", { name: "More actions for Only" });
+    await user.click(trigger);
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Duplicate" }));
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 });

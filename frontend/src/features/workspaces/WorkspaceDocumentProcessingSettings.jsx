@@ -1,5 +1,6 @@
 import React from "react";
 import { SettingToggle } from "./SettingToggle.jsx";
+import { Button } from "../ui/Button.jsx";
 
 export function WorkspaceDocumentProcessingSettings({ controller }) {
   const { settings, loading, saving, error, canManage } = controller;
@@ -38,9 +39,9 @@ export function WorkspaceDocumentProcessingSettings({ controller }) {
       {error ? (
         <p role="alert" className="form-error">
           {error}{" "}
-          <button type="button" className="studio-text-button" onClick={controller.reload}>
+          <Button variant="text" onClick={controller.reload}>
             Reload settings
-          </button>
+          </Button>
         </p>
       ) : null}
     </section>

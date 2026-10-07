@@ -96,11 +96,11 @@ export function getWorkspacePrimaryAction(workspaceRole) {
   const role = workspaceRole.trim().toLowerCase();
 
   if (role === "owner") {
-    return { type: "delete", label: "Delete Workspace" };
+    return { type: "delete", label: "Delete workspace" };
   }
 
   if (role === "admin" || role === "member") {
-    return { type: "leave", label: "Leave Workspace" };
+    return { type: "leave", label: "Leave workspace" };
   }
 
   return { type: "none", label: "" };

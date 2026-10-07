@@ -13,6 +13,8 @@ import { display, percent, templateLabel } from "./evaluationFormat.js";
 import { MAX_CANDIDATES, candidateBusy } from "./useEvaluations.js";
 import { linkableFields, refText } from "./evaluationLibrary.js";
 import { adaptReferenceDraft } from "./referenceDraft.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { CloseIcon, ExternalIcon, PlayIcon, PlusIcon } from "../layout/Icons.jsx";
 import {
   answerSignature,
   bestCandidateId,
@@ -86,16 +88,14 @@ export function CandidateHead({
       {children}
       <div className="evaluation-candidate-foot">
         {foot}
-        <button
-          type="button"
-          className="secondary"
-          aria-label={run.label}
+        <IconButton
+          size="sm"
+          label={run.label}
           title={run.title}
+          icon={PlayIcon}
           disabled={run.disabled}
           onClick={run.onClick}
-        >
-          ▶
-        </button>
+        />
       </div>
     </th>
   );
@@ -456,13 +456,11 @@ export function DocumentMatrix({
             changed fields, enter new answers, or link renamed fields.
           </span>
           {onFilterChange && (
-            <button
-              type="button"
-              className="studio-text-button"
+            <Button variant="text"
               onClick={() => onFilterChange(filter === "changes" ? "all" : "changes")}
             >
               {filter === "changes" ? "Show all fields" : "Review template changes"}
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -528,14 +526,12 @@ export function DocumentMatrix({
                 })}
                 {!template && (
                   <th className="evaluation-add-col">
-                    <button
-                      type="button"
-                      className="secondary"
+                    <Button variant="secondary"
                       disabled={candidates.length >= MAX_CANDIDATES}
                       onClick={onAddCandidate}
                     >
-                      + Add candidate
-                    </button>
+                      <PlusIcon size={13} /> Add candidate
+                    </Button>
                     <small>
                       {candidates.length}/{MAX_CANDIDATES}
                     </small>
@@ -579,27 +575,26 @@ export function DocumentMatrix({
                         />
                       )}
                       {row.omitted && (
-                        <button type="button" className="studio-text-button evaluation-compare-link"
+                        <Button variant="danger-text" className="evaluation-compare-link"
                           aria-label={`Remove expected answer for ${row.field.name}`}
                           onClick={() => evaluation.removeReference(document.key, row.identity)}>
                           Remove expected answer
-                        </button>
+                        </Button>
                       )}
                       {!row.omitted && !from && saved[row.identity] && changes.has(row.identity) && (
-                        <button type="button" className="studio-text-button evaluation-compare-link" onClick={() => reference(row)}>
+                        <Button variant="text" className="evaluation-compare-link" onClick={() => reference(row)}>
                           Review field changes
-                        </button>
+                        </Button>
                       )}
                       {COMPARABLE_TYPES.includes(row.field.data_type) && answered > 0 && (
-                        <button
-                          type="button"
-                          className="studio-text-button evaluation-compare-link"
+                        <Button variant="text"
+                          className="evaluation-compare-link"
                           onClick={() => openComparison(row)}
                         >
                           Compare all {answered}{" "}
                           {row.field.data_type === "array<object>" ? (answered === 1 ? "table" : "tables") : "answers"}{" "}
-                          ↗
-                        </button>
+                          <ExternalIcon size={12} />
+                        </Button>
                       )}
                     </th>
                     <td className="evaluation-expected-col">
@@ -682,14 +677,7 @@ export function DocumentMatrix({
                 </small>
                 <h2>{inspected.row.field.name}</h2>
               </div>
-              <button
-                type="button"
-                className="icon-action-button"
-                aria-label="Close inspector"
-                onClick={() => setInspect(null)}
-              >
-                ×
-              </button>
+              <IconButton size="sm" label="Close inspector" icon={CloseIcon} onClick={() => setInspect(null)} />
             </div>
             <ScrollArea className="evaluation-inspector-body">
               <section>
@@ -699,19 +687,17 @@ export function DocumentMatrix({
                   {!COMPARABLE_TYPES.includes(inspected.row.field.data_type) &&
                     scores[inspected.candidate.id].byField[inspected.row.candidates[inspected.candidate.id].id]
                       ?.state !== "Match" && (
-                      <button type="button" onClick={() => acceptAnswer(inspected.row, inspected.candidate)}>
+                      <Button onClick={() => acceptAnswer(inspected.row, inspected.candidate)}>
                         {references[inspected.row.identity]?.verified
                           ? "Replace expected with this answer"
                           : "Use as expected answer"}
-                      </button>
+                      </Button>
                     )}
-                  <button
-                    type="button"
-                    className="secondary"
+                  <Button variant="secondary"
                     onClick={() => reference(inspected.row, inspected.candidate)}
                   >
                     Review as expected answer
-                  </button>
+                  </Button>
                 </div>
               </section>
               <section>
@@ -746,9 +732,9 @@ export function DocumentMatrix({
                   )}
                 </ul>
                 {COMPARABLE_TYPES.includes(inspected.row.field.data_type) && (
-                  <button type="button" className="studio-text-button" onClick={() => openComparison(inspected.row)}>
-                    Compare all candidates ↗
-                  </button>
+                  <Button variant="text" onClick={() => openComparison(inspected.row)}>
+                    Compare all candidates <ExternalIcon size={12} />
+                  </Button>
                 )}
               </section>
             </ScrollArea>
@@ -799,15 +785,7 @@ export function DocumentMatrix({
         <ModalDialog className="evaluation-expanded" label="Expanded comparison" onClose={() => setExpanded(null)}>
           <div className="evaluation-heading">
             <h2>{rows.get(expanded.identity).field.name}</h2>
-            <button
-              type="button"
-              className="modal-close"
-              aria-label="Close"
-              title="Close"
-              onClick={() => setExpanded(null)}
-            >
-              ×
-            </button>
+            <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={() => setExpanded(null)} />
           </div>
           <div className="evaluation-expanded-grid">
             {candidates.map((c, i) => (

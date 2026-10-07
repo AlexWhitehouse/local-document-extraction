@@ -19,6 +19,8 @@ import { documentRunnable } from "./useEvaluations.js";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { EmptyState, ErrorState } from "../ui/States.jsx";
 import { describeError } from "../../lib/describeError";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { CloseIcon } from "../layout/Icons.jsx";
 
 export function Chips({ list }) {
   return (
@@ -219,9 +221,9 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
       )}
       {(list.next || list.loading) && (
         <div className="evaluation-actions start">
-          <button type="button" className="secondary" disabled={list.loading} onClick={list.loadMore}>
+          <Button variant="secondary" disabled={list.loading} onClick={list.loadMore}>
             {list.loading ? "Loading…" : "Load more"}
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -241,15 +243,7 @@ function LibraryModal({ label, description, onClose, children, footer }) {
           <h2>Evaluation library</h2>
           <p>{description}</p>
         </div>
-        <button
-          type="button"
-          className="modal-close"
-          aria-label="Close library"
-          title="Close library"
-          onClick={onClose}
-        >
-          ×
-        </button>
+        <IconButton size="sm" label="Close library" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </header>
       <div className="evaluation-library-body">{children}</div>
       <footer className="evaluation-library-foot">{footer}</footer>
@@ -295,16 +289,16 @@ export function LibraryPicker({ evaluation, fields, onClose }) {
                 : "Select documents to add"}
             </span>
             <div className="actions">
-              <button type="button" className="secondary" onClick={onClose}>
+              <Button variant="secondary" onClick={onClose}>
                 Cancel
-              </button>
-              <button type="button" disabled={!selected.length || !!progress} onClick={add}>
+              </Button>
+              <Button disabled={!selected.length || !!progress} onClick={add}>
                 {progress
                   ? `Adding ${progress[0]} of ${progress[1]}…`
                   : selected.length
                     ? `Add ${selected.length} ${selected.length === 1 ? "document" : "documents"}`
                     : "Add documents"}
-              </button>
+              </Button>
             </div>
           </div>
         </>
@@ -425,9 +419,7 @@ export function ManageLibrary({ evaluation, fields, onClose, notify }) {
             <span className="evaluation-conflict" role="alert">
               Renamed to “{renaming.conflict.name}” by {renaming.conflict.updated_by_name || "someone else"} since you
               loaded it.
-              <button
-                type="button"
-                className="studio-text-button"
+              <Button variant="text"
                 onClick={() => {
                   list.replace(renaming.conflict);
                   evaluation.entryChanged(renaming.conflict);
@@ -435,56 +427,48 @@ export function ManageLibrary({ evaluation, fields, onClose, notify }) {
                 }}
               >
                 Use saved name
-              </button>
-              <button
-                type="button"
-                className="studio-text-button"
+              </Button>
+              <Button variant="text"
                 onClick={() => rename(renaming.conflict, renaming.name, renaming.conflict.revision)}
               >
                 Replace with mine
-              </button>
+              </Button>
             </span>
           ) : (
             <span className="evaluation-actions start">
-              <button type="submit" className="studio-text-button">
+              <Button variant="text" type="submit">
                 Save name
-              </button>
-              <button type="button" className="studio-text-button" onClick={() => setRenaming(null)}>
+              </Button>
+              <Button variant="text" onClick={() => setRenaming(null)}>
                 Cancel
-              </button>
+              </Button>
             </span>
           )}
         </form>
       ),
     buttons: (entry) => (
       <>
-        <button
-          type="button"
-          className="studio-text-button"
+        <Button variant="text"
           aria-label={`Edit ${entry.name}`}
           disabled={!!editing}
           onClick={() => edit(entry)}
         >
           {editing === entry.id ? "Opening…" : "Edit"}
-        </button>
-        <button
-          type="button"
-          className="studio-text-button"
+        </Button>
+        <Button variant="text"
           aria-label={`Rename ${entry.name}`}
           disabled={!!editing}
           onClick={() => setRenaming({ id: entry.id, name: entry.name })}
         >
           Rename
-        </button>
-        <button
-          type="button"
-          className="studio-text-button evaluation-danger-text"
+        </Button>
+        <Button variant="danger-text"
           aria-label={`Delete ${entry.name}`}
           disabled={!!editing}
           onClick={() => remove(entry)}
         >
           Delete
-        </button>
+        </Button>
       </>
     ),
   };
@@ -502,9 +486,9 @@ export function ManageLibrary({ evaluation, fields, onClose, notify }) {
             </p>
           )}
           <div className="actions">
-            <button type="button" className="secondary" onClick={onClose}>
+            <Button variant="secondary" onClick={onClose}>
               Close
-            </button>
+            </Button>
           </div>
         </>
       }
@@ -541,9 +525,7 @@ export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {
             results are not saved.
           </p>
         </div>
-        <button type="button" className="modal-close" aria-label="Close" title="Close" onClick={onClose}>
-          ×
-        </button>
+        <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
       <label>
         Name
@@ -564,16 +546,15 @@ export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {
         </p>
       )}
       <div className="actions">
-        <button type="button" className="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           Cancel
-        </button>
+        </Button>
         {document.saveConflict && (
-          <button type="button" className="secondary" disabled={document.save === "saving"} onClick={() => save(true)}>
+          <Button variant="secondary" disabled={document.save === "saving"} onClick={() => save(true)}>
             Save as a new entry
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
+        <Button
           disabled={!name.trim() || document.save === "saving" || !!unavailable}
           onClick={() => save(false)}
         >
@@ -582,7 +563,7 @@ export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {
             : document.save === "failed" && !document.saveConflict
               ? "Try again"
               : "Save"}
-        </button>
+        </Button>
       </div>
     </ModalDialog>
   );
@@ -653,9 +634,7 @@ export function UpdateReview({ evaluation, document, onClose, onDone }) {
               : `Replaces the Workspace copy of “${document.entry.name}” for everyone. Candidate settings and results are not saved.`}
           </p>
         </div>
-        <button type="button" className="modal-close" aria-label="Close" title="Close" onClick={onClose}>
-          ×
-        </button>
+        <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
       <ScrollArea className="evaluation-library-scroll" role="region" aria-label="Answer changes" tabIndex={0}>
         <table className="evaluation-diff">
@@ -708,13 +687,11 @@ export function UpdateReview({ evaluation, document, onClose, onDone }) {
         </p>
       )}
       <div className="actions">
-        <button type="button" className="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           Keep editing
-        </button>
+        </Button>
         {conflict && (
-          <button
-            type="button"
-            className="secondary"
+          <Button variant="secondary"
             onClick={() => {
               evaluation.useSavedVersion(document.key, conflict);
               onDone?.("library.useSaved");
@@ -722,11 +699,11 @@ export function UpdateReview({ evaluation, document, onClose, onDone }) {
             }}
           >
             Use saved version
-          </button>
+          </Button>
         )}
-        <button type="button" disabled={busy} onClick={submit}>
+        <Button disabled={busy} onClick={submit}>
           {busy ? "Updating…" : conflict ? "Replace with mine" : "Update saved answers"}
-        </button>
+        </Button>
       </div>
     </ModalDialog>
   );
@@ -745,9 +722,7 @@ export function ClearDialog({ evaluation, onClose }) {
           <h2>Clear this Evaluation?</h2>
           <p>Candidate drafts and results always clear. These inputs are also only in this tab:</p>
         </div>
-        <button type="button" className="modal-close" aria-label="Close" title="Close" onClick={onClose}>
-          ×
-        </button>
+        <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
       <ul className="evaluation-leave">
         {uploads.map((d) => (
@@ -763,19 +738,17 @@ export function ClearDialog({ evaluation, onClose }) {
         {!uploads.length && !dirty.length && <li>Nothing unsaved. Saved library documents stay in the library.</li>}
       </ul>
       <div className="actions">
-        <button type="button" className="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           Cancel
-        </button>
-        <button
-          type="button"
-          className="danger"
+        </Button>
+        <Button variant="danger"
           onClick={() => {
             evaluation.clear();
             onClose();
           }}
         >
           Clear evaluation
-        </button>
+        </Button>
       </div>
     </ModalDialog>
   );
@@ -809,14 +782,12 @@ export function LinkedNote({ savedName, fieldName, onUnlink }) {
   return (
     <small className="evaluation-block evaluation-muted">
       Linked to saved “{savedName}” · this Evaluation only
-      <button
-        type="button"
-        className="studio-text-button"
+      <Button variant="text"
         aria-label={`Unlink ${fieldName} from saved ${savedName}`}
         onClick={onUnlink}
       >
         Unlink
-      </button>
+      </Button>
     </small>
   );
 }
@@ -839,11 +810,11 @@ export function ReviewPrompt({ field, definition, reference, onReview }) {
           </>
         )}
       </span>
-      <button type="button" className="studio-text-button" onClick={onReview}>
+      <Button variant="text" onClick={onReview}>
         {field.data_type === "array<object>"
           ? "Review updated table"
           : `Review as ${getDataTypeLabel(field.data_type)}`}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -875,9 +846,9 @@ export function DocumentBanner({ evaluation, document, notify }) {
     return (
       <div className="evaluation-banner bad" role="status">
         <span>{unavailableText(document)}</span>
-        <button type="button" className="studio-text-button" disabled={retrying} onClick={retry}>
+        <Button variant="text" disabled={retrying} onClick={retry}>
           {retrying ? "Checking…" : "Retry original"}
-        </button>
+        </Button>
       </div>
     );
 
@@ -885,15 +856,13 @@ export function DocumentBanner({ evaluation, document, notify }) {
     return (
       <div className="evaluation-banner">
         <span>The saved answers were updated since you loaded them. This Evaluation keeps the copy you loaded.</span>
-        <button
-          type="button"
-          className="studio-text-button"
+        <Button variant="text"
           onClick={() =>
             evaluation.loadLatest(document.key).catch((error) => notify("library.loadLatest", "failure", { error }))
           }
         >
           Load latest
-        </button>
+        </Button>
       </div>
     );
 
@@ -934,15 +903,7 @@ export function DocumentPreview({ evaluation, document, onClose }) {
     <ModalDialog className="evaluation-expanded" label="Document preview" onClose={onClose}>
       <div className="evaluation-heading">
         <h2>{document.name || "Document"}</h2>
-        <button
-          type="button"
-          className="modal-close"
-          aria-label="Close document"
-          title="Close document"
-          onClick={onClose}
-        >
-          ×
-        </button>
+        <IconButton size="sm" label="Close document" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
       {error ? (
         <p role="alert" className="form-error">

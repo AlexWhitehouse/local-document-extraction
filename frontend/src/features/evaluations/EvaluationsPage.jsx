@@ -26,6 +26,8 @@ import { documentDirty, saveUnavailableMessage } from "./evaluationLibrary.js";
 import "./evaluations.css";
 import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { CloseIcon, ExternalIcon } from "../layout/Icons.jsx";
 
 export function EvaluationsPage({
   evaluation,
@@ -347,23 +349,22 @@ export function EvaluationsPage({
           <>
             {editingLibrary && (
               <>
-                <button type="button" className="secondary" onClick={() => patch({ libraryEditor: null })}>
+                <Button variant="secondary" onClick={() => patch({ libraryEditor: null })}>
                   Back to Evaluation
-                </button>
-                <button type="button" className="secondary" onClick={() => open("manage")}>
+                </Button>
+                <Button variant="secondary" onClick={() => open("manage")}>
                   Manage library
-                </button>
+                </Button>
               </>
             )}
-            <button type="button" className="secondary" onClick={() => open("clear")}>
+            <Button variant="secondary" onClick={() => open("clear")}>
               Clear Evaluation{unsaved ? ` · ${unsaved} unsaved` : ""}
-            </button>
+            </Button>
             {!editingLibrary && (
-              <button
-                type="button"
+              <Button
                 disabled={runDisabled}
                 onClick={() => evaluation.run(state.candidates.map((c) => c.id))}
-              >{`Run all${state.candidates.length ? ` ${state.candidates.length}` : ""}${batch && state.candidates.length ? ` × ${runnable.length}` : ""}`}</button>
+              >{`Run all${state.candidates.length ? ` ${state.candidates.length}` : ""}${batch && state.candidates.length ? ` × ${runnable.length}` : ""}`}</Button>
             )}
           </>
         }
@@ -374,12 +375,12 @@ export function EvaluationsPage({
             <strong>Result details couldn’t be kept in this browser.</strong> {state.cacheError.message} New runs are
             paused; results already shown are kept, and results whose details are missing can’t be scored.
           </span>
-          <button type="button" className="studio-text-button" onClick={() => evaluation.retryCache()}>
+          <Button variant="text" onClick={() => evaluation.retryCache()}>
             Retry storage
-          </button>
-          <button type="button" className="studio-text-button" onClick={() => open("clear")}>
+          </Button>
+          <Button variant="danger-text" onClick={() => open("clear")}>
             Clear Evaluation
-          </button>
+          </Button>
         </div>
       )}
       {!state.candidates.length && !editingLibrary ? (
@@ -418,47 +419,41 @@ export function EvaluationsPage({
               </span>
               <span className="evaluation-context-actions">
                 {document && (
-                  <button type="button" className="studio-text-button" onClick={() => setPreview(document)}>
-                    View ↗
-                  </button>
+                  <Button variant="text" onClick={() => setPreview(document)}>
+                    View <ExternalIcon size={12} />
+                  </Button>
                 )}
                 {document?.kind === "upload" && (
-                  <button
-                    type="button"
-                    className="studio-text-button"
+                  <Button variant="text"
                     disabled={!!saveUnavailable || document.save === "saving"}
                     title={saveUnavailable || undefined}
                     onClick={() => open("save", { key: document.key })}
                   >
                     {document.save === "saving" ? "Saving…" : "Save to library…"}
-                  </button>
+                  </Button>
                 )}
                 {document && documentDirty(document) && (
                   <>
-                    <button
-                      type="button"
-                      className="studio-text-button"
+                    <Button variant="text"
                       onClick={() => open("update", { key: document.key })}
                     >
                       Update saved answers…
-                    </button>
-                    <button
-                      type="button"
-                      className="studio-text-button"
+                    </Button>
+                    <Button variant="danger-text"
                       onClick={() => evaluation.discardChanges(document.key)}
                     >
                       Discard changes
-                    </button>
+                    </Button>
                   </>
                 )}
                 {!editingLibrary && (
                   <>
-                    <button type="button" className="studio-text-button" onClick={() => open("picker")}>
+                    <Button variant="text" onClick={() => open("picker")}>
                       Add from library
-                    </button>
-                    <button type="button" className="studio-text-button" onClick={() => setUploadOpen(true)}>
+                    </Button>
+                    <Button variant="text" onClick={() => setUploadOpen(true)}>
                       Upload document
-                    </button>
+                    </Button>
                   </>
                 )}
               </span>
@@ -492,16 +487,12 @@ export function EvaluationsPage({
                   {" · "}{fields.length} {fields.length === 1 ? "field" : "fields"}
                 </span>
                 <span className="evaluation-context-actions">
-                  <button
-                    type="button"
-                    className="studio-text-button"
+                  <Button variant="text"
                     onClick={() => setReplacement({ documentKey: document.key, source: template.source })}
                   >
                     Choose Template/version
-                  </button>
-                  <button
-                    type="button"
-                    className="studio-text-button"
+                  </Button>
+                  <Button variant="text"
                     onClick={() =>
                       setEditor({
                         candidateId: "library-template",
@@ -514,7 +505,7 @@ export function EvaluationsPage({
                     }
                   >
                     Edit Template
-                  </button>
+                  </Button>
                 </span>
               </div>
             ) : state.mode === "models" ? (
@@ -524,9 +515,9 @@ export function EvaluationsPage({
                   {templateLabel(template)} · {fields.length} {fields.length === 1 ? "field" : "fields"}
                 </span>
                 <span className="evaluation-context-actions">
-                  <button type="button" className="studio-text-button" onClick={() => openEditor(state.candidates[0])}>
+                  <Button variant="text" onClick={() => openEditor(state.candidates[0])}>
                     Edit shared Template
-                  </button>
+                  </Button>
                 </span>
               </div>
             ) : (
@@ -568,15 +559,15 @@ export function EvaluationsPage({
               <FieldFilters value={filter} onChange={setFilter} editing={editingLibrary} />
               {batch && (
                 <nav className="evaluation-doc-nav" aria-label="Documents in this Evaluation">
-                  <button type="button" className="secondary" onClick={() => step(-1)}>
+                  <Button variant="secondary" onClick={() => step(-1)}>
                     Previous
-                  </button>
+                  </Button>
                   <span className="evaluation-muted">
                     Document {position + 1} of {state.documents.length}
                   </span>
-                  <button type="button" className="secondary" onClick={() => step(1)}>
+                  <Button variant="secondary" onClick={() => step(1)}>
                     Next
-                  </button>
+                  </Button>
                 </nav>
               )}
             </div>
@@ -606,12 +597,12 @@ export function EvaluationsPage({
                 <small>Choose saved documents or upload new ones. Candidates run on every document.</small>
               </div>
               <span className="evaluation-actions">
-                <button type="button" onClick={() => open("picker")}>
+                <Button onClick={() => open("picker")}>
                   Library
-                </button>
-                <button type="button" className="secondary" onClick={() => setUploadOpen(true)}>
+                </Button>
+                <Button variant="secondary" onClick={() => setUploadOpen(true)}>
                   Upload new
-                </button>
+                </Button>
               </span>
             </div>
           )}
@@ -627,18 +618,10 @@ export function EvaluationsPage({
         >
           <div className="evaluation-heading">
             <h2>Upload documents</h2>
-            <button
-              type="button"
-              className="modal-close"
-              aria-label="Close"
-              title="Close"
-              onClick={() => {
+            <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={() => {
                 setUploadOpen(false);
                 setLocalError("");
-              }}
-            >
-              ×
-            </button>
+              }} />
           </div>
           <DocumentUploadPanel
             label="Document"

@@ -33,7 +33,7 @@ describe("DocumentUploadModal", () => {
     renderModal();
 
     expect(screen.getByText("Choose a template and at least one file")).toBeTruthy();
-    const submit = screen.getByRole("button", { name: "Upload Documents" });
+    const submit = screen.getByRole("button", { name: "Upload documents" });
     expect(submit.hasAttribute("disabled")).toBe(true);
     expect(submit.getAttribute("aria-describedby")).toBeTruthy();
   });
@@ -43,7 +43,7 @@ describe("DocumentUploadModal", () => {
     renderModal({ selectedTemplateId: "t1", sourceFiles: [file] });
 
     expect(screen.queryByText("Choose a template and at least one file")).toBeNull();
-    expect(screen.getByRole("button", { name: "Upload Documents" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Upload documents" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("shows refused files inside the drop zone with the reason", () => {

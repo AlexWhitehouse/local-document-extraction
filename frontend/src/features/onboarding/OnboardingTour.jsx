@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { TourSpotlight } from "./TourSpotlight.jsx";
+import { Button } from "../ui/Button.jsx";
+import { ChevronRightIcon } from "../layout/Icons.jsx";
 import { TOUR_STEPS, canContinueTour } from "./tourSteps.js";
 import "./onboarding.css";
 
@@ -91,18 +93,18 @@ export function OnboardingTour({
           <p>
             Create a workspace, build a template and upload a document. This guided tour uses real data that you keep.
           </p>
-          <button type="button" onClick={start} disabled={busy}>
-            Take a tour <span aria-hidden="true">→</span>
-          </button>
-          <button type="button" className="ghost" onClick={() => remember("dismissed")}>
+          <Button onClick={start} disabled={busy}>
+            Take a tour <ChevronRightIcon />
+          </Button>
+          <Button variant="ghost" onClick={() => remember("dismissed")}>
             Not now
-          </button>
+          </Button>
         </aside>
       ) : null}
       {renderProfile?.(
-        <button type="button" className="secondary" disabled={!ready || busy || index !== null} onClick={start}>
+        <Button variant="secondary" disabled={!ready || busy || index !== null} onClick={start}>
           Take a tour
-        </button>,
+        </Button>,
       )}
       {step ? (
         <TourSpotlight

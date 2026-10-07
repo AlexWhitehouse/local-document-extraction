@@ -4,6 +4,8 @@ import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { alignTableRows, tableCellMatches, tableCellsEqual } from "./evaluationScoring.js";
 import { Mark } from "./EvaluationParts.jsx";
 import { display } from "./evaluationFormat.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { CloseIcon } from "../layout/Icons.jsx";
 
 const blank = (value) => value === undefined || value === null || value === "";
 
@@ -136,15 +138,7 @@ export function TableComparison({
               : "No expected rows yet. Highlighted cells differ from the most common candidate value."}
           </p>
         </div>
-        <button
-          type="button"
-          className="modal-close"
-          aria-label="Close table comparison"
-          title="Close table comparison"
-          onClick={onClose}
-        >
-          ×
-        </button>
+        <IconButton size="sm" label="Close table comparison" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
       <div className="evaluation-compare-summary">
         {answered.map((candidate, i) => (
@@ -190,9 +184,9 @@ export function TableComparison({
           <i className="extra" />
           Extra row
         </span>
-        <button type="button" className="secondary" onClick={onEditExpected}>
+        <Button variant="secondary" onClick={onEditExpected}>
           {verified ? "Edit expected rows" : "Add expected rows"}
-        </button>
+        </Button>
       </div>
       <ScrollArea className="evaluation-compare-scroll" role="region" aria-label="Aligned table rows" tabIndex={0}>
         {!visible.length ? (

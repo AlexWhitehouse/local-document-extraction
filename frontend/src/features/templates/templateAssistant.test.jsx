@@ -141,7 +141,7 @@ describe("Template assistance", () => {
           if (change === "restore") result.current.templatePage.onTemplateNameChange(name);
         }
 
-        if (change === "JSON") result.current.templatePage.onOpenJsonModal();
+        if (change === "JSON") result.current.toolbar.onOpenJsonModal();
 
         if (change === "save") await result.current.templatePage.onSaveTemplate();
 
@@ -552,8 +552,8 @@ describe("addressable diagnostics", () => {
     render(<TemplateEditorModal initial={initial} onSubmit={onSubmit} onClose={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "Object schema builder" })).toBeTruthy());
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Column Description")));
-    expect(screen.getByLabelText("Column Description").getAttribute("aria-invalid")).toBe("true");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Column description")));
+    expect(screen.getByLabelText("Column description").getAttribute("aria-invalid")).toBe("true");
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });

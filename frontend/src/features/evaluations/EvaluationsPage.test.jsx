@@ -362,7 +362,7 @@ it("starts a model comparison from a saved historical field version with the cho
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Field version" }), { target: { value: "2" } });
   expect(screen.getByRole("textbox", { name: "Candidate 1 model" }).value).toBe("model");
-  fireEvent.click(screen.getByRole("button", { name: "+ other-model" }));
+  fireEvent.click(screen.getByRole("button", { name: "other-model" }));
   await waitFor(() => expect(screen.getByText(/1 field/)).toBeTruthy());
   fireEvent.click(screen.getByRole("button", { name: "Start Evaluation" }));
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
@@ -468,7 +468,7 @@ it("uses the shared uploader to add documents and keeps invalid uploads in the d
 it("adds a candidate from the last candidate, or duplicates a chosen one", () => {
   const candidate = { id: "a", revision: 0, model: "alpha", status: "idle", template };
   const evaluation = setup({ mode: "models", candidates: [candidate, { ...candidate, id: "b", model: "beta" }] });
-  fireEvent.click(screen.getByRole("button", { name: "+ Add candidate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add candidate" }));
   expect(evaluation.duplicate).toHaveBeenCalledWith("b");
   openMenu(1);
   fireEvent.click(screen.getByRole("button", { name: "Duplicate candidate" }));
@@ -482,7 +482,7 @@ it("disables adding candidates at the eight candidate limit", () => {
   setup({
     candidates: Array.from({ length: 8 }, (_, i) => ({ id: String(i), model: "alpha", status: "idle", template })),
   });
-  expect(screen.getByRole("button", { name: "+ Add candidate" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Add candidate" }).disabled).toBe(true);
   expect(screen.getByText("8/8")).toBeTruthy();
 });
 

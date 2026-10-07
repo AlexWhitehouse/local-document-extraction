@@ -1027,7 +1027,6 @@ export function useTemplateController({
         cancelAssistant();
         templateGeneration.open();
       },
-      onOpenJsonModal: openTemplateJsonModal,
       onSaveTemplate: saveTemplate,
     },
     generationModal: templateGeneration.modal,
@@ -1058,6 +1057,7 @@ export function useTemplateController({
       onCreateTemplate: createTemplate,
       onAutoGenerateTemplate: autoGenerateTemplate,
       onDeleteTemplate: deleteTemplate,
+      onOpenJsonModal: openTemplateJsonModal,
     },
     actions: {
       clearWorkspaceScopedTemplates,

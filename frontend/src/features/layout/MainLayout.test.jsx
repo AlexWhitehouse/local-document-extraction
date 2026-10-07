@@ -1,7 +1,7 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MainLayout } from "./MainLayout.jsx";
+import { MainLayout, WorkspaceToolbar } from "./MainLayout.jsx";
 
 function renderLayout() {
   return render(
@@ -29,7 +29,7 @@ describe("MainLayout sidebar collapse", () => {
     expect(screen.getByRole("button", { name: "Expand sidebar" }).getAttribute("aria-expanded")).toBe("false");
     // Labels become hover tips in the rail but still name each control.
     expect(screen.getByRole("button", { name: /Documents/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upload Document" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upload documents" })).toBeTruthy();
     expect(window.localStorage.getItem("studio.sidebarCollapsed")).toBe("true");
 
     unmount();
@@ -75,7 +75,7 @@ describe("MainLayout upload and connectivity", () => {
 
   it("navigates to the Workspace page instead of opening the upload modal when no Model gateway is set up", () => {
     const { onNavigate, onUploadDocument } = renderWith({ isModelSetupRequired: true });
-    const button = screen.getByRole("button", { name: "Upload Document" });
+    const button = screen.getByRole("button", { name: "Upload documents" });
 
     expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(button.hasAttribute("disabled")).toBe(false);
@@ -89,7 +89,7 @@ describe("MainLayout upload and connectivity", () => {
   it("opens the upload modal when the Model gateway is ready", () => {
     const { onNavigate, onUploadDocument } = renderWith();
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload Document" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload documents" }));
     expect(onUploadDocument).toHaveBeenCalledTimes(1);
     expect(onNavigate).not.toHaveBeenCalled();
   });
@@ -122,5 +122,54 @@ describe("MainLayout upload and connectivity", () => {
       if (original) Object.defineProperty(window.navigator, "onLine", original);
       else delete window.navigator.onLine;
     }
+  });
+});
+
+describe("MainLayout icon navigation", () => {
+  it("names each nav item with its label, also as the tooltip in the collapsed rail", () => {
+    const { container } = render(
+      <MainLayout activePage="documents" counts={{}} onNavigate={() => {}} profileSlot={null} contextSidebar={null}>
+        <p>Page</p>
+      </MainLayout>,
+    );
+
+    for (const label of ["Workspaces", "Templates", "Documents", "Evaluations"]) {
+      const link = screen.getByRole("button", { name: new RegExp(`^${label}`) });
+      expect(link.getAttribute("title")).toBe(label);
+      expect(link.querySelector(".sidebar-link-icon svg")).toBeTruthy();
+    }
+
+    expect(container.querySelector(".sidebar-link-icon")?.textContent).toBe("");
+  });
+
+  it("gives the collapse toggle a shortcut tooltip and a plain accessible name", () => {
+    render(
+      <MainLayout activePage="documents" counts={{}} onNavigate={() => {}} profileSlot={null} contextSidebar={null}>
+        <p>Page</p>
+      </MainLayout>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Collapse sidebar" });
+    expect(toggle.getAttribute("title")).toBe("Collapse sidebar ([)");
+  });
+});
+
+describe("WorkspaceToolbar document actions", () => {
+  it("puts the destructive Delete action after Export", () => {
+    render(
+      <WorkspaceToolbar
+        activePage="documents"
+        workspaceLabel="Acme"
+        pageTitle="Documents"
+        hasApiAccess
+        selectedDocumentCount={2}
+        exportableDocumentCount={2}
+        onExportDocuments={() => {}}
+        onDeleteDocument={() => {}}
+      />,
+    );
+
+    const names = screen.getAllByRole("button").map((button) => button.textContent);
+    expect(names).toEqual(["Export 2", "Delete 2"]);
   });
 });

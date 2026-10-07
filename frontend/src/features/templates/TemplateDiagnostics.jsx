@@ -1,6 +1,8 @@
 import React from "react";
 import { describeLocation } from "../../../../shared/templateAssistant.ts";
 import "./TemplateAssistant.css";
+import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
+import { Button } from "../ui/Button.jsx";
 
 export function DiagnosticMessages({ issues = [], id, compact = false }) {
   if (!issues.length) return null;
@@ -55,24 +57,26 @@ export function TemplateProblems({ issues, draft, onFocus, activeIndex = 0, onIn
         <em>{current.title}</em>
       </button>
       <span className="template-problems-nav">
-        <button
+        <Button
           type="button"
-          className="studio-text-button"
+          variant="text"
           aria-label="Previous problem"
           disabled={issues.length < 2}
           onClick={() => focus(index - 1)}
         >
-          ‹ Prev
-        </button>
-        <button
+          <ChevronLeftIcon />
+          Prev
+        </Button>
+        <Button
           type="button"
-          className="studio-text-button"
+          variant="text"
           aria-label="Next problem"
           disabled={issues.length < 2}
           onClick={() => focus(index + 1)}
         >
-          Next ›
-        </button>
+          Next
+          <ChevronRightIcon />
+        </Button>
       </span>
     </div>
   );

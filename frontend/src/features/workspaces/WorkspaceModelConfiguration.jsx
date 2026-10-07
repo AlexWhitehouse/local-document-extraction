@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import "./WorkspaceModelConfiguration.css";
 import { useUnsavedGuard } from "../../lib/unsavedChanges";
 import { confirmDialog } from "../ui/confirm.jsx";
+import { Button } from "../ui/Button.jsx";
 
 const TASK_ROLES = [
   ["assistant", "Template assistant", "Assistant, suggestions and Auto generate"],
@@ -70,9 +71,9 @@ export function WorkspaceModelConfiguration({ controller }) {
           <p>LLM Gateway settings for this workspace only.</p>
         </div>
         {showSummary ? (
-          <button type="button" className="secondary" onClick={() => setEditing(true)}>
+          <Button variant="secondary" onClick={() => setEditing(true)}>
             Edit
-          </button>
+          </Button>
         ) : null}
       </header>
       {!canManage ? (
@@ -89,9 +90,9 @@ export function WorkspaceModelConfiguration({ controller }) {
               <p className="form-error" role="alert">
                 {error}
               </p>
-              <button type="button" className="secondary" onClick={controller.reload}>
+              <Button variant="secondary" onClick={controller.reload}>
                 Try again
-              </button>
+              </Button>
             </>
           ) : null}
         </div>
@@ -102,9 +103,9 @@ export function WorkspaceModelConfiguration({ controller }) {
           ) : !record ? (
             <div role="alert">
               <p className="form-error">{error || "Configuration is not available."}</p>
-              <button type="button" className="secondary" onClick={controller.reload}>
+              <Button variant="secondary" onClick={controller.reload}>
                 Try again
-              </button>
+              </Button>
             </div>
           ) : showSummary ? (
             <div className="workspace-model-summary">
@@ -135,14 +136,15 @@ export function WorkspaceModelConfiguration({ controller }) {
               <ModelRoles record={record} />
               <div className="workspace-model-actions">
                 <div>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={!configured || saving || testing}
+                  <Button
+                    variant="secondary"
+                    pending={testing}
+                    pendingLabel="Testing…"
+                    disabled={!configured || saving}
                     onClick={controller.testConnection}
                   >
-                    {testing ? "Testing…" : "Test connection"}
-                  </button>
+                    Test connection
+                  </Button>
                   <ConnectionTestResult result={controller.testResult} />
                 </div>
               </div>
@@ -237,16 +239,15 @@ export function WorkspaceModelConfiguration({ controller }) {
                 </p>
               ) : null}
               {conflict ? (
-                <button type="button" className="secondary" onClick={controller.reload}>
+                <Button variant="secondary" onClick={controller.reload}>
                   Reload configuration
-                </button>
+                </Button>
               ) : null}
               <div className="workspace-model-actions">
                 <div>
                   {!conflict ? (
-                    <button
-                      type="button"
-                      className="ghost"
+                    <Button
+                      variant="ghost"
                       disabled={saving}
                       onClick={() => {
                         controller.discard();
@@ -254,30 +255,26 @@ export function WorkspaceModelConfiguration({ controller }) {
                       }}
                     >
                       Cancel
-                    </button>
+                    </Button>
                   ) : null}
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={saving || testing || conflict}
+                  <Button
+                    variant="secondary"
+                    pending={testing}
+                    pendingLabel="Testing…"
+                    disabled={saving || conflict}
                     onClick={controller.testConnection}
                   >
-                    {testing ? "Testing…" : "Test connection"}
-                  </button>
+                    Test connection
+                  </Button>
                   <ConnectionTestResult result={controller.testResult} />
-                  <button type="submit" disabled={saving || conflict || !controller.dirty}>
-                    {saving ? "Saving…" : "Save configuration"}
-                  </button>
+                  <Button type="submit" pending={saving} pendingLabel="Saving…" disabled={conflict || !controller.dirty}>
+                    Save configuration
+                  </Button>
                 </div>
                 {configured ? (
-                  <button
-                    type="button"
-                    className="workspace-model-clear"
-                    disabled={saving || conflict}
-                    onClick={clearGateway}
-                  >
+                  <Button variant="danger-text" disabled={saving || conflict} onClick={clearGateway}>
                     Clear configuration
-                  </button>
+                  </Button>
                 ) : null}
               </div>
               <p className="workspace-model-footnote">

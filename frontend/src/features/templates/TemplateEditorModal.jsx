@@ -4,9 +4,11 @@ import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { focusDiagnostic } from "./focusDiagnostic.js";
 import { DiagnosticMessages, TemplateProblems } from "./TemplateDiagnostics.jsx";
 import { describeError } from "../../lib/describeError";
+import { CloseIcon } from "../layout/Icons.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "./templateFields.js";
+import { Button, IconButton } from "../ui/Button.jsx";
 
 /** Independent draft; the caller chooses temporary Apply or persistent Save. */
 export function TemplateEditorModal({
@@ -75,15 +77,7 @@ export function TemplateEditorModal({
           <h2>{title}</h2>
           {notice && <p>{notice}</p>}
         </div>
-        <button
-          type="button"
-          className="modal-close"
-          aria-label="Close Template editor"
-          disabled={saving}
-          onClick={onClose}
-        >
-          ×
-        </button>
+        <IconButton label="Close Template editor" icon={CloseIcon} disabled={saving} onClick={onClose} />
       </header>
       <div ref={rootRef}>
         <div className="studio-template-meta">
@@ -137,12 +131,12 @@ export function TemplateEditorModal({
           </p>
         )}
         <div className="actions">
-          <button type="button" className="secondary" disabled={saving} onClick={onClose}>
+          <Button type="button" variant="secondary" disabled={saving} onClick={onClose}>
             Cancel
-          </button>
-          <button type="button" disabled={saving} onClick={submit}>
+          </Button>
+          <Button type="button" disabled={saving} onClick={submit}>
             {saving ? "Saving…" : action}
-          </button>
+          </Button>
         </div>
       </footer>
     </ModalDialog>

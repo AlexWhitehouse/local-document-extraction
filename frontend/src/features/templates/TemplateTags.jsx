@@ -3,6 +3,9 @@ import { normalizeTemplateTagName, normalizeTemplateTags } from "../../../../sha
 import { describeError } from "../../lib/describeError";
 import { confirmDialog } from "../ui/confirm.jsx";
 import "./TemplateTags.css";
+import { CloseIcon, ChevronDownIcon, ChevronLeftIcon } from "../layout/Icons.jsx";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { ListAddButton } from "../ui/ListAddButton.jsx";
 
 export function TemplateTags({
   value = [],
@@ -169,7 +172,7 @@ export function TemplateTags({
           <span className="template-tags-placeholder">Add tags</span>
         )}
         {value.length > 1 ? <span className="template-tags-count">{value.length}</span> : null}
-        <ChevronIcon />
+        <ChevronDownIcon className="template-tags-chevron" size={10} />
       </button>
       {open ? (
         <div id={popupId} role="dialog" aria-label="Template tags" className="template-tags-popup">
@@ -178,24 +181,22 @@ export function TemplateTags({
               <span className="eyebrow">{managing ? "Shared across this Workspace" : "This template"}</span>
               <strong>{managing ? "Manage template tags" : "Template tags"}</strong>
             </div>
-            <button
-              type="button"
-              className="icon-action-button"
-              aria-label="Close template tags"
+            <IconButton
+              label="Close template tags"
+              icon={CloseIcon}
+              size="sm"
               onClick={() => {
                 close();
                 triggerRef.current?.focus();
               }}
-            >
-              ×
-            </button>
+            />
           </div>
           {error ? (
             <div className="template-tags-error" role="alert">
               <span>{error}</span>
-              <button type="button" className="studio-text-button" disabled={busy} onClick={onReload}>
+              <Button type="button" variant="text" disabled={busy} onClick={onReload}>
                 Retry tags
-              </button>
+              </Button>
             </div>
           ) : null}
           {isLoading ? (
@@ -223,9 +224,9 @@ export function TemplateTags({
                         />
                       </label>
                       <div>
-                        <button
+                        <Button
                           type="button"
-                          className="studio-text-button"
+                          variant="text"
                           disabled={busy}
                           onClick={() => {
                             setEditing(null);
@@ -233,14 +234,10 @@ export function TemplateTags({
                           }}
                         >
                           Cancel rename
-                        </button>
-                        <button
-                          type="submit"
-                          className="studio-text-button studio-save-action"
-                          disabled={busy || !name.trim()}
-                        >
+                        </Button>
+                        <Button type="submit" size="sm" disabled={busy || !name.trim()}>
                           Save tag name
-                        </button>
+                        </Button>
                       </div>
                     </form>
                   ) : (
@@ -253,9 +250,9 @@ export function TemplateTags({
                         {tag.template_count}
                       </span>
                       <span className="template-tags-row-actions">
-                        <button
+                        <Button
                           type="button"
-                          className="studio-text-button"
+                          variant="text"
                           aria-label={`Rename ${tag.name}`}
                           disabled={busy}
                           onClick={() => {
@@ -265,31 +262,32 @@ export function TemplateTags({
                           }}
                         >
                           Rename
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
-                          className="studio-text-button studio-destructive"
+                          variant="danger-text"
                           aria-label={`Delete ${tag.name}`}
                           disabled={busy}
                           onClick={() => remove(tag)}
                         >
                           Delete
-                        </button>
+                        </Button>
                       </span>
                     </div>
                   ),
                 )}
               </div>
               <div className="template-tags-footer">
-                <button
+                <Button
                   type="button"
-                  className="studio-text-button"
+                  variant="text"
                   disabled={busy}
                   aria-label="Back to tag selection"
                   onClick={back}
                 >
-                  ← Back
-                </button>
+                  <ChevronLeftIcon />
+                  Back
+                </Button>
               </div>
             </>
           ) : (
@@ -341,9 +339,7 @@ export function TemplateTags({
                   </label>
                 ))}
                 {canCreate ? (
-                  <button
-                    type="button"
-                    className="template-tags-create"
+                  <ListAddButton
                     disabled={busy}
                     onClick={() => {
                       toggle(candidate);
@@ -351,8 +347,8 @@ export function TemplateTags({
                       searchRef.current?.focus();
                     }}
                   >
-                    <span aria-hidden="true">+ </span>Create “{candidate}”
-                  </button>
+                    Create “{candidate}”
+                  </ListAddButton>
                 ) : null}
                 {!filtered.length && !canCreate && !isLoading ? (
                   <p className="template-tags-empty">
@@ -362,9 +358,9 @@ export function TemplateTags({
               </div>
               <div className="template-tags-footer">
                 <span>Saved with this template.</span>
-                <button
+                <Button
                   type="button"
-                  className="studio-text-button"
+                  variant="text"
                   disabled={busy}
                   onClick={() => {
                     setManaging(true);
@@ -372,7 +368,7 @@ export function TemplateTags({
                   }}
                 >
                   Manage tags
-                </button>
+                </Button>
               </div>
             </>
           )}
@@ -384,22 +380,5 @@ export function TemplateTags({
         </div>
       ) : null}
     </div>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg
-      className="template-tags-chevron"
-      aria-hidden="true"
-      width="10"
-      height="10"
-      viewBox="0 0 10 10"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-    >
-      <path d="M2 3.5 5 6.5 8 3.5" />
-    </svg>
   );
 }

@@ -5,6 +5,7 @@ import { useRowMotion } from "../context/useRowMotion.js";
 import { NavigationLink } from "../context/NavigationLink.jsx";
 import { ListStatus } from "../ui/States.jsx";
 import { appPath } from "../../lib/appRoutes";
+import { Button } from "../ui/Button.jsx";
 
 const TEMPLATE_PAGE_SIZE = 12;
 
@@ -54,12 +55,12 @@ export function TemplateContextList({
           emptyAction={
             isSearching ? null : (
               <>
-                <button type="button" onClick={() => onCreateTemplate()}>
+                <Button type="button" onClick={() => onCreateTemplate()}>
                   Create template
-                </button>
-                <button type="button" className="secondary" onClick={() => onAutoGenerateTemplate()}>
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => onAutoGenerateTemplate()}>
                   Generate from a sample
-                </button>
+                </Button>
               </>
             )
           }

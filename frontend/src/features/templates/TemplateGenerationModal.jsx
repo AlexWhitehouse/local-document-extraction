@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { DocumentUploadPanel } from "../documents/DocumentUploadPanel.jsx";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { Button } from "../ui/Button.jsx";
 
 export function TemplateGenerationModal({
   isOpen,
@@ -115,16 +116,16 @@ export function TemplateGenerationModal({
           </p>
         )}
         <div className="actions">
-          <button type="button" className="secondary" onClick={requestClose}>
+          <Button type="button" variant="secondary" onClick={requestClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={isGenerating || !hasApiAccess || !file || (hasUnsavedChanges && !confirmed)}
             onClick={onGenerate}
           >
             {isGenerating ? "Generating…" : error ? "Try again" : "Generate template"}
-          </button>
+          </Button>
         </div>
     </ModalDialog>
   );

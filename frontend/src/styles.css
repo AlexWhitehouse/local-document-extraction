@@ -1170,16 +1170,16 @@ input[type="checkbox"]:disabled {
 }
 
 .sidebar-profile-chevron {
+  display: inline-grid;
   color: var(--text-3);
-  font-size: var(--font-size-5);
   line-height: 1;
-  transform: translateY(2px);
+  transform: rotate(180deg);
   transition: color 140ms ease, transform 140ms ease;
 }
 
 .sidebar-profile-trigger[aria-expanded="true"] .sidebar-profile-chevron {
   color: var(--accent-strong);
-  transform: translateY(2px) rotate(180deg);
+  transform: none;
 }
 
 /* Collapsed rail (desktop only): icons, count badges and hover labels. */
@@ -1810,7 +1810,8 @@ button.modal-close {
   border: 0;
   background: transparent;
   color: var(--text-2);
-  font-size: var(--font-size-7);
+  display: inline-grid;
+  place-items: center;
   font-weight: 400;
   line-height: 1;
 }
@@ -1881,15 +1882,6 @@ button.modal-close:hover:not(:disabled) {
   margin-left: auto;
   font: var(--font-size-2) var(--font-mono);
   color: var(--text-2);
-}
-
-.admin-context-pager button {
-  width: 22px;
-  height: 20px;
-  min-height: 0;
-  padding: 0;
-  font-size: var(--font-size-4);
-  line-height: 1;
 }
 
 .studio-main .admin-account-settings .studio-workspace-facts dd {
@@ -2181,21 +2173,7 @@ button.modal-close:hover:not(:disabled) {
   position: absolute;
   right: 9px;
   top: 50%;
-  width: 24px;
-  height: 24px;
   transform: translateY(-50%);
-}
-
-.workspace-key-copy-button:hover:not(:disabled) {
-  background: var(--row-hover);
-  border-color: var(--rule-subtle);
-  color: var(--accent-strong);
-  transform: translateY(-50%);
-}
-
-.workspace-key-copy-button svg {
-  width: 14px;
-  height: 14px;
 }
 
 .actions {
@@ -2308,18 +2286,6 @@ button.modal-close:hover:not(:disabled) {
 .field-detail-head h4 {
   margin: 0;
   font-size: var(--font-size-6);
-}
-
-.field-controls {
-  margin-top: 10px;
-  border: 1px dashed var(--rule-subtle);
-  background: var(--pane-veil);
-  padding: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .object-schema-launch {
@@ -2501,24 +2467,6 @@ button.modal-close:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-.object-schema-row-actions button {
-  height: 24px;
-  padding: 0 4px;
-  border: 0;
-  background: transparent;
-  color: var(--text-1);
-  font-size: var(--font-size-3);
-}
-
-.object-schema-row-actions button.danger {
-  color: var(--tone-danger-text);
-}
-
-.object-schema-row-actions button:hover:not(:disabled) {
-  background: transparent;
-  color: var(--accent-strong);
-}
-
 .object-schema-empty {
   height: 180px;
   text-align: center;
@@ -2579,26 +2527,6 @@ td {
 
 td:last-child {
   width: 56px;
-}
-
-.icon-action-button {
-  width: var(--control-h-sm);
-  height: var(--control-h-sm);
-  padding: 0;
-  border: 1px solid var(--rule-strong);
-  background: transparent;
-  color: var(--text-2);
-  display: inline-grid;
-  place-items: center;
-  line-height: 1;
-  cursor: pointer;
-}
-
-/* Icon buttons share the copy-button hover: row tint and accent glyph. */
-button.icon-action-button:hover:where(:not(:disabled)) {
-  border-color: var(--rule-subtle);
-  background: var(--row-hover);
-  color: var(--accent-strong);
 }
 
 
@@ -2961,10 +2889,6 @@ details summary:hover {
     grid-template-columns: 1fr;
   }
 
-  .field-controls {
-    align-items: stretch;
-  }
-
   .impersonation-banner {
     align-items: stretch;
     flex-direction: column;
@@ -3133,21 +3057,6 @@ details summary:hover {
   display: grid;
   gap: 6px;
   min-width: 0;
-}
-
-.studio-generate-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: var(--control-h-sm);
-  padding: 0 11px;
-  font-size: var(--font-size-3);
-  white-space: nowrap;
-}
-
-.studio-generate-button svg {
-  flex-shrink: 0;
 }
 
 .template-generation-progress {

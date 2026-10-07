@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { describeError } from "../../lib/describeError";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { CloseIcon } from "../layout/Icons.jsx";
 
 export function TemplateVersionDialog({
   templates,
@@ -51,9 +53,7 @@ export function TemplateVersionDialog({
           <h2>{title}</h2>
           {description && <p>{description}</p>}
         </div>
-        <button type="button" className="modal-close" aria-label="Close" title="Close" onClick={onClose}>
-          ×
-        </button>
+        <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
       {!templates.length && <p>Create a Template in Templates first, then choose its version here.</p>}
       <label>
@@ -100,12 +100,12 @@ export function TemplateVersionDialog({
         </p>
       )}
       <div className="actions">
-        <button type="button" className="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           Cancel
-        </button>
-        <button type="button" disabled={!template || loading} onClick={select}>
+        </Button>
+        <Button disabled={!template || loading} onClick={select}>
           {loading ? "Loading…" : action}
-        </button>
+        </Button>
       </div>
     </ModalDialog>
   );

@@ -1,25 +1,8 @@
 import React, { useId } from "react";
-import { CopyIcon } from "../layout/Icons.jsx";
+import { CheckIcon, CloseIcon, CopyIcon } from "../layout/Icons.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
-
-function CheckIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 8.5 6.5 12 13 4.5" />
-    </svg>
-  );
-}
+import { Button, IconButton } from "../ui/Button.jsx";
 
 export function TemplateJsonModal({
   isOpen,
@@ -60,25 +43,8 @@ export function TemplateJsonModal({
           <p>Review, copy, or edit the template configuration.</p>
         </div>
         <div className="modal-head-actions">
-          <button
-            type="button"
-            className="icon-action-button template-json-copy-button"
-            aria-label="Copy template JSON"
-            title="Copy JSON"
-            onClick={onCopy}
-          >
-            {copied ? <CheckIcon /> : <CopyIcon />}
-          </button>
-          <button
-            type="button"
-            className="modal-close"
-            aria-label="Close"
-            title="Close"
-            disabled={isSavingTemplate}
-            onClick={requestClose}
-          >
-            ×
-          </button>
+          <IconButton label="Copy template JSON" icon={copied ? CheckIcon : CopyIcon} onClick={onCopy} />
+          <IconButton label="Close" icon={CloseIcon} disabled={isSavingTemplate} onClick={requestClose} />
         </div>
       </div>
       <label className="template-json-label">
@@ -102,21 +68,21 @@ export function TemplateJsonModal({
           <p className="hint">Changes are validated and applied when you save.</p>
         )}
         <div className="actions">
-          <button
+          <Button
             type="button"
-            className="secondary"
+            variant="secondary"
             disabled={isSavingTemplate}
             onClick={requestClose}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={isSavingTemplate || !hasApiAccess}
             onClick={onSave}
           >
             {isSavingTemplate ? "Saving…" : "Save Template JSON"}
-          </button>
+          </Button>
         </div>
       </div>
     </ModalDialog>

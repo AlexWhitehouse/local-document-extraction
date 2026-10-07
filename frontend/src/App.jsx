@@ -42,6 +42,7 @@ import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
 import { hasUnsavedEdits, runDiscardChecks } from "./lib/unsavedChanges.js";
 import { DISCARD_CHANGES, confirmDialog } from "./features/ui/confirm.jsx";
 import { LoadingState } from "./features/ui/States.jsx";
+import { Button } from "./features/ui/Button.jsx";
 import "./features/layout/StudioLayouts.css";
 
 const API_BASE = "/v1";
@@ -563,14 +564,14 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
           isImpersonating ? (
             <div role="status" aria-label="Impersonation mode" className="impersonation-banner">
               <strong>Impersonating {sessionUserEmail || sessionUserName || "this user"}</strong>
-              <button
-                type="button"
-                className="secondary"
-                disabled={isStoppingImpersonation}
+              <Button
+                variant="secondary"
+                pending={isStoppingImpersonation}
+                pendingLabel="Stopping…"
                 onClick={handleStopImpersonating}
               >
-                {isStoppingImpersonation ? "Stopping…" : "Stop impersonating"}
-              </button>
+                Stop impersonating
+              </Button>
             </div>
           ) : null
         }
@@ -680,8 +681,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             ) : (
               <h1>{routeMessage}</h1>
             )}
-            <button
-              type="button"
+            <Button
               onClick={() =>
                 navigate(
                   appPath({
@@ -700,26 +700,18 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                 : documentUnavailable || packetUnavailable
                   ? "Back to Documents"
                   : "Back to Workspaces"}
-            </button>
+            </Button>
             {templateLoad.status === "error" && templateUnavailable ? (
-              <button type="button" onClick={templateController.navigation.retry}>
-                Try again
-              </button>
+              <Button onClick={templateController.navigation.retry}>Try again</Button>
             ) : null}
             {documentUnavailable === "error" ? (
-              <button type="button" onClick={documentController.navigation.retry}>
-                Try again
-              </button>
+              <Button onClick={documentController.navigation.retry}>Try again</Button>
             ) : null}
             {packetUnavailable === "error" ? (
-              <button type="button" onClick={documentController.navigation.retryPacket}>
-                Try again
-              </button>
+              <Button onClick={documentController.navigation.retryPacket}>Try again</Button>
             ) : null}
             {workspaceResolutionFailed ? (
-              <button type="button" onClick={workspaceController.sidebar.onRetryResolution}>
-                Try again
-              </button>
+              <Button onClick={workspaceController.sidebar.onRetryResolution}>Try again</Button>
             ) : null}
           </section>
         ) : null}
@@ -757,6 +749,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                 onExportDocuments={documentToolbar.onExportDocuments}
                 onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
                 onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
+                onOpenJsonModal={templateController.toolbar.onOpenJsonModal}
                 onDeleteDocument={documentToolbar.onDeleteDocument}
                 canDownloadOriginal={documentToolbar.canDownloadOriginal}
                 isDownloadingOriginal={documentToolbar.isDownloadingOriginal}
@@ -1052,9 +1045,9 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
                   {formError}
                 </p>
               ) : null}
-              <button type="submit" className="auth-primary-action" disabled={busy}>
-                {busy ? "Setting password…" : "Set new password"}
-              </button>
+              <Button type="submit" className="auth-primary-action" pending={busy} pendingLabel="Setting password…">
+                Set new password
+              </Button>
             </form>
           </section>
         </div>
@@ -1080,14 +1073,9 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
                 ? "This Account password reset link can no longer be used."
                 : "Request a new Account password reset link to continue."}
             </p>
-            <button
-              type="button"
-              className="auth-primary-action"
-              disabled={busy}
-              onClick={() => setIsRequestingNewLink(true)}
-            >
+            <Button className="auth-primary-action" disabled={busy} onClick={() => setIsRequestingNewLink(true)}>
               Request a new reset link
-            </button>
+            </Button>
           </div>
         </section>
       </div>

@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { STAGES } from "./costConstants.js";
 import { costLabel, percent } from "./costFormat.js";
 import { PRESETS, todayUTC, validCustomRange } from "./costRange.js";
+import { PlusIcon } from "../../layout/Icons.jsx";
+import { Button } from "../../ui/Button.jsx";
 
 export function ChartTip({ tip }) {
   const ref = useRef(null);
@@ -115,7 +117,7 @@ export function StageBar({ costs, max, height = 8, label }) {
       </span>
       {!costs.total.complete ? (
         <span className="cp-stagebar-partial" title="Some calls did not report cost" aria-hidden="true">
-          +
+          <PlusIcon size={10} />
         </span>
       ) : null}
     </span>
@@ -278,12 +280,12 @@ export function RangePicker({ range, onChange }) {
               : "Choose past dates spanning no more than 366 days."}
           </p>
           <div className="cp-range-actions">
-            <button type="button" className="secondary" onClick={() => setOpen(false)}>
+            <Button variant="secondary" onClick={() => setOpen(false)}>
               Cancel
-            </button>
-            <button type="submit" disabled={!valid}>
+            </Button>
+            <Button type="submit" disabled={!valid}>
               Apply
-            </button>
+            </Button>
           </div>
         </form>
       ) : null}

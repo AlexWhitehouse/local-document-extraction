@@ -17,6 +17,8 @@ import {
 import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
 import { adaptReferenceDraft, draftValue } from "./referenceDraft.js";
 import { display } from "./evaluationFormat.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { CloseIcon } from "../layout/Icons.jsx";
 
 function AnswerInput({ type, value, onChange, label, multiline = false, error, errorId, dateOrder }) {
   const validation = { "aria-invalid": error ? true : undefined, "aria-describedby": error ? errorId : undefined };
@@ -283,9 +285,7 @@ function ReferenceEditor({
           <h2>{row.field.name} · Expected answer</h2>
           <p>Review against the document before verifying. Only verified answers affect scores.</p>
         </div>
-        <button type="button" className="modal-close" aria-label="Close expected answer editor" onClick={requestClose}>
-          ×
-        </button>
+        <IconButton size="sm" label="Close expected answer editor" icon={CloseIcon} className="modal-close" onClick={requestClose} />
       </div>
       <div className="evaluation-reference-body">
         {schemas.length > 1 ? (
@@ -401,12 +401,12 @@ function ReferenceEditor({
                   </p>
                 </div>
                 <div className="actions compact">
-                  <button type="button" className="secondary" disabled={!value.length} onClick={removeRow}>
+                  <Button variant="secondary" disabled={!value.length} onClick={removeRow}>
                     Remove row {value.length ? selected + 1 : ""}
-                  </button>
-                  <button type="button" onClick={addRow}>
+                  </Button>
+                  <Button onClick={addRow}>
                     Add row
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div className="evaluation-record-editor">
@@ -580,21 +580,17 @@ function ReferenceEditor({
         )}
         {table && error && !error.column && errorMessage}
         <div className="actions">
-          {onRemoveVerification && (
-            <button
-              type="button"
-              className="studio-text-button studio-destructive evaluation-reference-remove"
-              onClick={onRemoveVerification}
-            >
-              Remove verification
-            </button>
-          )}
-          <button type="button" className="secondary" onClick={requestClose}>
+          <Button variant="secondary" onClick={requestClose}>
             Cancel
-          </button>
-          <button type="button" onClick={verify}>
+          </Button>
+          <Button onClick={verify}>
             Use as expected answer
-          </button>
+          </Button>
+          {onRemoveVerification && (
+            <Button variant="danger-text" onClick={onRemoveVerification}>
+              Remove verification
+            </Button>
+          )}
         </div>
       </div>
     </ModalDialog>

@@ -4,6 +4,8 @@ import { rangeLabel, resolveRange } from "./costRange.js";
 import { useCostResource } from "./useCostResource.js";
 import { OverviewTab } from "./OverviewTab.jsx";
 import { ErrorState, LoadingState } from "../../ui/States.jsx";
+import { Button } from "../../ui/Button.jsx";
+import { ChevronLeftIcon } from "../../layout/Icons.jsx";
 import { DocumentsTab } from "./DocumentsTab.jsx";
 import "./workspaceCosts.css";
 
@@ -14,9 +16,9 @@ export function WorkspaceCosts({ workspaceId, workspaceName, role, tab = "overvi
         <p className="studio-eyebrow">Workspaces / Costs</p>
         <h1>{workspaceName}</h1>
         <div className="studio-heading-actions">
-          <button type="button" className="secondary" onClick={onBack}>
-            ← Workspace
-          </button>
+          <Button variant="secondary" onClick={onBack}>
+            <ChevronLeftIcon size={13} /> Back to workspace
+          </Button>
         </div>
         <p className="studio-page-description">
           Reported document-processing costs, attributed to upload date. Deleted documents keep their costs. USD · UTC.

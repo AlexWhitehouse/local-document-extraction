@@ -42,5 +42,4 @@
   .template-editor-modal .field-detail .row.two-up { grid-template-columns: 1fr; }
   .template-editor-modal .field-nav { padding: 6px; }
   .template-editor-modal-footer { padding: 12px 16px; }
-  .template-editor-modal .field-controls { flex-wrap: wrap; }
 }

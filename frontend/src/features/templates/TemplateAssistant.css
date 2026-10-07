@@ -225,9 +225,7 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
 .template-json-diagnostics { max-height: 160px; overflow: auto; color: var(--tone-warning-text); font-size: var(--font-size-4); padding-left: 20px; }
 .template-json-diagnostics li { margin-bottom: 8px; }
 
-/* ---- Narrow layouts stack the drawer above the editor. */
-.template-assistant-layout .studio-template-meta { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
-@container (max-width: 610px) { .template-assistant-layout .studio-template-meta { grid-template-columns: 1fr; } }
+/* ---- Narrow layouts stack the drawer above the editor. The editor's own grid is not overridden, so the form keeps its layout when the Assistant opens. */
 @container (max-width: 900px) {
   .template-assistant-layout { display: flex; flex-direction: column; overflow-y: auto; gap: 22px; }
   .template-assistant-layout > .template-assistant { order: -1; flex: none; max-height: 80dvh; margin: 16px 0 0; border: 1px solid var(--rule); }

@@ -2,6 +2,7 @@ import React, { useId, useRef } from "react";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 import { formatUploadLimit } from "./sourceFileValidation.js";
 import { pluralize } from "../../lib/text";
+import { Button } from "../ui/Button.jsx";
 
 export function DocumentUploadPanel({
   label = "Source files",
@@ -85,14 +86,15 @@ export function DocumentUploadPanel({
                   {formatQueueStatus(entry.queueStatus)}
                 </span>
                 {entry.queueStatus === "pending" ? (
-                  <button
-                    type="button"
-                    className="ghost"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={disabled}
+                    aria-label={`Remove ${entry.file.name}`}
                     onClick={() => onRemoveSourceFile(entry.id)}
                   >
                     Remove
-                  </button>
+                  </Button>
                 ) : null}
               </div>
               {entry.queueError ? <p className="hint upload-file-error">{entry.queueError}</p> : null}

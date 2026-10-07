@@ -90,7 +90,7 @@ describe("Workspace action toast feedback", () => {
     expect(screen.getByRole("heading", { name: "Loading workspace context" })).toBeTruthy();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
     expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Invite user" }).disabled).toBe(true);
   });
 
   it("shows a retryable Workspace resolution error when backend workspace listing fails", async () => {
@@ -107,7 +107,7 @@ describe("Workspace action toast feedback", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
     expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "+ Invite user" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Invite user" }).disabled).toBe(true);
   });
 
   it("refreshes Workspaces and keeps an explicit inaccessible Workspace on a recovery screen", async () => {
@@ -443,7 +443,7 @@ describe("Workspace action toast feedback", () => {
 
     await screen.findByRole("link", { name: /Research Workspace/ });
 
-    await user.click(screen.getByRole("button", { name: "Leave Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Leave workspace" }));
     await confirmInDialog(user, "Leave workspace");
 
     await waitFor(() => {
@@ -471,7 +471,7 @@ describe("Workspace action toast feedback", () => {
 
     await screen.findByRole("link", { name: /Research Workspace/ });
 
-    await user.click(screen.getByRole("button", { name: "Delete Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Delete workspace" }));
     expect(
       await screen.findByRole("alertdialog", { name: 'Delete "Research Workspace"?' }),
     ).toBeTruthy();
@@ -489,7 +489,7 @@ describe("Workspace action toast feedback", () => {
 
     await screen.findByRole("link", { name: /Research Workspace/ });
 
-    await user.click(screen.getByRole("button", { name: "Delete Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Delete workspace" }));
     await confirmInDialog(user, "Cancel");
 
     expectNoToasts();
@@ -613,7 +613,7 @@ describe("Workspace action toast feedback", () => {
     async function inviteTeammate(email) {
       const user = userEvent.setup();
       render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
-      await user.click(screen.getByRole("button", { name: "+ Invite user" }));
+      await user.click(screen.getByRole("button", { name: "Invite user" }));
 
       if (email) await user.type(screen.getByLabelText("Invite email"), email);
       await user.click(screen.getByRole("button", { name: "Invite user" }));
@@ -660,7 +660,7 @@ describe("Workspace action toast feedback", () => {
     it("rejects a malformed invite email inline on blur", async () => {
       const user = userEvent.setup();
       render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
-      await user.click(screen.getByRole("button", { name: "+ Invite user" }));
+      await user.click(screen.getByRole("button", { name: "Invite user" }));
 
       await user.type(screen.getByLabelText("Invite email"), "grace@example");
       await user.tab();
@@ -850,7 +850,7 @@ describe("Workspace action toast feedback", () => {
     async function openMemberModal() {
       const user = userEvent.setup();
       render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
-      await user.click(await screen.findByRole("button", { name: "Edit user" }));
+      await user.click(await screen.findByRole("button", { name: "Edit Grace Hopper" }));
 
       return user;
     }
@@ -1140,7 +1140,7 @@ describe("Workspace action toast feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(screen.getByRole("link", { name: /Templates/i }));
-    await user.click(screen.getByRole("button", { name: "+ Add field" }));
+    await user.click(screen.getByRole("button", { name: "Add field" }));
 
     expectNoToasts();
 
@@ -1166,13 +1166,13 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getByRole("link", { name: /Templates/i }));
     await screen.findByRole("button", { name: "Save changes" });
 
-    await user.click(screen.getByRole("button", { name: "Delete Template" }));
+    await user.click(screen.getByRole("button", { name: "Delete template" }));
     const cancelDialog = await screen.findByRole("alertdialog", { name: 'Delete "Delete Me"?' });
     await user.click(within(cancelDialog).getByRole("button", { name: "Cancel" }));
     expect(toastMock.success).not.toHaveBeenCalledWith("Template deleted: Delete Me", expect.anything());
     expect(toastMock.error).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Delete Template" }));
+    await user.click(screen.getByRole("button", { name: "Delete template" }));
     const confirmDialogEl = await screen.findByRole("alertdialog", { name: 'Delete "Delete Me"?' });
     await user.click(within(confirmDialogEl).getByRole("button", { name: "Delete template" }));
 
@@ -1285,7 +1285,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Upload documents" })[0]);
 
     expect(
       screen.getByText("Choose a template or tags for automatic selection, then add your source files."),
@@ -1481,7 +1481,7 @@ describe("Workspace action toast feedback", () => {
       expect(originalRequests).toBe(1);
 
       await act(async () => {
-        fireEvent.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
+        fireEvent.click(screen.getAllByRole("button", { name: "Upload documents" })[0]);
       });
       expect(screen.getByRole("dialog", { name: "Upload documents" })).toBeTruthy();
       expect(getPreview()).toBe(preview);
@@ -1762,9 +1762,11 @@ function expectNoToasts() {
 }
 
 async function uploadFiles(user, container, files) {
-  await user.click(screen.getAllByRole("button", { name: "Upload Document" })[0]);
+  await user.click(screen.getAllByRole("button", { name: "Upload documents" })[0]);
   fireEvent.change(document.querySelector('input[type="file"]'), { target: { files } });
-  await user.click(screen.getByRole("button", { name: "Upload Documents" }));
+  await user.click(
+    within(screen.getByRole("dialog", { name: "Upload documents" })).getByRole("button", { name: "Upload documents" }),
+  );
 }
 
 function deferred() {

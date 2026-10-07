@@ -46,7 +46,7 @@ describe("template request scope", () => {
       "currency",
       "line_items",
     ]);
-    act(() => result.current.templatePage.onOpenJsonModal());
+    act(() => result.current.toolbar.onOpenJsonModal());
     const payload = JSON.parse(result.current.jsonModal.draft);
     expect(payload.name).toBe("Invoice Template");
     expect(payload.fields.at(-1)).toMatchObject({
@@ -90,7 +90,7 @@ describe("template request scope", () => {
     await waitFor(() => expect(result.current.templates).toHaveLength(1));
     act(() => result.current.contextList.onSelectTemplate("old"));
     act(() => result.current.templatePage.onTemplateNameChange("Old workspace draft"));
-    act(() => result.current.templatePage.onOpenJsonModal());
+    act(() => result.current.toolbar.onOpenJsonModal());
     rerender({ ...props, workspaceId: "workspace_b", request: vi.fn(async () => ({ templates: [] })) });
     await act(async () => pending.resolve(template("old")));
     expect(result.current.templatePage.isEditingTemplate).toBe(false);

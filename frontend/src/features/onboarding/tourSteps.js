@@ -23,7 +23,7 @@ export const TOUR_STEPS = [
   {
     id: "create-template",
     title: "Create your first template",
-    text: "Click Create Template to build one manually for this walkthrough. Once your workspace’s model is configured, the magic icon can generate a template from a sample document.",
+    text: "Click Create template to build one manually for this walkthrough. Once your workspace’s model is configured, the magic icon can generate a template from a sample document.",
     click: true,
   },
   {
@@ -118,7 +118,7 @@ export const TOUR_STEPS = [
   {
     id: "upload-open",
     title: "Bring in a document",
-    text: "Click Upload Document to use your template with a PDF or image.",
+    text: "Click Upload documents to use your template with a PDF or image.",
     click: true,
   },
   {
@@ -136,7 +136,7 @@ export const TOUR_STEPS = [
   {
     id: "upload-submit",
     title: "Queue the extraction",
-    text: "Click Upload Documents. Studio will send the document to your configured model. If an upload fails, retry here or exit the tour to change your settings.",
+    text: "Click Upload documents. Studio will send the document to your configured model. If an upload fails, retry here or exit the tour to change your settings.",
     action: "upload",
   },
   {

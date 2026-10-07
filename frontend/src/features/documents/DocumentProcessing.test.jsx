@@ -36,12 +36,12 @@ describe("Automatic document processing UI", () => {
   it("requires an explicit template or at least one tag", async () => {
     const user = userEvent.setup();
     const { rerender } = render(<DocumentUploadModal {...uploadProps} />);
-    expect(screen.getByRole("button", { name: "Upload Documents" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Upload documents" }).disabled).toBe(true);
     await user.click(screen.getByRole("checkbox", { name: "invoice" }));
     expect(uploadProps.onSelectTags).toHaveBeenCalledWith(["invoice"]);
     expect(screen.queryByRole("checkbox", { name: /splitting/i })).toBeNull();
     rerender(<DocumentUploadModal {...uploadProps} selectedTags={["invoice"]} />);
-    expect(screen.getByRole("button", { name: "Upload Documents" }).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Upload documents" }).disabled).toBe(false);
     expect(screen.queryByRole("button", { name: "Preview and select pages" })).toBeNull();
   });
 
