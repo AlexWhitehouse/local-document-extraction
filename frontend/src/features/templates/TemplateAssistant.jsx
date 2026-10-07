@@ -2,6 +2,7 @@ import { isJsonObject } from "../../../../shared/json.ts";
 import React, { useMemo, useRef } from "react";
 import { diagnoseTemplateDraft, identityImpacts, previewRows } from "../../../../shared/templateAssistant.ts";
 import { getDataTypeLabel } from "./templateFields.js";
+import { pluralize } from "../../lib/text.js";
 import { MagicIcon } from "./MagicIcon.jsx";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
@@ -308,8 +309,9 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
         </div>
         <ul>
           <li>
-            <strong>Current draft</strong> {draft.name ? `“${draft.name}”` : "(untitled)"} · {draft.fields.length}{" "}
-            fields · {isEditing ? (isDirty ? "unsaved changes" : "matches saved version") : "new, unsaved"}
+            <strong>Current draft</strong> {draft.name ? `“${draft.name}”` : "(untitled)"} ·{" "}
+            {pluralize(draft.fields.length, "field")} ·{" "}
+            {isEditing ? (isDirty ? "unsaved changes" : "matches saved version") : "new, unsaved"}
             {issues.length ? ` · ${issues.length} problem${issues.length === 1 ? "" : "s"}` : ""}
           </li>
           <li>

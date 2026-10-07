@@ -4,25 +4,25 @@ import { ScrollArea } from "../layout/ScrollArea.jsx";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
+const MAX_FAILURE_REASON_LENGTH = 300;
+
 export function ExtractionJobStatusDisplay({ job }) {
   const isFailure = job.status === "failed";
-  const isCompleted = job.status === "completed";
   const isProcessing = LIVE_DOCUMENT_STATUSES.has(job.status);
   const isHeld = job.status === "awaiting_template";
+  const failureReason = isFailure ? displayableFailureReason(job.error_message) : "";
 
   const statusLabel = isHeld
     ? "Template selection needs your attention."
     : job.routing_status === "assessing"
       ? "Choosing a template from the document"
       : isFailure
-        ? "This extraction finished with a failure status."
-        : isCompleted
-          ? "This extraction completed successfully."
-          : isProcessing
-            ? "The document is processing"
-            : "The document is queued";
+        ? "Extraction failed"
+        : isProcessing
+          ? "The document is processing"
+          : "The document is queued";
 
-  const isTerminal = isCompleted || isFailure || isHeld;
+  const isTerminal = isFailure || isHeld;
   const currentAttempt = Number(job.current_attempt || 0);
   const completedAttempt = Number(job.completed_attempt || 0);
   const lastFailedAttempt = Number(job.last_failed_attempt || 0);
@@ -46,11 +46,24 @@ export function ExtractionJobStatusDisplay({ job }) {
         <span className="job-status-spinner" aria-hidden="true" />
         <div>
           <p>{statusLabel}</p>
+          {failureReason ? <p>{failureReason}</p> : null}
+          {isFailure ? <p>Try again, choose another template, or check the Model gateway on the Workspace page.</p> : null}
           <p className="hint">{attemptLabel}</p>
         </div>
       </div>
     </div>
   );
+}
+
+// Only plain, short reasons are shown. HTML from a proxy or a stack trace is hidden.
+function displayableFailureReason(message) {
+  if (!isString(message)) return "";
+
+  const reason = message.trim();
+
+  if (!reason || reason.includes("<") || reason.includes("\n") || reason.length > MAX_FAILURE_REASON_LENGTH) return "";
+
+  return reason;
 }
 
 export function ExtractionResultDisplay({ job, isLoading = false }) {

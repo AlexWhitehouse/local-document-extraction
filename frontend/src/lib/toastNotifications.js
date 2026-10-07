@@ -1,3 +1,5 @@
+import { pluralize } from "./text";
+
 const successMessages = {
   "workspace.apiKey.generate.copied": () => "Workspace API key generated and copied",
   "workspace.apiKey.rotate.copied": () => "Workspace API key rotated and copied",
@@ -27,10 +29,10 @@ const successMessages = {
   "document.delete": ({ target }) => withTarget("Document deleted", target),
   "document.bulkDelete": ({ target }) => (target ? `${target} deleted` : "Selected documents deleted"),
   "document.export": ({ exportedCount = 0, skippedCount = 0 }) => {
-    const exported = `Exported ${exportedCount} ${pluralize("document", exportedCount)}`;
+    const exported = `Exported ${pluralize(exportedCount, "document")}`;
 
     return skippedCount
-      ? `${exported}; skipped ${skippedCount} unavailable or in-progress ${pluralize("document", skippedCount)}`
+      ? `${exported}; skipped ${skippedCount} unavailable or in-progress ${skippedCount === 1 ? "document" : "documents"}`
       : exported;
   },
   "clipboard.copyTemplateJson": () => "Template JSON copied",
@@ -40,9 +42,11 @@ const successMessages = {
   "workspace.modelGateway.save": () => "Model gateway saved",
   "workspace.modelGateway.clear": () => "Model gateway cleared",
   "workspace.modelGateway.test": ({ message }) => message || "Connection test passed",
+  "profile.update": () => "Profile updated",
 };
 
 const failureMessages = {
+  "workspace.apiKey.generate": () => "Workspace API key could not be generated. Please try again.",
   "workspace.apiKey.rotate": () => "Workspace API key could not be rotated. Please try again.",
   "workspace.create": () => "Workspace could not be created. Please try again.",
   "workspace.rename": () => "Workspace name could not be saved. Please try again.",
@@ -77,6 +81,7 @@ const failureMessages = {
   "workspace.modelGateway.clear": () => "Model gateway could not be cleared. Please try again.",
   "workspace.modelGateway.test": ({ message }) =>
     message || "Connection test failed. Check the gateway, models and credential.",
+  "auth.signOut": () => "Couldn't sign out. Try again.",
 };
 
 const validationMessages = {
@@ -127,27 +132,23 @@ export function getDocumentUploadToast({ queued = 0, failed = 0 }) {
   if (failed === 0) {
     return {
       severity: "success",
-      message: `${queued} ${pluralize("document", queued)} queued`,
+      message: `${pluralize(queued, "document")} queued`,
     };
   }
 
   if (queued === 0) {
     return {
       severity: "error",
-      message: `${failed} ${pluralize("document", failed)} failed to queue`,
+      message: `${pluralize(failed, "document")} failed to queue`,
     };
   }
 
   return {
     severity: "error",
-    message: `${queued} ${pluralize("document", queued)} queued, ${failed} failed`,
+    message: `${pluralize(queued, "document")} queued, ${failed} failed`,
   };
 }
 
 function withTarget(message, target) {
   return target ? `${message}: ${target}` : message;
-}
-
-function pluralize(word, count) {
-  return count === 1 ? word : `${word}s`;
 }

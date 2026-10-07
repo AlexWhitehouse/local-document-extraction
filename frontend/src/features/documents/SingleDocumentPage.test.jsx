@@ -193,3 +193,20 @@ describe("Single documents produced by smart splitting", () => {
     expect(screen.getByText("Page 2: Verified blank")).toBeTruthy();
   });
 });
+
+describe("Document status labels", () => {
+  it("shows the readable status label in the document header instead of the raw status", () => {
+    const packet = { ...singleDocumentPacket(), status: "awaiting_template" };
+    const child = { ...packet.children[0], status: "awaiting_template" };
+
+    render(
+      <DocumentPage
+        selectedPacketId={packet.packet_id}
+        packetPage={{ packet, activeDocument: { ...child, results: [] } }}
+      />,
+    );
+
+    expect(screen.getByText("Needs template")).toBeTruthy();
+    expect(screen.queryByText("Awaiting_template")).toBeNull();
+  });
+});

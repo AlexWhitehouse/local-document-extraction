@@ -553,7 +553,7 @@ export function useDocumentController({
 
     if (
       !window.confirm(
-        `Delete packet ${id} and all its child documents? This permanently removes their results and available originals.`,
+        `Delete ${openPacket?.source_name ? `"${openPacket.source_name}"` : "this packet"} and all its child documents? This permanently removes their results and available originals.`,
       )
     )
       return;
@@ -606,7 +606,7 @@ export function useDocumentController({
 
     const message = isBulkDelete
       ? `Delete ${parts.replace(/^(\d+) /, "$1 selected ")}${childCount ? `, including ${childCount} document${childCount === 1 ? "" : "s"} split from ${visiblePackets.length === 1 ? "the packet" : "the packets"}` : ""}? This will permanently remove ${targetDocuments.length + targetPackets.length === 1 ? "it" : "them"} from the workspace.`
-      : `Delete document ${target.job_id || singlePacketDocument(target)?.job_id || target.packet_id}? This will permanently remove it from the workspace.`;
+      : `Delete ${target.source_name ? `"${target.source_name}"` : "this document"}? This will permanently remove it from the workspace.`;
 
     if (!window.confirm(message)) return;
     let removedPackets = [];

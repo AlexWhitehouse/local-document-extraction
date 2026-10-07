@@ -5,6 +5,7 @@ import { TemplateAssistant } from "./TemplateAssistant.jsx";
 import { focusDiagnostic } from "./focusDiagnostic.js";
 import { DiagnosticMessages, TemplateProblems } from "./TemplateDiagnostics.jsx";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
+import { pluralize } from "../../lib/text.js";
 
 export function TemplatePage({
   templateName,
@@ -149,7 +150,7 @@ export function TemplatePage({
         />
         <footer className="studio-editor-footer">
           <span>
-            {templateFields.length} fields ·{" "}
+            {pluralize(templateFields.length, "field")} ·{" "}
             <span
               className={
                 isEditingTemplate

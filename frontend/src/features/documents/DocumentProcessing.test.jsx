@@ -277,7 +277,7 @@ describe("Automatic document processing UI", () => {
     );
     expect(overview().textContent).toContain("Extracting 1/2");
     expect(screen.getByRole("tab", { name: /Document 1/ }).className).toBe("is-done");
-    expect(screen.getByRole("tab", { name: /Document 2/ }).textContent).toContain("Page 3 · processing");
+    expect(screen.getByRole("tab", { name: /Document 2/ }).textContent).toContain("Page 3 · Processing");
     const table = screen.getByRole("region", { name: "Documents in this packet" });
     expect(within(table).getByRole("row", { name: /Document 1 1, 2 Invoice Completed/ })).toBeTruthy();
     expect(within(table).getByText("Choosing template…")).toBeTruthy();

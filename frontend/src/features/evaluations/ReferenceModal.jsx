@@ -1,7 +1,9 @@
+import { pluralize } from "../../lib/text.js";
 import { isJsonObject } from "../../../../shared/json.ts";
 import React, { useId, useRef, useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
+import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
 import { getDataTypeLabel } from "../templates/templateFields.js";
 import {
   normalizeReferenceDates,
@@ -76,6 +78,7 @@ export function ReferenceModal({
   onRemoveVerification,
   onClose,
 }) {
+  useUnsavedGuard(true, "Expected answer");
   const [schema, setSchema] = useState(0);
   const drafts = useRef(new Map());
   const field = schemas[schema].field;
@@ -365,7 +368,7 @@ function ReferenceEditor({
                 <div>
                   <strong>Expected rows</strong>
                   <p>
-                    {value.length} {value.length === 1 ? "row" : "rows"} · {columns.length} schema columns
+                    {pluralize(value.length, "row")} · {pluralize(columns.length, "column")}
                   </p>
                 </div>
                 <div className="actions compact">

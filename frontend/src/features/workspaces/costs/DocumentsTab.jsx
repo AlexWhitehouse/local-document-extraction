@@ -1,3 +1,4 @@
+import { statusLabel } from "../../../lib/status.js";
 import React, { useEffect, useState } from "react";
 import { allocateCost, costAmount } from "../../../../../shared/processingCosts.ts";
 import { ChartTip, FigureStrip, Segmented, StageBar, StageLegend, StageTipRows } from "./costShared.jsx";
@@ -263,7 +264,7 @@ function CostAnatomy({ item }) {
           {item.deleted ? <span className="status-chip">Deleted</span> : null}
         </h3>
         <p className="cp-anatomy-meta">
-          {shortDate(item.created_at)} {time(item.created_at)} UTC · {item.status}
+          {shortDate(item.created_at)} {time(item.created_at)} UTC · {statusLabel(item.status)}
         </p>
       </header>
       <FigureStrip compact figures={figures} label={`${item.name} figures`} />

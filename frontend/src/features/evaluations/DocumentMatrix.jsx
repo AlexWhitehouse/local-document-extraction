@@ -1,3 +1,5 @@
+import { pluralize } from "../../lib/text.js";
+import { statusLabel } from "../../lib/status.js";
 import { isJsonObject } from "../../../../shared/json.ts";
 import React, { useState } from "react";
 import { getDataTypeLabel } from "../templates/templateFields.js";
@@ -343,7 +345,7 @@ export function DocumentMatrix({
           {score?.state || "Unscored"}
         </span>
         {!["ok", "found"].includes(raw?.status) && (
-          <small>{raw?.status === "not_found" || !raw ? "Not found in document" : raw.status}</small>
+          <small>{raw?.status === "not_found" || !raw ? "Not found in document" : statusLabel(raw.status)}</small>
         )}
         {field.data_type === "array<object>" && tableRows !== null && columns.length ? (
           <>
@@ -368,7 +370,7 @@ export function DocumentMatrix({
               </table>
             </div>
             <small>
-              {tableRows.length} rows{!full && tableRows.length > 3 ? " · showing first 3" : ""}
+              {pluralize(tableRows.length, "row")}{!full && tableRows.length > 3 ? " · showing first 3" : ""}
             </small>
           </>
         ) : (

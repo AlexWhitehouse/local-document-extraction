@@ -23,6 +23,7 @@ import { MAX_CANDIDATES, documentRunnable, pairBusy } from "./useEvaluations.js"
 import { documentCompatibility } from "./evaluationScoring.js";
 import { documentDirty, saveUnavailableMessage } from "./evaluationLibrary.js";
 import "./evaluations.css";
+import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 
 export function EvaluationsPage({
@@ -324,6 +325,12 @@ export function EvaluationsPage({
   const open = (kind, extra = {}) => setDialog({ kind, ...extra });
   const dialogDocument = dialog?.key && state.documents.find((d) => d.key === dialog.key);
   const dialogFields = dialog?.fields || fields;
+
+  // The template editor and library save dialogs hold unapplied edits.
+  useUnsavedGuard(
+    Boolean(editor || (dialog?.kind === "save" && dialogDocument) || (dialog?.kind === "update" && dialogDocument?.entry)),
+    "Evaluation dialog",
+  );
   const compatibility = document && documentCompatibility(document, fields);
   const saveUnavailable = saveUnavailableMessage(state.library);
 

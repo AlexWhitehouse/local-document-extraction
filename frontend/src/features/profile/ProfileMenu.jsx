@@ -9,6 +9,8 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
     isOpen,
     isDirty,
     isSavingProfile,
+    canSaveProfile,
+    saveError,
     busy,
     onToggle,
     onDraftNameChange,
@@ -88,8 +90,17 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         Email
                         <input value={displayEmail} readOnly aria-readonly="true" />
                       </label>
+                      {saveError ? (
+                        <p className="form-error" role="alert">
+                          {saveError}
+                        </p>
+                      ) : null}
                       <div className="settings-form-actions">
-                        <button type="button" disabled={isSavingProfile || !isDirty} onClick={onSaveProfile}>
+                        <button
+                          type="button"
+                          disabled={isSavingProfile || !isDirty || !canSaveProfile}
+                          onClick={onSaveProfile}
+                        >
                           {isSavingProfile ? "Saving…" : "Save profile"}
                         </button>
                       </div>

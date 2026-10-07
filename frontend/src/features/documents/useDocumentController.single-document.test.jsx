@@ -115,7 +115,7 @@ describe("Single-document smart split actions", () => {
       await f.result.current.toolbar.onDeleteDocument();
     });
     expect(confirm).toHaveBeenCalledWith(
-      "Delete document single_child? This will permanently remove it from the workspace.",
+      'Delete "invoice.pdf"? This will permanently remove it from the workspace.',
     );
     expect(f.requests.deletePacket).toHaveBeenCalledWith("single_packet");
     expect(f.requests.deleteDocument).not.toHaveBeenCalled();

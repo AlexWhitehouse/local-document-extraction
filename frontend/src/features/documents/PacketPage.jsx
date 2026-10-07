@@ -1,3 +1,4 @@
+import { statusLabel } from "../../lib/status.js";
 import { isString } from "../../../../shared/json.ts";
 import React, { useEffect, useId, useState } from "react";
 import { formatPages, parsePageSelection, validateSplitPlan } from "./documentProcessing.js";
@@ -59,7 +60,7 @@ export function PacketPage({
             >
               Document {index + 1}
               <small>
-                {pagesLabel(child.source_pages)} · {status.replaceAll("_", " ")}
+                {pagesLabel(child.source_pages)} · {statusLabel(status)}
               </small>
             </button>
           );

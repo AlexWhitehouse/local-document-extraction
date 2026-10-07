@@ -235,6 +235,20 @@ describe("stable app navigation", () => {
     expect(screen.queryByText("evaluation.pdf")).toBeNull();
   });
 
+  it("does not warn when leaving Evaluations with only a non-draft popover open", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    open("/workspaces/a/evaluations");
+    await screen.findByLabelText("Evaluation document");
+    const popover = document.createElement("div");
+    popover.setAttribute("role", "dialog");
+    document.body.append(popover);
+    await user.click(nav(/Documents/));
+    await waitFor(() => expect(window.location.pathname).toMatch(/^\/workspaces\/a\/documents/));
+    expect(confirm).not.toHaveBeenCalled();
+    popover.remove();
+  });
+
   it("keeps a deleted Document URL on recovery and allows returning to the list", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     open("/workspaces/a/documents/first");
@@ -312,7 +326,8 @@ describe("stable app navigation", () => {
 
   it("does not display Admin content for an unauthorized account", async () => {
     open("/admin");
-    await screen.findByRole("heading", { name: "This page is not available to your account." });
+    await screen.findByRole("heading", { name: "Page unavailable" });
+    expect(screen.getByText("This page is not available to your account.")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Application admin" })).toBeNull();
   });
 

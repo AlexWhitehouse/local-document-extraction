@@ -1,3 +1,4 @@
+import { statusLabel } from "../../lib/status.js";
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
@@ -315,7 +316,7 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
         ? "No documents to extract"
         : isAwaitingTemplate
           ? "Template needed"
-          : PACKET_STATUS_LABELS[packet.status] || String(packet.status || "queued").replaceAll("_", " ");
+          : PACKET_STATUS_LABELS[packet.status] || statusLabel(packet.status || "queued");
 
     items.push({
       kind: "packet",

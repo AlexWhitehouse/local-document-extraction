@@ -675,9 +675,6 @@ export function useTemplateController({
   }
 
   async function deleteTemplate() {
-    touchDraft();
-    cancelAssistant();
-    cancelGeneration();
     const deletedTemplateId = updateTemplateId.trim();
 
     if (!deletedTemplateId) {
@@ -688,18 +685,21 @@ export function useTemplateController({
       return;
     }
 
-    if (!window.confirm(`Delete template ${deletedTemplateId}? This action cannot be undone.`)) {
+    const deletedTemplateName =
+      templates.find((template) => String(template.id || "") === deletedTemplateId)?.name || templateName;
+
+    if (!window.confirm(`Delete template "${deletedTemplateName}"? This action cannot be undone.`)) {
       return;
     }
 
+    touchDraft();
+    cancelAssistant();
+    cancelGeneration();
     const generation = generationRef.current;
     const isCurrent = () => generation === generationRef.current;
     setIsDeletingTemplate(true);
 
     try {
-      const deletedTemplateName =
-        templates.find((template) => String(template.id || "") === deletedTemplateId)?.name || templateName;
-
       await request(`/templates/${encodeURIComponent(deletedTemplateId)}`, {
         method: "DELETE",
       });

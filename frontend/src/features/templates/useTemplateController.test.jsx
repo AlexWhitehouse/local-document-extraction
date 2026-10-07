@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useTemplateController } from "./useTemplateController";
 
 function deferred() {
@@ -130,5 +130,50 @@ describe("template request scope", () => {
     expect(result.current.templatePage.isEditingTemplate).toBe(false);
     expect(result.current.selectedUploadTemplateId).toBe("");
     expect(props.showActionToast).not.toHaveBeenCalled();
+  });
+});
+
+describe("template deletion", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("names the template and keeps the assistant open when the confirmation is cancelled", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const internal = { ...template("t_internal"), name: "Invoice Pack" };
+    const request = vi.fn(async (path) => (path === "/templates" ? { templates: [internal] } : internal));
+    const props = propsFor(request);
+    const { result } = renderHook(useTemplateController, { initialProps: props });
+    await waitFor(() => expect(result.current.templates).toHaveLength(1));
+    act(() => result.current.contextList.onSelectTemplate("t_internal"));
+    await waitFor(() => expect(result.current.templatePage.isEditingTemplate).toBe(true));
+    act(() => result.current.templatePage.onOpenAssistant());
+    expect(result.current.templatePage.assistant.isOpen).toBe(true);
+    await act(async () => result.current.toolbar.onDeleteTemplate());
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('"Invoice Pack"'));
+    expect(confirm.mock.calls[0][0]).not.toContain("t_internal");
+    expect(result.current.templatePage.assistant.isOpen).toBe(true);
+    expect(request.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false);
+  });
+
+  it("cancels the assistant only after the deletion is confirmed", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const request = vi.fn(async (path, options) => {
+      if (options?.method === "DELETE") return {};
+
+      return path === "/templates" ? { templates: [template("t_internal")] } : template("t_internal");
+    });
+
+    const props = propsFor(request);
+    const { result } = renderHook(useTemplateController, { initialProps: props });
+    await waitFor(() => expect(result.current.templates).toHaveLength(1));
+    act(() => result.current.contextList.onSelectTemplate("t_internal"));
+    await waitFor(() => expect(result.current.templatePage.isEditingTemplate).toBe(true));
+    act(() => result.current.templatePage.onOpenAssistant());
+    await act(async () => result.current.toolbar.onDeleteTemplate());
+
+    expect(request.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(true);
+    expect(result.current.templatePage.assistant.isOpen).toBe(false);
   });
 });

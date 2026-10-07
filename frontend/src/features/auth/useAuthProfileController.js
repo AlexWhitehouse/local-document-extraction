@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { toast as defaultToast } from "sonner";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
+import { getActionToast } from "../../lib/toastNotifications.js";
+
+const PROFILE_SAVE_ERROR = "Profile could not be saved. Please try again.";
 
 export const ACCOUNT_PASSWORD_REQUIREMENTS = [
   { label: "At least 8 characters", test: (password) => password.length >= 8 },
@@ -42,6 +45,7 @@ export function useAuthProfileController({
 
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileSaveError, setProfileSaveError] = useState("");
   const [profileName, setProfileName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
   const [profileDraftName, setProfileDraftName] = useState("");
@@ -52,6 +56,7 @@ export function useAuthProfileController({
   const displayProfileName = currentProfileName || "Unnamed User";
   const displayProfileEmail = currentProfileEmail || "No email";
   const profileIsDirty = profileDraftName.trim() !== currentProfileName;
+  const canSaveProfile = profileDraftName.trim().length > 0;
 
   const unmetAccountPasswordRequirements = ACCOUNT_PASSWORD_REQUIREMENTS.filter(
     (requirement) => !requirement.test(authPassword),
@@ -279,6 +284,12 @@ export function useAuthProfileController({
     setAccountPasswordResetRequestedEmail("");
   }
 
+  function showOutcomeToast(action, outcome, options) {
+    const { severity, message } = getActionToast(action, outcome, options);
+
+    toast[severity](message);
+  }
+
   async function signOut() {
     setBusy(true);
 
@@ -289,8 +300,9 @@ export function useAuthProfileController({
       onClearWorkspaceScopedDocuments();
       onClearSessionWorkspaceData();
       await refetchSession();
-    } catch {
+    } catch (error) {
       // A failed sign out keeps the current session in place.
+      showOutcomeToast("auth.signOut", "failure", { error });
     } finally {
       setBusy(false);
     }
@@ -304,6 +316,7 @@ export function useAuthProfileController({
     }
 
     setIsSavingProfile(true);
+    setProfileSaveError("");
 
     try {
       const result = await authClient.updateUser({ name });
@@ -317,8 +330,10 @@ export function useAuthProfileController({
       setAuthName(nextName);
       await refetchSession();
       setIsProfileMenuOpen(false);
+      showOutcomeToast("profile.update", "success");
     } catch {
       // A failed save keeps the menu open with the draft name for another attempt.
+      setProfileSaveError(PROFILE_SAVE_ERROR);
     } finally {
       setIsSavingProfile(false);
     }
@@ -358,9 +373,14 @@ export function useAuthProfileController({
       isOpen: isProfileMenuOpen,
       isDirty: profileIsDirty,
       isSavingProfile,
+      canSaveProfile,
+      saveError: profileSaveError,
       busy,
       onToggle: () => setIsProfileMenuOpen((currentOpen) => !currentOpen),
-      onDraftNameChange: setProfileDraftName,
+      onDraftNameChange: (value) => {
+        setProfileSaveError("");
+        setProfileDraftName(value);
+      },
       onSaveProfile: saveProfile,
       onSignOut: signOut,
     },

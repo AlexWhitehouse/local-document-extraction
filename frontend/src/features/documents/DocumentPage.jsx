@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { statusLabel } from "../../lib/status.js";
 import { ExtractionJobStatusDisplay, ExtractionResultDisplay } from "./ExtractionResultDisplay.jsx";
 import { SourceFilePreview } from "./SourceFilePreview.jsx";
 import "./DocumentViewing.css";
@@ -144,7 +145,7 @@ function DocumentDetail({
       <div className="studio-document-summary">
         <span className={`studio-document-status ${status}`}>
           <i aria-hidden="true" />
-          {status.charAt(0).toUpperCase() + status.slice(1)}
+          {statusLabel(status)}
         </span>
         {results.length ? (
           <span>

@@ -1,3 +1,4 @@
+import { pluralize } from "../../lib/text.js";
 import React, { useEffect, useId, useRef, useState } from "react";
 import { candidateBusy } from "./useEvaluations.js";
 import { normalizeReferenceDates, scalarValue, validateReference } from "./evaluationScoring.js";
@@ -125,7 +126,7 @@ function RunDetails({ candidate }) {
       <div>
         <dt>Processing</dt>
         <dd>
-          {seconds(result.processingMs)} · {result.attempts} attempt(s)
+          {seconds(result.processingMs)} · {pluralize(result.attempts, "attempt")}
         </dd>
       </div>
       <div>

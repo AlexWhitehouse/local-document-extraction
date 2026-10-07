@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
+import { pluralize } from "../../lib/text";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
 import { WorkspaceDocumentProcessingSettings } from "./WorkspaceDocumentProcessingSettings.jsx";
 import { ModalHeader } from "../layout/ModalDialog.jsx";
@@ -276,7 +277,7 @@ export function AcceptedWorkspacePage({
             aria-controls="workspace-invite-form"
             onClick={() => setInviteOpen(!inviteOpen)}
           >
-            {inviteOpen ? "Cancel invitation" : "+ Invite user"}
+            {inviteOpen ? "Cancel" : "+ Invite user"}
           </button>
         </div>
         {inviteOpen ? (
@@ -336,7 +337,7 @@ export function AcceptedWorkspacePage({
                   </div>
                   <div className="studio-user-role">
                     <span>{formatRoleLabel(user.role)}</span>
-                    <small>Joined {formatJoinedAt(user.created_at)}</small>
+                    {user.created_at ? <small>Joined {formatJoinedAt(user.created_at)}</small> : null}
                   </div>
                   {canShowWorkspaceUserAction(user) && String(user.user_id || "").trim() !== sessionUserId ? (
                     <button
@@ -357,7 +358,7 @@ export function AcceptedWorkspacePage({
         ) : (
           <p className="muted">No workspace users found.</p>
         )}
-        <p className="studio-users-note">{workspaceUsers.length} users · Access is managed by owners and admins.</p>
+        <p className="studio-users-note">{pluralize(workspaceUsers.length, "member")}</p>
       </section>
       {canManageWorkspaceInvitations && workspaceInvitations.length > 0 ? (
         <section className="studio-pending-invitations">
@@ -452,7 +453,45 @@ export function WorkspaceUserActionModal({ target, options, busy, onClose, onApp
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <WorkspaceUserActionDialog
+      target={target}
+      options={options}
+      busy={busy}
+      onClose={onClose}
+      onApplyAction={onApplyAction}
+    />
+  );
+}
+
+// Mounted only while a target is selected, so confirmation state resets each time the modal opens.
+function WorkspaceUserActionDialog({ target, options, busy, onClose, onApplyAction }) {
+  const [confirmingAction, setConfirmingAction] = useState("");
+  const [pendingAction, setPendingAction] = useState("");
+  const displayName = String(target.name || "").trim() || String(target.email || "").trim() || "this user";
+  const confirmation = WORKSPACE_USER_CONFIRMATIONS[confirmingAction];
+
+  async function applyAction(action) {
+    setPendingAction(action);
+
+    const succeeded = await onApplyAction(action);
+
+    if (succeeded) {
+      onClose();
+
+      return;
+    }
+
+    setPendingAction("");
+  }
+
+  function closeUnlessPending() {
+    if (!pendingAction) {
+      onClose();
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={closeUnlessPending}>
       <div
         className="modal-card workspace-user-action-modal"
         role="dialog"
@@ -463,19 +502,46 @@ export function WorkspaceUserActionModal({ target, options, busy, onClose, onApp
         <ModalHeader
           title="Manage user"
           description={`${String(target.name || "Unknown user")} · ${formatRoleLabel(target.role)}`}
-          onClose={onClose}
+          onClose={closeUnlessPending}
+          closeDisabled={Boolean(pendingAction)}
         />
-        {options.length ? (
+        {confirmation ? (
+          <div className="workspace-user-action-list">
+            <p>{confirmation.message(displayName)}</p>
+            <button
+              type="button"
+              className="ghost"
+              disabled={Boolean(pendingAction)}
+              onClick={() => setConfirmingAction("")}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={confirmation.danger ? "danger" : undefined}
+              disabled={busy || Boolean(pendingAction)}
+              onClick={() => applyAction(confirmingAction)}
+            >
+              {pendingAction === confirmingAction
+                ? WORKSPACE_USER_ACTION_LABELS[confirmingAction].pending
+                : confirmation.confirmLabel(displayName)}
+            </button>
+          </div>
+        ) : options.length ? (
           <div className="workspace-user-action-list">
             {options.map((action) => (
               <button
                 key={action}
                 type="button"
                 className={action === "remove_user" ? "danger" : "ghost"}
-                disabled={busy}
-                onClick={() => onApplyAction(action)}
+                disabled={busy || Boolean(pendingAction)}
+                onClick={() =>
+                  WORKSPACE_USER_CONFIRMATIONS[action] ? setConfirmingAction(action) : applyAction(action)
+                }
               >
-                {WORKSPACE_USER_ACTION_LABELS[action]}
+                {pendingAction === action
+                  ? WORKSPACE_USER_ACTION_LABELS[action].pending
+                  : WORKSPACE_USER_ACTION_LABELS[action].label}
               </button>
             ))}
           </div>
@@ -488,7 +554,19 @@ export function WorkspaceUserActionModal({ target, options, busy, onClose, onApp
 }
 
 const WORKSPACE_USER_ACTION_LABELS = {
-  remove_user: "Remove user",
-  make_admin: "Make admin",
-  make_owner: "Make owner",
+  remove_user: { label: "Remove user", pending: "Removing…" },
+  make_admin: { label: "Make admin", pending: "Making admin…" },
+  make_owner: { label: "Make owner", pending: "Transferring…" },
+};
+
+const WORKSPACE_USER_CONFIRMATIONS = {
+  remove_user: {
+    message: (name) => `Remove ${name} from this workspace?`,
+    confirmLabel: (name) => `Remove ${name}`,
+    danger: true,
+  },
+  make_owner: {
+    message: (name) => `Make ${name} the owner? You'll become an admin and can't undo this yourself.`,
+    confirmLabel: () => "Make owner",
+  },
 };

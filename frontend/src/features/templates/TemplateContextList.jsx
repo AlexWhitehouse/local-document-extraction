@@ -1,9 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
 import { NavigationLink } from "../context/NavigationLink.jsx";
 import { appPath } from "../../lib/appRoutes";
+
+const TEMPLATE_PAGE_SIZE = 12;
 
 export function TemplateContextList({
   workspaceId,
@@ -16,6 +18,8 @@ export function TemplateContextList({
   onSelectTemplate,
 }) {
   const rowMotion = useRowMotion(templates, (template) => template.id);
+  const [visibleCount, setVisibleCount] = useState(TEMPLATE_PAGE_SIZE);
+  const remainingCount = templates.length - visibleCount;
 
   return (
     <>
@@ -23,12 +27,15 @@ export function TemplateContextList({
         Search Templates
         <input
           value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
+          onChange={(event) => {
+            setVisibleCount(TEMPLATE_PAGE_SIZE);
+            onSearchChange(event.target.value);
+          }}
           placeholder="Template name or ID"
         />
       </label>
       <ScrollArea className="context-list" role="region" aria-label="Template list" tabIndex={0}>
-        {templates.slice(0, 12).map((template) => {
+        {templates.slice(0, visibleCount).map((template) => {
           const itemDetail = template.is_draft ? "Unsaved" : template.id;
           const isActive = template.is_draft ? !isEditingTemplate : selectedTemplateId === template.id;
 
@@ -63,8 +70,16 @@ export function TemplateContextList({
           <p className="muted">
             {String(search || "").trim() ? "No Templates match this search." : "No Templates yet."}
           </p>
-        ) : templates.length > 12 ? (
-          <p className="muted">Showing 12 of {templates.length}. Search to find the rest.</p>
+        ) : null}
+        {remainingCount > 0 ? (
+          <button
+            type="button"
+            className="context-item"
+            onClick={() => setVisibleCount((count) => count + TEMPLATE_PAGE_SIZE)}
+          >
+            <strong>Load more templates</strong>
+            <span>Show {Math.min(TEMPLATE_PAGE_SIZE, remainingCount)} more</span>
+          </button>
         ) : null}
       </ScrollArea>
     </>

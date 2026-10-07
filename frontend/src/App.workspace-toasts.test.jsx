@@ -247,6 +247,26 @@ describe("Workspace action toast feedback", () => {
     expect(toastMock.success).not.toHaveBeenCalledWith(expect.stringContaining(rotatedKey));
   });
 
+  it("reports a first-key generation failure with generate wording", async () => {
+    const user = userEvent.setup();
+    routeFetch((url, method) => {
+      if (url.endsWith("/workspaces")) return workspaceList(workspace({ has_api_key: false }));
+
+      if (url.endsWith("/workspaces/ws_1/api-key") && method === "POST") {
+        return jsonResponse({ error: "policy detail" }, { status: 500 });
+      }
+    });
+
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+    await user.click(await screen.findByRole("button", { name: "Generate API key" }));
+
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenCalledWith("Workspace API key could not be generated. Please try again.");
+    });
+    expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("rotated"));
+  });
+
   it("keeps generated Workspace API key visible when clipboard copy needs manual retry", async () => {
     const user = userEvent.setup();
     const generatedKey = "manual-copy-secret-key";
@@ -383,9 +403,9 @@ describe("Workspace action toast feedback", () => {
     });
   });
 
-  it("confirms Workspace deletion and selects a remaining Workspace", async () => {
+  it("confirms Workspace deletion by name and selects a remaining Workspace", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const remaining = workspace({ id: "ws_2", name: "Remaining Workspace", created_at: "2026-01-02T00:00:00.000Z" });
     let workspaceListCalls = 0;
     routeFetch((url, method) => {
@@ -409,6 +429,7 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace deleted");
     });
+    expect(confirmSpy).toHaveBeenCalledWith('Delete "Research Workspace"? This action cannot be undone.');
     expect(await screen.findByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
   });
 
@@ -747,25 +768,116 @@ describe("Workspace action toast feedback", () => {
       });
     }
 
-    async function applyMemberAction(actionName) {
+    async function openMemberModal() {
       const user = userEvent.setup();
       render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
       await user.click(await screen.findByRole("button", { name: "Edit user" }));
+
+      return user;
+    }
+
+    async function applyMemberAction(actionName) {
+      const user = await openMemberModal();
       await user.click(await screen.findByRole("button", { name: actionName }));
     }
 
-    it.each([
-      ["Remove user", "Removed Grace Hopper from workspace"],
-      ["Make admin", "Made Grace Hopper an admin"],
-      ["Make owner", "Workspace ownership transferred to Grace Hopper"],
-    ])("confirms the %s member action with membership wording", async (actionName, message) => {
-      routeMemberAction(jsonResponse({ updated: true }));
+    function memberMutationCalls() {
+      return globalThis.fetch.mock.calls.filter(([url, options]) => {
+        return String(url).endsWith("/workspaces/ws_1/users/user_2") && options?.method === "POST";
+      });
+    }
 
-      await applyMemberAction(actionName);
+    it.each([
+      ["Remove user", "Remove Grace Hopper", "Removed Grace Hopper from workspace"],
+      ["Make owner", "Make owner", "Workspace ownership transferred to Grace Hopper"],
+    ])("confirms the %s member action with membership wording", async (actionName, confirmName, message) => {
+      routeMemberAction(jsonResponse({ updated: true }));
+      const user = await openMemberModal();
+
+      await user.click(await screen.findByRole("button", { name: actionName }));
+      await user.click(screen.getByRole("button", { name: confirmName }));
 
       await waitFor(() => {
         expect(toastMock.success).toHaveBeenCalledWith(message);
       });
+      expect(screen.queryByRole("dialog", { name: "Manage workspace user" })).toBeNull();
+    });
+
+    it("makes admins without a confirmation step", async () => {
+      routeMemberAction(jsonResponse({ updated: true }));
+
+      await applyMemberAction("Make admin");
+
+      await waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Made Grace Hopper an admin");
+      });
+    });
+
+    it("asks for confirmation before removing a member and does nothing on Cancel", async () => {
+      routeMemberAction(jsonResponse({ updated: true }));
+      const user = await openMemberModal();
+
+      await user.click(await screen.findByRole("button", { name: "Remove user" }));
+
+      expect(screen.getByText("Remove Grace Hopper from this workspace?")).toBeTruthy();
+      expect(memberMutationCalls()).toEqual([]);
+
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(screen.getByRole("button", { name: "Remove user" })).toBeTruthy();
+      expect(memberMutationCalls()).toEqual([]);
+    });
+
+    it("spells out the consequences of transferring ownership before the request", async () => {
+      routeMemberAction(jsonResponse({ updated: true }));
+      const user = await openMemberModal();
+
+      await user.click(await screen.findByRole("button", { name: "Make owner" }));
+
+      expect(
+        screen.getByText("Make Grace Hopper the owner? You'll become an admin and can't undo this yourself."),
+      ).toBeTruthy();
+      expect(memberMutationCalls()).toEqual([]);
+    });
+
+    it("keeps the member modal open with a pending label until the removal settles", async () => {
+      let finishRemoval;
+
+      const removal = new Promise((resolve) => {
+        finishRemoval = resolve;
+      });
+
+      routeMemberAction(removal.then(() => jsonResponse({ updated: true })));
+      const user = await openMemberModal();
+
+      await user.click(await screen.findByRole("button", { name: "Remove user" }));
+      await user.click(screen.getByRole("button", { name: "Remove Grace Hopper" }));
+
+      const pendingButton = screen.getByRole("button", { name: "Removing…" });
+      expect(pendingButton.disabled).toBe(true);
+      expect(screen.getByRole("dialog", { name: "Manage workspace user" })).toBeTruthy();
+      expect(memberMutationCalls()).toHaveLength(1);
+
+      finishRemoval();
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog", { name: "Manage workspace user" })).toBeNull();
+      });
+      expect(toastMock.success).toHaveBeenCalledWith("Removed Grace Hopper from workspace");
+    });
+
+    it("keeps the member modal open for a retry when the removal fails", async () => {
+      routeMemberAction(jsonResponse({ error: "policy detail" }, { status: 403 }));
+      const user = await openMemberModal();
+
+      await user.click(await screen.findByRole("button", { name: "Remove user" }));
+      await user.click(screen.getByRole("button", { name: "Remove Grace Hopper" }));
+
+      await waitFor(() => {
+        expect(toastMock.error).toHaveBeenCalledWith("Workspace member action failed. Please try again.");
+      });
+      expect(screen.getByRole("dialog", { name: "Manage workspace user" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Remove Grace Hopper" }).disabled).toBe(false);
     });
 
     it("shows friendly failure copy when a Workspace member action fails", async () => {
@@ -776,6 +888,43 @@ describe("Workspace action toast feedback", () => {
       await waitFor(() => {
         expect(toastMock.error).toHaveBeenCalledWith("Workspace member action failed. Please try again.");
       });
+    });
+  });
+
+  describe("Workspace users list", () => {
+    function routeUsers(users) {
+      routeFetch((url, method) => {
+        if (url.endsWith("/workspaces/ws_1/users") && method === "GET") {
+          return jsonResponse({ users });
+        }
+      });
+    }
+
+    it("counts members with pluralised wording", async () => {
+      routeUsers([workspaceMember()]);
+
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+      expect(await screen.findByText("1 member")).toBeTruthy();
+      expect(screen.queryByText(/Access is managed/)).toBeNull();
+    });
+
+    it("pluralises the member count for several members", async () => {
+      routeUsers([workspaceMember(), workspaceMember({ user_id: "user_3", name: "Alan Turing" })]);
+
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+      expect(await screen.findByText("2 members")).toBeTruthy();
+    });
+
+    it("hides the Joined label when a member has no join date", async () => {
+      routeUsers([workspaceMember({ created_at: null })]);
+
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+      expect(await screen.findByText("Grace Hopper")).toBeTruthy();
+      expect(screen.queryByText(/Joined/)).toBeNull();
+      expect(screen.queryByText("Joined —")).toBeNull();
     });
   });
 
@@ -861,7 +1010,7 @@ describe("Workspace action toast feedback", () => {
 
     await user.click(screen.getByRole("button", { name: "Delete Template" }));
 
-    expect(confirmSpy).toHaveBeenCalledWith("Delete template tpl_delete? This action cannot be undone.");
+    expect(confirmSpy).toHaveBeenCalledWith('Delete template "Delete Me"? This action cannot be undone.');
     expect(toastMock.success).not.toHaveBeenCalledWith("Template deleted: Delete Me");
     expect(toastMock.error).not.toHaveBeenCalled();
 

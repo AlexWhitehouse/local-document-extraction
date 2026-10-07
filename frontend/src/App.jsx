@@ -38,6 +38,7 @@ import { useWorkspaceDocumentProcessingSettings } from "./features/workspaces/us
 import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
 import { useWorkspaceSourceRetention } from "./features/workspaces/useWorkspaceSourceRetention.js";
 import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
+import { hasUnsavedEdits } from "./lib/unsavedChanges.js";
 import "./features/layout/StudioLayouts.css";
 
 const API_BASE = "/v1";
@@ -300,7 +301,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     if (
       activePage === "evaluations" &&
       (next.page !== "evaluations" || changingWorkspace) &&
-      document.querySelector('[role="dialog"]') &&
+      hasUnsavedEdits() &&
       !window.confirm("Leave Evaluations and discard unapplied changes in the open dialog?")
     )
       return false;
@@ -478,10 +479,12 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     !documentUnavailable &&
     documentController.documentPage.selectedDocument?.job_id !== route.documentId;
 
+  const adminUnavailable = activePage === "admin" && !isApplicationAdmin;
+
   const routeMessage =
     activePage === "not-found"
       ? "Page not found."
-      : activePage === "admin" && !isApplicationAdmin
+      : adminUnavailable
         ? "This page is not available to your account."
         : workspaceUnavailable
           ? "This Workspace or invitation is unavailable. It may have been removed, or you may no longer have access."
@@ -670,7 +673,17 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       >
         {routeMessage ? (
           <section className="panel" role="alert">
-            <h1>{routeMessage}</h1>
+            {adminUnavailable ? (
+              <>
+                <header className="studio-page-heading">
+                  <p className="studio-eyebrow">Admin</p>
+                  <h1>Page unavailable</h1>
+                </header>
+                <p>{routeMessage}</p>
+              </>
+            ) : (
+              <h1>{routeMessage}</h1>
+            )}
             <button
               type="button"
               onClick={() =>

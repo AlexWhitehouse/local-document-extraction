@@ -332,7 +332,7 @@ export function useWorkspaceController({
       const verb = wasRotation ? "rotate" : "generate";
       showActionToast(`workspace.apiKey.${verb}.${copied ? "copied" : "manualCopy"}`, "success", data);
     } catch (error) {
-      showActionToast("workspace.apiKey.rotate", "failure", { error });
+      showActionToast(wasRotation ? "workspace.apiKey.rotate" : "workspace.apiKey.generate", "failure", { error });
     } finally {
       setBusy(false);
     }
@@ -547,11 +547,12 @@ export function useWorkspaceController({
     [canManageWorkspaceInvitations],
   );
 
+  // Resolves to true when the member action succeeded, so the modal knows whether to close.
   async function applyWorkspaceUserAction(targetUser, action) {
     const targetUserId = String(targetUser.user_id || "").trim();
 
     if (!normalizedWorkspaceId || !targetUserId) {
-      return;
+      return false;
     }
 
     const targetWorkspaceUser = workspaceUsers.find((user) => String(user.user_id || "").trim() === targetUserId);
@@ -572,8 +573,12 @@ export function useWorkspaceController({
       await listWorkspaces();
       await listWorkspaceUsers(normalizedWorkspaceId);
       showActionToast(actionToast, "success", { targetName: targetDisplay });
+
+      return true;
     } catch (error) {
       showActionToast(actionToast, "failure", { error });
+
+      return false;
     } finally {
       setBusy(false);
     }
@@ -734,7 +739,9 @@ export function useWorkspaceController({
       return;
     }
 
-    if (!window.confirm(`Delete workspace ${normalizedWorkspaceId}? This action cannot be undone.`)) {
+    const savedName = selectedWorkspaceName.trim();
+
+    if (!window.confirm(`Delete ${savedName ? `"${savedName}"` : "this workspace"}? This action cannot be undone.`)) {
       return;
     }
 
@@ -948,10 +955,7 @@ export function useWorkspaceController({
         : [],
       busy: isAppBusy,
       onClose: () => setWorkspaceUserActionTarget(null),
-      onApplyAction: (action) => {
-        void applyWorkspaceUserAction(workspaceUserActionTarget, action);
-        setWorkspaceUserActionTarget(null);
-      },
+      onApplyAction: (action) => applyWorkspaceUserAction(workspaceUserActionTarget, action),
     },
     actions: {
       clearSessionWorkspaceData,
