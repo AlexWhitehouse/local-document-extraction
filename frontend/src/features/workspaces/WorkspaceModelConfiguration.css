@@ -19,12 +19,12 @@
 .workspace-model code { font:var(--font-size-3) var(--font-mono); color:var(--text-1); overflow-wrap:anywhere; }
 .workspace-model-roles { width:100%; border-collapse:collapse; font-size:var(--font-size-4); }
 .workspace-model-body { container-type:inline-size; }
-.workspace-model-roles th, .workspace-model-roles td { background:transparent; white-space:normal; padding:8px 10px 8px 0; border-bottom:1px solid var(--rule-subtle); text-align:left; vertical-align:middle; }
-.workspace-model-roles thead th { font:500 var(--font-size-1) var(--font-mono); letter-spacing:.08em; text-transform:uppercase; color:var(--text-3); padding-top:0; }
-.workspace-model-roles thead th:nth-child(n+3), .workspace-model-roles td:nth-child(n+3) { width:76px; text-align:center; padding-right:0; }
+.workspace-model-roles th, .workspace-model-roles td { background:transparent; white-space:normal; padding:8px 10px; border-bottom:1px solid var(--rule-subtle); text-align:left; vertical-align:middle; }
+.workspace-model-roles thead th { font:500 var(--font-size-1) var(--font-mono); letter-spacing:.08em; text-transform:uppercase; color:var(--text-3); padding:6px 10px; }
+.workspace-model-roles thead th:nth-child(n+3), .workspace-model-roles td:nth-child(n+3) { width:92px; text-align:center; padding-inline:0; }
 .workspace-model-roles tbody th { width:34%; font-weight:500; color:var(--text-1); }
 .workspace-model-roles tbody th small { margin-top:2px; }
-.workspace-model-roles td input[type=checkbox] { margin:0; }
+.workspace-model-roles td input[type=checkbox] { margin:0 auto; }
 .workspace-model-roles tr.inherited td:nth-child(n+3) { opacity:.5; }
 .workspace-model-role-model { display:grid; grid-template-columns:minmax(0,max-content) minmax(0,1fr); gap:6px; }
 .workspace-model-role-model select:only-child { grid-column:1 / -1; justify-self:start; }
@@ -53,10 +53,10 @@
   .workspace-model-role-model { grid-template-columns:minmax(0,1fr); }
   .workspace-model-roles thead th:first-child { display:none; }
   .workspace-model-roles thead th:nth-child(2) { padding-bottom:4px; }
-  .workspace-model-roles tbody tr { display:grid; grid-template-columns:1fr 44px 76px; align-items:center; border-bottom:1px solid var(--rule-subtle); }
+  .workspace-model-roles tbody tr { display:grid; grid-template-columns:1fr 64px 64px; align-items:center; border-bottom:1px solid var(--rule-subtle); }
   .workspace-model-roles tbody th { grid-column:1 / -1; width:auto; border:0; padding-bottom:0; }
   .workspace-model-roles tbody td { border:0; }
-  .workspace-model-roles thead tr { display:grid; grid-template-columns:1fr 44px 76px; }
+  .workspace-model-roles thead tr { display:grid; grid-template-columns:1fr 64px 64px; }
   .workspace-model-roles thead th:nth-child(n+3), .workspace-model-roles td:nth-child(n+3) { width:auto; }
 }
 
