@@ -473,26 +473,47 @@ export function candidateAccuracy(score) {
     : null;
 }
 
-// Accuracy first, then table cells, then processing time, so ties still produce one leader.
-export function rankCandidates(candidates, scores) {
+// A fully reported run cost, or null when the gateway reported none or only part of it.
+const reportedCost = (candidate) => {
+  const cost = candidate.result?.cost;
+
+  return cost?.complete && Number.isFinite(cost.amount) ? cost.amount : null;
+};
+
+// Accuracy first, then table cells, then cost when both runs report it, then processing time.
+const compareCandidates = (scores) => {
   const accuracy = (candidate) => candidateAccuracy(scores[candidate.id])?.ratio ?? -1;
 
   const cells = (candidate) =>
     scores[candidate.id]?.tables ? scores[candidate.id].tables.matched / scores[candidate.id].tables.total : -1;
 
-  return [...candidates].sort(
-    (a, b) =>
-      !!b.result - !!a.result ||
-      accuracy(b) - accuracy(a) ||
-      cells(b) - cells(a) ||
-      (a.result?.processingMs ?? 0) - (b.result?.processingMs ?? 0),
-  );
+  const cost = (a, b) => {
+    const left = reportedCost(a),
+      right = reportedCost(b);
+
+    return left === null || right === null ? 0 : left - right;
+  };
+
+  return (a, b) =>
+    !!b.result - !!a.result ||
+    accuracy(b) - accuracy(a) ||
+    cells(b) - cells(a) ||
+    cost(a, b) ||
+    (a.result?.processingMs ?? 0) - (b.result?.processingMs ?? 0);
+};
+
+export function rankCandidates(candidates, scores) {
+  return [...candidates].sort(compareCandidates(scores));
 }
 
+// The leader among scored candidates. A tie that cost and processing time can't break has no leader.
 export function bestCandidateId(candidates, scores) {
   const scored = candidates.filter((candidate) => candidate.result && candidateAccuracy(scores[candidate.id]));
 
-  return scored.length > 1 ? rankCandidates(scored, scores)[0].id : null;
+  if (scored.length < 2) return null;
+  const [first, second] = rankCandidates(scored, scores);
+
+  return compareCandidates(scores)(first, second) === 0 ? null : first.id;
 }
 
 // A comparable form of one answer, used to tell whether candidates disagree.

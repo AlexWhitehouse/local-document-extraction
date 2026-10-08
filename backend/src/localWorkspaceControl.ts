@@ -47,13 +47,13 @@ export type LocalWorkspaceMember = {
   role: "owner" | "admin" | "member";
 };
 
-export type LocalWorkspaceMemberAction = "remove_user" | "make_admin" | "make_owner";
+export type LocalWorkspaceMemberAction = "remove_user" | "make_admin" | "make_member" | "make_owner";
 
 export type LocalWorkspaceMemberActionResult = {
   workspace_id: string;
   user_id: string;
   action: LocalWorkspaceMemberAction;
-  role: "owner" | "admin" | null;
+  role: "owner" | "admin" | "member" | null;
 };
 
 export type LocalWorkspaceLeaveResult = {
@@ -424,7 +424,7 @@ function applyWorkspaceMemberAction(
 ): LocalWorkspaceMemberActionResult {
   const action = input.action;
 
-  if (action !== "remove_user" && action !== "make_admin" && action !== "make_owner") {
+  if (action !== "remove_user" && action !== "make_admin" && action !== "make_member" && action !== "make_owner") {
     throw new LocalWorkspaceControlError("forbidden", "Workspace member action is not permitted");
   }
 
@@ -459,6 +459,15 @@ function applyWorkspaceMemberAction(
         .run(input.workspaceId, input.targetUserId);
 
       return { workspace_id: input.workspaceId, user_id: input.targetUserId, action, role: "admin" as const };
+    }
+
+    // Only the owner changes admin authority. Owners are demoted only by transferring ownership.
+    if (action === "make_member" && actor.role === "owner" && target.role === "admin") {
+      database
+        .query("UPDATE workspace_memberships SET role = 'member' WHERE workspace_id = ? AND user_id = ?")
+        .run(input.workspaceId, input.targetUserId);
+
+      return { workspace_id: input.workspaceId, user_id: input.targetUserId, action, role: "member" as const };
     }
 
     if (action === "make_owner" && actor.role === "owner" && target.role !== "owner") {

@@ -12,6 +12,7 @@ import { createLocalApplication } from "./localApplication";
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
 import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
 import { testWorkspaceModelConnection } from "./workspaceModelConfigurationHttp";
+import { createLocalWorkspaceConcurrencyLimits } from "./localWorkspaceConcurrency";
 
 const cleanups: Array<() => void> = [];
 
@@ -28,7 +29,7 @@ const draft = {
   supports_structured_output: false,
 };
 
-function fixture() {
+function fixture(options: { onWorkspaceModelConfigurationChanged?: (workspaceId: string) => void } = {}) {
   const stateDirectory = mkdtempSync(join(tmpdir(), "workspace-model-http-"));
   cleanups.push(() => rmSync(stateDirectory, { recursive: true, force: true }));
   const registry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
@@ -77,9 +78,10 @@ function fixture() {
     workspaceControl,
     productStoreRegistry: registry,
     liveUpdateHub,
+    ...options,
   });
 
-  const request = (method = "GET", body?: JsonValue, headers: Record<string, string> = {}, suffix = "") =>
+  const request =(method = "GET", body?: JsonValue, headers: Record<string, string> = {}, suffix = "") =>
     application(
       new Request(
         `http://localhost/v1/workspaces/workspace_a/model-configuration${suffix}`,
@@ -164,6 +166,57 @@ test("session-only, role-redacted configuration CRUD uses conditional, write-onl
     expect((await application(new Request("http://localhost/v1/settings/model", { method }))).status).toBe(404);
 });
 
+test("cached Workspace concurrency follows committed saves and clears without rereading per pass", async () => {
+  let reads = 0;
+  // Invoked only after `limits` is initialized below, once a change commits.
+  const harness = fixture({ onWorkspaceModelConfigurationChanged: (workspaceId) => limits.invalidate(workspaceId) });
+
+  const limits = createLocalWorkspaceConcurrencyLimits({
+    read: (workspaceId) => {
+      reads += 1;
+      const lease = harness.registry.acquire({ workspaceId, mode: "existing" });
+
+      if (!lease) return null;
+
+      try {
+        return lease.store.getModelConfiguration()?.sequential_calls ? 1 : Number.MAX_SAFE_INTEGER;
+      } finally {
+        lease.release();
+      }
+    },
+  });
+
+  // Missing product data is not cached.
+  expect(limits.get("workspace_a")).toBe(1);
+  expect(limits.get("workspace_a")).toBe(1);
+  expect(reads).toBe(2);
+
+  const created = await harness.request("PUT", { ...draft, sequential_calls: true }, { "if-none-match": "*" });
+  expect(created.status).toBe(201);
+  expect(limits.get("workspace_a")).toBe(1);
+  expect(limits.get("workspace_a")).toBe(1);
+  expect(reads).toBe(3);
+
+  const { credential: _credential, ...preserve } = draft;
+
+  const updated = await harness.request(
+    "PUT",
+    { ...preserve, sequential_calls: false },
+    { "if-match": created.headers.get("etag")! },
+  );
+
+  expect(updated.status).toBe(200);
+  expect(limits.get("workspace_a")).toBe(Number.MAX_SAFE_INTEGER);
+  expect(reads).toBe(4);
+  // A rejected change commits nothing and keeps the cached value.
+  expect((await harness.request("DELETE", undefined, { "if-match": '"stale"' })).status).toBe(412);
+  expect(limits.get("workspace_a")).toBe(Number.MAX_SAFE_INTEGER);
+  expect(reads).toBe(4);
+  expect((await harness.request("DELETE", undefined, { "if-match": updated.headers.get("etag")! })).status).toBe(204);
+  expect(limits.get("workspace_a")).toBe(Number.MAX_SAFE_INTEGER);
+  expect(reads).toBe(5);
+});
+
 test("reloading over HTTP supplies a usable version for changing the model", async () => {
   const { application, request } = fixture();
   expect((await request("PUT", draft, { "if-none-match": "*" })).status).toBe(201);
@@ -191,6 +244,61 @@ test("reloading over HTTP supplies a usable version for changing the model", asy
     expect(saved.status).toBe(200);
     expect(await saved.json()).toMatchObject({ model_name });
   }
+});
+
+test("changing only the extraction model from a loaded record keeps the stored API key and task models", async () => {
+  const { request, registry, events } = fixture();
+  const assistant_model = { model_name: "assistant/model", supports_pdf_input: true, supports_structured_output: false };
+  const created = await request("PUT", { ...draft, assistant_model }, { "if-none-match": "*" });
+  expect(created.status).toBe(201);
+
+  const stored = () => {
+    const lease = registry.acquire({ workspaceId: "workspace_a", mode: "existing" })!;
+
+    try {
+      return lease.store.getModelConfiguration()!;
+    } finally {
+      lease.release();
+    }
+  };
+
+  const before = stored();
+  const loaded = await request("GET");
+  const etag = loaded.headers.get("etag")!;
+  const record = await loaded.json();
+
+  // The client rebuilds the body from the loaded record: no API key, and the task models as loaded.
+  const body = {
+    gateway_url: record.gateway_url,
+    sequential_calls: record.sequential_calls,
+    assistant_model: record.assistant_model,
+    classification_model: record.classification_model,
+    model_name: "best/model",
+    supports_pdf_input: true,
+    supports_structured_output: true,
+  };
+
+  for (const role of ["member", "outsider"])
+    expect((await request("PUT", body, { "if-match": etag, cookie: role })).status).toBe(403);
+  expect(stored().revision).toBe(before.revision);
+
+  const saved = await request("PUT", body, { "if-match": etag, cookie: "admin" });
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toMatchObject({
+    model_name: "best/model",
+    supports_pdf_input: true,
+    supports_structured_output: true,
+    assistant_model,
+    classification_model: null,
+    credential_status: "configured",
+  });
+  const after = stored();
+  expect(after.credential_ciphertext).toBe(before.credential_ciphertext);
+  expect(after.gateway_url).toBe(draft.gateway_url);
+  expect(events.at(-1)).toContain("model_configuration_changed");
+
+  // A second change from the same, now stale, version is refused.
+  expect((await request("PUT", { ...body, model_name: "other/model" }, { "if-match": etag })).status).toBe(412);
 });
 
 test("blank and unreadable configurations fail admission before parsing or creating a Source/job, and remain repairable", async () => {

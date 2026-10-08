@@ -13,6 +13,8 @@ import { join } from "node:path";
 import {
   createDocumentProcessingStore,
   initializeDocumentProcessingSchema,
+  reconcileFinishedDocumentPackets,
+  settleParentDocumentPacket,
   type DocumentProcessingStore,
   type DocumentRouting,
 } from "./localDocumentProcessingStore";
@@ -27,7 +29,7 @@ import {
 import type { FieldDefinition } from "./lib/types";
 import { normalizeTemplateTagName, normalizeTemplateTags } from "../../shared/templateTags";
 import { newId } from "./lib/ids";
-import { listDocumentEntries, type DocumentListQuery } from "./localDocumentListing";
+import { listDocumentEntries, searchCandidates, type DocumentListQuery } from "./localDocumentListing";
 import type { NormalizedModelField } from "./consumer/modelResultNormalizer";
 import type { StoredWorkspaceModelConfiguration } from "./workspaceModelConfiguration";
 
@@ -354,10 +356,15 @@ export type LocalWorkspaceProductStore = DocumentProcessingStore &
       isJobActive?: (jobId: string) => boolean;
     }): LocalScheduledExtractionJob[];
     getTemplate(templateId: string, version?: number): LocalWorkspaceTemplateDetail | null;
-    deleteExtractionJob(input: { jobId: string }): DeletedLocalWorkspaceExtractionJob | null;
+    /** Deleting a packet child settles its packet unless the caller is deleting the whole packet. */
+    deleteExtractionJob(input: { jobId: string; settlePacket?: boolean }): DeletedLocalWorkspaceExtractionJob | null;
     getExtractionJob(jobId: string): LocalWorkspaceExtractionJob | null;
     getExtractionJobResults(jobId: string): LocalWorkspaceExtractionResult[];
     getExtractionJobSummary(jobId: string): LocalWorkspaceExtractionJobSummary | null;
+    /** Summaries for a page of jobs, read with a fixed number of queries. Missing jobs are absent. */
+    getExtractionJobSummaries(jobIds: readonly string[]): Map<string, LocalWorkspaceExtractionJobSummary>;
+    /** Whether queued, retrying, processing or unfinished packet-analysis work exists. */
+    hasPendingExtractionWork(): boolean;
     /** The retained original for a job, or null when the job is absent or its original was not retained. */
     getRetainedSourceFile(jobId: string): LocalRetainedSourceFile | null;
     getExtractionJobExports(jobIds: string[]): LocalWorkspaceExtractionJobExport[];
@@ -515,13 +522,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     database.exec("PRAGMA journal_mode = WAL");
   }
 
-  database.exec(PRODUCT_SCHEMA);
-  ensureProductSchemaColumns(database);
-  migrateProductSchema(database);
-  initializeDocumentProcessingSchema(database);
-  initializeModelCostSchema(database);
-  initializeWorkspaceCostSchema(database);
-  database.exec(DOCUMENT_PROCESSING_SETTINGS_SCHEMA.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS "));
+  initializeProductSchema(database);
   const processing = createDocumentProcessingStore(database, () => store);
   const modelCosts = createModelCostStore(database);
   const workspaceCosts = createWorkspaceCostStore(database);
@@ -612,38 +613,62 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       )
       .all(templateId, version);
 
-  const withRouting = (row: JobSummaryRow): LocalWorkspaceExtractionJobSummary => {
-    const costed = { ...withRetainedFlag(row), costs: modelCosts.getDocumentCosts(row.job_id) };
-    const routing = processing.getDocumentRouting(row.job_id);
+  /** Add routing and costs to summary rows with a fixed number of queries for the whole set. */
+  const hydrateSummaries = (rows: JobSummaryRow[]): LocalWorkspaceExtractionJobSummary[] => {
+    if (!rows.length) return [];
+    const ids = rows.map((row) => row.job_id);
+    const costs = modelCosts.getDocumentCostsBatch(ids);
+    const routings = processing.getDocumentRoutings(ids);
 
-    if (!routing) return costed;
+    return rows.map((row) => {
+      const costed = { ...withRetainedFlag(row), costs: costs.get(row.job_id)! };
+      const routing = routings.get(row.job_id);
 
-    const {
-      template_tags,
-      selection_mode,
-      routing_status,
-      selection_reason,
-      routing_rounds,
-      parent_packet_id,
-      source_pages,
-    } = routing;
+      if (!routing) return costed;
 
-    return {
-      ...costed,
-      template_tags,
-      selection_mode,
-      routing_status,
-      selection_reason,
-      routing_rounds,
-      parent_packet_id,
-      source_pages,
-    };
+      const {
+        template_tags,
+        selection_mode,
+        routing_status,
+        selection_reason,
+        routing_rounds,
+        parent_packet_id,
+        source_pages,
+      } = routing;
+
+      return {
+        ...costed,
+        template_tags,
+        selection_mode,
+        routing_status,
+        selection_reason,
+        routing_rounds,
+        parent_packet_id,
+        source_pages,
+      };
+    });
+  };
+
+  const readJobSummaries = (jobIds: readonly string[]) => {
+    const summaries = new Map<string, LocalWorkspaceExtractionJobSummary>();
+
+    if (!jobIds.length) return summaries;
+
+    const rows = database
+      .query<JobSummaryRow, SQLQueryBindings[]>(
+        `${JOB_SUMMARY_SELECT} WHERE j.id IN (SELECT value FROM json_each(?))`,
+      )
+      .all(JSON.stringify(jobIds));
+
+    for (const summary of hydrateSummaries(rows)) summaries.set(summary.job_id, summary);
+
+    return summaries;
   };
 
   const readJobSummary = (jobId: string) => {
     const row = database.query<JobSummaryRow, SQLQueryBindings[]>(`${JOB_SUMMARY_SELECT} WHERE j.id = ?`).get(jobId);
 
-    return row && withRouting(row);
+    return row && hydrateSummaries([row])[0]!;
   };
 
   const readJobResults = (jobId: string): LocalWorkspaceExtractionResult[] => {
@@ -1132,14 +1157,21 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       };
     },
     failQueuedExtractionJob: (input) =>
-      database
-        .query(
-          `UPDATE jobs
+      database.transaction(() => {
+        const failed =
+          database
+            .query(
+              `UPDATE jobs
        SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = 1
        WHERE id = ? AND status = 'queued'`,
-        )
-        .run(input.errorCode, input.errorMessage.slice(0, MAX_ERROR_MESSAGE_LENGTH), input.failedAt, input.jobId)
-        .changes > 0,
+            )
+            .run(input.errorCode, input.errorMessage.slice(0, MAX_ERROR_MESSAGE_LENGTH), input.failedAt, input.jobId)
+            .changes > 0;
+
+        if (failed) settleParentDocumentPacket(database, input.jobId, input.failedAt);
+
+        return failed;
+      })(),
     claimExtractionJobForProcessing: (input) =>
       database.transaction(() => {
         const job = database
@@ -1239,7 +1271,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
           }
 
 
-        return (
+        const completed =
           database
             .query(
               `UPDATE jobs
@@ -1254,27 +1286,37 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
               input.attempt,
               input.jobId,
               input.attempt,
-            ).changes > 0
-        );
+            ).changes > 0;
+
+        if (completed) settleParentDocumentPacket(database, input.jobId, input.completedAt);
+
+        return completed;
       })(),
     failExtractionJob: (input) =>
-      database
-        .query(
-          `UPDATE jobs
+      database.transaction(() => {
+        const failed =
+          database
+            .query(
+              `UPDATE jobs
        SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, last_failed_attempt = ?,
            model_name = COALESCE(?, model_name), model_gateway_route = COALESCE(?, model_gateway_route)
        WHERE id = ? AND status = 'processing' AND current_attempt = ?`,
-        )
-        .run(
-          input.errorCode,
-          input.errorMessage.slice(0, MAX_ERROR_MESSAGE_LENGTH),
-          input.failedAt,
-          input.attempt,
-          input.modelName ?? null,
-          input.route ?? null,
-          input.jobId,
-          input.attempt,
-        ).changes > 0,
+            )
+            .run(
+              input.errorCode,
+              input.errorMessage.slice(0, MAX_ERROR_MESSAGE_LENGTH),
+              input.failedAt,
+              input.attempt,
+              input.modelName ?? null,
+              input.route ?? null,
+              input.jobId,
+              input.attempt,
+            ).changes > 0;
+
+        if (failed) settleParentDocumentPacket(database, input.jobId, input.failedAt);
+
+        return failed;
+      })(),
     requeueExtractionJob: (input) =>
       database
         .query(
@@ -1301,14 +1343,17 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
 
         type RecoverableJob = { id: string; template_id: string; template_version: number; current_attempt: number };
 
-        const exhaustRetries = (job: RecoverableJob, status: "queued" | "processing") =>
-          database
+        const exhaustRetries = (job: RecoverableJob, status: "queued" | "processing") => {
+          const exhausted = database
             .query(
               `UPDATE jobs
          SET status = 'failed', error_code = 'retry_exhausted', error_message = 'Extraction retry limit reached', updated_at = ?, last_failed_attempt = ?
          WHERE id = ? AND status = ?`,
             )
             .run(input.recoveredAt, job.current_attempt, job.id, status);
+
+          if (exhausted.changes > 0) settleParentDocumentPacket(database, job.id, input.recoveredAt);
+        };
 
         const schedule = (job: RecoverableJob, notBefore?: string | null) => {
           const scheduledJob: (typeof scheduled)[number] = {
@@ -1411,11 +1456,24 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
         // Accounting snapshots and receipts survive Document deletion, including late finalization.
         database.query("DELETE FROM jobs WHERE id = ?").run(job.job_id);
 
+        // Deleting the last unfinished child finishes its packet.
+        if (input.settlePacket !== false) settleParentDocumentPacket(database, job.job_id, new Date().toISOString());
+
         return job;
       })(),
     getExtractionJob: readJob,
     getExtractionJobResults: readJobResults,
     getExtractionJobSummary: readJobSummary,
+    getExtractionJobSummaries: readJobSummaries,
+    hasPendingExtractionWork: () =>
+      Boolean(
+        database
+          .query<{ pending: number }, SQLQueryBindings[]>(
+            `SELECT EXISTS (SELECT 1 FROM jobs WHERE status = 'queued' OR status = 'processing')
+            OR EXISTS (SELECT 1 FROM document_packets WHERE status IN ('queued', 'processing', 'materializing')) AS pending`,
+          )
+          .get()?.pending,
+      ),
     getRetainedSourceFile: (jobId) =>
       database
         .query<LocalRetainedSourceFile, SQLQueryBindings[]>(
@@ -1587,30 +1645,13 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       const parameters: Array<string | number> = [];
 
       if (search) {
-        // FTS indexes stable metadata only. Status terms use the literal path so
-        // lifecycle transitions do not rewrite the search index. Searches too short
-        // for trigrams, or containing NUL, use only the literal path.
-        if (
-          [...search].length >= 3 &&
-          !search.includes("\u0000") &&
-          !["queued", "processing", "completed", "failed", "awaiting_template"].some((status) =>
-            status.includes(search),
-          )
-        ) {
-          const candidates = database
-            .query<{ rowid: number }, SQLQueryBindings[]>(
-              "SELECT rowid FROM job_search WHERE job_search MATCH ? LIMIT 1001",
-            )
-            .all(`"${search.replaceAll('"', '""')}"`);
+        const candidates = searchCandidates(database, "job_search", search);
 
-          if (!candidates.length) return [];
+        if (candidates.kind === "none") return [];
 
-          // Broad terms should read a page in date order rather than
-          // materialize and sort a huge list of matching FTS row IDs.
-          if (candidates.length <= 1000) {
-            clauses.push(`j.rowid IN (${candidates.map(() => "?").join(",")})`);
-            parameters.push(...candidates.map((row) => row.rowid));
-          }
+        if (candidates.kind === "rows") {
+          clauses.push("j.rowid IN (SELECT value FROM json_each(?))");
+          parameters.push(JSON.stringify(candidates.rowids));
         }
 
         const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
@@ -1650,12 +1691,13 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       // The limit is interpolated, so only a positive safe integer may reach the SQL text.
       const limit = Number.isSafeInteger(input.limit) && input.limit! > 0 ? ` LIMIT ${input.limit}` : "";
 
-      return database
+      const rows = database
         .query<JobSummaryRow, SQLQueryBindings[]>(
           `${JOB_SUMMARY_SELECT}${where} ORDER BY j.created_at DESC, j.id DESC${limit}`,
         )
-        .all(...parameters)
-        .map(withRouting);
+        .all(...parameters);
+
+      return hydrateSummaries(rows);
     },
     listRetainedTerminalSourceFiles: (input) => {
       const limit = input.limit ?? 1_000;
@@ -1750,6 +1792,85 @@ function ensureProductSchemaColumns(database: Database): void {
   }
 
   database.exec("CREATE INDEX IF NOT EXISTS idx_jobs_model_created_id ON jobs(model_name, created_at DESC, id DESC)");
+}
+
+/**
+ * Opening a database that records every known schema version runs no DDL. Any other database
+ * runs every idempotent initializer, each of which applies only its missing steps.
+ */
+function initializeProductSchema(database: Database): void {
+  if (productSchemaIsCurrent(database)) return;
+  database.exec(PRODUCT_SCHEMA);
+  ensureProductSchemaColumns(database);
+  migrateProductSchema(database);
+  initializeDocumentProcessingSchema(database);
+  initializeModelCostSchema(database);
+  initializeWorkspaceCostSchema(database);
+  database.exec(DOCUMENT_PROCESSING_SETTINGS_SCHEMA.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS "));
+  migrateLateProductSchema(database);
+}
+
+function productSchemaIsCurrent(database: Database): boolean {
+  const versioned = database
+    .query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_schema_version'")
+    .get();
+
+  if (!versioned) return false;
+
+  const applied = database
+    .query<{ count: number }, SQLQueryBindings[]>(
+      "SELECT COUNT(*) AS count FROM product_schema_version WHERE version IN (SELECT value FROM json_each(?))",
+    )
+    .get(JSON.stringify(KNOWN_PRODUCT_SCHEMA_VERSIONS))!.count;
+
+  return applied === KNOWN_PRODUCT_SCHEMA_VERSIONS.length;
+}
+
+/** Steps after the per-feature initializers, which own versions 11 to 14. */
+const LATE_PRODUCT_MIGRATIONS: Array<[version: number, migrate: (database: Database) => void]> = [
+  // Grouped listing searches packet names with the same trigram candidate step as jobs.
+  [
+    15,
+    (database) =>
+      database.exec(`
+      CREATE VIRTUAL TABLE packet_search USING fts5(source_name, id,
+        content='document_packets', content_rowid='rowid', tokenize='trigram');
+      INSERT INTO packet_search(packet_search) VALUES ('rebuild');
+      CREATE TRIGGER packets_search_insert AFTER INSERT ON document_packets BEGIN
+        INSERT INTO packet_search(rowid, source_name, id) VALUES (new.rowid, new.source_name, new.id);
+      END;
+      CREATE TRIGGER packets_search_delete AFTER DELETE ON document_packets BEGIN
+        INSERT INTO packet_search(packet_search, rowid, source_name, id)
+          VALUES ('delete', old.rowid, old.source_name, old.id);
+      END;
+      CREATE TRIGGER packets_search_update AFTER UPDATE OF source_name, id ON document_packets
+      WHEN old.source_name IS NOT new.source_name OR old.id IS NOT new.id BEGIN
+        INSERT INTO packet_search(packet_search, rowid, source_name, id)
+          VALUES ('delete', old.rowid, old.source_name, old.id);
+        INSERT INTO packet_search(rowid, source_name, id) VALUES (new.rowid, new.source_name, new.id);
+      END;
+    `),
+  ],
+  // Packet completion is now persisted by the write that finishes the last child.
+  [16, (database) => reconcileFinishedDocumentPackets(database, new Date().toISOString())],
+];
+
+// Versions 11 to 14 are recorded by the document processing, model cost and Workspace cost
+// initializers. A new versioned step must be listed here, or opening skips it.
+const FEATURE_SCHEMA_VERSIONS = [11, 12, 13, 14];
+
+function migrateLateProductSchema(database: Database): void {
+  database
+    .transaction(() => {
+      for (const [version, migrate] of LATE_PRODUCT_MIGRATIONS) {
+        if (database.query("SELECT 1 FROM product_schema_version WHERE version = ?").get(version)) continue;
+        migrate(database);
+        database
+          .query("INSERT INTO product_schema_version(version, applied_at) VALUES (?, ?)")
+          .run(version, new Date().toISOString());
+      }
+    })
+    .immediate();
 }
 
 function migrateProductSchema(database: Database): void {
@@ -2032,6 +2153,12 @@ const PRODUCT_MIGRATIONS: Array<[version: number, sql: string]> = [
     CREATE INDEX idx_template_tag_assignments_tag ON template_tag_assignments(tag_id, template_id);
   `,
   ],
+];
+
+const KNOWN_PRODUCT_SCHEMA_VERSIONS = [
+  ...PRODUCT_MIGRATIONS.map(([version]) => version),
+  ...FEATURE_SCHEMA_VERSIONS,
+  ...LATE_PRODUCT_MIGRATIONS.map(([version]) => version),
 ];
 
 const STARTER_INVOICE_FIELDS: FieldDefinition[] = [

@@ -47,6 +47,8 @@ const response = (body, status = 200) =>
 beforeEach(() => {
   auth.session = account;
   removedTemplates = new Set();
+  // Drops Templates saved by an earlier test.
+  templates.splice(2);
   removedDocuments = new Set();
   delayDetail = null;
   localStorage.setItem(
@@ -59,6 +61,13 @@ beforeEach(() => {
 
     if (path === "/v1/workspaces")
       return response({ workspaces: ["a", "b"].map((id) => ({ id, name: `Workspace ${id}`, role: "owner" })) });
+
+    if (path === "/v1/templates" && options.method === "POST") {
+      const saved = JSON.parse(options.body);
+      templates.push({ ...saved, id: "three", current_version: 1 });
+
+      return response({ template_id: "three", name: saved.name, version: 1 }, 201);
+    }
 
     if (path === "/v1/templates") return response({ templates: templates.filter((t) => !removedTemplates.has(t.id)) });
 
@@ -106,6 +115,13 @@ function open(path) {
 }
 
 const nav = (name) => within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name });
+
+function unloadPrevented() {
+  const unload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(unload);
+
+  return unload.defaultPrevented;
+}
 
 async function history(direction) {
   await act(async () => {
@@ -161,20 +177,44 @@ describe("stable app navigation", () => {
     await screen.findByText("Value second");
   });
 
-  it("preserves a Template draft across sections and rejects destructive history traversal", async () => {
+  it("confirms leaving a dirty Template editor from the sidebar and discards only on confirm", async () => {
+    const user = userEvent.setup();
+    open("/workspaces/a/templates/one");
+    await screen.findByLabelText("Template name");
+    await user.click(screen.getByRole("link", { name: /Template two/ }));
+    await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template two"));
+    expect(unloadPrevented()).toBe(false);
+    fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Unsaved edit" } });
+    expect(unloadPrevented()).toBe(true);
+
+    await user.click(nav(/Documents/));
+    expect(await screen.findByRole("alertdialog", { name: "Discard changes?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(window.location.pathname).toBe("/workspaces/a/templates/two");
+    expect(screen.getByLabelText("Template name").value).toBe("Unsaved edit");
+
+    await user.click(nav(/Documents/));
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
+    await screen.findByText("Value first");
+    expect(unloadPrevented()).toBe(false);
+    await user.click(nav(/Templates/));
+    await waitFor(() => expect(window.location.pathname).toBe("/workspaces/a/templates/two"));
+    expect(screen.getByLabelText("Template name").value).toBe("Template two");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("confirms switching Templates and Back/Forward away from dirty edits, keeping history intact", async () => {
     const user = userEvent.setup();
     open("/workspaces/a/templates/one");
     await screen.findByLabelText("Template name");
     await user.click(screen.getByRole("link", { name: /Template two/ }));
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template two"));
     fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Unsaved edit" } });
-    await user.click(nav(/Documents/));
-    await screen.findByText("Value first");
-    await user.click(nav(/Templates/));
-    expect(screen.getByLabelText("Template name").value).toBe("Unsaved edit");
-    expect(screen.queryByRole("alertdialog")).toBeNull();
-    await history("back");
-    await history("back");
+
+    await user.click(screen.getByRole("link", { name: /Template one/ }));
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+    expect(window.location.pathname).toBe("/workspaces/a/templates/two");
+
     await history("back");
     await user.click(await screen.findByRole("button", { name: "Keep editing" }));
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/a/templates/two"));
@@ -184,20 +224,23 @@ describe("stable app navigation", () => {
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template one"));
     await history("forward");
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template two"));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
-  it("confirms a dirty Template before changing Workspace", async () => {
+  it("confirms a dirty Template before leaving for the Workspace page or another Workspace", async () => {
     const user = userEvent.setup();
     open("/workspaces/a/templates/one");
     await screen.findByLabelText("Template name");
     fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Unsaved" } });
     await user.click(nav(/Workspaces/));
-    await user.click(screen.getByRole("link", { name: /Workspace b/ }));
     await user.click(await screen.findByRole("button", { name: "Keep editing" }));
-    expect(window.location.pathname).toBe("/workspaces/a");
-    await user.click(screen.getByRole("link", { name: /Workspace b/ }));
+    expect(window.location.pathname).toBe("/workspaces/a/templates/one");
+    await user.click(nav(/Workspaces/));
     await user.click(await screen.findByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/workspaces/a"));
+    await user.click(screen.getByRole("link", { name: /Workspace b/ }));
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/b"));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     await user.click(nav(/Templates/));
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template one"));
     await history("back");
@@ -206,6 +249,33 @@ describe("stable app navigation", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/a"));
     await history("back");
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template one"));
+  });
+
+  it("asks before signing out with unsaved Template edits", async () => {
+    const user = userEvent.setup();
+    open("/workspaces/a/templates/one");
+    await screen.findByLabelText("Template name");
+    fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Unsaved" } });
+    await user.click(screen.getByRole("button", { name: /Reader/ }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+    expect(auth.signOut).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/workspaces/a/templates/one");
+  });
+
+  it("does not ask when saving a new Template navigates to it", async () => {
+    const user = userEvent.setup();
+    open("/workspaces/a/templates/new");
+    await screen.findByLabelText("Template name");
+    fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Saved Template" } });
+    expect(unloadPrevented()).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Save new template" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/workspaces/a/templates/three"));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(unloadPrevented()).toBe(false);
+    await user.click(nav(/Documents/));
+    await screen.findByText("Value first");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
   it("preserves temporary Evaluation uploads between sections and confirms Workspace changes", async () => {

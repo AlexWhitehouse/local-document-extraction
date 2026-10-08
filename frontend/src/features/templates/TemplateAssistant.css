@@ -73,6 +73,8 @@
 .template-assistant-suggestions { display: grid; gap: 7px; }
 .template-assistant-suggestions-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .template-assistant-suggestion-list { display: grid; gap: 6px; }
+/* Selecting a card sends it; the edit button beside it only fills the request. */
+.template-assistant-suggestion-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px; }
 .studio-main button.template-assistant-suggestion, button.template-assistant-suggestion { display: grid; gap: 2px; justify-items: start; width: 100%; height: auto; min-height: 0; padding: 7px 10px; border: 1px solid var(--rule-strong); background: var(--pane-main); color: var(--text-0); text-align: left; font-weight: 400; white-space: normal; }
 button.template-assistant-suggestion strong { font-size: var(--font-size-4); font-weight: 500; line-height: 1.4; }
 button.template-assistant-suggestion span { color: var(--text-3); font-size: var(--font-size-2); line-height: 1.4; }
@@ -80,10 +82,10 @@ button.template-assistant-suggestion:hover:not(:disabled) { background: var(--ro
 button.template-assistant-suggestion:hover:not(:disabled) strong { color: var(--accent-strong); }
 button.template-assistant-suggestion.selected { border-color: var(--tone-success-border); background: var(--row-selected); box-shadow: inset 2px 0 0 var(--accent); }
 @media (prefers-reduced-motion: no-preference) {
-  .template-assistant-suggestion-list .template-assistant-suggestion { animation: context-row-in 220ms ease-out both; }
-  .template-assistant-suggestion-list .template-assistant-suggestion:nth-child(2) { animation-delay: 40ms; }
-  .template-assistant-suggestion-list .template-assistant-suggestion:nth-child(3) { animation-delay: 80ms; }
-  .template-assistant-suggestion-list .template-assistant-suggestion:nth-child(n + 4) { animation-delay: 120ms; }
+  .template-assistant-suggestion-list .template-assistant-suggestion-row { animation: context-row-in 220ms ease-out both; }
+  .template-assistant-suggestion-list .template-assistant-suggestion-row:nth-child(2) { animation-delay: 40ms; }
+  .template-assistant-suggestion-list .template-assistant-suggestion-row:nth-child(3) { animation-delay: 80ms; }
+  .template-assistant-suggestion-list .template-assistant-suggestion-row:nth-child(n + 4) { animation-delay: 120ms; }
 }
 
 .template-assistant-suggestion-skeletons { display: grid; gap: 6px; }

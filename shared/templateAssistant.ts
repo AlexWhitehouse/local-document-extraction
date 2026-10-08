@@ -30,12 +30,18 @@ export const ASSISTANT_LIMITS = Object.freeze({
 
 export type AssistanceAction = "explain" | "edit";
 
-export type EvidenceContext = { sampleSupplied?: boolean; resultFields?: JsonValue[]; result?: JsonObject };
+export type EvidenceContext = {
+  sampleSupplied?: boolean;
+  resultFields?: JsonValue[];
+  result?: JsonObject;
+  evaluationFieldIds?: string[];
+};
 
 export type EvidenceReference =
   | { scope: "field"; fieldIndex: number }
   | { scope: "column"; fieldIndex: number; columnIndex: number }
   | { scope: "result"; fieldId: string; columnKey?: string }
+  | { scope: "evaluation"; fieldId: string }
   | { scope: "sample" };
 
 export type AssistantObservation = {
@@ -316,6 +322,12 @@ function validateReference(
       )
         fail("Result column reference must identify a supplied historical column");
     }
+  } else if (ref.scope === "evaluation") {
+    object(ref, "evaluation reference", ["scope", "fieldId"]);
+    textValue(ref.fieldId, "Evidence fieldId");
+
+    if (!context.evaluationFieldIds?.includes(ref.fieldId))
+      fail("Evaluation reference must identify a supplied failing field");
   } else fail("Unsupported evidence reference scope");
 }
 
@@ -948,7 +960,7 @@ export function previewRows(base: DraftRecord, group: ProposalGroup): PreviewRow
   return group.operations.flatMap((op) => describeOperation(base, op));
 }
 
-export const ASSISTANT_OUTPUT_CONTRACT = `Return exactly a JSON object {"explanation":string,"observations":[{"kind":"observation"|"hypothesis"|"suggestion","text":string,"references":[]}],"groups":[{"id":string,"title":string,"rationale":string,"dependsOn":[groupId],"operations":[]}]}. No additional properties anywhere. Explain action requires groups: []. Observations require supplied evidence references. References are exactly {scope:"field",fieldIndex}, {scope:"column",fieldIndex,columnIndex}, {scope:"result",fieldId,columnKey?}, or {scope:"sample"}. Draft positions refer to the current draft; result identities refer only to the supplied historical Template/result. Sample references require a supplied binary source. Do not claim verified answers, confirmed causes, page locations, or measured improvements. Results are model outputs, not ground truth. Label inferences as hypotheses and quality advice as suggestions.
+export const ASSISTANT_OUTPUT_CONTRACT = `Return exactly a JSON object {"explanation":string,"observations":[{"kind":"observation"|"hypothesis"|"suggestion","text":string,"references":[]}],"groups":[{"id":string,"title":string,"rationale":string,"dependsOn":[groupId],"operations":[]}]}. No additional properties anywhere. Explain action requires groups: []. Observations require supplied evidence references. References are exactly {scope:"field",fieldIndex}, {scope:"column",fieldIndex,columnIndex}, {scope:"result",fieldId,columnKey?}, {scope:"evaluation",fieldId}, or {scope:"sample"}. Draft positions refer to the current draft; result identities refer only to the supplied historical Template/result; evaluation field IDs refer only to supplied failing evaluation fields. Sample references require a supplied binary source. Do not claim verified answers beyond those supplied as evaluation evidence, and do not claim confirmed causes, page locations, or measured improvements. Extraction results and candidate values are model outputs, not ground truth. Label inferences as hypotheses and quality advice as suggestions.
 Operations:
 {op:"set_template",set:{name?,description?}};
 {op:"add_field",after:number|null,field:{name,description,data_type,object_schema?}};

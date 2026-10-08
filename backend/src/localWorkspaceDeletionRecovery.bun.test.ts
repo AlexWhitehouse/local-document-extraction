@@ -70,11 +70,20 @@ test("failed Workspace erasure retains durable cleanup intent that reconciliatio
       mimeType: "image/png",
       bytes: new Uint8Array([137, 80, 78, 71]),
     });
-    const deletion = createLocalWorkspaceDeletion({ sourceFileStore: sourceFiles, stateDirectory, workspaceControl });
+    const erased: string[] = [];
+
+    const deletion = createLocalWorkspaceDeletion({
+      sourceFileStore: sourceFiles,
+      stateDirectory,
+      workspaceControl,
+      onWorkspaceErased: (workspaceId) => erased.push(workspaceId),
+    });
 
     await expect(deletion.deleteWorkspace({ workspaceId: deletedWorkspace.id, userId: user.user.id })).rejects.toThrow(
       "Source storage is temporarily unavailable",
     );
+    // Runtime caches are released only once erasure has completed.
+    expect(erased).toEqual([]);
 
     expect(workspaceControl.workspaceExists({ workspaceId: deletedWorkspace.id })).toBe(false);
     expect(workspaceControl.listWorkspaceDeletionIntents()).toEqual([deletedWorkspace.id]);
@@ -84,6 +93,7 @@ test("failed Workspace erasure retains durable cleanup intent that reconciliatio
     await deletion.reconcileInterruptedDeletions();
     await deletion.reconcileInterruptedDeletions();
 
+    expect(erased).toEqual([deletedWorkspace.id]);
     expect(workspaceControl.listWorkspaceDeletionIntents()).toEqual([]);
     await expect(
       stat(join(stateDirectory, "data", "workspaces", `${deletedWorkspace.id}.sqlite`)),

@@ -34,6 +34,8 @@ export async function handleWorkspaceModelConfiguration(input: {
   access: LocalWorkspaceProductDataAccess;
   stateDirectory: string;
   liveUpdateHub?: LocalLiveUpdateHub;
+  /** Runs after a committed save or clear, before clients are told to reload. */
+  onModelConfigurationChanged?: (workspaceId: string) => void;
 }): Promise<Response> {
   const { request, workspaceId, auth, workspaceControl } = input;
 
@@ -88,6 +90,7 @@ export async function handleWorkspaceModelConfiguration(input: {
             !store!.clearModelConfiguration(current.revision)
           )
             throw failedCondition();
+          input.onModelConfigurationChanged?.(workspaceId);
           input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({
             workspaceId,
             reason: "model_configuration_changed",
@@ -156,6 +159,7 @@ export async function handleWorkspaceModelConfiguration(input: {
         });
 
         if (!saved) throw failedCondition();
+        input.onModelConfigurationChanged?.(workspaceId);
         input.liveUpdateHub?.broadcastWorkspaceContextInvalidation({
           workspaceId,
           reason: "model_configuration_changed",

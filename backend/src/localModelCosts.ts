@@ -47,22 +47,6 @@ export function initializeModelCostSchema(database: Database): void {
 type Aggregate = { stage: ProcessingCostStage; amount: number; reported: number; unreported: number };
 
 export function createModelCostStore(database: Database) {
-  function stages(column: "owner_id" | "packet_id", id: string) {
-    const costs = { split: costAmount(), auto_template: costAmount(), extraction: costAmount() };
-
-    const rows = database
-      .query<Aggregate, SQLQueryBindings[]>(
-        `SELECT stage,COALESCE(SUM(amount),0) AS amount,
-      COUNT(amount) AS reported,COUNT(*)-COUNT(amount) AS unreported
-      FROM model_call_costs WHERE ${column}=? GROUP BY stage`,
-      )
-      .all(id);
-
-    for (const row of rows) costs[row.stage] = costAmount(row.amount, row.reported, row.unreported);
-
-    return costs;
-  }
-
   function summary(costs: Record<ProcessingCostStage, CostAmount>): ProcessingCosts {
     return { currency: "USD", ...costs, total: sumCosts(Object.values(costs)) };
   }
@@ -130,49 +114,113 @@ export function createModelCostStore(database: Database) {
         },
       };
     },
-    getDocumentCosts(jobId: string): ProcessingCosts {
-      const costs = stages("owner_id", jobId);
+    getDocumentCosts: (jobId: string): ProcessingCosts => documentCosts([jobId]).get(jobId)!,
+    getDocumentCostsBatch: documentCosts,
+    getPacketCosts: (packetId: string): ProcessingCosts => packetCosts([packetId]).get(packetId)!,
+    getPacketCostsBatch: packetCosts,
+  };
 
-      const lineage = database
-        .query<{ source_pages: string; selected_pages: string }, SQLQueryBindings[]>(
-          `SELECT r.source_pages,p.selected_pages FROM document_routing r
-        JOIN document_packets p ON p.id=r.parent_packet_id WHERE r.job_id=?`,
-        )
-        .get(jobId);
+  /** Costs for every requested Document, with packet split shares, in a fixed number of queries. */
+  function documentCosts(jobIds: readonly string[]): Map<string, ProcessingCosts> {
+    const owned = stagesByOwner("owner_id", jobIds);
 
-      if (!lineage) return summary(costs);
+    const lineages = database
+      .query<
+        { job_id: string; packet_id: string; source_pages: string; selected_pages: string },
+        SQLQueryBindings[]
+      >(
+        `SELECT r.job_id,r.parent_packet_id AS packet_id,r.source_pages,p.selected_pages FROM document_routing r
+        JOIN document_packets p ON p.id=r.parent_packet_id WHERE r.job_id IN (SELECT value FROM json_each(?))`,
+      )
+      .all(JSON.stringify(jobIds));
 
-      const packet = database
-        .query<{ id: string }, SQLQueryBindings[]>("SELECT parent_packet_id AS id FROM document_routing WHERE job_id=?")
-        .get(jobId)!;
+    const packetStages = lineages.length
+      ? stagesByOwner("owner_id", [...new Set(lineages.map((lineage) => lineage.packet_id))])
+      : new Map<string, Record<ProcessingCostStage, CostAmount>>();
+
+    const lineageByJob = new Map(lineages.map((lineage) => [lineage.job_id, lineage]));
+    const result = new Map<string, ProcessingCosts>();
+
+    for (const jobId of jobIds) {
+      const costs = owned.get(jobId) ?? emptyStages();
+      const lineage = lineageByJob.get(jobId);
+
+      if (!lineage) {
+        result.set(jobId, summary(costs));
+        continue;
+      }
 
       const documentPages = pageCount(lineage.source_pages);
       const packetPages = pageCount(lineage.selected_pages);
-      costs.split = allocateCost(stages("owner_id", packet.id).split, documentPages, packetPages);
+      costs.split = allocateCost(
+        (packetStages.get(lineage.packet_id) ?? emptyStages()).split,
+        documentPages,
+        packetPages,
+      );
+      result.set(jobId, {
+        ...summary(costs),
+        split_allocation: { document_pages: documentPages, packet_pages: packetPages },
+      });
+    }
 
-      return { ...summary(costs), split_allocation: { document_pages: documentPages, packet_pages: packetPages } };
-    },
-    getPacketCosts(packetId: string): ProcessingCosts {
-      const costs = stages("packet_id", packetId);
+    return result;
+  }
 
-      const packet = database
-        .query<{ selected_pages: string; exclusions_json: string }, SQLQueryBindings[]>(
-          "SELECT selected_pages,exclusions_json FROM document_packets WHERE id=?",
+  /** Costs for every requested Document packet in a fixed number of queries. */
+  function packetCosts(packetIds: readonly string[]): Map<string, ProcessingCosts> {
+    const owned = stagesByOwner("packet_id", packetIds);
+
+    const packets = new Map(
+      database
+        .query<{ id: string; selected_pages: string; exclusions_json: string }, SQLQueryBindings[]>(
+          "SELECT id,selected_pages,exclusions_json FROM document_packets WHERE id IN (SELECT value FROM json_each(?))",
         )
-        .get(packetId);
+        .all(JSON.stringify(packetIds))
+        .map((packet) => [packet.id, packet]),
+    );
 
-      const result = summary(costs);
+    const result = new Map<string, ProcessingCosts>();
+
+    for (const packetId of packetIds) {
+      const costs = owned.get(packetId) ?? emptyStages();
+      const packet = packets.get(packetId);
+      const total = summary(costs);
 
       if (packet)
-        result.excluded_pages_cost = allocateCost(
+        total.excluded_pages_cost = allocateCost(
           costs.split,
           pageCount(packet.exclusions_json),
           pageCount(packet.selected_pages),
         );
+      result.set(packetId, total);
+    }
 
-      return result;
-    },
-  };
+    return result;
+  }
+
+  function stagesByOwner(column: "owner_id" | "packet_id", ids: readonly string[]) {
+    const costs = new Map<string, Record<ProcessingCostStage, CostAmount>>();
+
+    if (!ids.length) return costs;
+
+    for (const row of database
+      .query<Aggregate & { id: string }, SQLQueryBindings[]>(
+        `SELECT ${column} AS id,stage,COALESCE(SUM(amount),0) AS amount,
+      COUNT(amount) AS reported,COUNT(*)-COUNT(amount) AS unreported
+      FROM model_call_costs WHERE ${column} IN (SELECT value FROM json_each(?)) GROUP BY ${column},stage`,
+      )
+      .all(JSON.stringify(ids))) {
+      const stages = costs.get(row.id) ?? emptyStages();
+      stages[row.stage] = costAmount(row.amount, row.reported, row.unreported);
+      costs.set(row.id, stages);
+    }
+
+    return costs;
+  }
+}
+
+function emptyStages(): Record<ProcessingCostStage, CostAmount> {
+  return { split: costAmount(), auto_template: costAmount(), extraction: costAmount() };
 }
 
 function pageCount(encoded: string): number {

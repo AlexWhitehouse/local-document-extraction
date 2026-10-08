@@ -9,6 +9,12 @@ import {
 } from "../../shared/json";
 import { rm } from "node:fs/promises";
 import { diagnoseTemplateDraft, templateColumns } from "../../shared/templateAssistant";
+import {
+  EvaluationEvidenceError,
+  evaluationFieldIds,
+  validateEvaluationEvidence,
+  type EvaluationEvidence,
+} from "../../shared/evaluationEvidence";
 import { assistTemplate, ASSISTANCE_LIMITS, suggestTemplateRequests } from "./consumer/templateAssistance";
 import { ExtractionCancelledError, ModelGatewayRequestError, RetryableError } from "./consumer/modelGateway";
 import { HttpError } from "./lib/http";
@@ -97,6 +103,7 @@ type AssistanceRequest = {
   base: JsonObject;
   jobId?: string;
   useRetainedSource?: boolean;
+  evaluation?: EvaluationEvidence;
 };
 
 export function validateAssistanceRequest(raw: string): AssistanceRequest {
@@ -111,7 +118,7 @@ export function validateAssistanceRequest(raw: string): AssistanceRequest {
   if (
     !object(value) ||
     Object.keys(value).some(
-      (key) => !["draft", "action", "instructions", "base", "jobId", "useRetainedSource"].includes(key),
+      (key) => !["draft", "action", "instructions", "base", "jobId", "useRetainedSource", "evaluation"].includes(key),
     )
   )
     throw invalid("Unsupported assistance request properties");
@@ -146,6 +153,20 @@ export function validateAssistanceRequest(raw: string): AssistanceRequest {
 
   if (value.useRetainedSource && !value.jobId) throw invalid("Select a completed job before using its retained Source");
 
+  let evaluation: EvaluationEvidence | undefined;
+
+  if (value.evaluation !== undefined) {
+    if (value.jobId !== undefined)
+      throw invalid("Choose one kind of result evidence: a completed job or evaluation results");
+
+    try {
+      evaluation = validateEvaluationEvidence(value.evaluation);
+    } catch (error) {
+      if (error instanceof EvaluationEvidenceError) throw invalid(error.message);
+      throw error;
+    }
+  }
+
   const assistance: AssistanceRequest = {
     draft: value.draft,
     action: value.action,
@@ -156,6 +177,8 @@ export function validateAssistanceRequest(raw: string): AssistanceRequest {
   if (identifier(value.jobId)) assistance.jobId = value.jobId;
 
   if (isBoolean(value.useRetainedSource)) assistance.useRetainedSource = value.useRetainedSource;
+
+  if (evaluation) assistance.evaluation = evaluation;
 
   return assistance;
 }
@@ -528,6 +551,11 @@ export async function handleTemplateAssistance({
         if (multipart.source && input.useRetainedSource)
           throw invalid("Choose one binary source: an uploaded sample or the job's retained Source");
 
+        const evaluationSample = input.evaluation?.sample_document ?? null;
+
+        if (evaluationSample !== null && !multipart.source)
+          throw invalid("evaluation.sample_document names an original that was not attached");
+
         if (input.jobId) {
           jobOperation = product.operations.acquire({ workspaceId: workspace.id, jobId: input.jobId });
           signal = AbortSignal.any([signal, jobOperation.signal]);
@@ -550,14 +578,30 @@ export async function handleTemplateAssistance({
         const provenance = source
           ? input.useRetainedSource
             ? "retained_source_of_selected_job"
-            : "separate_uploaded_sample"
+            : evaluationSample !== null
+              ? "original_of_evaluation_document"
+              : "separate_uploaded_sample"
           : "no_binary_source_supplied";
 
         const suppliedEvidence = {
           job: evidence,
           source: provenance,
-          sample_name: multipart.source?.name ?? (input.useRetainedSource ? evidence?.original_filename : null),
-          limitation: source ? null : "No binary Source was supplied. Results are model output, not ground truth.",
+          sample_name:
+            evaluationSample ??
+            multipart.source?.name ??
+            (input.useRetainedSource ? evidence?.original_filename : null),
+          limitation: source
+            ? null
+            : input.evaluation
+              ? "No binary Source was supplied. Candidate values are model output; verified expected answers are ground truth for their documents."
+              : "No binary Source was supplied. Results are model output, not ground truth.",
+          evaluation: input.evaluation
+            ? {
+                candidate: input.evaluation.candidate.label,
+                documents: input.evaluation.documents.length,
+                failures: input.evaluation.documents.reduce((sum, document) => sum + document.failures.length, 0),
+              }
+            : null,
         };
 
         const output = await assistTemplate(
@@ -570,10 +614,12 @@ export async function handleTemplateAssistance({
             draft: input.draft,
             action: input.action,
             instructions: input.instructions,
-            evidence: suppliedEvidence,
+            evidence: { job: evidence, source: provenance, sample_name: suppliedEvidence.sample_name, limitation: suppliedEvidence.limitation },
+            evaluation: input.evaluation,
             source,
             evidenceContext: {
               sampleSupplied: Boolean(source),
+              evaluationFieldIds: input.evaluation ? evaluationFieldIds(input.evaluation) : undefined,
               resultFields: evidence?.fields,
               result: evidence
                 ? Object.fromEntries(evidence.results.map((row) => [row.field_id, row.answer]))

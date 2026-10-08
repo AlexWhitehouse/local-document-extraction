@@ -66,6 +66,7 @@ export function createLocalResourceController({
   now = Date.now,
   sampleIntervalMs = 5_000,
   setPermits,
+  sourceInventoryIntervalMs = 15 * 60_000,
   stateDirectory,
 }: {
   adaptive?: boolean;
@@ -80,6 +81,11 @@ export function createLocalResourceController({
   now?: () => number;
   sampleIntervalMs?: number;
   setPermits: (permits: number) => void;
+  /**
+   * How often the diagnostic Source byte total walks the Source tree. The Go processor and
+   * several Bun paths write and remove Sources, so the total is sampled rather than tracked.
+   */
+  sourceInventoryIntervalMs?: number;
   stateDirectory: string;
 }) {
   const cores = Math.max(1, cpus().length);
@@ -105,6 +111,8 @@ export function createLocalResourceController({
   let memoryPressureRecoveryPermits = currentPermits;
   let memoryPressureSignaledAtMs: number | null = null;
   let storageSampledAt = Number.NEGATIVE_INFINITY;
+  let sourceInventoryAt = Number.NEGATIVE_INFINITY;
+  const normalizedSourceInventoryIntervalMs = positiveInteger(sourceInventoryIntervalMs, 15 * 60_000);
   let capacitySampledAt = Number.NEGATIVE_INFINITY;
   let capacitySampling: Promise<void> | null = null;
   let completedJobs = 0;
@@ -274,15 +282,23 @@ export function createLocalResourceController({
     return capacitySampling;
   };
 
+  // Database files are one flat directory and cheap to stat every minute. The Source tree grows
+  // with retained history, so its diagnostic total is walked far less often.
   const refreshStorageSample = async () => {
     await refreshDiskCapacity();
+    const startedAt = now();
+    const inventorySources = startedAt - sourceInventoryAt >= normalizedSourceInventoryIntervalMs;
 
     const [sourceBytes, databaseBytes] = await Promise.all([
-      directoryBytes(join(stateDirectory, "source-files")),
+      inventorySources ? directoryBytes(join(stateDirectory, "source-files")) : null,
       databaseStorageBytes(join(stateDirectory, "data", "workspaces")),
     ]);
 
-    state.disk.sourceBytes = sourceBytes;
+    if (sourceBytes !== null) {
+      state.disk.sourceBytes = sourceBytes;
+      sourceInventoryAt = startedAt;
+    }
+
     state.disk.sqliteBytes = databaseBytes.sqliteBytes;
     state.disk.walBytes = databaseBytes.walBytes;
     storageSampledAt = now();

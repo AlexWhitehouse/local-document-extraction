@@ -1,4 +1,5 @@
 import { isString, isJsonObject, isJsonArray, parseJson, type JsonValue, type JsonObject } from "./json";
+import { OBJECT_SCHEMA_START, readObjectSchemaBlock, stripObjectMarkers } from "./templateMarkers";
 
 /** Authoritative, non-mutating schema diagnostics shared by saving and draft assistance. */
 export const TEMPLATE_DATA_TYPES = ["string", "number", "boolean", "date", "object", "array", "array<object>"] as const;
@@ -51,24 +52,20 @@ type TemplateObjectMetadata = { description: string; schema: JsonValue | undefin
 export function templateObjectMetadata(field: JsonValue | undefined): TemplateObjectMetadata {
   if (!isRecord(field)) return { description: "", schema: undefined, malformed: false };
   const raw = isString(field.description) ? field.description : "";
-  const pattern = /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/;
-  const match = raw.match(pattern);
+  const schemaJson = readObjectSchemaBlock(raw);
   let embedded: JsonValue | undefined;
-  let malformed = raw.includes("[[OBJECT_SCHEMA]]") && !match;
+  let malformed = raw.includes(OBJECT_SCHEMA_START) && schemaJson === undefined;
 
-  if (match) {
+  if (schemaJson !== undefined) {
     try {
-      embedded = parseJson(match[1]!);
+      embedded = parseJson(schemaJson);
     } catch {
       malformed = true;
     }
   }
 
   return {
-    description: raw
-      .replace(pattern, "")
-      .replace(/\[\[OBJECT_TABLE_GUIDANCE\]\][\s\S]*?\[\[\/OBJECT_TABLE_GUIDANCE\]\]\s*/g, "")
-      .trim(),
+    description: stripObjectMarkers(raw),
     schema: field.object_schema !== undefined ? field.object_schema : embedded,
     malformed: field.object_schema === undefined && malformed,
   };

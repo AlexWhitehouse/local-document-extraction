@@ -728,3 +728,111 @@ test("assistance and suggestions call the Workspace's Template assistant model w
   expect((await f.suggest()).status).toBe(200);
   expect(JSON.parse(textRequestBody(gateway.mock.calls[1][1]!.body)).model).toBe("assistant-model");
 });
+
+const evaluationEvidence = (sampleDocument: string | null = null, verified = true) => ({
+  candidate: {
+    label: "Candidate 1: Invoice",
+    model: "candidate-model",
+    template_name: "Invoice",
+    template_id: null,
+    template_version: null,
+    modified: true,
+  },
+  accuracy: { matched: 0, total: 1 },
+  documents: [
+    {
+      name: "invoice.pdf",
+      accuracy: { matched: 0, total: 1 },
+      failures: [
+        {
+          field_id: "total",
+          field_name: "Total",
+          data_type: "number",
+          verdict: "Mismatch",
+          expected_verified: verified,
+          extracted_status: "ok",
+          extracted: 10,
+          expected: 12,
+          expected_absent: false,
+          cells: null,
+        },
+      ],
+    },
+  ],
+  omitted: { documents: 0, failures: 0 },
+  sample_document: sampleDocument,
+});
+
+test("evaluation evidence needs no job or file, reaches the model as ground truth, and is validated strictly", async () => {
+  const f = fixture();
+  f.seedJob();
+
+  const gateway = f.mockGateway(
+    responder({
+      ...output,
+      observations: [
+        {
+          kind: "observation",
+          text: "Total missed the verified answer.",
+          references: [{ scope: "evaluation", fieldId: "total" }],
+        },
+      ],
+    }),
+  );
+
+  const response = await f.submit({ evaluation: evaluationEvidence() });
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.evidence).toMatchObject({
+    job: null,
+    source: "no_binary_source_supplied",
+    evaluation: { candidate: "Candidate 1: Invoice", documents: 1, failures: 1 },
+  });
+  expect(body.evidence.limitation).toContain("verified expected answers are ground truth");
+
+  const modelRequest = JSON.parse(textRequestBody(gateway.mock.calls[0][1]!.body));
+  expect(modelRequest.messages[0].content).toContain("treat each verified Expected answer as ground truth");
+  expect(modelRequest.messages[0].content).toContain("stored Extraction results remain model output");
+  const context = JSON.parse(modelRequest.messages[1].content[0].text).untrustedContext;
+  expect(context.evaluationEvidence.documents[0].failures[0]).toMatchObject({ field_id: "total", expected: 12 });
+  expect(modelRequest.messages[1].content).toHaveLength(1);
+
+  for (const payload of [
+    { evaluation: evaluationEvidence(null, false) },
+    { evaluation: { ...evaluationEvidence(), extra: 1 } },
+    { evaluation: evaluationEvidence(), jobId: "job_a" },
+    { evaluation: evaluationEvidence(), useRetainedSource: true },
+    { evaluation: evaluationEvidence("invoice.pdf") },
+  ]) {
+    const rejected = await f.submit(payload);
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()).error.code).toBe("invalid_template_assistance");
+  }
+
+  expect(gateway.mock.calls).toHaveLength(1);
+});
+
+test("an evaluation document's original is labelled as the source of the failing results", async () => {
+  const f = fixture();
+
+  const gateway = f.mockGateway(
+    responder({
+      ...output,
+      observations: [{ kind: "hypothesis", text: "The original shows VAT.", references: [{ scope: "sample" }] }],
+    }),
+  );
+
+  const response = await f.submit({ evaluation: evaluationEvidence("invoice.pdf") }, { size: 4 });
+  expect(response.status).toBe(200);
+  expect((await response.json()).evidence).toMatchObject({
+    source: "original_of_evaluation_document",
+    sample_name: "invoice.pdf",
+  });
+  const modelRequest = JSON.parse(textRequestBody(gateway.mock.calls[0][1]!.body));
+  expect(modelRequest.messages[1].content[1].type).toBe("image_url");
+
+  // A file without sample_document is an unrelated uploaded sample.
+  const unrelated = await f.submit({ evaluation: evaluationEvidence() }, { size: 4 });
+  expect((await unrelated.json()).evidence.source).toBe("separate_uploaded_sample");
+  expect(f.files()).toEqual([]);
+});

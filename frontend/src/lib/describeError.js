@@ -30,6 +30,7 @@ const CODE_MESSAGES = {
   document_deleted: "This document was deleted.",
   document_not_found: "This document no longer exists.",
   revision_conflict: "This changed while you were editing. Reload and try again.",
+  precondition_failed: "This changed elsewhere. Check the latest settings and try again.",
   operation_conflict: "Another change is in progress. Try again in a moment.",
   capacity_exhausted: "Studio is busy. Try again in a moment.",
   request_body_too_large: "This is too large to upload.",

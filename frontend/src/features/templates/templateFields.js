@@ -1,5 +1,13 @@
 import { isJsonObject, isString } from "../../../../shared/json.ts";
 import { diagnoseTemplateDraft } from "../../../../shared/templateDiagnostics.ts";
+import {
+  OBJECT_GUIDANCE_END,
+  OBJECT_GUIDANCE_START,
+  OBJECT_SCHEMA_END,
+  OBJECT_SCHEMA_START,
+  readObjectSchemaBlock,
+  stripObjectMarkers,
+} from "../../../../shared/templateMarkers.ts";
 import { normalizeTemplateTags } from "../../../../shared/templateTags.ts";
 
 export const DATA_TYPES = ["string", "number", "boolean", "date", "object", "array", "array<object>"];
@@ -21,14 +29,6 @@ export function getDataTypeLabel(dataType) {
 export const OBJECT_SCHEMA_DATA_TYPES = ["string", "number", "boolean", "date"];
 
 export const MAX_TEMPLATE_OBJECT_COLUMNS = 20;
-
-const OBJECT_GUIDANCE_START = "[[OBJECT_TABLE_GUIDANCE]]";
-
-const OBJECT_GUIDANCE_END = "[[/OBJECT_TABLE_GUIDANCE]]";
-
-const OBJECT_SCHEMA_START = "[[OBJECT_SCHEMA]]";
-
-const OBJECT_SCHEMA_END = "[[/OBJECT_SCHEMA]]";
 
 export const EMPTY_OBJECT_COLUMN = {
   key: "",
@@ -274,23 +274,19 @@ function appendObjectMetadata(baseDescription, columns, dataType) {
 function extractObjectMetadata(description) {
   const raw = String(description || "");
 
-  const schemaPattern = /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/;
-
-  const guidancePattern = /\[\[OBJECT_TABLE_GUIDANCE\]\][\s\S]*?\[\[\/OBJECT_TABLE_GUIDANCE\]\]\s*/g;
-
-  const schemaMatch = raw.match(schemaPattern);
+  const schemaJson = readObjectSchemaBlock(raw);
   let objectSchema = null;
 
-  if (schemaMatch?.[1]) {
+  if (schemaJson) {
     try {
-      const parsed = JSON.parse(schemaMatch[1]);
+      const parsed = JSON.parse(schemaJson);
       objectSchema = normalizeObjectSchema(parsed);
     } catch {
       objectSchema = null;
     }
   }
 
-  const baseDescription = raw.replace(schemaPattern, "").replace(guidancePattern, "").trim();
+  const baseDescription = stripObjectMarkers(raw);
 
   return {
     baseDescription,

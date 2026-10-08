@@ -138,6 +138,8 @@ export function getWorkspaceUserActions(permissions, targetRole) {
   }
 
   if (role === "admin") {
+    if (permissions.isOwner) return ["remove_user", "make_member", "make_owner"];
+
     return permissions.canManage ? ["remove_user", "make_owner"] : [];
   }
 

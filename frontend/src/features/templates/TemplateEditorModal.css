@@ -33,6 +33,25 @@
 .template-editor-modal-footer .actions { margin: 0; display: flex; justify-content: flex-end; gap: 8px; }
 .template-editor-modal-footer > p { margin: 0 0 10px; font-size: var(--font-size-4); }
 .template-editor-modal-footer button { min-height: var(--control-h-sm); padding: 0 11px; font-size: var(--font-size-3); }
+.template-editor-modal-footer .template-editor-modal-assistant { margin-right: auto; }
+
+/* With the assistant open, the draft and the assistant sit side by side between header and footer. */
+.template-editor-modal.has-assistant.modal-card {
+  width: min(1440px, 96vw);
+  max-width: 1440px;
+  grid-template-columns: minmax(0, 1fr) clamp(340px, 36%, 460px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.template-editor-modal.has-assistant > .template-editor-modal-header,
+.template-editor-modal.has-assistant > .template-editor-modal-footer { grid-column: 1 / -1; }
+.template-editor-modal.has-assistant > .template-editor-modal-body { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.template-editor-modal.has-assistant > .template-editor-modal-body > .field-editor { flex: 1; min-height: 320px; }
+.template-editor-modal.has-assistant > .template-assistant { margin: 0; min-height: 0; }
+@media (max-width: 900px) {
+  .template-editor-modal.has-assistant.modal-card { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .template-editor-modal.has-assistant > .template-assistant { border-left: 0; border-top: 1px solid var(--rule); }
+}
+
 @media (max-width: 600px) {
   .template-editor-modal.modal-card { width: calc(100vw - 24px); height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); }
   .template-editor-modal-header, .template-editor-modal .studio-template-meta { padding: 16px; }

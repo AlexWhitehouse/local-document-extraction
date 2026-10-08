@@ -3,7 +3,8 @@ import { Toaster } from "sonner";
 import { defaultToast } from "./lib/notify";
 import { createRuntimeAuthClient } from "./lib/authClient";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
-import { appPath } from "./lib/appRoutes";
+import { appPath, parseAppRoute } from "./lib/appRoutes";
+import { templateImprovementRequest } from "./features/documents/templateImprovement.js";
 import { useAppNavigation } from "./lib/useAppNavigation";
 import { createAppRuntimeCore, createWorkspaceRequestLayer } from "./lib/appRuntime";
 import { AuthScreen } from "./features/auth/AuthScreen.jsx";
@@ -41,8 +42,12 @@ import { useWorkspaceDocumentProcessingSettings } from "./features/workspaces/us
 import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
 import { useWorkspaceSourceRetention } from "./features/workspaces/useWorkspaceSourceRetention.js";
 import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
-import { hasUnsavedEdits, runDiscardChecks } from "./lib/unsavedChanges.js";
-import { DISCARD_CHANGES, confirmDialog } from "./features/ui/confirm.jsx";
+import {
+  confirmLeavingUnsavedEdits,
+  runDiscardChecks,
+  unsavedEditsLeavingFor,
+  useUnsavedGuard,
+} from "./lib/unsavedChanges.js";
 import { Field, TextInput } from "./features/ui/Field.jsx";
 import { Callout } from "./features/ui/Callout.jsx";
 import { LoadingState, PageSkeleton, PageState } from "./features/ui/States.jsx";
@@ -302,6 +307,25 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     return navigate(pagePath(page));
   }
 
+  // "Improve template" on a completed document: open its Template with the assistant, this job and
+  // its retained original as evidence. The request is held in memory only after navigation is approved.
+  function improveTemplate(job) {
+    const path = appPath({ workspaceId, page: "templates", templateId: job.template_id });
+    const verdict = navigation.guard.current?.(parseAppRoute(new URL(path, window.location.origin).pathname));
+
+    void Promise.resolve(verdict ?? true).then((allowed) => {
+      if (!allowed) return;
+      templateController.actions.prepareAssistant({
+        templateId: job.template_id,
+        action: "edit",
+        instructions: templateImprovementRequest(job.results),
+        jobId: job.job_id,
+        useOriginal: job.source_retained === true,
+      });
+      navigate(path, { force: true });
+    });
+  }
+
   navigation.guard.current = (next) => {
     const changingWorkspace = Boolean(
       (next.workspaceId && next.workspaceId !== workspaceId) ||
@@ -309,39 +333,33 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       next.root,
     );
 
-    const changingTemplate =
-      next.page === "templates" &&
-      next.templateId !==
-        (templateController.toolbar.selectedTemplateId || (templateController.navigation.isDraft ? "new" : ""));
-
-    // Evaluation dialogs hold unapplied local form state, while accepted inputs
+    // Editors registered through useUnsavedGuard (the Template editor, Evaluation
+    // dialogs) decide whether this route loses their edits. Accepted Evaluation inputs
     // and results live in the controller and survive section navigation.
-    const leavingEvaluationDialog =
-      activePage === "evaluations" && (next.page !== "evaluations" || changingWorkspace) && hasUnsavedEdits();
+    const unsaved = unsavedEditsLeavingFor(next);
 
     return runDiscardChecks(
-      [
-        () => !leavingEvaluationDialog || confirmDialog(DISCARD_CHANGES),
-        () => !(changingWorkspace || changingTemplate) || templateController.navigation.confirmDiscard(),
-        () => !changingWorkspace || evaluation.confirmDiscard(),
-      ],
-      () => templateController.navigation.invalidatePendingLoad(),
+      [unsaved.confirm, () => !changingWorkspace || evaluation.confirmDiscard()],
+      () => {
+        unsaved.discard();
+        templateController.navigation.invalidatePendingLoad();
+      },
     );
   };
 
-  navigation.hasUnsavedChanges.current =
-    hasSession &&
-    (templateController.navigation.hasUnsavedChanges ||
-      hasUnsavedEdits() ||
-      Boolean(evaluation.state.documents.length || evaluation.state.candidates.length));
+  // Evaluation inputs survive navigation, and Workspace changes ask through
+  // evaluation.confirmDiscard, so they only warn on page unload.
+  useUnsavedGuard(
+    hasSession && Boolean(evaluation.state.documents.length || evaluation.state.candidates.length),
+    "Evaluation",
+    { leaves: () => false },
+  );
   const navigationGuard = navigation.guard;
-  const navigationUnsaved = navigation.hasUnsavedChanges;
   useEffect(
     () => () => {
       navigationGuard.current = null;
-      navigationUnsaved.current = false;
     },
-    [navigationGuard, navigationUnsaved],
+    [navigationGuard],
   );
 
   useEffect(() => {
@@ -450,6 +468,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       workspaceController.actions.clearSessionWorkspaceData();
       navigate("/", { replace: true, force: true });
     },
+    confirmSignOut: () => confirmLeavingUnsavedEdits({ page: "workspace", root: true }),
     onSessionChanging: () => {
       evaluation.clear();
       documentController.actions.cancelPendingSubmissions();
@@ -873,6 +892,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             suggestedModels={documentController.contextList.availableModels}
             workspaceCrumb={workspaceCrumb}
             onOpenWorkspace={() => setActivePage("workspace")}
+            modelConfiguration={workspaceModel}
           />
         ) : null}
         {showPage && visiblePage === "documents" ? (
@@ -883,6 +903,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               viewingLayout={documentViewingLayout}
               onViewingLayoutChange={setDocumentViewingLayout}
               sourceStorageConfigured={sourceStorageConfigured}
+              onImproveTemplate={hasApiAccess ? improveTemplate : undefined}
             />
           </>
         ) : null}

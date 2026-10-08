@@ -881,6 +881,24 @@ export function useEvaluations({
         return copy.id;
       }
     },
+    // A new candidate right after the original, with its settings and another template; the original is unchanged.
+    // Returns null when the original is gone or the candidate limit is reached.
+    branch(candidateId, template) {
+      const current = stateRef.current,
+        index = current.candidates.findIndex((c) => c.id === candidateId);
+
+      if (index < 0 || current.candidates.length >= MAX_CANDIDATES) return null;
+      const copy = makeCandidate(template, current.candidates[index]);
+      setState((previous) =>
+        previous.candidates.length >= MAX_CANDIDATES
+          ? previous
+          : { ...previous, candidates: insertAt(previous.candidates, index + 1, copy) },
+      );
+
+      return copy.id;
+    },
+    // Reads one result's details without displacing the open document's decrypted details.
+    readDetail: (recordId) => cacheRef.current.load(recordId, { keep: false }),
     // Removes the candidate and its results at once. Resolves to an undo function, or null when nothing was removed.
     // The result details are read before their cache records are deleted, so undo can write them back.
     async remove(candidateId) {
@@ -1150,6 +1168,81 @@ export function useEvaluations({
         };
       });
     },
+    // Writes many accepted answers, across one or more documents, in one update of the working copies.
+    // `changes` are { docKey, identity, from?, value, definition }; `from` is an answer saved for an earlier
+    // field type that the new answer replaces. Returns an undo that puts back each answer still holding the
+    // accepted value, so undo never overwrites newer work; null when there was nothing to write.
+    acceptReferences(changes) {
+      const documents = new Map(stateRef.current.documents.map((d) => [d.key, d]));
+      const applied = changes.filter((change) => documents.has(change.docKey));
+
+      if (!applied.length) return null;
+
+      const entry = (set, identity) => ({
+        reference: set.references[identity],
+        definition: set.definitions[identity],
+        present: identity in set.references,
+      });
+
+      const previous = applied.map((change) => {
+        const set = documents.get(change.docKey).reference;
+
+        return { change, own: entry(set, change.identity), from: change.from ? entry(set, change.from) : null };
+      });
+
+      const write = (update) =>
+        setState((prior) => ({
+          ...prior,
+          documents: prior.documents.map((d) => {
+            const mine = previous.filter(({ change }) => change.docKey === d.key);
+
+            if (!mine.length) return d;
+
+            const references = { ...d.reference.references },
+              definitions = { ...d.reference.definitions };
+
+            for (const item of mine) update(item, references, definitions);
+
+            return { ...d, reference: { references, definitions } };
+          }),
+        }));
+
+      const restore = (references, definitions, identity, saved) => {
+        if (saved.present) {
+          references[identity] = saved.reference;
+          definitions[identity] = saved.definition;
+        } else {
+          delete references[identity];
+          delete definitions[identity];
+        }
+      };
+
+      write(({ change }, references, definitions) => {
+        if (change.from && change.from !== change.identity) {
+          delete references[change.from];
+          delete definitions[change.from];
+        }
+
+        references[change.identity] = change.value;
+        definitions[change.identity] = change.definition;
+      });
+
+      return () =>
+        write(({ change, own, from }, references, definitions) => {
+          if (
+            JSON.stringify(references[change.identity]) !== JSON.stringify(change.value) ||
+            JSON.stringify(definitions[change.identity]) !== JSON.stringify(change.definition)
+          )
+            return;
+
+          restore(references, definitions, change.identity, own);
+
+          if (from && change.from !== change.identity && !(change.from in references))
+            restore(references, definitions, change.from, from);
+        });
+    },
+    // Reads one result's details without displacing the details on screen.
+    loadDetail: (recordId) => cacheRef.current.peek(recordId) || cacheRef.current.load(recordId, { keep: false }),
     // Links a renamed Template field to one of this document's saved answers of the same type, or unlinks it.
     // Links are temporary comparison settings: they are never saved with the answer set.
     linkField(docKey, fieldIdentityValue, savedIdentity) {

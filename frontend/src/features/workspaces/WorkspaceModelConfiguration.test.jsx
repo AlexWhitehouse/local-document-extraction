@@ -554,3 +554,60 @@ describe("Document classification & splitting model role", () => {
     expect(result.current.testResult.message).toContain("Document classification & splitting model");
   });
 });
+
+describe("Changing only the extraction model", () => {
+  const assistant_model = { model_name: "assistant/model", supports_pdf_input: true, supports_structured_output: false };
+
+  it("keeps the gateway, API key and task models, and sends the saved version", async () => {
+    const coreRequest = apiFixture({ ...configured, sequential_calls: true, assistant_model, classification_model: null });
+    const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    const next = { model_name: "best/model", supports_pdf_input: true, supports_structured_output: true };
+    await act(() => result.current.setExtractionModel(next));
+
+    const [path, options] = coreRequest.mock.calls.at(-1);
+    expect(path).toBe("/workspaces/workspace_a/model-configuration");
+    expect(options.method).toBe("PUT");
+    expect(options.headers["if-match"]).toBe('"workspace-model-1"');
+    expect(JSON.parse(options.body)).toEqual({
+      gateway_url: draft.gateway_url,
+      sequential_calls: true,
+      assistant_model,
+      classification_model: null,
+      ...next,
+    });
+    expect(options.body).not.toContain("credential");
+    expect(result.current.record).toMatchObject({ ...next, revision: 2 });
+  });
+
+  it("refuses for members and reloads after a stale version", async () => {
+    const memberRequest = apiFixture({ configured: true });
+
+    const member = renderHook(() =>
+      useWorkspaceModelConfiguration({ ...props, role: "member", coreRequest: memberRequest }),
+    );
+
+    await waitFor(() => expect(member.result.current.ready).toBe(true));
+    await expect(member.result.current.setExtractionModel({ model_name: "x" })).rejects.toThrow();
+
+    let saved = configured;
+
+    const coreRequest = vi.fn(async (_path, options) => {
+      if (options.method === "GET") return response(saved);
+      saved = { ...saved, revision: 5, model_name: "elsewhere/model" };
+      throw Object.assign(new Error("precondition_failed"), { status: 412, code: "precondition_failed" });
+    });
+
+    const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(() =>
+      expect(
+        result.current.setExtractionModel({ model_name: "best/model", supports_pdf_input: false, supports_structured_output: false }),
+      ).rejects.toMatchObject({ status: 412 }),
+    );
+    await waitFor(() => expect(result.current.record.model_name).toBe("elsewhere/model"));
+    expect(result.current.saving).toBe(false);
+    expect(result.current.conflict).toBe(false);
+  });
+});

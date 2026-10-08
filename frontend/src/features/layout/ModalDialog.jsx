@@ -188,6 +188,14 @@ export function ModalHeader({
   );
 }
 
+// Renders `as` with its click routed through the dialog's dirty-aware close, for
+// Cancel or close controls outside ModalHeader.
+export function ModalDismiss({ as: Control, ...props }) {
+  const requestClose = useContext(ModalCloseContext);
+
+  return <Control {...props} onClick={requestClose} />;
+}
+
 // The standard modal action row: secondary actions first, the primary action last.
 export function ModalFooter({ className = "", children }) {
   return <div className={`actions modal-footer ${className}`.trim()}>{children}</div>;

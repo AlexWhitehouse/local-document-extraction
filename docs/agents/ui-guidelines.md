@@ -45,7 +45,7 @@ Use these before writing new markup. Most live in `frontend/src/features/ui/`.
 | Toasts | `createNotifier(toast)` from `lib/notify.js`, the only module that imports `sonner`. Messages live in `lib/toastNotifications.js`, one per action. |
 | Errors | `describeError` from `lib/describeError.js`. Never render `error.message`, response bodies, HTML or stack traces. |
 | Copy to clipboard | `copyWithFeedback` from `lib/copyWithFeedback.js` |
-| Unsaved edits | `useUnsavedGuard(isDirty, label)` from `lib/unsavedChanges.js` |
+| Unsaved edits | `useUnsavedGuard(isDirty, label, { leaves, onDiscard })` from `lib/unsavedChanges.js`. Navigation and page unload then ask through `DISCARD_CHANGES`. Custom Cancel or close controls inside a dirty `ModalDialog` use `ModalDismiss`. |
 | Counts | `pluralize(count, singular, plural?)` from `lib/text.js` |
 
 ## CSS and tokens

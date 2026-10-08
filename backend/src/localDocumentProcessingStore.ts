@@ -4,6 +4,7 @@ import type { LocalWorkspaceProductStore, LocalWorkspaceExtractionJobSummary } f
 import type { WorkspaceDocumentProcessingSettings } from "./workspaceDocumentProcessing";
 import { DocumentAssessmentValidationError, validateSplitPlan } from "./consumer/documentAssessment";
 import type { ProcessingCosts } from "../../shared/processingCosts";
+import { finishedPacketStatus } from "./documentPacketCompletion";
 
 export type RoutingCandidate = {
   id: string;
@@ -258,16 +259,23 @@ export function createDocumentProcessingStore(database: Database, store: () => L
       .query<RoutingRow, SQLQueryBindings[]>("SELECT * FROM document_routing WHERE job_id = ?")
       .get(jobId);
 
-    if (!row) return null;
+    return row ? parseRouting(row) : null;
+  };
 
-    return {
-      ...row,
-      template_tags: JSON.parse(row.template_tags),
-      source_pages: row.source_pages ? JSON.parse(row.source_pages) : null,
-      candidates: JSON.parse(row.candidates),
-      evidence: JSON.parse(row.evidence),
-      configuration_snapshot: parse(row.configuration_snapshot),
-    };
+  const getRoutings = (jobIds: readonly string[]): Map<string, DocumentRouting> => {
+    const routings = new Map<string, DocumentRouting>();
+
+    if (!jobIds.length) return routings;
+
+    for (const row of database
+      .query<RoutingRow, SQLQueryBindings[]>(
+        "SELECT * FROM document_routing WHERE job_id IN (SELECT value FROM json_each(?))",
+      )
+      .all(JSON.stringify(jobIds))) {
+      routings.set(row.job_id, parseRouting(row));
+    }
+
+    return routings;
   };
 
   const candidates = (tags: string[]): RoutingCandidate[] => {
@@ -338,86 +346,116 @@ export function createDocumentProcessingStore(database: Database, store: () => L
     return row && { ...row, template_tags: JSON.parse(row.template_tags), pages: JSON.parse(row.pages) };
   };
 
-  const getPacket = (packetId: string): DocumentPacket | null => {
-    const row = database
-      .query<PacketRow, SQLQueryBindings[]>("SELECT * FROM document_packets WHERE id=?")
-      .get(packetId);
+  /** Hydrate a page of packets with a fixed number of queries, whatever the page or packet size.
+   * Reads are pure: the write that finishes the last child persists packet completion. */
+  const readPackets = (packetIds: readonly string[]): Map<string, DocumentPacket> => {
+    const packets = new Map<string, DocumentPacket>();
 
-    if (!row) return null;
+    if (!packetIds.length) return packets;
+    const ids = JSON.stringify(packetIds);
 
-    const slots = database
+    const rows = database
+      .query<PacketRow, SQLQueryBindings[]>(
+        "SELECT * FROM document_packets WHERE id IN (SELECT value FROM json_each(?))",
+      )
+      .all(ids);
+
+    if (!rows.length) return packets;
+    const slotsByPacket = new Map<string, PacketChildSlot[]>();
+
+    for (const { packet_id, pages, ...slot } of database
       .query<
         Omit<PacketChildSlot, "pages"> & {
+          packet_id: string;
           pages: string;
         },
         SQLQueryBindings[]
       >(
-        "SELECT job_id,pages,state,source_file_key,retained_object_key FROM document_packet_children WHERE packet_id=? ORDER BY position",
+        "SELECT packet_id,job_id,pages,state,source_file_key,retained_object_key FROM document_packet_children WHERE packet_id IN (SELECT value FROM json_each(?)) ORDER BY packet_id,position",
       )
-      .all(packetId)
-      .map((r) => ({ ...r, pages: JSON.parse(r.pages) }));
+      .all(ids)) {
+      const parsed = { ...slot, pages: JSON.parse(pages) };
+      const slots = slotsByPacket.get(packet_id);
 
-    const children = slots.flatMap((slot) => {
-      const job = store().getExtractionJobSummary(slot.job_id);
-
-      return job ? [job] : [];
-    });
-
-    let status = row.status;
-
-    if (status === "processing_children" && children.every((child) => ["completed", "failed"].includes(child.status))) {
-      status = children.some((child) => child.status === "failed") ? "failed" : "completed";
-      database
-        .query("UPDATE document_packets SET status=? WHERE id=? AND status='processing_children'")
-        .run(status, packetId);
+      if (slots) slots.push(parsed);
+      else slotsByPacket.set(packet_id, [parsed]);
     }
 
-    return {
-      packet_id: row.id,
-      status,
-      stage:
-        status === "awaiting_review"
-          ? "review"
-          : status === "materializing"
-            ? "materialization"
-            : status === "processing_children"
-              ? "extraction"
-              : ["completed", "failed"].includes(status)
-                ? "finished"
-                : "analysis",
-      source_file_key: row.source_file_key,
-      source_name: row.source_name,
-      source_mime_type: row.source_mime_type,
-      source_file_page_count: row.source_file_page_count,
-      source_retained: Boolean(getSource(packetId)?.source_retained),
-      template_id: row.template_id,
-      template_version: row.template_version,
-      template_tags: JSON.parse(row.template_tags),
-      selected_pages: JSON.parse(row.selected_pages),
-      processing_policy: JSON.parse(row.processing_policy),
-      plan_revision: row.plan_revision,
-      plan_accepted: Boolean(row.plan_accepted),
-      plan: {
-        groups: JSON.parse(row.groups_json).map((pages: number[]) => ({ pages })),
-        exclusions: JSON.parse(row.exclusions_json),
-      },
-      children,
-      child_slots: slots,
-      costs: store().getPacketCosts(packetId),
-      reason: row.reason,
-      evidence: JSON.parse(row.evidence),
-      assessment_rounds: row.assessment_rounds,
-      configuration_snapshot: parse(row.configuration_snapshot),
-      error_code: row.error_code,
-      error_message: row.error_message,
-      outcome: row.outcome,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    };
+    const summaries = store().getExtractionJobSummaries(
+      [...slotsByPacket.values()].flatMap((slots) => slots.map((slot) => slot.job_id)),
+    );
+
+    const retained = new Set(
+      database
+        .query<{ job_id: string }, SQLQueryBindings[]>(
+          "SELECT job_id FROM source_files WHERE job_id IN (SELECT value FROM json_each(?)) AND retained=1 AND (deleted_at IS NULL OR retained_key IS NOT NULL)",
+        )
+        .all(ids)
+        .map((row) => row.job_id),
+    );
+
+    const costs = store().getPacketCostsBatch(packetIds);
+
+    for (const row of rows) {
+      const slots = slotsByPacket.get(row.id) ?? [];
+      const status = row.status;
+
+      packets.set(row.id, {
+        packet_id: row.id,
+        status,
+        stage:
+          status === "awaiting_review"
+            ? "review"
+            : status === "materializing"
+              ? "materialization"
+              : status === "processing_children"
+                ? "extraction"
+                : ["completed", "failed"].includes(status)
+                  ? "finished"
+                  : "analysis",
+        source_file_key: row.source_file_key,
+        source_name: row.source_name,
+        source_mime_type: row.source_mime_type,
+        source_file_page_count: row.source_file_page_count,
+        source_retained: retained.has(row.id),
+        template_id: row.template_id,
+        template_version: row.template_version,
+        template_tags: JSON.parse(row.template_tags),
+        selected_pages: JSON.parse(row.selected_pages),
+        processing_policy: JSON.parse(row.processing_policy),
+        plan_revision: row.plan_revision,
+        plan_accepted: Boolean(row.plan_accepted),
+        plan: {
+          groups: JSON.parse(row.groups_json).map((pages: number[]) => ({ pages })),
+          exclusions: JSON.parse(row.exclusions_json),
+        },
+        children: slots.flatMap((slot) => {
+          const job = summaries.get(slot.job_id);
+
+          return job ? [job] : [];
+        }),
+        child_slots: slots,
+        costs: costs.get(row.id)!,
+        reason: row.reason,
+        evidence: JSON.parse(row.evidence),
+        assessment_rounds: row.assessment_rounds,
+        configuration_snapshot: parse(row.configuration_snapshot),
+        error_code: row.error_code,
+        error_message: row.error_message,
+        outcome: row.outcome,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      });
+    }
+
+    return packets;
   };
+
+  const getPacket = (packetId: string): DocumentPacket | null => readPackets([packetId]).get(packetId) ?? null;
 
   return {
     getDocumentRouting: getRouting,
+    getDocumentRoutings: getRoutings,
     getRoutingCandidates: candidates,
     getProcessingSource: getSource,
     claimRoutingRound: (
@@ -553,6 +591,7 @@ export function createDocumentProcessingStore(database: Database, store: () => L
         })
         .immediate(),
     getDocumentPacket: getPacket,
+    getDocumentPackets: readPackets,
     getDocumentPacketChild: getPacketChild,
     listDocumentPackets: (
       input: {
@@ -575,7 +614,9 @@ export function createDocumentProcessingStore(database: Database, store: () => L
             )
             .all(input.limit ?? 50);
 
-      return rows.map((row) => getPacket(row.id)!);
+      const packets = readPackets(rows.map((row) => row.id));
+
+      return rows.map((row) => packets.get(row.id)!);
     },
     claimPacketRound: (
       input: RoundInput & {
@@ -799,10 +840,20 @@ export function createDocumentProcessingStore(database: Database, store: () => L
         .immediate(),
     finishPacketMaterialization: (input: { packetId: string; updatedAt: string }) =>
       database
-        .query(
-          "UPDATE document_packets SET status='processing_children',updated_at=? WHERE id=? AND status='materializing' AND NOT EXISTS (SELECT 1 FROM document_packet_children WHERE packet_id=? AND state='reserved')",
-        )
-        .run(input.updatedAt, input.packetId, input.packetId).changes > 0,
+        .transaction(() => {
+          const finished =
+            database
+              .query(
+                "UPDATE document_packets SET status='processing_children',updated_at=? WHERE id=? AND status='materializing' AND NOT EXISTS (SELECT 1 FROM document_packet_children WHERE packet_id=? AND state='reserved')",
+              )
+              .run(input.updatedAt, input.packetId, input.packetId).changes > 0;
+
+          // Children can finish while their siblings are still being materialized.
+          if (finished) settleDocumentPacket(database, input.packetId, input.updatedAt);
+
+          return finished;
+        })
+        .immediate(),
     recoverDocumentPackets: (input: {
       limit: number;
       staleProcessingBefore: string;
@@ -842,7 +893,8 @@ export function createDocumentProcessingStore(database: Database, store: () => L
           }[] = [];
 
           for (const slot of packet.child_slots) {
-            const deleted = store().deleteExtractionJob({ jobId: slot.job_id });
+            // The packet row is deleted below, so its completion is not settled once per child.
+            const deleted = store().deleteExtractionJob({ jobId: slot.job_id, settlePacket: false });
 
             if (deleted) sources.push(deleted);
             else if (slot.source_file_key) {
@@ -886,6 +938,67 @@ export function createDocumentProcessingStore(database: Database, store: () => L
           return { packet_id: input.packetId, sources };
         })
         .immediate(),
+  };
+}
+
+/**
+ * Persist completion of a packet that is extracting its children once its last remaining
+ * child finishes. Call it in the same transaction as the child's lifecycle change.
+ */
+export function settleDocumentPacket(database: Database, packetId: string, updatedAt: string): boolean {
+  // One row per distinct outcome keeps the result small for large packets.
+  const outcomes = database
+    .query<{ status: string | null; deleted: number }, SQLQueryBindings[]>(
+      `SELECT j.status,(c.state='deleted' OR j.id IS NULL) AS deleted FROM document_packet_children c
+      LEFT JOIN jobs j ON j.id=c.job_id WHERE c.packet_id=? GROUP BY 1,2`,
+    )
+    .all(packetId);
+
+  const status = finishedPacketStatus(
+    outcomes.map((outcome) => ({ status: outcome.status ?? "", deleted: Boolean(outcome.deleted) })),
+  );
+
+  if (!status) return false;
+
+  return (
+    database
+      .query("UPDATE document_packets SET status=?,updated_at=? WHERE id=? AND status='processing_children'")
+      .run(status, updatedAt, packetId).changes > 0
+  );
+}
+
+/** Settle the packet that owns a child job, when that packet is extracting its children. */
+export function settleParentDocumentPacket(database: Database, jobId: string, updatedAt: string): boolean {
+  const parent = database
+    .query<{ packet_id: string }, SQLQueryBindings[]>(
+      `SELECT c.packet_id FROM document_packet_children c JOIN document_packets p ON p.id=c.packet_id
+      WHERE c.job_id=? AND p.status='processing_children'`,
+    )
+    .get(jobId);
+
+  return parent ? settleDocumentPacket(database, parent.packet_id, updatedAt) : false;
+}
+
+/**
+ * Packet completion used to be derived, and only sometimes persisted, on read. Reconcile
+ * packets that are still extracting although every remaining child has finished.
+ */
+export function reconcileFinishedDocumentPackets(database: Database, updatedAt: string): void {
+  for (const { id } of database
+    .query<{ id: string }, SQLQueryBindings[]>("SELECT id FROM document_packets WHERE status='processing_children'")
+    .all()) {
+    settleDocumentPacket(database, id, updatedAt);
+  }
+}
+
+function parseRouting(row: RoutingRow): DocumentRouting {
+  return {
+    ...row,
+    template_tags: JSON.parse(row.template_tags),
+    source_pages: row.source_pages ? JSON.parse(row.source_pages) : null,
+    candidates: JSON.parse(row.candidates),
+    evidence: JSON.parse(row.evidence),
+    configuration_snapshot: parse(row.configuration_snapshot),
   };
 }
 

@@ -36,7 +36,7 @@ Each candidate column shows:
 - **Table cells:** The number of matching table cells.
 - The candidate status and a control to run it again.
 
-The app marks the best candidate **Best**. It resolves ties by table-cell matches, then speed.
+The app marks the best candidate **Best**. It resolves accuracy ties by table-cell matches, then cost when both runs report their full cost, then speed. Candidates that remain tied are not marked.
 
 Select an answer to open the inspector. The inspector shows the full answer, scoring details, table-column alignment, and other candidates’ answers.
 
@@ -51,7 +51,24 @@ Open a candidate’s **⋯** menu to change settings, inspect run details, or ed
 - Template editing uses the same editor as the Templates page.
 - You can edit candidates during a run. Each run uses its initial settings. Edited candidates show that another run is necessary.
 
+In a model comparison, Workspace owners and admins can select **Use for extraction…** on the **Best** candidate or in any model candidate’s menu. See [Use a model for extraction](#use-a-model-for-extraction).
+
 **Save as new Template** opens the candidate’s template in the editor. Select **Save** to create a new template. This action keeps the original template unchanged and excludes expected answers and results.
+
+The candidate template editor includes the [Template assistant](template-assistant.md). Select **Assistant** in its footer. Its edits apply to the candidate’s draft, never to the saved template.
+
+## Improve failing fields
+
+When a candidate gets verified fields wrong on the open document, its **⋯** menu offers **Improve failing fields**. It opens the candidate’s template with the Assistant on **Propose edits**. The request names the failing fields, and the candidate’s results on every document are attached as evidence. Only fields with verified expected answers are included. See [Evaluation results](template-assistant.md#evaluation-results) for what is sent.
+
+After you apply proposed changes, select **Test changes**:
+
+1. The app adds a copy of the candidate with the edited template, right after the original. The original candidate and its results don’t change.
+2. The copy runs on the documents the original has results for, the same way **Run** does.
+3. **Test changes** above the matrix compares the original with the copy. It shows overall and per-field accuracy before and after, and marks each as **Improved**, **Regressed** or **Unchanged**. Only documents where both have results are compared. Runs that didn’t finish are listed.
+4. Select **Keep copy** to keep both candidates, or **Remove copy** to remove the copy and its results. You can undo the removal from its toast.
+
+**Test changes** is available when comparing template versions. In a model comparison all candidates share one template, so apply the changes and run again instead. A copy needs a free candidate slot. With eight candidates, the editor explains that you need to remove one first.
 
 ## Check accuracy
 
@@ -75,6 +92,19 @@ Expected dates default to **DD/MM/YYYY**. Use **Date format** to select **MM/DD/
 Candidates use day/month/year for ambiguous numeric dates. Thus **08/09/1871** matches **1871-09-08**. Invalid calendar dates produce an error beside the input.
 
 An answer marked *absent from the document* differs from an unchecked answer. Absence never matches an error or an unreadable result.
+
+### Accept all answers from a candidate
+
+To verify a document quickly, open a candidate’s **⋯** menu and select **Accept all answers…**. In a Batch Evaluation, **Accept answers for every document…** applies the same step to each document that has a result from that candidate. The confirmation shows how many answers it sets, how many verified answers already match, and how many it skips.
+
+- Accepted answers become verified expected answers, because you accept them explicitly.
+- A **Not found** answer becomes **Not in document**.
+- Verified answers that differ from the candidate’s answer are kept and listed. To replace them, select the **Overwrite** checkbox.
+- Errors, unreadable values, and tables with rows are skipped and listed for review. Tables need a row-matching choice, so review them in the table editor. A table that is **Not found** is accepted as **Not in document**.
+- Ambiguous numeric dates are read day first, as candidates are scored, and stored as ISO dates.
+- Fields that are not automatically scored are not affected.
+
+The action changes the working copy only, and **Undo** in the notification restores the previous answers. Answers you edited since then are kept. For library documents, select **Update saved answers…** to save the changes.
 
 Expected answers remain in the browser tab unless you save the document to the library.
 
@@ -123,6 +153,20 @@ To use an updated Template, select **Choose Template/version**, choose the Templ
 Deletion removes the document and its answers for everyone. Evaluations that already show its results keep them, but cannot run that document again. You cannot replace a saved file. Save a corrected file as a new document.
 
 If a saved original is temporarily unreadable, runs skip that document and continue with the others. **Clear Evaluation** lists unsaved uploads and answer changes before clearing them.
+
+## Use a model for extraction
+
+In a model comparison, Workspace owners and admins can make a candidate’s model the Workspace extraction model. Select **Use for extraction…** on the **Best** candidate, or in any model candidate’s **⋯** menu. Members don’t see this action.
+
+The confirmation shows the current extraction model and the new one. The new model keeps the candidate’s **Direct PDF input** and **Structured output** settings. The gateway URL, API key, call setting, and any separate Template assistant or classification models stay unchanged. Roles without their own model follow the new extraction model. After the change, a notification links to the model settings.
+
+The action is unavailable, with the reason shown in the menu, when:
+
+- the Model gateway isn’t set up, or its saved API key can’t be read
+- the candidate hasn’t run with its current model and input settings
+- the model is already the extraction model with the same settings
+
+Changing Workspace model settings ends runs in open evaluations. To run candidates again, start a new evaluation.
 
 ## How runs behave
 

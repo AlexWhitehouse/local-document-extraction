@@ -113,8 +113,16 @@ An unsaved **Template** proposed by a model from a sample file. The user reviews
 _Avoid_: automatically saved template, extraction result
 
 **Template assistant**:
-The Templates panel for explanations and focused edits to a draft. Evidence, explanations, and proposals are temporary. Opening the panel alone does not call the model. Shared deterministic diagnostics also work in the Evaluation Template editor without a model.
+The panel for explanations and focused edits to a draft, on Templates and in the Evaluation candidate Template editor. Evidence, explanations, and proposals are temporary. Opening the panel alone does not call the model. Selecting a suggested request sends it. Shared deterministic diagnostics also work in the Evaluation Template editor without a model.
 _Avoid_: persistent chat, automatic repair, Evaluation assistant
+
+**Evaluation evidence**:
+One candidate's failing fields, each with its extracted value, the verified Expected answer and the scoring verdict, plus the candidate's identity and accuracy. The browser builds it from verified answers only, within 128 KiB, and attaches it through **Improve failing fields**. For this evidence the model treats verified Expected answers as ground truth.
+_Avoid_: training data, saved results, Evaluation history
+
+**Tested copy**:
+The candidate that **Test changes** adds after applied assistant edits: a copy of the original with the edited Template, run on the original's documents and compared with it. The original never changes. The user keeps or removes the copy.
+_Avoid_: replaced candidate, automatic rerun of the original
 
 **Template change group**:
 An indivisible proposed edit with before/after values, reasons, dependencies, and output-identity effects. **Apply** updates the draft once with the selected valid groups. Save is explicit. Draft, request, target, page, Workspace, or session changes invalidate the proposal. Restoring identical text does not restore validity.
@@ -175,7 +183,10 @@ _Avoid_: demo mode, sample data sandbox
 - URLs determine **Active page** and persisted Document/Template selection. `/workspaces/{workspaceId}` opens the Workspace page. Its `/documents/{jobId}`, `/templates/{templateId}`, `/packets/{packetId}`, and `/evaluations` paths select product views. `/admin` is account-level. `/invitations/{invitationId}` opens a pending invitation. List URLs omit resource IDs; `/templates/new` opens a temporary draft.
 - Explicit URLs take priority over **Stored workspace preference** after authentication and backend access loading. `/` selects the remembered accessible Workspace or first accepted Workspace, then uses its canonical URL. Inaccessible explicit links show recovery without substituting a Workspace or resource. Missing resources keep their URL until the user selects recovery.
 - Browser Back/Forward restores Workspace, page, and resource selection. Packet child tabs use `/workspaces/{workspaceId}/packets/{packetId}/documents/{jobId}` to preserve packet context. Native links permit address copying and separate tabs. Search, filters, sort, and bulk selection remain local. Template links open the current saved version; historical version URLs are unsupported. `/reset-password` retains its token procedure.
-- Navigation within one Workspace preserves Template drafts and temporary Evaluations in memory. Replacing a dirty Template, switching Workspace, or leaving an Evaluation dialog requires confirmation before relevant edits are discarded. Canceling Back/Forward restores the original history entry. Refreshing or leaving the app warns about unsaved Template/Evaluation state without saving it.
+- Navigation within one Workspace preserves temporary Evaluations in memory. Leaving a dirty Template editor (another section, another Template, another Workspace, sign out, Back/Forward), switching Workspace with a temporary Evaluation, or leaving a dirty Evaluation dialog asks "Discard changes?" first. Discard resets the Template editor to its saved state; Keep editing stays put. Canceling Back/Forward restores the original history entry. Saving, and the app's own follow-up navigation after a save, never ask. Refreshing or leaving the app warns about unsaved Template/Evaluation state without saving it.
+- Editors register unsaved edits with `useUnsavedGuard(isDirty, label, { leaves, onDiscard })`. The router guard asks once for every registered editor whose `leaves(route)` is true and calls their `onDiscard` only after every check allows the navigation. The page-unload prompt is installed only while an editor is registered.
+- The Evaluation candidate template editor is dirty once its draft differs from the one it opened with. Cancel, its close button, Escape, the backdrop and in-app navigation then ask before discarding; Save or Apply closes it without asking.
+- **Improve template** on a completed Document opens `/workspaces/{workspaceId}/templates/{templateId}` after the usual discard check. Its prepared assistant request (job evidence, retained original, request text) is held in memory, never in the URL, and is dropped if another Template opens first.
 - **Stored workspace preference** persists accepted **Workspace** selection, not selected **Workspace invitations**.
 - **Stored workspace preference** contains only accepted **Workspace** ID and display name.
 - **Stored workspace preference** may restore an **Accepted workspace entry**, but only when that **Workspace** still appears in the backend workspace list.
@@ -291,6 +302,7 @@ _Avoid_: demo mode, sample data sandbox
 - The frontend may show whether a **Workspace API key** exists, but it must not show existing key material after the one-time display window ends.
 - The **Workspace API key display** section is visible to workspace members, but only owners/admins can generate or rotate **Workspace API keys**.
 - An **Action toast** may report the outcome of actions on Workspaces, Templates, Documents, Workspace invitations, Workspace members, or clipboard content.
+- The member dialog offers Remove user, Make admin, Make member and Make owner as the viewer's role allows. Only the owner sees Make member, and only for admins. Remove user, Make member and Make owner confirm first; Make admin applies immediately. A `workspace_membership_changed` live update reloads accepted Workspace context in open tabs, so a demoted admin loses owner/admin controls without a reload.
 - A **Document upload toast** is a specialized **Action toast** for document queueing outcomes.
 - **Document reconciliation** owns reads, submission, deletion, displayed **Extraction jobs**, selection, pagination, counts, and **Completed document cache**. Its scope is the current session and accepted **Workspace context**.
 - An overlapping Document read preserves changes received after the read started. It merges unaffected rows and schedules one combined refresh for list membership and counts.
@@ -377,6 +389,10 @@ Glossary terms are capitalised in this file. In UI running text, domain nouns (w
 The **Temporary Evaluation result cache** preserves this lifetime. Clear, tab closure, session or access loss, and Workspace changes discard private Evaluation state. Only documents saved explicitly to **Evaluation document library** persist. A selected **Saved Evaluation document** supplies a private working copy of its **Expected answer set**. Changes reach the shared set only through an explicit update with conflict detection.
 
 **Comparison candidates** either share Template fields to compare models, or share model/capabilities to compare editable Templates. Each result records its tested inputs. Later edits require an explicit rerun. Only verified Expected answers provide correctness references. Coverage and matches are separate measures. Table-cell matches are separate from scalar-field matches.
+
+**Accept all answers** is an explicit acceptance of one candidate's output for one document or every document with its result. It writes the working copies in one update and never touches the shared library. Accepted values become verified Expected answers; not found becomes explicit absence. Verified answers that differ, including answers saved for an earlier field type, are kept unless the user opts in to overwrite them. Errors, unreadable values and tables with rows are left for review. Undo restores only answers still holding the accepted value.
+
+**Use for extraction** promotes a tested model candidate to the Workspace extraction model. Only owners and admins see it. It changes only the extraction model name and the candidate's input capabilities through the conditional Workspace model configuration update. The gateway, credential and task-role models are kept. The **Best** marker names one leader by accuracy, table cells, fully reported cost and processing time; an unbroken tie has no leader.
 
 Expected dates default to day/month/year. Users can select month/day/year and inspect the interpreted date before verification. Verification stores ISO dates. Candidate comparison uses day/month/year for ambiguous numeric dates. Equivalent calendar days match across stored and returned formats.
 

@@ -14,7 +14,6 @@ export function useAppNavigation() {
   const accepted = useRef({ location, index: window.history.state?.[HISTORY_KEY] ?? 0 });
   const restoring = useRef(false);
   const guard = useRef(null);
-  const hasUnsavedChanges = useRef(false);
   const navigateRef = useRef(null);
   const approved = useRef(false);
 
@@ -76,18 +75,10 @@ export function useAppNavigation() {
       setLocation(next);
     }
 
-    function onBeforeUnload(event) {
-      if (!hasUnsavedChanges.current) return;
-      event.preventDefault();
-      event.returnValue = "";
-    }
-
     window.addEventListener("popstate", onPopState);
-    window.addEventListener("beforeunload", onBeforeUnload);
 
     return () => {
       window.removeEventListener("popstate", onPopState);
-      window.removeEventListener("beforeunload", onBeforeUnload);
     };
   }, []);
 
@@ -128,6 +119,5 @@ export function useAppNavigation() {
     location,
     navigate,
     guard,
-    hasUnsavedChanges,
   };
 }

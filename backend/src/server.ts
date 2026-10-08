@@ -16,7 +16,7 @@ import { localBrowserOrigin, readLocalConfiguration, publicLocalConfiguration } 
 import { createLocalAuthRuntime } from "./localAuthRuntime";
 import { setLocalAuthRequestPeerAddress } from "./localAuthClientAddress";
 import { localDocumentRequestBodyLimit, localDocumentServerBodyLimit } from "./localDocumentBodyLimit";
-import { createLocalExtractionQueue } from "./localExtractionQueue";
+import { createLocalExtractionQueue, type LocalQueuedExtractionJob } from "./localExtractionQueue";
 import { createLocalExtractionRunner } from "./localExtractionRunner";
 import { createLocalLiveUpdateHub } from "./localLiveUpdateHub";
 import { LOCAL_LIVE_UPDATE_WEBSOCKET_POLICY } from "./localLiveUpdatePolicy";
@@ -34,6 +34,7 @@ import { createLocalSubmissionAdmission } from "./localSubmissionAdmission";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
+import { createLocalWorkspaceConcurrencyLimits } from "./localWorkspaceConcurrency";
 
 const configuration = readLocalConfiguration();
 
@@ -148,28 +149,44 @@ const localAuth = await createLocalAuthRuntime({
   stateDirectory,
 });
 
+// The scheduler consults this on every pass; saves, clears and deletion invalidate it.
+const workspaceConcurrencyLimits = createLocalWorkspaceConcurrencyLimits({
+  read: (workspaceId) => {
+    const lease = localProductStoreRegistry.acquire({ workspaceId, mode: "existing" });
+
+    if (!lease) return null;
+
+    try {
+      return lease.store.getModelConfiguration()?.sequential_calls ? 1 : Number.MAX_SAFE_INTEGER;
+    } finally {
+      lease.release();
+    }
+  },
+});
+
 const localExtractionQueue = createLocalExtractionQueue({
   maxBuffered: extractionMaxBuffered,
   maxWaiting: Number(process.env.GO_MODEL_CONCURRENCY ?? extractionMaxConcurrency),
   maxConcurrent: extractionMaxConcurrency,
-  getWorkspaceMaxConcurrent: (workspaceId) => {
-    try {
-      const lease = localProductStoreRegistry.acquire({ workspaceId, mode: "existing" });
-
-      if (!lease) return 1;
-
-      try {
-        return lease.store.getModelConfiguration()?.sequential_calls ? 1 : Number.MAX_SAFE_INTEGER;
-      } finally {
-        lease.release();
-      }
-    } catch {
-      return 1;
-    }
-  },
+  getWorkspaceMaxConcurrent: workspaceConcurrencyLimits.get,
   onWorkspaceIdle: (workspaceId) => refillExtraction(workspaceId),
   onCapacityAvailable: () => refillExtraction(),
 });
+
+// Workspaces that may hold queued, retrying or processing work, for periodic reconciliation.
+const pendingExtractionWorkspaceIds = new Set<string>();
+
+// Every admission path records its Workspace before the memory queue, which may defer or drop it.
+const scheduleExtraction = (job: LocalQueuedExtractionJob) => {
+  pendingExtractionWorkspaceIds.add(job.workspace_id);
+
+  return localExtractionQueue.schedule(job);
+};
+
+const forgetWorkspace = (workspaceId: string) => {
+  workspaceConcurrencyLimits.invalidate(workspaceId);
+  pendingExtractionWorkspaceIds.delete(workspaceId);
+};
 
 const localLiveUpdateHub = createLocalLiveUpdateHub();
 
@@ -263,7 +280,11 @@ const localWorkspaceDeletion = createLocalWorkspaceDeletion({
   workspaceProductOperations: localWorkspaceProductOperations,
   productStoreRegistry: localProductStoreRegistry,
   sourceObjectManifest,
-  onWorkspaceAccessRevoked: localLiveUpdateHub.broadcastWorkspaceContextInvalidation,
+  onWorkspaceAccessRevoked: (event) => {
+    workspaceConcurrencyLimits.invalidate(event.workspaceId);
+    localLiveUpdateHub.broadcastWorkspaceContextInvalidation(event);
+  },
+  onWorkspaceErased: forgetWorkspace,
 });
 
 await localWorkspaceDeletion.reconcileInterruptedDeletions();
@@ -275,7 +296,7 @@ const goProcessor = await startGoProcessor(process.env.GO_PROCESSOR_BINARY || de
   sourceObjects: retainedSourceObjects,
   timeoutMs: configuration.modelGatewayRequestTimeoutMs,
   retryDelayMs: extractionRetryDelayMs,
-  schedule: localExtractionQueue.schedule,
+  schedule: scheduleExtraction,
   notify: localLiveUpdateHub.broadcastJob,
   observes: localLiveUpdateHub.observes,
   completed: () => localResourceController.recordCompletedJob(),
@@ -284,6 +305,7 @@ const goProcessor = await startGoProcessor(process.env.GO_PROCESSOR_BINARY || de
 
 const localExtractionRunner = createLocalExtractionRunner({
   execute: goProcessor.run,
+  pendingWorkspaceIds: pendingExtractionWorkspaceIds,
   scheduleJob: localExtractionQueue.schedule,
   stateDirectory,
   workspaceControl: localAuth.workspaceControl,
@@ -304,6 +326,9 @@ function refillExtraction(workspaceId?: string): Promise<void> {
 }
 
 await retireGlobalModelConfiguration(stateDirectory);
+
+// Retirement can write Workspace model configuration directly.
+workspaceConcurrencyLimits.clear();
 
 await localExtractionRunner.recover();
 
@@ -407,8 +432,9 @@ const application = createLocalApplication({
   liveUpdateHub: localLiveUpdateHub,
   maxSourceFileBytes,
   maxJsonRequestBytes,
+  onWorkspaceModelConfigurationChanged: workspaceConcurrencyLimits.invalidate,
   productAnalytics: localProductAnalytics,
-  scheduleQueuedJob: localExtractionQueue.schedule,
+  scheduleQueuedJob: scheduleExtraction,
   sourceFileStore: localSourceFiles,
   sourceStorage: configuration.sourceStorage,
   sourceObjects: retainedSourceObjects,

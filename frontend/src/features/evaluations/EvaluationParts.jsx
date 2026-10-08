@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { candidateBusy } from "./useEvaluations.js";
 import { normalizeReferenceDates, scalarValue, validateReference } from "./evaluationScoring.js";
 import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
@@ -164,6 +164,7 @@ function RunDetails({ candidate }) {
 // Rarely used candidate controls live in a popover so the column head stays compact.
 export function CandidateMenu({ label, candidate, inputs, onInputChange, actions }) {
   const [open, setOpen] = useState(false);
+  const hintId = useId();
 
   return (
     <Popover
@@ -203,13 +204,14 @@ export function CandidateMenu({ label, candidate, inputs, onInputChange, actions
         <p className="evaluation-menu-title">Run details</p>
         <RunDetails candidate={candidate} />
         <div className="evaluation-menu-actions">
-          {actions.flatMap((action) =>
+          {actions.flatMap((action, index) =>
             action
               ? [
                   <Button
                     key={action.label}
                     variant={action.danger ? "danger-text" : "text"}
                     disabled={action.disabled}
+                    aria-describedby={action.hint ? `${hintId}-${index}` : undefined}
                     onClick={() => {
                       setOpen(false);
                       action.onClick();
@@ -217,6 +219,12 @@ export function CandidateMenu({ label, candidate, inputs, onInputChange, actions
                   >
                     {action.label}
                   </Button>,
+                  // Says why an action is unavailable, next to it.
+                  action.hint && (
+                    <small key={`${action.label}-hint`} id={`${hintId}-${index}`} className="evaluation-menu-hint">
+                      {action.hint}
+                    </small>
+                  ),
                 ]
               : [],
           )}
