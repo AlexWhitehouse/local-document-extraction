@@ -122,6 +122,17 @@ export default tseslint.config(
         "error",
         { name: "sonner", message: "Report outcomes through lib/notify.js so every toast uses the shared messages." },
       ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXExpressionContainer > MemberExpression[property.name='message'][object.name=/^(error|err|e|failure|reason)$/]",
+          message: "Don't render raw error messages; use describeError from lib/describeError.js.",
+        },
+        {
+          selector: "JSXExpressionContainer > ChainExpression > MemberExpression[property.name='message'][object.name=/^(error|err|e|failure|reason)$/]",
+          message: "Don't render raw error messages; use describeError from lib/describeError.js.",
+        },
+      ],
     },
   },
   {

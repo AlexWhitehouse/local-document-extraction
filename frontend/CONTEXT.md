@@ -363,8 +363,12 @@ _Avoid_: demo mode, sample data sandbox
 ## Flagged Ambiguities
 
 - Use **Workspace selection view** for frontend presentation and **Workspace context** for backend-defined access. "Workspace state" can also refer to local storage and is ambiguous.
-- The old "default workspace" represented a synthetic frontend ID. Use **Loading workspace context** until an accepted backend **Workspace** is available.
-- Use **Document** for supported PDFs and images. Use **Source file** for the submitted binary. The older term "image" does not cover all supported formats.
+- The old "default workspace" represented a synthetic frontend ID. Until an accepted backend **Workspace** is available, the UI shows a loading state and omits the workspace breadcrumb.
+- Use **Document** for supported PDFs and images. Code and docs may say **Source file** for the submitted binary, but UI text says "file" only for bytes being picked and "original" for the retained file. The older term "image" does not cover all supported formats.
+
+## UI copy
+
+Glossary terms are capitalised in this file. In UI running text, domain nouns (workspace, template, document, evaluation, expected answer, packet) are lowercase except at the start of a sentence or label. UI text uses UK spelling and sentence case. `docs/agents/ui-guidelines.md` holds the full terminology table and copy rules, including Table columns, versions shown as "v3", the Verify, Unverify and Delete answer verbs, Needs template, Completed, Queued and Try again.
 
 ## Evaluations
 

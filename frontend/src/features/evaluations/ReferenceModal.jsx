@@ -563,7 +563,7 @@ function ReferenceEditor({
         )}
         {table && error && !error.column && !showError("rows") && (
           <p role="alert" className="form-error">
-            {error.message}
+            {validationText(error)}
           </p>
         )}
         <div className="actions">
@@ -582,4 +582,10 @@ function ReferenceEditor({
       </div>
     </ModalDialog>
   );
+}
+
+// Reference problems come from the local validator (referenceProblem), so their
+// text is written for people and safe to show as-is.
+function validationText(problem) {
+  return problem.message;
 }

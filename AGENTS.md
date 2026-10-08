@@ -39,6 +39,10 @@
 
 Follow the enforced anti-slop policy in `docs/agents/anti-slop.md`. `bun run lint` checks both existing ESLint rules and the vendored anti-slop rules.
 
+### UI guidelines
+
+Frontend changes follow `docs/agents/ui-guidelines.md`, which covers the feedback policy, shared components, tokens, copy rules and terminology. Lint enforces some of it: no native dialogs, no `sonner` imports outside `lib/notify.js`, no raw `error.message` in JSX, and no colour or z-index literals outside `:root`.
+
 ### Issue tracker
 
 Issues and PRDs are local Markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
