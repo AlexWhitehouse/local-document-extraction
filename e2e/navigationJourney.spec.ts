@@ -75,7 +75,7 @@ test("authorized links restore through sign-in, refresh, new tabs and browser hi
     await loginPage.goto(`${harness.origin}/workspaces/${workspace}/templates/deleted`);
     await expect(loginPage.getByText(/This Template is unavailable/)).toBeVisible();
     await loginPage.goto(`${harness.origin}/invalid/route`);
-    await expect(loginPage.getByRole("heading", { name: "Page not found." })).toBeVisible();
+    await expect(loginPage.getByRole("heading", { name: "Page not found" })).toBeVisible();
   } finally {
     await loginContext.close();
     await page.close();

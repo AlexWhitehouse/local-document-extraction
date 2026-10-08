@@ -60,9 +60,24 @@ function actionButton(name) {
   return accountDetails().queryByRole("button", { name });
 }
 
+// Destructive and rare actions sit in the "More actions" menu; this returns whichever control holds the action.
+async function userActionItem(user, actionName) {
+  const inline = actionButton(actionName);
+
+  if (inline) return inline;
+
+  const more = accountDetails().queryByRole("button", { name: "More actions" });
+
+  if (!more) return null;
+
+  await user.click(more);
+
+  return screen.queryByRole("menuitem", { name: actionName });
+}
+
 async function clickUserAction(user, email, actionName) {
   await selectAccount(user, email);
-  await user.click(actionButton(actionName));
+  await user.click(await userActionItem(user, actionName));
 }
 
 // Confirmations render as an in-app alertdialog; the action button is scoped to it.
@@ -244,8 +259,8 @@ describe("Application admin page gate", () => {
 
     await selectAccount(user, "ada@example.com");
     expect(accountDetails().getByText("Your account")).toBeTruthy();
-    expect(actionButton("Remove admin")).toBeNull();
-    expect(actionButton("Ban user")).toBeNull();
+    expect(await userActionItem(user, "Remove admin")).toBeNull();
+    expect(await userActionItem(user, "Ban user")).toBeNull();
     await clickUserAction(user, "grace@example.com", "Remove admin");
 
     expect(
@@ -309,7 +324,7 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
 
     await selectAccount(user, "ada@example.com");
-    expect(actionButton("Ban user")).toBeNull();
+    expect(await userActionItem(user, "Ban user")).toBeNull();
     await clickUserAction(user, "grace@example.com", "Ban user");
 
     expect(screen.getByRole("dialog", { name: "Ban grace@example.com" })).toBeTruthy();
@@ -550,7 +565,7 @@ describe("Application admin page gate", () => {
     );
 
     render(<App createAuthClient={createAuthClient} notifications={toast} />);
-    expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
+    expect(await screen.findByText("Workspaces couldn't be loaded.")).toBeTruthy();
     await user.click(await screen.findByRole("link", { name: /^Admin$/ }));
 
     expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
@@ -566,7 +581,7 @@ describe("Application admin page gate", () => {
     expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Accounts" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Account list" })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Workspace toolbar" })).toBeNull();
+    expect(screen.queryByRole("banner", { name: "Workspace overview" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Create user" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete user" })).toBeNull();

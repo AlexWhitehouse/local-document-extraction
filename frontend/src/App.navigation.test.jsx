@@ -249,7 +249,8 @@ describe("stable app navigation", () => {
   it("keeps a deleted Document URL on recovery and allows returning to the list", async () => {
     open("/workspaces/a/documents/first");
     await screen.findByText("Value first");
-    await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Delete document" }));
     await userEvent.click(await screen.findByRole("button", { name: "Delete document" }));
     await screen.findByText(/This Document is unavailable/);
     expect(window.location.pathname).toBe("/workspaces/a/documents/first");
@@ -305,7 +306,7 @@ describe("stable app navigation", () => {
       failed && path === "/v1/workspaces" ? response({ error: "unavailable" }, 503) : fetch(path, options),
     );
     open("/workspaces/b/templates/two");
-    await screen.findByRole("heading", { name: "Workspace could not be loaded. Try again." });
+    await screen.findByText("Workspace could not be loaded. Try again.");
     failed = false;
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template two"));
@@ -316,7 +317,7 @@ describe("stable app navigation", () => {
     "handles invalid route %s",
     async (path) => {
       open(path);
-      await screen.findByRole("heading", { name: "Page not found." });
+      await screen.findByRole("heading", { name: "Page not found" });
       expect(screen.queryByLabelText("Template name")).toBeNull();
     },
   );

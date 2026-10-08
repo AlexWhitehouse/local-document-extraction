@@ -31,7 +31,6 @@ export async function signUpAndVerify(page: Page, harness: RuntimeHarness, accou
   const verificationMail = await harness.waitForVerificationMail(account.email);
   await page.goto(verificationMail.actionUrl);
   await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
-  await expect(page.getByText("API Ready", { exact: true }).first()).toBeVisible();
 }
 
 export async function saveModelGateway(page: Page, harness: RuntimeHarness, modelName: string): Promise<void> {

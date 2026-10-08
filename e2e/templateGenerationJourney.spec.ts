@@ -87,9 +87,10 @@ test("generate a template from a sample, review the draft, then explicitly save"
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatch(/^go-processing-\d+-pages-[a-zA-Z0-9]+$/);
     expect(await readdir(join(submissions, entries[0]!))).toEqual([]);
-    await page.getByRole("button", { name: "View JSON" }).scrollIntoViewIfNeeded();
+    await page.locator(".ui-page-header").scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("template-field-actions.png"), fullPage: true });
-    await page.getByRole("button", { name: "View JSON" }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
     const jsonDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
     const json = JSON.parse(await jsonDialog.getByRole("textbox", { name: "Template JSON", exact: true }).inputValue());
     expect(json.fields[1].object_schema.columns).toHaveLength(2);

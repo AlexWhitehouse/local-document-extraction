@@ -67,7 +67,7 @@ export function WorkspaceContextList({
                         : undefined
                     }
                     className={itemClassName.replace("context-item-card", "context-item-main")}
-                    aria-current={isActive ? "true" : undefined}
+                    data-context-select aria-current={isActive ? "true" : undefined}
                     onClick={() => {
                       if (workspace.type === "invitation") {
                         onSelectInvitedWorkspace(workspace);

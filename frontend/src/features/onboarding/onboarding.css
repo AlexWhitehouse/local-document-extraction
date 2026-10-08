@@ -1,13 +1,14 @@
 .tour-invitation {
-  margin: 0 0 14px;
-  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px 12px;
+  padding: 8px;
   border: 1px solid var(--rule-strong);
   border-top: 2px solid var(--accent);
   background: var(--pane-raised);
 }
-.tour-invitation strong { display: block; margin: 8px 0; color: var(--text-0); font: 500 var(--font-size-5)/1.35 var(--font-body); }
-.tour-invitation p { color: var(--text-2); font-size: var(--font-size-4); line-height: 1.6; }
-.tour-invitation button { width: 100%; margin-top: 6px; }
+.tour-invitation > button:first-child { flex: 1 1 auto; min-width: 0; }
 /* The collapsed rail has no room for the card; the tour stays available from Settings. */
 @media (width > 1120px) { .sidebar-collapsed .tour-invitation { display: none; } }
 /* Hold the card back until the expanding rail is wide enough for its text. */

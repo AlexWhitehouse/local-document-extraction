@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { CreateTemplateSplitButton } from "../templates/CreateTemplateSplitButton.jsx";
 import { NavigationLink } from "../context/NavigationLink.jsx";
-import { Button, IconButton } from "../ui/Button.jsx";
+import { IconButton } from "../ui/Button.jsx";
+import { Tooltip } from "../ui/Tooltip.jsx";
+import { ContextDrawerContext } from "./ContextDrawerContext.js";
 import {
   AdminIcon,
   DocumentIcon,
@@ -39,6 +40,7 @@ export function MainLayout({
   onUploadDocument,
   profileSlot,
   contextSidebar,
+  contextListLabel = "",
   showAdminNavigation = false,
   impersonationSlot = null,
   children,
@@ -49,6 +51,7 @@ export function MainLayout({
   const mainRef = useRef(null);
   useContentFade(mainRef, activePage, contentSelection);
   const isOnline = useOnlineStatus();
+  const contextDrawer = useContextDrawer(Boolean(contextSidebar));
 
   const connectivityMessage = !isOnline
     ? "You're offline"
@@ -56,71 +59,178 @@ export function MainLayout({
       ? "Live updates paused, reconnecting…"
       : "";
 
+  const uploadButton = (
+    <button
+      type="button"
+      className="sidebar-upload-button"
+      data-tour="upload-open"
+      aria-disabled={isModelSetupRequired ? "true" : undefined}
+      title={isSidebarCollapsed ? undefined : isModelSetupRequired ? MODEL_SETUP_MESSAGE : undefined}
+      disabled={isUploadDisabled}
+      onClick={isModelSetupRequired ? () => onNavigate("workspace") : onUploadDocument}
+    >
+      <span className="sidebar-upload-icon" aria-hidden="true">
+        <UploadIcon />
+      </span>
+      <span className="sidebar-upload-label">Upload documents</span>
+    </button>
+  );
+
+  // The collapsed rail shows the label as a tooltip; the button keeps its name.
+  const uploadControl = isSidebarCollapsed ? (
+    <Tooltip
+      content={isModelSetupRequired ? MODEL_SETUP_MESSAGE : "Upload documents"}
+      placement="right"
+      describe={isModelSetupRequired}
+    >
+      {uploadButton}
+    </Tooltip>
+  ) : (
+    uploadButton
+  );
+
+  const drawerValue = contextSidebar ? { ...contextDrawer, label: contextListLabel } : null;
+
   return (
-    <div className={isSidebarCollapsed ? "app-frame sidebar-collapsed" : "app-frame"}>
-      <aside className="left-sidebar">
-        <div className="sidebar-brand">
-          <div className="sidebar-brand-text">
-            <p className="eyebrow">Document Extraction</p>
-            <h1>Studio</h1>
+    <ContextDrawerContext.Provider value={drawerValue}>
+      <div className={isSidebarCollapsed ? "app-frame sidebar-collapsed" : "app-frame"}>
+        <aside className="left-sidebar">
+          <div className="sidebar-brand">
+            <div className="sidebar-brand-text">
+              <p className="eyebrow">Document Extraction</p>
+              <h1>Studio</h1>
+            </div>
+            <span className="sidebar-brand-mark" aria-hidden="true">
+              DX
+            </span>
+            <IconButton
+              label={collapseLabel}
+              title={`${collapseLabel} ([)`}
+              icon={SidebarIcon}
+              size="sm"
+              className="sidebar-collapse-toggle"
+              aria-expanded={!isSidebarCollapsed}
+              onClick={toggleSidebar}
+            />
           </div>
-          <span className="sidebar-brand-mark" aria-hidden="true">
-            DX
-          </span>
-          <IconButton
-            label={collapseLabel}
-            title={`${collapseLabel} ([)`}
-            icon={SidebarIcon}
-            size="sm"
-            className="sidebar-collapse-toggle"
-            aria-expanded={!isSidebarCollapsed}
-            onClick={toggleSidebar}
+
+          <SidebarNavigation
+            activePage={activePage}
+            counts={counts}
+            isCollapsed={isSidebarCollapsed}
+            showAdminNavigation={showAdminNavigation}
+            onNavigate={onNavigate}
+            navigationHref={navigationHref}
           />
-        </div>
 
-        <SidebarNavigation
-          activePage={activePage}
-          counts={counts}
-          showAdminNavigation={showAdminNavigation}
-          onNavigate={onNavigate}
-          navigationHref={navigationHref}
-        />
+          {uploadControl}
 
-        <button
-          type="button"
-          className="sidebar-upload-button"
-          data-tour="upload-open"
-          aria-disabled={isModelSetupRequired ? "true" : undefined}
-          title={isModelSetupRequired ? MODEL_SETUP_MESSAGE : undefined}
-          disabled={isUploadDisabled}
-          onClick={isModelSetupRequired ? () => onNavigate("workspace") : onUploadDocument}
-        >
-          <span className="sidebar-upload-icon" aria-hidden="true">
-            <UploadIcon />
-          </span>
-          <span className="sidebar-upload-label">Upload documents</span>
-        </button>
+          <div className="sidebar-spacer" aria-hidden="true" />
 
-        <div className="sidebar-spacer" aria-hidden="true" />
+          <div className="sidebar-footer">{profileSlot}</div>
+        </aside>
 
-        <div className="sidebar-footer">{profileSlot}</div>
-      </aside>
-
-      {contextSidebar}
-
-      <main ref={mainRef} className={`main-content ${contentClassName}`}>
-        {connectivityMessage ? (
-          <div role="status" className="connectivity-banner">
-            {connectivityMessage}
+        {contextSidebar ? (
+          <div
+            ref={contextDrawer.hostRef}
+            className="context-drawer-host"
+            onClick={(event) => {
+              // Picking a row in the list closes the drawer so the page underneath is visible.
+              if (event.target.closest?.("[data-context-select]")) contextDrawer.close();
+            }}
+          >
+            {contextDrawer.isOpen ? (
+              <button
+                type="button"
+                className="context-drawer-scrim"
+                tabIndex={-1}
+                aria-hidden="true"
+                onClick={contextDrawer.close}
+              />
+            ) : null}
+            {contextSidebar}
           </div>
         ) : null}
-        {impersonationSlot}
-        {children}
-      </main>
 
-      {modalSlot}
-    </div>
+        <main ref={mainRef} className={`main-content ${contentClassName}`}>
+          {connectivityMessage ? (
+            <div role="status" className="connectivity-banner">
+              {connectivityMessage}
+            </div>
+          ) : null}
+          {impersonationSlot}
+          {children}
+        </main>
+
+        {modalSlot}
+      </div>
+    </ContextDrawerContext.Provider>
   );
+}
+
+// The context list drawer below 1120px: open state, focus in on open, focus back to the
+// toggle on close, Escape to close, and close after picking a row or widening the window.
+function useContextDrawer(hasContextList) {
+  const [isOpen, setIsOpen] = useState(false);
+  const hostRef = useRef(null);
+  const openerRef = useRef(null);
+  const wasOpenRef = useRef(false);
+
+  // The toggle is the trigger; focus returns to it when the drawer closes.
+  const open = useCallback((trigger) => {
+    openerRef.current = trigger instanceof Element ? trigger : document.activeElement;
+    setIsOpen(true);
+  }, []);
+
+  const close = useCallback(() => setIsOpen(false), []);
+
+  const toggle = useCallback((event) => (isOpen ? close() : open(event?.currentTarget)), [isOpen, close, open]);
+
+  useEffect(() => {
+    if (!hasContextList) setIsOpen(false);
+  }, [hasContextList]);
+
+  useEffect(() => {
+    if (isOpen) {
+      // The search field comes first when the list has one; otherwise the first control.
+      const drawerEl = hostRef.current?.querySelector(".context-sidebar");
+      const target = drawerEl?.querySelector("input:not(:disabled)") ?? drawerEl?.querySelector("button:not(:disabled)");
+
+      target?.focus();
+    } else if (wasOpenRef.current && openerRef.current?.isConnected) {
+      openerRef.current.focus();
+    }
+
+    wasOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    function onKeyDown(event) {
+      if (event.key === "Escape") close();
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, close]);
+
+  useEffect(() => {
+    const media = window.matchMedia?.("(width > 1120px)");
+
+    if (!media?.addEventListener) return undefined;
+
+    const onChange = (event) => {
+      if (event.matches) setIsOpen(false);
+    };
+
+    media.addEventListener("change", onChange);
+
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  return { isOpen, hostRef, open, close, toggle };
 }
 
 // Tracks the browser's network state; the banner clears as soon as the browser reports it back.
@@ -204,7 +314,7 @@ function useSidebarCollapsed() {
   return [isCollapsed, toggle];
 }
 
-function SidebarNavigation({ activePage, counts, showAdminNavigation, onNavigate, navigationHref }) {
+function SidebarNavigation({ activePage, counts, isCollapsed, showAdminNavigation, onNavigate, navigationHref }) {
   const items = [...SIDEBAR_ITEMS, ...(showAdminNavigation ? [ADMIN_SIDEBAR_ITEM] : [])];
 
   return (
@@ -212,172 +322,32 @@ function SidebarNavigation({ activePage, counts, showAdminNavigation, onNavigate
       {items.map((item) => {
         const ItemIcon = item.icon;
 
-        // The label doubles as the tooltip when the rail is collapsed, and it names the link.
-        return (
+        const link = (
           <NavigationLink
             key={item.id}
             data-tour={`nav-${item.id}`}
             href={navigationHref?.(item.id)}
             className={item.id === activePage ? "sidebar-link active" : "sidebar-link"}
             aria-current={item.id === activePage ? "page" : undefined}
-            title={item.label}
             onClick={() => onNavigate(item.id)}
           >
             <span className="sidebar-link-icon" aria-hidden="true">
               <ItemIcon />
             </span>
-          <span className="sidebar-link-label">{item.label}</span>
+            <span className="sidebar-link-label">{item.label}</span>
             {item.id === "admin" ? null : <span className="sidebar-link-count">{counts[item.id] ?? ""}</span>}
           </NavigationLink>
         );
+
+        // The collapsed rail shows the label as a tooltip; the link keeps the label as its name.
+        return isCollapsed ? (
+          <Tooltip key={item.id} content={item.label} placement="right" describe={false}>
+            {link}
+          </Tooltip>
+        ) : (
+          link
+        );
       })}
     </nav>
-  );
-}
-
-export function WorkspaceToolbar({
-  actions,
-  activePage,
-  workspaceLabel,
-  pageTitle,
-  pageDescription,
-  isWorkspaceInvitationSelected,
-  hasApiAccess,
-  workspaceId,
-  workspacePrimaryAction,
-  isDeletingWorkspace,
-  isCreatingWorkspace = false,
-  isDeletingTemplate,
-  isDeletingDocument,
-  isExportingDocuments = false,
-  selectedDocumentId,
-  selectedDocumentCount = 0,
-  exportableDocumentCount = 0,
-  updateTemplateId,
-  onCreateTemplate,
-  onAutoGenerateTemplate,
-  onCreateWorkspace,
-  onViewCosts,
-  onExportDocuments,
-  onWorkspacePrimaryAction,
-  onDeleteTemplate,
-  onOpenJsonModal,
-  onDeleteDocument,
-  canDownloadOriginal = false,
-  isDownloadingOriginal = false,
-  onDownloadOriginal,
-}) {
-  const exportHint =
-    exportableDocumentCount === 0
-      ? "Select a completed or failed document to export"
-      : selectedDocumentCount > exportableDocumentCount
-        ? `${exportableDocumentCount} of ${selectedDocumentCount} selected documents are ready to export. In-progress documents will be skipped.`
-        : undefined;
-
-  return (
-    <header className="studio-page-heading" aria-label="Workspace toolbar">
-      <p className="studio-eyebrow">
-        {activePage === "workspace"
-          ? "Workspaces / Overview"
-          : `${workspaceLabel} / ${activePage === "templates" ? "Templates" : activePage === "evaluations" ? "Evaluations" : "Documents"}`}
-      </p>
-      <h1 title={pageTitle}>{pageTitle}</h1>
-      <div className="studio-heading-actions">
-        {actions ??
-          (activePage === "documents" ? (
-            <>
-              {canDownloadOriginal ? (
-                <Button
-                  variant="secondary"
-                  disabled={!hasApiAccess}
-                  pending={isDownloadingOriginal}
-                  pendingLabel="Downloading…"
-                  onClick={onDownloadOriginal}
-                >
-                  Download
-                </Button>
-              ) : null}
-              <Button
-                variant="secondary"
-                disabled={!hasApiAccess || isDeletingDocument || exportableDocumentCount === 0}
-                pending={isExportingDocuments}
-                pendingLabel="Exporting…"
-                title={exportHint}
-                onClick={onExportDocuments}
-              >
-                {selectedDocumentCount ? `Export ${selectedDocumentCount}` : "Export"}
-              </Button>
-              <Button
-                variant="danger"
-                disabled={!hasApiAccess || isExportingDocuments || (!selectedDocumentCount && !selectedDocumentId)}
-                pending={isDeletingDocument}
-                pendingLabel="Deleting…"
-                onClick={onDeleteDocument}
-              >
-                {selectedDocumentCount ? `Delete ${selectedDocumentCount}` : "Delete"}
-              </Button>
-            </>
-          ) : (
-            <>
-              {activePage === "workspace" && onViewCosts ? (
-                <Button variant="secondary" onClick={onViewCosts}>
-                  Costs
-                </Button>
-              ) : null}
-              {activePage === "templates" ? (
-                <CreateTemplateSplitButton
-                  disabled={!hasApiAccess}
-                  onCreate={onCreateTemplate}
-                  onAutoGenerate={onAutoGenerateTemplate}
-                />
-              ) : (
-                <Button
-                  variant="secondary"
-                  data-tour="create-workspace"
-                  pending={isCreatingWorkspace}
-                  pendingLabel="Creating…"
-                  onClick={onCreateWorkspace}
-                >
-                  Create workspace
-                </Button>
-              )}
-              {activePage === "workspace" && !isWorkspaceInvitationSelected ? (
-                <Button
-                  variant="danger"
-                  className="toolbar-destructive-action"
-                  disabled={
-                    isDeletingWorkspace ||
-                    !hasApiAccess ||
-                    !workspaceId.trim() ||
-                    workspacePrimaryAction.type === "none"
-                  }
-                  pending={isDeletingWorkspace}
-                  pendingLabel={workspacePrimaryAction.type === "leave" ? "Leaving…" : "Deleting…"}
-                  onClick={onWorkspacePrimaryAction}
-                >
-                  {workspacePrimaryAction.label || "Delete workspace"}
-                </Button>
-              ) : activePage === "templates" ? (
-                <>
-                  <Button variant="ghost" disabled={isDeletingTemplate || !hasApiAccess} onClick={onOpenJsonModal}>
-                    View JSON
-                  </Button>
-                  <Button
-                    variant="danger"
-                    className="toolbar-destructive-action"
-                    disabled={isDeletingTemplate || !hasApiAccess || !updateTemplateId.trim()}
-                    pending={isDeletingTemplate}
-                    pendingLabel="Deleting…"
-                    onClick={onDeleteTemplate}
-                  >
-                    Delete template
-                  </Button>
-                </>
-              ) : null}
-            </>
-          ))}
-      </div>
-      <p className="studio-page-description">{pageDescription}</p>
-    </header>
   );
 }

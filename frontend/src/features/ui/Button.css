@@ -35,11 +35,6 @@ button.icon-button-danger:hover:not(:disabled) {
   color: var(--tone-danger-text);
 }
 
-/* Destructive page actions sit apart from Create and other routine actions. */
-button.toolbar-destructive-action {
-  margin-left: 12px;
-}
-
 /* Buttons that hold an icon centre it with the label. */
 button:has(> svg) {
   display: inline-flex;

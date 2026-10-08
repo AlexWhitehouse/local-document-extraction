@@ -206,7 +206,10 @@ button.studio-text-button.studio-destructive { color: var(--tone-danger-text); }
   .studio-heading-actions button { font-size: var(--font-size-2); padding-inline: 7px; }
   .studio-invite-form { grid-template-columns: minmax(0, 1fr) 100px; }
   .studio-user-role small { display: none; }
-  .field-studio { grid-template-columns: 115px minmax(0, 1fr); }
+  /* Too narrow for side-by-side: the field list stacks above the field editor. */
+  .field-studio { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: auto; }
+  .field-nav { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--rule); }
+  .field-detail { padding: 14px 0 0; }
   .field-nav-item { grid-template-columns: minmax(0, 1fr); }
   .studio-row-number { display: none; }
 }

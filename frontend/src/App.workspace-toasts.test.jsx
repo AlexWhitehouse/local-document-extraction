@@ -68,7 +68,7 @@ describe("Workspace action toast feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: /Research Workspace/ })).toBeTruthy();
+      expect(listLink(/Research Workspace/)).toBeTruthy();
     });
 
     expect(lastStoredWorkspacePreference()).toEqual({
@@ -87,7 +87,8 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    expect(screen.getByRole("heading", { name: "Loading workspace context" })).toBeTruthy();
+    expect(screen.queryByText(/Loading workspace context/)).toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).queryByRole("link")).toBeNull();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
     expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "Invite user" }).disabled).toBe(true);
@@ -103,7 +104,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
+    expect(await screen.findByText("Workspaces couldn't be loaded.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.queryByText(/Stored Workspace/)).toBeNull();
     expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
@@ -139,7 +140,7 @@ describe("Workspace action toast feedback", () => {
       render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
     });
 
-    expect(screen.getByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
+    expect(listLink(/Remaining Workspace/)).toBeTruthy();
     expect(screen.getByText(/Workspace or invitation is unavailable/)).toBeTruthy();
     expect(window.location.pathname).toBe("/workspaces/ws_removed");
     expect(toastMock.success).not.toHaveBeenCalledWith("Workspace access changed. Switched to Remaining Workspace.", expect.anything());
@@ -195,7 +196,7 @@ describe("Workspace action toast feedback", () => {
       await Promise.resolve();
     });
 
-    expect(await screen.findByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
+    expect(await screen.findAllByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
     expect(screen.getByText(/Workspace or invitation is unavailable/)).toBeTruthy();
     expect(window.location.pathname).toBe("/workspaces/ws_1");
     expect(toastMock.success).not.toHaveBeenCalledWith("Workspace access changed. Switched to Remaining Workspace.", expect.anything());
@@ -381,7 +382,7 @@ describe("Workspace action toast feedback", () => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace created: New Workspace", expect.anything());
     });
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: /New Workspace/ }).className).toContain("active");
+      expect(listLink(/New Workspace/).className).toContain("active");
     });
   });
 
@@ -404,10 +405,10 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Documents/ }));
+    await user.click(navLink(/Documents/));
     expect(await screen.findByRole("heading", { name: "invoice.pdf" })).toBeTruthy();
 
-    await user.click(screen.getByRole("link", { name: /Workspaces/ }));
+    await user.click(navLink(/Workspaces/));
     await user.clear(screen.getByLabelText("Workspace name"));
     await user.type(screen.getByLabelText("Workspace name"), "Clinical Workspace");
     await user.click(screen.getByRole("button", { name: "Save name" }));
@@ -417,7 +418,7 @@ describe("Workspace action toast feedback", () => {
     });
     expect(screen.getByRole("link", { name: "Documents1" })).toBeTruthy();
 
-    await user.click(screen.getByRole("link", { name: /Documents/ }));
+    await user.click(navLink(/Documents/));
     expect(screen.getByRole("heading", { name: "invoice.pdf" })).toBeTruthy();
   });
 
@@ -442,9 +443,9 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await screen.findByRole("link", { name: /Research Workspace/ });
+    await screen.findAllByRole("link", { name: /Research Workspace/ });
 
-    await user.click(screen.getByRole("button", { name: "Leave workspace" }));
+    await chooseMoreAction(user, "Leave workspace");
     await confirmInDialog(user, "Leave workspace");
 
     await waitFor(() => {
@@ -470,9 +471,9 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await screen.findByRole("link", { name: /Research Workspace/ });
+    await screen.findAllByRole("link", { name: /Research Workspace/ });
 
-    await user.click(screen.getByRole("button", { name: "Delete workspace" }));
+    await chooseMoreAction(user, "Delete workspace");
     expect(
       await screen.findByRole("alertdialog", { name: 'Delete "Research Workspace"?' }),
     ).toBeTruthy();
@@ -481,16 +482,16 @@ describe("Workspace action toast feedback", () => {
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Workspace deleted", expect.anything());
     });
-    expect(await screen.findByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
+    expect(await screen.findAllByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
   });
 
   it("stays quiet when Workspace deletion confirmation is cancelled", async () => {
     const user = userEvent.setup();
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await screen.findByRole("link", { name: /Research Workspace/ });
+    await screen.findAllByRole("link", { name: /Research Workspace/ });
 
-    await user.click(screen.getByRole("button", { name: "Delete workspace" }));
+    await chooseMoreAction(user, "Delete workspace");
     await confirmInDialog(user, "Cancel");
 
     expectNoToasts();
@@ -539,11 +540,11 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Documents/ }));
+    await user.click(navLink(/Documents/));
     expect(await screen.findByRole("heading", { name: "research.pdf" })).toBeTruthy();
 
-    await user.click(screen.getByRole("link", { name: /Workspaces/ }));
-    await user.click(screen.getByRole("link", { name: /Clinical Workspace/ }));
+    await user.click(navLink(/Workspaces/));
+    await user.click(listLink(/Clinical Workspace/));
 
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: "research.pdf" })).toBeNull();
@@ -551,7 +552,7 @@ describe("Workspace action toast feedback", () => {
     });
 
     secondWorkspaceJobs.resolve(jobList(failedDocument({ job_id: "job_ws_2", source_name: "clinical.pdf" })));
-    await user.click(screen.getByRole("link", { name: /Documents/ }));
+    await user.click(navLink(/Documents/));
     expect(await screen.findByRole("heading", { name: "clinical.pdf" })).toBeTruthy();
   });
 
@@ -1098,7 +1099,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Templates/i }));
+    await user.click(navLink(/Templates/i));
     await user.click(screen.getByRole("button", { name: "Save new template" }));
 
     await waitFor(() => {
@@ -1118,7 +1119,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Templates/i }));
+    await user.click(navLink(/Templates/i));
 
     const saveButton = await screen.findByRole("button", { name: "Save changes" });
     expect(saveButton.disabled).toBe(true);
@@ -1140,7 +1141,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Templates/i }));
+    await user.click(navLink(/Templates/i));
     await user.click(screen.getByRole("button", { name: "Add field" }));
 
     expectNoToasts();
@@ -1164,16 +1165,16 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Templates/i }));
+    await user.click(navLink(/Templates/i));
     await screen.findByRole("button", { name: "Save changes" });
 
-    await user.click(screen.getByRole("button", { name: "Delete template" }));
+    await chooseMoreAction(user, "Delete template");
     const cancelDialog = await screen.findByRole("alertdialog", { name: 'Delete "Delete Me"?' });
     await user.click(within(cancelDialog).getByRole("button", { name: "Cancel" }));
     expect(toastMock.success).not.toHaveBeenCalledWith("Template deleted: Delete Me", expect.anything());
     expect(toastMock.error).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Delete template" }));
+    await chooseMoreAction(user, "Delete template");
     const confirmDialogEl = await screen.findByRole("alertdialog", { name: 'Delete "Delete Me"?' });
     await user.click(within(confirmDialogEl).getByRole("button", { name: "Delete template" }));
 
@@ -1187,8 +1188,8 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Templates/i }));
-    await user.click(screen.getByRole("button", { name: "View JSON" }));
+    await user.click(navLink(/Templates/i));
+    await chooseMoreAction(user, "View JSON");
     fireEvent.change(screen.getByLabelText("Template JSON"), { target: { value: "{" } });
     await user.click(screen.getByRole("button", { name: "Save Template JSON" }));
 
@@ -1206,8 +1207,8 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Templates/i }));
-    await user.click(screen.getByRole("button", { name: "View JSON" }));
+    await user.click(navLink(/Templates/i));
+    await chooseMoreAction(user, "View JSON");
     fireEvent.change(screen.getByLabelText("Template JSON"), {
       target: { value: JSON.stringify(validTemplatePayload("Imported Template")) },
     });
@@ -1225,8 +1226,8 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Templates/i }));
-    await user.click(screen.getByRole("button", { name: "View JSON" }));
+    await user.click(navLink(/Templates/i));
+    await chooseMoreAction(user, "View JSON");
     await user.click(screen.getByRole("button", { name: "Copy template JSON" }));
 
     await waitFor(() => {
@@ -1466,7 +1467,7 @@ describe("Workspace action toast feedback", () => {
         render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
       });
       await act(async () => {
-        fireEvent.click(screen.getByRole("link", { name: /Documents/ }));
+        fireEvent.click(navLink(/Documents/));
       });
       await act(async () => {
         fireEvent.click(screen.getByRole("radio", { name: "Side by side" }));
@@ -1514,8 +1515,8 @@ describe("Workspace action toast feedback", () => {
 
       render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-      await user.click(screen.getByRole("link", { name: /Documents/ }));
-      await user.click(screen.getByRole("button", { name: "Delete" }));
+      await user.click(navLink(/Documents/));
+      await chooseMoreAction(user, "Delete document");
       await confirmInDialog(user, confirmName);
     }
 
@@ -1565,9 +1566,9 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Documents/ }));
+    await user.click(navLink(/Documents/));
     await user.click(screen.getByRole("checkbox", { name: "Select all available documents" }));
-    await user.click(screen.getByRole("button", { name: "Delete 2" }));
+    await chooseMoreAction(user, "Delete 2 documents");
     expect(await screen.findByRole("alertdialog", { name: "Delete 2 selected documents?" })).toBeTruthy();
     await confirmInDialog(user, "Delete 2 documents");
 
@@ -1597,7 +1598,7 @@ describe("Workspace action toast feedback", () => {
     });
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
-    await user.click(screen.getByRole("link", { name: /Documents/ }));
+    await user.click(navLink(/Documents/));
     await screen.findByRole("checkbox", { name: "Select document job_completed_1" });
     await user.click(screen.getByRole("button", { name: "Export", exact: true }));
     await waitFor(() => expect(requestedIds).toEqual(["job_completed_1"]));
@@ -1642,17 +1643,17 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Documents/ }));
+    await user.click(navLink(/Documents/));
     await user.click(await screen.findByRole("checkbox", { name: "Select all available documents" }));
     const exportButton = screen.getByRole("button", { name: "Export 3" });
     expect(exportButton.title).toContain("2 of 3 selected documents are ready");
-    expect(screen.getByRole("button", { name: "Delete 3" }).disabled).toBe(false);
+    expect(await moreActionDisabled(user, "Delete 3 documents")).toBe(false);
 
     await user.click(exportButton);
 
     expect(requestedExportIds).toEqual(["job_completed_1", "job_processing_1", "job_failed_1"]);
     expect(screen.getByRole("button", { name: "Exporting…" }).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Delete 3" }).disabled).toBe(true);
+    expect(await moreActionDisabled(user, "Delete 3 documents")).toBe(true);
     expect(checkbox("job_completed_1").disabled).toBe(true);
 
     await act(async () => {
@@ -1700,7 +1701,7 @@ describe("Workspace action toast feedback", () => {
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
-    await user.click(screen.getByRole("link", { name: /Documents/ }));
+    await user.click(navLink(/Documents/));
     await waitFor(() => {
       expect(screen.getByText("job_failed_1 · Failed")).toBeTruthy();
     });
@@ -1751,6 +1752,29 @@ function stubObjectUrls(url) {
 
 // Confirmations render as an in-app alertdialog; the action button is scoped to the newest one,
 // so a dialog left open by an earlier test can't be matched.
+// Destructive and rare page actions sit in the "More actions" menu.
+async function chooseMoreAction(user, name) {
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  await user.click(screen.getByRole("menuitem", { name }));
+}
+
+async function moreActionDisabled(user, name) {
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  const disabled = screen.getByRole("menuitem", { name }).disabled;
+  await user.keyboard("{Escape}");
+
+  return disabled;
+}
+
+function navLink(name) {
+  return within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name });
+}
+
+// The Workspace list comes before the breadcrumb in the DOM, so the first match is the list item.
+function listLink(name) {
+  return screen.getAllByRole("link", { name })[0];
+}
+
 async function confirmInDialog(user, buttonName) {
   const dialog = (await screen.findAllByRole("alertdialog")).at(-1);
 

@@ -157,7 +157,7 @@ function setup(overrides = {}, templates = [], props = {}) {
     <EvaluationsPage
       evaluation={next}
       templates={templates}
-      workspaceLabel="Test Workspace"
+      workspaceCrumb={{ label: "Test Workspace", href: "/workspaces/ws_1" }}
       enabled
       maxSourceFileBytes={1000}
       {...props}
@@ -364,7 +364,9 @@ it("starts a model comparison from a saved historical field version with the cho
     { suggestedModels: ["other-model"] },
   );
 
-  expect(screen.getByText("Test Workspace / Evaluations")).toBeTruthy();
+  const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
+  expect(breadcrumb.getByRole("link", { name: "Test Workspace" }).getAttribute("href")).toBe("/workspaces/ws_1");
+  expect(breadcrumb.getByText("Evaluations").getAttribute("aria-current")).toBe("page");
   expect(screen.getByRole("button", { name: "Start Evaluation" }).disabled).toBe(true);
   evaluation.api.mockImplementation(async () => Response.json(savedTemplate()));
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });

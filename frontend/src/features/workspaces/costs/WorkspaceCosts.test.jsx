@@ -35,11 +35,10 @@ const overview = {
 
 const props = {
   workspaceId: "workspace_a",
-  workspaceName: "Intake",
+  workspaceCrumb: { label: "Intake", href: "/workspaces/workspace_a", onClick: vi.fn() },
   role: "owner",
   tab: "overview",
   onTab: vi.fn(),
-  onBack: vi.fn(),
 };
 
 describe("workspace costs", () => {
@@ -303,7 +302,7 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
     onTab = vi.fn(),
     onBack = vi.fn();
 
-  render(<WorkspaceCosts {...props} request={request} onTab={onTab} onBack={onBack} />);
+  render(<WorkspaceCosts {...props} workspaceCrumb={{ label: "Intake", href: "/workspaces/workspace_a", onClick: onBack }} request={request} onTab={onTab} />);
   await screen.findByLabelText("Headline figures");
   fireEvent.click(screen.getByRole("button", { name: "Custom…" }));
   fireEvent.change(screen.getByLabelText("From"), { target: { value: "2020-01-01" } });
@@ -331,7 +330,10 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
   expect(new URL(request.mock.calls[2][0], "http://localhost").searchParams.get("unit")).toBe("hour");
   fireEvent.click(screen.getByRole("tab", { name: "Documents" }));
   expect(onTab).toHaveBeenCalledWith("documents");
-  fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
+  const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
+  expect(breadcrumb.getByRole("link", { name: "Intake" }).getAttribute("href")).toBe("/workspaces/workspace_a");
+  expect(breadcrumb.getByText("Costs").getAttribute("aria-current")).toBe("page");
+  fireEvent.click(breadcrumb.getByRole("link", { name: "Intake" }));
   expect(onBack).toHaveBeenCalledTimes(1);
 });
 

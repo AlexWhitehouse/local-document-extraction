@@ -119,6 +119,7 @@
   --z-base: 1;
   --z-sticky: 5;
   --z-popover: 30;
+  --z-drawer: 35;
   --z-modal: 40;
   --z-modal-nested: 45;
   --z-modal-raised: 50;
@@ -406,6 +407,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .context-head {
+  position: relative;
   display: grid;
   align-content: center;
   height: var(--pane-head-height);
@@ -1248,25 +1250,16 @@ input[type="checkbox"]:disabled {
     font-size: var(--font-size-1);
   }
 
+  /* The label stays in the DOM for the accessible name; the rail shows it as a Tooltip (MainLayout). */
   .sidebar-collapsed :is(.sidebar-link-label, .sidebar-upload-label) {
     position: absolute;
-    left: calc(100% + 10px);
-    top: 50%;
-    z-index: var(--z-popover);
-    transform: translateY(-50%);
-    padding: 4px 8px;
-    white-space: nowrap;
-    background: var(--pane-overlay);
-    border: 1px solid var(--rule-strong);
-    color: var(--text-0);
-    font: 500 var(--font-size-3) var(--font-body);
-    pointer-events: none;
-    opacity: 0;
-  }
-
-  .sidebar-collapsed :is(.sidebar-link, .sidebar-upload-button):is(:hover, :focus-visible) :is(.sidebar-link-label, .sidebar-upload-label) {
-    opacity: 1;
-    transition: opacity 80ms ease;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    border: 0;
   }
 
   .sidebar-collapsed .sidebar-link-count {
@@ -1500,6 +1493,15 @@ input[type="checkbox"]:disabled {
   gap: 9px;
   padding-top: 2px;
 }
+
+.settings-shortcuts { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.settings-shortcuts:focus { outline: none; }
+.settings-shortcuts:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.settings-shortcut-list { display: grid; gap: 10px; margin: 0; }
+.settings-shortcut-list > div { display: grid; grid-template-columns: minmax(120px, auto) 1fr; gap: 16px; align-items: baseline; }
+.settings-shortcut-list dt { color: var(--text-0); }
+.settings-shortcut-list dd { margin: 0; color: var(--text-2); font-size: var(--font-size-3); }
+.settings-shortcut-list kbd { padding: 1px 6px; border: 1px solid var(--rule-strong); font: var(--font-size-2) var(--font-mono); }
 
 .settings-danger-row {
   padding: 14px 16px;
@@ -2800,28 +2802,183 @@ details summary:hover {
   }
 }
 
+/* Tablet and phone (up to 1120px): the nav becomes a top bar, and the context list
+   becomes a drawer opened from the page header (see MainLayout and PageHeader). */
+.context-drawer-host {
+  display: contents;
+}
+
+/* Qualified so these beat the shared .icon-button display rule. */
+.studio-heading-actions .context-drawer-toggle,
+.context-sidebar .context-drawer-close,
+.context-drawer-scrim {
+  display: none;
+}
+
 @media (max-width: 1120px) {
   .app-frame {
     grid-template-columns: 1fr;
+    /* Without this the min-height stretches the top bar's row and pushes the page body down. */
+    align-content: start;
   }
 
   .left-sidebar {
     position: static;
     height: auto;
+    min-height: 44px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
     border-right: 0;
     border-bottom: 1px solid var(--rule);
   }
 
-  .sidebar-collapse-toggle {
+  .left-sidebar .sidebar-brand {
+    height: auto;
+    min-height: 44px;
+    padding: 0 12px;
+    align-content: center;
+    border-bottom: 0;
+    border-right: 1px solid var(--rule);
+  }
+
+  .left-sidebar .sidebar-brand-text .eyebrow {
     display: none;
   }
 
+  .left-sidebar .sidebar-brand h1 {
+    margin: 0;
+  }
+
+  .left-sidebar .sidebar-collapse-toggle {
+    display: none;
+  }
+
+  .left-sidebar .sidebar-nav {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    gap: 0;
+    padding: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .left-sidebar .sidebar-link {
+    flex: 0 0 auto;
+    width: auto;
+    height: 44px;
+    padding: 0 12px;
+    grid-template-columns: auto auto;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  .left-sidebar .sidebar-link.active {
+    box-shadow: inset 0 -2px 0 0 var(--accent);
+  }
+
+  .left-sidebar .sidebar-link-count {
+    display: none;
+  }
+
+  .left-sidebar .sidebar-upload-button {
+    flex: 0 0 auto;
+    align-self: center;
+    width: auto;
+    height: var(--control-h-sm);
+    margin: 0 8px;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+
+  .left-sidebar .sidebar-spacer {
+    display: none;
+  }
+
+  /* The collapsed-rail tooltips only apply on desktop; the top bar shows its labels. */
+  .left-sidebar .ui-tooltip {
+    display: none;
+  }
+
+  /* The footer's children join the bar, so the tour card can take its own row. */
+  .left-sidebar .sidebar-footer {
+    display: contents;
+  }
+
+  .left-sidebar .sidebar-profile {
+    flex: 0 0 auto;
+    border-top: 0;
+    border-left: 1px solid var(--rule);
+  }
+
+  .left-sidebar .sidebar-profile-trigger {
+    width: auto;
+    min-height: 44px;
+    padding: 0 12px;
+    grid-template-columns: 24px;
+  }
+
+  /* The bar shows the avatar only; the name and email stay available to screen readers. */
+  .left-sidebar :is(.sidebar-profile-meta, .sidebar-profile-chevron) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .left-sidebar .tour-invitation {
+    order: 9;
+    flex: 0 0 calc(100% - 24px);
+    margin: 0 12px 10px;
+  }
+
   .context-sidebar {
-    position: static;
-    height: auto;
-    max-height: 70vh;
-    border-right: 0;
-    border-bottom: 1px solid var(--rule);
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-drawer);
+    width: min(340px, calc(100vw - 40px));
+    height: 100dvh;
+    max-height: none;
+    border-right: 1px solid var(--rule-strong);
+    box-shadow: var(--shadow-modal);
+    transform: translateX(-100%);
+    visibility: hidden;
+  }
+
+  .context-sidebar.is-open {
+    transform: none;
+    visibility: visible;
+  }
+
+  .studio-heading-actions .context-drawer-toggle {
+    display: inline-grid;
+    place-items: center;
+  }
+
+  .context-sidebar .context-drawer-close {
+    display: inline-grid;
+    position: absolute;
+    top: 16px;
+    right: 10px;
+  }
+
+  .context-drawer-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-popover);
+    padding: 0;
+    border: 0;
+    background: var(--scrim);
+    cursor: default;
   }
 
   .main-content {
@@ -2830,6 +2987,31 @@ details summary:hover {
 
   .field-studio {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) and (max-width: 1120px) {
+  .context-sidebar {
+    transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s linear 200ms;
+  }
+
+  .context-sidebar.is-open {
+    transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s;
+  }
+}
+
+/* Phones: the title may wrap, and page actions sit in the overflow menu (see PageHeader). */
+@media (max-width: 600px) {
+  .studio-page-heading {
+    grid-template-rows: auto auto auto;
+  }
+
+  .studio-page-heading h1 {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: var(--font-size-6);
+    line-height: 1.25;
   }
 }
 
@@ -3093,4 +3275,18 @@ details summary:hover {
 /* Confirmation prompts can open above another dialog. */
 .modal-backdrop:has(> .confirm-dialog) {
   z-index: var(--z-confirm);
+}
+
+/* Phones: the top-bar nav shows icons only; labels stay for screen readers. */
+@media (max-width: 600px) {
+  .sidebar-link .sidebar-link-label,
+  .sidebar-link .sidebar-link-count,
+  .sidebar-upload-button .sidebar-upload-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }

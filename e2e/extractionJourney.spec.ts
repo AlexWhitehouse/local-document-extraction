@@ -35,7 +35,6 @@ test("a new user completes a Document Extraction job without email verification 
     harness = await startRuntimeHarness();
     await submitSignUp(page, harness, ACCOUNT);
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
-    await expect(page.getByText("API Ready", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Open your local verification link.", { exact: true })).toHaveCount(0);
     expect(await readdir(join(harness.stateDirectory, "mail"))).toEqual([]);
 
@@ -50,7 +49,8 @@ test("a new user completes a Document Extraction job without email verification 
     await page.getByRole("button", { name: "Create Template" }).click();
     await expect(page.getByRole("region", { name: "Template editor" })).toBeVisible();
     await expect(page.getByLabel("Template name", { exact: true })).toHaveValue("Invoice Template");
-    await page.getByRole("button", { name: "View JSON" }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));
 
@@ -112,7 +112,8 @@ test("a new user completes a Document Extraction job without email verification 
 
     await jobSelection.click();
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Delete" }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Delete/ }).click();
     await expect(page.getByText(/Document deleted:/)).toBeVisible();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toHaveCount(0);
 

@@ -1,10 +1,10 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { IconButton } from "../ui/Button.jsx";
-import "./TemplateActionMenu.css";
+import { IconButton } from "./Button.jsx";
+import "./ActionMenu.css";
 
 // An icon button that opens a small menu of actions. The menu is fixed to the trigger,
 // so it is not clipped by scrolling lists. Escape and outside clicks close it.
-export function TemplateActionMenu({ label, icon, items, disabled = false, size = "sm", className }) {
+export function ActionMenu({ label, icon, items, disabled = false, size = "sm", className }) {
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
   const menuId = useId();
@@ -97,7 +97,7 @@ export function TemplateActionMenu({ label, icon, items, disabled = false, size 
           id={menuId}
           role="menu"
           aria-label={label}
-          className="template-action-menu"
+          className="ui-action-menu"
           style={{ top: position.top, right: position.right }}
           onKeyDown={moveFocus}
         >
@@ -106,7 +106,7 @@ export function TemplateActionMenu({ label, icon, items, disabled = false, size 
               key={item.key}
               type="button"
               role="menuitem"
-              className={item.danger ? "template-action-menu-item danger" : "template-action-menu-item"}
+              className={item.danger ? "ui-action-menu-item danger" : "ui-action-menu-item"}
               disabled={item.disabled}
               onClick={() => choose(item)}
             >

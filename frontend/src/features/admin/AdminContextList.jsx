@@ -65,7 +65,7 @@ export function AdminContextList({ admin }) {
                 <button
                   type="button"
                   className={isActive ? "context-item-main active" : "context-item-main"}
-                  aria-current={isActive ? "true" : undefined}
+                  data-context-select aria-current={isActive ? "true" : undefined}
                   onClick={() => admin.onSelectUser(user)}
                 >
                   <strong>{displayName(user)}</strong>

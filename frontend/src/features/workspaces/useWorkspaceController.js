@@ -978,11 +978,8 @@ export function useWorkspaceController({
       onRetryResolution: retryWorkspaceResolution,
     },
     toolbar: {
-      workspaceLabel: isWorkspaceContextLoading
-        ? "Loading workspace context"
-        : hasWorkspaceResolutionError
-          ? "Workspace resolution error"
-          : workspaceSelectionView.workspaceName,
+      // Empty while the Workspace is loading or unresolved, so headers can omit it.
+      workspaceName: isWorkspaceContextLoading || hasWorkspaceResolutionError ? "" : workspaceSelectionView.workspaceName,
       workspaceId,
       workspacePrimaryAction,
       isDeletingWorkspace,

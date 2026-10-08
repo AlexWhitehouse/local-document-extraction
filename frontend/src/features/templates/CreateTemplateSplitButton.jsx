@@ -1,7 +1,7 @@
 import React from "react";
 import { Button } from "../ui/Button.jsx";
 import { ChevronDownIcon } from "../layout/Icons.jsx";
-import { TemplateActionMenu } from "./TemplateActionMenu.jsx";
+import { ActionMenu } from "../ui/ActionMenu.jsx";
 
 // "Create template" with a menu for the other ways to start one.
 export function CreateTemplateSplitButton({ disabled = false, onCreate, onAutoGenerate }) {
@@ -10,7 +10,7 @@ export function CreateTemplateSplitButton({ disabled = false, onCreate, onAutoGe
       <Button variant="secondary" data-tour="create-template" disabled={disabled} onClick={onCreate}>
         Create template
       </Button>
-      <TemplateActionMenu
+      <ActionMenu
         label="More ways to create a template"
         icon={ChevronDownIcon}
         size="md"

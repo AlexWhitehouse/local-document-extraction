@@ -10,7 +10,7 @@ import "./TemplateFieldEditor.css";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, MoreIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { ListAddButton } from "../ui/ListAddButton.jsx";
-import { TemplateActionMenu } from "./TemplateActionMenu.jsx";
+import { ActionMenu } from "../ui/ActionMenu.jsx";
 
 import {
   DATA_TYPES,
@@ -321,7 +321,7 @@ export function TemplateFieldEditor({
                     disabled={index === fields.length - 1}
                     onClick={() => moveField(index, 1)}
                   />
-                  <TemplateActionMenu
+                  <ActionMenu
                     label={`More actions for ${fieldName}`}
                     icon={MoreIcon}
                     items={[

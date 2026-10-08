@@ -21,7 +21,8 @@ import { useDocumentController } from "./features/documents/useDocumentControlle
 import { useDocumentViewingPreference } from "./features/documents/documentViewing.js";
 import { EvaluationsPage } from "./features/evaluations/EvaluationsPage.jsx";
 import { useEvaluations } from "./features/evaluations/useEvaluations.js";
-import { MainLayout, WorkspaceToolbar } from "./features/layout/MainLayout.jsx";
+import { MainLayout } from "./features/layout/MainLayout.jsx";
+import { WorkspacePageHeader } from "./features/layout/WorkspacePageHeader.jsx";
 import { OnboardingTour } from "./features/onboarding/OnboardingTour.jsx";
 import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
 import { TemplateContextList } from "./features/templates/TemplateContextList.jsx";
@@ -44,15 +45,26 @@ import { hasUnsavedEdits, runDiscardChecks } from "./lib/unsavedChanges.js";
 import { DISCARD_CHANGES, confirmDialog } from "./features/ui/confirm.jsx";
 import { Field, TextInput } from "./features/ui/Field.jsx";
 import { LoadingState } from "./features/ui/States.jsx";
-import { Badge } from "./features/ui/Status.jsx";
+import { PageHeader } from "./features/ui/PageHeader.jsx";
 import { Button } from "./features/ui/Button.jsx";
+import { useDocumentTitle } from "./lib/documentTitle.js";
 import "./features/layout/StudioLayouts.css";
 
 const API_BASE = "/v1";
 
-const PAGE_DESCRIPTIONS = {
-  workspace: "Your extraction environment, connections and people.",
-  templates: "Define what Studio should look for in each document.",
+const PAGE_TITLES = {
+  workspace: "Workspace",
+  templates: "Templates",
+  documents: "Documents",
+  evaluations: "Evaluations",
+  costs: "Costs",
+  admin: "Admin",
+};
+
+const PAGE_LABELS = {
+  workspace: "Workspace overview",
+  templates: "Template editor",
+  documents: "Documents",
 };
 
 const CONTEXT_SIDEBAR_TITLES = {
@@ -260,7 +272,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
 
   evaluationRef.current = evaluation;
   const documentToolbar = documentController.toolbar;
-  const documentStatusCounts = documentController.statusCounts;
 
   function pagePath(page) {
     const target = { page, workspaceId: hasApiAccess ? workspaceId : route.workspaceId };
@@ -455,7 +466,12 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   }
 
   if (!hasSession) {
-    return <AuthScreen {...authScreen} />;
+    return (
+      <>
+        <DocumentTitle page="Sign in" />
+        <AuthScreen {...authScreen} />
+      </>
+    );
   }
 
   const workspaceUnavailable = activePage !== "admin" && !route.root && workspaceContext.unavailableRoute;
@@ -506,6 +522,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                     : "Document could not be loaded. Try again."
                   : "";
 
+  const routeTitle = activePage === "not-found" ? "Page not found" : "Page unavailable";
+
   const packetLoading =
     activePage === "documents" &&
     route.packetId &&
@@ -519,27 +537,63 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
 
   const selectedDocument = documentController.documentPage.selectedDocument;
 
+  const selectedDocumentName = documentController.documentPage.selectedPacketId
+    ? documentController.documentPage.packetPage.packet?.source_name || "Document packet"
+    : selectedDocument?.source_name || "";
+
+  const workspaceName = workspaceToolbar.workspaceName;
+  const templatePage = templateController.templatePage;
+  const templateName = templatePage.templateName || "";
+
+  // The open template or document, named in the title and the last breadcrumb.
+  const pageItem = visiblePage === "templates" ? templateName : visiblePage === "documents" ? selectedDocumentName : "";
+
   const pageTitle =
     visiblePage === "workspace"
-      ? workspaceToolbar.workspaceLabel
+      ? workspaceName || PAGE_TITLES.workspace
       : visiblePage === "templates"
-        ? templateController.templatePage.templateName || "Create Template"
-        : documentController.documentPage.selectedPacketId
-          ? documentController.documentPage.packetPage.packet?.source_name || "Document packet"
-          : selectedDocument?.source_name || "Documents";
+        ? templateName || "Create template"
+        : selectedDocumentName || PAGE_TITLES.documents;
 
+  // Descriptions only where they add information: a saved template's own description,
+  // and what a selected document was extracted with.
   const pageDescription =
-    PAGE_DESCRIPTIONS[visiblePage] ||
-    documentController.documentPage.selectedDocumentTemplateName ||
-    (documentController.documentPage.selectedPacketId
-      ? documentController.documentPage.isSingleDocument
-        ? "Processing document"
-        : "Smart splitting"
-      : "") ||
-    "Select a document to see its extraction results.";
+    visiblePage === "templates"
+      ? (templatePage.isEditingTemplate && templatePage.templateDescription?.trim()) || ""
+      : visiblePage === "documents"
+        ? documentController.documentPage.selectedDocumentTemplateName ||
+          (documentController.documentPage.selectedPacketId
+            ? documentController.documentPage.isSingleDocument
+              ? "Processing document"
+              : "Smart splitting"
+            : "")
+        : "";
+
+  const workspaceCrumb = workspaceName ? { label: workspaceName, href: pagePath("workspace"), onClick: () => setActivePage("workspace") } : null;
+  const sectionCrumb = (page) => ({ label: PAGE_TITLES[page], href: pagePath(page), onClick: () => setActivePage(page) });
+  const withWorkspace = (...crumbs) => [workspaceCrumb, ...crumbs].filter(Boolean);
+
+  const headerBreadcrumbs =
+    visiblePage === "admin"
+      ? [sectionCrumb("admin"), { label: "Accounts" }]
+      : visiblePage === "templates"
+        ? withWorkspace(sectionCrumb("templates"), { label: pageTitle })
+        : visiblePage === "documents" && selectedDocumentName
+          ? withWorkspace(sectionCrumb("documents"), { label: selectedDocumentName })
+          : withWorkspace({ label: visiblePage === "documents" ? PAGE_TITLES.documents : "Overview" });
+
+  // The browser tab title: "{item} · {page} · {workspace} — Studio".
+  const documentTitle = routeMessage
+    ? { page: routeTitle }
+    : {
+        item: visiblePage === "workspace" ? workspaceName : pageItem,
+        page: PAGE_TITLES[visiblePage],
+        workspace: visiblePage === "workspace" || visiblePage === "admin" ? "" : workspaceName,
+      };
 
   return (
     <>
+      <DocumentTitle {...documentTitle} />
       <MainLayout
         contentClassName={`studio-main studio-main-${visiblePage}`}
         activePage={visiblePage === "costs" ? "workspace" : visiblePage}
@@ -608,37 +662,12 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             />
           )
         }
+        contextListLabel={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage] || ""}
         contextSidebar={
           visiblePage === "evaluations" ? null : (
             <ContextSidebar
               title={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage]}
-              footer={
-                visiblePage === "admin" ? (
-                  <AdminContextFooter admin={adminController} />
-                ) : visiblePage === "documents" ? (
-                  <>
-                    {documentToolbar.selectedDocumentCount ? (
-                      <Badge tone="success">Selected {documentToolbar.selectedDocumentCount}</Badge>
-                    ) : null}
-                    <Badge title="All queued documents in this workspace">Queued {documentStatusCounts.queued}</Badge>
-                    {documentStatusCounts.awaiting_template ? (
-                      <Badge tone="warning" title="Documents awaiting a template choice">
-                        Needs template {documentStatusCounts.awaiting_template}
-                      </Badge>
-                    ) : null}
-                    <Badge tone="success" title="All completed documents in this workspace">
-                      Completed {documentStatusCounts.completed}
-                    </Badge>
-                  </>
-                ) : visiblePage === "templates" ? (
-                  <>
-                    <Badge>Templates {templates.length}</Badge>
-                    <Badge tone="success">{templateController.templatePage.isEditingTemplate ? "Editing" : "Draft"}</Badge>
-                  </>
-                ) : (
-                  <WorkspaceSidebarFooter context={workspaceContext} />
-                )
-              }
+              footer={visiblePage === "admin" ? <AdminContextFooter admin={adminController} /> : null}
             >
               {visiblePage === "admin" ? (
                 <AdminContextList admin={adminController} />
@@ -669,17 +698,11 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       >
         {routeMessage ? (
           <section className="panel" role="alert">
-            {adminUnavailable ? (
-              <>
-                <header className="studio-page-heading">
-                  <p className="studio-eyebrow">Admin</p>
-                  <h1>Page unavailable</h1>
-                </header>
-                <p>{routeMessage}</p>
-              </>
-            ) : (
-              <h1>{routeMessage}</h1>
-            )}
+            <PageHeader
+              label={routeTitle}
+              title={routeTitle}
+              description={activePage === "not-found" ? "" : routeMessage}
+            />
             <Button
               onClick={() =>
                 navigate(
@@ -717,11 +740,12 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         {!routeMessage ? (
           <>
             {visiblePage !== "admin" && visiblePage !== "evaluations" && visiblePage !== "costs" ? (
-              <WorkspaceToolbar
+              <WorkspacePageHeader
                 activePage={visiblePage}
-                pageTitle={pageTitle}
-                pageDescription={pageDescription}
-                workspaceLabel={workspaceToolbar.workspaceLabel}
+                label={PAGE_LABELS[visiblePage]}
+                breadcrumbs={headerBreadcrumbs}
+                title={pageTitle}
+                description={pageDescription}
                 isWorkspaceInvitationSelected={isWorkspaceInvitationSelected}
                 hasApiAccess={hasApiAccess}
                 workspaceId={workspaceToolbar.workspaceId}
@@ -757,18 +781,19 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             ) : null}
 
             {routeLoading ? <LoadingState variant="panel" label="Loading…" /> : null}
-            {!routeLoading && visiblePage === "admin" ? <ApplicationAdminPage admin={adminController} /> : null}
+            {!routeLoading && visiblePage === "admin" ? (
+              <ApplicationAdminPage admin={adminController} breadcrumbs={headerBreadcrumbs} />
+            ) : null}
 
             {!routeLoading && visiblePage === "costs" ? (
               <WorkspaceCosts
                 key={`${sessionUserId}:${workspaceId}`}
                 workspaceId={workspaceId}
-                workspaceName={workspaceToolbar.workspaceLabel}
+                workspaceCrumb={workspaceCrumb}
                 role={hasApiAccess ? workspaceContext.selectedWorkspaceRole : null}
                 request={coreRequest}
                 tab={route.costTab}
                 onTab={(costTab) => navigate(appPath({ workspaceId, page: "costs", costTab }))}
-                onBack={() => navigate(appPath({ workspaceId }))}
               />
             ) : null}
 
@@ -798,7 +823,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                 onTemplateSaved={templateController.actions.listTemplates}
                 maxSourceFileBytes={maxSourceFileBytes}
                 suggestedModels={documentController.contextList.availableModels}
-                workspaceLabel={workspaceToolbar.workspaceLabel}
+                workspaceCrumb={workspaceCrumb}
               />
             ) : null}
             {!routeLoading && visiblePage === "documents" ? (
@@ -817,6 +842,13 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       </MainLayout>
     </>
   );
+}
+
+// Renders nothing; keeps document.title in step with the open page and selection.
+function DocumentTitle(parts) {
+  useDocumentTitle(parts);
+
+  return null;
 }
 
 // Keeps the app frame while the session loads, so the sign-in screen never flashes in.
@@ -838,31 +870,6 @@ function AppLoadingShell() {
   );
 }
 
-function WorkspaceSidebarFooter({ context }) {
-  const {
-    availableWorkspaces,
-    hasWorkspaceApiAccess,
-    hasWorkspaceResolutionError,
-    isWorkspaceContextLoading,
-    isWorkspaceInvitationSelected,
-  } = context;
-
-  const status = isWorkspaceContextLoading
-    ? "Loading…"
-    : hasWorkspaceResolutionError
-      ? "Resolution error"
-      : isWorkspaceInvitationSelected
-        ? "Invitation pending"
-        : `API ${hasWorkspaceApiAccess ? "Ready" : "Missing"}`;
-
-  return (
-    <>
-      <Badge>Workspaces {isWorkspaceContextLoading || hasWorkspaceResolutionError ? 0 : availableWorkspaces.length}</Badge>
-      <Badge tone={hasWorkspaceApiAccess ? "success" : hasWorkspaceResolutionError ? "danger" : "warning"}>{status}</Badge>
-    </>
-  );
-}
-
 function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, createAuthClient, toast }) {
   const [isRequestingNewLink, setIsRequestingNewLink] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -873,6 +880,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const authClient = useMemo(() => createAuthClient(), [createAuthClient]);
+  useDocumentTitle({ page: "Reset password" });
 
   const authProfileController = useAuthProfileController({
     toast,

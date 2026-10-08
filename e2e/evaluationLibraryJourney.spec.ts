@@ -42,7 +42,8 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template" }).click();
-    await page.getByRole("button", { name: "View JSON" }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));
 

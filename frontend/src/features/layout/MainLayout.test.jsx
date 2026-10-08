@@ -1,7 +1,9 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MainLayout, WorkspaceToolbar } from "./MainLayout.jsx";
+import { MainLayout } from "./MainLayout.jsx";
+import { PageHeader } from "../ui/PageHeader.jsx";
+import { ContextSidebar } from "../context/ContextSidebar.jsx";
 
 function renderLayout() {
   return render(
@@ -126,7 +128,7 @@ describe("MainLayout upload and connectivity", () => {
 });
 
 describe("MainLayout icon navigation", () => {
-  it("names each nav item with its label, also as the tooltip in the collapsed rail", () => {
+  it("names each nav item with its label and icon", () => {
     const { container } = render(
       <MainLayout activePage="documents" counts={{}} onNavigate={() => {}} profileSlot={null} contextSidebar={null}>
         <p>Page</p>
@@ -135,11 +137,28 @@ describe("MainLayout icon navigation", () => {
 
     for (const label of ["Workspaces", "Templates", "Documents", "Evaluations"]) {
       const link = screen.getByRole("button", { name: new RegExp(`^${label}`) });
-      expect(link.getAttribute("title")).toBe(label);
       expect(link.querySelector(".sidebar-link-icon svg")).toBeTruthy();
+      expect(link.getAttribute("title")).toBeNull();
     }
 
     expect(container.querySelector(".sidebar-link-icon")?.textContent).toBe("");
+  });
+
+  it("shows each nav label as a right-hand tooltip in the collapsed rail, and keeps the link named", () => {
+    window.localStorage.setItem("studio.sidebarCollapsed", "true");
+
+    render(
+      <MainLayout activePage="documents" counts={{}} onNavigate={() => {}} profileSlot={null} contextSidebar={null}>
+        <p>Page</p>
+      </MainLayout>,
+    );
+
+    const link = screen.getByRole("button", { name: "Templates" });
+    const tooltip = link.closest(".ui-tooltip-anchor").querySelector('[role="tooltip"]');
+
+    expect(tooltip.textContent).toBe("Templates");
+    expect(tooltip.className).toContain("ui-tooltip-right");
+    expect(screen.getByRole("button", { name: "Upload documents" })).toBeTruthy();
   });
 
   it("marks only the active sidebar link with aria-current=page", () => {
@@ -165,22 +184,69 @@ describe("MainLayout icon navigation", () => {
   });
 });
 
-describe("WorkspaceToolbar document actions", () => {
-  it("puts the destructive Delete action after Export", () => {
+describe("context list drawer below 1120px", () => {
+  function renderWithDrawer() {
+    const onSelect = vi.fn();
+
     render(
-      <WorkspaceToolbar
-        activePage="documents"
-        workspaceLabel="Acme"
-        pageTitle="Documents"
-        hasApiAccess
-        selectedDocumentCount={2}
-        exportableDocumentCount={2}
-        onExportDocuments={() => {}}
-        onDeleteDocument={() => {}}
-      />,
+      <MainLayout
+        activePage="templates"
+        counts={{}}
+        onNavigate={() => {}}
+        profileSlot={null}
+        contextListLabel="Templates"
+        contextSidebar={
+          <ContextSidebar title="Templates">
+            <input aria-label="Search templates" />
+            <button type="button" data-context-select onClick={onSelect}>
+              Invoice template
+            </button>
+          </ContextSidebar>
+        }
+      >
+        <PageHeader title="Templates" />
+      </MainLayout>,
     );
 
-    const names = screen.getAllByRole("button").map((button) => button.textContent);
-    expect(names).toEqual(["Export 2", "Delete 2"]);
+    return { onSelect, toggle: screen.getByRole("button", { name: "Show templates list" }) };
+  }
+
+  const drawer = () => document.querySelector(".context-sidebar");
+
+  it("opens from the page header with focus in the list, and closes on Escape with focus back on the toggle", () => {
+    const { toggle } = renderWithDrawer();
+    expect(drawer().classList.contains("is-open")).toBe(false);
+
+    toggle.focus();
+    fireEvent.click(toggle);
+
+    expect(drawer().classList.contains("is-open")).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(screen.getByLabelText("Search templates"));
+
+    fireEvent.keyDown(document.activeElement, { key: "Escape" });
+
+    expect(drawer().classList.contains("is-open")).toBe(false);
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("closes from the backdrop", () => {
+    const { toggle } = renderWithDrawer();
+
+    fireEvent.click(toggle);
+    fireEvent.click(document.querySelector(".context-drawer-scrim"));
+
+    expect(drawer().classList.contains("is-open")).toBe(false);
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("closes after a row is picked", () => {
+    const { onSelect, toggle } = renderWithDrawer();
+
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Invoice template" }));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(drawer().classList.contains("is-open")).toBe(false);
   });
 });

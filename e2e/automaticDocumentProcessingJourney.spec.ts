@@ -67,7 +67,8 @@ test("tag routing, split review, page preview and all-blank completion work thro
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template", exact: true }).click();
-    await page.getByRole("button", { name: "View JSON", exact: true }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
     const json = page.getByRole("dialog", { name: "Export or import template JSON" });
     await json.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(template));
 
@@ -170,10 +171,8 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await page.screenshot({ path: testInfo.outputPath("packet-document-tab.png"), fullPage: true });
     await page.getByRole("tab", { name: /^Overview/ }).click();
     page.once("dialog", (dialog) => dialog.accept());
-    await page
-      .locator('header[aria-label="Workspace toolbar"]')
-      .getByRole("button", { name: "Delete", exact: true })
-      .click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Delete/ }).click();
     await expect
       .poll(async () => (await page.request.get(`${harness.origin}/v1/packets/${packetId}`, { headers })).status())
       .toBe(404);
@@ -235,7 +234,8 @@ test("single-page uploads and one-document split plans display as ordinary docum
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
     await page.getByRole("button", { name: "Create Template", exact: true }).click();
-    await page.getByRole("button", { name: "View JSON", exact: true }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
     const json = page.getByRole("dialog", { name: "Export or import template JSON" });
     await json.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(template));
 
@@ -308,10 +308,8 @@ test("single-page uploads and one-document split plans display as ordinary docum
       await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
       await expect(page.getByRole("tab", { name: /^Overview/ })).toHaveCount(0);
       page.once("dialog", (dialog) => dialog.accept());
-      await page
-        .locator('header[aria-label="Workspace toolbar"]')
-        .getByRole("button", { name: "Delete", exact: true })
-        .click();
+      await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+      await page.getByRole("menuitem", { name: /^Delete/ }).click();
 
       if (pageCount > 1)
         await expect

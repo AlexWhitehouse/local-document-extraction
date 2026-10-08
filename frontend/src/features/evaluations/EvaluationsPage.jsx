@@ -1,4 +1,4 @@
-import { WorkspaceToolbar } from "../layout/MainLayout.jsx";
+import { PageHeader } from "../ui/PageHeader.jsx";
 import { DocumentUploadPanel } from "../documents/DocumentUploadPanel.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { EvaluationSetup } from "./EvaluationSetup.jsx";
@@ -34,7 +34,7 @@ import { CloseIcon, ExternalIcon } from "../layout/Icons.jsx";
 export function EvaluationsPage({
   evaluation,
   templates,
-  workspaceLabel = "Workspace",
+  workspaceCrumb = null,
   enabled,
   maxSourceFileBytes,
   suggestedModels,
@@ -342,11 +342,11 @@ export function EvaluationsPage({
 
   return (
     <section className="evaluations-page" aria-label="Evaluations">
-      <WorkspaceToolbar
-        activePage="evaluations"
-        workspaceLabel={workspaceLabel}
-        pageTitle="Evaluations"
-        pageDescription="Compare candidates on one or more documents. Runs and results are temporary and clear when you close this tab; saved documents and their answers stay in the Workspace library."
+      <PageHeader
+        label="Evaluations"
+        breadcrumbs={[workspaceCrumb, { label: "Evaluations" }].filter(Boolean)}
+        title="Evaluations"
+        description="Compare candidates on one or more documents. Runs and results are temporary and clear when you close this tab; saved documents and their answers stay in the Workspace library."
         actions={
           <>
             {editingLibrary && (

@@ -70,7 +70,8 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
     await expect(assistant.getByRole("button", { name: "Apply 1 change to draft", exact: true })).toBeHidden();
     expect(await readSaved()).toEqual(original);
     await assistant.getByRole("button", { name: "Close assistant", exact: true }).click();
-    await page.getByRole("button", { name: "View JSON", exact: true }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
     const jsonDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
 
     const draft = JSON.parse(

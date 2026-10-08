@@ -1,32 +1,43 @@
 import React from "react";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { Button } from "../ui/Button.jsx";
+import { PageHeader } from "../ui/PageHeader.jsx";
 import { Badge } from "../ui/Status.jsx";
 import { Field, Textarea } from "../ui/Field.jsx";
 import { displayName, isApplicationAdmin, isEmailVerified, safeText, userIdOf } from "./adminAccounts.js";
 
-export function ApplicationAdminPage({ admin }) {
+export function ApplicationAdminPage({ admin, breadcrumbs = [] }) {
   const user = admin.selectedUser;
   const isCurrentUser = Boolean(user) && userIdOf(user) === String(admin.sessionUserId || "").trim();
   const actions = user ? getUserActions(admin, user) : [];
+  const visibleActions = actions.filter((action) => !action.rare);
+  const overflowActions = actions.filter((action) => action.rare);
 
   return (
     <>
-      <header className="studio-page-heading">
-        <p className="studio-eyebrow">Admin / Accounts</p>
-        <h1>{user ? displayName(user) : "Application admin"}</h1>
-        <div className="studio-heading-actions">
-          {isCurrentUser ? <Badge tone="success">Your account</Badge> : null}
-          {actions.map((action) => (
-            <Button key={action.label} variant={action.variant} disabled={action.disabled} onClick={action.onClick}>
-              {action.label}
-            </Button>
-          ))}
-        </div>
-        <p className="studio-page-description">
-          {user ? safeText(user.email) : "Application-wide accounts, managed separately from Workspace access."}
-        </p>
-      </header>
+      <PageHeader
+        label="Admin accounts"
+        breadcrumbs={breadcrumbs}
+        title={user ? displayName(user) : "Application admin"}
+        description={user ? safeText(user.email) : "Application-wide accounts, managed separately from Workspace access."}
+        actions={
+          <>
+            {isCurrentUser ? <Badge tone="success">Your account</Badge> : null}
+            {visibleActions.map((action) => (
+              <Button key={action.label} variant={action.variant} disabled={action.disabled} onClick={action.onClick}>
+                {action.label}
+              </Button>
+            ))}
+          </>
+        }
+        overflowActions={overflowActions.map((action) => ({
+          key: action.label,
+          label: action.label,
+          danger: action.variant === "danger",
+          disabled: action.disabled,
+          onSelect: action.onClick,
+        }))}
+      />
 
       {user ? (
         <div className="studio-workspace-settings admin-account-settings">
@@ -115,10 +126,12 @@ function getUserActions(admin, user) {
   const isCurrentUser = userId && userId === String(admin.sessionUserId || "").trim();
   const disabled = admin.isLoading || admin.mutatingUserId === userId;
 
-  const action = (label, run, variant) => ({
+  // Rare or destructive actions go in the overflow menu; see PageHeader.
+  const action = (label, run, variant, rare = variant === "danger") => ({
     label,
     variant,
     disabled,
+    rare,
     onClick: () => run(user),
   });
 
@@ -129,7 +142,7 @@ function getUserActions(admin, user) {
   }
 
   if (isApplicationAdmin(user)) {
-    if (!isCurrentUser) actions.push(action("Remove admin", admin.onRemoveAdmin, "secondary"));
+    if (!isCurrentUser) actions.push(action("Remove admin", admin.onRemoveAdmin, "secondary", true));
   } else {
     actions.push(action("Make admin", admin.onMakeAdmin, "secondary"));
   }

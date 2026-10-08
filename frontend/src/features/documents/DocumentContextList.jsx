@@ -249,7 +249,7 @@ export function DocumentContextList({
                       : undefined
                   }
                   data-selected-document={isActive ? "true" : undefined}
-                  aria-current={isActive ? "true" : undefined}
+                  data-context-select aria-current={isActive ? "true" : undefined}
                   className={isActive ? "context-item-main active" : "context-item-main"}
                   onClick={() => select(item)}
                   onKeyDown={(event) => {
