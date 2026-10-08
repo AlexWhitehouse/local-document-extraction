@@ -133,6 +133,7 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-setup { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: minmax(0, 760px) minmax(240px, 300px); justify-content: start; gap: 48px; align-items: start; padding: 28px var(--evaluation-page-gutter) 48px; }
 .evaluation-setup-main > .ui-callout { margin-bottom: 16px; }
 .evaluation-setup-step { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; padding: 18px 0; border-top: 1px solid var(--rule); }
+.evaluation-setup-main > .evaluation-setup-step:first-of-type { border-top: 0; }
 .evaluation-setup-label { display: flex; align-items: baseline; gap: 10px; }
 .evaluation-setup-label > span { font: var(--font-size-2) var(--font-mono); color: var(--text-3); }
 .evaluation-setup-label > .evaluation-step-complete { color: var(--accent-strong); }
@@ -179,7 +180,7 @@ label.evaluation-version { display: flex; flex-direction: row; align-items: cent
 .evaluation-version:has(input:checked) { border-color: var(--accent); background: var(--row-selected); }
 .evaluation-version strong { display: block; font-size: var(--font-size-4); font-weight: 500; color: var(--text-0); }
 .evaluation-version small { font: var(--font-size-2) var(--font-mono); color: var(--text-3); }
-.evaluation-setup-foot { display: flex; justify-content: flex-end; align-items: center; gap: 16px; padding-top: 16px; border-top: 1px solid var(--rule-strong); }
+.evaluation-setup-foot { display: flex; justify-content: flex-end; align-items: center; gap: 16px; padding-top: 16px; }
 .evaluation-setup-submit { display: flex; align-items: center; gap: 14px; }
 .evaluation-setup-submit small { font-size: var(--font-size-3); text-align: right; }
 .evaluation-setup-submit button { height: 32px; padding: 0 16px; font-size: var(--font-size-4); flex-shrink: 0; }

@@ -81,12 +81,9 @@ button.studio-text-button.studio-destructive { color: var(--tone-danger-text); }
 .studio-main .workspace-model-status { border: 0; padding: 0; font: var(--font-size-2) var(--font-mono); }
 .studio-main .workspace-model-header p { margin: 4px 0 0; font-size: var(--font-size-3); }
 .studio-main .workspace-model-body, .studio-main .workspace-model-member { padding: 0; border: 0; background: transparent; }
-.studio-main .workspace-model-body > form, .studio-main .workspace-model fieldset { gap: 11px; }
-.studio-main .workspace-model-fields { gap: 10px; }
+.studio-main .workspace-model-body > form, .studio-main .workspace-model fieldset { gap: 14px; }
 .studio-main .workspace-model input:not([type="checkbox"]) { height: var(--control-h-md); min-height: var(--control-h-md); }
 .studio-main .workspace-model small { font-size: var(--font-size-2); }
-.studio-main .workspace-model-actions { gap: 12px; }
-.studio-main .workspace-model-actions button { min-height: var(--control-h-sm); font-size: var(--font-size-3); }
 .studio-workspace-users, .studio-pending-invitations { border-top: 1px solid var(--rule); padding-top: 18px; }
 .studio-pending-invitations { margin-top: 20px; }
 .studio-user-list, .studio-invitation-list { max-height: clamp(180px, 32dvh, 320px); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 10px; }
@@ -176,7 +173,6 @@ button.studio-text-button.studio-destructive { color: var(--tone-danger-text); }
   .studio-page-heading h1 { font-size: var(--font-size-6); }
   .studio-workspace-settings { gap: 22px; }
   .studio-workspace-model-settings { padding-left: 22px; }
-  .studio-main .workspace-model-fields { grid-template-columns: 1fr; }
   .field-studio { grid-template-columns: 195px minmax(0, 1fr); }
   .field-detail { padding-left: 20px; }
   .studio-confidence-track { width: 22px; }

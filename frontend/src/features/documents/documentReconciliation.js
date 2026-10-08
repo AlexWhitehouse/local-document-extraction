@@ -12,16 +12,15 @@ const normalizeId = (value) => String(value || "").trim();
 const sortDocuments = (a, b) =>
   Date.parse(b.created_at || b.queued_at || "") - Date.parse(a.created_at || a.queued_at || "");
 
-const normalizeModels = (models) =>
-  [
-    ...new Set(
-      (models || []).flatMap((model) => {
-        const id = normalizeId(model);
+const normalizeModels = (models) => [
+  ...new Set(
+    (models || []).flatMap((model) => {
+      const id = normalizeId(model);
 
-        return id ? [id] : [];
-      }),
-    ),
-  ].sort((a, b) => a.localeCompare(b));
+      return id ? [id] : [];
+    }),
+  ),
+];
 
 export function documentScopeKey(sessionId, workspaceId, enabled) {
   return enabled && sessionId && workspaceId ? `${sessionId}\0${workspaceId}` : "";
@@ -258,8 +257,8 @@ export function createDocumentReconciliation({
   }
 
   function rememberModel(ctx, name) {
-    if (!name) return;
-    const models = normalizeModels([...snapshot.availableModels, name]);
+    if (!name || snapshot.availableModels.includes(name)) return;
+    const models = normalizeModels([name, ...snapshot.availableModels]);
     modelOptions.set(ctx.workspaceId, models);
     snapshot = { ...snapshot, availableModels: models };
   }

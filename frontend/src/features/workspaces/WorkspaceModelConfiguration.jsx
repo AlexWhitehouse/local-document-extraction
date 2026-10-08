@@ -27,12 +27,14 @@ const CAPABILITIES = [
   ],
 ];
 
+const FORM_ID = "workspace-model-form";
+
 const UNREADABLE_API_KEY_MESSAGE = "The saved API key can't be read. Enter it again or clear the gateway.";
 
 export function WorkspaceModelConfiguration({ controller }) {
   const [editing, setEditing] = useState(false);
 
-  const { record, canManage, draft, loading, saving, testing, error, conflict } = controller;
+  const { record, canManage, draft, loading, saving, error, conflict } = controller;
 
   const configured = Boolean(record?.configured);
   const unavailable = canManage && record?.credential_status === "unavailable";
@@ -83,20 +85,40 @@ export function WorkspaceModelConfiguration({ controller }) {
             <StatusDot tone={statusTone} label={status} />
           </div>
         </div>
-        {showSummary ? (
+        {showSummary || showForm ? (
           <div className="workspace-model-header-actions">
-            <Button
-              variant="secondary"
-              pending={testing}
-              pendingLabel="Testing…"
-              disabled={!configured || saving}
-              onClick={controller.testConnection}
-            >
-              Test connection
-            </Button>
-            <Button variant="secondary" onClick={() => setEditing(true)}>
-              Edit
-            </Button>
+            {showSummary ? (
+              <>
+                <TestConnectionButton controller={controller} disabled={!configured || saving} />
+                <Button variant="secondary" onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              </>
+            ) : (
+              <>
+                {!conflict ? (
+                  <Button
+                    variant="secondary"
+                    disabled={saving}
+                    onClick={() => {
+                      controller.discard();
+                      closeEditor();
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                ) : null}
+                <Button
+                  type="submit"
+                  form={FORM_ID}
+                  pending={saving}
+                  pendingLabel="Saving…"
+                  disabled={conflict || !controller.dirty}
+                >
+                  Save configuration
+                </Button>
+              </>
+            )}
           </div>
         ) : null}
       </header>
@@ -159,6 +181,8 @@ export function WorkspaceModelConfiguration({ controller }) {
             </div>
           ) : (
             <form
+              id={FORM_ID}
+              className="workspace-model-summary"
               onSubmit={async (event) => {
                 event.preventDefault();
 
@@ -176,51 +200,47 @@ export function WorkspaceModelConfiguration({ controller }) {
                 </p>
               ) : null}
               <fieldset disabled={saving}>
-                <div className="workspace-model-group">
-                  <h3>Connection</h3>
-                  <div className="workspace-model-fields">
-                    <Field label="Gateway URL" hint="Your OpenAI-compatible base URL.">
-                      <TextInput
-                        type="url"
-                        required
-                        maxLength={2048}
-                        value={draft.gateway_url}
-                        onChange={(event) => controller.update("gateway_url", event.target.value)}
-                        placeholder="https://gateway.example/v1"
-                        spellCheck="false"
-                      />
-                    </Field>
-                    <Field
-                      label="Gateway API key"
-                      hint={
-                        configured && !unavailable
-                          ? "Leave blank to keep the saved key."
-                          : "Stored encrypted and never shown again."
-                      }
-                    >
-                      <TextInput
-                        type="password"
-                        required={!configured || unavailable}
-                        maxLength={8192}
-                        value={draft.credential}
-                        onChange={(event) => controller.update("credential", event.target.value)}
-                        autoComplete="new-password"
-                        spellCheck="false"
-                      />
-                    </Field>
+                <div className="workspace-model-settings">
+                  <Field label="Gateway URL">
+                    <TextInput
+                      type="url"
+                      required
+                      maxLength={2048}
+                      value={draft.gateway_url}
+                      onChange={(event) => controller.update("gateway_url", event.target.value)}
+                      placeholder="https://gateway.example/v1"
+                      spellCheck="false"
+                    />
+                  </Field>
+                  <Field
+                    label="Gateway API key"
+                    hint={
+                      configured && !unavailable
+                        ? "Leave blank to keep the saved key."
+                        : "Stored encrypted and never shown again."
+                    }
+                  >
+                    <TextInput
+                      type="password"
+                      required={!configured || unavailable}
+                      maxLength={8192}
+                      value={draft.credential}
+                      onChange={(event) => controller.update("credential", event.target.value)}
+                      autoComplete="new-password"
+                      spellCheck="false"
+                    />
+                  </Field>
+                  <div className="ui-field">
+                    <span className="ui-field-label">Calls</span>
+                    <CheckboxField
+                      label="Sequential calls"
+                      description="One request at a time for this workspace."
+                      checked={draft.sequential_calls}
+                      onChange={(checked) => controller.update("sequential_calls", checked)}
+                    />
                   </div>
-                  <CheckboxField
-                    label="Sequential calls"
-                    description="One request at a time for this workspace."
-                    checked={draft.sequential_calls}
-                    onChange={(checked) => controller.update("sequential_calls", checked)}
-                  />
                 </div>
-                <div className="workspace-model-group">
-                  <h3>Models</h3>
-                  <ModelRolesEditor draft={draft} update={controller.update} />
-                  <small>Tick what each model supports. Test connection doesn't check these.</small>
-                </div>
+                <ModelRolesEditor draft={draft} update={controller.update} />
               </fieldset>
               {error ? (
                 <p className="form-error" role="alert">
@@ -232,33 +252,11 @@ export function WorkspaceModelConfiguration({ controller }) {
                   Reload
                 </Button>
               ) : null}
-              <div className="workspace-model-actions">
+              <small>Tick what each model supports. Test connection doesn't check these.</small>
+              <div className="workspace-model-footer">
                 <div>
-                  {!conflict ? (
-                    <Button
-                      variant="ghost"
-                      disabled={saving}
-                      onClick={() => {
-                        controller.discard();
-                        closeEditor();
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="secondary"
-                    pending={testing}
-                    pendingLabel="Testing…"
-                    disabled={saving || conflict}
-                    onClick={controller.testConnection}
-                  >
-                    Test connection
-                  </Button>
+                  <TestConnectionButton controller={controller} disabled={saving || conflict} />
                   <ConnectionTestResult result={controller.testResult} />
-                  <Button type="submit" pending={saving} pendingLabel="Saving…" disabled={conflict || !controller.dirty}>
-                    Save configuration
-                  </Button>
                 </div>
                 {configured ? (
                   <Button variant="danger-text" disabled={saving || conflict} onClick={clearGateway}>
@@ -274,7 +272,21 @@ export function WorkspaceModelConfiguration({ controller }) {
   );
 }
 
-// Connection test state stays beside the Test button; it is not an action outcome, so it is not toasted.
+function TestConnectionButton({ controller, disabled }) {
+  return (
+    <Button
+      variant="secondary"
+      pending={controller.testing}
+      pendingLabel="Testing…"
+      disabled={disabled}
+      onClick={controller.testConnection}
+    >
+      Test connection
+    </Button>
+  );
+}
+
+// Connection test state shows beside its button; it is not an action outcome, so it is not toasted.
 function ConnectionTestResult({ result }) {
   if (!result) return null;
 

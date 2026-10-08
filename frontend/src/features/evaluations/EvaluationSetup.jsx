@@ -139,7 +139,7 @@ export function EvaluationSetup({
 
   const suggestions = [
     ...new Set(
-      [workspaceModel, ...suggestedModels].flatMap((model) => {
+      [...suggestedModels, workspaceModel].flatMap((model) => {
         const name = String(model || "").trim();
 
         return name ? [name] : [];

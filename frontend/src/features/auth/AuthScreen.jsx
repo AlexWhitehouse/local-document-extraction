@@ -153,6 +153,7 @@ export function AuthScreen({
                             value={password}
                             autoComplete={isSignUp ? "new-password" : "current-password"}
                             aria-describedby={showRequirements ? REQUIREMENTS_ID : undefined}
+                            placeholder="••••••••"
                             onChange={(event) => {
                               onPasswordChange(event.target.value);
 
@@ -181,6 +182,7 @@ export function AuthScreen({
                           type="password"
                           value={confirmPassword}
                           autoComplete="new-password"
+                          placeholder="••••••••"
                           onChange={(event) => onConfirmPasswordChange(event.target.value)}
                           onBlur={() => onFieldBlur("confirmPassword")}
                         />

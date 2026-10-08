@@ -766,7 +766,7 @@ describe("useDocumentController Workspace live updates", () => {
         filters: { dateFrom: "", dateTo: "", model: "" },
         cursor: null,
       });
-      expect(controller().contextList.availableModels).toEqual(["provider/model-a", "provider/model-b"]);
+      expect(controller().contextList.availableModels).toEqual(["provider/model-b", "provider/model-a"]);
       expect(getFilterOptions).toHaveBeenCalledOnce();
     });
 
@@ -797,9 +797,9 @@ describe("useDocumentController Workspace live updates", () => {
       );
     });
     expect(controller().contextList.availableModels).toEqual([
-      "provider/model-a",
-      "provider/model-b",
       "provider/model-c",
+      "provider/model-b",
+      "provider/model-a",
     ]);
     expect(getFilterOptions).toHaveBeenCalledOnce();
   });
