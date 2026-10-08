@@ -501,7 +501,7 @@ it("saves an upload from the results after running, retries a lost response with
   fireEvent.click(screen.getByRole("button", { name: "Save to library…" }));
   const dialog = screen.getByRole("dialog", { name: "Save to Evaluation library" });
   expect(within(dialog).getByText(/1 of 2 answers verified/)).toBeTruthy();
-  fireEvent.change(within(dialog).getByRole("textbox", { name: "Name" }), { target: { value: "Fenwick print" } });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Name in library" }), { target: { value: "Fenwick print" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
   expect(await within(dialog).findByRole("alert")).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));

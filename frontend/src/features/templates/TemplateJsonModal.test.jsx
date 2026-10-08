@@ -56,3 +56,16 @@ describe("TemplateJsonModal copy feedback", () => {
     expect(screen.getByText("Changes are validated and applied when you save.")).toBeTruthy();
   });
 });
+
+describe("TemplateJsonModal validation", () => {
+  it("shows a JSON error inline on the textarea instead of a hint", () => {
+    renderModal({ error: "Template JSON must be an object." });
+
+    const textarea = screen.getByLabelText("Template JSON");
+    const error = screen.getByText("Template JSON must be an object.");
+
+    expect(textarea.getAttribute("aria-invalid")).toBe("true");
+    expect(textarea.getAttribute("aria-describedby").split(" ")).toContain(error.id);
+    expect(screen.queryByText("Changes are validated and applied when you save.")).toBeNull();
+  });
+});

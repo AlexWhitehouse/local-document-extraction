@@ -33,9 +33,6 @@
 .workspace-model-inherited { color:var(--text-2); }
 .workspace-model-flag { display:inline-block; width:7px; height:7px; border:1px solid var(--rule-subtle); vertical-align:middle; }
 .workspace-model-flag.on { background:var(--accent); border-color:var(--accent); }
-.workspace-model-toggle { display:flex; align-items:flex-start; gap:10px; margin:13px 0; cursor:pointer; }
-.workspace-model-toggle input { margin:3px 0 0; }
-.workspace-model-toggle strong { display:block; margin-bottom:3px; font-size:var(--font-size-3); }
 .workspace-model-actions,.workspace-model-actions>div { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .workspace-model-actions { justify-content:space-between; }
 .workspace-model-actions button { font-size:var(--font-size-3); min-height:var(--control-h-sm); }

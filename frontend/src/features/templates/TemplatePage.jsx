@@ -3,10 +3,12 @@ import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { TemplateTags } from "./TemplateTags.jsx";
 import { TemplateAssistant } from "./TemplateAssistant.jsx";
 import { focusDiagnostic } from "./focusDiagnostic.js";
-import { DiagnosticMessages, TemplateProblems } from "./TemplateDiagnostics.jsx";
+import { TemplateProblems } from "./TemplateDiagnostics.jsx";
+import { issueMessage, templateIssues } from "./issueMessages.js";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { pluralize } from "../../lib/text.js";
 import { Button } from "../ui/Button.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 import { CountBadge } from "../ui/Status.jsx";
 import { AssistantIcon } from "../layout/Icons.jsx";
 
@@ -65,46 +67,23 @@ export function TemplatePage({
     <div className={`template-editor-workspace${assistant?.isOpen ? " template-assistant-layout" : ""}`}>
       <section ref={rootRef} className="studio-template-page" aria-label="Template editor">
         <div className="studio-template-meta template-meta-with-tags">
-          <div>
-            <label>
-              Template name
-              <input
-                data-tour="template-name"
-                data-diagnostic-location="template:name"
-                aria-invalid={issues.some(
-                  (issue) => issue.location.scope === "template" && issue.location.property === "name",
-                )}
-                aria-describedby="template-name-problems"
-                value={templateName}
-                disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
-                onChange={(event) => onTemplateNameChange(event.target.value)}
-              />
-            </label>
-            <DiagnosticMessages
-              id="template-name-problems"
-              issues={issues.filter(
-                (issue) => issue.location.scope === "template" && issue.location.property === "name",
-              )}
+          <Field label="Template name" error={issueMessage(templateIssues(issues, "name"))}>
+            <TextInput
+              data-tour="template-name"
+              data-diagnostic-location="template:name"
+              value={templateName}
+              disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
+              onChange={(event) => onTemplateNameChange(event.target.value)}
             />
-          </div>
-          <div>
-            <label>
-              Description
-              <input
-                data-diagnostic-location="template:description"
-                aria-describedby="template-description-problems"
-                value={templateDescription}
-                disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
-                onChange={(event) => onTemplateDescriptionChange(event.target.value)}
-              />
-            </label>
-            <DiagnosticMessages
-              id="template-description-problems"
-              issues={issues.filter(
-                (issue) => issue.location.scope === "template" && issue.location.property === "description",
-              )}
+          </Field>
+          <Field label="Description" error={issueMessage(templateIssues(issues, "description"))}>
+            <TextInput
+              data-diagnostic-location="template:description"
+              value={templateDescription}
+              disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
+              onChange={(event) => onTemplateDescriptionChange(event.target.value)}
             />
-          </div>
+          </Field>
           <TemplateTags
             key={tagPickerKey}
             value={templateTags}

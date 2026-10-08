@@ -1,4 +1,4 @@
-import React, { useId, useRef, useState } from "react";
+import React, { useId, useState } from "react";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { pluralize } from "../../lib/text";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
@@ -9,7 +9,7 @@ import { ErrorState, ListStatus, Skeleton } from "../ui/States.jsx";
 import { CloseIcon, CopyIcon, EditIcon, PlusIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Badge } from "../ui/Status.jsx";
-import { SettingToggle } from "./SettingToggle.jsx";
+import { CheckboxField, Field, Select, TextInput } from "../ui/Field.jsx";
 import "./WorkspacePages.css";
 
 const INVITE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -137,7 +137,7 @@ function WorkspaceSourceRetention({ controller }) {
       {settings ? (
         <>
           <div className="studio-setting-toggles">
-            <SettingToggle
+            <CheckboxField
               label="Retain original documents"
               description={explanation}
               checked={retaining}
@@ -173,7 +173,7 @@ export function AcceptedWorkspacePage({
   isWorkspaceNameDirty,
   onSaveWorkspaceChanges,
   apiKey,
-  workspaceApiKeyPlaceholder,
+  workspaceApiKeyHint,
   onCopyVisibleWorkspaceApiKey,
   canRotateWorkspaceApiKey,
   isIssuingApiKey,
@@ -225,24 +225,22 @@ export function AcceptedWorkspacePage({
               void onSaveWorkspaceChanges();
             }}
           >
-            <label htmlFor="workspace-name">Workspace name</label>
-            <div className="studio-name-input">
-              <input
-                id="workspace-name"
+            <Field label="Workspace name" className="studio-name-field">
+              <TextInput
                 value={workspaceName}
                 disabled={isSavingWorkspace || !hasApiAccess}
                 onChange={(event) => onWorkspaceNameChange(event.target.value)}
               />
-              <Button
-                type="submit"
-                variant="secondary"
-                pending={isSavingWorkspace}
-                pendingLabel="Saving…"
-                disabled={!hasApiAccess || !isWorkspaceNameDirty}
-              >
-                Save name
-              </Button>
-            </div>
+            </Field>
+            <Button
+              type="submit"
+              variant="secondary"
+              pending={isSavingWorkspace}
+              pendingLabel="Saving…"
+              disabled={!hasApiAccess || !isWorkspaceNameDirty}
+            >
+              Save name
+            </Button>
           </form>
           <dl className="studio-workspace-facts">
             <div>
@@ -263,28 +261,22 @@ export function AcceptedWorkspacePage({
                 <p>Connect your applications to Studio.</p>
               </div>
             </div>
-            <label>
-              Workspace API key
-              <div className="workspace-key-field">
-                <input
-                  aria-label="Workspace API key"
-                  value={apiKey}
-                  readOnly
-                  placeholder={workspaceApiKeyPlaceholder}
+            <div className="workspace-key-field">
+              <Field label="Workspace API key" hint={apiKey ? undefined : workspaceApiKeyHint}>
+                <TextInput value={apiKey} readOnly />
+              </Field>
+              {apiKey ? (
+                <IconButton
+                  size="sm"
+                  label="Copy API key"
+                  icon={CopyIcon}
+                  className="workspace-key-copy-button"
+                  onClick={async () => {
+                    if (await onCopyVisibleWorkspaceApiKey()) setCopiedApiKey(apiKey);
+                  }}
                 />
-                {apiKey ? (
-                  <IconButton
-                    size="sm"
-                    label="Copy API key"
-                    icon={CopyIcon}
-                    className="workspace-key-copy-button"
-                    onClick={async () => {
-                      if (await onCopyVisibleWorkspaceApiKey()) setCopiedApiKey(apiKey);
-                    }}
-                  />
-                ) : null}
-              </div>
-            </label>
+              ) : null}
+            </div>
             {showApiKeyCallout ? (
               <p role="status" className="workspace-key-callout">
                 This key won't be shown again. Copy it now.
@@ -489,9 +481,7 @@ function formatTimestamp(value) {
 }
 
 function WorkspaceInviteForm({ disabled, email, error, isInviting, role, onEmailChange, onRoleChange, onSubmit }) {
-  const emailId = useId();
-  const emailErrorId = `${emailId}-error`;
-  const emailRef = useRef(null);
+  const emailInputId = useId();
   const [emailError, setEmailError] = useState("");
 
   // Validates on blur and on submit. The message clears as soon as the user edits the address.
@@ -512,7 +502,7 @@ function WorkspaceInviteForm({ disabled, email, error, isInviting, role, onEmail
         event.preventDefault();
 
         if (checkEmail()) {
-          emailRef.current?.focus();
+          document.getElementById(emailInputId)?.focus();
 
           return;
         }
@@ -520,38 +510,27 @@ function WorkspaceInviteForm({ disabled, email, error, isInviting, role, onEmail
         void onSubmit();
       }}
     >
-      <div className="studio-invite-field">
-        <label>
-          Invite email
-          <input
-            ref={emailRef}
-            type="email"
-            required
-            disabled={disabled}
-            value={email}
-            aria-invalid={emailError ? "true" : undefined}
-            aria-describedby={emailError ? emailErrorId : undefined}
-            onChange={(event) => {
-              onEmailChange(event.target.value);
-              setEmailError("");
-            }}
-            onBlur={checkEmail}
-            placeholder="teammate@example.com"
-          />
-        </label>
-        {emailError ? (
-          <span id={emailErrorId} className="form-error studio-invite-field-error">
-            {emailError}
-          </span>
-        ) : null}
-      </div>
-      <label>
-        Invite role
-        <select disabled={disabled} value={role} onChange={(event) => onRoleChange(event.target.value)}>
+      <Field label="Invite email" error={emailError} className="studio-invite-field">
+        <TextInput
+          id={emailInputId}
+          type="email"
+          required
+          disabled={disabled}
+          value={email}
+          onChange={(event) => {
+            onEmailChange(event.target.value);
+            setEmailError("");
+          }}
+          onBlur={checkEmail}
+          placeholder="teammate@example.com"
+        />
+      </Field>
+      <Field label="Invite role">
+        <Select disabled={disabled} value={role} onChange={(event) => onRoleChange(event.target.value)}>
           <option value="member">Member</option>
           <option value="admin">Admin</option>
-        </select>
-      </label>
+        </Select>
+      </Field>
       <div className="studio-invite-submit">
         {error ? (
           <p role="alert" className="form-error">

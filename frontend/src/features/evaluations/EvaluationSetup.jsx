@@ -376,7 +376,7 @@ export function EvaluationSetup({
                       <span className="evaluation-index">{String(index + 1).padStart(2, "0")}</span>
                       <input
                         aria-label={`Candidate ${index + 1} model`}
-                        placeholder="Model name"
+                        placeholder="e.g. gpt-4o-mini"
                         value={model}
                         onChange={(event) =>
                           setModels(models.map((value, i) => (i === index ? event.target.value : value)))

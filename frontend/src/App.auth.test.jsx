@@ -73,7 +73,7 @@ async function fillSignUp(user, { name = "Ada Lovelace", password = "Password1!"
   await user.type(screen.getByLabelText("Name"), name);
   await user.type(screen.getByLabelText("Email"), "ada@example.com");
   await user.type(screen.getByLabelText("Password"), password);
-  await user.type(screen.getByLabelText("Confirm Password"), confirmPassword);
+  await user.type(screen.getByLabelText("Confirm password"), confirmPassword);
 }
 
 describe("auth sign-in feedback", () => {
@@ -387,7 +387,7 @@ describe("auth sign-up password policy feedback", () => {
 
     await user.click(screen.getByRole("button", { name: "Sign up" }));
 
-    expect(screen.getByLabelText("Confirm Password")).toBeTruthy();
+    expect(screen.getByLabelText("Confirm password")).toBeTruthy();
 
     await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
@@ -398,7 +398,7 @@ describe("auth sign-up password policy feedback", () => {
     expect(toastMock.error).not.toHaveBeenCalled();
     expect(screen.getByText("Confirm your password.")).toBeTruthy();
 
-    await user.type(screen.getByLabelText("Confirm Password"), "Password1!");
+    await user.type(screen.getByLabelText("Confirm password"), "Password1!");
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(screen.getByText("Check your email to verify your account.")).toBeTruthy();
@@ -413,20 +413,20 @@ describe("auth sign-up password policy feedback", () => {
     await user.click(screen.getByRole("button", { name: "Sign up" }));
 
     const passwordInput = screen.getByLabelText("Password");
-    const confirmPasswordInput = screen.getByLabelText("Confirm Password");
+    const confirmPasswordInput = screen.getByLabelText("Confirm password");
 
     await user.type(confirmPasswordInput, "Password1!");
     await user.tab();
 
     expect(screen.getByText("Passwords do not match.")).toBeTruthy();
     expect(confirmPasswordInput.getAttribute("aria-invalid")).toBe("true");
-    expect(confirmPasswordInput.className).toContain("auth-input-error");
+    expect(confirmPasswordInput.getAttribute("aria-describedby")).toContain("-error");
 
     await user.type(passwordInput, "Password1!");
 
     expect(screen.queryByText("Passwords do not match.")).toBeNull();
     expect(confirmPasswordInput.getAttribute("aria-invalid")).toBeNull();
-    expect(confirmPasswordInput.className).not.toContain("auth-input-error");
+    expect(confirmPasswordInput.getAttribute("aria-describedby")).toBeNull();
   });
 
   it("shows the mismatch under the confirm field when sign-up is submitted", async () => {
@@ -440,7 +440,7 @@ describe("auth sign-up password policy feedback", () => {
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
     expect(toastMock.error).not.toHaveBeenCalled();
     expect(screen.getByText("Passwords do not match.")).toBeTruthy();
-    expect(screen.getByLabelText("Confirm Password").getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByLabelText("Confirm password").getAttribute("aria-invalid")).toBe("true");
   });
 
   it("clears password validation state when switching auth modes while preserving identity fields", async () => {
@@ -464,7 +464,7 @@ describe("auth sign-up password policy feedback", () => {
     expect(screen.getByLabelText("Name").value).toBe("Ada Lovelace");
     expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
     expect(screen.getByLabelText("Password").value).toBe("");
-    expect(screen.getByLabelText("Confirm Password").value).toBe("");
+    expect(screen.getByLabelText("Confirm password").value).toBe("");
     expect(screen.queryByText("Passwords do not match.")).toBeNull();
     expect(screen.queryByText("At least 8 characters")).toBeNull();
   });
@@ -496,6 +496,7 @@ describe("auth sign-up password policy feedback", () => {
     expect(screen.getByText("One uppercase letter")).toBeTruthy();
     expect(screen.getByText("One number")).toBeTruthy();
     expect(screen.getByText("One special character")).toBeTruthy();
+    expect(screen.getByLabelText("Password").getAttribute("aria-describedby")).toBe("auth-password-requirements");
 
     await user.clear(screen.getByLabelText("Password"));
     await user.type(screen.getByLabelText("Password"), "Password1!");

@@ -344,7 +344,8 @@ describe("Workspace action toast feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     expect(await screen.findByLabelText("Workspace API key")).toBeTruthy();
-    expect(screen.getByPlaceholderText("Generate an API key to view")).toBeTruthy();
+    expect(screen.getByText("Generate an API key to view it.")).toBeTruthy();
+    expect(screen.getByLabelText("Workspace API key").getAttribute("aria-describedby")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
   });
 

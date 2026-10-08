@@ -239,4 +239,32 @@ describe("Template field editor", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
+
+  it("shows a field problem as that field's error, linked to its input", () => {
+    const diagnostics = [
+      {
+        id: "field.name_required@field:0:name",
+        code: "field.name_required",
+        severity: "error",
+        location: { scope: "field", fieldIndex: 0, property: "name" },
+        title: "Field name is required",
+        explanation: "Every field needs a name.",
+        remedy: "Enter a short name.",
+      },
+    ];
+
+    render(
+      <TemplateFieldEditor
+        fields={[{ id: "", name: "", description: "Total", data_type: "string" }]}
+        onChange={() => {}}
+        diagnostics={diagnostics}
+      />,
+    );
+
+    const input = screen.getByLabelText("Name");
+    const error = screen.getByText("Field name is required. Enter a short name.");
+
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby").split(" ")).toContain(error.id);
+  });
 });

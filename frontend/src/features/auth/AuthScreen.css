@@ -1,7 +1,6 @@
-.auth-field-error {
-  margin: 0;
-  color: var(--tone-danger-text);
-  font-size: var(--font-size-4);
+/* Sits under the password field, aligned with the end of the input. */
+.auth-field .auth-forgot-password-link {
+  justify-self: end;
 }
 
 .auth-form-error {

@@ -7,6 +7,7 @@ import { CloseIcon, ChevronDownIcon, ChevronLeftIcon } from "../layout/Icons.jsx
 import { Button, IconButton } from "../ui/Button.jsx";
 import { ListAddButton } from "../ui/ListAddButton.jsx";
 import { Tag } from "../ui/Status.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 
 export function TemplateTags({
   value = [],
@@ -215,15 +216,14 @@ export function TemplateTags({
                 {tags.map((tag) =>
                   editing?.id === tag.id ? (
                     <form key={tag.id} className="template-tags-rename" onSubmit={rename}>
-                      <label>
-                        New tag name
-                        <input
+                      <Field label="New tag name">
+                        <TextInput
                           autoFocus
                           value={name}
                           disabled={busy}
                           onChange={(event) => setName(event.target.value)}
                         />
-                      </label>
+                      </Field>
                       <div>
                         <Button
                           type="button"
@@ -310,7 +310,7 @@ export function TemplateTags({
                       setSearch("");
                     }
                   }}
-                  placeholder="Search or create a tag…"
+                  placeholder="e.g. Finance"
                 />
               </div>
               <div className="template-tags-list" role="group" aria-label="Available tags">

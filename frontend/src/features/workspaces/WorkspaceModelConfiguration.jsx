@@ -4,6 +4,7 @@ import { useUnsavedGuard } from "../../lib/unsavedChanges";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { Button } from "../ui/Button.jsx";
 import { Badge, StatusDot } from "../ui/Status.jsx";
+import { CheckboxField, Field, TextInput } from "../ui/Field.jsx";
 
 const TASK_ROLES = [
   ["assistant", "Template assistant", "Assistant, suggestions and Auto generate"],
@@ -171,10 +172,8 @@ export function WorkspaceModelConfiguration({ controller }) {
                 <div className="workspace-model-group">
                   <h3>Connection</h3>
                   <div className="workspace-model-fields">
-                    <label>
-                      Gateway URL
-                      <input
-                        aria-label="Gateway URL"
+                    <Field label="Gateway URL" hint="Your OpenAI-compatible base URL.">
+                      <TextInput
                         type="url"
                         required
                         maxLength={2048}
@@ -183,43 +182,32 @@ export function WorkspaceModelConfiguration({ controller }) {
                         placeholder="https://gateway.example/v1"
                         spellCheck="false"
                       />
-                      <small>
-                        Base URL used for <code>chat/completions</code>.
-                      </small>
-                    </label>
-                    <label>
-                      Gateway API key
-                      <input
-                        aria-label="Gateway API key"
+                    </Field>
+                    <Field
+                      label="Gateway API key"
+                      hint={
+                        configured && !unavailable
+                          ? "Leave blank to keep the saved key."
+                          : "Stored encrypted and never shown again."
+                      }
+                    >
+                      <TextInput
                         type="password"
                         required={!configured || unavailable}
                         maxLength={8192}
                         value={draft.credential}
                         onChange={(event) => controller.update("credential", event.target.value)}
-                        placeholder={
-                          configured && !unavailable
-                            ? "Saved — leave blank to keep, or enter a replacement"
-                            : "Enter gateway credential"
-                        }
                         autoComplete="new-password"
                         spellCheck="false"
                       />
-                      <small>
-                        Encrypted on this machine and never shown again. This is separate from the Workspace API key.
-                      </small>
-                    </label>
+                    </Field>
                   </div>
-                  <label className="workspace-model-toggle">
-                    <input
-                      type="checkbox"
-                      checked={draft.sequential_calls}
-                      onChange={(event) => controller.update("sequential_calls", event.target.checked)}
-                    />
-                    <span>
-                      <strong>Sequential calls</strong>
-                      <small>One gateway request at a time for this Workspace.</small>
-                    </span>
-                  </label>
+                  <CheckboxField
+                    label="Sequential calls"
+                    description="One gateway request at a time for this Workspace."
+                    checked={draft.sequential_calls}
+                    onChange={(checked) => controller.update("sequential_calls", checked)}
+                  />
                 </div>
                 <div className="workspace-model-group">
                   <h3>Models</h3>
@@ -377,15 +365,16 @@ function ModelRolesEditor({ draft, update }) {
       <tr>
         <RoleHeading title="Extraction" note="Jobs and Evaluations" />
         <td>
-          <input
-            aria-label="Extraction model"
-            required
-            maxLength={256}
-            value={draft.model_name}
-            onChange={(event) => update("model_name", event.target.value)}
-            placeholder="provider/model"
-            spellCheck="false"
-          />
+          <Field label="Extraction model" labelHidden>
+            <TextInput
+              required
+              maxLength={256}
+              value={draft.model_name}
+              onChange={(event) => update("model_name", event.target.value)}
+              placeholder="provider/model"
+              spellCheck="false"
+            />
+          </Field>
         </td>
         {CAPABILITIES.map(([field, title]) => (
           <td key={field}>
@@ -415,15 +404,16 @@ function ModelRolesEditor({ draft, update }) {
                   <option value="custom">Different model</option>
                 </select>
                 {custom ? (
-                  <input
-                    aria-label={`${title} model`}
-                    required
-                    maxLength={256}
-                    value={draft[`${role}_model_name`]}
-                    onChange={(event) => update(`${role}_model_name`, event.target.value)}
-                    placeholder="provider/model"
-                    spellCheck="false"
-                  />
+                  <Field label={`${title} model`} labelHidden>
+                    <TextInput
+                      required
+                      maxLength={256}
+                      value={draft[`${role}_model_name`]}
+                      onChange={(event) => update(`${role}_model_name`, event.target.value)}
+                      placeholder="provider/model"
+                      spellCheck="false"
+                    />
+                  </Field>
                 ) : null}
               </div>
             </td>

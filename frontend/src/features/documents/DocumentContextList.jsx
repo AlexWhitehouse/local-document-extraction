@@ -8,6 +8,7 @@ import { appPath } from "../../lib/appRoutes";
 import { isPacketListed, isSingleDocumentPacket, singlePacketDocument, PACKET_STATUS_LABELS } from "./packetListing.js";
 import { EmptyState, ErrorState, Skeleton } from "../ui/States.jsx";
 import { Button } from "../ui/Button.jsx";
+import { Field, Select, TextInput } from "../ui/Field.jsx";
 import { FilterIcon, PacketIcon } from "../layout/Icons.jsx";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
@@ -143,7 +144,6 @@ export function DocumentContextList({
   return (
     <>
       <div className="context-search-field">
-        <label htmlFor="document-job-search">Search Documents</label>
         <div className="context-search-row">
           <label className="context-select-all-control" title={selectAllLabel}>
             <input
@@ -164,12 +164,13 @@ export function DocumentContextList({
             />
           </label>
           <div className="context-search-shell">
-            <input
-              id="document-job-search"
-              value={search}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Document ID or Source file"
-            />
+            <Field label="Search documents" labelHidden>
+              <TextInput
+                value={search}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder="e.g. invoice.pdf"
+              />
+            </Field>
             <AdvancedJobFilters filters={filters} availableModels={availableModels} onFiltersChange={onFiltersChange} />
           </div>
         </div>
@@ -514,45 +515,34 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
           </div>
 
           <div className="context-filter-date-grid">
-            <label>
-              Date from
-              <input
+            <Field label="Date from">
+              <TextInput
                 type="date"
                 value={draftFilters.dateFrom}
                 max={draftFilters.dateTo || undefined}
-                aria-invalid={hasInvalidDateRange || undefined}
                 onChange={(event) => updateDraftFilter("dateFrom", event.target.value)}
               />
-            </label>
-            <label>
-              Date to
-              <input
+            </Field>
+            <Field label="Date to" error={hasInvalidDateRange ? "Date from must be on or before date to." : ""}>
+              <TextInput
                 type="date"
                 value={draftFilters.dateTo}
                 min={draftFilters.dateFrom || undefined}
-                aria-invalid={hasInvalidDateRange || undefined}
                 onChange={(event) => updateDraftFilter("dateTo", event.target.value)}
               />
-            </label>
+            </Field>
           </div>
 
-          <label>
-            Model used
-            <select value={draftFilters.model} onChange={(event) => updateDraftFilter("model", event.target.value)}>
+          <Field label="Model used">
+            <Select value={draftFilters.model} onChange={(event) => updateDraftFilter("model", event.target.value)}>
               <option value="">Any model</option>
               {modelOptions.map((model) => (
                 <option key={model} value={model}>
                   {model}
                 </option>
               ))}
-            </select>
-          </label>
-
-          {hasInvalidDateRange ? (
-            <p className="context-filter-error" role="alert">
-              Date from must be on or before date to.
-            </p>
-          ) : null}
+            </Select>
+          </Field>
 
           <div className="context-filter-actions">
             <Button

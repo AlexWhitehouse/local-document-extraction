@@ -4,6 +4,7 @@ import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
 import { ListStatus } from "../ui/States.jsx";
 import { IconButton } from "../ui/Button.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 import { Badge } from "../ui/Status.jsx";
 import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
 import { accountFlags, displayName, isApplicationAdmin, safeText, userIdOf } from "./adminAccounts.js";
@@ -18,14 +19,14 @@ export function AdminContextList({ admin }) {
   return (
     <>
       <form className="context-search-field" role="search" onSubmit={admin.onSubmitSearch}>
-        <label htmlFor="admin-user-search">Search users</label>
         <div className="context-search-shell admin-search-shell">
-          <input
-            id="admin-user-search"
-            value={admin.searchInput}
-            placeholder={admin.searchField === "name" ? "Name" : "Email address"}
-            onChange={(event) => admin.onSearchInputChange(event.target.value)}
-          />
+          <Field label="Search users" labelHidden>
+            <TextInput
+              value={admin.searchInput}
+              placeholder={admin.searchField === "name" ? "e.g. Ada Lovelace" : "e.g. ada@example.com"}
+              onChange={(event) => admin.onSearchInputChange(event.target.value)}
+            />
+          </Field>
           <select
             aria-label="Search field"
             value={admin.searchField}

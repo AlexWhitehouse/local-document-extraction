@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 import { Button } from "../ui/Button.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 import "./AuthScreen.css";
 
 const FIELD_IDS = {
@@ -47,11 +48,6 @@ export function AuthScreen({
   const localMail = mailDelivery === "local";
   const formTitle = isResetRequest ? "Reset password" : isSignIn ? "Sign in" : "Create account";
   const showRequirements = shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0;
-
-  const passwordDescribedBy =
-    [fieldErrors.password ? `${FIELD_IDS.password}-error` : "", showRequirements ? REQUIREMENTS_ID : ""]
-      .filter(Boolean)
-      .join(" ") || undefined;
 
   // Focus the first invalid field after a rejected submit (the controller sets focusRequest).
   useEffect(() => {
@@ -134,102 +130,68 @@ export function AuthScreen({
                 <>
                   <div className={isSignUp ? "row two-up auth-form-grid" : "row auth-form-grid"}>
                     {isSignUp ? (
-                      <div className="auth-field">
-                        <label htmlFor={FIELD_IDS.name} className="auth-field-label">
-                          Name
-                        </label>
-                        <input
+                      <Field label="Name" error={fieldErrors.name}>
+                        <TextInput
                           id={FIELD_IDS.name}
                           value={name}
                           autoComplete="name"
-                          aria-invalid={Boolean(fieldErrors.name) || undefined}
-                          aria-describedby={fieldErrors.name ? `${FIELD_IDS.name}-error` : undefined}
-                          className={fieldErrors.name ? "auth-input-error" : ""}
                           onChange={(event) => onNameChange(event.target.value)}
                           placeholder="Jane Doe"
                         />
-                        <FieldError id={`${FIELD_IDS.name}-error`} message={fieldErrors.name} />
-                      </div>
+                      </Field>
                     ) : null}
-                    <div className="auth-field">
-                      <label htmlFor={FIELD_IDS.email} className="auth-field-label">
-                        Email
-                      </label>
-                      <input
+                    <Field label="Email" error={fieldErrors.email}>
+                      <TextInput
                         id={FIELD_IDS.email}
                         type="email"
                         value={email}
                         autoComplete="email"
-                        aria-invalid={Boolean(fieldErrors.email) || undefined}
-                        aria-describedby={fieldErrors.email ? `${FIELD_IDS.email}-error` : undefined}
-                        className={fieldErrors.email ? "auth-input-error" : ""}
                         onChange={(event) => onEmailChange(event.target.value)}
                         onBlur={() => onFieldBlur("email")}
                         placeholder="jane@example.com"
                       />
-                      <FieldError id={`${FIELD_IDS.email}-error`} message={fieldErrors.email} />
-                    </div>
+                    </Field>
                     {isResetRequest ? null : (
                       <div className="auth-field">
-                        <div className="auth-password-label-row">
-                          <label htmlFor={FIELD_IDS.password} className="auth-field-label">
-                            Password
-                          </label>
-                          {isSignIn ? (
-                            <SwitchModeButton
-                              className="auth-forgot-password-link"
-                              mode="reset-request"
-                              disabled={isAuthPending}
-                              onSwitchMode={onSwitchMode}
-                            >
-                              Forgot password?
-                            </SwitchModeButton>
-                          ) : null}
-                        </div>
-                        <input
-                          id={FIELD_IDS.password}
-                          type="password"
-                          value={password}
-                          autoComplete={isSignUp ? "new-password" : "current-password"}
-                          aria-invalid={Boolean(fieldErrors.password) || undefined}
-                          aria-describedby={passwordDescribedBy}
-                          className={fieldErrors.password ? "auth-input-error" : ""}
-                          onChange={(event) => {
-                            onPasswordChange(event.target.value);
+                        <Field label="Password" error={fieldErrors.password}>
+                          <TextInput
+                            id={FIELD_IDS.password}
+                            type="password"
+                            value={password}
+                            autoComplete={isSignUp ? "new-password" : "current-password"}
+                            aria-describedby={showRequirements ? REQUIREMENTS_ID : undefined}
+                            onChange={(event) => {
+                              onPasswordChange(event.target.value);
 
-                            if (isSignUp) {
-                              onPasswordTouched();
-                            }
-                          }}
-                          placeholder="************"
-                        />
-                        <FieldError id={`${FIELD_IDS.password}-error`} message={fieldErrors.password} />
+                              if (isSignUp) {
+                                onPasswordTouched();
+                              }
+                            }}
+                          />
+                        </Field>
+                        {isSignIn ? (
+                          <SwitchModeButton
+                            className="auth-forgot-password-link"
+                            mode="reset-request"
+                            disabled={isAuthPending}
+                            onSwitchMode={onSwitchMode}
+                          >
+                            Forgot password?
+                          </SwitchModeButton>
+                        ) : null}
                       </div>
                     )}
                     {isSignUp ? (
-                      <div className="auth-field">
-                        <label htmlFor={FIELD_IDS.confirmPassword} className="auth-field-label">
-                          Confirm Password
-                        </label>
-                        <input
+                      <Field label="Confirm password" error={fieldErrors.confirmPassword}>
+                        <TextInput
                           id={FIELD_IDS.confirmPassword}
                           type="password"
                           value={confirmPassword}
                           autoComplete="new-password"
-                          aria-invalid={Boolean(fieldErrors.confirmPassword) || undefined}
-                          aria-describedby={
-                            fieldErrors.confirmPassword ? `${FIELD_IDS.confirmPassword}-error` : undefined
-                          }
-                          className={fieldErrors.confirmPassword ? "auth-input-error" : ""}
                           onChange={(event) => onConfirmPasswordChange(event.target.value)}
                           onBlur={() => onFieldBlur("confirmPassword")}
-                          placeholder="Repeat password"
                         />
-                        <FieldError
-                          id={`${FIELD_IDS.confirmPassword}-error`}
-                          message={fieldErrors.confirmPassword}
-                        />
-                      </div>
+                      </Field>
                     ) : null}
                   </div>
                   {shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0 ? (
@@ -306,14 +268,6 @@ export function AuthScreen({
       </div>
     </>
   );
-}
-
-function FieldError({ id, message }) {
-  return message ? (
-    <p id={id} className="auth-field-error">
-      {message}
-    </p>
-  ) : null;
 }
 
 function SwitchModeButton({ className = "", mode, disabled, onSwitchMode, children }) {

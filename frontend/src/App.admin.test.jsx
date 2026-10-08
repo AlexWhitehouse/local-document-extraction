@@ -323,7 +323,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Ban user");
-    await user.type(screen.getByLabelText("Ban reason"), "Compromised account");
+    await user.type(screen.getByLabelText("Reason"), "Compromised account");
     await user.keyboard("{Escape}");
 
     const prompt = await screen.findByRole("alertdialog", { name: "Discard changes?" });
@@ -352,7 +352,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Ban user");
-    await user.type(screen.getByLabelText("Ban reason"), "Compromised account");
+    await user.type(screen.getByLabelText("Reason"), "Compromised account");
     await user.click(within(screen.getByRole("dialog", { name: "Ban alan@example.com" })).getByRole("button", { name: "Ban user" }));
 
     await waitFor(() => {

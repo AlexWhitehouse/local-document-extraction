@@ -1,8 +1,9 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { diagnoseTemplateDraft, groupIssuesByLocation } from "../../../../shared/templateAssistant.ts";
 import { focusDiagnostic } from "./focusDiagnostic.js";
-import { DiagnosticMessages } from "./TemplateDiagnostics.jsx";
+import { issueMessage } from "./issueMessages.js";
+import { Field, Select, TextInput, Textarea } from "../ui/Field.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import "./TemplateFieldEditor.css";
@@ -38,7 +39,6 @@ export function TemplateFieldEditor({
   focusRequest,
 }) {
   const rootRef = useRef(null);
-  const diagnosticPrefix = useId();
 
   const issues = useMemo(
     () =>
@@ -50,13 +50,8 @@ export function TemplateFieldEditor({
   const grouped = useMemo(() => groupIssuesByLocation(issues), [issues]);
   const at = (property, fieldIndex = activeFieldIndex) => `field:${fieldIndex}:${property}`;
 
-  const diagnosticProps = (key) => ({
-    "data-diagnostic-location": key,
-    "aria-invalid": (grouped.byKey.get(key)?.length || 0) > 0,
-    "aria-describedby": `${diagnosticPrefix}-${key}`,
-  });
-
-  const messages = (key) => <DiagnosticMessages id={`${diagnosticPrefix}-${key}`} issues={grouped.byKey.get(key)} />;
+  const diagnosticProps = (key) => ({ "data-diagnostic-location": key });
+  const errorAt = (key) => issueMessage(grouped.byKey.get(key));
   const [activeFieldIndex, setActiveFieldIndex] = useState(0);
   const [schemaEditorFieldIndex, setSchemaEditorFieldIndex] = useState(null);
 
@@ -350,66 +345,55 @@ export function TemplateFieldEditor({
                 Field {activeFieldIndex + 1} of {fields.length}
               </p>
               <h2>{activeField.name || "New field"}</h2>
-              <p>Tell the model exactly what belongs in this field.</p>
             </div>
 
             <div className="row two-up">
-              <div>
-                <label>
-                  Name
-                  <input
-                    data-tour="field-name"
-                    {...diagnosticProps(at("name"))}
-                    value={activeField.name}
-                    onChange={(event) => updateField(activeFieldIndex, "name", event.target.value)}
-                    placeholder="Medication Name"
-                  />
-                </label>
-                {messages(at("name"))}
-              </div>
-              <div>
-                <label>
-                  Type
-                  <select
-                    data-tour="field-type"
-                    {...diagnosticProps(at("data_type"))}
-                    value={activeField.data_type}
-                    onChange={(event) => updateField(activeFieldIndex, "data_type", event.target.value)}
-                  >
-                    {!DATA_TYPES.includes(activeField.data_type) && (
-                      <option value={activeField.data_type}>{activeField.data_type || "Choose a type"}</option>
-                    )}
-                    {activeField.data_type === "array" ? (
-                      <option value="array" disabled>
-                        {getDataTypeLabel("array")}
-                      </option>
-                    ) : null}
-                    {DATA_TYPES.flatMap((dataType) =>
-                      dataType === "array"
-                        ? []
-                        : [
-                            <option key={dataType} value={dataType}>
-                              {getDataTypeLabel(dataType)}
-                            </option>,
-                          ],
-                    )}
-                  </select>
-                </label>
-                {messages(at("data_type"))}
-              </div>
+              <Field label="Name" error={errorAt(at("name"))}>
+                <TextInput
+                  data-tour="field-name"
+                  {...diagnosticProps(at("name"))}
+                  value={activeField.name}
+                  onChange={(event) => updateField(activeFieldIndex, "name", event.target.value)}
+                  placeholder="e.g. Medication name"
+                />
+              </Field>
+              <Field label="Type" error={errorAt(at("data_type"))}>
+                <Select
+                  data-tour="field-type"
+                  {...diagnosticProps(at("data_type"))}
+                  value={activeField.data_type}
+                  onChange={(event) => updateField(activeFieldIndex, "data_type", event.target.value)}
+                >
+                  {!DATA_TYPES.includes(activeField.data_type) && (
+                    <option value={activeField.data_type}>{activeField.data_type || "Choose a type"}</option>
+                  )}
+                  {activeField.data_type === "array" ? (
+                    <option value="array" disabled>
+                      {getDataTypeLabel("array")}
+                    </option>
+                  ) : null}
+                  {DATA_TYPES.flatMap((dataType) =>
+                    dataType === "array"
+                      ? []
+                      : [
+                          <option key={dataType} value={dataType}>
+                            {getDataTypeLabel(dataType)}
+                          </option>,
+                        ],
+                  )}
+                </Select>
+              </Field>
             </div>
-            <label>
-              Extraction instructions
-              <textarea
+            <Field label="Extraction instructions" error={errorAt(at("description"))}>
+              <Textarea
                 data-tour="field-description"
                 {...diagnosticProps(at("description"))}
                 value={activeField.description}
                 onChange={(event) => updateField(activeFieldIndex, "description", event.target.value)}
-                placeholder="Describe what should be extracted"
+                placeholder="e.g. The medication name as printed on the prescription"
               />
-            </label>
+            </Field>
 
-            {messages(at("description"))}
             <p className="studio-field-id">
               Field ID <code>{activeField.id || "Generated from the field name"}</code>
             </p>
@@ -417,22 +401,28 @@ export function TemplateFieldEditor({
               <div className="object-schema-launch">
                 <div>
                   <strong>Object schema</strong>
-                  <p className="hint">
+                  <p>
                     {objectColumns.length
                       ? `${objectColumns.length} column${objectColumns.length === 1 ? "" : "s"} defined`
                       : "No columns defined yet"}
                   </p>
+                  {errorAt(at("object_schema")) ? (
+                    <p id={`object-schema-error-${activeFieldIndex}`} className="ui-field-error">
+                      {errorAt(at("object_schema"))}
+                    </p>
+                  ) : null}
                 </div>
                 <Button
                   type="button"
                   variant="secondary"
                   data-tour="schema-open"
                   {...diagnosticProps(at("object_schema"))}
+                  aria-describedby={errorAt(at("object_schema")) ? `object-schema-error-${activeFieldIndex}` : undefined}
+                  aria-invalid={errorAt(at("object_schema")) ? true : undefined}
                   onClick={() => setSchemaEditorFieldIndex(activeFieldIndex)}
                 >
                   Edit schema
                 </Button>
-                {messages(at("object_schema"))}
               </div>
             ) : null}
           </ScrollArea>
@@ -483,16 +473,8 @@ function ObjectSchemaModal({
   onClose,
 }) {
   const headRef = useRef(null);
-  const prefix = useId();
   const at = (columnIndex, property) => `column:${fieldIndex}:${columnIndex}:${property}`;
-
-  const diagnosticProps = (key) => ({
-    "data-diagnostic-location": key,
-    "aria-invalid": (grouped.byKey.get(key)?.length || 0) > 0,
-    "aria-describedby": `${prefix}-${key}`,
-  });
-
-  const messages = (key) => <DiagnosticMessages compact id={`${prefix}-${key}`} issues={grouped.byKey.get(key)} />;
+  const errorAt = (key) => issueMessage(grouped.byKey.get(key));
   useEffect(() => {
     if (focusRequest?.issue?.location?.scope !== "column") return;
     const timer = setTimeout(() => focusDiagnostic(headRef.current?.closest(".modal-card"), focusRequest.issue.location), 0);
@@ -561,45 +543,45 @@ function ObjectSchemaModal({
                       <span className="object-schema-row-number">Column {columnIndex + 1}</span>
                     </td>
                     <td>
-                      <input
-                        aria-label="Column name"
-                        disabled={disabled}
-                        {...diagnosticProps(at(columnIndex, "heading"))}
-                        value={column.heading}
-                        onChange={(event) => onUpdateColumn(columnIndex, "heading", event.target.value)}
-                        placeholder="Line Total"
-                      />
-                      {messages(at(columnIndex, "heading"))}
+                      <Field label="Column name" labelHidden error={errorAt(at(columnIndex, "heading"))}>
+                        <TextInput
+                          disabled={disabled}
+                          data-diagnostic-location={at(columnIndex, "heading")}
+                          value={column.heading}
+                          onChange={(event) => onUpdateColumn(columnIndex, "heading", event.target.value)}
+                          placeholder="e.g. Line total"
+                        />
+                      </Field>
                     </td>
                     <td>
-                      <select
-                        aria-label="Type"
-                        disabled={disabled}
-                        {...diagnosticProps(at(columnIndex, "data_type"))}
-                        value={column.data_type}
-                        onChange={(event) => onUpdateColumn(columnIndex, "data_type", event.target.value)}
-                      >
-                        {!OBJECT_SCHEMA_DATA_TYPES.includes(column.data_type) && (
-                          <option value={column.data_type}>{column.data_type || "Choose a type"}</option>
-                        )}
-                        {OBJECT_SCHEMA_DATA_TYPES.map((dataType) => (
-                          <option key={dataType} value={dataType}>
-                            {getDataTypeLabel(dataType)}
-                          </option>
-                        ))}
-                      </select>
-                      {messages(at(columnIndex, "data_type"))}
+                      <Field label="Type" labelHidden error={errorAt(at(columnIndex, "data_type"))}>
+                        <Select
+                          disabled={disabled}
+                          data-diagnostic-location={at(columnIndex, "data_type")}
+                          value={column.data_type}
+                          onChange={(event) => onUpdateColumn(columnIndex, "data_type", event.target.value)}
+                        >
+                          {!OBJECT_SCHEMA_DATA_TYPES.includes(column.data_type) && (
+                            <option value={column.data_type}>{column.data_type || "Choose a type"}</option>
+                          )}
+                          {OBJECT_SCHEMA_DATA_TYPES.map((dataType) => (
+                            <option key={dataType} value={dataType}>
+                              {getDataTypeLabel(dataType)}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
                     </td>
                     <td>
-                      <input
-                        aria-label="Column description"
-                        disabled={disabled}
-                        {...diagnosticProps(at(columnIndex, "description"))}
-                        value={column.description}
-                        onChange={(event) => onUpdateColumn(columnIndex, "description", event.target.value)}
-                        placeholder="What this column contains"
-                      />
-                      {messages(at(columnIndex, "description"))}
+                      <Field label="Column description" labelHidden error={errorAt(at(columnIndex, "description"))}>
+                        <TextInput
+                          disabled={disabled}
+                          data-diagnostic-location={at(columnIndex, "description")}
+                          value={column.description}
+                          onChange={(event) => onUpdateColumn(columnIndex, "description", event.target.value)}
+                          placeholder="e.g. Price for this line"
+                        />
+                      </Field>
                     </td>
                     <td>
                       <div className="object-schema-row-actions">
@@ -636,7 +618,6 @@ function ObjectSchemaModal({
         </ScrollArea>
 
         <div className="object-schema-modal-footer">
-          <p className="hint">Changes are applied to the current template draft as you edit.</p>
           <Button data-tour="schema-done" onClick={onClose}>
             Done
           </Button>

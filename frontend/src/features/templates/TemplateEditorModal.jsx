@@ -2,13 +2,15 @@ import React, { useMemo, useRef, useState } from "react";
 import "./TemplateEditorModal.css";
 import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { focusDiagnostic } from "./focusDiagnostic.js";
-import { DiagnosticMessages, TemplateProblems } from "./TemplateDiagnostics.jsx";
+import { TemplateProblems } from "./TemplateDiagnostics.jsx";
+import { issueMessage, templateIssues } from "./issueMessages.js";
 import { describeError } from "../../lib/describeError";
 import { CloseIcon } from "../layout/Icons.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "./templateFields.js";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 
 /** Independent draft; the caller chooses temporary Apply or persistent Save. */
 export function TemplateEditorModal({
@@ -81,33 +83,22 @@ export function TemplateEditorModal({
       </header>
       <div ref={rootRef}>
         <div className="studio-template-meta">
-          <div>
-            <label>
-              Template name
-              <input
-                data-diagnostic-location="template:name"
-                aria-describedby="evaluation-template-name-problems"
-                value={draft.name}
-                disabled={saving}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-              />
-            </label>
-            <DiagnosticMessages
-              id="evaluation-template-name-problems"
-              issues={issues.filter(
-                (issue) => issue.location.scope === "template" && issue.location.property === "name",
-              )}
+          <Field label="Template name" error={issueMessage(templateIssues(issues, "name"))}>
+            <TextInput
+              data-diagnostic-location="template:name"
+              value={draft.name}
+              disabled={saving}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
             />
-          </div>
-          <label>
-            Description
-            <input
+          </Field>
+          <Field label="Description">
+            <TextInput
               data-diagnostic-location="template:description"
               value={draft.description || ""}
               disabled={saving}
               onChange={(event) => setDraft({ ...draft, description: event.target.value })}
             />
-          </label>
+          </Field>
         </div>
         <TemplateProblems
           issues={issues}

@@ -5,6 +5,7 @@ import { useRowMotion } from "../context/useRowMotion.js";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { NavigationLink } from "../context/NavigationLink.jsx";
 import { ListStatus } from "../ui/States.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 import { appPath } from "../../lib/appRoutes";
 
 export function WorkspaceContextList({
@@ -27,14 +28,14 @@ export function WorkspaceContextList({
   return (
     <>
       <form className="context-search-field" role="search" onSubmit={(event) => event.preventDefault()}>
-        <label htmlFor="workspace-context-search">Search workspaces</label>
         <div className="context-search-shell">
-          <input
-            id="workspace-context-search"
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Workspace name or ID"
-          />
+          <Field label="Search workspaces" labelHidden>
+            <TextInput
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="Workspace name or ID"
+            />
+          </Field>
         </div>
       </form>
       <ScrollArea className="context-list" role="region" aria-label="Workspace list" tabIndex={0}>

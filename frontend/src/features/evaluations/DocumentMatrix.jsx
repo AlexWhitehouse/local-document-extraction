@@ -80,7 +80,7 @@ export function CandidateHead({
         {mode === "models" ? (
           <input
             aria-label={`${label} model`}
-            placeholder="Model name"
+            placeholder="e.g. gpt-4o-mini"
             value={candidate.model}
             onChange={(event) => onModelChange(event.target.value)}
           />

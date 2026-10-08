@@ -3,6 +3,7 @@ import { CheckIcon, CloseIcon, CopyIcon } from "../layout/Icons.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { Field, Textarea } from "../ui/Field.jsx";
 
 export function TemplateJsonModal({
   isOpen,
@@ -47,26 +48,23 @@ export function TemplateJsonModal({
           <IconButton label="Close" icon={CloseIcon} disabled={isSavingTemplate} onClick={requestClose} />
         </div>
       </div>
-      <label className="template-json-label">
-        <span>Template JSON</span>
-        <textarea
+      <Field
+        label="Template JSON"
+        className="template-json-label"
+        error={error}
+        hint={error ? undefined : "Changes are validated and applied when you save."}
+      >
+        <Textarea
           className="template-json-textarea"
-          aria-invalid={Boolean(error)}
-          aria-describedby="template-json-validation"
           spellCheck="false"
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
         />
-      </label>
+      </Field>
       {diagnostics.length > 0 && <ul className="template-json-diagnostics">{diagnostics.map(issue => <li key={issue.id}>
         <strong>{issue.location.scope === "template" ? "Template" : `Field ${issue.location.fieldIndex + 1}${issue.location.scope === "column" ? `, column ${issue.location.columnIndex + 1}` : ""}`} · {issue.location.property}: {issue.title}.</strong> {issue.explanation} {issue.remedy}
       </li>)}</ul>}
       <div className="template-json-modal-footer">
-        {error ? (
-          <p id="template-json-validation" className="form-error" role="alert">{error}</p>
-        ) : (
-          <p className="hint">Changes are validated and applied when you save.</p>
-        )}
         <div className="actions">
           <Button
             type="button"

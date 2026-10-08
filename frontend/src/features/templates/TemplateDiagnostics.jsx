@@ -4,22 +4,6 @@ import "./TemplateAssistant.css";
 import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
 import { Button } from "../ui/Button.jsx";
 
-export function DiagnosticMessages({ issues = [], id, compact = false }) {
-  if (!issues.length) return null;
-
-  return (
-    <div id={id} className={compact ? "template-problem-messages compact" : "template-problem-messages"}>
-      {issues.map((issue) => (
-        <p key={issue.id} className="template-problem-message">
-          <strong>{issue.title}</strong>
-          {compact ? null : <span>{issue.explanation}</span>}
-          <em>{issue.remedy}</em>
-        </p>
-      ))}
-    </div>
-  );
-}
-
 export function TemplateProblems({ issues, draft, onFocus, activeIndex = 0, onIndexChange, blocked = null }) {
   if (!issues.length) return null;
   const index = Math.min(activeIndex, issues.length - 1);

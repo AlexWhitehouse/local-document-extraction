@@ -2,6 +2,7 @@ import React from "react";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { Button } from "../ui/Button.jsx";
 import { Badge } from "../ui/Status.jsx";
+import { Field, Textarea } from "../ui/Field.jsx";
 import { displayName, isApplicationAdmin, isEmailVerified, safeText, userIdOf } from "./adminAccounts.js";
 
 export function ApplicationAdminPage({ admin }) {
@@ -203,19 +204,14 @@ function BanUserDialog({ admin, user }) {
       />
       <form className="admin-user-action-form" onSubmit={admin.onConfirmBan}>
         {isApplicationAdmin(user) ? <p className="form-warning">You are banning another Application admin.</p> : null}
-        <label>
-          Ban reason
-          <textarea
+        <Field label="Reason" error={admin.banReasonError}>
+          <Textarea
             value={admin.banReason}
             onChange={(event) => admin.onBanReasonChange(event.target.value)}
+            placeholder="e.g. Spam account"
             rows={4}
           />
-        </label>
-        {admin.banReasonError ? (
-          <p className="form-error" role="alert">
-            {admin.banReasonError}
-          </p>
-        ) : null}
+        </Field>
         <div className="actions">
           <Button variant="secondary" onClick={admin.onCloseBanDialog}>
             Cancel

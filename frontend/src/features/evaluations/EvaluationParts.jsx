@@ -1,11 +1,12 @@
 import { pluralize } from "../../lib/text.js";
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { candidateBusy } from "./useEvaluations.js";
 import { normalizeReferenceDates, scalarValue, validateReference } from "./evaluationScoring.js";
 import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
 import { display, dollars, seconds } from "./evaluationFormat.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Badge, StatusDot } from "../ui/Status.jsx";
+import { Field } from "../ui/Field.jsx";
 import { CheckIcon, CloseIcon, ExternalIcon, MoreIcon } from "../layout/Icons.jsx";
 
 const SCALAR_TYPES = ["string", "number", "date", "boolean"];
@@ -253,7 +254,6 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
   const [draft, setDraft] = useState(initial);
   const [error, setError] = useState("");
   const [dateOrder, setDateOrder] = useState("dmy");
-  const errorId = useId();
   const input = useRef(null);
   useEffect(() => {
     if (editing) input.current?.focus();
@@ -355,37 +355,33 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
       }}
     >
       {field.data_type === "boolean" ? (
-        <select
-          ref={input}
-          aria-label={`Expected ${field.name}`}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          value={draft === "" ? "" : String(draft)}
-          onChange={(event) => {
-            setDraft(event.target.value === "" ? "" : event.target.value === "true");
-            setError("");
-          }}
-        >
-          <option value="">Choose Yes or No</option>
-          <option value="true">Yes</option>
-          <option value="false">No</option>
-        </select>
+        <Field label={`Expected ${field.name}`} labelHidden error={error || undefined}>
+          <select
+            ref={input}
+            value={draft === "" ? "" : String(draft)}
+            onChange={(event) => {
+              setDraft(event.target.value === "" ? "" : event.target.value === "true");
+              setError("");
+            }}
+          >
+            <option value="">Choose Yes or No</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </Field>
       ) : (
-        <input
-          ref={input}
-          aria-label={`Expected ${field.name}`}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          inputMode={field.data_type === "number" ? "decimal" : undefined}
-          placeholder={
-            field.data_type === "date" ? (dateOrder === "dmy" ? "DD/MM/YYYY" : "MM/DD/YYYY") : "Expected value"
-          }
-          value={draft ?? ""}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setError("");
-          }}
-        />
+        <Field label={`Expected ${field.name}`} labelHidden error={error || undefined}>
+          <input
+            ref={input}
+            inputMode={field.data_type === "number" ? "decimal" : undefined}
+            placeholder={field.data_type === "date" ? (dateOrder === "dmy" ? "DD/MM/YYYY" : "MM/DD/YYYY") : undefined}
+            value={draft ?? ""}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setError("");
+            }}
+          />
+        </Field>
       )}
       {field.data_type === "date" && (
         <>
@@ -398,11 +394,6 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
           />
           <DatePreview value={draft} dateOrder={dateOrder} />
         </>
-      )}
-      {error && (
-        <p id={errorId} role="alert" className="evaluation-validation-error">
-          {error}
-        </p>
       )}
       <div className="evaluation-expected-actions">
         <Button variant="text" type="submit">

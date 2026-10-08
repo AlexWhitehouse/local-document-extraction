@@ -42,6 +42,7 @@ import { useWorkspaceSourceRetention } from "./features/workspaces/useWorkspaceS
 import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
 import { hasUnsavedEdits, runDiscardChecks } from "./lib/unsavedChanges.js";
 import { DISCARD_CHANGES, confirmDialog } from "./features/ui/confirm.jsx";
+import { Field, TextInput } from "./features/ui/Field.jsx";
 import { LoadingState } from "./features/ui/States.jsx";
 import { Badge } from "./features/ui/Status.jsx";
 import { Button } from "./features/ui/Button.jsx";
@@ -966,52 +967,30 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
               <h2>Set new password</h2>
               <p className="muted">Your new password must meet the Account password policy.</p>
               <div className="row auth-form-grid">
-                <div className="auth-field">
-                  <label htmlFor="reset-new-password" className="auth-field-label">
-                    New password
-                  </label>
-                  <input
+                <Field label="New password" error={fieldErrors.password} className="auth-field">
+                  <TextInput
                     id="reset-new-password"
                     type="password"
                     value={newPassword}
                     autoComplete="new-password"
-                    aria-invalid={Boolean(fieldErrors.password) || undefined}
                     aria-describedby={
-                      [
-                        fieldErrors.password ? "reset-new-password-error" : "",
-                        shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0
-                          ? "reset-password-requirements"
-                          : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ") || undefined
+                      shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0
+                        ? "reset-password-requirements"
+                        : undefined
                     }
-                    className={fieldErrors.password ? "auth-input-error" : ""}
                     onChange={(event) => {
                       setNewPassword(event.target.value);
                       setPasswordTouched(true);
                       setFieldErrors((previous) => ({ ...previous, password: "" }));
                     }}
-                    placeholder="************"
                   />
-                  {fieldErrors.password ? (
-                    <p id="reset-new-password-error" className="auth-field-error">
-                      {fieldErrors.password}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="auth-field">
-                  <label htmlFor="reset-confirm-password" className="auth-field-label">
-                    Confirm new password
-                  </label>
-                  <input
+                </Field>
+                <Field label="Confirm new password" error={fieldErrors.confirmPassword} className="auth-field">
+                  <TextInput
                     id="reset-confirm-password"
                     type="password"
                     value={confirmNewPassword}
                     autoComplete="new-password"
-                    aria-invalid={Boolean(fieldErrors.confirmPassword) || undefined}
-                    aria-describedby={fieldErrors.confirmPassword ? "reset-confirm-password-error" : undefined}
-                    className={fieldErrors.confirmPassword ? "auth-input-error" : ""}
                     onChange={(event) => {
                       setConfirmNewPassword(event.target.value);
                       setFieldErrors((previous) => ({ ...previous, confirmPassword: "" }));
@@ -1021,14 +1000,8 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
                         setFieldErrors((previous) => ({ ...previous, confirmPassword: "Passwords do not match." }));
                       }
                     }}
-                    placeholder="Repeat password"
                   />
-                  {fieldErrors.confirmPassword ? (
-                    <p id="reset-confirm-password-error" className="auth-field-error">
-                      {fieldErrors.confirmPassword}
-                    </p>
-                  ) : null}
-                </div>
+                </Field>
               </div>
               {shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0 ? (
                 <ul id="reset-password-requirements" className="auth-password-requirements">

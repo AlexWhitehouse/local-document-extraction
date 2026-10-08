@@ -3,6 +3,7 @@ import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { getDataTypeLabel } from "../templates/templateFields.js";
 import { Meter } from "./EvaluationParts.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 import { documentCompatibility, fieldIdentity } from "./evaluationScoring.js";
 import {
   documentDirty,
@@ -92,7 +93,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
       <input
         type="search"
         aria-label="Search library"
-        placeholder="Search saved documents"
+        placeholder="e.g. invoice.pdf"
         value={list.query}
         onChange={(event) => list.setQuery(event.target.value)}
       />
@@ -525,10 +526,9 @@ export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {
         </div>
         <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
-      <label>
-        Name
-        <input value={name} maxLength={200} onChange={(event) => setName(event.target.value)} />
-      </label>
+      <Field label="Name in library">
+        <TextInput value={name} maxLength={200} onChange={(event) => setName(event.target.value)} />
+      </Field>
       <p className="evaluation-setup-hint">
         {document.file?.name} ·{" "}
         {compatibility.verified

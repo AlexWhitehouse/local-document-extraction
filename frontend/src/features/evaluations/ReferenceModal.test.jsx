@@ -1,7 +1,15 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
+
 import { ReferenceModal } from "./ReferenceModal.jsx";
+
+// Field errors are linked through aria-describedby rather than announced with role="alert".
+const described = (element) =>
+  (element.getAttribute("aria-describedby") || "")
+    .split(" ")
+    .map((id) => document.getElementById(id)?.textContent || "")
+    .join(" ");
 
 const date = { name: "Date of birth", data_type: "date" };
 
@@ -61,12 +69,11 @@ it("attaches actionable validation to the date input and clears it when correcte
   );
   verify();
   const input = screen.getByRole("textbox", { name: "Expected value" });
-  const alert = screen.getByRole("alert");
-  expect(alert.textContent).toMatch(/date/i);
   expect(input.getAttribute("aria-invalid")).toBe("true");
-  expect(input.getAttribute("aria-describedby").split(" ")).toContain(alert.id);
+  expect(described(input)).toMatch(/date/i);
   fireEvent.change(input, { target: { value: "2026-02-28" } });
-  expect(screen.queryByRole("alert")).toBeNull();
+  expect(input.getAttribute("aria-invalid")).toBeNull();
+  expect(described(input)).toBe("");
 });
 
 it.each(["absent", "ignored"])("lets one table cell be %s while other cells stay verified", (state) => {
@@ -139,8 +146,9 @@ it("selects the failing table row and shows its error beside the invalid cell", 
     />,
   );
   verify();
-  expect(screen.getByRole("alert").textContent).toMatch(/Row 2 · Quantity: Enter a valid number/);
-  expect(screen.getByRole("textbox", { name: "Expected row 2 Quantity" }).getAttribute("aria-invalid")).toBe("true");
+  const quantity = screen.getByRole("textbox", { name: "Expected row 2 Quantity" });
+  expect(described(quantity)).toMatch(/Enter a valid number/);
+  expect(quantity.getAttribute("aria-invalid")).toBe("true");
   expect(screen.getByRole("button", { name: "Select row 2" }).getAttribute("aria-current")).toBe("true");
   expect(onSave).not.toHaveBeenCalled();
 });
@@ -263,10 +271,10 @@ it("links renamed columns across remaining rows, carrying values, cell states an
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Remove row 1" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Use previous column for Product code" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Reuse previous answers for Product code" }), {
     target: { value: "sku" },
   });
-  fireEvent.change(screen.getByRole("combobox", { name: "Use previous column for Count" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Reuse previous answers for Count" }), {
     target: { value: "qty" },
   });
   expect(screen.getByRole("textbox", { name: "Expected row 1 Product code" }).value).toBe("B");

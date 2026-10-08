@@ -997,9 +997,9 @@ export function useWorkspaceController({
       isWorkspaceNameDirty,
       onSaveWorkspaceChanges: saveWorkspaceChanges,
       apiKey,
-      workspaceApiKeyPlaceholder: selectedWorkspaceHasApiKey
-        ? "Rotate API key to view again"
-        : "Generate an API key to view",
+      workspaceApiKeyHint: selectedWorkspaceHasApiKey
+        ? "Rotate the API key to view it again."
+        : "Generate an API key to view it.",
       onCopyVisibleWorkspaceApiKey: copyVisibleWorkspaceApiKey,
       isIssuingApiKey,
       canRotateWorkspaceApiKey,

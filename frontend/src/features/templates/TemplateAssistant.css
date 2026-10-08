@@ -5,19 +5,8 @@
 .template-editor-workspace > .studio-template-page { flex: 1; min-width: 0; }
 .template-assistant-layout { display: grid; grid-template-columns: minmax(480px, 1fr) clamp(360px, 38%, 500px); overflow: hidden; }
 
-/* ---- Inline diagnostics beside the input they are about. */
-.studio-main [aria-invalid="true"],
-.object-schema-modal [aria-invalid="true"],
-.template-editor-modal [aria-invalid="true"] { border-color: var(--tone-danger-border); box-shadow: inset 2px 0 0 var(--rose); }
-.template-problem-messages { display: grid; gap: 6px; margin-top: 4px; }
-.template-problem-message { display: grid; gap: 2px; margin: 0; padding: 6px 9px; border-left: 2px solid var(--rose); background: var(--tone-danger-bg-subtle); font-size: var(--font-size-3); line-height: 1.5; color: var(--text-1); }
-.template-problem-message strong { color: var(--tone-danger-text); font-weight: 500; }
-.template-problem-message em { font-style: normal; color: var(--text-2); }
-.template-problem-message em::before { content: "Fix: "; color: var(--text-3); }
-.template-problem-messages.compact .template-problem-message { padding: 4px 8px; font-size: var(--font-size-3); }
-@media (prefers-reduced-motion: no-preference) {
-  .template-problem-message { animation: popover-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-}
+/* ---- Inline diagnostics beside the input they are about. Field draws its own invalid border. */
+.studio-main [aria-invalid="true"] { border-color: var(--tone-danger-border); box-shadow: inset 2px 0 0 var(--rose); }
 
 .field-nav-item.template-field-has-problems { box-shadow: inset 2px 0 0 var(--rose); }
 .field-nav-item.template-field-has-problems.active { background: var(--tone-danger-bg-subtle); }

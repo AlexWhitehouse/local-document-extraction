@@ -3,6 +3,7 @@ import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { describeError } from "../../lib/describeError";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { CloseIcon } from "../layout/Icons.jsx";
+import { Field, Select } from "../ui/Field.jsx";
 
 export function TemplateVersionDialog({
   templates,
@@ -56,9 +57,8 @@ export function TemplateVersionDialog({
         <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
       {!templates.length && <p>Create a Template in Templates first, then choose its version here.</p>}
-      <label>
-        Template
-        <select
+      <Field label="Template">
+        <Select
           value={templateId}
           disabled={loading || !templates.length}
           onChange={(event) => {
@@ -75,11 +75,10 @@ export function TemplateVersionDialog({
               {t.name}
             </option>
           ))}
-        </select>
-      </label>
-      <label>
-        Field version
-        <select
+        </Select>
+      </Field>
+      <Field label="Field version">
+        <Select
           value={version}
           disabled={!template || loading}
           onChange={(event) => setVersion(event.target.value)}
@@ -92,8 +91,8 @@ export function TemplateVersionDialog({
               Fields v{index + 1}
             </option>
           ))}
-        </select>
-      </label>
+        </Select>
+      </Field>
       {error && (
         <p role="alert" className="form-error">
           {error}

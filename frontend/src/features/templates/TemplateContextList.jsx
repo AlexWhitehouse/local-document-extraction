@@ -32,7 +32,9 @@ export function TemplateContextList({
   return (
     <>
       <form className="context-search-field" role="search" onSubmit={(event) => event.preventDefault()}>
-        <label htmlFor="template-context-search">Search templates</label>
+        <label htmlFor="template-context-search" className="sr-only">
+          Search templates
+        </label>
         <div className="context-search-shell">
           <input
             id="template-context-search"
@@ -41,7 +43,7 @@ export function TemplateContextList({
               setVisibleCount(TEMPLATE_PAGE_SIZE);
               onSearchChange(event.target.value);
             }}
-            placeholder="Template name or ID"
+            placeholder="e.g. Supplier invoice"
           />
         </div>
       </form>

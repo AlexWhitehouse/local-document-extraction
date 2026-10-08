@@ -1,7 +1,15 @@
 import React from "react";
 import { fireEvent, render, screen, within, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+
 import { EvaluationsPage } from "./EvaluationsPage.jsx";
+
+// Field errors are linked through aria-describedby rather than announced with role="alert".
+const described = (element) =>
+  (element.getAttribute("aria-describedby") || "")
+    .split(" ")
+    .map((id) => document.getElementById(id)?.textContent || "")
+    .join(" ");
 
 const template = {
   name: "Invoice",
@@ -252,7 +260,7 @@ it("verifies expected answers inline, including explicit absence", () => {
   fireEvent.click(screen.getByRole("button", { name: "Add expected Total" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Total" }), { target: { value: "twelve" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
-  expect(screen.getByRole("alert").textContent).toMatch(/valid number/);
+  expect(described(screen.getByRole("textbox", { name: "Expected Total" }))).toMatch(/valid number/);
   expect(evaluation.setReference).not.toHaveBeenCalled();
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Total" }), { target: { value: "£1,200.50" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
@@ -600,7 +608,7 @@ it("uses explicit Yes/No answers and preserves false when verifying", () => {
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
   expect(within(dialog).queryByRole("textbox")).toBeNull();
   fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
-  expect(within(dialog).getByRole("alert")).toBeTruthy();
+  expect(within(dialog).getByRole("combobox", { name: "Expected value" }).getAttribute("aria-invalid")).toBe("true");
   expect(evaluation.setReference).toHaveBeenCalledTimes(1);
 });
 
@@ -689,7 +697,9 @@ it.each(["array", "table object"])(
     expect(records[1].sku).toBe("B");
     expect(evaluation.setReference).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
-    expect(within(dialog).getByRole("alert").textContent).toMatch(/Choose how to match rows/);
+    const compareRows = within(dialog).getByRole("combobox", { name: "Compare rows" });
+  expect(compareRows.getAttribute("aria-invalid")).toBe("true");
+  expect(described(compareRows)).toMatch(/Choose how to match rows/);
     expect(evaluation.setReference).not.toHaveBeenCalled();
     fireEvent.change(within(dialog).getByRole("combobox", { name: "Compare rows" }), { target: { value: "position" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));

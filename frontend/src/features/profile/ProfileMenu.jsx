@@ -3,6 +3,7 @@ import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ChevronDownIcon, CloseIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 
 export const ProfileMenu = React.forwardRef(function ProfileMenu(
   {
@@ -83,19 +84,17 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                       <p>Update the name shown throughout Document Extraction.</p>
                     </div>
                     <div className="settings-form-card">
-                      <label>
-                        Name
-                        <input
+                      <Field label="Name">
+                        <TextInput
                           value={draftName}
                           onChange={(event) => onDraftNameChange(event.target.value)}
-                          placeholder="Jane Doe"
+                          placeholder="e.g. Jane Doe"
                           autoComplete="name"
                         />
-                      </label>
-                      <label>
-                        Email
-                        <input value={displayEmail} readOnly aria-readonly="true" />
-                      </label>
+                      </Field>
+                      <Field label="Email">
+                        <TextInput value={displayEmail} readOnly aria-readonly="true" />
+                      </Field>
                       {saveError ? (
                         <p className="form-error" role="alert">
                           {saveError}

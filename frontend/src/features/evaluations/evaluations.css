@@ -263,7 +263,7 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
 .evaluation-compare-side .evaluation-compare-block-start { border-left: 1px solid var(--rule-strong); }
 
 /* Expected answer editor, expanded comparison and document preview dialogs */
-.evaluations-page label, .evaluation-reference label { display: flex; flex-direction: column; gap: 5px; font-size: var(--font-size-3); font-weight: 500; }
+.evaluations-page label:not(.ui-field-label), .evaluation-reference label:not(.ui-field-label) { display: flex; flex-direction: column; gap: 5px; font-size: var(--font-size-3); font-weight: 500; }
 .evaluations-page label:has(input[type=checkbox]), .evaluation-reference label:has(input[type=checkbox]) { flex-direction: row; align-items: center; }
 .evaluation-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .evaluation-heading h2 { margin: 0; font: 500 var(--font-size-6)/1.3 var(--font-body); letter-spacing: -.01em; }
@@ -284,17 +284,14 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
 .evaluation-table-reference .evaluation-date-format { margin: 0 24px 16px; }
 .evaluation-date-format small, .evaluation-input-hint { color: var(--text-2); font-size: var(--font-size-3); font-weight: 400; line-height: 1.5; }
 .evaluation-cell-editor { display: grid; gap: 8px; }
-.evaluation-reference .evaluation-validation-error, .evaluation-expected-edit .evaluation-validation-error { margin: 8px 0 0; padding: 8px 10px; border-left: 2px solid var(--rose); background: var(--tone-danger-bg-subtle); color: var(--tone-danger-text); font-size: var(--font-size-4); font-weight: 400; line-height: 1.5; }
-.evaluation-reference [aria-invalid=true], .evaluation-expected-edit [aria-invalid=true] { border-color: var(--rose); }
-.evaluation-reference [aria-invalid=true]:focus, .evaluation-expected-edit [aria-invalid=true]:focus { border-color: var(--rose); box-shadow: 0 0 0 1px var(--rose); }
-.evaluation-reference label { margin-bottom: 18px; }
+.evaluation-reference label:not(.ui-field-label) { margin-bottom: 18px; }
 .evaluation-reference.modal-card:has(table) { width: min(1100px, 95vw); }
 .evaluation-reference-body { min-height: 0; }
 .evaluation-schema-notice { padding: 12px 16px; margin: 12px 0; border-left: 2px solid var(--tone-warning-text); background: var(--tone-warning-bg-subtle); font-size: var(--font-size-4); }
 .evaluation-schema-notice p { margin: 6px 0; }
 .evaluation-schema-notice ul { margin: 8px 0 0; padding-left: 20px; }
 .evaluation-table-reference .evaluation-schema-notice { margin: 0 24px 16px; flex-shrink: 0; }
-.evaluation-table-reference .evaluation-reference-body > label,
+.evaluation-table-reference .evaluation-reference-body > .ui-field,
 .evaluation-table-reference .evaluation-reference-body > .evaluation-muted { margin: 16px 24px; flex-shrink: 0; }
 .evaluation-reference-options { display: flex; flex-wrap: wrap; gap: 12px 24px; }
 .evaluation-reference-options label { margin: 0; }
@@ -434,7 +431,7 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
   .evaluation-library-selection .actions { margin-left: auto; }
   .evaluation-setup-foot { flex-direction: column; align-items: stretch; }
 }
-label.evaluation-link-field { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: var(--font-size-3); font-weight: 400; color: var(--text-2); }
+.evaluation-link-field { margin-top: 6px; color: var(--text-2); }
 .evaluation-link-field select { height: 24px; max-width: 100%; font-size: var(--font-size-3); }
 .evaluation-block .studio-text-button { min-height: 0; padding: 0 0 0 8px; color: var(--accent-strong); }
 /* Moving between the documents of a multi-document Evaluation. */

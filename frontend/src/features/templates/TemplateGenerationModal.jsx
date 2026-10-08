@@ -3,6 +3,7 @@ import { DocumentUploadPanel } from "../documents/DocumentUploadPanel.jsx";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { Button } from "../ui/Button.jsx";
+import { CheckboxField, Field, Textarea } from "../ui/Field.jsx";
 
 export function TemplateGenerationModal({
   isOpen,
@@ -85,27 +86,21 @@ export function TemplateGenerationModal({
                 onFileChange(null);
               }}
             />
-            <label>
-              What should this template capture? (optional)
-              <textarea
+            <Field label="What should this template capture?" hint="Optional. Leave blank to infer fields from the sample.">
+              <Textarea
                 rows={3}
                 maxLength={8192}
                 value={instructions}
-                placeholder="For example, supplier details and line items, excluding payment information."
+                placeholder="e.g. Supplier details and line items, excluding payment information."
                 onChange={(event) => onInstructionsChange(event.target.value)}
               />
-            </label>
+            </Field>
             {hasUnsavedChanges && (
-              <label className="template-generation-confirm">
-                <input
-                  type="checkbox"
-                  checked={confirmed}
-                  onChange={(event) => onConfirmedChange(event.target.checked)}
-                />
-                <span>
-                  I understand that successful generation will replace my unsaved name, description, and fields.
-                </span>
-              </label>
+              <CheckboxField
+                label="I understand that successful generation will replace my unsaved name, description, and fields."
+                checked={confirmed}
+                onChange={onConfirmedChange}
+              />
             )}
           </>
         )}

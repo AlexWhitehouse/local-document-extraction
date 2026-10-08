@@ -550,7 +550,8 @@ describe("DocumentContextList", () => {
       target: { value: "2026-08-15" },
     });
 
-    expect(view.getByRole("alert").textContent).toContain("Date from must be on or before date to");
+    expect(view.getByText("Date from must be on or before date to.")).toBeTruthy();
+    expect(view.getByLabelText("Date to").getAttribute("aria-invalid")).toBe("true");
     expect(view.getByRole("button", { name: "Apply filters" }).disabled).toBe(true);
   });
 });

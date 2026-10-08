@@ -10,6 +10,7 @@ import { Button, IconButton } from "../ui/Button.jsx";
 import { StatusDot } from "../ui/Status.jsx";
 import { Tabs } from "../ui/Tabs.jsx";
 import { ListAddButton } from "../ui/ListAddButton.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
 
 const LIVE_CHILD_STATUSES = new Set(["queued", "processing"]);
@@ -374,16 +375,17 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
             {groups.map((value, index) => (
               <div className="split-plan-row" key={index}>
                 <span className="split-plan-label">Document {index + 1}</span>
-                <input
-                  aria-label={`Document ${index + 1} pages`}
-                  value={value}
-                  placeholder="1-3, 5"
-                  onChange={(event) =>
-                    setGroups((current) =>
-                      current.map((item, position) => (position === index ? event.target.value : item)),
-                    )
-                  }
-                />
+                <Field label={`Document ${index + 1} pages`} labelHidden>
+                  <TextInput
+                    value={value}
+                    placeholder="e.g. 1-3, 5"
+                    onChange={(event) =>
+                      setGroups((current) =>
+                        current.map((item, position) => (position === index ? event.target.value : item)),
+                      )
+                    }
+                  />
+                </Field>
                 <Button
                   variant="danger-text"
                   aria-label={`Remove document group ${index + 1}`}
@@ -416,18 +418,19 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
                     </option>
                   ))}
                 </select>
-                <input
-                  aria-label={`Reason for exclusion ${index + 1}`}
-                  value={entry.reason}
-                  placeholder="Reason, e.g. blank cover"
-                  onChange={(event) =>
-                    setExclusions((current) =>
-                      current.map((item, position) =>
-                        position === index ? { ...item, reason: event.target.value } : item,
-                      ),
-                    )
-                  }
-                />
+                <Field label={`Reason for exclusion ${index + 1}`} labelHidden>
+                  <TextInput
+                    value={entry.reason}
+                    placeholder="e.g. blank cover"
+                    onChange={(event) =>
+                      setExclusions((current) =>
+                        current.map((item, position) =>
+                          position === index ? { ...item, reason: event.target.value } : item,
+                        ),
+                      )
+                    }
+                  />
+                </Field>
                 <Button
                   variant="danger-text"
                   aria-label={`Remove exclusion ${index + 1}`}

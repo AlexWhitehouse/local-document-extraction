@@ -4,6 +4,7 @@ import { DocumentUploadPanel } from "./DocumentUploadPanel.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { ModalDialog, ModalFooter, ModalHeader } from "../layout/ModalDialog.jsx";
 import { Button } from "../ui/Button.jsx";
+import { Field, Select } from "../ui/Field.jsx";
 
 export function DocumentUploadModal({
   isOpen,
@@ -52,9 +53,8 @@ export function DocumentUploadModal({
         onClose={onClose}
       />
       <div className="row">
-        <label>
-          Template
-          <select
+        <Field label="Template">
+          <Select
             data-tour="upload-template"
             value={selectedTemplateId}
             onChange={(event) => onSelectTemplate(event.target.value)}
@@ -66,8 +66,8 @@ export function DocumentUploadModal({
                 {template.name}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
         {selectedTemplateId === "automatic" ? (
           <UploadTagPicker
             tags={availableTags}

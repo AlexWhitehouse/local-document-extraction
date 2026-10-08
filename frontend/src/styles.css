@@ -435,7 +435,7 @@ button.danger:hover:not(:disabled) {
   color: inherit;
 }
 
-.context-search-shell > input {
+:is(.context-search-shell > input, .context-search-shell > .ui-field > input) {
   height: var(--control-h-sm);
   padding: 4px 9px;
   font: var(--font-size-4) var(--font-body);
@@ -491,7 +491,7 @@ button.danger:hover:not(:disabled) {
   transition: box-shadow 120ms ease;
 }
 
-.context-search-shell > input {
+:is(.context-search-shell > input, .context-search-shell > .ui-field > input) {
   min-width: 0;
   border-right: 0;
 }
@@ -501,7 +501,7 @@ button.danger:hover:not(:disabled) {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.context-search-shell > input:focus {
+:is(.context-search-shell > input, .context-search-shell > .ui-field > input):focus {
   box-shadow: none;
 }
 
@@ -509,7 +509,7 @@ button.danger:hover:not(:disabled) {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-.context-search-shell:focus-within > input,
+:is(.context-search-shell:focus-within > input, .context-search-shell:focus-within > .ui-field > input),
 .context-search-shell:focus-within .context-filter-trigger {
   border-color: var(--accent);
 }
@@ -632,12 +632,6 @@ button.danger:hover:not(:disabled) {
 
 .context-filter-popover input[aria-invalid="true"] {
   border-color: var(--rose);
-}
-
-.context-filter-error {
-  margin: -4px 0 0;
-  color: var(--tone-danger-text);
-  font-size: var(--font-size-3);
 }
 
 .context-filter-actions {
@@ -1653,19 +1647,6 @@ input[type="checkbox"]:disabled {
   gap: 6px;
 }
 
-.auth-field-label {
-  display: block;
-}
-
-.auth-password-label-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: var(--font-size-3);
-  color: var(--text-label);
-}
-
 .auth-forgot-password-link {
   color: inherit;
   text-decoration: none;
@@ -1695,12 +1676,6 @@ input[type="checkbox"]:disabled {
 .auth-password-requirements li::marker {
   color: var(--amber);
 }
-
-.auth-card input.auth-input-error:not([type="checkbox"]) {
-  border-color: var(--tone-danger-border);
-  box-shadow: 0 0 0 1px var(--rose);
-}
-
 
 .auth-divider {
   position: relative;
@@ -2155,16 +2130,16 @@ button.modal-close:hover:not(:disabled) {
   position: relative;
 }
 
-.workspace-key-field > input {
+.workspace-key-field input {
   padding-right: 38px;
   width: 100%;
 }
 
+/* Sits on the key input, which is the last row of the field while a key is shown. */
 .workspace-key-copy-button {
   position: absolute;
   right: 9px;
-  top: 50%;
-  transform: translateY(-50%);
+  bottom: 3px;
 }
 
 .actions {
@@ -2582,15 +2557,6 @@ td:last-child {
   gap: 0;
 }
 
-.template-json-label > span {
-  padding: 7px 16px;
-  background: var(--pane-raised);
-  border-bottom: 1px solid var(--rule);
-  font: var(--font-size-1) var(--font-mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
 .template-json-modal .template-json-textarea {
   flex: 1;
   min-height: 0;
@@ -2618,13 +2584,6 @@ td:last-child {
   padding: 10px 16px;
   border-top: 1px solid var(--rule);
   flex-shrink: 0;
-}
-
-.template-json-modal-footer p {
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: var(--font-size-3);
 }
 
 .template-json-modal-footer .actions {
@@ -2997,7 +2956,6 @@ details summary:hover {
     padding: 18px;
   }
 
-  .template-json-label > span,
   .template-json-modal .template-json-textarea {
     padding-left: 18px;
     padding-right: 18px;
@@ -3032,16 +2990,6 @@ details summary:hover {
 .template-generation-modal textarea {
   resize: vertical;
   min-height: 88px;
-}
-
-.template-generation-confirm {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.template-generation-confirm input {
-  margin-top: 3px;
 }
 
 .document-upload-panel {

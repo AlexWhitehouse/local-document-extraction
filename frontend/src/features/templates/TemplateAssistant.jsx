@@ -9,6 +9,7 @@ import { ScrollArea } from "../layout/ScrollArea.jsx";
 import "./TemplateAssistant.css";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Badge, CountBadge } from "../ui/Status.jsx";
+import { Field, Textarea } from "../ui/Field.jsx";
 import { Segmented, Tabs } from "../ui/Tabs.jsx";
 
 const TABS = [
@@ -154,19 +155,22 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
           ? "Get a plain-language explanation of what’s wrong or why results look the way they do. Nothing in your draft changes."
           : "Describe a change. You’ll see each proposed edit before anything changes, and only the ones you pick are applied to the draft."}
       </p>
-      <label className="template-assistant-label">
-        {action === "explain" ? "What would you like explained? (optional)" : "Describe your change"}
-        <textarea
+      <Field
+        label={action === "explain" ? "What would you like explained?" : "Describe your change"}
+        hint={action === "explain" ? "Optional." : undefined}
+        className="template-assistant-label"
+      >
+        <Textarea
           rows={3}
           value={instructions}
           placeholder={
             action === "explain"
-              ? "Ask about a field, a problem or a result"
-              : "Describe what to add, rename, remove or clarify"
+              ? "e.g. Why is Total often empty?"
+              : "e.g. Rename Invoice No to Invoice number"
           }
           onChange={(event) => assistant.onInstructionsChange(event.target.value)}
         />
-      </label>
+      </Field>
       <SuggestionCards
         suggestions={assistant.suggestions}
         selected={instructions}

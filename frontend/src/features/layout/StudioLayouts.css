@@ -62,10 +62,8 @@ button.studio-text-button.studio-destructive { color: var(--tone-danger-text); }
 /* Workspace: open settings, with a bounded list of people. */
 .studio-workspace-settings { display: grid; grid-template-columns: 1fr 1.2fr; gap: 28px; padding-top: 20px; margin-bottom: 20px; }
 .studio-workspace-settings > * { min-width: 0; }
-.studio-name-form { display: grid; gap: 5px; }
-.studio-name-input { position: relative; }
-.studio-main .studio-name-input input { padding-right: 90px; }
-.studio-main .studio-name-input button { position: absolute; right: 3px; top: 3px; height: calc(100% - 6px); padding: 0 9px; font-size: var(--font-size-2); }
+.studio-name-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.studio-main .studio-name-form button { height: var(--control-h-md); }
 .studio-workspace-facts { display: grid; gap: 0; margin: 12px 0 0; font-size: var(--font-size-4); border-top: 1px solid var(--rule); }
 .studio-workspace-facts > div { display: flex; justify-content: space-between; gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
 .studio-workspace-facts dt { flex-shrink: 0; color: var(--text-2); }
@@ -74,11 +72,6 @@ button.studio-text-button.studio-destructive { color: var(--tone-danger-text); }
 .studio-api-access { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--rule); }
 /* Settings checkboxes: the box in its own column, title and help text aligned beside it. */
 .studio-setting-toggles { display: grid; gap: 14px; }
-.studio-setting-toggle { display: grid; grid-template-columns: 13px minmax(0, 1fr); column-gap: 10px; row-gap: 3px; align-items: start; }
-.studio-setting-toggle input { grid-row: 1; align-self: center; margin: 0; }
-.studio-main label.studio-setting-toggle-label { display: block; grid-row: 1; grid-column: 2; align-self: center; margin: 0; padding: 0; color: var(--text-0); font-size: var(--font-size-4); line-height: 17px; cursor: pointer; }
-.studio-setting-toggle-description { grid-column: 2; margin: 0; color: var(--text-2); font-size: var(--font-size-3); line-height: 1.5; max-width: 62ch; }
-.studio-main .studio-setting-toggle.is-disabled label.studio-setting-toggle-label { color: var(--text-2); cursor: default; }
 .studio-setting-toggles + .studio-users-note { margin-top: 12px; }
 .studio-api-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: var(--font-size-3); color: var(--text-2); }
 .studio-workspace-model-settings { border-left: 1px solid var(--rule); padding-left: 28px; }
