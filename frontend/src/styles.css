@@ -54,8 +54,6 @@
   --text-selected: #d9f5ef;
   --text-on-accent: #03110f;
 
-  --scrollbar-thumb: #273244;
-  --scrollbar-thumb-hover: #3a4658;
 
   --accent: #19c1b4;
   --accent-strong: #22dbcb;
@@ -143,64 +141,6 @@
   font-family: var(--font-body);
   line-height: 1.45;
   background: var(--pane-main);
-}
-
-.context-list,
-.cp-document-list ul,
-.field-detail,
-.field-nav,
-.packet-table-scroll,
-.scroll-thin,
-.studio-invitation-list,
-.studio-user-list,
-.table-scroll,
-.template-assistant-body,
-.template-json-textarea,
-.template-tags-list,
-.upload-file-list {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
-}
-
-.context-list::-webkit-scrollbar,
-.field-nav::-webkit-scrollbar,
-.table-scroll::-webkit-scrollbar,
-.template-json-textarea::-webkit-scrollbar,
-.upload-file-list::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.context-list::-webkit-scrollbar-track,
-.field-nav::-webkit-scrollbar-track,
-.table-scroll::-webkit-scrollbar-track,
-.template-json-textarea::-webkit-scrollbar-track,
-.upload-file-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.context-list::-webkit-scrollbar-thumb,
-.field-nav::-webkit-scrollbar-thumb,
-.table-scroll::-webkit-scrollbar-thumb,
-.template-json-textarea::-webkit-scrollbar-thumb,
-.upload-file-list::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-}
-
-.context-list::-webkit-scrollbar-thumb:hover,
-.field-nav::-webkit-scrollbar-thumb:hover,
-.table-scroll::-webkit-scrollbar-thumb:hover,
-.template-json-textarea::-webkit-scrollbar-thumb:hover,
-.upload-file-list::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
-}
-
-.context-list::-webkit-scrollbar-corner,
-.field-nav::-webkit-scrollbar-corner,
-.table-scroll::-webkit-scrollbar-corner,
-.template-json-textarea::-webkit-scrollbar-corner,
-.upload-file-list::-webkit-scrollbar-corner {
-  background: transparent;
 }
 
 * {

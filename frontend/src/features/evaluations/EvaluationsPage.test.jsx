@@ -1034,7 +1034,10 @@ it("finds added, removed and retyped fields together and preserves unchanged ans
   const matrix = within(screen.getByRole("region", { name: "Comparison matrix" }));
   expect(matrix.queryByRole("button", { name: "Edit expected Name" })).toBeNull();
   expect(matrix.getByText("Text → Number")).toBeTruthy();
-  expect(matrix.getByText("No saved answer · verify this field")).toBeTruthy();
+  // A new field is listed as a change, flagged by its outline rather than a note until a save is blocked.
+  expect(matrix.getByRole("rowheader", { name: /^Invoice date/ })).toBeTruthy();
+  expect(matrix.queryByText("No saved answer · verify this field")).toBeNull();
+  expect(matrix.getByRole("button", { name: "Add expected Invoice date" }).classList.contains("unverified")).toBe(true);
   expect(matrix.getByText("Not requested by any candidate · saved answer kept")).toBeTruthy();
   fireEvent.click(matrix.getByRole("button", { name: "Delete expected answer for Old code" }));
   expect(evaluation.removeReference).toHaveBeenCalledWith("doc", "old code:string");

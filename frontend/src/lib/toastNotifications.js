@@ -106,6 +106,12 @@ const validationMessages = {
     draft: "Template draft is incomplete. Fix required fields before saving.",
     json: "Template JSON is invalid. Fix it before saving.",
   },
+  "library.save": {
+    unverified: "Verify every field before saving to the library.",
+  },
+  "library.updateSaved": {
+    unverified: "Verify every field before updating saved answers.",
+  },
   "document.upload": {
     template: "Choose a template before uploading.",
     files: "Choose at least one file.",

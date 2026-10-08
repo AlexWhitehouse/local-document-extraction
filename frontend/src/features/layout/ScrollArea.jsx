@@ -22,10 +22,25 @@ export const ScrollArea = forwardRef(function ScrollArea(
       element.dataset.scrollRight = String(scrollWidth - clientWidth - scrollLeft > 1);
     }
 
-    updateEdges();
+    // Classic scrollbars take space inside the box; the edge fade stops short of them so they stay solid.
+    function measureScrollbars() {
+      const { borderLeftWidth, borderRightWidth, borderTopWidth, borderBottomWidth } = getComputedStyle(element);
+      const vertical = element.offsetWidth - element.clientWidth - parseFloat(borderLeftWidth) - parseFloat(borderRightWidth);
+      const horizontal = element.offsetHeight - element.clientHeight - parseFloat(borderTopWidth) - parseFloat(borderBottomWidth);
+
+      element.style.setProperty("--scrollbar-y", `${Math.max(0, vertical) || 0}px`);
+      element.style.setProperty("--scrollbar-x", `${Math.max(0, horizontal) || 0}px`);
+    }
+
+    function update() {
+      measureScrollbars();
+      updateEdges();
+    }
+
+    update();
     element.addEventListener("scroll", updateEdges, { passive: true });
 
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateEdges);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
 
     observer?.observe(element);
 
