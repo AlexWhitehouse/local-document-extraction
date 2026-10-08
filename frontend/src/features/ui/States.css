@@ -88,3 +88,76 @@
     animation: none;
   }
 }
+
+.ui-page-skeleton {
+  display: grid;
+  gap: 10px;
+  padding-top: 24px;
+}
+
+.ui-page-skeleton-title {
+  width: min(320px, 60%);
+  height: 22px;
+}
+
+.ui-page-skeleton-summary {
+  width: min(520px, 85%);
+  height: 12px;
+  margin-bottom: 14px;
+}
+
+.ui-page-skeleton-item {
+  height: 40px;
+}
+
+/* Fills the content area below the main padding, sitting slightly above centre. */
+.ui-page-state {
+  display: grid;
+  place-items: center;
+  min-height: calc(100dvh - 40px);
+  padding: 32px 0 10dvh;
+}
+
+.ui-page-state-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: min(440px, 100%);
+  padding: 32px 28px;
+  border: 1px solid var(--rule-strong);
+  background: var(--pane-raised);
+  text-align: center;
+}
+
+.ui-page-state-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  border: 1px solid var(--rule-strong);
+  background: var(--pane-elevated);
+  color: var(--text-2);
+}
+
+.ui-page-state-card h1 {
+  margin: 0;
+  color: var(--text-0);
+  font-size: var(--font-size-7);
+  font-weight: 500;
+}
+
+.ui-page-state-card p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-5);
+  line-height: 1.55;
+}
+
+.ui-page-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}

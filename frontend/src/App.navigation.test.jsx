@@ -3,12 +3,13 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const auth = { session: null, signIn: vi.fn() };
+const auth = { session: null, signIn: vi.fn(), signOut: vi.fn() };
 
 const createAuthClient = () => ({
   useSession: () => ({ data: auth.session, isPending: false, refetch: vi.fn() }),
   signIn: { email: auth.signIn },
   signUp: { email: vi.fn() },
+  signOut: auth.signOut,
 });
 
 const toast = { error: vi.fn(), success: vi.fn() };
@@ -297,6 +298,23 @@ describe("stable app navigation", () => {
     await userEvent.click(screen.getByRole("button", { name: "Back to Workspaces" }));
     await screen.findByRole("heading", { name: "Workspace details" });
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/a"));
+  });
+
+  it("sends the next account to / after sign out instead of the last account's Workspace", async () => {
+    auth.signOut.mockImplementation(async () => {
+      auth.session = null;
+    });
+    const view = open("/workspaces/b");
+    await screen.findByRole("heading", { name: "Workspace details" });
+    await userEvent.click(screen.getByRole("button", { name: /Reader/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await screen.findByRole("heading", { name: "Sign in" });
+    expect(window.location.pathname).toBe("/");
+
+    auth.session = { user: { id: "other", name: "Other", email: "other@example.test" }, session: { id: "next" } };
+    view.rerender(<App createAuthClient={createAuthClient} notifications={toast} />);
+    await screen.findByRole("heading", { name: "Workspace details" });
+    expect(screen.queryByText(/workspace or invitation is unavailable/)).toBeNull();
   });
 
   it("retries Workspace loading without losing the requested resource URL", async () => {

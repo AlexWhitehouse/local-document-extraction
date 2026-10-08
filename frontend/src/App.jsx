@@ -45,8 +45,8 @@ import { hasUnsavedEdits, runDiscardChecks } from "./lib/unsavedChanges.js";
 import { DISCARD_CHANGES, confirmDialog } from "./features/ui/confirm.jsx";
 import { Field, TextInput } from "./features/ui/Field.jsx";
 import { Callout } from "./features/ui/Callout.jsx";
-import { LoadingState } from "./features/ui/States.jsx";
-import { PageHeader } from "./features/ui/PageHeader.jsx";
+import { LoadingState, PageSkeleton, PageState } from "./features/ui/States.jsx";
+import { AdminIcon, DocumentIcon, TemplateIcon, WorkspaceIcon } from "./features/layout/Icons.jsx";
 import { Button } from "./features/ui/Button.jsx";
 import { useDocumentTitle } from "./lib/documentTitle.js";
 import "./features/layout/StudioLayouts.css";
@@ -445,7 +445,11 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     sessionUserEmail,
     onClearWorkspaceScopedTemplates: templateController.actions.clearWorkspaceScopedTemplates,
     onClearWorkspaceScopedDocuments: documentController.actions.clearWorkspaceScopedDocuments,
-    onClearSessionWorkspaceData: workspaceController.actions.clearSessionWorkspaceData,
+    // The next account signs in at /, not at a Workspace route that belonged to the last one.
+    onClearSessionWorkspaceData: () => {
+      workspaceController.actions.clearSessionWorkspaceData();
+      navigate("/", { replace: true, force: true });
+    },
     onSessionChanging: () => {
       evaluation.clear();
       documentController.actions.cancelPendingSubmissions();
@@ -502,30 +506,64 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
 
   const adminUnavailable = activePage === "admin" && !isApplicationAdmin;
 
-  const routeMessage =
+  const documentRouteError = packetUnavailable || documentUnavailable;
+
+  // A route that can't show its page: what to call it, why, its section's icon, and a retry for load failures.
+  const routeState =
     activePage === "not-found"
-      ? "Page not found."
+      ? {
+          title: "Page not found",
+          message: "Check the address, or go back to your workspaces.",
+          icon: DocumentIcon,
+        }
       : adminUnavailable
-        ? "This page is not available to your account."
+        ? {
+            title: "Page unavailable",
+            message: "This page is not available to your account.",
+            icon: AdminIcon,
+          }
         : workspaceUnavailable
-          ? "This workspace or invitation is unavailable. You may no longer have access."
+          ? {
+              title: "Workspace unavailable",
+              message: "This workspace or invitation is unavailable. You may no longer have access.",
+              icon: WorkspaceIcon,
+            }
           : workspaceResolutionFailed
-            ? "Couldn't load workspace. Try again."
-            : packetUnavailable
-              ? packetUnavailable === "missing"
-                ? "This document is unavailable. It may have been deleted."
-                : "Couldn't load document. Try again."
+            ? {
+                title: "Couldn't load workspace",
+                message: "Couldn't load workspace. Try again.",
+                icon: WorkspaceIcon,
+                retry: workspaceController.sidebar.onRetryResolution,
+              }
+            : documentRouteError
+              ? documentRouteError === "missing"
+                ? {
+                    title: "Document unavailable",
+                    message: "This document is unavailable. It may have been deleted.",
+                    icon: DocumentIcon,
+                  }
+                : {
+                    title: "Couldn't load document",
+                    message: "Couldn't load document. Try again.",
+                    icon: DocumentIcon,
+                    retry: packetUnavailable
+                      ? documentController.navigation.retryPacket
+                      : documentController.navigation.retry,
+                  }
               : templateUnavailable
                 ? templateLoad.status === "missing"
-                  ? "This template is unavailable. It may have been deleted."
-                  : "Couldn't load template. Try again."
-                : documentUnavailable
-                  ? documentUnavailable === "missing"
-                    ? "This document is unavailable. It may have been deleted."
-                    : "Couldn't load document. Try again."
-                  : "";
-
-  const routeTitle = activePage === "not-found" ? "Page not found" : "Page unavailable";
+                  ? {
+                      title: "Template unavailable",
+                      message: "This template is unavailable. It may have been deleted.",
+                      icon: TemplateIcon,
+                    }
+                  : {
+                      title: "Couldn't load template",
+                      message: "Couldn't load template. Try again.",
+                      icon: TemplateIcon,
+                      retry: templateController.navigation.retry,
+                    }
+                : null;
 
   const packetLoading =
     activePage === "documents" &&
@@ -533,7 +571,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     documentController.documentPage.packetPage.packet?.packet_id !== route.packetId;
 
   const routeLoading =
-    !routeMessage &&
+    !routeState &&
     !route.root &&
     activePage !== "admin" &&
     (workspaceContext.isWorkspaceContextLoading || templateLoading || documentLoading || packetLoading);
@@ -591,8 +629,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
           : withWorkspace({ label: visiblePage === "documents" ? PAGE_TITLES.documents : "Overview" });
 
   // The browser tab title: "{item} · {page} · {workspace} — Studio".
-  const documentTitle = routeMessage
-    ? { page: routeTitle }
+  const documentTitle = routeState
+    ? { page: routeState.title }
     : {
         item: visiblePage === "workspace" ? workspaceName : pageItem,
         page: PAGE_TITLES[visiblePage],
@@ -709,48 +747,36 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
           </>
         }
       >
-        {routeMessage ? (
-          <section className="panel" role="alert">
-            <PageHeader
-              label={routeTitle}
-              title={routeTitle}
-              description={activePage === "not-found" ? "" : routeMessage}
-            />
-            <Button
-              onClick={() =>
-                navigate(
-                  appPath({
-                    workspaceId: workspaceUnavailable ? "" : workspaceId,
-                    page: templateUnavailable
-                      ? "templates"
-                      : documentUnavailable || packetUnavailable
-                        ? "documents"
-                        : "workspace",
-                  }),
-                )
-              }
-            >
-              {templateUnavailable
-                ? "Back to Templates"
-                : documentUnavailable || packetUnavailable
-                  ? "Back to Documents"
-                  : "Back to Workspaces"}
-            </Button>
-            {templateLoad.status === "error" && templateUnavailable ? (
-              <Button onClick={templateController.navigation.retry}>Try again</Button>
-            ) : null}
-            {documentUnavailable === "error" ? (
-              <Button onClick={documentController.navigation.retry}>Try again</Button>
-            ) : null}
-            {packetUnavailable === "error" ? (
-              <Button onClick={documentController.navigation.retryPacket}>Try again</Button>
-            ) : null}
-            {workspaceResolutionFailed ? (
-              <Button onClick={workspaceController.sidebar.onRetryResolution}>Try again</Button>
-            ) : null}
-          </section>
+        {routeState ? (
+          <PageState
+            icon={routeState.icon}
+            title={routeState.title}
+            message={routeState.message}
+            actions={
+              <>
+                {routeState.retry ? <Button onClick={routeState.retry}>Try again</Button> : null}
+                <Button
+                  variant={routeState.retry ? "secondary" : "primary"}
+                  onClick={() =>
+                    navigate(
+                      appPath({
+                        workspaceId: workspaceUnavailable ? "" : workspaceId,
+                        page: templateUnavailable ? "templates" : documentRouteError ? "documents" : "workspace",
+                      }),
+                    )
+                  }
+                >
+                  {templateUnavailable
+                    ? "Back to Templates"
+                    : documentRouteError
+                      ? "Back to Documents"
+                      : "Back to Workspaces"}
+                </Button>
+              </>
+            }
+          />
         ) : null}
-        {!routeMessage ? (
+        {!routeState ? (
           <>
             {visiblePage !== "admin" && visiblePage !== "evaluations" && visiblePage !== "costs" ? (
               <WorkspacePageHeader
@@ -793,7 +819,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               />
             ) : null}
 
-            {routeLoading ? <LoadingState variant="panel" label="Loading…" /> : null}
+            {routeLoading ? <PageSkeleton /> : null}
             {!routeLoading && visiblePage === "admin" ? (
               <ApplicationAdminPage admin={adminController} breadcrumbs={headerBreadcrumbs} />
             ) : null}
