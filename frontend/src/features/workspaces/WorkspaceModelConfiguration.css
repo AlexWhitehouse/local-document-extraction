@@ -11,6 +11,7 @@
 .workspace-model small { display:block; color:var(--text-3); font-size:var(--font-size-3); line-height:1.5; font-weight:400; letter-spacing:0; }
 .workspace-model input:not([type=checkbox]) { height:var(--control-h-md); font-size:var(--font-size-5); background:var(--pane-elevated); }
 .workspace-model-fields { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.workspace-model-header-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:flex-end; flex-shrink:0; }
 .workspace-model-header button { flex-shrink:0; }
 .workspace-model-group { display:grid; gap:10px; padding-top:12px; border-top:1px solid var(--rule-subtle); }
 .workspace-model-group h3 { margin:0; font:500 var(--font-size-1) var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); }
@@ -56,3 +57,5 @@
   font-size: var(--font-size-4);
   color: var(--text-2);
 }
+
+.workspace-model-summary > .workspace-model-test-result { margin-left: 0; }

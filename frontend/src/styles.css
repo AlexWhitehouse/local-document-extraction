@@ -3203,6 +3203,8 @@ input.upload-input-hidden {
 .confirm-dialog-body {
   margin: 0 0 12px;
   color: var(--text-2);
+  font-size: var(--font-size-4);
+  line-height: 1.5;
 }
 
 .confirm-dialog-actions {

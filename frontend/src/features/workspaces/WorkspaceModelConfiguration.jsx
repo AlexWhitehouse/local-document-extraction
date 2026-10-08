@@ -84,9 +84,20 @@ export function WorkspaceModelConfiguration({ controller }) {
           </div>
         </div>
         {showSummary ? (
-          <Button variant="secondary" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
+          <div className="workspace-model-header-actions">
+            <Button
+              variant="secondary"
+              pending={testing}
+              pendingLabel="Testing…"
+              disabled={!configured || saving}
+              onClick={controller.testConnection}
+            >
+              Test connection
+            </Button>
+            <Button variant="secondary" onClick={() => setEditing(true)}>
+              Edit
+            </Button>
+          </div>
         ) : null}
       </header>
       {!canManage ? (
@@ -122,6 +133,7 @@ export function WorkspaceModelConfiguration({ controller }) {
             </div>
           ) : showSummary ? (
             <div className="workspace-model-summary">
+              <ConnectionTestResult result={controller.testResult} />
               {unavailable ? (
                 <p className="workspace-model-repair" role="alert">
                   {UNREADABLE_API_KEY_MESSAGE}
@@ -144,20 +156,6 @@ export function WorkspaceModelConfiguration({ controller }) {
                 </div>
               </dl>
               <ModelRoles record={record} />
-              <div className="workspace-model-actions">
-                <div>
-                  <Button
-                    variant="secondary"
-                    pending={testing}
-                    pendingLabel="Testing…"
-                    disabled={!configured || saving}
-                    onClick={controller.testConnection}
-                  >
-                    Test connection
-                  </Button>
-                  <ConnectionTestResult result={controller.testResult} />
-                </div>
-              </div>
             </div>
           ) : (
             <form
