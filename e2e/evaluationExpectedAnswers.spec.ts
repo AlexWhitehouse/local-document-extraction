@@ -123,6 +123,8 @@ test("date formats, field errors and table cell statuses survive saving and reus
     const picker = page.getByRole("dialog", { name: "Evaluation library" });
     await picker.getByRole("checkbox", { name: "Select expected-answers" }).check();
     await picker.getByRole("button", { name: "Add 1 document" }).click();
+    // The page stays inert until the picker closes, so filling earlier would miss the candidate field.
+    await expect(picker).toBeHidden();
     await start();
     await expect(evaluations.getByText("100%", { exact: true })).toHaveCount(2);
     await evaluations.getByRole("button", { name: "2 rows verified" }).click();

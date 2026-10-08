@@ -93,6 +93,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     const picker = page.getByRole("dialog", { name: "Evaluation library" });
     await picker.getByRole("checkbox", { name: "Select library-invoice" }).check();
     await picker.getByRole("button", { name: "Add 1 document" }).click();
+    await expect(picker).toBeHidden();
     await expect(evaluations.getByText("library-invoice", { exact: true })).toBeVisible();
     await evaluations.getByLabel("Evaluation document").setInputFiles(FRESH);
     await expect(evaluations.getByText(FRESH.name, { exact: true })).toBeVisible();
