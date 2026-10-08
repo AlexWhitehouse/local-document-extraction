@@ -34,7 +34,6 @@ const OBSERVATION_LISTS = [
     tone: "neutral",
     label: "Suggestion",
     title: "Suggestions",
-    hint: "Test changes with an evaluation.",
   },
 ];
 
@@ -378,7 +377,6 @@ function EvaluationEvidenceCard({ assistant }) {
         <summary>Failing fields and expected answers</summary>
         <pre>{JSON.stringify(evidence.documents, null, 2)}</pre>
       </details>
-      <p className="template-assistant-muted">Only verified expected answers are sent.</p>
     </div>
   );
 }
@@ -484,9 +482,6 @@ function ResultView({ assistant }) {
 
       <section className="template-assistant-section" aria-label="Explanation">
         <p className="template-assistant-summary">{response.explanation}</p>
-        <Badge tone="warning" className="template-assistant-tag">
-          Not verified
-        </Badge>
         {checked.length ? (
           <EvidenceList
             kind="checked"
@@ -535,7 +530,7 @@ function ResultView({ assistant }) {
   );
 }
 
-function EvidenceList({ kind, tone, label, title, hint, items }) {
+function EvidenceList({ kind, tone, label, title, items }) {
   return (
     <div className={`template-assistant-evidence-list ${kind}`}>
       <div className="template-assistant-evidence-list-head">
@@ -544,7 +539,6 @@ function EvidenceList({ kind, tone, label, title, hint, items }) {
         </Badge>
         <strong>{title}</strong>
       </div>
-      {hint ? <p className="template-assistant-muted">{hint}</p> : null}
       <ul>
         {items.map((item, index) => (
           <li key={index}>{item.text}</li>
@@ -710,7 +704,7 @@ function SelectionCheck({ selection, baseHadIssues }) {
     );
   }
 
-  return <p className="template-assistant-check good">The result passes the same checks as Save.</p>;
+  return null;
 }
 
 function AppliedView({ notice = "Applied. Save the template to keep these changes." }) {

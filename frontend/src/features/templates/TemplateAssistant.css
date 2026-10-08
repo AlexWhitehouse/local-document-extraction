@@ -170,7 +170,6 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
 
 .template-assistant-check { margin: 4px 0 0; padding: 7px 9px; font-size: var(--font-size-3); line-height: 1.5; border: 1px solid var(--rule-strong); }
 .template-assistant-check ul { margin: 4px 0 0; padding-left: 16px; }
-.template-assistant-check.good { color: var(--tone-success-text); border-color: var(--tone-success-border); }
 .template-assistant-check.bad { color: var(--tone-danger-text); border-color: var(--tone-danger-border); }
 .template-assistant-check.neutral { color: var(--text-2); }
 
@@ -200,4 +199,17 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
   .template-editor-workspace { display: block; }
   .template-assistant-layout { display: flex; flex-direction: column; }
   .template-assistant { margin: 16px 0 0; border: 1px solid var(--rule); max-height: 80dvh; }
+}
+
+/* ---- Wide layouts dock the drawer full height beside the page header and editor, as on Evaluations. */
+@media (width > 1120px) {
+  .studio-main.studio-main-templates:has(> .template-assistant-layout) { --template-assistant-width: clamp(340px, 28vw, 440px); position: relative; padding-right: calc(var(--template-assistant-width) + 28px); }
+  .studio-main.studio-main-templates > .template-assistant-layout { display: flex; flex-direction: row; overflow: visible; gap: 0; }
+  .studio-main.studio-main-templates > .template-assistant-layout > .studio-template-page { flex: 1; min-height: 0; }
+  /* The docked drawer narrows the editor; keep field names readable in the field list. */
+  .studio-main.studio-main-templates > .template-assistant-layout .field-studio { height: 100%; flex: 1; grid-template-columns: 232px minmax(0, 1fr); }
+  .studio-main.studio-main-templates > .template-assistant-layout > .template-assistant { position: absolute; inset: 0 0 0 auto; width: var(--template-assistant-width); max-height: none; margin: 0; border: 0; border-left: 1px solid var(--rule); order: 0; }
+}
+@media (width > 1120px) and (max-width: 1440px) {
+  .studio-main.studio-main-templates:has(> .template-assistant-layout) { padding-right: calc(var(--template-assistant-width) + 22px); }
 }

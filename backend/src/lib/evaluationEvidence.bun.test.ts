@@ -73,6 +73,18 @@ const rejects = (value: JsonValue, message: RegExp) => {
 };
 
 describe("evaluation evidence validation", () => {
+  it("keeps only accuracy counts, so scoring results with a ratio still validate", () => {
+    const scored = { matched: 0, total: 1, ratio: 0 };
+
+    const built = buildEvaluationEvidence(candidate, { ...scored }, [
+      { name: "invoice.png", accuracy: { ...scored }, failures: [failure()] },
+    ]);
+
+    expect(built.accuracy).toEqual({ matched: 0, total: 1 });
+    expect(built.documents[0]!.accuracy).toEqual({ matched: 0, total: 1 });
+    expect(() => validateEvaluationEvidence(wire(built))).not.toThrow();
+  });
+
   it("accepts failing fields with verified expected answers and table cell mismatches", () => {
     const valid = validateEvaluationEvidence(wire(evidence()));
     expect(valid.documents[0]!.failures.map((item) => item.field_id)).toEqual(["total", "lines"]);

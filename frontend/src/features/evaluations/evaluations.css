@@ -5,7 +5,7 @@
 .evaluations-workspace { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .evaluations-page { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; container: evaluations-page / inline-size; }
 /* The assistant docks on the right, as on the Templates page, and runs to the page edge. */
-.evaluations-workspace.has-assistant > .template-assistant { flex: 0 0 clamp(360px, 32%, 480px); margin-right: calc(var(--evaluation-page-gutter) * -1); }
+.evaluations-workspace.has-assistant > .template-assistant { flex: 0 0 clamp(340px, 28vw, 440px); margin-right: calc(var(--evaluation-page-gutter) * -1); }
 .evaluations-workspace.has-assistant :is(.evaluation-contextbar, .evaluation-body, .evaluation-setup) { margin-right: 0; }
 @media (width <= 900px) {
   .evaluations-workspace.has-assistant { flex-direction: column; }

@@ -84,6 +84,9 @@ function fail(message: string): never {
 
 const encodedBytes = (value: JsonValue) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 
+// Scoring adds properties such as ratio; evidence carries only the counts the server accepts.
+const counts = ({ matched, total }: Accuracy): Accuracy => ({ matched, total });
+
 const cap = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
 /** Long answers keep their opening text; non-scalar answers become capped JSON text. */
@@ -145,13 +148,13 @@ export function buildEvaluationEvidence(
       model: cap(candidate.model, EVALUATION_EVIDENCE_LIMITS.nameCharacters),
       template_name: cap(candidate.template_name, EVALUATION_EVIDENCE_LIMITS.labelCharacters),
     },
-    accuracy,
+    accuracy: counts(accuracy),
     documents: kept.map((document) => {
       omittedFailures += Math.max(0, document.failures.length - EVALUATION_EVIDENCE_LIMITS.failuresPerDocument);
 
       return {
         name: cap(document.name, EVALUATION_EVIDENCE_LIMITS.nameCharacters),
-        accuracy: document.accuracy,
+        accuracy: counts(document.accuracy),
         failures: document.failures.slice(0, EVALUATION_EVIDENCE_LIMITS.failuresPerDocument).map(capFailure),
       };
     }),
