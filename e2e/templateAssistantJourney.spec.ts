@@ -49,14 +49,14 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
     await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
     await page.getByRole("button", { name: "Assistant", exact: true }).click();
     const assistant = page.getByRole("complementary", { name: "Template assistant" });
-    await assistant.getByRole("tab", { name: "Propose edits", exact: true }).click();
     await expect(assistant.getByText("From the model", { exact: true })).toBeVisible();
-    await assistant.getByRole("button", { name: /^Add VAT rate to each line item/ }).click();
-    await expect(assistant.getByRole("textbox", { name: "Describe your change", exact: true })).toHaveValue(
+    // The edit icon fills the request without sending it; the card itself sends in one click.
+    await assistant.getByRole("button", { name: "Edit “Add VAT rate to each line item” before sending" }).click();
+    await expect(assistant.getByRole("textbox", { name: "What do you need?", exact: true })).toHaveValue(
       "Add VAT rate to each line item.",
     );
     const proposal = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/templates/assist");
-    await assistant.getByRole("button", { name: "Propose edits", exact: true }).click();
+    await assistant.getByRole("button", { name: "Send", exact: true }).click();
     const proposed = await proposal;
     expect(proposed.status()).toBe(200);
     expect(proposed.headers()["cache-control"]).toContain("no-store");
