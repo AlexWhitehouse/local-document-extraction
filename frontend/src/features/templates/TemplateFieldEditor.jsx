@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { diagnoseTemplateDraft, groupIssuesByLocation } from "../../../../shared/templateAssistant.ts";
 import { focusDiagnostic } from "./focusDiagnostic.js";
-import { issueMessage } from "./issueMessages.js";
+import { issueMessage, issueRemedy } from "./issueMessages.js";
 import { Field, Select, TextInput, Textarea } from "../ui/Field.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
@@ -512,14 +512,34 @@ function ObjectSchemaModal({
   onClose,
 }) {
   const headRef = useRef(null);
+  // Column problems stay hidden until Done or a template save reports them, so a new column starts clean.
+  const [showErrors, setShowErrors] = useState(focusRequest?.issue?.location?.scope === "column");
   const at = (columnIndex, property) => `column:${fieldIndex}:${columnIndex}:${property}`;
-  const errorAt = (key) => issueMessage(grouped.byKey.get(key));
+  // The row already says which column it is, so each cell shows only what to do.
+  const errorAt = (key) => (showErrors ? issueRemedy(grouped.byKey.get(key)) : undefined);
+  const columnIssues = (grouped.byField.get(fieldIndex) || []).filter((issue) => issue.location.scope === "column");
+
+  const focusIssue = (location) =>
+    setTimeout(() => focusDiagnostic(headRef.current?.closest(".modal-card"), location), 0);
+
   useEffect(() => {
     if (focusRequest?.issue?.location?.scope !== "column") return;
-    const timer = setTimeout(() => focusDiagnostic(headRef.current?.closest(".modal-card"), focusRequest.issue.location), 0);
+    setShowErrors(true);
+    const timer = focusIssue(focusRequest.issue.location);
 
     return () => clearTimeout(timer);
   }, [focusRequest]);
+
+  function done() {
+    if (!columnIssues.length) {
+      onClose();
+
+      return;
+    }
+
+    setShowErrors(true);
+    focusIssue(columnIssues[0].location);
+  }
 
   return (
     <ModalDialog
@@ -656,9 +676,14 @@ function ObjectSchemaModal({
         </ScrollArea>
 
         <div className="object-schema-modal-footer">
-          <Button data-tour="schema-done" onClick={onClose}>
+          <Button data-tour="schema-done" onClick={done}>
             Done
           </Button>
+          {showErrors && columnIssues.length ? (
+            <p className="object-schema-modal-problems" role="alert">
+              Fix {columnIssues.length} {columnIssues.length === 1 ? "problem" : "problems"} to finish.
+            </p>
+          ) : null}
         </div>
     </ModalDialog>
   );

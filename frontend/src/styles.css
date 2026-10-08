@@ -2324,6 +2324,16 @@ button.modal-close:hover:not(:disabled) {
   border-bottom: 1px solid var(--rule);
 }
 
+/* Cells align to the top so an error grows its row downwards and leaves the controls in place. */
+.object-schema-table tbody td {
+  vertical-align: top;
+}
+
+.object-schema-table .ui-field-error {
+  font-size: var(--font-size-2);
+  line-height: 1.4;
+}
+
 .object-schema-table th {
   position: sticky;
   top: 0;
@@ -2389,6 +2399,8 @@ button.modal-close:hover:not(:disabled) {
 }
 
 .object-schema-row-number {
+  display: block;
+  line-height: var(--control-h-sm);
   color: var(--text-2);
   font-family: var(--font-mono);
   font-size: var(--font-size-3);
@@ -2398,6 +2410,7 @@ button.modal-close:hover:not(:disabled) {
 .object-schema-row-actions {
   display: flex;
   align-items: center;
+  min-height: var(--control-h-sm);
   gap: 6px;
   white-space: nowrap;
 }
@@ -2409,6 +2422,7 @@ button.modal-close:hover:not(:disabled) {
 }
 
 .object-schema-modal-footer {
+  justify-content: flex-start;
   padding: 10px 16px;
   border-top: 1px solid var(--rule);
 }
@@ -2416,6 +2430,10 @@ button.modal-close:hover:not(:disabled) {
 .object-schema-modal-footer p {
   margin: 0;
   font-size: var(--font-size-3);
+}
+
+.object-schema-modal-footer .object-schema-modal-problems {
+  color: var(--tone-danger-text);
 }
 
 
