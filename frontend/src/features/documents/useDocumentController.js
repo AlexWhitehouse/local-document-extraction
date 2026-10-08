@@ -62,6 +62,9 @@ export function useDocumentController({
   const documentRequestsRef = useRef(documentRequests);
   documentRequestsRef.current = documentRequests;
   const [liveUpdatesUnavailable, setLiveUpdatesUnavailable] = useState(false);
+  // Stays set from a dropped connection until a socket opens again, so a reconnect
+  // loop reads as one outage rather than a flicker.
+  const [liveUpdatesDisconnected, setLiveUpdatesDisconnected] = useState(false);
   const [isDownloadingOriginal, setIsDownloadingOriginal] = useState(false);
   // The packet tab showing a child document; empty shows the packet overview.
   const [packetChildId, setPacketChildId] = useState("");
@@ -762,6 +765,7 @@ export function useDocumentController({
 
       if (!canOpenLiveUpdates) {
         setLiveUpdatesUnavailable(false);
+        setLiveUpdatesDisconnected(false);
       }
 
       return;
@@ -774,6 +778,7 @@ export function useDocumentController({
     socket.onopen = () => {
       if (liveUpdateSocketRef.current === socket) {
         setLiveUpdatesUnavailable(false);
+        setLiveUpdatesDisconnected(false);
         void onModelConfigurationInvalidationRef.current?.();
       }
     };
@@ -782,6 +787,7 @@ export function useDocumentController({
       if (liveUpdateSocketRef.current === socket) {
         liveUpdateSocketRef.current = null;
         setLiveUpdatesUnavailable(true);
+        setLiveUpdatesDisconnected(true);
         clearLiveUpdateReconnectTimer();
         liveUpdateReconnectTimerRef.current = window.setTimeout(() => {
           liveUpdateReconnectTimerRef.current = null;
@@ -1032,7 +1038,7 @@ export function useDocumentController({
       loadOriginal,
     },
     // True while the live-update socket is down and reconnecting (the polling fallback).
-    liveUpdatesPaused: canOpenLiveUpdates && liveUpdatesUnavailable,
+    liveUpdatesPaused: canOpenLiveUpdates && liveUpdatesDisconnected,
     statusCounts: snapshot.statusCounts,
     actions: {
       cancelPendingSubmissions: reconciliation.cancelPendingSubmissions,

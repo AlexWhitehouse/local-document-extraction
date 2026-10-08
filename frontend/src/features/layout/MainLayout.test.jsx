@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MainLayout } from "./MainLayout.jsx";
 import { PageHeader } from "../ui/PageHeader.jsx";
 import { ContextSidebar } from "../context/ContextSidebar.jsx";
@@ -96,9 +96,13 @@ describe("MainLayout upload and connectivity", () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it("shows the paused live-updates banner until the socket reconnects", () => {
+  it("shows the paused live-updates banner only for a sustained outage, until the socket reconnects", () => {
+    vi.useFakeTimers();
     const { rerender } = renderWith({ liveUpdatesPaused: true });
 
+    // A brief reconnect stays silent.
+    expect(screen.queryByRole("status")).toBeNull();
+    act(() => vi.advanceTimersByTime(4000));
     expect(screen.getByRole("status").textContent).toBe("Live updates paused, reconnecting…");
 
     rerender(

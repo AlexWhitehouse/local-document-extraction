@@ -27,6 +27,28 @@ const SIDEBAR_ITEMS = [
 
 const ADMIN_SIDEBAR_ITEM = { id: "admin", label: "Admin", icon: AdminIcon };
 
+// Brief reconnects are routine; only an outage that lasts this long is shown.
+const LIVE_UPDATE_BANNER_DELAY_MS = 4000;
+
+// True once `value` has stayed true for `delay` milliseconds.
+function useSustained(value, delay) {
+  const [sustained, setSustained] = useState(false);
+
+  useEffect(() => {
+    if (!value) {
+      setSustained(false);
+
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setSustained(true), delay);
+
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+
+  return sustained;
+}
+
 export function MainLayout({
   activePage,
   contentClassName = "",
@@ -51,11 +73,12 @@ export function MainLayout({
   const mainRef = useRef(null);
   useContentFade(mainRef, activePage, contentSelection);
   const isOnline = useOnlineStatus();
+  const liveUpdatesOutage = useSustained(liveUpdatesPaused, LIVE_UPDATE_BANNER_DELAY_MS);
   const contextDrawer = useContextDrawer(Boolean(contextSidebar));
 
   const connectivityMessage = !isOnline
     ? "You're offline"
-    : liveUpdatesPaused
+    : liveUpdatesOutage
       ? "Live updates paused, reconnecting…"
       : "";
 
