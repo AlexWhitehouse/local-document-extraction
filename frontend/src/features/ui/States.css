@@ -118,6 +118,11 @@
   padding: 32px 0 10dvh;
 }
 
+/* Under a page header, the card sits in the remaining space. */
+.studio-page-heading ~ .ui-page-state {
+  min-height: min(480px, calc(100dvh - 160px));
+}
+
 .ui-page-state-card {
   display: grid;
   justify-items: center;
@@ -140,7 +145,7 @@
   color: var(--text-2);
 }
 
-.ui-page-state-card h1 {
+.ui-page-state-card :is(h1, h2) {
   margin: 0;
   color: var(--text-0);
   font-size: var(--font-size-7);

@@ -221,8 +221,44 @@ describe("Template field editor", () => {
     await user.type(screen.getByLabelText("Column name"), "Quantity");
     expect(screen.queryByText("Give the column a unique name.")).toBeNull();
     await user.type(screen.getByLabelText("Column description"), "Units ordered");
+
+    // A column added after a failed Done starts clean too.
+    await user.click(screen.getByRole("button", { name: "Add column" }));
+    expect(screen.queryByText("Give the column a unique name.")).toBeNull();
+    expect(screen.queryByText(/problems? to finish/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Remove column 2" }));
+
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog", { name: "Table columns" })).toBeNull();
+  });
+
+  it("shows a column problem when its control loses focus, leaving untouched controls clean", async () => {
+    const user = userEvent.setup();
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([
+        {
+          id: "line_items",
+          name: "Line Items",
+          description: "Invoice line items",
+          data_type: "array<object>",
+          object_schema: { mode: "table", columns: [] },
+        },
+      ]);
+
+      return <TemplateFieldEditor fields={fields} onChange={setFields} />;
+    }
+
+    render(<TemplateFieldHarness />);
+
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
+    await user.click(screen.getByRole("button", { name: "Add column" }));
+    await user.click(screen.getByLabelText("Column name"));
+    await user.tab();
+
+    expect(screen.getByLabelText("Column name").getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByText("Give the column a unique name.")).toBeTruthy();
+    expect(screen.queryByText("Describe the value to extract for each row.")).toBeNull();
   });
 
   it("moves, duplicates and removes fields from the field list rows", async () => {

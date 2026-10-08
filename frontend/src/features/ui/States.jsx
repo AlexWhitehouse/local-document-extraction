@@ -69,7 +69,10 @@ export function PageSkeleton({ rows = 5, label = "Loading…" }) {
 }
 
 // A route that can't show its content: centred in the content area with its way out.
-export function PageState({ icon: IconComponent, title, message, actions }) {
+// titleLevel is 2 under a page header, which owns the page's h1.
+export function PageState({ icon: IconComponent, title, titleLevel = 1, message, actions }) {
+  const Title = titleLevel === 2 ? "h2" : "h1";
+
   return (
     <section className="ui-page-state" role="alert" aria-label={title}>
       <div className="ui-page-state-card">
@@ -78,7 +81,7 @@ export function PageState({ icon: IconComponent, title, message, actions }) {
             <IconComponent size={20} />
           </span>
         ) : null}
-        <h1>{title}</h1>
+        <Title>{title}</Title>
         {message ? <p>{message}</p> : null}
         {actions ? <div className="ui-page-state-actions">{actions}</div> : null}
       </div>

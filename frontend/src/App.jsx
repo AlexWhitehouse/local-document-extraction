@@ -576,6 +576,13 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     activePage !== "admin" &&
     (workspaceContext.isWorkspaceContextLoading || templateLoading || documentLoading || packetLoading);
 
+  const showPage = !routeState && !routeLoading;
+
+  // A load failure keeps the page header so its breadcrumbs stay; an unavailable route has no page to head.
+  // Without the page, item actions in the header are off, since the selection may be the previous item.
+  const showPageHeader =
+    (!routeState || Boolean(routeState.retry)) && !["admin", "evaluations", "costs"].includes(visiblePage);
+
   const selectedDocument = documentController.documentPage.selectedDocument;
 
   const selectedDocumentName = documentController.documentPage.selectedPacketId
@@ -584,7 +591,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
 
   const workspaceName = workspaceToolbar.workspaceName;
   const templatePage = templateController.templatePage;
-  const templateName = templatePage.templateName || "";
+  // Until a linked template opens, the editor still holds the previous draft, so it isn't named.
+  const templateName = requestedTemplate && (templateLoading || templateUnavailable) ? "" : templatePage.templateName || "";
 
   // The open template or document, named in the title and the last breadcrumb.
   const pageItem = visiblePage === "templates" ? templateName : visiblePage === "documents" ? selectedDocumentName : "";
@@ -593,7 +601,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     visiblePage === "workspace"
       ? workspaceName || PAGE_TITLES.workspace
       : visiblePage === "templates"
-        ? templateName || "Create template"
+        ? templateName || (requestedTemplate ? PAGE_TITLES.templates : "Create template")
         : selectedDocumentName || PAGE_TITLES.documents;
 
   // Descriptions only where they add information: a saved template's own description,
@@ -623,7 +631,9 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     visiblePage === "admin"
       ? [sectionCrumb("admin"), { label: "Accounts" }]
       : visiblePage === "templates"
-        ? withWorkspace(sectionCrumb("templates"), { label: pageTitle })
+        ? templateName || !requestedTemplate
+          ? withWorkspace(sectionCrumb("templates"), { label: pageTitle })
+          : withWorkspace({ label: PAGE_TITLES.templates })
         : visiblePage === "documents" && selectedDocumentName
           ? withWorkspace(sectionCrumb("documents"), { label: selectedDocumentName })
           : withWorkspace({ label: visiblePage === "documents" ? PAGE_TITLES.documents : "Overview" });
@@ -747,10 +757,52 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
           </>
         }
       >
+        {showPageHeader ? (
+          <WorkspacePageHeader
+            activePage={visiblePage}
+            label={PAGE_LABELS[visiblePage]}
+            breadcrumbs={headerBreadcrumbs}
+            title={pageTitle}
+            description={pageDescription}
+            isWorkspaceInvitationSelected={isWorkspaceInvitationSelected}
+            hasApiAccess={hasApiAccess}
+            workspaceId={workspaceToolbar.workspaceId}
+            workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
+            isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
+            isCreatingWorkspace={workspaceToolbar.isCreatingWorkspace}
+            isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
+            isDeletingDocument={documentToolbar.isDeletingDocument}
+            isExportingDocuments={documentToolbar.isExportingDocuments}
+            selectedDocumentId={showPage ? documentToolbar.selectedDocumentId : ""}
+            selectedDocumentCount={showPage ? documentToolbar.selectedDocumentCount : 0}
+            exportableDocumentCount={documentToolbar.exportableDocumentCount}
+            updateTemplateId={showPage ? templateController.toolbar.selectedTemplateId : ""}
+            onAutoGenerateTemplate={templateController.toolbar.onAutoGenerateTemplate}
+            onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
+            onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
+            onViewCosts={
+              hasApiAccess &&
+              !isWorkspaceInvitationSelected &&
+              ["owner", "admin"].includes(workspaceContext.selectedWorkspaceRole)
+                ? () => navigate(appPath({ workspaceId, page: "costs" }))
+                : undefined
+            }
+            onExportDocuments={documentToolbar.onExportDocuments}
+            onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
+            onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
+            onOpenJsonModal={templateController.toolbar.onOpenJsonModal}
+            onDeleteDocument={documentToolbar.onDeleteDocument}
+            canDownloadOriginal={showPage && documentToolbar.canDownloadOriginal}
+            isDownloadingOriginal={documentToolbar.isDownloadingOriginal}
+            onDownloadOriginal={documentToolbar.onDownloadOriginal}
+          />
+        ) : null}
+
         {routeState ? (
           <PageState
             icon={routeState.icon}
             title={routeState.title}
+            titleLevel={showPageHeader ? 2 : 1}
             message={routeState.message}
             actions={
               <>
@@ -776,107 +828,62 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             }
           />
         ) : null}
-        {!routeState ? (
+        {routeLoading ? <PageSkeleton /> : null}
+        {showPage && visiblePage === "admin" ? (
+          <ApplicationAdminPage admin={adminController} breadcrumbs={headerBreadcrumbs} />
+        ) : null}
+
+        {showPage && visiblePage === "costs" ? (
+          <WorkspaceCosts
+            key={`${sessionUserId}:${workspaceId}`}
+            workspaceId={workspaceId}
+            workspaceCrumb={workspaceCrumb}
+            role={hasApiAccess ? workspaceContext.selectedWorkspaceRole : null}
+            request={coreRequest}
+            tab={route.costTab}
+            onTab={(costTab) => navigate(appPath({ workspaceId, page: "costs", costTab }))}
+          />
+        ) : null}
+
+        {showPage && visiblePage === "workspace" ? (
+          isWorkspaceInvitationSelected && workspaceContext.selectedWorkspaceInvitation ? (
+            <WorkspaceInvitationPage {...workspaceController.invitationPage} />
+          ) : (
+            <AcceptedWorkspacePage
+              {...workspaceController.acceptedPage}
+              workspaceId={workspaceId}
+              workspaceRole={workspaceContext.selectedWorkspaceRole}
+              modelConfiguration={workspaceModel}
+              sourceRetention={workspaceSourceRetention}
+              processingSettings={workspaceDocumentProcessing}
+              modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
+            />
+          )
+        ) : null}
+
+        {showPage && visiblePage === "templates" ? <TemplatePage {...templateController.templatePage} /> : null}
+        {showPage && visiblePage === "evaluations" ? (
+          <EvaluationsPage
+            evaluation={evaluation}
+            toast={toast}
+            templates={templates}
+            enabled={hasApiAccess}
+            onTemplateSaved={templateController.actions.listTemplates}
+            maxSourceFileBytes={maxSourceFileBytes}
+            suggestedModels={documentController.contextList.availableModels}
+            workspaceCrumb={workspaceCrumb}
+            onOpenWorkspace={() => setActivePage("workspace")}
+          />
+        ) : null}
+        {showPage && visiblePage === "documents" ? (
           <>
-            {visiblePage !== "admin" && visiblePage !== "evaluations" && visiblePage !== "costs" ? (
-              <WorkspacePageHeader
-                activePage={visiblePage}
-                label={PAGE_LABELS[visiblePage]}
-                breadcrumbs={headerBreadcrumbs}
-                title={pageTitle}
-                description={pageDescription}
-                isWorkspaceInvitationSelected={isWorkspaceInvitationSelected}
-                hasApiAccess={hasApiAccess}
-                workspaceId={workspaceToolbar.workspaceId}
-                workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
-                isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
-                isCreatingWorkspace={workspaceToolbar.isCreatingWorkspace}
-                isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
-                isDeletingDocument={documentToolbar.isDeletingDocument}
-                isExportingDocuments={documentToolbar.isExportingDocuments}
-                selectedDocumentId={documentToolbar.selectedDocumentId}
-                selectedDocumentCount={documentToolbar.selectedDocumentCount}
-                exportableDocumentCount={documentToolbar.exportableDocumentCount}
-                updateTemplateId={templateController.toolbar.selectedTemplateId}
-                onAutoGenerateTemplate={templateController.toolbar.onAutoGenerateTemplate}
-                onCreateTemplate={() => templateController.toolbar.onCreateTemplate({ empty: isTourActive })}
-                onCreateWorkspace={workspaceToolbar.onCreateWorkspace}
-                onViewCosts={
-                  hasApiAccess &&
-                  !isWorkspaceInvitationSelected &&
-                  ["owner", "admin"].includes(workspaceContext.selectedWorkspaceRole)
-                    ? () => navigate(appPath({ workspaceId, page: "costs" }))
-                    : undefined
-                }
-                onExportDocuments={documentToolbar.onExportDocuments}
-                onWorkspacePrimaryAction={workspaceToolbar.onWorkspacePrimaryAction}
-                onDeleteTemplate={templateController.toolbar.onDeleteTemplate}
-                onOpenJsonModal={templateController.toolbar.onOpenJsonModal}
-                onDeleteDocument={documentToolbar.onDeleteDocument}
-                canDownloadOriginal={documentToolbar.canDownloadOriginal}
-                isDownloadingOriginal={documentToolbar.isDownloadingOriginal}
-                onDownloadOriginal={documentToolbar.onDownloadOriginal}
-              />
-            ) : null}
-
-            {routeLoading ? <PageSkeleton /> : null}
-            {!routeLoading && visiblePage === "admin" ? (
-              <ApplicationAdminPage admin={adminController} breadcrumbs={headerBreadcrumbs} />
-            ) : null}
-
-            {!routeLoading && visiblePage === "costs" ? (
-              <WorkspaceCosts
-                key={`${sessionUserId}:${workspaceId}`}
-                workspaceId={workspaceId}
-                workspaceCrumb={workspaceCrumb}
-                role={hasApiAccess ? workspaceContext.selectedWorkspaceRole : null}
-                request={coreRequest}
-                tab={route.costTab}
-                onTab={(costTab) => navigate(appPath({ workspaceId, page: "costs", costTab }))}
-              />
-            ) : null}
-
-            {!routeLoading && visiblePage === "workspace" ? (
-              isWorkspaceInvitationSelected && workspaceContext.selectedWorkspaceInvitation ? (
-                <WorkspaceInvitationPage {...workspaceController.invitationPage} />
-              ) : (
-                <AcceptedWorkspacePage
-                  {...workspaceController.acceptedPage}
-                  workspaceId={workspaceId}
-                  workspaceRole={workspaceContext.selectedWorkspaceRole}
-                  modelConfiguration={workspaceModel}
-                  sourceRetention={workspaceSourceRetention}
-                  processingSettings={workspaceDocumentProcessing}
-                  modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
-                />
-              )
-            ) : null}
-
-            {!routeLoading && visiblePage === "templates" ? <TemplatePage {...templateController.templatePage} /> : null}
-            {!routeLoading && visiblePage === "evaluations" ? (
-              <EvaluationsPage
-                evaluation={evaluation}
-                toast={toast}
-                templates={templates}
-                enabled={hasApiAccess}
-                onTemplateSaved={templateController.actions.listTemplates}
-                maxSourceFileBytes={maxSourceFileBytes}
-                suggestedModels={documentController.contextList.availableModels}
-                workspaceCrumb={workspaceCrumb}
-                onOpenWorkspace={() => setActivePage("workspace")}
-              />
-            ) : null}
-            {!routeLoading && visiblePage === "documents" ? (
-              <>
-                <DocumentLifecycleAnnouncer documents={documentController.contextList.documents} />
-                <DocumentPage
-                  {...documentController.documentPage}
-                  viewingLayout={documentViewingLayout}
-                  onViewingLayoutChange={setDocumentViewingLayout}
-                  sourceStorageConfigured={sourceStorageConfigured}
-                />
-              </>
-            ) : null}
+            <DocumentLifecycleAnnouncer documents={documentController.contextList.documents} />
+            <DocumentPage
+              {...documentController.documentPage}
+              viewingLayout={documentViewingLayout}
+              onViewingLayoutChange={setDocumentViewingLayout}
+              sourceStorageConfigured={sourceStorageConfigured}
+            />
           </>
         ) : null}
       </MainLayout>
