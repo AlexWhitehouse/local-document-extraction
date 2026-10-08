@@ -245,7 +245,7 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
     return (
       <button
         type="button"
-        className={`evaluation-expected-button ${verified ? "verified" : ""}`}
+        className={`evaluation-expected-button ${verified ? "verified" : "unverified"}`}
         onClick={onOpenEditor}
       >
         {verified ? <CheckIcon size={12} /> : null}
@@ -267,7 +267,7 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
     return (
       <button
         type="button"
-        className={`evaluation-expected-button ${verified ? "verified" : ""}`}
+        className={`evaluation-expected-button ${verified ? "verified" : "unverified"}`}
         aria-label={verified ? `Edit expected ${field.name}` : `Add expected ${field.name}`}
         onClick={() => {
           setDraft(initial());

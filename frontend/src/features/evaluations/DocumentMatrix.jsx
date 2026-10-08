@@ -31,6 +31,7 @@ import {
   tableColumns,
   tableSchemaChanges,
   validateReference,
+  VERIFIABLE_TYPES,
 } from "./evaluationScoring.js";
 
 const COMPARABLE_TYPES = ["array<object>", "object", "array"];
@@ -42,6 +43,9 @@ const FILTERS = [
   ["unverified", "Unverified"],
   ["changes", "Template changes"],
 ];
+
+// Counted as a change, but only shown once a save is blocked by it.
+const NO_SAVED_ANSWER = "No saved answer · verify this field";
 
 const baseName = (identity) => identity.slice(0, identity.lastIndexOf(":"));
 
@@ -121,6 +125,7 @@ export function DocumentMatrix({
   onAddCandidate,
   filter = "all",
   onFilterChange,
+  showMissing = false,
 }) {
   const { state } = evaluation;
   const [referenceEditor, setReferenceEditor] = useState(null);
@@ -206,7 +211,7 @@ export function DocumentMatrix({
         `${getDataTypeLabel(saved[from].data_type)} → ${getDataTypeLabel(row.field.data_type)}`,
       );
     else if (row.omitted) changes.set(row.identity, "Not requested · saved answer kept");
-    else if (!saved[row.identity]) changes.set(row.identity, "No saved answer · verify this field");
+    else if (!saved[row.identity]) changes.set(row.identity, NO_SAVED_ANSWER);
     else if (changedTableCandidate(row)) changes.set(row.identity, "Table columns updated");
     else if (Object.values(row.candidates).some((field) => field.name !== row.field.name))
       changes.set(row.identity, "Field name updated");
@@ -552,9 +557,13 @@ export function DocumentMatrix({
                     <th scope="row" className="evaluation-field-col">
                       <strong>{row.linked ? row.linked.field.name : row.field.name}</strong>
                       <small className="evaluation-type">{getDataTypeLabel(row.field.data_type)}</small>
-                      {changes.has(row.identity) && !row.omitted && (
+                      {changes.has(row.identity) && !row.omitted && changes.get(row.identity) !== NO_SAVED_ANSWER && (
                         <small className="evaluation-warn-text evaluation-block">{changes.get(row.identity)}</small>
                       )}
+                      {showMissing && !row.omitted && !from && !references[row.identity]?.verified &&
+                        VERIFIABLE_TYPES.includes(row.field.data_type) && (
+                          <small className="evaluation-bad-text evaluation-block">{NO_SAVED_ANSWER}</small>
+                        )}
                       {row.linked && (
                         <LinkedNote
                           savedName={row.field.name}

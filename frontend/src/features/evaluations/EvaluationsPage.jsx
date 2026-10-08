@@ -22,7 +22,7 @@ import { validateTemplateJsonPayload } from "../templates/templateFields.js";
 import { templateLabel } from "./evaluationFormat.js";
 import { TemplateVersionDialog } from "./TemplateVersionDialog.jsx";
 import { MAX_CANDIDATES, documentRunnable, pairBusy } from "./useEvaluations.js";
-import { documentCompatibility } from "./evaluationScoring.js";
+import { documentCompatibility, unverifiedFields } from "./evaluationScoring.js";
 import { documentDirty, saveUnavailableMessage } from "./evaluationLibrary.js";
 import "./evaluations.css";
 import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
@@ -55,6 +55,8 @@ export function EvaluationsPage({
   const [dialog, setDialog] = useState(null);
   const [view, setView] = useState(null);
   const [filter, setFilter] = useState("all");
+  // The document whose unverified fields are flagged after a blocked save.
+  const [missingFor, setMissingFor] = useState(null);
   const lifetime = useRef(0);
   useEffect(() => {
     lifetime.current++;
@@ -352,6 +354,19 @@ export function EvaluationsPage({
   const compatibility = document && documentCompatibility(document, fields);
   const saveUnavailable = saveUnavailableMessage(state.library);
 
+  // Saved answers must cover every field that can be verified.
+  const openSave = (kind) => {
+    if (unverifiedFields(compatibility).length) {
+      setMissingFor(document.key);
+      notify(kind === "save" ? "library.save" : "library.updateSaved", "validation", { reason: "unverified" });
+
+      return;
+    }
+
+    setMissingFor(null);
+    open(kind, { key: document.key });
+  };
+
   return (
     <section className="evaluations-page" aria-label="Evaluations">
       <PageHeader
@@ -448,7 +463,7 @@ export function EvaluationsPage({
                   <Button variant="text"
                     disabled={!!saveUnavailable || document.save === "saving"}
                     title={saveUnavailable || undefined}
-                    onClick={() => open("save", { key: document.key })}
+                    onClick={() => openSave("save")}
                   >
                     {document.save === "saving" ? "Saving…" : "Save to library…"}
                   </Button>
@@ -456,7 +471,7 @@ export function EvaluationsPage({
                 {document && documentDirty(document) && (
                   <>
                     <Button variant="text"
-                      onClick={() => open("update", { key: document.key })}
+                      onClick={() => openSave("update")}
                     >
                       Update saved answers…
                     </Button>
@@ -598,6 +613,7 @@ export function EvaluationsPage({
               onAddCandidate={addCandidate}
               filter={filter}
               onFilterChange={setFilter}
+              showMissing={missingFor === document.key}
             />
           ) : (
             <Dropzone

@@ -1,12 +1,18 @@
 .scroll-area {
+  /* Contain absolutely positioned descendants (e.g. .sr-only labels) so they can't stretch the page. */
+  position: relative;
   --scroll-fade-top: 0px;
   --scroll-fade-bottom: 0px;
   --scroll-fade-left: 0px;
   --scroll-fade-right: 0px;
-  /* A little content remains visible at each edge, inviting the next scroll. */
+  /* Measured by ScrollArea.jsx; zero for overlay scrollbars. */
+  --scrollbar-x: 0px;
+  --scrollbar-y: 0px;
+  /* A little content remains visible at each edge, inviting the next scroll.
+     Each fade ends where the scrollbar gutter starts, so scrollbars render solid. */
   mask-image:
-    linear-gradient(to bottom, var(--scroll-shade), var(--mask-solid) var(--scroll-fade-top), var(--mask-solid) calc(100% - var(--scroll-fade-bottom)), var(--scroll-shade)),
-    linear-gradient(to right, var(--scroll-shade), var(--mask-solid) var(--scroll-fade-left), var(--mask-solid) calc(100% - var(--scroll-fade-right)), var(--scroll-shade));
+    linear-gradient(to bottom, var(--scroll-shade), var(--mask-solid) var(--scroll-fade-top), var(--mask-solid) calc(100% - var(--scrollbar-x) - var(--scroll-fade-bottom)), var(--scroll-shade) calc(100% - var(--scrollbar-x)), var(--mask-solid) calc(100% - var(--scrollbar-x))),
+    linear-gradient(to right, var(--scroll-shade), var(--mask-solid) var(--scroll-fade-left), var(--mask-solid) calc(100% - var(--scrollbar-y) - var(--scroll-fade-right)), var(--scroll-shade) calc(100% - var(--scrollbar-y)), var(--mask-solid) calc(100% - var(--scrollbar-y)));
   mask-composite: intersect;
   scroll-padding-block: 32px;
   scroll-padding-inline: 24px;

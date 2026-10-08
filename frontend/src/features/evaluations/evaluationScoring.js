@@ -623,6 +623,13 @@ export function linkAlignments(links, fields) {
   return alignments;
 }
 
+// Types an expected answer can be entered for; other types are compare-only.
+export const VERIFIABLE_TYPES = ["string", "number", "date", "boolean", "array<object>"];
+
+// Fields that still need a verified answer before the document's answers can be saved.
+export const unverifiedFields = (compatibility) =>
+  (compatibility?.rows || []).filter((row) => row.state !== "verified" && VERIFIABLE_TYPES.includes(row.field.data_type));
+
 export const documentCompatibility = (document, fields) =>
   referenceCompatibility(document?.reference, fields, linkAlignments(document?.links, fields));
 

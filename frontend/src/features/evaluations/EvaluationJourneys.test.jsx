@@ -498,9 +498,19 @@ it("saves an upload from the results after running, retries a lost response with
   fireEvent.click(await screen.findByRole("button", { name: "Add expected Total" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Total" }), { target: { value: "3420" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+  // Saving is blocked until every field has a verified answer.
+  expect(screen.queryByText("No saved answer · verify this field")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save to library…" }));
+  expect(screen.queryByRole("dialog", { name: "Save to evaluation library" })).toBeNull();
+  expect(screen.getByText("No saved answer · verify this field")).toBeTruthy();
+  expect(toast.error).toHaveBeenCalledWith("Verify every field before saving to the library.", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "Add expected Supplier" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Expected Supplier" }), { target: { value: "Fenwick" } });
+  fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+  expect(screen.queryByText("No saved answer · verify this field")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Save to library…" }));
   const dialog = screen.getByRole("dialog", { name: "Save to evaluation library" });
-  expect(within(dialog).getByText(/1 of 2 answers verified/)).toBeTruthy();
+  expect(within(dialog).getByText(/2 of 2 answers verified/)).toBeTruthy();
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Name in library" }), { target: { value: "Fenwick print" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
   expect(await within(dialog).findByRole("alert")).toBeTruthy();
@@ -552,6 +562,9 @@ it("reviews an update of shared answers from the results and resolves a conflict
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Total" }), { target: { value: "3500" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
   expect(screen.getByTitle("Harbour invoice").textContent).toContain("answer changes not saved");
+  fireEvent.click(screen.getByRole("button", { name: "Add expected Supplier" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Expected Supplier" }), { target: { value: "Harbour" } });
+  fireEvent.click(screen.getByRole("button", { name: "Verify" }));
   fireEvent.click(await screen.findByRole("button", { name: "Update saved answers…" }));
   const review = screen.getByRole("dialog", { name: "Review saved answer update" });
   expect(within(review).getByText("3420 ✓")).toBeTruthy();

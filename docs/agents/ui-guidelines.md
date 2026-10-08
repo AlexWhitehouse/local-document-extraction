@@ -62,7 +62,8 @@ Use these before writing new markup. Most live in `frontend/src/features/ui/`.
   - focus ring: `--focus-ring`
 - `bun run lint` runs `scripts/checkCssTokens.ts`. It fails on hex, rgb, rgba or hsl colours and numeric z-index outside `:root`. A justified exception needs `/* token-exempt: reason */` on the same line.
 - Breakpoints are 600, 900, 1120 and 1440 px.
-- Utilities: `.sr-only` and `.scroll-thin`.
+- Utilities: `.sr-only`.
+- Scrollbars are native everywhere. Don't restyle them per component.
 
 ## Confirmations
 
