@@ -55,6 +55,40 @@ export function Skeleton({ rows = 3, height = 36, label = "Loading…" }) {
   );
 }
 
+// Placeholder for a page body while its route resolves: a title line, a summary line and content rows.
+export function PageSkeleton({ rows = 5, label = "Loading…" }) {
+  return (
+    <div className="ui-page-skeleton" role="status" aria-label={label}>
+      <span className="ui-skeleton-row ui-page-skeleton-title" />
+      <span className="ui-skeleton-row ui-page-skeleton-summary" />
+      {Array.from({ length: rows }, (_, index) => (
+        <span key={index} className="ui-skeleton-row ui-page-skeleton-item" />
+      ))}
+    </div>
+  );
+}
+
+// A route that can't show its content: centred in the content area with its way out.
+// titleLevel is 2 under a page header, which owns the page's h1.
+export function PageState({ icon: IconComponent, title, titleLevel = 1, message, actions }) {
+  const Title = titleLevel === 2 ? "h2" : "h1";
+
+  return (
+    <section className="ui-page-state" role="alert" aria-label={title}>
+      <div className="ui-page-state-card">
+        {IconComponent ? (
+          <span className="ui-page-state-icon">
+            <IconComponent size={20} />
+          </span>
+        ) : null}
+        <Title>{title}</Title>
+        {message ? <p>{message}</p> : null}
+        {actions ? <div className="ui-page-state-actions">{actions}</div> : null}
+      </div>
+    </section>
+  );
+}
+
 export function ErrorState({ error, message, fallback = "This couldn't be loaded.", onRetry, variant, colSpan }) {
   const text = message || describeError(error, fallback);
 

@@ -3,12 +3,13 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const auth = { session: null, signIn: vi.fn() };
+const auth = { session: null, signIn: vi.fn(), signOut: vi.fn() };
 
 const createAuthClient = () => ({
   useSession: () => ({ data: auth.session, isPending: false, refetch: vi.fn() }),
   signIn: { email: auth.signIn },
   signUp: { email: vi.fn() },
+  signOut: auth.signOut,
 });
 
 const toast = { error: vi.fn(), success: vi.fn() };
@@ -291,12 +292,31 @@ describe("stable app navigation", () => {
   it("does not load product data for an inaccessible explicit Workspace", async () => {
     open("/workspaces/private/documents/secret");
     await screen.findByText(/workspace or invitation is unavailable/);
+    expect(document.querySelector(".ui-page-header")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Workspace unavailable" })).toBeTruthy();
     expect(globalThis.fetch.mock.calls.some(([path]) => /\/v1\/(jobs|templates)/.test(path))).toBe(false);
     expect(window.location.pathname).toBe("/workspaces/private/documents/secret");
     expect(JSON.parse(localStorage.getItem("documentextraction.workspace.v1")).workspaceId).toBe("a");
     await userEvent.click(screen.getByRole("button", { name: "Back to Workspaces" }));
     await screen.findByRole("heading", { name: "Workspace details" });
     await waitFor(() => expect(window.location.pathname).toBe("/workspaces/a"));
+  });
+
+  it("sends the next account to / after sign out instead of the last account's Workspace", async () => {
+    auth.signOut.mockImplementation(async () => {
+      auth.session = null;
+    });
+    const view = open("/workspaces/b");
+    await screen.findByRole("heading", { name: "Workspace details" });
+    await userEvent.click(screen.getByRole("button", { name: /Reader/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await screen.findByRole("heading", { name: "Sign in" });
+    expect(window.location.pathname).toBe("/");
+
+    auth.session = { user: { id: "other", name: "Other", email: "other@example.test" }, session: { id: "next" } };
+    view.rerender(<App createAuthClient={createAuthClient} notifications={toast} />);
+    await screen.findByRole("heading", { name: "Workspace details" });
+    expect(screen.queryByText(/workspace or invitation is unavailable/)).toBeNull();
   });
 
   it("retries Workspace loading without losing the requested resource URL", async () => {
@@ -307,6 +327,9 @@ describe("stable app navigation", () => {
     );
     open("/workspaces/b/templates/two");
     await screen.findByText("Couldn't load workspace. Try again.");
+    // A load failure keeps the page header, so its card title is the second-level heading.
+    expect(document.querySelector(".ui-page-header")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Couldn't load workspace" })).toBeTruthy();
     failed = false;
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template two"));

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { diagnoseTemplateDraft, groupIssuesByLocation } from "../../../../shared/templateAssistant.ts";
 import { focusDiagnostic } from "./focusDiagnostic.js";
-import { issueMessage } from "./issueMessages.js";
+import { issueMessage, issueRemedy } from "./issueMessages.js";
 import { Field, Select, TextInput, Textarea } from "../ui/Field.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
@@ -512,14 +512,66 @@ function ObjectSchemaModal({
   onClose,
 }) {
   const headRef = useRef(null);
+  // Controls whose problems are shown: revealed on blur, Done or a template save, so a new column starts clean.
+  const [revealed, setRevealed] = useState(() => new Set());
   const at = (columnIndex, property) => `column:${fieldIndex}:${columnIndex}:${property}`;
-  const errorAt = (key) => issueMessage(grouped.byKey.get(key));
+  const columnIssues = (grouped.byField.get(fieldIndex) || []).filter((issue) => issue.location.scope === "column");
+  const issueKey = (issue) => at(issue.location.columnIndex, issue.location.property);
+  const shownIssues = columnIssues.filter((issue) => revealed.has(issueKey(issue)));
+  const columnIssueKeysRef = useRef([]);
+  columnIssueKeysRef.current = columnIssues.map(issueKey);
+  // The row already says which column it is, so each cell shows only what to do.
+  const errorAt = (key) => (revealed.has(key) ? issueRemedy(grouped.byKey.get(key)) : undefined);
+  const reveal = (keys) => setRevealed((previous) => new Set([...previous, ...keys]));
+
+  // Keeps revealed controls with their column when columns move or go.
+  const remapRevealed = (mapColumn) =>
+    setRevealed(
+      (previous) =>
+        new Set(
+          [...previous].flatMap((key) => {
+            const [, , columnIndex, property] = key.split(":");
+            const next = mapColumn(Number(columnIndex));
+
+            return next === null ? [] : [at(next, property)];
+          }),
+        ),
+    );
+
+  function moveColumn(columnIndex, direction) {
+    const target = columnIndex + direction;
+
+    if (target < 0 || target >= columns.length) return;
+    remapRevealed((index) => (index === columnIndex ? target : index === target ? columnIndex : index));
+    onMoveColumn(columnIndex, direction);
+  }
+
+  function removeColumn(columnIndex) {
+    remapRevealed((index) => (index === columnIndex ? null : index > columnIndex ? index - 1 : index));
+    onRemoveColumn(columnIndex);
+  }
+
+  const focusIssue = (location) =>
+    setTimeout(() => focusDiagnostic(headRef.current?.closest(".modal-card"), location), 0);
+
   useEffect(() => {
     if (focusRequest?.issue?.location?.scope !== "column") return;
-    const timer = setTimeout(() => focusDiagnostic(headRef.current?.closest(".modal-card"), focusRequest.issue.location), 0);
+    reveal(columnIssueKeysRef.current);
+    const timer = focusIssue(focusRequest.issue.location);
 
     return () => clearTimeout(timer);
   }, [focusRequest]);
+
+  function done() {
+    if (!columnIssues.length) {
+      onClose();
+
+      return;
+    }
+
+    reveal(columnIssues.map(issueKey));
+    focusIssue(columnIssues[0].location);
+  }
 
   return (
     <ModalDialog
@@ -585,6 +637,7 @@ function ObjectSchemaModal({
                         <TextInput
                           disabled={disabled}
                           data-diagnostic-location={at(columnIndex, "heading")}
+                          onBlur={() => reveal([at(columnIndex, "heading")])}
                           value={column.heading}
                           onChange={(event) => onUpdateColumn(columnIndex, "heading", event.target.value)}
                           placeholder="e.g. Line total"
@@ -596,6 +649,7 @@ function ObjectSchemaModal({
                         <Select
                           disabled={disabled}
                           data-diagnostic-location={at(columnIndex, "data_type")}
+                          onBlur={() => reveal([at(columnIndex, "data_type")])}
                           value={column.data_type}
                           onChange={(event) => onUpdateColumn(columnIndex, "data_type", event.target.value)}
                         >
@@ -615,6 +669,7 @@ function ObjectSchemaModal({
                         <TextInput
                           disabled={disabled}
                           data-diagnostic-location={at(columnIndex, "description")}
+                          onBlur={() => reveal([at(columnIndex, "description")])}
                           value={column.description}
                           onChange={(event) => onUpdateColumn(columnIndex, "description", event.target.value)}
                           placeholder="e.g. Price for this line"
@@ -628,21 +683,21 @@ function ObjectSchemaModal({
                           icon={ArrowUpIcon}
                           size="sm"
                           disabled={disabled || columnIndex === 0}
-                          onClick={() => onMoveColumn(columnIndex, -1)}
+                          onClick={() => moveColumn(columnIndex, -1)}
                         />
                         <IconButton
                           label={`Move column ${columnIndex + 1} down`}
                           icon={ArrowDownIcon}
                           size="sm"
                           disabled={disabled || columnIndex === columns.length - 1}
-                          onClick={() => onMoveColumn(columnIndex, 1)}
+                          onClick={() => moveColumn(columnIndex, 1)}
                         />
                         <Button
                           variant="danger"
                           size="sm"
                           aria-label={`Remove column ${columnIndex + 1}`}
                           disabled={disabled}
-                          onClick={() => onRemoveColumn(columnIndex)}
+                          onClick={() => removeColumn(columnIndex)}
                         >
                           Remove
                         </Button>
@@ -656,9 +711,14 @@ function ObjectSchemaModal({
         </ScrollArea>
 
         <div className="object-schema-modal-footer">
-          <Button data-tour="schema-done" onClick={onClose}>
+          <Button data-tour="schema-done" onClick={done}>
             Done
           </Button>
+          {shownIssues.length ? (
+            <p className="object-schema-modal-problems" role="alert">
+              Fix {shownIssues.length} {shownIssues.length === 1 ? "problem" : "problems"} to finish.
+            </p>
+          ) : null}
         </div>
     </ModalDialog>
   );
