@@ -194,9 +194,10 @@ label.evaluation-version { display: flex; flex-direction: row; align-items: cent
 .evaluation-setup-model p { margin: 0; font-size: var(--font-size-3); color: var(--text-3); }
 .evaluation-setup-aside h3 { margin: 6px 0 0; font: 500 var(--font-size-2) var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text-2); }
 .evaluation-how { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
-.evaluation-how li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; }
+.evaluation-how li { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 10px; }
 .evaluation-how li > span { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--rule-subtle); font: var(--font-size-2) var(--font-mono); color: var(--accent-strong); }
-.evaluation-how strong { font-size: var(--font-size-4); font-weight: 500; }
+/* The heading line is exactly as tall as the number box, so the box centres on the heading. */
+.evaluation-how strong { display: block; font-size: var(--font-size-4); font-weight: 500; line-height: 20px; }
 .evaluation-how p { margin: 3px 0 0; font-size: var(--font-size-3); color: var(--text-2); line-height: 1.5; }
 .evaluation-setup-note { margin: 4px 0 0; padding-top: 12px; border-top: 1px solid var(--rule); font-size: var(--font-size-3); color: var(--text-3); }
 

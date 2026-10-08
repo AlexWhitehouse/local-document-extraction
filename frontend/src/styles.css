@@ -38,6 +38,8 @@
   --rule-subtle: #1f2a3a;
   --rule: #19212d;
   --rule-strong: #283346;
+  /* Dashed drop targets: brighter than --rule-strong so the outline reads at a glance. */
+  --rule-dashed: #32425b;
 
   /* Text scale. */
   --text-0: #f3f7ff;
@@ -1283,16 +1285,24 @@ input[type="checkbox"]:disabled {
     color: var(--accent-strong);
   }
 
+  /* Same 40px column and centre line as the nav links above. */
   .sidebar-collapsed .sidebar-upload-button {
+    justify-self: center;
     align-self: center;
-    width: 36px;
-    height: 32px;
-    margin: 6px 0;
+    width: 40px;
+    height: 36px;
+    margin: 6px auto;
     padding: 0;
   }
 
   .sidebar-collapsed .sidebar-upload-icon {
-    font-size: var(--font-size-7);
+    display: grid;
+    place-items: center;
+  }
+
+  .sidebar-collapsed .sidebar-upload-icon svg {
+    width: 18px;
+    height: 18px;
   }
 
   .sidebar-collapsed .sidebar-profile-trigger {
@@ -2582,6 +2592,15 @@ tbody tr:hover {
 .modal-card > .actions,
 .modal-card > form > .actions {
   justify-content: flex-end;
+}
+
+/* A footer hint sits on the left, centred on the buttons. It wraps above them when space runs out. */
+.modal-footer {
+  align-items: center;
+}
+
+.modal-footer > .hint {
+  margin: 0 auto 0 0;
 }
 
 details summary {

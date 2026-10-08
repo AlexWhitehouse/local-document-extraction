@@ -37,22 +37,3 @@ button.ui-action-menu-item.danger {
 button.ui-action-menu-item:disabled {
   color: var(--text-3);
 }
-
-/* Create template: a primary action with a chevron toggle that joins it. */
-.create-template-split {
-  display: inline-flex;
-  align-items: stretch;
-}
-
-.create-template-split > button:first-child {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-button.create-template-split-toggle {
-  border: 1px solid var(--rule-strong);
-  border-left: 0;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  color: var(--text-1);
-}

@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -22,40 +22,23 @@ describe("Create template split button", () => {
     expect(onAutoGenerate).not.toHaveBeenCalled();
   });
 
-  it("offers blank and auto-generated creation from the chevron menu", async () => {
+  it("auto-generates a template from the joined magic button", async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn();
     const onAutoGenerate = vi.fn();
 
     render(<CreateTemplateSplitButton onCreate={onCreate} onAutoGenerate={onAutoGenerate} />);
 
-    const toggle = screen.getByRole("button", { name: "More ways to create a template" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-
-    await user.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("menuitem", { name: "Blank template" })).toBeTruthy();
-
-    await user.click(screen.getByRole("menuitem", { name: "Auto-generate from sample" }));
+    await user.click(screen.getByRole("button", { name: "Auto-generate template" }));
     expect(onAutoGenerate).toHaveBeenCalledTimes(1);
+    expect(onCreate).not.toHaveBeenCalled();
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(document.activeElement).toBe(toggle);
   });
 
-  it("closes the menu on an outside click", async () => {
-    const user = userEvent.setup();
+  it("disables both parts without API access", () => {
+    render(<CreateTemplateSplitButton disabled onCreate={vi.fn()} onAutoGenerate={vi.fn()} />);
 
-    render(
-      <>
-        <CreateTemplateSplitButton onCreate={vi.fn()} onAutoGenerate={vi.fn()} />
-        <p>Elsewhere</p>
-      </>,
-    );
-
-    await user.click(screen.getByRole("button", { name: "More ways to create a template" }));
-    expect(screen.getByRole("menu")).toBeTruthy();
-
-    fireEvent.pointerDown(screen.getByText("Elsewhere"));
-    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("button", { name: "Create template" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Auto-generate template" }).disabled).toBe(true);
   });
 });

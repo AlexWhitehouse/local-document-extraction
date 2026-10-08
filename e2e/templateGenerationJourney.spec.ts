@@ -126,6 +126,5 @@ test("generate a template from a sample, review the draft, then explicitly save"
 });
 
 async function openAutoGenerate(page: Page) {
-  await page.getByRole("button", { name: "More ways to create a template", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Auto-generate from sample", exact: true }).click();
+  await page.getByRole("button", { name: "Auto-generate template", exact: true }).click();
 }

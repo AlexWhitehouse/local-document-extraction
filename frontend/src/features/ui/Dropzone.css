@@ -2,13 +2,17 @@
 .ui-dropzone {
   min-width: 0;
   margin-top: 2px;
-  border: 1px dashed var(--rule-subtle);
+  border: 1px dashed var(--rule-dashed);
   background: var(--field-bg);
   transition: border-color 120ms, background 120ms;
 }
 
+.ui-dropzone:hover:not(.is-disabled),
 .ui-dropzone.is-active {
   border-color: var(--accent);
+}
+
+.ui-dropzone.is-active {
   background: var(--row-selected);
 }
 
@@ -26,11 +30,12 @@ input.ui-dropzone-input {
 /* The whole zone is the browse button when the caller doesn't place its own. */
 .ui-dropzone-browse {
   display: grid;
-  gap: 6px;
-  place-items: center;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
   width: 100%;
-  min-height: 104px;
-  padding: 14px;
+  min-height: 112px;
+  padding: 18px 14px;
   border: 0;
   background: transparent;
   color: var(--text-1);
@@ -47,23 +52,38 @@ input.ui-dropzone-input {
   cursor: default;
 }
 
+/* Upload glyph in a bordered tile, the same treatment as the sidebar brand mark. */
+.ui-dropzone-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 4px;
+  border: 1px solid var(--tone-success-border);
+  background: var(--tone-success-bg);
+  color: var(--accent-strong);
+}
+
 .ui-dropzone-browse strong {
   font-size: var(--font-size-5);
   font-weight: 500;
   color: var(--text-0);
 }
 
-.ui-dropzone-browse span {
+.ui-dropzone-hint {
   font-size: var(--font-size-3);
   color: var(--text-2);
 }
 
+/* No overflow clip here: on a grid item it collapses the line to zero height. */
 .ui-dropzone-browse em {
   max-width: 100%;
-  overflow: hidden;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-subtle);
   font-style: normal;
   font-size: var(--font-size-4);
+  font-weight: 500;
   color: var(--accent-strong);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }

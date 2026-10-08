@@ -1,25 +1,23 @@
 import React from "react";
-import { Button } from "../ui/Button.jsx";
-import { ChevronDownIcon } from "../layout/Icons.jsx";
-import { ActionMenu } from "../ui/ActionMenu.jsx";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { MagicIcon } from "../layout/Icons.jsx";
+import "./CreateTemplateSplitButton.css";
 
-// "Create template" with a menu for the other ways to start one.
+// "Create template" with a joined magic-wand button that auto-generates a template from a sample.
 export function CreateTemplateSplitButton({ disabled = false, onCreate, onAutoGenerate }) {
   return (
-    <div className="create-template-split">
+    <div className="create-template-split" role="group" aria-label="Create template">
       <Button variant="secondary" data-tour="create-template" disabled={disabled} onClick={onCreate}>
         Create template
       </Button>
-      <ActionMenu
-        label="More ways to create a template"
-        icon={ChevronDownIcon}
+      <IconButton
+        variant="secondary"
+        label="Auto-generate template"
+        icon={MagicIcon}
         size="md"
         disabled={disabled}
-        className="create-template-split-toggle"
-        items={[
-          { key: "blank", label: "Blank template", onSelect: onCreate },
-          { key: "generate", label: "Auto-generate from sample", onSelect: onAutoGenerate },
-        ]}
+        className="create-template-magic"
+        onClick={onAutoGenerate}
       />
     </div>
   );

@@ -23,7 +23,7 @@ export const TOUR_STEPS = [
   {
     id: "create-template",
     title: "Create your first template",
-    text: "Click Create template, or use the menu beside it to auto-generate one from a sample.",
+    text: "Click Create template, or the magic button beside it to auto-generate one from a sample.",
     click: true,
   },
   {
