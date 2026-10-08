@@ -17,14 +17,13 @@ export function WorkspaceCosts({ workspaceId, workspaceCrumb = null, role, tab =
         label="Workspace costs"
         breadcrumbs={[workspaceCrumb, { label: "Costs" }].filter(Boolean)}
         title="Costs"
-        description="Reported document-processing costs, attributed to upload date. Deleted documents keep their costs. USD · UTC."
+        description="Model costs by upload date (USD, UTC). Deleted documents keep their costs."
       />
       {["owner", "admin"].includes(role) ? (
         <CostViews workspaceId={workspaceId} request={request} tab={tab} onTab={onTab} />
       ) : (
         <div className="cp-restricted">
-          <strong>Costs are visible to Workspace owners and admins.</strong>
-          <p>Ask an owner or admin if you need spend figures for this Workspace.</p>
+          <strong>Only workspace owners and admins can view costs.</strong>
         </div>
       )}
     </div>
@@ -57,7 +56,7 @@ function CostViews({ workspaceId, request, tab, onTab }) {
           onChange={onTab}
         />
         <div className="cp-range-row">
-          <span className="cp-muted">{rangeLabel(range)} · UTC</span>
+          <span className="cp-muted">{rangeLabel(range)}</span>
           <RangePicker range={range} onChange={setRange} />
         </div>
       </div>
@@ -91,11 +90,10 @@ export function CostResourceStatus({ resource }) {
 
   if (resource.data?.updating)
     return (
-      <Callout tone="info" role="status" title={resource.data.historyBuilding ? "Building cost history" : "Updating recent costs"}>
+      <Callout tone="info" role="status">
         {resource.data.historyBuilding
-          ? "Figures are incomplete until this finishes."
-          : "Figures may be incomplete."}{" "}
-        This page refreshes every 30 seconds.
+          ? "Cost history is still building. Figures may be incomplete."
+          : "Recent costs are updating. Figures may be incomplete."}
       </Callout>
     );
 

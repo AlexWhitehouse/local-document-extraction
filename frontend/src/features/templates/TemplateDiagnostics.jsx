@@ -26,7 +26,7 @@ export function TemplateProblems({ issues, draft, onFocus, activeIndex = 0, onIn
       <span className="template-problems-count">
         {blocked
           ? "Fix these to save"
-          : `${issues.length} problem${issues.length === 1 ? "" : "s"} stop${issues.length === 1 ? "s" : ""} this Template saving`}
+          : `${issues.length} problem${issues.length === 1 ? "" : "s"} stop${issues.length === 1 ? "s" : ""} this template saving`}
       </span>
       <button
         type="button"

@@ -1,5 +1,5 @@
 export const STAGES = [
-  { id: "split", label: "Smart split" },
-  { id: "auto_template", label: "Auto template" },
+  { id: "split", label: "Splitting" },
+  { id: "auto_template", label: "Template generation" },
   { id: "extraction", label: "Extraction" },
 ];

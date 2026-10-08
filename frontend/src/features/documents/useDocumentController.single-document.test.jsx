@@ -156,7 +156,7 @@ describe("Single-document smart split actions", () => {
       f.result.current.contextList.onSelectPacket("single_packet");
     });
     expect(f.result.current.documentPage.packetPage.documentError).toBe(
-      "Document details could not be loaded. Try again.",
+      "Couldn't load document details. Try again.",
     );
     await act(async () => {
       await f.result.current.documentPage.packetPage.onSelectDocument("single_child");

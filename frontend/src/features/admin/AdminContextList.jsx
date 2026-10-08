@@ -27,7 +27,7 @@ export function AdminContextList({ admin }) {
             />
           </Field>
           <select
-            aria-label="Search field"
+            aria-label="Search by"
             value={admin.searchField}
             onChange={(event) => admin.onSearchFieldChange(event.target.value)}
           >

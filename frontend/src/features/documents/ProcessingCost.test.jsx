@@ -40,8 +40,8 @@ describe("Processing cost headers", () => {
     await user.hover(button);
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip.className).toContain("is-open");
-    expect(within(tooltip).getByText("Smart split").nextElementSibling.textContent).toBe("$0.006");
-    expect(within(tooltip).getByText("Auto template").nextElementSibling.textContent).toBe("$0.0022842");
+    expect(within(tooltip).getByText("Splitting").nextElementSibling.textContent).toBe("$0.006");
+    expect(within(tooltip).getByText("Template generation").nextElementSibling.textContent).toBe("$0.0022842");
     expect(within(tooltip).getByText("Extraction").nextElementSibling.textContent).toBe("$0.004");
     // Escape also dismisses a hovered tooltip when the trigger does not have focus.
     await user.keyboard("{Escape}");
@@ -68,7 +68,7 @@ describe("Processing cost headers", () => {
     act(() => button.focus());
     expect(screen.getByRole("tooltip").id).toBe(button.getAttribute("aria-describedby"));
     expect(screen.getByRole("tooltip").className).toContain("is-open");
-    expect(screen.getByText(/kept at packet level/)).toBeTruthy();
+    expect(screen.getByText(/for excluded pages/)).toBeTruthy();
     await user.keyboard("{Escape}");
     expect(screen.getByRole("tooltip").className).not.toContain("is-open");
     fireEvent.focus(button);
@@ -80,8 +80,8 @@ describe("Processing cost headers", () => {
     expect(screen.getByRole("button", { name: "Document total cost: $0.00" })).toBeTruthy();
     rerender(<ProcessingCost costs={{ ...costs, total: amount(0.003, false), auto_template: amount(null, false) }} />);
     fireEvent.focus(screen.getByRole("button", { name: "Document total cost: $0.003+" }));
-    expect(screen.getByText(/known subtotal/)).toBeTruthy();
-    expect(screen.getByText("Auto template").nextElementSibling.textContent).toBe("Unavailable");
+    expect(screen.getByText(/Costs marked \+ are partial/)).toBeTruthy();
+    expect(screen.getByText("Template generation").nextElementSibling.textContent).toBe("Unavailable");
     rerender(<ProcessingCost />);
     expect(screen.getByRole("button", { name: "Document total cost: Unavailable" })).toBeTruthy();
     rerender(<ProcessingCost costs={{ ...costs, total: amount(0.000000001) }} />);

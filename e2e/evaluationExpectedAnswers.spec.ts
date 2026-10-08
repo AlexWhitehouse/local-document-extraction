@@ -45,7 +45,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
         ],
       }),
     );
-    await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
+    await templateDialog.getByRole("button", { name: "Save JSON" }).click();
     await expect(page.getByText("Template saved: Expected answer checks")).toBeVisible();
     await navigation.getByRole("link", { name: /Evaluations/ }).click();
     const evaluations = page.getByRole("region", { name: "Evaluations" });
@@ -56,7 +56,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
         .selectOption({ label: "Expected answer checks" });
       await evaluations.getByRole("textbox", { name: "Candidate 2 model" }).fill("browser/expected-answers-b");
       await evaluations.getByRole("button", { name: "Start and run" }).click();
-      await expect(evaluations.getByRole("status").filter({ hasText: "Done" })).toHaveCount(2);
+      await expect(evaluations.getByRole("status").filter({ hasText: "Completed" })).toHaveCount(2);
     };
 
     await evaluations
@@ -102,7 +102,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
     );
 
     await page
-      .getByRole("dialog", { name: "Save to Evaluation library" })
+      .getByRole("dialog", { name: "Save to evaluation library" })
       .getByRole("button", { name: "Save", exact: true })
       .click();
     const saved = await saving;
@@ -113,11 +113,11 @@ test("date formats, field errors and table cell statuses survive saving and reus
       { quantity: "absent" },
       { quantity: "ignored" },
     ]);
-    await expect(page.getByRole("dialog", { name: "Save to Evaluation library" })).toHaveCount(0);
-    await evaluations.getByRole("button", { name: /^Clear Evaluation/ }).click();
+    await expect(page.getByRole("dialog", { name: "Save to evaluation library" })).toHaveCount(0);
+    await evaluations.getByRole("button", { name: /^Clear evaluation/ }).click();
     await page
-      .getByRole("dialog", { name: "Clear Evaluation" })
-      .getByRole("button", { name: "Clear Evaluation", exact: true })
+      .getByRole("dialog", { name: "Clear evaluation" })
+      .getByRole("button", { name: "Clear evaluation", exact: true })
       .click();
     await evaluations.getByRole("button", { name: "Library" }).first().click();
     const picker = page.getByRole("dialog", { name: "Evaluation library" });

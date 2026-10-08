@@ -187,11 +187,11 @@ it("replaces a comparison candidate with a historical Template without running i
   const evaluation = setup({ mode: "templates" }, [{ id: "saved", name: "Saved Invoice", current_version: 3 }]);
   evaluation.api.mockImplementation(async () => Response.json(savedTemplate()));
   openMenu();
-  fireEvent.click(screen.getByRole("button", { name: "Choose another Template/version" }));
-  const picker = within(screen.getByRole("dialog", { name: "Choose candidate Template" }));
+  fireEvent.click(screen.getByRole("button", { name: "Choose another template version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose candidate template" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "saved" } });
-  fireEvent.change(picker.getByRole("combobox", { name: "Field version" }), { target: { value: "2" } });
-  fireEvent.click(picker.getByRole("button", { name: "Replace candidate Template" }));
+  fireEvent.change(picker.getByRole("combobox", { name: "Version" }), { target: { value: "2" } });
+  fireEvent.click(picker.getByRole("button", { name: "Replace candidate template" }));
   await waitFor(() => expect(evaluation.edit).toHaveBeenCalledWith("a", {
     template: expect.objectContaining({ source: { id: "saved", version: 2 }, name: "Invoice" }),
   }));
@@ -202,8 +202,8 @@ it("keeps editing available during processing and applies full editor changes on
   const evaluation = setup();
   expect(screen.getByRole("button", { name: "Run all (1 candidate)" }).disabled).toBe(true);
   openMenu();
-  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
-  const dialog = screen.getByRole("dialog", { name: "Edit Template" });
+  fireEvent.click(screen.getByRole("button", { name: "Edit template" }));
+  const dialog = screen.getByRole("dialog", { name: "Edit template" });
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Extraction instructions" }), {
     target: { value: "Revised instruction" },
   });
@@ -214,16 +214,16 @@ it("keeps editing available during processing and applies full editor changes on
   expect(evaluation.api).not.toHaveBeenCalled();
 });
 
-it("Save as new Template warns for untested edits and saves an independent current draft", async () => {
+it("Save as new template warns for untested edits and saves an independent current draft", async () => {
   const evaluation = setup();
   openMenu();
-  fireEvent.click(screen.getByRole("button", { name: "Save as new Template" }));
-  const dialog = screen.getByRole("dialog", { name: "Save as new Template" });
-  expect(within(dialog).getByText(/current edits have not been tested/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Save as new template" }));
+  const dialog = screen.getByRole("dialog", { name: "Save as new template" });
+  expect(within(dialog).getByText(/These edits haven’t been run yet/)).toBeTruthy();
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Template name" }), {
     target: { value: "New Invoice" },
   });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Save new Template" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save new template" }));
   await waitFor(() => expect(evaluation.api).toHaveBeenCalled());
   expect(evaluation.api.mock.calls[0][0]).toBe("/templates");
   expect(JSON.parse(evaluation.api.mock.calls[0][1].body)).toMatchObject({
@@ -237,7 +237,7 @@ it("Save as new Template warns for untested edits and saves an independent curre
 it("candidate values stay unverified until an explicit reference confirmation", () => {
   const evaluation = setup();
   fireEvent.click(screen.getByRole("button", { name: "Inspect Total for Candidate 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
   expect(evaluation.setReference).not.toHaveBeenCalled();
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Expected value" }), { target: { value: "12" } });
@@ -367,14 +367,14 @@ it("starts a model comparison from a saved historical field version with the cho
   const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
   expect(breadcrumb.getByRole("link", { name: "Test Workspace" }).getAttribute("href")).toBe("/workspaces/ws_1");
   expect(breadcrumb.getByText("Evaluations").getAttribute("aria-current")).toBe("page");
-  expect(screen.getByRole("button", { name: "Start Evaluation" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Start evaluation" }).disabled).toBe(true);
   evaluation.api.mockImplementation(async () => Response.json(savedTemplate()));
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "Field version" }), { target: { value: "2" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Version" }), { target: { value: "2" } });
   expect(screen.getByRole("textbox", { name: "Candidate 1 model" }).value).toBe("model");
   fireEvent.click(screen.getByRole("button", { name: "other-model" }));
   await waitFor(() => expect(screen.getByText(/1 field/)).toBeTruthy());
-  fireEvent.click(screen.getByRole("button", { name: "Start Evaluation" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start evaluation" }));
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
   const [mode, entries] = evaluation.start.mock.calls[0];
   expect(mode).toBe("models");
@@ -394,10 +394,10 @@ it("shows the Workspace model only when comparing Template versions and loads ea
   fireEvent.click(screen.getByRole("radio", { name: /Template versions/ }));
   expect(screen.getByText("Workspace model")).toBeTruthy();
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });
-  expect(screen.getByRole("checkbox", { name: /Fields v3/ }).checked).toBe(true);
-  expect(screen.getByRole("checkbox", { name: /Fields v2/ }).checked).toBe(true);
-  fireEvent.click(screen.getByRole("checkbox", { name: /Fields v1/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Start Evaluation" }));
+  expect(screen.getByRole("checkbox", { name: /^v3/ }).checked).toBe(true);
+  expect(screen.getByRole("checkbox", { name: /^v2/ }).checked).toBe(true);
+  fireEvent.click(screen.getByRole("checkbox", { name: /^v1/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Start evaluation" }));
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
   const [mode, entries] = evaluation.start.mock.calls[0];
   expect(mode).toBe("templates");
@@ -414,8 +414,8 @@ it("starts two copies of a single Template version so one can be edited as a dra
 
   evaluation.api.mockImplementation(async () => Response.json({ ...template, current_version: 1 }));
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });
-  expect(screen.getByText(/Starts two copies of Fields v1/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Start Evaluation" }));
+  expect(screen.getByText(/Starts two copies of v1/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Start evaluation" }));
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
   expect(evaluation.start.mock.calls[0][1].map((entry) => entry.template.source.version)).toEqual([1, 1]);
   expect(evaluation.api).toHaveBeenCalledTimes(2);
@@ -529,7 +529,7 @@ it("scores candidates, marks the leader and filters fields by disagreement and m
   fireEvent.click(screen.getByRole("radio", { name: "Unverified" }));
   expect(within(matrix).queryByText("Total")).toBeNull();
   expect(within(matrix).getByText("Reference")).toBeTruthy();
-  fireEvent.click(screen.getByRole("radio", { name: "Has mismatch" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Mismatches" }));
   expect(within(matrix).getByText("Total")).toBeTruthy();
   expect(within(matrix).queryByText("Reference")).toBeNull();
 });
@@ -636,7 +636,7 @@ it("edits table records against ordered schema columns with typed cells", () => 
   fireEvent.click(screen.getByRole("button", { name: /Add expected rows/ }));
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
   expect(within(dialog).getByRole("button", { name: "Select row 1" })).toBeTruthy();
-  const table = within(dialog).getByRole("table", { name: "Expected row schema values" });
+  const table = within(dialog).getByRole("table", { name: "Expected row values" });
   expect(within(table).getByRole("columnheader", { name: "Column name" })).toBeTruthy();
   expect(within(table).getByText("Medicine as printed")).toBeTruthy();
   fireEvent.change(within(table).getByRole("textbox", { name: "Expected row 1 Drug name" }), {
@@ -687,7 +687,7 @@ it.each(["array", "table object"])(
 
     fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
     expect(screen.queryByRole("button", { name: "Use as expected answer" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
     const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
     expect(within(dialog).getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("A");
     expect(within(dialog).getByRole("textbox", { name: "Expected row 1 Quantity" }).value).toBe("0");
@@ -742,7 +742,7 @@ it("preserves row matching when reviewing another result for an existing expecte
   });
 
   fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
   expect(within(dialog).getByRole("combobox", { name: "Compare rows" }).value).toBe("sku");
   fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
@@ -807,14 +807,14 @@ it.each(["explicit", "embedded"])("reuses saved answers after instruction-only e
   fireEvent.click(screen.getByRole("button", { name: "Edit expected Total" }));
   fireEvent.click(screen.getByRole("button", { name: "More options" }));
   let editor = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
-  expect(editor.queryByRole("combobox", { name: "Expected answer Template" })).toBeNull();
+  expect(editor.queryByRole("combobox", { name: "Expected answer template" })).toBeNull();
   expect(editor.queryByText("Field instructions changed")).toBeNull();
   expect(editor.getByRole("textbox", { name: "Expected value" }).value).toBe("10");
   fireEvent.click(editor.getByRole("button", { name: "Cancel" }));
   fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 2" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
   editor = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
-  expect(editor.queryByRole("combobox", { name: "Expected answer Template" })).toBeNull();
+  expect(editor.queryByRole("combobox", { name: "Expected answer template" })).toBeNull();
   expect(editor.queryByText("Field instructions changed")).toBeNull();
   expect(editor.queryByText("Template columns changed")).toBeNull();
   expect(editor.getAllByText("Revised column instructions")).toHaveLength(2);
@@ -877,11 +877,11 @@ it.each(["saved answer", "candidate result"])(
       ],
     });
 
-    expect(screen.getByText("Needs review · Template columns changed")).toBeTruthy();
+    expect(screen.getByText("Needs review · template columns changed")).toBeTruthy();
 
     if (source === "candidate result") {
       fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
-      fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+      fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
     } else fireEvent.click(screen.getByRole("button", { name: "Review updated table" }));
     const dialog = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
     expect(dialog.getByText("Initiation Dose: Text → Yes / No")).toBeTruthy();
@@ -936,8 +936,8 @@ it("finds added, removed and retyped fields together and preserves unchanged ans
   expect(matrix.queryByRole("button", { name: "Edit expected Name" })).toBeNull();
   expect(matrix.getByText("Text → Number")).toBeTruthy();
   expect(matrix.getByText("No saved answer · verify this field")).toBeTruthy();
-  expect(matrix.getByText("Saved answer not requested by any candidate · shown in coverage")).toBeTruthy();
-  fireEvent.click(matrix.getByRole("button", { name: "Remove expected answer for Old code" }));
+  expect(matrix.getByText("Not requested by any candidate · saved answer kept")).toBeTruthy();
+  fireEvent.click(matrix.getByRole("button", { name: "Delete expected answer for Old code" }));
   expect(evaluation.removeReference).toHaveBeenCalledWith("doc", "old code:string");
   fireEvent.click(matrix.getByRole("button", { name: "Review as Number" }));
   expect(screen.getByRole("textbox", { name: "Expected value" }).value).toBe("123");
@@ -979,9 +979,9 @@ it("shows each candidate's run cost in its column head and marks partial or miss
     ],
   });
 
-  expect(screen.getByLabelText("Run cost: $0.0037").title).toBe("$0.00369663 for the successful attempt");
+  expect(screen.getByLabelText("Run cost: $0.0037").title).toBe("$0.00369663 for the successful run");
   expect(screen.getByLabelText("Run cost: $0.0012+")).toBeTruthy();
-  expect(screen.getByLabelText("Run cost: Unavailable").classList.contains("evaluation-muted")).toBe(true);
+  expect(screen.getByLabelText("Run cost: Cost not reported").classList.contains("evaluation-muted")).toBe(true);
 });
 
 it("shows a missing Model gateway as one info callout that opens the Workspace page", () => {
@@ -992,7 +992,7 @@ it("shows a missing Model gateway as one info callout that opens the Workspace p
   expect(callout.className).toContain("ui-tone-info");
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.queryByText(/Configure a model/)).toBeNull();
-  expect(screen.getByRole("button", { name: "Start Evaluation" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Start evaluation" }).disabled).toBe(true);
 
   fireEvent.click(within(callout).getByRole("button", { name: "Set up Model gateway" }));
   expect(onOpenWorkspace).toHaveBeenCalledTimes(1);

@@ -62,7 +62,7 @@
 .cp-figure strong { overflow: hidden; color: var(--text-0); font: 500 var(--font-size-7)/1.1 var(--font-body); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; text-overflow: ellipsis; }
 .cp-figure-hero strong { font-size: var(--font-size-display-lg); }
 .cp-figure dd .ui-badge { flex-shrink: 0; align-self: center; }
-.cp-figure small { align-self: end; overflow: hidden; color: var(--text-3); font: var(--font-size-2) var(--font-mono); white-space: nowrap; text-overflow: ellipsis; }
+.cp-figure small { align-self: end; color: var(--text-3); font: var(--font-size-2) var(--font-mono); }
 .cp-figure-hero { grid-template-rows: auto auto auto 1fr; }
 .cp-sparkline { display: block; width: 100%; max-width: 220px; height: 22px; overflow: visible; }
 .cp-sparkline polyline { fill: none; stroke: var(--rule-subtle); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }

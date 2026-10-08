@@ -113,7 +113,7 @@ test("manage shared template tags in the frontend without creating field version
     await page.getByLabel("Description", { exact: true }).fill("An unsaved receipt description");
     await openTags();
     await dropdown.getByRole("button", { name: "Manage tags", exact: true }).click();
-    await expect(dropdown.getByText("Manage template tags", { exact: true })).toBeVisible();
+    await expect(dropdown.getByText("Manage tags", { exact: true })).toBeVisible();
     await dropdown.getByRole("button", { name: "Rename invoice", exact: true }).click();
     await dropdown.getByRole("textbox", { name: "New tag name", exact: true }).fill("  FINANCE   DOCS  ");
     await dropdown.getByRole("button", { name: "Save tag name", exact: true }).click();

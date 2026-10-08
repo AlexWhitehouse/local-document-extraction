@@ -3,7 +3,7 @@ import { createNotifier, defaultToast } from "../../lib/notify";
 import { useAsyncAction } from "../ui/useAsyncAction";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 
-const PROFILE_SAVE_ERROR = "Profile could not be saved. Please try again.";
+const PROFILE_SAVE_ERROR = "Couldn't save profile. Try again.";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -212,7 +212,7 @@ export function useAuthProfileController({
         throw new Error(result.error.message || "Google sign in failed");
       }
     } catch {
-      setFormError("Google sign-in could not start. Try again.");
+      setFormError("Couldn't start Google sign-in. Try again.");
       setIsStartingGoogleSignIn(false);
     }
   }
@@ -241,7 +241,7 @@ export function useAuthProfileController({
 
       setAccountPasswordResetRequestedEmail(requestedEmail);
     } catch {
-      setFormError("Password reset request failed. Try again.");
+      setFormError("Couldn't send reset link. Try again.");
     }
   }
 
@@ -447,8 +447,8 @@ function getSignInErrorMessage(message, mailDelivery) {
 
   if (normalized.includes("verify") || normalized.includes("verified") || normalized.includes("verification")) {
     return mailDelivery === "local"
-      ? "Verify your account before signing in. Open the verification link in the server terminal or local mail capture."
-      : "Verify your email before signing in. We sent you a new Account verification link.";
+      ? "Verify your account before signing in. Run `document-extraction mail` to open the link."
+      : "Verify your email before signing in. We sent you a new account verification link.";
   }
 
   return "Sign in failed. Check your email and password and try again.";
@@ -465,5 +465,5 @@ function getSignUpErrorMessage(message) {
     return "Enter a valid email address and try again.";
   }
 
-  return "Account creation failed. Please try again.";
+  return "Couldn't create account. Try again.";
 }

@@ -85,7 +85,7 @@ describe("Packet preview request lifetime", () => {
     });
     expect(screen.getByText("Studio is busy. Try again in a moment.")).toBeTruthy();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Retry preview" }));
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     });
     expect(previews).toHaveLength(2);
     expect(previews[1].path).toBe(`/packets/${packet.packet_id}/pages/1/preview`);

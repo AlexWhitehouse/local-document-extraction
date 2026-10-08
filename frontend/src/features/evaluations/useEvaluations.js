@@ -68,13 +68,13 @@ const savedDocument = ({ document, reference }) => ({
 
 const SOURCE_FAILURES = {
   source_missing: ["missing", "The saved original is missing, so this document can’t run."],
-  source_unavailable: ["unavailable", "The saved original can’t be read right now. Retry it, then run again."],
-  document_not_found: ["deleted", "Deleted from the Evaluation library."],
+  source_unavailable: ["unavailable", "The saved original can’t be read right now. Try again, then run it."],
+  document_not_found: ["deleted", "Deleted from the library."],
 };
 
 const SAVE_FAILURES = {
   operation_conflict:
-    "An earlier attempt to save this document may have finished with different details. Check the library, or save it as a new entry.",
+    "An earlier save may have finished with different details. Check the library, or save it as a new entry.",
   document_deleted: "This document was saved earlier and then deleted from the library. Save it again as a new entry.",
 };
 
@@ -296,14 +296,14 @@ export function useEvaluations({
 
       return {
         ...previous,
-        cacheError: previous.cacheError || { message: describeError(error, "Browser storage is unavailable."), code: error.code },
+        cacheError: previous.cacheError || { message: describeError(error, "Results can’t be saved in this browser."), code: error.code },
         pairs: { ...previous.pairs, [docKey]: { ...previous.pairs[docKey], [candidateId]: next } },
       };
     });
 
   const pauseStaging = (error) => {
     staging.current.paused = true;
-    patch({ cacheError: { message: describeError(error, "Browser storage is unavailable."), code: error.code } });
+    patch({ cacheError: { message: describeError(error, "Results can’t be saved in this browser."), code: error.code } });
   };
 
   // ---------- Staged execution ----------
@@ -528,7 +528,7 @@ export function useEvaluations({
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        if (buffer.length > 5 * 1024 * 1024) throw new Error("Evaluation result exceeded the delivery limit.");
+        if (buffer.length > 5 * 1024 * 1024) throw new Error("This result is too large to show.");
         let newline;
 
         while ((newline = buffer.indexOf("\n")) >= 0) {
@@ -597,7 +597,7 @@ export function useEvaluations({
           });
           apply((pair) =>
             pairBusy(pair)
-              ? { status: "interrupted", message: describeError(error, "Connection lost. Run again manually.") }
+              ? { status: "interrupted", message: describeError(error, "Connection lost. Run it again.") }
               : {},
           );
         }
@@ -606,7 +606,7 @@ export function useEvaluations({
       if (generation.current === current) {
         apply((pair) =>
           pairBusy(pair)
-            ? { status: "interrupted", message: "Connection ended before this run finished. Run again manually." }
+            ? { status: "interrupted", message: "Connection ended before this run finished. Run it again." }
             : {},
         );
 
@@ -750,7 +750,7 @@ export function useEvaluations({
     );
 
     // Staged work stops; calls already sent may settle. Results already shown stay visible.
-    stopStaged(keys, "Deleted from the Evaluation library.");
+    stopStaged(keys, "Deleted from the library.");
     setState((previous) => ({
       ...previous,
       libraryVersion: previous.libraryVersion + 1,
@@ -811,7 +811,7 @@ export function useEvaluations({
       try {
         await cacheRef.current.probe();
       } catch (error) {
-        if (current === generation.current) patch({ cacheError: { message: describeError(error, "Browser storage is unavailable."), code: error.code } });
+        if (current === generation.current) patch({ cacheError: { message: describeError(error, "Results can’t be saved in this browser."), code: error.code } });
 
         return false;
       }
@@ -833,7 +833,7 @@ export function useEvaluations({
     },
     // Each entry is one candidate: a loaded Template, plus a model name when comparing models.
     start(mode, entries) {
-      if (!state.setup?.configured) throw new Error("Configure the Workspace model first.");
+      if (!state.setup?.configured) throw new Error("Set up the Model gateway first.");
 
       const candidates = entries
         .slice(0, MAX_CANDIDATES)

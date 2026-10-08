@@ -18,7 +18,7 @@ export const DEFAULT_RUNTIME_CONFIGURATION = Object.freeze({
 export async function fetchRuntimeConfiguration(signal) {
   const response = await fetch("/v1/config", { cache: "no-store", signal });
 
-  if (!response.ok) throw new Error("Application configuration is unavailable.");
+  if (!response.ok) throw new Error("Studio configuration is unavailable.");
   const configuration = await response.json();
   const auth = configuration?.auth;
 
@@ -31,7 +31,7 @@ export async function fetchRuntimeConfiguration(signal) {
     !Number.isSafeInteger(configuration?.limits?.maxSourceFileBytes) ||
     configuration.limits.maxSourceFileBytes < 1
   ) {
-    throw new Error("Application configuration is invalid. Check that the server and frontend versions match.");
+    throw new Error("Studio configuration is invalid.");
   }
 
   // Older servers omit Source storage; treat that as no installation storage.

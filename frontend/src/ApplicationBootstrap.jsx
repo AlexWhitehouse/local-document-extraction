@@ -15,7 +15,7 @@ export function ApplicationBootstrap({ Application = App }) {
         if (active) setConfiguration(value);
       })
       .catch(() => {
-        if (active) setError("Could not connect to the application. Check that the server is running, then try again.");
+        if (active) setError("Couldn't connect to Studio. Check that the app is running.");
       })
       .finally(() => clearTimeout(timeout));
 
@@ -47,7 +47,7 @@ export function ApplicationBootstrap({ Application = App }) {
             </button>
           </>
         ) : (
-          <p role="status">Connecting to the application…</p>
+          <p role="status">Connecting…</p>
         )}
       </section>
     </div>

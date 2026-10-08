@@ -248,14 +248,14 @@ describe("Workspace Model gateway", () => {
     const coreRequest = apiFixture({ ...configured, credential_status: "unavailable" });
     coreRequest.mockRejectedValueOnce(new Error("unavailable"));
     const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
-    await waitFor(() => expect(result.current.error).toContain("could not be loaded"));
+    await waitFor(() => expect(result.current.error).toContain("Couldn't load the model gateway"));
     await act(() => result.current.reload());
     expect(result.current.ready).toBe(false);
     await act(() => result.current.save());
-    expect(result.current.error).toContain("new credential");
+    expect(result.current.error).toContain("API key");
     fill(result, { gateway_url: "https://user:secret@example.com", credential: "repair" });
     await act(() => result.current.testConnection());
-    expect(result.current.error).toContain("valid HTTP(S)");
+    expect(result.current.error).toContain("valid gateway URL");
     fill(result, { gateway_url: draft.gateway_url });
     await act(() => result.current.save());
     expect(result.current.ready).toBe(true);

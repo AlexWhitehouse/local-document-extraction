@@ -109,12 +109,12 @@ describe("Single documents produced by smart splitting", () => {
     expect(screen.getByRole("alert").textContent).toBe("Could not load document results");
     expect(screen.queryByText("Loading document results…")).toBeNull();
     expect(screen.queryByText("No result rows available yet.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Retry document" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(onSelectDocument).toHaveBeenCalledWith("job_single");
 
     rerender(<DocumentPage selectedPacketId={packet.packet_id} packetPage={{ ...packetPage, documentError: "" }} />);
     expect(screen.getByText("Loading document results…")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Retry document" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     rerender(
       <DocumentPage
         selectedPacketId={packet.packet_id}

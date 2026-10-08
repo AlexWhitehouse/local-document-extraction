@@ -33,7 +33,7 @@ export function useWorkspaceSourceRetention({
       if (activeScope.current === scope) setState({ ...idle(scope), settings });
     } catch {
       if (activeScope.current === scope)
-        setState({ ...idle(scope), error: "Document retention settings could not be loaded." });
+        setState({ ...idle(scope), error: "Couldn't load document retention settings." });
     }
   }, [coreRequest, path, scope]);
 

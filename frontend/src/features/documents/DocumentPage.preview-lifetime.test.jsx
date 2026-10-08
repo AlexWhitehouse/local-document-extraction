@@ -148,16 +148,16 @@ describe("Completed Document preview lifetime", () => {
     await act(async () => {
       f.previews[0].reject(new Error("Storage unavailable"));
     });
-    expect(screen.getByText("Original temporarily unavailable")).toBeTruthy();
+    expect(screen.getByText("Original unavailable")).toBeTruthy();
     const replacement = createRequests();
     await act(async () => {
       f.rerender(<Harness {...f.props} request={replacement.request} />);
     });
-    expect(screen.getByText("Original temporarily unavailable")).toBeTruthy();
+    expect(screen.getByText("Original unavailable")).toBeTruthy();
     expect(replacement.previews).toHaveLength(0);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     });
     expect(replacement.previews).toHaveLength(1);
     expect(f.previews).toHaveLength(1);

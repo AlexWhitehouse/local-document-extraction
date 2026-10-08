@@ -47,7 +47,7 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
     await page.getByRole("menuitem", { name: "View JSON" }).click();
     const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));
-    await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
+    await templateDialog.getByRole("button", { name: "Save JSON" }).click();
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
 
     await navigation.getByRole("link", { name: /Evaluations/ }).click();
@@ -71,7 +71,7 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
 
     const matrix = evaluations.getByRole("region", { name: "Comparison matrix" });
     await expect(matrix).toBeVisible();
-    await expect(matrix.getByRole("status").filter({ hasText: "Done" })).toHaveCount(2);
+    await expect(matrix.getByRole("status").filter({ hasText: "Completed" })).toHaveCount(2);
     await expect(matrix.getByText("INV-E2E-001", { exact: true })).toHaveCount(2);
 
     await matrix.getByRole("button", { name: "Add expected Invoice Number" }).click();
@@ -86,10 +86,10 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
       evaluations.getByRole("complementary", { name: "Answer inspector" }).getByText("browser/model-b"),
     ).toBeVisible();
 
-    await evaluations.getByRole("button", { name: /^Clear Evaluation/ }).click();
-    const clearDialog = page.getByRole("dialog", { name: "Clear Evaluation" });
+    await evaluations.getByRole("button", { name: /^Clear evaluation/ }).click();
+    const clearDialog = page.getByRole("dialog", { name: "Clear evaluation" });
     await expect(clearDialog.getByText("· new upload, not saved to the library")).toBeVisible();
-    await clearDialog.getByRole("button", { name: "Clear Evaluation" }).click();
+    await clearDialog.getByRole("button", { name: "Clear evaluation" }).click();
     await expect(
       evaluations.getByRole("heading", { name: "Compare extraction results on your documents" }),
     ).toBeVisible();

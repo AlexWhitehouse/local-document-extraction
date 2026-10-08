@@ -25,7 +25,7 @@ export function suggestTemplateRequests({ draft, issues, action, job }) {
 
   if (action === "explain") {
     if (issues.length)
-      add("why-save", "Why won’t this Template save?", `${plural(issues.length, "problem")} found by the app`);
+      add("why-save", "Why won’t this template save?", `${plural(issues.length, "problem")} found by the app`);
 
     for (const issue of issues) {
       if (issue.code === "field.duplicate_identity")
@@ -86,7 +86,7 @@ export function suggestTemplateRequests({ draft, issues, action, job }) {
         add(
           "job-result-only",
           "What can you tell from the stored result alone?",
-          "The original Source file isn’t available",
+          "The original isn’t available",
         );
     }
 

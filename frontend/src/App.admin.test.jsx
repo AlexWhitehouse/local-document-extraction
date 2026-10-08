@@ -131,7 +131,7 @@ describe("Application admin page gate", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
     });
-    expect(screen.queryByRole("heading", { name: "Application admin" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Admin" })).toBeNull();
     expect(screen.queryByRole("link", { name: /^Admin$/ })).toBeNull();
   });
 
@@ -186,8 +186,8 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
     await screen.findByText("Total users 0");
 
-    expect(screen.getByLabelText("Search field").value).toBe("email");
-    await user.selectOptions(screen.getByLabelText("Search field"), "name");
+    expect(screen.getByLabelText("Search by").value).toBe("email");
+    await user.selectOptions(screen.getByLabelText("Search by"), "name");
     await user.type(screen.getByLabelText("Search users"), "Grace");
 
     await waitFor(() => {
@@ -245,7 +245,7 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
 
     const inlineError = await screen.findByRole("alert");
-    expect(within(inlineError).getByText("Unable to load users.")).toBeTruthy();
+    expect(within(inlineError).getByText("Couldn't load users.")).toBeTruthy();
     expect(within(inlineError).getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
@@ -264,7 +264,7 @@ describe("Application admin page gate", () => {
     await clickUserAction(user, "grace@example.com", "Remove admin");
 
     expect(
-      await screen.findByRole("alertdialog", { name: "Remove Application admin access from grace@example.com?" }),
+      await screen.findByRole("alertdialog", { name: "Remove application admin access from grace@example.com?" }),
     ).toBeTruthy();
     await confirmInDialog(user, "Change role");
     await waitFor(() => {
@@ -328,7 +328,7 @@ describe("Application admin page gate", () => {
     await clickUserAction(user, "grace@example.com", "Ban user");
 
     expect(screen.getByRole("dialog", { name: "Ban grace@example.com" })).toBeTruthy();
-    expect(screen.getByText("You are banning another Application admin."));
+    expect(screen.getByText("You're banning another application admin."));
   });
 
   it("asks before discarding a typed ban reason and keeps the dialog on Keep editing", async () => {
@@ -371,7 +371,7 @@ describe("Application admin page gate", () => {
     await user.click(within(screen.getByRole("dialog", { name: "Ban alan@example.com" })).getByRole("button", { name: "Ban user" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("User could not be banned. Please try again.", expect.anything());
+      expect(toast.error).toHaveBeenCalledWith("Couldn't ban user.", expect.anything());
     });
     expect(screen.getByRole("dialog", { name: "Ban alan@example.com" })).toBeTruthy();
 
@@ -380,7 +380,7 @@ describe("Application admin page gate", () => {
     await user.click(within(screen.getByRole("dialog", { name: "Unban grace@example.com" })).getByRole("button", { name: "Unban user" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("User could not be unbanned. Please try again.", expect.anything());
+      expect(toast.error).toHaveBeenCalledWith("Couldn't unban user.", expect.anything());
     });
     expect(screen.getByRole("dialog", { name: "Unban grace@example.com" })).toBeTruthy();
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
@@ -436,7 +436,7 @@ describe("Application admin page gate", () => {
     });
     expect(window.localStorage.removeItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
     expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Application admin" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Admin" })).toBeNull();
     expect(screen.getByRole("status", { name: "Impersonation mode" })).toBeTruthy();
     await waitFor(() => {
       expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(2);
@@ -458,7 +458,7 @@ describe("Application admin page gate", () => {
     await confirmInDialog(user, "Impersonate alan@example.com");
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be started. Please try again.", expect.anything());
+      expect(toast.error).toHaveBeenCalledWith("Couldn't start impersonation.", expect.anything());
     });
     expect(accountDetails().getByRole("heading", { name: "Alan Turing" })).toBeTruthy();
     expect(accountList().getByText("alan@example.com")).toBeTruthy();
@@ -473,7 +473,7 @@ describe("Application admin page gate", () => {
     render(<App createAuthClient={createAuthClient} notifications={toast} />);
 
     const indicator = await screen.findByRole("status", { name: "Impersonation mode" });
-    expect(within(indicator).getByText("Impersonating alan@example.com")).toBeTruthy();
+    expect(within(indicator).getByText("Viewing as alan@example.com")).toBeTruthy();
     expect(within(indicator).queryByText("admin_internal_1")).toBeNull();
   });
 
@@ -515,7 +515,7 @@ describe("Application admin page gate", () => {
       expect(authClientMock.refetchSession).toHaveBeenCalled();
     });
     expect(window.localStorage.removeItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
-    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
     expect(toast.success).toHaveBeenCalledWith("Impersonation stopped", expect.anything());
     await waitFor(() => {
       expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(3);
@@ -534,10 +534,10 @@ describe("Application admin page gate", () => {
     await user.click(await screen.findByRole("button", { name: "Stop impersonating" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be stopped. Please try again.", expect.anything());
+      expect(toast.error).toHaveBeenCalledWith("Couldn't stop impersonation.", expect.anything());
     });
     expect(screen.getByRole("status", { name: "Impersonation mode" })).toBeTruthy();
-    expect(screen.getByText("Impersonating alan@example.com")).toBeTruthy();
+    expect(screen.getByText("Viewing as alan@example.com")).toBeTruthy();
     expect(authClientMock.refetchSession).not.toHaveBeenCalled();
     expect(window.localStorage.removeItem).not.toHaveBeenCalledWith("documentextraction.workspace.v1");
   });
@@ -551,7 +551,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
 
-    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
     expect(await screen.findByText("Total users 0")).toBeTruthy();
   });
 
@@ -568,7 +568,7 @@ describe("Application admin page gate", () => {
     expect(await screen.findByText("Workspaces couldn't be loaded.")).toBeTruthy();
     await user.click(await screen.findByRole("link", { name: /^Admin$/ }));
 
-    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
     expect(await screen.findByText("Total users 0")).toBeTruthy();
   });
 
@@ -578,8 +578,8 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
 
-    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Accounts" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Admin" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Account list" })).toBeTruthy();
     expect(screen.queryByRole("banner", { name: "Workspace overview" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();

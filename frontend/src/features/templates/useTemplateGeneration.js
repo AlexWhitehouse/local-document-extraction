@@ -70,13 +70,13 @@ export function useTemplateGeneration({
     }
 
     if (new TextEncoder().encode(instructions).length > 8192) {
-      setError("Instructions must be at most 8 KiB. Please shorten them.");
+      setError("Keep your instructions within 8 KB.");
 
       return;
     }
 
     if (hasUnsavedChanges && !confirmed) {
-      setError("Confirm replacement of your unsaved edits before generating.");
+      setError("Confirm that generating can replace your unsaved changes.");
 
       return;
     }

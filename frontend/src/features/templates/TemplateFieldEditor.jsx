@@ -355,7 +355,7 @@ export function TemplateFieldEditor({
                   {...diagnosticProps(at("name"))}
                   value={activeField.name}
                   onChange={(event) => updateField(activeFieldIndex, "name", event.target.value)}
-                  placeholder="e.g. Medication name"
+                  placeholder="e.g. Invoice number"
                 />
               </Field>
               <Field label="Type" error={errorAt(at("data_type"))}>
@@ -391,7 +391,7 @@ export function TemplateFieldEditor({
                 {...diagnosticProps(at("description"))}
                 value={activeField.description}
                 onChange={(event) => updateField(activeFieldIndex, "description", event.target.value)}
-                placeholder="e.g. The medication name as printed on the prescription"
+                placeholder="e.g. The invoice number printed near the top"
               />
             </Field>
 
@@ -401,11 +401,11 @@ export function TemplateFieldEditor({
             {isObjectLikeType(activeField.data_type) ? (
               <div className="object-schema-launch">
                 <div>
-                  <strong>Object schema</strong>
+                  <strong>Table columns</strong>
                   <p>
                     {objectColumns.length
                       ? `${objectColumns.length} column${objectColumns.length === 1 ? "" : "s"} defined`
-                      : "No columns defined yet"}
+                      : "No columns yet."}
                   </p>
                   {errorAt(at("object_schema")) ? (
                     <p id={`object-schema-error-${activeFieldIndex}`} className="ui-field-error">
@@ -422,7 +422,7 @@ export function TemplateFieldEditor({
                   aria-invalid={errorAt(at("object_schema")) ? true : undefined}
                   onClick={() => setSchemaEditorFieldIndex(activeFieldIndex)}
                 >
-                  Edit schema
+                  Edit columns
                 </Button>
               </div>
             ) : null}
@@ -493,9 +493,8 @@ function ObjectSchemaModal({
     >
         <div className="object-schema-modal-head" ref={headRef}>
           <div>
-            <p className="eyebrow">{fieldName || "Object Field"}</p>
-            <h2 id="object-schema-modal-title">Object schema builder</h2>
-            <p>Define output columns and their order for table-style object extraction.</p>
+            <p className="eyebrow">{fieldName || "New field"}</p>
+            <h2 id="object-schema-modal-title">Table columns</h2>
           </div>
           <div className="actions compact object-schema-modal-head-actions">
             <Button
@@ -506,7 +505,7 @@ function ObjectSchemaModal({
               Add column
             </Button>
             <IconButton
-              label="Close object schema editor"
+              label="Close columns editor"
               icon={CloseIcon}
               data-tour="schema-close"
               onClick={onClose}
@@ -517,10 +516,10 @@ function ObjectSchemaModal({
         <ScrollArea
           className="object-schema-table-wrap"
           role="region"
-          aria-label="Object schema scroll area"
+          aria-label="Table columns"
           tabIndex={0}
         >
-          <DataTable className="object-schema-table" label="Object schema columns">
+          <DataTable className="object-schema-table" label="Table columns">
             <thead>
               <tr>
                 <th scope="col">Order</th>
@@ -534,7 +533,7 @@ function ObjectSchemaModal({
               {!columns.length ? (
                 <tr>
                   <td className="object-schema-empty" colSpan="5">
-                    No columns yet. Add one to start defining the object shape.
+                    No columns yet.
                   </td>
                 </tr>
               ) : (

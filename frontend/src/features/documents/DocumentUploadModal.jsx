@@ -45,7 +45,7 @@ export function DocumentUploadModal({
       <ModalHeader
         titleId={titleId}
         title="Upload documents"
-        description="Choose a template or tags for automatic selection, then add your source files."
+        description="Choose a template, then add files."
         onClose={onClose}
       />
       <div className="row">
@@ -56,7 +56,7 @@ export function DocumentUploadModal({
             onChange={(event) => onSelectTemplate(event.target.value)}
           >
             <option value="">Select template</option>
-            <option value="automatic">Automatic — select by tags</option>
+            <option value="automatic">Automatic (by tags)</option>
             {templates.map((template) => (
               <option key={template.id} value={template.id}>
                 {template.name}
@@ -174,7 +174,7 @@ function UploadTagPicker({ tags, templates, selectedTags, disabled, onChange }) 
             "No templates carry the selected tags."
           )
         ) : (
-          "Choose at least one tag. Each document is matched to a template carrying any selected tag."
+          "Choose at least one tag to match each document to a template."
         )}
       </p>
     </fieldset>

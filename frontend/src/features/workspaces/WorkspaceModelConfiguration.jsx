@@ -8,14 +8,26 @@ import { Badge, StatusDot } from "../ui/Status.jsx";
 import { CheckboxField, Field, TextInput } from "../ui/Field.jsx";
 
 const TASK_ROLES = [
-  ["assistant", "Template assistant", "Assistant, suggestions and Auto generate"],
-  ["classification", "Document classification & splitting", "Template selection and document boundaries"],
+  ["assistant", "Template assistant", "Template assistant and auto-generate"],
+  ["classification", "Document classification & splitting", "Choosing templates and splitting PDFs"],
 ];
 
 const CAPABILITIES = [
-  ["supports_pdf_input", "Direct PDF input", "PDF"],
-  ["supports_structured_output", "Structured output", "Structured"],
+  [
+    "supports_pdf_input",
+    "Direct PDF input",
+    "PDF input",
+    "Sends PDFs inline instead of as page images.",
+  ],
+  [
+    "supports_structured_output",
+    "Structured output",
+    "JSON output",
+    "Sends a JSON response format with requests.",
+  ],
 ];
+
+const UNREADABLE_API_KEY_MESSAGE = "The saved API key can't be read. Enter it again or clear the gateway.";
 
 export function WorkspaceModelConfiguration({ controller }) {
   const [editing, setEditing] = useState(false);
@@ -27,7 +39,7 @@ export function WorkspaceModelConfiguration({ controller }) {
 
   const status =
     loading || !record
-      ? "Not loaded"
+      ? "Loading…"
       : unavailable
         ? "Credential unavailable"
         : configured
@@ -63,14 +75,13 @@ export function WorkspaceModelConfiguration({ controller }) {
   };
 
   return (
-    <article data-tour="model-configuration" className="workspace-model" aria-label="Workspace Model gateway">
+    <article data-tour="model-configuration" className="workspace-model" aria-label="Model gateway">
       <header className="workspace-model-header">
         <div>
           <div className="workspace-model-title">
             <h2>Model gateway</h2>
             <StatusDot tone={statusTone} label={status} />
           </div>
-          <p>LLM Gateway settings for this workspace only.</p>
         </div>
         {showSummary ? (
           <Button variant="secondary" onClick={() => setEditing(true)}>
@@ -82,9 +93,9 @@ export function WorkspaceModelConfiguration({ controller }) {
         <div className="workspace-model-member">
           <p>
             {loading || !record
-              ? "Loading configuration status…"
+              ? "Loading…"
               : configured
-                ? "This Workspace has a Model gateway configured. An owner or admin manages its settings."
+                ? "This workspace has a Model gateway. An owner or admin manages its settings."
                 : "Ask a Workspace owner or admin to set up a Model gateway before processing documents."}
           </p>
           {error ? (
@@ -101,7 +112,7 @@ export function WorkspaceModelConfiguration({ controller }) {
       ) : (
         <div className="workspace-model-body">
           {loading ? (
-            <p role="status">Loading Workspace model configuration…</p>
+            <p role="status">Loading…</p>
           ) : !record ? (
             <div role="alert">
               <p className="form-error">{error || "Configuration is not available."}</p>
@@ -113,8 +124,7 @@ export function WorkspaceModelConfiguration({ controller }) {
             <div className="workspace-model-summary">
               {unavailable ? (
                 <p className="workspace-model-repair" role="alert">
-                  The saved credential cannot be read on this machine. Edit the configuration to enter a new credential,
-                  or clear it.
+                  {UNREADABLE_API_KEY_MESSAGE}
                 </p>
               ) : null}
               <dl className="workspace-model-connection">
@@ -159,14 +169,12 @@ export function WorkspaceModelConfiguration({ controller }) {
             >
               {!configured ? (
                 <p className="workspace-model-intro">
-                  Add an OpenAI-compatible endpoint, model, and credential to start processing documents. New Workspaces
-                  have no defaults.
+                  Add an OpenAI-compatible endpoint, model and API key to start processing documents.
                 </p>
               ) : null}
               {unavailable ? (
                 <p className="workspace-model-repair" role="alert">
-                  The saved credential cannot be read on this machine. Enter a new credential to repair this
-                  configuration, or clear it.
+                  {UNREADABLE_API_KEY_MESSAGE}
                 </p>
               ) : null}
               <fieldset disabled={saving}>
@@ -205,7 +213,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                   </div>
                   <CheckboxField
                     label="Sequential calls"
-                    description="One gateway request at a time for this Workspace."
+                    description="One request at a time for this workspace."
                     checked={draft.sequential_calls}
                     onChange={(checked) => controller.update("sequential_calls", checked)}
                   />
@@ -213,11 +221,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                 <div className="workspace-model-group">
                   <h3>Models</h3>
                   <ModelRolesEditor draft={draft} update={controller.update} />
-                  <small>
-                    Capabilities are declarations for each model; the connection test does not verify them. Direct PDF
-                    input sends PDFs inline instead of page images. Structured output sends a response format with
-                    requests.
-                  </small>
+                  <small>Tick what each model supports. Test connection doesn't check these.</small>
                 </div>
               </fieldset>
               {error ? (
@@ -227,7 +231,7 @@ export function WorkspaceModelConfiguration({ controller }) {
               ) : null}
               {conflict ? (
                 <Button variant="secondary" onClick={controller.reload}>
-                  Reload configuration
+                  Reload
                 </Button>
               ) : null}
               <div className="workspace-model-actions">
@@ -264,9 +268,6 @@ export function WorkspaceModelConfiguration({ controller }) {
                   </Button>
                 ) : null}
               </div>
-              <p className="workspace-model-footnote">
-                Testing is optional and does not save. Saving does not contact the gateway.
-              </p>
             </form>
           )}
         </div>
@@ -302,8 +303,8 @@ function RolesTable({ label, children }) {
         <tr>
           <th scope="col">Used for</th>
           <th scope="col">Model</th>
-          {CAPABILITIES.map(([field, title, short]) => (
-            <th scope="col" key={field} title={title}>
+          {CAPABILITIES.map(([field, , short, detail]) => (
+            <th scope="col" key={field} title={detail}>
               {short}
             </th>
           ))}
@@ -331,7 +332,7 @@ function ModelRoles({ record }) {
   return (
     <RolesTable label="Models">
       <tr>
-        <RoleHeading title="Extraction" note="Jobs and Evaluations" />
+        <RoleHeading title="Extraction" note="Documents and evaluations" />
         <td>
           <code>{record.configured ? record.model_name : "—"}</code>
         </td>
@@ -364,7 +365,7 @@ function ModelRolesEditor({ draft, update }) {
   return (
     <RolesTable label="Models">
       <tr>
-        <RoleHeading title="Extraction" note="Jobs and Evaluations" />
+        <RoleHeading title="Extraction" note="Documents and evaluations" />
         <td>
           <Field label="Extraction model" labelHidden>
             <TextInput

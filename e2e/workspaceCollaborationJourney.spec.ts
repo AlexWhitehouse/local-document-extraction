@@ -30,10 +30,10 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
     await signUpAndVerify(memberPage, harness, MEMBER);
 
     await ownerPage.getByRole("button", { name: "Create Workspace" }).click();
-    await expect(ownerPage.getByText("Workspace created: New Workspace")).toBeVisible();
+    await expect(ownerPage.getByText("Workspace created: New workspace")).toBeVisible();
 
     const workspaceName = ownerPage.getByLabel("Workspace name");
-    await expect(workspaceName).toHaveValue("New Workspace");
+    await expect(workspaceName).toHaveValue("New workspace");
     await workspaceName.fill("Shared Research");
     await ownerPage.getByRole("button", { name: "Save name" }).click();
     await expect(ownerPage.getByText("Workspace renamed: Shared Research")).toBeVisible();
@@ -63,7 +63,7 @@ test("people collaborate through the complete Workspace lifecycle in the fronten
     await memberRow.getByRole("button", { name: "Edit user" }).click();
     const manageMember = ownerPage.getByRole("dialog", { name: "Manage workspace user" });
     await manageMember.getByRole("button", { name: "Make admin" }).click();
-    await expect(ownerPage.getByText(`Made ${MEMBER.name} an admin`)).toBeVisible();
+    await expect(ownerPage.getByText(`Member made admin: ${MEMBER.name}`)).toBeVisible();
     await expect(ownerPage.getByRole("listitem").filter({ hasText: MEMBER.email })).toContainText("Admin");
 
     await memberPage.reload();
@@ -114,7 +114,7 @@ async function invite(page: Page, email: string) {
   if (await openInvite.count()) await openInvite.click();
   await inviteEmail.fill(email);
   await page.getByRole("button", { name: "Invite user" }).click();
-  await expect(page.getByText(`Successfully invited ${email}`)).toBeVisible();
+  await expect(page.getByText(`Invitation sent: ${email}`)).toBeVisible();
 }
 
 async function selectInvitation(page: Page, workspaceName: string) {

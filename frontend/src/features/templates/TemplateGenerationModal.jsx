@@ -57,9 +57,9 @@ export function TemplateGenerationModal({
       onClose={onClose}
     >
         <ModalHeader
-          title="Auto generate template"
+          title="Auto-generate template"
           titleId="template-generation-title"
-          description="Upload a sample for this workspace’s model to propose a template. Review and edit it before saving."
+          description="Upload a sample document and we’ll draft a template for you to review."
           onClose={onClose}
         />
         {!isGenerating && (
@@ -86,7 +86,7 @@ export function TemplateGenerationModal({
             </Field>
             {hasUnsavedChanges && (
               <CheckboxField
-                label="I understand that successful generation will replace my unsaved name, description, and fields."
+                label="Generating will replace my unsaved name, description and fields."
                 checked={confirmed}
                 onChange={onConfirmedChange}
               />
@@ -115,38 +115,11 @@ export function TemplateGenerationModal({
   );
 }
 
-const GENERATION_PHRASES = [
-  "Combobulating response…",
-  "Consulting the schema sprites…",
-  "Untangling the JSON spaghetti…",
-  "Teaching columns to line up…",
-  "Polishing the curly brackets…",
-  "Asking the pixels politely…",
-  "Putting the data ducks in a row…",
-  "Applying a little template magic…",
-];
-
 function GenerationProgress() {
-  const [phraseIndex, setPhraseIndex] = useState(0);
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setPhraseIndex((current) => (current + 1) % GENERATION_PHRASES.length);
-    }, 2800);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
   return (
-    <div
-      className="template-generation-progress"
-      role="status"
-      aria-label="Generating template. You can cancel at any time."
-    >
+    <div className="template-generation-progress" role="status">
       <span className="template-generation-spinner" aria-hidden="true" />
-      <div aria-hidden="true">
-        <strong>{GENERATION_PHRASES[phraseIndex]}</strong>
-        <p>Working on your template. You can cancel at any time.</p>
-      </div>
+      <strong>Generating template…</strong>
     </div>
   );
 }

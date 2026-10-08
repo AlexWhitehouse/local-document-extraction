@@ -5,6 +5,15 @@ import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Field, Textarea } from "../ui/Field.jsx";
 
+const PROPERTY_LABELS = {
+  name: "Name",
+  description: "Description",
+  data_type: "Type",
+  fields: "Fields",
+  object_schema: "Table columns",
+  heading: "Column name",
+};
+
 export function TemplateJsonModal({
   isOpen,
   isDirty = false,
@@ -40,8 +49,7 @@ export function TemplateJsonModal({
     >
       <div className="template-json-modal-head">
         <div>
-          <h2 id={titleId}>Export / Import Template</h2>
-          <p>Review, copy, or edit the template configuration.</p>
+          <h2 id={titleId}>Export or import JSON</h2>
         </div>
         <div className="modal-head-actions">
           <IconButton label="Copy template JSON" icon={copied ? CheckIcon : CopyIcon} onClick={onCopy} />
@@ -52,7 +60,6 @@ export function TemplateJsonModal({
         label="Template JSON"
         className="template-json-label"
         error={error}
-        hint={error ? undefined : "Changes are validated and applied when you save."}
       >
         <Textarea
           className="template-json-textarea"
@@ -62,7 +69,7 @@ export function TemplateJsonModal({
         />
       </Field>
       {diagnostics.length > 0 && <ul className="template-json-diagnostics">{diagnostics.map(issue => <li key={issue.id}>
-        <strong>{issue.location.scope === "template" ? "Template" : `Field ${issue.location.fieldIndex + 1}${issue.location.scope === "column" ? `, column ${issue.location.columnIndex + 1}` : ""}`} · {issue.location.property}: {issue.title}.</strong> {issue.explanation} {issue.remedy}
+        <strong>{issue.location.scope === "template" ? "Template" : `Field ${issue.location.fieldIndex + 1}${issue.location.scope === "column" ? `, column ${issue.location.columnIndex + 1}` : ""}`} · {PROPERTY_LABELS[issue.location.property] || issue.location.property}: {issue.title}.</strong> {issue.explanation} {issue.remedy}
       </li>)}</ul>}
       <div className="template-json-modal-footer">
         <div className="actions">
@@ -79,7 +86,7 @@ export function TemplateJsonModal({
             disabled={isSavingTemplate || !hasApiAccess}
             onClick={onSave}
           >
-            {isSavingTemplate ? "Saving…" : "Save Template JSON"}
+            {isSavingTemplate ? "Saving…" : "Save JSON"}
           </Button>
         </div>
       </div>

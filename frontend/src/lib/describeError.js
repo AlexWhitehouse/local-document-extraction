@@ -25,8 +25,8 @@ const READABLE_CODES = new Set([
 
 const CODE_MESSAGES = {
   source_missing: "The original file is no longer available.",
-  source_unavailable: "The original file can't be opened right now. Try again.",
-  source_not_retained: "The original file wasn't kept for this document.",
+  source_unavailable: "The original file can't be opened right now.",
+  source_not_retained: "The original wasn't kept for this document.",
   document_deleted: "This document was deleted.",
   document_not_found: "This document no longer exists.",
   revision_conflict: "This changed while you were editing. Reload and try again.",

@@ -188,7 +188,7 @@ export function useTemplateAssistant({
     }
 
     if (new TextEncoder().encode(instructions).length > 4096) {
-      setError("Keep your request within 4 KiB.");
+      setError("Keep your request within 4 KB.");
 
       return;
     }
@@ -236,7 +236,7 @@ export function useTemplateAssistant({
       if (!isCurrent(captured) || controller.signal.aborted) return;
 
       if (!answer || JSON.stringify(answer.base) !== JSON.stringify(base))
-        throw new Error("The response belongs to a different draft. Please regenerate it.");
+        throw new Error("The response belongs to a different draft. Try again.");
 
       if (
         answer.evidence &&
@@ -245,7 +245,7 @@ export function useTemplateAssistant({
           (useRetainedSource && answer.evidence.source !== "retained_source_of_selected_job"))
       ) {
         throw new Error(
-          "The response did not use the evidence you selected. Please retry or explicitly change the evidence.",
+          "The response ignored your attached file. Try again.",
         );
       }
 
@@ -264,7 +264,7 @@ export function useTemplateAssistant({
       setSelectedIds(new Set(output.groups.map((group) => group.id)));
     } catch (failure) {
       if (isCurrent(captured) && !controller.signal.aborted)
-        setError(describeError(failure, "Assistance failed. Your draft is unchanged. Try again."));
+        setError(describeError(failure, "Couldn’t get a response. Your draft is unchanged. Try again."));
     } finally {
       if (isCurrent(captured)) {
         lifetime.current.controller = null;
@@ -331,8 +331,8 @@ export function useTemplateAssistant({
         if (controller.signal.aborted) return;
         fallback(
           failure?.code === "workspace_model_not_configured"
-            ? "No model is configured for this Workspace, so these come from the app’s checks."
-            : "Suggestions couldn’t be generated just now, so these come from the app’s checks.",
+            ? "No model is set up for this workspace. These suggestions come from the app’s checks."
+            : "Couldn’t generate suggestions just now. These come from the app’s checks.",
         );
       }
     }, SUGGESTION_DELAY_MS);
@@ -399,7 +399,7 @@ export function useTemplateAssistant({
         setPicker((previous) => ({
           ...previous,
           loading: false,
-          error: describeError(failure, "Couldn't load past jobs. Try again."),
+          error: describeError(failure, "Couldn't load documents. Try again."),
         }));
     }
   }
@@ -429,7 +429,7 @@ export function useTemplateAssistant({
         setPicker((previous) => ({
           ...previous,
           loading: false,
-          error: describeError(failure, "Couldn't load that job. Try again."),
+          error: describeError(failure, "Couldn't load that document. Try again."),
         }));
     }
   }

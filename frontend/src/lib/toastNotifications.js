@@ -1,26 +1,28 @@
 import { describeError } from "./describeError";
 import { pluralize } from "./text";
 
+// Success: "{Thing} {past verb}: {target}" when a name is known, otherwise "{Thing} {past verb}".
+// Failure: "Couldn't {verb} {target}." Mapped reasons are appended by withReason.
 const successMessages = {
   "workspace.apiKey.generate": () => "API key generated",
   "workspace.apiKey.rotate": () => "API key rotated",
   "workspace.create": ({ target }) => withTarget("Workspace created", target),
   "workspace.rename": ({ target }) => withTarget("Workspace renamed", target),
-  "workspace.access.changed": ({ target }) =>
-    target ? `Workspace access changed. Switched to ${target}.` : "Workspace access changed.",
+  "workspace.access.changed": ({ target }) => (target ? `Switched to workspace: ${target}` : "Workspace access changed"),
   "workspace.leave": ({ replacementPersonalWorkspaceCreated }) =>
-    replacementPersonalWorkspaceCreated ? "Workspace left. Replacement personal Workspace created." : "Workspace left",
+    replacementPersonalWorkspaceCreated
+      ? "Workspace left. A personal workspace was created to replace it."
+      : "Workspace left",
   "workspace.delete": () => "Workspace deleted",
   "template.save": ({ target }) => withTarget("Template saved", target),
   "template.delete": ({ target }) => withTarget("Template deleted", target),
-  "workspaceInvitation.create": ({ target }) => `Invited ${target}`,
-  "workspaceInvitation.cancel": ({ target }) =>
-    target ? `Invitation cancelled for ${target}` : "Invitation cancelled",
-  "workspaceInvitation.accept": () => "Workspace invitation accepted",
+  "workspaceInvitation.create": ({ target }) => withTarget("Invitation sent", target),
+  "workspaceInvitation.cancel": ({ target }) => withTarget("Invitation cancelled", target),
+  "workspaceInvitation.accept": () => "Invitation accepted",
   "workspaceInvitation.decline": () => "Invitation declined",
-  "workspaceMember.remove": ({ target }) => `Removed ${target} from workspace`,
-  "workspaceMember.makeAdmin": ({ target }) => `Made ${target} an admin`,
-  "workspaceMember.transferOwnership": ({ target }) => `Workspace ownership transferred to ${target}`,
+  "workspaceMember.remove": ({ target }) => withTarget("Member removed", target),
+  "workspaceMember.makeAdmin": ({ target }) => withTarget("Member made admin", target),
+  "workspaceMember.transferOwnership": ({ target }) => withTarget("Ownership transferred", target),
   "applicationRole.change": ({ target }) => withTarget("Application role updated", target),
   "applicationUser.ban": ({ target }) => withTarget("User banned", target),
   "applicationUser.unban": ({ target }) => withTarget("User unbanned", target),
@@ -30,23 +32,21 @@ const successMessages = {
   "document.export": ({ exportedCount = 0, skippedCount = 0 }) => {
     const exported = `Exported ${pluralize(exportedCount, "document")}`;
 
-    return skippedCount
-      ? `${exported}; skipped ${skippedCount} unavailable or in-progress ${skippedCount === 1 ? "document" : "documents"}`
-      : exported;
+    return skippedCount ? `${exported}. Skipped ${skippedCount} that can't be exported.` : exported;
   },
   "workspace.documentProcessing": ({ setting, enabled }) => `${setting} turned ${enabled ? "on" : "off"}`,
   "workspace.sourceRetention": ({ enabled }) =>
-    enabled ? "New uploads will keep their original documents" : "New uploads will keep only their extraction results",
+    enabled ? "New uploads keep their originals" : "New uploads keep only results",
   "workspace.modelGateway.save": () => "Model gateway saved",
   "workspace.modelGateway.clear": () => "Model gateway cleared",
   "profile.update": () => "Profile updated",
   "evaluation.templateSave": ({ target }) => withTarget("Template saved", target),
-  "library.save": ({ target }) => `Saved “${target}” to the Workspace library`,
+  "library.save": ({ target }) => withTarget("Saved to library", target),
   "library.updateSaved": ({ target }) => withTarget("Saved answers updated", target),
-  "library.useSaved": () => "Loaded the current saved answers. Local changes were discarded",
-  "library.rename": ({ target }) => `Renamed to “${target}”`,
-  "library.delete": ({ target }) => `Deleted “${target}” from the library`,
-  "library.restoreOriginal": () => "The saved original is available again. Run it when you’re ready",
+  "library.useSaved": () => "Saved answers loaded. Unsaved changes were discarded.",
+  "library.rename": ({ target }) => withTarget("Library item renamed", target),
+  "library.delete": ({ target }) => withTarget("Library item deleted", target),
+  "library.restoreOriginal": () => "Original restored. Run it when you're ready.",
   "tag.rename": ({ target }) => withTarget("Tag renamed", target),
   "tag.delete": ({ target }) => withTarget("Tag deleted", target),
   "document.useTemplate": ({ target, templateName }) =>
@@ -55,43 +55,39 @@ const successMessages = {
 };
 
 const failureMessages = {
-  "workspace.apiKey.generate": () => "Workspace API key could not be generated. Please try again.",
-  "workspace.apiKey.rotate": () => "Workspace API key could not be rotated. Please try again.",
-  "workspace.create": () => "Workspace could not be created. Please try again.",
-  "workspace.rename": () => "Workspace name could not be saved. Please try again.",
-  "workspace.leave": () => "Workspace could not be left. Please try again.",
-  "workspace.delete": () => "Workspace could not be deleted. Please try again.",
-  "template.save": () => "Template could not be saved. Please try again.",
-  "template.delete": () => "Template could not be deleted. Please try again.",
-  "workspaceInvitation.create": () => "Workspace invitation could not be created. Please try again.",
-  "workspaceInvitation.cancel": () => "Workspace invitation could not be cancelled. Please try again.",
-  "workspaceInvitation.accept": () => "Workspace invitation could not be accepted. Please try again.",
-  "workspaceInvitation.decline": () => "Workspace invitation could not be declined. Please try again.",
+  "workspace.apiKey.generate": () => "Couldn't generate API key.",
+  "workspace.apiKey.rotate": () => "Couldn't rotate API key.",
+  "workspace.create": () => "Couldn't create workspace.",
+  "workspace.rename": () => "Couldn't rename workspace.",
+  "workspace.leave": () => "Couldn't leave workspace.",
+  "workspace.delete": () => "Couldn't delete workspace.",
+  "template.save": ({ target }) => (target ? `Couldn't save ${target}.` : "Couldn't save template."),
+  "template.delete": ({ target }) => (target ? `Couldn't delete ${target}.` : "Couldn't delete template."),
+  "workspaceInvitation.create": ({ target }) => (target ? `Couldn't invite ${target}.` : "Couldn't send invitation."),
+  "workspaceInvitation.cancel": () => "Couldn't cancel invitation.",
+  "workspaceInvitation.accept": () => "Couldn't accept invitation.",
+  "workspaceInvitation.decline": () => "Couldn't decline invitation.",
   "workspaceMember.remove": ({ target }) => (target ? `Couldn't remove ${target}.` : "Couldn't remove this member."),
   "workspaceMember.makeAdmin": ({ target }) =>
     target ? `Couldn't make ${target} an admin.` : "Couldn't make this member an admin.",
   "workspaceMember.transferOwnership": () => "Couldn't transfer ownership.",
-  "applicationRole.change": () => "Application role could not be updated. Please try again.",
-  "applicationUser.ban": () => "User could not be banned. Please try again.",
-  "applicationUser.unban": () => "User could not be unbanned. Please try again.",
-  "applicationUser.impersonate": () => "Impersonation could not be started. Please try again.",
-  "applicationUser.stopImpersonating": () => "Impersonation could not be stopped. Please try again.",
-  "document.delete": () => "Document could not be deleted. Please try again.",
-  "document.bulkDelete": ({ removed = 0, total = 0 }) =>
-    `Deleted ${removed} of ${total}. ${total - removed} couldn't be deleted.`,
-  "document.export": () => "Selected documents could not be exported. Please try again.",
-  "document.downloadOriginal": () =>
-    "The original document couldn't be downloaded because storage can't be reached. Please try again.",
-  "document.downloadOriginalMissing": () =>
-    "The original document couldn't be downloaded because it's missing from storage.",
-  "workspace.documentProcessing": () => "Document processing settings could not be saved. Please try again.",
-  "workspace.sourceRetention": () => "Document retention could not be updated. Please try again.",
-  "workspace.modelGateway.save": () =>
-    "Model gateway could not be saved. Replace an unavailable credential or try again.",
-  "workspace.modelGateway.clear": () => "Model gateway could not be cleared. Please try again.",
-  "auth.signOut": () => "Couldn't sign out. Try again.",
-  "library.rename": ({ target }) => `Couldn't rename “${target}”.`,
-  "library.restoreOriginal": () => "Couldn't make the saved original available.",
+  "applicationRole.change": () => "Couldn't update application role.",
+  "applicationUser.ban": () => "Couldn't ban user.",
+  "applicationUser.unban": () => "Couldn't unban user.",
+  "applicationUser.impersonate": () => "Couldn't start impersonation.",
+  "applicationUser.stopImpersonating": () => "Couldn't stop impersonation.",
+  "document.delete": ({ target }) => (target ? `Couldn't delete ${target}.` : "Couldn't delete document."),
+  "document.bulkDelete": ({ removed = 0, total = 0 }) => `Deleted ${removed} of ${total}. Couldn't delete ${total - removed}.`,
+  "document.export": () => "Couldn't export selected documents.",
+  "document.downloadOriginal": () => "Couldn't download the original.",
+  "document.downloadOriginalMissing": () => "Couldn't download the original. The original file is no longer available.",
+  "workspace.documentProcessing": () => "Couldn't save document processing settings.",
+  "workspace.sourceRetention": () => "Couldn't update retention settings.",
+  "workspace.modelGateway.save": () => "Couldn't save Model gateway.",
+  "workspace.modelGateway.clear": () => "Couldn't clear Model gateway.",
+  "auth.signOut": () => "Couldn't sign out.",
+  "library.rename": ({ target }) => (target ? `Couldn't rename ${target}.` : "Couldn't rename library item."),
+  "library.restoreOriginal": () => "Couldn't restore the original.",
   "library.loadLatest": () => "Couldn't load the latest saved answers.",
   "tag.rename": () => "Couldn't rename the tag.",
   "tag.delete": () => "Couldn't delete the tag.",
@@ -105,13 +101,13 @@ const validationMessages = {
     json: "Template JSON is invalid. Fix it before saving.",
   },
   "document.upload": {
-    template: "Choose a template before uploading documents.",
-    files: "Choose at least one document to upload.",
+    template: "Choose a template before uploading.",
+    files: "Choose at least one file.",
   },
 };
 
 const alreadyRemovedMessages = {
-  "document.delete": ({ target }) => withTarget("Document already removed", target),
+  "document.delete": ({ target }) => withTarget("Document already deleted", target),
 };
 
 export function getActionToast(action, outcome, options = {}) {
@@ -128,12 +124,12 @@ export function getActionToast(action, outcome, options = {}) {
   if (outcome === "validation") {
     return {
       severity: "error",
-      message: validationMessages[action]?.[options.reason] ?? "Action blocked. Check the form and try again.",
+      message: validationMessages[action]?.[options.reason] ?? "Check the form and try again.",
     };
   }
 
   const message =
-    (outcome === "failure" && failureMessages[action]?.({ ...options, target })) || "Action failed. Please try again.";
+    (outcome === "failure" && failureMessages[action]?.({ ...options, target })) || "Something went wrong. Try again.";
 
   return { severity: "error", message: withReason(message, options.error) };
 }
@@ -156,13 +152,13 @@ export function getDocumentUploadToast({ queued = 0, failed = 0 }) {
   if (queued === 0) {
     return {
       severity: "error",
-      message: `${pluralize(failed, "document")} failed to queue`,
+      message: `Couldn't queue ${pluralize(failed, "document")}.`,
     };
   }
 
   return {
     severity: "error",
-    message: `${pluralize(queued, "document")} queued, ${failed} failed`,
+    message: `${pluralize(queued, "document")} queued. Couldn't queue ${failed}.`,
   };
 }
 

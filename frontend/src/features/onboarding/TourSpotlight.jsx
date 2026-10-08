@@ -273,7 +273,7 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
         style={{ left: layout?.left ?? 12, top: layout?.top ?? 12 }}
       >
         <div className="tour-progress">
-          <span>STUDIO / GETTING STARTED</span>
+          <span>Getting started</span>
           <span>
             {index + 1} / {total}
           </span>
@@ -283,7 +283,7 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
           <h2 id="tour-title">{step.title}</h2>
           <p id="tour-description">{step.text}</p>
           {step.id !== "complete" && !hole ? (
-            <p className="tour-hint">Waiting for this control to appear. You can exit the tour at any time.</p>
+            <p className="tour-hint">Waiting for this step…</p>
           ) : null}
         </div>
         <div className="tour-actions">

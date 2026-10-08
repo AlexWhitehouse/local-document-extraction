@@ -93,18 +93,15 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
           <>
                 <aside className="settings-modal-sidebar">
                   <div className="settings-modal-brand">
-                    <span className="eyebrow">Local Studio</span>
                     <h2 id="settings-modal-title">Settings</h2>
                   </div>
                   {tourAction ? <div className="settings-modal-tour">{tourAction}</div> : null}
-                  <p>Manage your local account.</p>
                 </aside>
 
                 <section className="settings-modal-content">
                   <header className="settings-modal-header">
                     <div>
-                      <span className="eyebrow">Identity</span>
-                      <h3>Account</h3>
+                      <h3>Profile</h3>
                     </div>
                     <IconButton
                       size="sm"
@@ -116,10 +113,6 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                   </header>
 
                   <div className="settings-section-body">
-                    <div className="settings-section-intro">
-                      <h4>Your local profile</h4>
-                      <p>Update the name shown throughout Document Extraction.</p>
-                    </div>
                     <div className="settings-form-card">
                       <Field label="Name">
                         <TextInput
@@ -178,13 +171,9 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         </div>
                       </dl>
                     </section>
-                    <div className="settings-danger-row">
-                      <div>
-                        <strong>End this session</strong>
-                        <span>You’ll need to sign in again to access local workspaces.</span>
-                      </div>
+                    <div className="settings-form-actions">
                       <Button
-                        variant="danger"
+                        variant="secondary"
                         pending={isSigningOut}
                         pendingLabel="Signing out…"
                         disabled={isSavingProfile}

@@ -139,7 +139,7 @@ export function TemplatePage({
             >
               {isEditingTemplate ? "Save changes" : "Save new template"}
             </Button>
-            {/* One entry point: it opens on Explain issues while the draft has problems, otherwise on Propose edits. */}
+            {/* One entry point: it opens on Explain problems while the draft has problems, otherwise on Propose edits. */}
             <Button
               type="button"
               variant="secondary"
@@ -152,7 +152,7 @@ export function TemplatePage({
             >
               <AssistantIcon />
               Assistant
-              {issues.length ? <CountBadge count={issues.length} label={`${issues.length} issues`} tone="danger" /> : null}
+              {issues.length ? <CountBadge count={issues.length} label={`${issues.length} problems`} tone="danger" /> : null}
             </Button>
           </span>
         </footer>

@@ -39,10 +39,10 @@ describe("Template field editor", () => {
     expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
-    expect(screen.queryByRole("dialog", { name: "Object schema builder" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Table columns" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Edit schema" }));
-    expect(screen.getByRole("table", { name: "Object schema columns" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
+    expect(screen.getByRole("table", { name: "Table columns" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Add column" }));
     expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
   });
@@ -76,7 +76,7 @@ describe("Template field editor", () => {
     render(<TemplateFieldHarness />);
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
-    await user.click(screen.getByRole("button", { name: "Edit schema" }));
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
     await user.click(screen.getByRole("button", { name: "Add column" }));
 
     const columnCard = screen.getByText("Column 1").closest(".object-column-card");
@@ -130,7 +130,7 @@ describe("Template field editor", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Edit schema" }));
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
     expect(screen.getByRole("button", { name: "Add column" }).disabled).toBe(true);
   });
 
@@ -166,20 +166,20 @@ describe("Template field editor", () => {
 
     render(<TemplateFieldHarness />);
 
-    await user.click(screen.getByRole("button", { name: "Edit schema" }));
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" }));
     // Focus wraps to the last focusable element, the scrollable column table.
     await user.tab({ shift: true });
-    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Object schema scroll area" }));
+    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Table columns" }));
     await user.tab();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" }));
     await user.click(screen.getByRole("button", { name: "Add column" }));
     await user.type(screen.getByLabelText("Column name"), "Quantity");
     await user.click(screen.getByRole("button", { name: "Done" }));
 
-    expect(screen.queryByRole("dialog", { name: "Object schema builder" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Table columns" })).toBeNull();
     expect(screen.getByText("1 column defined")).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit schema" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit columns" }));
     expect(latestFields[0].object_schema.columns[0]).toMatchObject({
       heading: "Quantity",
       key: "quantity",

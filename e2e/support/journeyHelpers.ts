@@ -35,7 +35,7 @@ export async function signUpAndVerify(page: Page, harness: RuntimeHarness, accou
 
 export async function saveModelGateway(page: Page, harness: RuntimeHarness, modelName: string): Promise<void> {
   await page
-    .getByRole("article", { name: "Workspace Model gateway" })
+    .getByRole("article", { name: "Model gateway" })
     .getByRole("button", { name: "Edit", exact: true })
     .click();
   await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);

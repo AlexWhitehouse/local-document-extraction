@@ -62,7 +62,7 @@ describe("workspace costs", () => {
     const request = vi.fn().mockResolvedValue(overview);
     const view = render(<WorkspaceCosts {...props} role="member" request={request} />);
     expect(request).not.toHaveBeenCalled();
-    expect(screen.getByText("Costs are visible to Workspace owners and admins.")).toBeTruthy();
+    expect(screen.getByText("Only workspace owners and admins can view costs.")).toBeTruthy();
     view.rerender(<WorkspaceCosts {...props} request={request} />);
     await screen.findByLabelText("Headline figures");
     view.rerender(<WorkspaceCosts {...props} role="member" request={request} />);
@@ -93,7 +93,7 @@ describe("workspace costs", () => {
     await screen.findByLabelText("Headline figures");
     expect(screen.getByText("Total spend").closest("div").textContent).toContain("—");
     expect(screen.getByText("Per day").closest("div").textContent).toContain("—");
-    expect(screen.getByRole("status").textContent).toContain("Figures are incomplete");
+    expect(screen.getByRole("status").textContent).toContain("Figures may be incomplete");
   });
 
   it("keeps sparse search continuation available and loads a deleted all-blank packet on selection", async () => {
@@ -235,7 +235,7 @@ it("shows weighted template percentiles, combines small groups, and explains rea
   );
   expect(screen.getByText("▲ 100%")).toBeTruthy();
   const spread = screen.getByRole("region", { name: "Cost per document" });
-  expect(within(spread).getByText(/Sample of 14 of 23 documents/)).toBeTruthy();
+  expect(within(spread).getByText(/Based on a sample of 14 of 23 documents/)).toBeTruthy();
   expect(within(spread).getByRole("columnheader", { name: "Est. median" })).toBeTruthy();
   const table = within(spread).getByRole("table");
   expect(within(table).getAllByRole("row")).toHaveLength(13);
@@ -309,7 +309,7 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
   fireEvent.change(screen.getByLabelText("To"), { target: { value: "2021-01-01" } });
   expect(screen.getByRole("button", { name: "Apply" }).disabled).toBe(true);
   fireEvent.change(screen.getByLabelText("To"), { target: { value: "2020-01-31" } });
-  expect(screen.getByText("Shown by day, in UTC.")).toBeTruthy();
+  expect(screen.getByText("Shown by day.")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Apply" }));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
   const range = new URL(request.mock.calls[1][0], "http://localhost").searchParams;
@@ -318,13 +318,13 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
     end: "2020-02-01T00:00:00.000Z",
     unit: "day",
   });
-  expect(screen.getByText("2020-01-01 to 2020-01-31 · UTC")).toBeTruthy();
+  expect(screen.getByText("2020-01-01 to 2020-01-31")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "01-01 – 01-31" }));
   fireEvent.keyDown(document.body, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "01-01 – 01-31" }));
   fireEvent.change(screen.getByLabelText("To"), { target: { value: "2020-01-01" } });
-  expect(screen.getByText("One day is shown by hour, in UTC.")).toBeTruthy();
+  expect(screen.getByText("One day is shown by hour.")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Apply" }));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
   expect(new URL(request.mock.calls[2][0], "http://localhost").searchParams.get("unit")).toBe("hour");

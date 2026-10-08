@@ -13,15 +13,15 @@ describe("Extraction job status display", () => {
       <ExtractionJobStatusDisplay job={{ status: "queued" }} />,
     );
 
-    expect(screen.getByText("The document is processing")).toBeTruthy();
-    expect(screen.getByText("Attempt: pending")).toBeTruthy();
+    expect(screen.getByText("This document is queued…")).toBeTruthy();
+    expect(screen.queryByText(/attempt/)).toBeNull();
 
     rerender(
       <ExtractionJobStatusDisplay job={{ status: "processing", current_attempt: 2 }} />,
     );
 
-    expect(screen.getByText("The document is processing")).toBeTruthy();
-    expect(screen.getByText("Current attempt: 2")).toBeTruthy();
+    expect(screen.getByText("This document is processing…")).toBeTruthy();
+    expect(screen.getByText("Retrying (attempt 2)")).toBeTruthy();
 
     rerender(
       <ExtractionJobStatusDisplay job={{ status: "completed", completed_attempt: 3 }} />,
@@ -32,7 +32,7 @@ describe("Extraction job status display", () => {
     );
 
     expect(screen.getByText("Extraction failed")).toBeTruthy();
-    expect(screen.getByText("Last failed attempt: 4")).toBeTruthy();
+    expect(screen.queryByText(/attempt/)).toBeNull();
   });
 
   it("shows the failure reason and a next step for failed Extraction jobs", () => {

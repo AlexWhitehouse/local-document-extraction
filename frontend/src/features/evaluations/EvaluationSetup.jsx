@@ -12,20 +12,20 @@ const MODES = [
   {
     id: "models",
     title: "Models",
-    summary: "One Template, different models",
+    summary: "One template, different models",
     detail: "Find the most accurate or fastest model for this kind of document.",
     diagram: ["T", ["M1", "M2", "M3"]],
   },
   {
     id: "templates",
     title: "Template versions",
-    summary: "One model, different Templates",
+    summary: "One model, different templates",
     detail: "Check whether edited field instructions improve the results.",
     diagram: ["M", ["v3", "v2", "v1"]],
   },
 ];
 
-const mebibytes = (bytes) =>
+const megabytes = (bytes) =>
   new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(bytes / (1024 * 1024));
 
 function StepNumber({ number, complete }) {
@@ -107,7 +107,7 @@ export function EvaluationSetup({
   });
 
   const problems = [
-    !template && "Choose a Template",
+    !template && "Choose a template",
     mode === "models" ? names.length < 2 && "Add at least two models" : !versions.length && "Choose a version",
   ].filter(Boolean);
 
@@ -154,12 +154,8 @@ export function EvaluationSetup({
     <div className="evaluation-setup">
       <div className="evaluation-setup-main">
         <header className="evaluation-setup-head">
-          <p className="studio-eyebrow">New Evaluation</p>
           <h2>Compare extraction results on your documents</h2>
-          <p>
-            Runs and results aren’t saved and clear when you close this tab. Documents you save to the Evaluation
-            library can be reused.
-          </p>
+          <p>Results clear when you close this tab.</p>
         </header>
         {modelMissing && (
           <Callout
@@ -171,7 +167,7 @@ export function EvaluationSetup({
               </Button>
             }
           >
-            Every Evaluation runs on the Workspace model. Set one up on the Workspace page, then come back here.
+            Every evaluation runs on the workspace model. Set one up on the Workspaces page, then come back here.
           </Callout>
         )}
         {error && (
@@ -249,8 +245,7 @@ export function EvaluationSetup({
                       {state.documents.length ? "Add more documents" : "Choose saved documents or drop new ones here"}
                     </strong>
                     <small>
-                      PDF, PNG, JPG or WEBP · up to {mebibytes(maxSourceFileBytes)} MiB each · several documents run a
-                      Batch Evaluation
+                      PDF, PNG, JPG or WEBP · up to {megabytes(maxSourceFileBytes)} MB each
                     </small>
                   </div>
                   <span className="evaluation-actions">
@@ -317,7 +312,7 @@ export function EvaluationSetup({
                 Template
                 <select value={templateId} onChange={(event) => chooseTemplate(event.target.value)}>
                   <option value="" disabled>
-                    {templates.length ? "Choose a saved Template" : "No saved Templates available"}
+                    {templates.length ? "Choose a saved template" : "No saved templates available"}
                   </option>
                   {templates.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -328,14 +323,14 @@ export function EvaluationSetup({
               </label>
               {mode === "models" && (
                 <label>
-                  Field version
+                  Version
                   <select value={version} disabled={!template} onChange={(event) => setVersion(event.target.value)}>
                     <option value="">
-                      {template ? `Current · v${template.current_version}` : "Choose a Template first"}
+                      {template ? `Current · v${template.current_version}` : "Choose a template first"}
                     </option>
                     {allVersions.slice(1).map((v) => (
                       <option key={v} value={v}>
-                        Fields v{v}
+                        v{v}
                       </option>
                     ))}
                   </select>
@@ -377,7 +372,7 @@ export function EvaluationSetup({
                         }
                       />
                       {model.trim() && model.trim() === workspaceModel && (
-                        <Badge>Workspace default</Badge>
+                        <Badge>Default</Badge>
                       )}
                       <IconButton
                         size="sm"
@@ -398,7 +393,7 @@ export function EvaluationSetup({
                   </Button>
                   {suggestions.length > 0 && (
                     <span className="evaluation-setup-suggest">
-                      <small>Used in this Workspace</small>
+                      <small>Used in this workspace</small>
                       {suggestions.map((model) => (
                         <Button
                           key={model}
@@ -414,7 +409,7 @@ export function EvaluationSetup({
                 </div>
               </>
             ) : !template ? (
-              <p className="evaluation-setup-hint">Choose a Template to pick the versions to compare.</p>
+              <p className="evaluation-setup-hint">Choose a template to pick the versions to compare.</p>
             ) : (
               <>
                 <div className="evaluation-version-list" role="group" aria-label="Template versions">
@@ -433,7 +428,7 @@ export function EvaluationSetup({
                         }
                       />
                       <span>
-                        <strong>Fields v{v}</strong>
+                        <strong>v{v}</strong>
                         <small>{v === template.current_version ? "Current" : `Version ${v}`}</small>
                       </span>
                     </label>
@@ -441,8 +436,8 @@ export function EvaluationSetup({
                 </div>
                 <p className="evaluation-setup-hint">
                   {versions.length === 1
-                    ? `Starts two copies of Fields v${versions[0]}. Edit one candidate's fields as a draft to compare the change.`
-                    : `Every version runs on the Workspace model${workspaceModel ? `, ${workspaceModel}` : ""}. You can edit a candidate's fields as a draft after starting.`}
+                    ? `Starts two copies of v${versions[0]} so you can edit one and compare.`
+                    : `All versions run on ${workspaceModel || "the workspace model"}.`}
                 </p>
               </>
             )}
@@ -453,16 +448,16 @@ export function EvaluationSetup({
           <div className="evaluation-setup-submit">
             {problems.length > 0 && <small className="evaluation-muted">{problems.join(" · ")}</small>}
             <Button disabled={!enabled || !state.setup?.configured || problems.length > 0 || starting} onClick={start}>
-              {starting ? "Loading…" : willRun ? "Start and run" : "Start Evaluation"}
+              {starting ? "Starting…" : willRun ? "Start and run" : "Start evaluation"}
             </Button>
           </div>
         </footer>
       </div>
 
-      <aside className="evaluation-setup-aside" aria-label="How Evaluations work">
+      <aside className="evaluation-setup-aside" aria-label="How evaluations work">
         <div className="evaluation-setup-model evaluation-library-box">
           <small>Evaluation library</small>
-          <p>Documents with Expected answers, shared with everyone in this Workspace.</p>
+          <p>Documents with expected answers, shared with everyone in this workspace.</p>
           <Button variant="text" onClick={() => onManageLibrary(fields)}>
             Manage library
           </Button>
@@ -474,7 +469,6 @@ export function EvaluationSetup({
               <i aria-hidden="true" />
               {workspaceModel}
             </span>
-            <p>Every Template version runs on this model. Change it for all candidates after starting.</p>
           </div>
         )}
         <h3>How it works</h3>
@@ -483,35 +477,24 @@ export function EvaluationSetup({
             <span>1</span>
             <div>
               <strong>Choose documents</strong>
-              <p>
-                Pick saved documents, upload new ones, or both. Up to {MAX_CANDIDATES} candidates run on every document.
-              </p>
+              <p>Pick saved or new documents. Up to {MAX_CANDIDATES} candidates run on each.</p>
             </div>
           </li>
           <li>
             <span>2</span>
             <div>
               <strong>Verify expected answers</strong>
-              <p>
-                After a run, confirm the correct value for each field in the results, or use a candidate's answer. Saved
-                documents bring their answers with them. Only verified fields are scored.
-              </p>
+              <p>Verify each field's correct value. Only verified fields are scored.</p>
             </div>
           </li>
           <li>
             <span>3</span>
             <div>
               <strong>Compare</strong>
-              <p>
-                See accuracy, table cells, time and tokens, one document at a time. Use Previous and Next to move
-                between documents.
-              </p>
+              <p>Review accuracy, table cells, time and tokens for each document.</p>
             </div>
           </li>
         </ol>
-        <p className="evaluation-setup-note">
-          After verifying answers, choose Save to library on a new upload to reuse it in later Evaluations.
-        </p>
       </aside>
     </div>
   );

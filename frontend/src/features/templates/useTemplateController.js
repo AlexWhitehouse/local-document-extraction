@@ -92,7 +92,7 @@ const DEFAULT_FIELDS = [
 
 const DEFAULT_TEMPLATE_NAME = "Invoice Template";
 
-const DEFAULT_TEMPLATE_DESCRIPTION = "Extract invoice details and line items from a Document";
+const DEFAULT_TEMPLATE_DESCRIPTION = "Extract invoice details and line items from a document";
 
 const DRAFT_TEMPLATE_NAV_ID = "__draft_template__";
 
@@ -287,7 +287,7 @@ export function useTemplateController({
   const contextTemplates = useMemo(() => {
     const hasDraft = showDraftTemplateNav && activePage === "templates";
 
-    const draftItem = hasDraft ? [{ id: DRAFT_TEMPLATE_NAV_ID, name: "New Template", is_draft: true }] : [];
+    const draftItem = hasDraft ? [{ id: DRAFT_TEMPLATE_NAV_ID, name: "New template", is_draft: true }] : [];
 
     return [...draftItem, ...filteredTemplates];
   }, [activePage, filteredTemplates, showDraftTemplateNav]);

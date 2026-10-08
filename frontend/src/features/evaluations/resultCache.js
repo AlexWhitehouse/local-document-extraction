@@ -22,8 +22,8 @@ const failure = (error, code = "storage_failed") =>
     ? error
     : new ResultCacheError(
         error?.name === "QuotaExceededError"
-          ? "This browser ran out of space for Evaluation results."
-          : "This browser couldn’t keep Evaluation result details.",
+          ? "This browser is out of space for evaluation results."
+          : "Results can’t be saved in this browser.",
         error?.name === "QuotaExceededError" ? "quota" : code,
         error,
       );
@@ -55,7 +55,7 @@ export function createResultCache({
   let hotTotal = 0;
 
   const assertLive = () => {
-    if (!live) throw new ResultCacheError("This Evaluation was cleared.", "invalidated");
+    if (!live) throw new ResultCacheError("This evaluation was cleared.", "invalidated");
   };
 
   const key = () =>
@@ -63,7 +63,7 @@ export function createResultCache({
 
   // Random per encryption plus a per-key invocation counter, so an IV can never repeat under this key.
   const nextIv = () => {
-    if (counter >= 0xffffffff) throw new ResultCacheError("Result storage needs a fresh Evaluation.", "iv_exhausted");
+    if (counter >= 0xffffffff) throw new ResultCacheError("Clear this evaluation to keep running.", "iv_exhausted");
     const iv = crypto.getRandomValues(new Uint8Array(12));
     new DataView(iv.buffer).setUint32(8, ++counter);
 
@@ -77,7 +77,7 @@ export function createResultCache({
     (databasePromise ||= new Promise((resolve, reject) => {
       if (!indexedDB) {
         reject(
-          new ResultCacheError("Browser storage is unavailable, so Evaluation results can’t be kept.", "unavailable"),
+          new ResultCacheError("Results can’t be saved in this browser.", "unavailable"),
         );
 
         return;
@@ -120,7 +120,7 @@ export function createResultCache({
 
       request.onerror = () => settle(false, failure(request.error, "unavailable"));
       request.onblocked = () =>
-        settle(false, new ResultCacheError("Browser storage is busy. Close other tabs and try again.", "unavailable"));
+        settle(false, new ResultCacheError("Results can’t be saved while other tabs are busy. Close them and try again.", "unavailable"));
     }).catch((error) => {
       databasePromise = null;
       throw error;
@@ -251,7 +251,7 @@ export function createResultCache({
         const record = await transaction("readonly", (store) => store.get([namespace, recordId]));
         assertLive();
 
-        if (!record) throw new ResultCacheError("These result details are no longer in browser storage.", "missing");
+        if (!record) throw new ResultCacheError("These results are no longer saved in this browser.", "missing");
         let plaintext;
 
         try {

@@ -48,12 +48,12 @@ export function OverviewTab({ data }) {
     {
       label: "Per document",
       value: usd(metrics.fullyCostedDocuments ? metrics.fullyCostedAmount / metrics.fullyCostedDocuments : null),
-      detail: "Fully costed documents",
+      detail: "Completed documents with a known cost.",
     },
     {
       label: "Per page",
       value: usd(metrics.fullyCostedPages ? metrics.fullyCostedAmount / metrics.fullyCostedPages : null),
-      detail: "Fully costed document pages",
+      detail: "Pages in completed documents with a known cost.",
     },
     {
       label: range.unit === "hour" ? "Per hour" : "Per day",
@@ -211,7 +211,7 @@ function SpendCharts({ buckets, unit, totals }) {
           </svg>
           <div className="cp-subchart-head">
             <h3>Average cost per document</h3>
-            <span>Finished, fully costed documents, including their split shares.</span>
+            <span>Completed documents with a known cost, including split shares.</span>
           </div>
           <svg width={width} height={lineHeight + 8} role="group" aria-label="Average cost per document">
             {grid(lineHeight, unitMax, [0, 1])}
@@ -247,8 +247,8 @@ function SpendCharts({ buckets, unit, totals }) {
               <tr>
                 <th>{unit === "hour" ? "Hour" : "Date"}</th>
                 <th className="cp-num">Documents</th>
-                <th className="cp-num">Smart split</th>
-                <th className="cp-num">Auto template</th>
+                <th className="cp-num">Splitting</th>
+                <th className="cp-num">Template generation</th>
                 <th className="cp-num">Extraction</th>
                 <th className="cp-num">Total</th>
                 <th className="cp-num">Per document</th>
@@ -346,8 +346,7 @@ function CostSpread({ documents, sampled, population }) {
         <div>
           <h2>Cost per {metric === "page" ? "page" : "document"}</h2>
           <p>
-            Each dot is one fully costed document, grouped by template. The band is the middle half and the tick is the
-            median.
+            One dot per document. Bands show the middle 50%; ticks show the median.
           </p>
         </div>
         <div className="cp-controls">
@@ -364,8 +363,7 @@ function CostSpread({ documents, sampled, population }) {
       </div>
       {sampled ? (
         <p className="cp-muted">
-          Sample of {documents.length} of {population.toLocaleString()} documents. Percentiles are estimates weighted by
-          upload-period volume.
+          Based on a sample of {documents.length} of {population.toLocaleString()} documents.
         </p>
       ) : null}
       {groups.length ? (

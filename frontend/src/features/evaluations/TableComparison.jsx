@@ -28,7 +28,7 @@ export function TableComparison({
   const rawFor = (candidate) => candidate.result.raw.find((r) => r.field_id === row.candidates[candidate.id].id);
 
   const sources = [
-    ...(verified ? [{ id: "expected", label: "Expected", expected: true, rows: reference.value }] : []),
+    ...(verified ? [{ id: "expected", label: "Expected answer", expected: true, rows: reference.value }] : []),
     ...answered.map((c) => ({
       id: c.id,
       label: labelFor(c),

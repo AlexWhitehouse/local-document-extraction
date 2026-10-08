@@ -15,7 +15,7 @@ import { Field, TextInput } from "../ui/Field.jsx";
 /** Independent draft; the caller chooses temporary Apply or persistent Save. */
 export function TemplateEditorModal({
   initial,
-  title = "Edit Template",
+  title = "Edit template",
   action = "Apply changes",
   notice,
   onSubmit,
@@ -79,7 +79,7 @@ export function TemplateEditorModal({
           <h2>{title}</h2>
           {notice && <p>{notice}</p>}
         </div>
-        <IconButton label="Close Template editor" icon={CloseIcon} disabled={saving} onClick={onClose} />
+        <IconButton label="Close template editor" icon={CloseIcon} disabled={saving} onClick={onClose} />
       </header>
       <div ref={rootRef}>
         <div className="studio-template-meta">

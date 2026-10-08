@@ -36,7 +36,7 @@ export function useWorkspaceDocumentProcessingSettings({
       if (activeScope.current === scope && token === operation.current) setState({ ...initial(scope), settings });
     } catch {
       if (activeScope.current === scope && token === operation.current)
-        setState({ ...initial(scope), error: "Document processing settings could not be loaded." });
+        setState({ ...initial(scope), error: "Couldn't load document processing settings." });
     }
   }, [coreRequest, path, scope]);
 

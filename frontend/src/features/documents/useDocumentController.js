@@ -434,7 +434,7 @@ export function useDocumentController({
       setPendingPacketTab(null);
 
       if (!job) {
-        setPacketChildError({ id, message: "Document details could not be loaded. Try again." });
+        setPacketChildError({ id, message: "Couldn't load document details. Try again." });
 
         return;
       }

@@ -93,7 +93,7 @@ export function TemplateContextList({
                     }
                   }}
                 >
-                  <strong>{template.is_draft ? "New Template Draft" : template.name || "Untitled template"}</strong>
+                  <strong>{template.is_draft ? "New template" : template.name || "Untitled template"}</strong>
                   <span>{itemDetail}</span>
                 </NavigationLink>
                 <ContextCopyButton ariaLabel={`Copy template ID ${itemDetail}`} value={itemDetail} />

@@ -56,7 +56,7 @@ export function TemplateVersionDialog({
         </div>
         <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
-      {!templates.length && <p>Create a Template in Templates first, then choose its version here.</p>}
+      {!templates.length && <p>Create a template first, then choose its version here.</p>}
       <Field label="Template">
         <Select
           value={templateId}
@@ -68,7 +68,7 @@ export function TemplateVersionDialog({
           }}
         >
           <option value="" disabled>
-            Choose a Template
+            Choose a template
           </option>
           {templates.map((t) => (
             <option key={t.id} value={t.id}>
@@ -77,18 +77,18 @@ export function TemplateVersionDialog({
           ))}
         </Select>
       </Field>
-      <Field label="Field version">
+      <Field label="Version">
         <Select
           value={version}
           disabled={!template || loading}
           onChange={(event) => setVersion(event.target.value)}
         >
           <option value="">
-            {template ? `Current · v${template.current_version}` : "Select a Template first"}
+            {template ? `Current · v${template.current_version}` : "Select a template first"}
           </option>
           {Array.from({ length: Math.max(0, (template?.current_version || 1) - 1) }, (_, index) => (
             <option key={index} value={index + 1}>
-              Fields v{index + 1}
+              v{index + 1}
             </option>
           ))}
         </Select>

@@ -85,7 +85,7 @@ export function PacketPage({
           <p role="alert">{documentError}</p>
           {children.some((child) => child.job_id === documentErrorId) ? (
             <Button variant="secondary" onClick={() => onSelectDocument?.(documentErrorId)}>
-              Retry document
+              Try again
             </Button>
           ) : null}
         </div>
@@ -167,7 +167,7 @@ function packetStage(packet, documents) {
   const failed = documents.filter((child) => child.status === "failed" || child.status === "error").length;
   const splitDone = packet.plan_accepted || documents.length > 0 || packet.outcome === "no_documents";
 
-  if (packet.status === "awaiting_review") return { text: "Split needs your review", tone: "warning" };
+  if (packet.status === "awaiting_review") return { text: "Review the split plan", tone: "warning" };
 
   if (!splitDone) {
     if (packet.status === "failed") return { text: "Split failed", tone: "danger" };
@@ -184,14 +184,14 @@ function packetStage(packet, documents) {
 
   if (packet.status === "completed")
     return failed
-      ? { text: `Finished · ${failed} failed`, tone: "danger" }
+      ? { text: `Finished, ${failed} failed`, tone: "danger" }
       : { text: "All documents extracted", tone: "success" };
 
   if (packet.status === "failed")
-    return { text: `Failed · ${done} of ${documents.length} extracted`, tone: "danger" };
+    return { text: `Failed after ${done} of ${documents.length} extracted`, tone: "danger" };
 
   return {
-    text: `Split into ${documents.length} · ${done} of ${documents.length} extracted${failed ? ` · ${failed} failed` : ""}`,
+    text: `Split into ${documents.length}. ${done} of ${documents.length} extracted${failed ? `, ${failed} failed` : ""}`,
     tone: failed ? "danger" : "info",
     busy: !failed,
   };
@@ -247,7 +247,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
           <p className="studio-empty-state">
             {packet.status === "materializing"
               ? "Preparing documents from the split…"
-              : `Finding where each document starts across ${pages.length || "all"} ${pages.length === 1 ? "page" : "pages"}. Documents appear here once the split is decided.`}
+              : `Finding where each document starts across ${pages.length || "all"} ${pages.length === 1 ? "page" : "pages"}.`}
           </p>
         </section>
       ) : null}
@@ -313,7 +313,7 @@ function PacketDocuments({ documents, templates, onSelectDocument }) {
                     {template?.name ||
                       child.template_name ||
                       child.template_id ||
-                      (LIVE_CHILD_STATUSES.has(status) ? "Choosing template…" : "—")}
+                      (LIVE_CHILD_STATUSES.has(status) ? "Choosing a template…" : "—")}
                   </td>
                   <td>
                     <StatusDot tone={statusTone(status)} pulse={isBusyStatus(status)} label={statusLabel(status)} />
@@ -364,8 +364,8 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
         <div>
           <h2>Review document boundaries</h2>
           <p>
-            Automatic splitting couldn&apos;t settle where each document starts. Assign every page to a document, or
-            exclude it with a reason. Pages keep their original order.
+            Automatic splitting couldn&apos;t settle where each document starts. Assign every page, or exclude it with
+            a reason.
           </p>
         </div>
       </div>
@@ -549,7 +549,7 @@ function PacketPagePreview({ packetId, page, loadPreview }) {
     <div role="status" className="source-preview-state">
       <p>{state.error}</p>
       <Button variant="text" onClick={() => setRetry((value) => value + 1)}>
-        Retry preview
+        Try again
       </Button>
     </div>
   ) : state.url ? (

@@ -344,7 +344,7 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
       packet.outcome === "no_documents"
         ? "No documents to extract"
         : isAwaitingTemplate
-          ? "Template needed"
+          ? "Needs template"
           : PACKET_STATUS_LABELS[packet.status] || statusLabel(packet.status || "queued");
 
     items.push({
@@ -475,7 +475,6 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
       <form className="context-filter-form" onSubmit={applyFilters}>
         <div className="context-filter-popover-head">
           <div>
-            <span className="eyebrow">Narrow the queue</span>
             <strong>Advanced filters</strong>
           </div>
           {activeFilterCount ? <span className="context-filter-active-label">{activeFilterCount} active</span> : null}
@@ -539,5 +538,5 @@ function toDraftFilters(filters) {
 function defaultUploadedName(sourceMimeType) {
   const mimeType = String(sourceMimeType || "");
 
-  return mimeType.startsWith("image/") || mimeType === "application/pdf" ? "Uploaded Document" : "Uploaded Source file";
+  return mimeType.startsWith("image/") || mimeType === "application/pdf" ? "Uploaded document" : "Uploaded file";
 }

@@ -265,20 +265,20 @@ describe("Automatic document processing UI", () => {
       const { rerender } = render(
         <PacketPage
           {...props}
-          documentError="Document details could not be loaded. Try again."
+          documentError="Couldn't load document details. Try again."
           documentErrorId="child_2"
         />,
       );
 
-      expect(screen.getByRole("alert").textContent).toContain("Document details could not be loaded");
+      expect(screen.getByRole("alert").textContent).toContain("Couldn't load document details");
 
       if (activeDocumentId) expect(screen.getByText("Results for child_1")).toBeTruthy();
       else expect(screen.getByRole("region", { name: "Documents in this packet" })).toBeTruthy();
-      await userEvent.click(screen.getByRole("button", { name: "Retry document" }));
+      await userEvent.click(screen.getByRole("button", { name: "Try again" }));
       expect(onSelectDocument).toHaveBeenCalledWith("child_2");
       rerender(<PacketPage {...props} pendingDocumentId="child_2" />);
       expect(screen.queryByRole("alert")).toBeNull();
-      expect(screen.queryByRole("button", { name: "Retry document" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     },
   );
 
@@ -298,12 +298,12 @@ describe("Automatic document processing UI", () => {
         templates={uploadProps.templates}
       />,
     );
-    expect(overview().textContent).toContain("Split into 2 · 1 of 2 extracted");
+    expect(overview().textContent).toContain("Split into 2. 1 of 2 extracted");
     expect(screen.getByRole("tab", { name: /Document 1/ }).className).toContain("ui-tone-success");
     expect(screen.getByRole("tab", { name: /Document 2/ }).textContent).toContain("Page 3 · Processing");
     const table = screen.getByRole("region", { name: "Documents in this packet" });
     expect(within(table).getByRole("row", { name: /Document 1 1, 2 Invoice Completed/ })).toBeTruthy();
-    expect(within(table).getByText("Choosing template…")).toBeTruthy();
+    expect(within(table).getByText("Choosing a template…")).toBeTruthy();
     rerender(
       <PacketPage packet={{ ...packet, status: "completed", plan_accepted: true, children: [children[0]] }} />,
     );

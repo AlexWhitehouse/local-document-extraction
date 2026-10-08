@@ -1503,34 +1503,10 @@ input[type="checkbox"]:disabled {
 .settings-shortcut-list dd { margin: 0; color: var(--text-2); font-size: var(--font-size-3); }
 .settings-shortcut-list kbd { padding: 1px 6px; border: 1px solid var(--rule-strong); font: var(--font-size-2) var(--font-mono); }
 
-.settings-danger-row {
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  border: 1px solid var(--tone-danger-bg);
-  background: var(--tone-danger-bg-subtle);
-}
 
-.settings-danger-row > div {
-  display: grid;
-  gap: 2px;
-}
 
-.settings-danger-row strong {
-  color: var(--tone-danger-text);
-  font-size: var(--font-size-4);
-}
 
-.settings-danger-row span {
-  color: var(--text-3);
-  font-size: var(--font-size-3);
-}
 
-.settings-danger-row button {
-  flex: 0 0 auto;
-}
 
 /* Shared modal entrance: every dialog fades its scrim and lifts its card. */
 @keyframes modal-backdrop-in {
@@ -3003,14 +2979,7 @@ input.upload-input-hidden {
     padding: 14px;
   }
 
-  .settings-danger-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
 
-  .settings-danger-row button {
-    width: 100%;
-  }
 
   .modal-card.object-schema-modal {
     max-height: calc(100dvh - 32px);

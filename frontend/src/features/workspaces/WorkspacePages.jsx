@@ -42,7 +42,6 @@ export function WorkspaceInvitationPage({
         <article className="workspace-card invitation-detail-card">
           <div className="workspace-head">
             <h2>Pending invitation</h2>
-            <p>Review who invited you and what role you will receive before accepting or declining.</p>
           </div>
 
           <dl className="invitation-detail-list">
@@ -79,8 +78,7 @@ export function WorkspaceInvitationPage({
           </dl>
 
           <Callout tone="warning" className="invitation-locked-panel" title="No workspace access yet">
-            Templates, documents, API keys, uploads, rename, deletion, and user management stay locked until this
-            invitation is accepted.
+            Accept the invitation to access this workspace.
           </Callout>
 
           <div className="actions invitation-actions">
@@ -116,19 +114,18 @@ function WorkspaceSourceRetention({ controller }) {
   const explanation = !settings
     ? ""
     : !configured
-      ? "This installation has no storage for original documents, so only extraction results are kept."
+      ? "Originals can't be kept in this setup."
       : !settings.installation_retains_originals
-        ? "Retention is turned off for this installation, so new uploads keep only their extraction results."
+        ? "Your administrator has turned this off, so new uploads keep only extraction results."
         : retaining
-          ? "New uploads keep their original document for viewing and download until it is deleted."
-          : "New uploads keep only their extraction results. Originals already retained stay available.";
+          ? "New uploads keep their original for viewing and download until it is deleted."
+          : "New uploads keep only extraction results. Existing originals stay available.";
 
   return (
     <section className="studio-api-access studio-source-retention" aria-label="Original documents">
       <div className="studio-section-heading">
         <div>
           <h2>Original documents</h2>
-          <p>Whether new uploads keep their original file.</p>
         </div>
       </div>
       {!settings && loading ? <Skeleton rows={1} height={56} label="Loading document retention…" /> : null}
@@ -213,7 +210,6 @@ export function AcceptedWorkspacePage({
           <div className="studio-section-heading">
             <div>
               <h2>Workspace details</h2>
-              <p>The basics for this environment.</p>
             </div>
           </div>
           <form
@@ -257,7 +253,6 @@ export function AcceptedWorkspacePage({
             <div className="studio-section-heading">
               <div>
                 <h2>API access</h2>
-                <p>Connect your applications to Studio.</p>
               </div>
             </div>
             <div className="workspace-key-field">
@@ -282,7 +277,7 @@ export function AcceptedWorkspacePage({
               </Callout>
             ) : null}
             <div className="studio-api-footer">
-              <span>For inbound requests to this workspace.</span>
+              <span>Use this key to call the API for this workspace.</span>
               <Button
                 variant="text"
                 pending={isIssuingApiKey}
@@ -308,8 +303,7 @@ export function AcceptedWorkspacePage({
       <section className="studio-workspace-users">
         <div className="studio-section-heading">
           <div>
-            <h2>Workspace users</h2>
-            <p>The people who can access this workspace.</p>
+            <h2>Members</h2>
           </div>
           <Button
             variant="secondary"
@@ -344,9 +338,9 @@ export function AcceptedWorkspacePage({
           error={workspaceUsersError}
           onRetry={onRetryWorkspaceUsers}
           isEmpty={workspaceUsers.length === 0}
-          emptyMessage="No workspace users found."
+          emptyMessage="No members found."
         >
-          <div className="studio-user-list" role="region" aria-label="Workspace user list" tabIndex={0}>
+          <div className="studio-user-list" role="region" aria-label="Members list" tabIndex={0}>
             <div role="list">
               {workspaceUsers.map((user) => (
                 <div className="studio-user-row" role="listitem" key={String(user.user_id || user.email || "")}>
@@ -391,7 +385,6 @@ export function AcceptedWorkspacePage({
           <div className="studio-section-heading">
             <div>
               <h2>Pending invitations</h2>
-              <p>Workspace invitations that have not been accepted.</p>
             </div>
           </div>
           <ListStatus

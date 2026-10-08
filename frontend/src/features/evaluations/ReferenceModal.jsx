@@ -267,7 +267,7 @@ function ReferenceEditor({
     >
       <div className={table ? "object-schema-modal-head" : "evaluation-heading"}>
         <div>
-          <h2>{row.field.name} · Expected answer</h2>
+          <h2>{row.field.name} · expected answer</h2>
           <p>Review against the document before verifying. Only verified answers affect scores.</p>
         </div>
         <IconButton size="sm" label="Close expected answer editor" icon={CloseIcon} className="modal-close" onClick={requestClose} />
@@ -275,8 +275,8 @@ function ReferenceEditor({
       <div className="evaluation-reference-body">
         {schemas.length > 1 ? (
           <Field
-            label="Expected answer Template"
-            hint="Candidates use different fields. Choose the Template to verify against."
+            label="Expected answer template"
+            hint="Candidates use different fields. Choose the template to verify against."
           >
             <Select
               value={schema}
@@ -421,7 +421,7 @@ function ReferenceEditor({
                 >
                   <DataTable
                     className="object-schema-table evaluation-schema-values"
-                    label="Expected row schema values"
+                    label="Expected row values"
                   >
                     <thead>
                       <tr>
@@ -435,7 +435,7 @@ function ReferenceEditor({
                       {!value.length ? (
                         <tr>
                           <td colSpan={4} className="object-schema-empty">
-                            No expected rows. Add a row to enter values using this Template’s schema.
+                            No expected rows. Add a row to enter values.
                           </td>
                         </tr>
                       ) : (
@@ -575,7 +575,7 @@ function ReferenceEditor({
           </Button>
           {onRemoveVerification && (
             <Button variant="danger-text" onClick={onRemoveVerification}>
-              Remove verification
+              Unverify
             </Button>
           )}
         </div>

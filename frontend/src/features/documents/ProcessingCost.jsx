@@ -32,8 +32,8 @@ export function ProcessingCost({ costs, kind = "Document" }) {
             </div>
             <dl>
               {[
-                ["split", "Smart split"],
-                ["auto_template", "Auto template"],
+                ["split", "Splitting"],
+                ["auto_template", "Template generation"],
                 ["extraction", "Extraction"],
               ].map(([stage, label]) => (
                 <div key={stage}>
@@ -48,13 +48,13 @@ export function ProcessingCost({ costs, kind = "Document" }) {
             </dl>
             {costs?.excluded_pages_cost &&
             (costs.excluded_pages_cost.amount > 0 || !costs.excluded_pages_cost.complete) ? (
-              <p>Split includes {amountLabel(costs.excluded_pages_cost)} for excluded pages, kept at packet level.</p>
+              <p>Splitting includes {amountLabel(costs.excluded_pages_cost)} for excluded pages.</p>
             ) : null}
             {!costs || !costs.total.complete ? (
               <p>
                 {costs?.total.amount != null
-                  ? "+ marks a known subtotal. Some call costs are unavailable."
-                  : "The endpoint did not report a usable cost, or this work predates cost tracking."}
+                  ? "Costs marked + are partial. Some costs are unavailable."
+                  : "No cost was reported for this work."}
               </p>
             ) : null}
           </>

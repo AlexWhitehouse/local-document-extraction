@@ -91,7 +91,7 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await target("nav-workspace").click();
     await page.screenshot({ path: testInfo.outputPath("tour-gateway.png") });
     await page
-      .getByRole("article", { name: "Workspace Model gateway" })
+      .getByRole("article", { name: "Model gateway" })
       .getByRole("button", { name: "Edit", exact: true })
       .click();
     await page.getByLabel("Gateway URL", { exact: true }).click();

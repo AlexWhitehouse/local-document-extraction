@@ -24,7 +24,7 @@ test("a user manages local settings and recovers access through the frontend", a
     await expect(page.getByRole("heading", { name: "Reset password" })).toBeVisible();
     await page.getByRole("button", { name: "Send reset link" }).click();
     await expect(page.getByRole("status")).toContainText(
-      `If an account exists for ${ACCOUNT.email}, a reset link has been saved`,
+      `If an account exists for ${ACCOUNT.email}, we saved a reset link`,
     );
 
     const resetMail = await harness.waitForPasswordResetMail(ACCOUNT.email);
@@ -58,7 +58,7 @@ async function updateLocalSettings(page: Page) {
   await expect(settings).toHaveCount(0);
   await expect(page.getByRole("button", { name: new RegExp(updatedAccount.name) })).toBeVisible();
 
-  const gateway = page.getByRole("article", { name: "Workspace Model gateway" });
+  const gateway = page.getByRole("article", { name: "Model gateway" });
   await expect(gateway.getByRole("table", { name: "Models" })).toBeVisible();
   await expect(gateway.getByLabel("Gateway URL", { exact: true })).toHaveCount(0);
   await expect(gateway.getByRole("button", { name: "Test connection" })).toBeDisabled();

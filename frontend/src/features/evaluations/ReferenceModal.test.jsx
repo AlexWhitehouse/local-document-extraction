@@ -219,14 +219,14 @@ it("retains separate drafts when choosing between candidate schemas and asks bef
   fireEvent.change(screen.getByRole("textbox", { name: "Expected row 1 SKU" }), {
     target: { value: "Edited" },
   });
-  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer Template" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer template" }), {
     target: { value: "1" },
   });
   expect(screen.getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("A");
   expect(screen.queryByRole("textbox", { name: "Expected row 1 Quantity" })).toBeNull();
   expect(screen.getByText(/Added: Active/)).toBeTruthy();
   expect(screen.getByText(/Removed: Quantity/)).toBeTruthy();
-  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer Template" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer template" }), {
     target: { value: "0" },
   });
   expect(screen.getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("Edited");

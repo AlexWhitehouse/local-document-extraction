@@ -28,7 +28,7 @@ const fullDollars = new Intl.NumberFormat("en-US", {
 
 /** Run cost in USD; "+" marks a known subtotal when some calls did not report cost. */
 export const dollars = (cost, { full = false } = {}) => {
-  if (!cost || cost.amount === null || !Number.isFinite(cost.amount)) return "Unavailable";
+  if (!cost || cost.amount === null || !Number.isFinite(cost.amount)) return "Cost not reported";
   const amount = (full ? fullDollars : compactDollars).format(cost.amount);
 
   return `${amount}${cost.complete ? "" : "+"}`;
@@ -37,4 +37,4 @@ export const dollars = (cost, { full = false } = {}) => {
 export const percent = (ratio) => (ratio === null || ratio === undefined ? "—" : `${Math.round(ratio * 100)}%`);
 
 export const templateLabel = (template) =>
-  `${template.name}${template.source ? ` · fields v${template.source.version}` : ""}${template.source?.modified ? " · edited" : ""}`;
+  `${template.name}${template.source ? ` · v${template.source.version}` : ""}${template.source?.modified ? " · edited" : ""}`;

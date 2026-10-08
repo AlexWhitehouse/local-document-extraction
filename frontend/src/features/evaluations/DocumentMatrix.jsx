@@ -38,7 +38,7 @@ const COMPARABLE_TYPES = ["array<object>", "object", "array"];
 const FILTERS = [
   ["all", "All fields"],
   ["differ", "Candidates differ"],
-  ["mismatch", "Has mismatch"],
+  ["mismatch", "Mismatches"],
   ["unverified", "Unverified"],
   ["changes", "Template changes"],
 ];
@@ -264,7 +264,7 @@ export function DocumentMatrix({
       });
     }
 
-    if (!schemas.length) schemas.push({ field: row.field, label: "saved answer fields" });
+    if (!schemas.length) schemas.push({ field: row.field, label: "Saved answer fields" });
     setReferenceEditor({
       row,
       from,
@@ -392,7 +392,7 @@ export function DocumentMatrix({
               if (!cell.match)
                 paragraphs.push(
                   <p key={paragraphs.length}>
-                    Row {cell.row} · {cell.column}: {display(cell.actual)} → Expected {display(cell.expected)}
+                    Row {cell.row} · {cell.column}: {display(cell.actual)} → expected {display(cell.expected)}
                   </p>,
                 );
 
@@ -444,7 +444,7 @@ export function DocumentMatrix({
     candidate.detailState === "loading"
       ? "Loading result…"
       : candidate.detailState === "unavailable"
-        ? "Details unavailable · rerun"
+        ? "Details unavailable · run again"
         : candidateBusy(candidate)
           ? "Running…"
           : "Run to compare";
@@ -472,7 +472,7 @@ export function DocumentMatrix({
             <thead>
               <tr>
                 <th className="evaluation-field-col">Field</th>
-                <th className="evaluation-expected-col">Expected</th>
+                <th className="evaluation-expected-col">Expected answer</th>
                 {candidates.map((candidate, index) => {
                   const score = scores[candidate.id];
                   const accuracy = candidateAccuracy(score);
@@ -565,8 +565,8 @@ export function DocumentMatrix({
                       {row.omitted && references[row.identity]?.verified && (
                         <small className="evaluation-muted evaluation-block">
                           {template
-                            ? "Removed from the Template draft · saved answer kept"
-                            : "Saved answer not requested by any candidate · shown in coverage"}
+                            ? "Removed from the template draft · saved answer kept"
+                            : "Not requested by any candidate · saved answer kept"}
                         </small>
                       )}
                       {row.omitted && references[row.identity]?.verified && (
@@ -578,9 +578,9 @@ export function DocumentMatrix({
                       )}
                       {row.omitted && (
                         <Button variant="danger-text" className="evaluation-compare-link"
-                          aria-label={`Remove expected answer for ${row.field.name}`}
+                          aria-label={`Delete expected answer for ${row.field.name}`}
                           onClick={() => evaluation.removeReference(document.key, row.identity)}>
-                          Remove expected answer
+                          Delete answer
                         </Button>
                       )}
                       {!row.omitted && !from && saved[row.identity] && changes.has(row.identity) && (
@@ -661,7 +661,7 @@ export function DocumentMatrix({
                 <tr>
                   <td colSpan={template ? 2 : 3 + candidates.length} className="evaluation-empty-row">
                     {template && !allRows.length
-                      ? "No saved fields. Use Edit Template to add fields."
+                      ? "No saved fields. Use Edit template to add fields."
                       : "No fields match this filter."}
                   </td>
                 </tr>
@@ -690,20 +690,18 @@ export function DocumentMatrix({
                     scores[inspected.candidate.id].byField[inspected.row.candidates[inspected.candidate.id].id]
                       ?.state !== "Match" && (
                       <Button onClick={() => acceptAnswer(inspected.row, inspected.candidate)}>
-                        {references[inspected.row.identity]?.verified
-                          ? "Replace expected with this answer"
-                          : "Use as expected answer"}
+                        Use as expected answer
                       </Button>
                     )}
                   <Button variant="secondary"
                     onClick={() => reference(inspected.row, inspected.candidate)}
                   >
-                    Review as expected answer
+                    Review before using
                   </Button>
                 </div>
               </section>
               <section>
-                <h3>Expected</h3>
+                <h3>Expected answer</h3>
                 <p className="evaluation-inspector-value">
                   {references[inspected.row.identity]?.verified ? (
                     references[inspected.row.identity].absent ? (

@@ -252,7 +252,7 @@ describe("stable app navigation", () => {
     await userEvent.click(screen.getByRole("button", { name: "More actions" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Delete document" }));
     await userEvent.click(await screen.findByRole("button", { name: "Delete document" }));
-    await screen.findByText(/This Document is unavailable/);
+    await screen.findByText(/This document is unavailable/);
     expect(window.location.pathname).toBe("/workspaces/a/documents/first");
     await userEvent.click(screen.getByRole("button", { name: "Back to Documents" }));
     await screen.findByText("Value second");
@@ -290,7 +290,7 @@ describe("stable app navigation", () => {
 
   it("does not load product data for an inaccessible explicit Workspace", async () => {
     open("/workspaces/private/documents/secret");
-    await screen.findByText(/Workspace or invitation is unavailable/);
+    await screen.findByText(/workspace or invitation is unavailable/);
     expect(globalThis.fetch.mock.calls.some(([path]) => /\/v1\/(jobs|templates)/.test(path))).toBe(false);
     expect(window.location.pathname).toBe("/workspaces/private/documents/secret");
     expect(JSON.parse(localStorage.getItem("documentextraction.workspace.v1")).workspaceId).toBe("a");
@@ -306,7 +306,7 @@ describe("stable app navigation", () => {
       failed && path === "/v1/workspaces" ? response({ error: "unavailable" }, 503) : fetch(path, options),
     );
     open("/workspaces/b/templates/two");
-    await screen.findByText("Workspace could not be loaded. Try again.");
+    await screen.findByText("Couldn't load workspace. Try again.");
     failed = false;
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.getByLabelText("Template name").value).toBe("Template two"));

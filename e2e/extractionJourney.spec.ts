@@ -35,13 +35,13 @@ test("a new user completes a Document Extraction job without email verification 
     harness = await startRuntimeHarness();
     await submitSignUp(page, harness, ACCOUNT);
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
-    await expect(page.getByText("Open your local verification link.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Verify your account", { exact: true })).toHaveCount(0);
     expect(await readdir(join(harness.stateDirectory, "mail"))).toEqual([]);
 
     await saveModelGateway(page, harness, "browser/model");
     await expect(page.getByLabel("Gateway API key", { exact: true })).toHaveCount(0);
     await expect(
-      page.getByRole("article", { name: "Workspace Model gateway" }).getByText("browser/model", { exact: true }),
+      page.getByRole("article", { name: "Model gateway" }).getByText("browser/model", { exact: true }),
     ).toBeVisible();
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
@@ -58,7 +58,7 @@ test("a new user completes a Document Extraction job without email verification 
       (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
     );
 
-    await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
+    await templateDialog.getByRole("button", { name: "Save JSON" }).click();
     const createdResponse = await templateCreated;
     expect(createdResponse.status()).toBe(201);
     const { template_id: templateId } = await createdResponse.json();
@@ -90,9 +90,9 @@ test("a new user completes a Document Extraction job without email verification 
       (response) => new URL(response.url()).pathname === "/v1/extract" && response.request().method() === "POST",
     );
 
-    await uploadDialog.getByRole("button", { name: "Upload Documents" }).click();
+    await uploadDialog.getByRole("button", { name: "Upload documents" }).click();
     expect((await extractionQueued).status()).toBe(202);
-    await expect(uploadDialog.getByText("Success", { exact: true })).toBeVisible();
+    await expect(uploadDialog.getByText("Queued", { exact: true })).toBeVisible();
     await uploadDialog.getByRole("button", { name: "Cancel" }).click();
 
     await navigation.getByRole("link", { name: /Documents/ }).click();

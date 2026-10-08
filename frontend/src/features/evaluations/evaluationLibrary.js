@@ -126,17 +126,17 @@ export function summaryCompatibility(summary, fields) {
 }
 
 export const SAVE_UNAVAILABLE = {
-  storage_unconfigured: "Saving needs original-document storage, which isn’t configured for this installation.",
+  storage_unconfigured: "Saving isn’t available right now.",
   retention_disabled:
-    "Saving needs original-document retention. An owner or admin can turn it on in Workspace settings.",
-  workspace_opted_out: "This Workspace doesn’t keep original documents, so documents can’t be saved to the library.",
+    "Saving needs original documents to be kept. An owner or admin can turn this on from the Workspaces page.",
+  workspace_opted_out: "This workspace doesn’t keep original documents, so they can’t be saved to the library.",
 };
 
 // Unknown status (still loading) doesn't block; the server enforces save eligibility at acceptance.
 export const saveUnavailableMessage = (status) =>
   !status || status.save_available
     ? ""
-    : SAVE_UNAVAILABLE[status?.reason] || "Saving to the Evaluation library is unavailable right now.";
+    : SAVE_UNAVAILABLE[status?.reason] || "Saving to the evaluation library isn’t available right now.";
 
 const json = (body) => ({
   method: "POST",
@@ -209,7 +209,7 @@ export const newerAvailable = (document) => document.newerRevision > (document.l
 
 export const unavailableText = (document) =>
   document.availability === "deleted"
-    ? "Deleted from the library. It can’t run again; results already shown stay visible."
+    ? "Deleted from the library. It can’t run again."
     : document.availability === "missing"
       ? "The saved original is missing, so it can’t run. Its answers are kept."
       : "The saved original can’t be read right now, so it won’t run. Other documents still run.";
@@ -227,8 +227,8 @@ export function documentChips(document, fields) {
           ? ["danger", "Save failed · still in this tab"]
           : ["warning", "Not saved · this tab only"],
     );
-  else if (document.availability === "deleted") chips.push(["danger", "Deleted from library"]);
-  else if (documentDirty(document)) chips.push(["warning", "Local changes"]);
+  else if (document.availability === "deleted") chips.push(["danger", "Deleted"]);
+  else if (documentDirty(document)) chips.push(["warning", "Unsaved changes"]);
   else chips.push(["success", newerAvailable(document) ? "Saved · newer version available" : "Saved"]);
 
   if (["missing", "unavailable"].includes(document.availability)) chips.push(["danger", "Original unavailable"]);

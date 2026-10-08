@@ -176,32 +176,21 @@ describe("Template generation", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     // The sample is a draft, so Escape asks before discarding it.
     await userEvent.click(await screen.findByRole("button", { name: "Keep editing" }));
-    expect(screen.getByRole("dialog", { name: "Auto generate template" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Auto-generate template" })).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await userEvent.click(await screen.findByRole("button", { name: "Discard" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
 
-it("rotates generation messages and clears the timer when generation stops", () => {
-  vi.useFakeTimers();
+it("shows one generating status while generation runs and removes it when generation stops", () => {
   const props = { isOpen: true, file, instructions: "", isGenerating: true, hasApiAccess: true, onClose: vi.fn() };
   const view = render(<TemplateGenerationModal {...props} />);
 
-  try {
-    expect(screen.getByText("Combobulating response…")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(2800));
-    expect(screen.getByText("Consulting the schema sprites…")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Cancel" }).disabled).toBe(false);
-    view.rerender(<TemplateGenerationModal {...props} isGenerating={false} />);
-    expect(screen.queryByRole("status")).toBeNull();
-    expect(vi.getTimerCount()).toBe(0);
-    view.rerender(<TemplateGenerationModal {...props} />);
-    expect(screen.getByText("Combobulating response…")).toBeTruthy();
-  } finally {
-    view.unmount();
-    vi.useRealTimers();
-  }
+  expect(screen.getByRole("status").textContent).toBe("Generating template…");
+  expect(screen.getByRole("button", { name: "Cancel" }).disabled).toBe(false);
+  view.rerender(<TemplateGenerationModal {...props} isGenerating={false} />);
+  expect(screen.queryByRole("status")).toBeNull();
 });
 
 it("accepts a dropped sample, rejects multiple samples, and locks uploads during generation", () => {

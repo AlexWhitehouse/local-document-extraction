@@ -29,7 +29,7 @@ export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, h
 
   // An empty Workspace is explained by the list's own empty state, so the body stays blank.
   if (!selectedDocument)
-    return hasDocuments ? <p className="studio-empty-state">Select an uploaded document to see its results.</p> : null;
+    return hasDocuments ? <p className="studio-empty-state">Select or upload a document.</p> : null;
 
   return <DocumentDetail {...detail} selectedDocument={selectedDocument} />;
 }
@@ -132,7 +132,7 @@ function DocumentDetail({
         <div className="packet-message is-error">
           <p role="alert">{documentError}</p>
           <Button variant="secondary" onClick={onRetryDocument}>
-            Retry document
+            Try again
           </Button>
         </div>
       ) : (
@@ -329,7 +329,7 @@ function TemplateHold({ job, templates, onResolve, busy }) {
       <h3>Choose a template to continue</h3>
       <p>
         {job.selection_reason ||
-          "Automatic selection could not identify a suitable template. Select a template to continue with the uploaded document."}
+          "Automatic selection couldn't find a matching template. Select one to continue."}
       </p>
       {job.template_tags?.length ? <p>Requested tags: {job.template_tags.join(", ")}</p> : null}
       <form

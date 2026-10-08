@@ -149,7 +149,7 @@ describe("DocumentContextList", () => {
     const row = within(container).getByRole("listitem");
     expect(row.classList.contains("context-item-packet")).toBe(true);
     expect(row.classList.contains("status-warning")).toBe(true);
-    expect(within(row).getByText("2 documents · Template needed")).toBeTruthy();
+    expect(within(row).getByText("2 documents · Needs template")).toBeTruthy();
   });
 
   it("keeps virtualised rows at the natural row height", () => {

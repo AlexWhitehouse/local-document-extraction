@@ -188,7 +188,7 @@ export function EvaluationsPage({
 
       if (runNow) setAutoRun(ids);
     } catch (error) {
-      if (owner === lifetime.current) setLocalError(describeError(error, "The evaluation couldn’t be started. Try again."));
+      if (owner === lifetime.current) setLocalError(describeError(error, "Couldn’t start the evaluation. Try again."));
     }
   };
 
@@ -204,9 +204,9 @@ export function EvaluationsPage({
 
           return tested && tested.revision !== candidate.revision;
         })
-          ? "These current edits have not been tested. Saving creates a new Template."
+          ? "These edits haven’t been run yet. Saving creates a new template."
           : save
-            ? "Creates a new Template from the current draft."
+            ? "Creates a new template from the current draft."
             : "Changes apply to the draft. Run again to test them.",
     });
 
@@ -284,12 +284,12 @@ export function EvaluationsPage({
     inputs: { shared: state.mode === "templates" },
     onInputChange: (key, value) => setInput(candidate, key, value),
     actions: [
-      { label: "Edit Template", onClick: () => openEditor(candidate) },
+      { label: "Edit template", onClick: () => openEditor(candidate) },
       state.mode === "templates" && {
-        label: "Choose another Template/version",
+        label: "Choose another template version",
         onClick: () => setReplacement({ candidateId: candidate.id, source: candidate.template.source }),
       },
-      { label: "Save as new Template", onClick: () => openEditor(candidate, true) },
+      { label: "Save as new template", onClick: () => openEditor(candidate, true) },
       {
         label: "Duplicate candidate",
         disabled: state.candidates.length >= MAX_CANDIDATES,
@@ -305,7 +305,7 @@ export function EvaluationsPage({
   });
 
   const runFor = (candidate, index) => ({
-    label: `Run Candidate ${index + 1}`,
+    label: `Run candidate ${index + 1}`,
     title: batch ? "Run candidate on this document" : "Run candidate",
     disabled:
       pairBusy(state.pairs[document.key]?.[candidate.id]) ||
@@ -341,13 +341,13 @@ export function EvaluationsPage({
         label="Evaluations"
         breadcrumbs={[workspaceCrumb, { label: "Evaluations" }].filter(Boolean)}
         title="Evaluations"
-        description="Compare candidates on one or more documents. Runs and results are temporary and clear when you close this tab; saved documents and their answers stay in the Workspace library."
+        description="Compare models or template versions on your documents."
         actions={
           <>
             {editingLibrary && (
               <>
                 <Button variant="secondary" onClick={() => patch({ libraryEditor: null })}>
-                  Back to Evaluation
+                  Back to evaluation
                 </Button>
                 <Button variant="secondary" onClick={() => open("manage")}>
                   Manage library
@@ -355,13 +355,13 @@ export function EvaluationsPage({
               </>
             )}
             <Button variant="secondary" onClick={() => open("clear")}>
-              Clear Evaluation{unsaved ? ` · ${unsaved} unsaved` : ""}
+              Clear evaluation{unsaved ? ` · ${unsaved} unsaved` : ""}
             </Button>
             {!editingLibrary && (
               <Button
                 disabled={runDisabled}
                 onClick={() => evaluation.run(state.candidates.map((c) => c.id))}
-              >{`Run all${state.candidates.length ? ` (${pluralize(state.candidates.length, "candidate")}${batch ? ` × ${pluralize(runnable.length, "document")}` : ""})` : ""}`}</Button>
+              >{`Run all${state.candidates.length ? ` (${pluralize(state.candidates.length, "candidate")}${batch ? `, ${pluralize(runnable.length, "document")}` : ""})` : ""}`}</Button>
             )}
           </>
         }
@@ -370,20 +370,19 @@ export function EvaluationsPage({
         <Callout
           tone="danger"
           role="alert"
-          title="Result details couldn’t be kept in this browser."
+          title="Results can’t be saved in this browser."
           action={
             <>
               <Button variant="text" onClick={() => evaluation.retryCache()}>
-                Retry storage
+                Try again
               </Button>
               <Button variant="danger-text" onClick={() => open("clear")}>
-                Clear Evaluation
+                Clear evaluation
               </Button>
             </>
           }
         >
-          {state.cacheError.message} New runs are paused; results already shown are kept, and results whose details are
-          missing can’t be scored.
+          Runs are paused. Results already shown are kept.
         </Callout>
       )}
       {!state.candidates.length && !editingLibrary ? (
@@ -487,7 +486,7 @@ export function EvaluationsPage({
                   <Button variant="text"
                     onClick={() => setReplacement({ documentKey: document.key, source: template.source })}
                   >
-                    Choose Template/version
+                    Choose template version
                   </Button>
                   <Button variant="text"
                     onClick={() =>
@@ -496,24 +495,24 @@ export function EvaluationsPage({
                         documentKey: document.key,
                         initial: template,
                         notice: template.source
-                          ? "Saves changes to the selected Workspace Template. Changed fields become its latest version and are used here immediately. Review the Expected answers, then use Update saved answers to save them."
-                          : "Changes apply to this document’s draft. Choose a Template/version to edit a saved Workspace Template. Review the Expected answers, then use Update saved answers to save them.",
+                          ? "Saves a new version of this template."
+                          : "Changes apply to this document’s draft. Choose a template version to edit a saved template.",
                       })
                     }
                   >
-                    Edit Template
+                    Edit template
                   </Button>
                 </span>
               </div>
             ) : state.mode === "models" ? (
               <div className="evaluation-context-item">
-                <small>Shared Template</small>
+                <small>Shared template</small>
                 <span className="evaluation-context-value" title={templateLabel(template)}>
                   {templateLabel(template)} · {fields.length} {fields.length === 1 ? "field" : "fields"}
                 </span>
                 <span className="evaluation-context-actions">
                   <Button variant="text" onClick={() => openEditor(state.candidates[0])}>
-                    Edit shared Template
+                    Edit shared template
                   </Button>
                 </span>
               </div>
@@ -555,7 +554,7 @@ export function EvaluationsPage({
             <div className="evaluation-toolbar-row">
               <FieldFilters value={filter} onChange={setFilter} editing={editingLibrary} />
               {batch && (
-                <nav className="evaluation-doc-nav" aria-label="Documents in this Evaluation">
+                <nav className="evaluation-doc-nav" aria-label="Documents in this evaluation">
                   <Button variant="secondary" onClick={() => step(-1)}>
                     Previous
                   </Button>
@@ -596,7 +595,6 @@ export function EvaluationsPage({
                 </span>
                 <div>
                   <strong>Add a document to compare</strong>
-                  <small>Choose saved documents or upload new ones. Candidates run on every document.</small>
                 </div>
                 <span className="evaluation-actions">
                   <Button onClick={() => open("picker")}>Library</Button>
@@ -643,13 +641,8 @@ export function EvaluationsPage({
           key={`${state.id}:${replacement.documentKey || replacement.candidateId}`}
           templates={templates}
           source={replacement.source}
-          title={replacement.documentKey ? "Choose Template/version" : "Choose candidate Template"}
-          description={
-            replacement.documentKey
-              ? "Load fields into this document’s draft and review changes against its Expected answers. Use Update saved answers to save your reviewed answers to the library."
-              : undefined
-          }
-          action={replacement.documentKey ? "Use Template version" : "Replace candidate Template"}
+          title={replacement.documentKey ? "Choose template version" : "Choose candidate template"}
+          action={replacement.documentKey ? "Use template version" : "Replace candidate template"}
           loadTemplate={loadTemplate}
           onSelect={(selected) => {
             if (replacement.documentKey) {
@@ -664,8 +657,8 @@ export function EvaluationsPage({
         <TemplateEditorModal
           key={`${editor.candidateId}:${editor.save}`}
           {...editor}
-          title={editor.save ? "Save as new Template" : "Edit Template"}
-          action={editor.save ? "Save new Template" : editor.documentKey && editor.initial.source ? "Save Template" : "Apply changes"}
+          title={editor.save ? "Save as new template" : "Edit template"}
+          action={editor.save ? "Save new template" : editor.documentKey && editor.initial.source ? "Save template" : "Apply changes"}
           onSubmit={applyTemplate}
           onClose={() => setEditor(null)}
         />

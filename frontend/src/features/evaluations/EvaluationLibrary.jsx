@@ -119,7 +119,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
               )}
               <th>Document</th>
               <th>Expected answers</th>
-              <th>{fields.length ? "With this Template" : "Fields"}</th>
+              <th>{fields.length ? "With this template" : "Fields"}</th>
               <th>Updated</th>
               {actions && (
                 <th>
@@ -133,7 +133,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
               const compatibility = summaryCompatibility(entry, fields),
                 inBatch = inEvaluation(entry.id);
 
-              const sourceLabel = `${entry.source_name} · ${kilobytes(entry.byte_size)}${entry.page_count ? ` · ${entry.page_count} ${entry.page_count === 1 ? "page" : "pages"}` : ""}${inBatch ? " · in this Evaluation" : ""}`;
+              const sourceLabel = `${entry.source_name} · ${kilobytes(entry.byte_size)}${entry.page_count ? ` · ${entry.page_count} ${entry.page_count === 1 ? "page" : "pages"}` : ""}${inBatch ? " · in this evaluation" : ""}`;
               const updated = updatedLabel(entry);
 
               return (
@@ -182,7 +182,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
                     {compatibility.omitted?.length > 0 && (
                       <small className="evaluation-muted">
                         {compatibility.omitted.length} saved {compatibility.omitted.length === 1 ? "answer" : "answers"}{" "}
-                        not in this Template
+                        not in this template
                       </small>
                     )}
                   </td>
@@ -209,7 +209,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
                   message={
                     list.query
                       ? "No saved documents match."
-                      : "No saved documents yet. Save an uploaded document from an Evaluation to reuse it."
+                      : "No saved documents yet. Save an uploaded document from an evaluation to reuse it."
                   }
                 />
               ))}
@@ -238,7 +238,7 @@ function LibraryModal({ label, description, onClose, children, footer }) {
       <header className="evaluation-library-head">
         <div>
           <h2>Evaluation library</h2>
-          <p>{description}</p>
+          {description && <p>{description}</p>}
         </div>
         <IconButton size="sm" label="Close library" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </header>
@@ -270,7 +270,6 @@ export function LibraryPicker({ evaluation, fields, onClose }) {
   return (
     <LibraryModal
       label="Evaluation library"
-      description="Select saved documents to compare. Their saved expected answers will be included."
       onClose={onClose}
       footer={
         <>
@@ -370,7 +369,7 @@ export function ManageLibrary({ evaluation, fields, onClose, notify }) {
   const remove = (entry) =>
     confirmDialog({
       title: `Delete "${entry.name}"?`,
-      body: "Its original and expected answers are removed for everyone in this Workspace. This can't be undone.",
+      body: "Its original and expected answers are removed for everyone in this workspace. This can't be undone.",
       confirmLabel: "Delete document",
       pendingLabel: "Deleting…",
       action: async () => {
@@ -473,7 +472,6 @@ export function ManageLibrary({ evaluation, fields, onClose, notify }) {
   return (
     <LibraryModal
       label="Manage library"
-      description="Edit saved fields and Expected answers without running a model, or rename and delete documents shared with this Workspace."
       onClose={onClose}
       footer={
         <>
@@ -513,14 +511,11 @@ export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {
   };
 
   return (
-    <ModalDialog label="Save to Evaluation library" className="evaluation-library-modal" onClose={onClose}>
+    <ModalDialog label="Save to evaluation library" className="evaluation-library-modal" onClose={onClose}>
       <div className="evaluation-heading">
         <div>
-          <h2>Save to Evaluation library</h2>
-          <p>
-            Saves the original file and its Expected answers for everyone in this Workspace. Candidate settings and
-            results are not saved.
-          </p>
+          <h2>Save to evaluation library</h2>
+          <p>Shared with everyone in this workspace.</p>
         </div>
         <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
@@ -532,8 +527,7 @@ export function SaveDialog({ evaluation, document, fields, onClose, onSaved }) {
         {compatibility.verified
           ? `${compatibility.verified} of ${compatibility.total} answers verified`
           : "No verified answers yet"}
-        .{compatibility.verified < compatibility.total ? " You can finish verifying later." : ""} Saving never verifies
-        an answer.
+        .
       </p>
       {unavailable && <p className="evaluation-warn-text">{unavailable}</p>}
       {document.save === "failed" && (
@@ -627,7 +621,7 @@ export function UpdateReview({ evaluation, document, onClose, onDone }) {
           <p>
             {conflict
               ? `${conflict.document.updated_by_name || "Someone"} updated “${conflict.document.name}”. Your changes were not saved. Review both before choosing.`
-              : `Replaces the Workspace copy of “${document.entry.name}” for everyone. Candidate settings and results are not saved.`}
+              : `Replaces the workspace copy of “${document.entry.name}” for everyone.`}
           </p>
         </div>
         <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
@@ -712,11 +706,11 @@ export function ClearDialog({ evaluation, onClose }) {
     dirty = documents.filter(documentDirty);
 
   return (
-    <ModalDialog label="Clear Evaluation" className="evaluation-library-modal" onClose={onClose}>
+    <ModalDialog label="Clear evaluation" className="evaluation-library-modal" onClose={onClose}>
       <div className="evaluation-heading">
         <div>
-          <h2>Clear this Evaluation?</h2>
-          <p>Candidate drafts and results always clear. These inputs are also only in this tab:</p>
+          <h2>Clear this evaluation?</h2>
+          <p>This will also discard:</p>
         </div>
         <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
@@ -731,7 +725,7 @@ export function ClearDialog({ evaluation, onClose }) {
             <strong>{d.name}</strong> · answer changes not saved to the library
           </li>
         ))}
-        {!uploads.length && !dirty.length && <li>Nothing unsaved. Saved library documents stay in the library.</li>}
+        {!uploads.length && !dirty.length && <li>Nothing unsaved.</li>}
       </ul>
       <div className="actions">
         <Button variant="secondary" onClick={onClose}>
@@ -777,7 +771,7 @@ export function LinkSavedAnswer({ name, options, onLink }) {
 export function LinkedNote({ savedName, fieldName, onUnlink }) {
   return (
     <small className="evaluation-block evaluation-muted">
-      Linked to saved “{savedName}” · this Evaluation only
+      Linked to saved “{savedName}” · this evaluation only
       <Button variant="text"
         aria-label={`Unlink ${fieldName} from saved ${savedName}`}
         onClick={onUnlink}
@@ -793,7 +787,7 @@ export function ReviewPrompt({ field, definition, reference, onReview }) {
     <div className="evaluation-review">
       <span>
         {field.data_type === "array<object>" && definition?.data_type === "array<object>" ? (
-          <StatusDot tone="warning" label="Needs review · Template columns changed" />
+          <StatusDot tone="warning" label="Needs review · template columns changed" />
         ) : (
           <>
             <StatusDot tone="warning" label="Needs review" />
@@ -831,7 +825,7 @@ export function DocumentBanner({ evaluation, document, notify }) {
   if (document.availability === "deleted")
     return (
       <Callout tone="danger">
-        Deleted from the Evaluation library. Results already shown stay visible in this tab, but it can’t run again.
+        Deleted from the library. It can’t run again.
       </Callout>
     );
 
@@ -841,7 +835,7 @@ export function DocumentBanner({ evaluation, document, notify }) {
         tone="danger"
         action={
           <Button variant="text" disabled={retrying} onClick={retry}>
-            {retrying ? "Checking…" : "Retry original"}
+            {retrying ? "Checking…" : "Try again"}
           </Button>
         }
       >
@@ -864,7 +858,7 @@ export function DocumentBanner({ evaluation, document, notify }) {
           </Button>
         }
       >
-        The saved answers were updated since you loaded them. This Evaluation keeps the copy you loaded.
+        Saved answers were updated since you loaded them.
       </Callout>
     );
 

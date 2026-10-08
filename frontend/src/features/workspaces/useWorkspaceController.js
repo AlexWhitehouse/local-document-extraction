@@ -18,7 +18,7 @@ import {
 
 const WORKSPACE_STORAGE_KEY = "documentextraction.workspace.v1";
 
-const NEW_WORKSPACE_NAME = "New Workspace";
+const NEW_WORKSPACE_NAME = "New workspace";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -640,7 +640,7 @@ export function useWorkspaceController({
       setInviteEmail("");
       void listWorkspaceInvitations(normalizedWorkspaceId);
     } catch (error) {
-      setInviteError(describeError(error, "Workspace invitation could not be created. Please try again."));
+      setInviteError(describeError(error, "Couldn't send the invitation. Try again."));
     } finally {
       setIsInvitingUser(false);
     }
@@ -994,9 +994,7 @@ export function useWorkspaceController({
       isWorkspaceNameDirty,
       onSaveWorkspaceChanges: saveWorkspaceChanges,
       apiKey,
-      workspaceApiKeyHint: selectedWorkspaceHasApiKey
-        ? "Rotate the API key to view it again."
-        : "Generate an API key to view it.",
+      workspaceApiKeyHint: selectedWorkspaceHasApiKey ? "Keys are shown once. Rotate to get a new one." : "",
       onCopyVisibleWorkspaceApiKey: copyVisibleWorkspaceApiKey,
       isIssuingApiKey,
       canRotateWorkspaceApiKey,

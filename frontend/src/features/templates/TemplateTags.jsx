@@ -99,7 +99,7 @@ export function TemplateTags({
 
     const confirmed = await confirmDialog({
       title: `Delete tag "${tag.name}"?`,
-      body: `Removes it from ${count} template${count === 1 ? "" : "s"}. The templates are kept. This can't be undone.`,
+      body: `It will be removed from ${count} template${count === 1 ? "" : "s"}. This can't be undone.`,
       confirmLabel: "Delete tag",
       pendingLabel: "Deleting…",
     });
@@ -165,8 +165,8 @@ export function TemplateTags({
       >
         <div className="template-tags-popup-head">
           <div>
-            <span className="eyebrow">{managing ? "Shared across this Workspace" : "This template"}</span>
-            <strong>{managing ? "Manage template tags" : "Template tags"}</strong>
+            {managing ? <span className="eyebrow">Shared across this workspace</span> : null}
+            <strong>{managing ? "Manage tags" : "Template tags"}</strong>
           </div>
           <IconButton
             label="Close template tags"
@@ -179,7 +179,7 @@ export function TemplateTags({
           <div className="template-tags-error" role="alert">
             <span>{error}</span>
             <Button type="button" variant="text" disabled={busy} onClick={onReload}>
-              Retry tags
+              Try again
             </Button>
           </div>
         ) : null}
@@ -190,10 +190,9 @@ export function TemplateTags({
         ) : null}
         {managing ? (
           <>
-            <p className="template-tags-note">Renaming or deleting a tag updates all templates immediately.</p>
             <div className="template-tags-list">
               {!tags.length && !isLoading ? (
-                <p className="template-tags-empty">No shared tags yet. Create a tag and save its template first.</p>
+                <p className="template-tags-empty">No tags yet.</p>
               ) : null}
               {tags.map((tag) =>
                 editing?.id === tag.id ? (
@@ -265,11 +264,10 @@ export function TemplateTags({
                 type="button"
                 variant="text"
                 disabled={busy}
-                aria-label="Back to tag selection"
                 onClick={back}
               >
                 <ChevronLeftIcon />
-                Back
+                Back to tags
               </Button>
             </div>
           </>
@@ -340,7 +338,6 @@ export function TemplateTags({
               ) : null}
             </div>
             <div className="template-tags-footer">
-              <span>Saved with this template.</span>
               <Button
                 type="button"
                 variant="text"

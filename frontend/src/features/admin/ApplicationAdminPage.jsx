@@ -16,10 +16,10 @@ export function ApplicationAdminPage({ admin, breadcrumbs = [] }) {
   return (
     <>
       <PageHeader
-        label="Admin accounts"
+        label="Admin"
         breadcrumbs={breadcrumbs}
-        title={user ? displayName(user) : "Application admin"}
-        description={user ? safeText(user.email) : "Application-wide accounts, managed separately from Workspace access."}
+        title={user ? displayName(user) : "Admin"}
+        description={user ? safeText(user.email) : "Manage accounts across every workspace."}
         actions={
           <>
             {isCurrentUser ? <Badge tone="success">Your account</Badge> : null}
@@ -45,7 +45,6 @@ export function ApplicationAdminPage({ admin, breadcrumbs = [] }) {
             <div className="studio-section-heading">
               <div>
                 <h2>Account details</h2>
-                <p>How this person signs in to Studio.</p>
               </div>
             </div>
             <dl className="studio-workspace-facts">
@@ -216,7 +215,7 @@ function BanUserDialog({ admin, user }) {
         closeDisabled={pending}
       />
       <form className="admin-user-action-form" onSubmit={admin.onConfirmBan}>
-        {isApplicationAdmin(user) ? <p className="form-warning">You are banning another Application admin.</p> : null}
+        {isApplicationAdmin(user) ? <p className="form-warning">You're banning another application admin.</p> : null}
         <Field label="Reason" error={admin.banReasonError}>
           <Textarea
             value={admin.banReason}

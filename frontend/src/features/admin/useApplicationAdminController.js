@@ -81,7 +81,7 @@ export function useApplicationAdminController({
         }
 
         if (result?.error) {
-          throw new Error(result.error.message || "Unable to load users.");
+          throw new Error(result.error.message || "Couldn't load users.");
         }
 
         const data = result?.data || {};
@@ -94,7 +94,7 @@ export function useApplicationAdminController({
 
         setUsers([]);
         setTotal(0);
-        setListError(describeError(error, "Unable to load users."));
+        setListError(describeError(error, "Couldn't load users."));
       } finally {
         if (isCurrent) {
           setIsLoading(false);
@@ -158,8 +158,8 @@ export function useApplicationAdminController({
 
     await confirmDialog({
       title: removing
-        ? `Remove Application admin access from ${email}?`
-        : `Make ${email} an Application admin?`,
+        ? `Remove application admin access from ${email}?`
+        : `Make ${email} an application admin?`,
       body: removing
         ? "This revokes application-wide account management access."
         : "This grants application-wide account management access.",
@@ -171,7 +171,7 @@ export function useApplicationAdminController({
           user,
           "applicationRole.change",
           (userId) => authClient.admin.setRole({ userId, role }),
-          "Unable to update application role.",
+          "Couldn't update application role.",
           { inline: true },
         ),
     });
@@ -203,7 +203,7 @@ export function useApplicationAdminController({
       banDialogUser,
       "applicationUser.ban",
       (userId) => authClient.admin.banUser({ userId, banReason: reason }),
-      "Unable to ban user.",
+      "Couldn't ban user.",
     );
 
     if (banned) closeBanDialog();
@@ -214,7 +214,7 @@ export function useApplicationAdminController({
       unbanDialogUser,
       "applicationUser.unban",
       (userId) => authClient.admin.unbanUser({ userId }),
-      "Unable to unban user.",
+      "Couldn't unban user.",
     );
 
     if (unbanned) setUnbanDialogUser(null);
@@ -247,7 +247,7 @@ export function useApplicationAdminController({
       const result = await authClient.admin.impersonateUser({ userId });
 
       if (result?.error) {
-        throw new Error(result.error.message || "Unable to start impersonation.");
+        throw new Error(result.error.message || "Couldn't start impersonation.");
       }
 
       onImpersonationStarted?.();

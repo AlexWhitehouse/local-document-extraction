@@ -69,32 +69,25 @@ export function AuthScreen({
             <h1>Studio</h1>
             <p>
               {isSignIn
-                ? "Welcome back. Sign in to continue working in your workspace."
+                ? "Sign in to continue."
                 : isResetRequest
-                  ? "Enter your account email and we will send a password reset link."
-                  : "Create your account to start extracting structured data from documents."}
+                  ? "We'll email you a reset link."
+                  : "Create an account to start extracting data from documents."}
             </p>
-          </div>
-
-          <div className="status-strip auth-status-strip">
-            <span className="status-chip good">Secure auth</span>
-            <span className="status-chip">Workspace-ready</span>
           </div>
 
           {accountVerificationPromptEmail ? (
             <div className="panel auth-verification-prompt" role="status">
-              <h2>{localMail ? "Open your local verification link." : "Check your email to verify your account."}</h2>
+              <h2>{localMail ? "Verify your account" : "Check your email to verify your account"}</h2>
               <p>
                 {localMail ? (
                   <>
-                    A verification link for <b>{accountVerificationPromptEmail}</b> was saved on the computer running
-                    this app. Open the link printed in the server terminal, or run <code>document-extraction mail</code>{" "}
-                    after an installer setup. Manual installs save messages under{" "}
-                    <code>DOCUMENT_EXTRACTION_STATE_DIR/mail</code> (default <code>.local/mail</code>).
+                    We saved a verification link for <b>{accountVerificationPromptEmail}</b> on this computer. Run{" "}
+                    <code>document-extraction mail</code> to open it.
                   </>
                 ) : (
                   <>
-                    We sent an Account verification link to <b>{accountVerificationPromptEmail}</b>. Open it to finish
+                    We sent an account verification link to <b>{accountVerificationPromptEmail}</b>. Open it to finish
                     setting up your account.
                   </>
                 )}
@@ -105,12 +98,18 @@ export function AuthScreen({
             </div>
           ) : accountPasswordResetRequestedEmail ? (
             <div className="panel auth-verification-prompt" role="status">
-              <h2>{localMail ? "Check local mail" : "Check your email"}</h2>
+              <h2>{localMail ? "Check your mail" : "Check your email"}</h2>
               <p>
-                If an account exists for <b>{accountPasswordResetRequestedEmail}</b>, a reset link has{" "}
-                {localMail
-                  ? "been saved in the server terminal and local mail capture. Run document-extraction mail after an installer setup, or inspect your state directory's mail folder."
-                  : "been sent."}
+                {localMail ? (
+                  <>
+                    If an account exists for <b>{accountPasswordResetRequestedEmail}</b>, we saved a reset link on this
+                    computer. Run <code>document-extraction mail</code> to open it.
+                  </>
+                ) : (
+                  <>
+                    If an account exists for <b>{accountPasswordResetRequestedEmail}</b>, we sent a reset link.
+                  </>
+                )}
               </p>
               <Button className="auth-primary-action" disabled={isAuthPending} onClick={() => onSwitchMode("signin")}>
                 Back to sign in
@@ -119,13 +118,7 @@ export function AuthScreen({
           ) : (
             <form className="panel auth-panel" onSubmit={onSubmit} noValidate>
               <h2>{formTitle}</h2>
-              <p className="muted">
-                {!emailPasswordEnabled
-                  ? "Use your identity provider to continue."
-                  : isResetRequest
-                    ? "If an account exists for that email, a reset link will be sent."
-                    : "Sign in first, then create or select a workspace."}
-              </p>
+              {emailPasswordEnabled ? null : <p className="muted">Use your identity provider to continue.</p>}
               {emailPasswordEnabled ? (
                 <>
                   <div className={isSignUp ? "row two-up auth-form-grid" : "row auth-form-grid"}>

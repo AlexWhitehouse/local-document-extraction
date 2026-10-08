@@ -485,7 +485,7 @@ it("sends saved entries by identity and handles deletion and missing originals p
     send(streams[0], {
       type: "failure",
       code: "document_deleted",
-      message: "Deleted from the Evaluation library.",
+      message: "Deleted from the library.",
       candidateId: streams[0].evaluation.candidates[1].id,
       revision: 0,
       attempt: 1,

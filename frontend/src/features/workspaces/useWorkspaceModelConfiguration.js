@@ -18,7 +18,7 @@ const emptyDraft = () => ({
   classification_supports_structured_output: false,
 });
 
-const invalidDraftMessage = "Enter a valid HTTP(S) gateway URL, model names, and a new credential when required.";
+const invalidDraftMessage = "Enter a valid gateway URL, model names and API key.";
 
 const draftFrom = (record) => {
   if (!record?.configured) return emptyDraft();
@@ -138,7 +138,7 @@ export function useWorkspaceModelConfiguration({
               conflict: true,
               testResult: null,
               testing: false,
-              error: "Configuration changed in another session. Reload before saving; this discards your draft.",
+              error: "The gateway changed elsewhere. Reload before saving, which discards your draft.",
             };
 
           return { ...initialState(scope), record, etag, draft: draftFrom(record) };
@@ -153,7 +153,7 @@ export function useWorkspaceModelConfiguration({
             testing: false,
             testResult: null,
             record: null,
-            error: "Model configuration could not be loaded. Try again.",
+            error: "Couldn't load the model gateway. Try again.",
           }));
         }
       }
@@ -268,7 +268,7 @@ export function useWorkspaceModelConfiguration({
           conflict: error.status === 412,
           error:
             error.status === 412
-              ? "Configuration changed in another session. Reload before saving; this discards your draft."
+              ? "The gateway changed elsewhere. Reload before saving, which discards your draft."
               : "",
         }));
 
@@ -323,8 +323,8 @@ export function useWorkspaceModelConfiguration({
 
       const passedMessage =
         tested > 1
-          ? `Connection test passed for ${tested === 2 ? "both" : "all"} models in this draft. Capabilities are not tested.`
-          : "Connection test passed for this draft. Capabilities are not tested.";
+          ? `Connection test passed for ${tested === 2 ? "both" : "all"} models in this draft. Capabilities aren't checked.`
+          : "Connection test passed for this draft. Capabilities aren't checked.";
 
       if (activeScope.current === scope && draftVersion.current === version) {
         setState((previous) => ({ ...previous, testing: false, testResult: { passed: true, message: passedMessage } }));
@@ -335,12 +335,12 @@ export function useWorkspaceModelConfiguration({
           ? "the Template assistant model"
           : error.details?.model_role === "classification"
             ? "the Document classification & splitting model"
-            : "the gateway, model,";
+            : "the gateway or model";
 
       const message =
         error.status === 412
-          ? "Configuration changed. Reload before testing the saved credential."
-          : `Connection test failed. Check ${failedModel} and credential. You can still save this draft.`;
+          ? "The gateway changed. Reload before testing the saved API key."
+          : `Connection test failed. Check ${failedModel} and the API key. You can still save this draft.`;
 
       if (activeScope.current === scope && draftVersion.current === version) {
         setState((previous) => ({

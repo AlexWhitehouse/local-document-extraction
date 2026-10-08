@@ -241,8 +241,8 @@ export function RangePicker({ range, onChange }) {
           <p className="cp-muted">
             {valid
               ? draft.from === draft.to
-                ? "One day is shown by hour, in UTC."
-                : "Shown by day, in UTC."
+                ? "One day is shown by hour."
+                : "Shown by day."
               : "Choose past dates spanning no more than 366 days."}
           </p>
           <div className="cp-range-actions">

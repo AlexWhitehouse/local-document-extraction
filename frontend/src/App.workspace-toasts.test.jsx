@@ -141,9 +141,9 @@ describe("Workspace action toast feedback", () => {
     });
 
     expect(listLink(/Remaining Workspace/)).toBeTruthy();
-    expect(screen.getByText(/Workspace or invitation is unavailable/)).toBeTruthy();
+    expect(screen.getByText(/workspace or invitation is unavailable/)).toBeTruthy();
     expect(window.location.pathname).toBe("/workspaces/ws_removed");
-    expect(toastMock.success).not.toHaveBeenCalledWith("Workspace access changed. Switched to Remaining Workspace.", expect.anything());
+    expect(toastMock.success).not.toHaveBeenCalledWith("Switched to workspace: Remaining Workspace", expect.anything());
   });
 
   it("revalidates a second browser's explicit Workspace route after a live access invalidation", async () => {
@@ -197,9 +197,9 @@ describe("Workspace action toast feedback", () => {
     });
 
     expect(await screen.findAllByRole("link", { name: /Remaining Workspace/ })).toBeTruthy();
-    expect(screen.getByText(/Workspace or invitation is unavailable/)).toBeTruthy();
+    expect(screen.getByText(/workspace or invitation is unavailable/)).toBeTruthy();
     expect(window.location.pathname).toBe("/workspaces/ws_1");
-    expect(toastMock.success).not.toHaveBeenCalledWith("Workspace access changed. Switched to Remaining Workspace.", expect.anything());
+    expect(toastMock.success).not.toHaveBeenCalledWith("Switched to workspace: Remaining Workspace", expect.anything());
   });
 
   it("generates a one-time visible Workspace API key for owners without persisting the secret", async () => {
@@ -264,7 +264,7 @@ describe("Workspace action toast feedback", () => {
     await user.click(await screen.findByRole("button", { name: "Generate API key" }));
 
     await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith("Workspace API key could not be generated. Please try again.", expect.anything());
+      expect(toastMock.error).toHaveBeenCalledWith("Couldn't generate API key.", expect.anything());
     });
     expect(toastMock.error).not.toHaveBeenCalledWith(expect.stringContaining("rotated"), expect.anything());
   });
@@ -345,8 +345,7 @@ describe("Workspace action toast feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     expect(await screen.findByLabelText("Workspace API key")).toBeTruthy();
-    expect(screen.getByText("Generate an API key to view it.")).toBeTruthy();
-    expect(screen.getByLabelText("Workspace API key").getAttribute("aria-describedby")).toBeTruthy();
+    expect(screen.queryByText("Generate a key to call the API.")).toBeNull();
     expect(screen.getByRole("button", { name: "Generate API key" }).disabled).toBe(true);
   });
 
@@ -449,7 +448,7 @@ describe("Workspace action toast feedback", () => {
     await confirmInDialog(user, "Leave workspace");
 
     await waitFor(() => {
-      expect(toastMock.success).toHaveBeenCalledWith("Workspace left. Replacement personal Workspace created.", expect.anything());
+      expect(toastMock.success).toHaveBeenCalledWith("Workspace left. A personal workspace was created to replace it.", expect.anything());
     });
   });
 
@@ -578,7 +577,7 @@ describe("Workspace action toast feedback", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("Grace Hopper")).toBeNull();
-      expect(screen.queryByText("No workspace users found.")).toBeNull();
+      expect(screen.queryByText("No members found.")).toBeNull();
       expect(screen.queryByText("Loading workspace users…")).toBeNull();
     });
 
@@ -640,7 +639,7 @@ describe("Workspace action toast feedback", () => {
       await inviteTeammate("grace@example.com");
 
       await waitFor(() => {
-        expect(toastMock.success).toHaveBeenCalledWith("Invited grace@example.com", expect.anything());
+        expect(toastMock.success).toHaveBeenCalledWith("Invitation sent: grace@example.com", expect.anything());
       });
     });
 
@@ -678,7 +677,7 @@ describe("Workspace action toast feedback", () => {
       await inviteTeammate("grace@example.com");
 
       const alert = await screen.findByRole("alert");
-      expect(alert.textContent).toBe("Workspace invitation could not be created. Please try again.");
+      expect(alert.textContent).toBe("Couldn't send the invitation. Try again.");
       expect(screen.getByLabelText("Invite email").value).toBe("grace@example.com");
       expect(toastMock.error).not.toHaveBeenCalled();
     });
@@ -708,7 +707,7 @@ describe("Workspace action toast feedback", () => {
       await cancelInvitation();
 
       await waitFor(() => {
-        expect(toastMock.success).toHaveBeenCalledWith("Invitation cancelled for grace@example.com", expect.anything());
+        expect(toastMock.success).toHaveBeenCalledWith("Invitation cancelled: grace@example.com", expect.anything());
       });
     });
 
@@ -770,7 +769,7 @@ describe("Workspace action toast feedback", () => {
       await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
 
       await waitFor(() => {
-        expect(toastMock.success).toHaveBeenCalledWith("Workspace invitation accepted", expect.anything());
+        expect(toastMock.success).toHaveBeenCalledWith("Invitation accepted", expect.anything());
       });
     });
 
@@ -804,13 +803,13 @@ describe("Workspace action toast feedback", () => {
         "accept",
         "Accept invitation",
         409,
-        "Workspace invitation could not be accepted. Please try again. This changed since you opened it. Reload and try again.",
+        "Couldn't accept invitation. This changed since you opened it. Reload and try again.",
       ],
       [
         "decline",
         "Decline invitation",
         403,
-        "Workspace invitation could not be declined. Please try again. You don't have permission to do that.",
+        "Couldn't decline invitation. You don't have permission to do that.",
       ],
     ])(
       "shows friendly failure copy when a Workspace invitation %s fails",
@@ -869,8 +868,8 @@ describe("Workspace action toast feedback", () => {
     }
 
     it.each([
-      ["Remove user", "Remove Grace Hopper", "Removed Grace Hopper from workspace"],
-      ["Make owner", "Make owner", "Workspace ownership transferred to Grace Hopper"],
+      ["Remove user", "Remove Grace Hopper", "Member removed: Grace Hopper"],
+      ["Make owner", "Make owner", "Ownership transferred: Grace Hopper"],
     ])("confirms the %s member action with membership wording", async (actionName, confirmName, message) => {
       routeMemberAction(jsonResponse({ updated: true }));
       const user = await openMemberModal();
@@ -890,7 +889,7 @@ describe("Workspace action toast feedback", () => {
       await applyMemberAction("Make admin");
 
       await waitFor(() => {
-        expect(toastMock.success).toHaveBeenCalledWith("Made Grace Hopper an admin", expect.anything());
+        expect(toastMock.success).toHaveBeenCalledWith("Member made admin: Grace Hopper", expect.anything());
       });
     });
 
@@ -947,7 +946,7 @@ describe("Workspace action toast feedback", () => {
       await waitFor(() => {
         expect(screen.queryByRole("dialog", { name: "Manage user" })).toBeNull();
       });
-      expect(toastMock.success).toHaveBeenCalledWith("Removed Grace Hopper from workspace", expect.anything());
+      expect(toastMock.success).toHaveBeenCalledWith("Member removed: Grace Hopper", expect.anything());
     });
 
     it("keeps the member modal open for a retry when the removal fails", async () => {
@@ -995,7 +994,7 @@ describe("Workspace action toast feedback", () => {
       await applyMemberAction("Make admin");
 
       await waitFor(() => {
-        expect(toastMock.success).toHaveBeenCalledWith("Made Grace Hopper an admin", expect.anything());
+        expect(toastMock.success).toHaveBeenCalledWith("Member made admin: Grace Hopper", expect.anything());
       });
       expect(toastMock.error).not.toHaveBeenCalled();
     });
@@ -1042,7 +1041,7 @@ describe("Workspace action toast feedback", () => {
       render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
       expect(await screen.findByRole("button", { name: "Try again" })).toBeTruthy();
-      expect(screen.queryByText("No workspace users found.")).toBeNull();
+      expect(screen.queryByText("No members found.")).toBeNull();
 
       await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
 
@@ -1191,7 +1190,7 @@ describe("Workspace action toast feedback", () => {
     await user.click(navLink(/Templates/i));
     await chooseMoreAction(user, "View JSON");
     fireEvent.change(screen.getByLabelText("Template JSON"), { target: { value: "{" } });
-    await user.click(screen.getByRole("button", { name: "Save Template JSON" }));
+    await user.click(screen.getByRole("button", { name: "Save JSON" }));
 
     expect(await screen.findByText(/^This isn't valid JSON/)).not.toBeNull();
     expect(toastMock.error).not.toHaveBeenCalled();
@@ -1212,7 +1211,7 @@ describe("Workspace action toast feedback", () => {
     fireEvent.change(screen.getByLabelText("Template JSON"), {
       target: { value: JSON.stringify(validTemplatePayload("Imported Template")) },
     });
-    await user.click(screen.getByRole("button", { name: "Save Template JSON" }));
+    await user.click(screen.getByRole("button", { name: "Save JSON" }));
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith("Template saved: Imported Template", expect.anything());
@@ -1274,7 +1273,7 @@ describe("Workspace action toast feedback", () => {
     expect(extractFormData.get("document")).toBeInstanceOf(File);
     expect(extractFormData.has("image")).toBe(false);
     expect(extractFormData.has("file")).toBe(false);
-    expect(screen.getByText("Success")).toBeTruthy();
+    expect(screen.getAllByText("Queued").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Documents1" })).toBeTruthy();
     await waitFor(() => {
       expect(workspaceContextRefreshes).toBe(1);
@@ -1290,9 +1289,9 @@ describe("Workspace action toast feedback", () => {
     await user.click(screen.getAllByRole("button", { name: "Upload documents" })[0]);
 
     expect(
-      screen.getByText("Choose a template or tags for automatic selection, then add your source files."),
+      screen.getByText("Choose a template, then add files."),
     ).toBeTruthy();
-    expect(screen.getByText("Source files")).toBeTruthy();
+    expect(screen.getByText("Files")).toBeTruthy();
     expect(screen.getByText("Drop files or click to browse")).toBeTruthy();
     expect(screen.getByText("PDF, PNG, JPG or WEBP · up to 10 MB")).toBeTruthy();
     expect(screen.queryByText("Document file")).toBeNull();
@@ -1323,7 +1322,7 @@ describe("Workspace action toast feedback", () => {
     ]);
 
     await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith("1 document queued, 1 failed", expect.anything());
+      expect(toastMock.error).toHaveBeenCalledWith("1 document queued. Couldn't queue 1.", expect.anything());
     });
     expect(toastMock.error).toHaveBeenCalledTimes(1);
     expect(screen.getByText("receipt.pdf")).toBeTruthy();
@@ -1533,7 +1532,7 @@ describe("Workspace action toast feedback", () => {
       await deleteOpenDocument(jsonResponse({ error: "already gone" }, { status: 404 }));
 
       await waitFor(() => {
-        expect(toastMock.success).toHaveBeenCalledWith("Document already removed: invoice.pdf", expect.anything());
+        expect(toastMock.success).toHaveBeenCalledWith("Document already deleted: invoice.pdf", expect.anything());
       });
       expect(screen.queryByText("job_failed_1")).toBeNull();
     });
@@ -1673,7 +1672,7 @@ describe("Workspace action toast feedback", () => {
 
     await waitFor(() => {
       expect(toastMock.success).toHaveBeenCalledWith(
-        "Exported 2 documents; skipped 1 unavailable or in-progress document",
+        "Exported 2 documents. Skipped 1 that can't be exported.",
         expect.anything(),
       );
     });

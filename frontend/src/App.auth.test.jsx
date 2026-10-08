@@ -136,7 +136,7 @@ describe("auth sign-in feedback", () => {
 
     expect(toastMock.error).not.toHaveBeenCalled();
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Verify your email before signing in. We sent you a new Account verification link.",
+      "Verify your email before signing in. We sent you a new account verification link.",
     );
     expect(authClientMock.refetchSession).not.toHaveBeenCalled();
   });
@@ -152,7 +152,7 @@ describe("auth sign-in feedback", () => {
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
 
     expect(toastMock.error).not.toHaveBeenCalled();
-    expect((await screen.findByRole("alert")).textContent).toBe("Google sign-in could not start. Try again.");
+    expect((await screen.findByRole("alert")).textContent).toBe("Couldn't start Google sign-in. Try again.");
     expect(screen.getByRole("alert").textContent).not.toContain("OAuth");
   });
 
@@ -282,7 +282,7 @@ describe("auth sign-in feedback", () => {
 
     expect(authClientMock.useSession).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Reset link is missing or invalid" })).toBeTruthy();
-    expect(screen.getByText("Request a new Account password reset link to continue.")).toBeTruthy();
+    expect(screen.getByText("Request a new link to continue.")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull();
     expect(screen.queryByLabelText("Password")).toBeNull();
     expect(screen.getByRole("button", { name: "Request a new reset link" })).toBeTruthy();
@@ -299,7 +299,7 @@ describe("auth sign-in feedback", () => {
         name: "Reset link has expired or is invalid",
       }),
     ).toBeTruthy();
-    expect(screen.getByText("This Account password reset link can no longer be used.")).toBeTruthy();
+    expect(screen.getByText("This link has expired or was already used.")).toBeTruthy();
     expect(screen.queryByLabelText("Password")).toBeNull();
     expect(screen.getByRole("button", { name: "Request a new reset link" })).toBeTruthy();
   });
@@ -401,7 +401,7 @@ describe("auth sign-up password policy feedback", () => {
     await user.type(screen.getByLabelText("Confirm password"), "Password1!");
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
-    expect(screen.getByText("Check your email to verify your account.")).toBeTruthy();
+    expect(screen.getByText("Check your email to verify your account")).toBeTruthy();
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
@@ -477,7 +477,7 @@ describe("auth sign-up password policy feedback", () => {
 
     await fillSignUp(user, { confirmPassword: "Password1!{Enter}" });
 
-    expect(screen.getByText("Check your email to verify your account.")).toBeTruthy();
+    expect(screen.getByText("Check your email to verify your account")).toBeTruthy();
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
@@ -544,7 +544,7 @@ describe("auth sign-up password policy feedback", () => {
       "An account already exists for this email. Sign in instead.",
     ],
     ["the email is invalid", "Invalid email address", "Enter a valid email address and try again."],
-    ["an unknown reason", "Database constraint failed near secret_table", "Account creation failed. Please try again."],
+    ["an unknown reason", "Database constraint failed near secret_table", "Couldn't create account. Try again."],
   ])("shows one safe, actionable form alert when sign-up fails because %s", async (_reason, serverMessage, alertMessage) => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ error: { message: serverMessage } });
@@ -607,7 +607,7 @@ describe("deployment auth configuration", () => {
     );
     await fillSignUp(user, { name: "Ada" });
     await user.click(screen.getByRole("button", { name: "Create account" }));
-    expect(screen.getByRole("heading", { name: "Open your local verification link." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Verify your account" })).toBeTruthy();
     expect(screen.getByText("document-extraction mail")).toBeTruthy();
   });
 
@@ -618,6 +618,6 @@ describe("deployment auth configuration", () => {
     await fillSignUp(user, { name: "Ada" });
     await user.click(screen.getByRole("button", { name: "Create account" }));
     expect(authClientMock.refetchSession).toHaveBeenCalledOnce();
-    expect(screen.queryByText(/Open your local verification link/)).toBeNull();
+    expect(screen.queryByText(/verification link/)).toBeNull();
   });
 });

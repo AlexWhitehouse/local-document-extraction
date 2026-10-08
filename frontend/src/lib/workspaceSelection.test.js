@@ -51,7 +51,7 @@ describe("workspace context display", () => {
 
     expect(availableWorkspaces).toEqual([
       { id: "workspace_beta", name: "Beta Workspace", connected: true, type: "workspace", role: "owner" },
-      { id: "workspace_alpha", name: "Untitled Workspace", connected: false, type: "workspace", role: "member" },
+      { id: "workspace_alpha", name: "Untitled workspace", connected: false, type: "workspace", role: "member" },
       {
         id: "workspace_invited_new",
         invitation_id: "invitation_newer",
@@ -102,7 +102,7 @@ describe("workspace context display", () => {
       selectedWorkspaceInvitationId: "",
       workspaceSelectionView: {
         type: "workspace",
-        workspaceName: "Local Workspace",
+        workspaceName: "Local workspace",
         hasWorkspaceApiAccess: false,
         invitation: null,
       },

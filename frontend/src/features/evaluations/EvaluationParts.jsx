@@ -1,4 +1,3 @@
-import { pluralize } from "../../lib/text.js";
 import React, { useEffect, useRef, useState } from "react";
 import { candidateBusy } from "./useEvaluations.js";
 import { normalizeReferenceDates, scalarValue, validateReference } from "./evaluationScoring.js";
@@ -18,7 +17,7 @@ const STATUS = {
   queued: "Queued",
   running: "Running",
   retrying: "Retrying",
-  success: "Done",
+  success: "Completed",
   failure: "Failed",
   interrupted: "Interrupted",
 };
@@ -39,9 +38,9 @@ export function StatusLine({ candidate }) {
           : "neutral";
 
   const label = busy
-    ? `${STATUS[candidate.status]}${candidate.attempt > 1 ? ` · attempt ${candidate.attempt}/3` : ""}`
+    ? `${STATUS[candidate.status]}${candidate.attempt > 1 ? ` · ${candidate.attempt} of 3` : ""}`
     : edited
-      ? "Edited · needs rerun"
+      ? "Edited · run again"
       : STATUS[candidate.status] || candidate.status;
 
   return (
@@ -85,15 +84,15 @@ export function Mark({ state }) {
 
 export function RunCost({ result }) {
   if (!result) return null;
-  const label = result.cost ? dollars(result.cost) : "Unavailable";
+  const label = result.cost ? dollars(result.cost) : "Cost not reported";
 
   return (
     <span
       className={`evaluation-cost${result.cost?.amount == null ? " evaluation-muted" : ""}`}
       title={
         result.cost?.amount == null
-          ? "The model endpoint did not report a cost for this run."
-          : `${dollars(result.cost, { full: true })} for the successful attempt${result.cost.complete ? "" : " · some calls did not report cost"}`
+          ? "Cost not reported for this run."
+          : `${dollars(result.cost, { full: true })} for the successful run${result.cost.complete ? "" : " · part of the cost not reported"}`
       }
       aria-label={`Run cost: ${label}`}
     >
@@ -118,7 +117,7 @@ function RunDetails({ candidate }) {
   return (
     <dl className="evaluation-details">
       <div>
-        <dt>Tested Template</dt>
+        <dt>Tested template</dt>
         <dd>
           {result.templateName}
           {result.source?.modified ? " · edited fields" : ""}
@@ -131,39 +130,33 @@ function RunDetails({ candidate }) {
       <div>
         <dt>Input</dt>
         <dd>
-          PDF {result.pdf ? "direct" : "rendered"} · Structured {result.structured ? "on" : "off"}
+          {result.pdf ? "Direct PDF input" : "Rendered pages"} · Structured output {result.structured ? "on" : "off"}
         </dd>
       </div>
       <div>
-        <dt>Queue</dt>
+        <dt>Queue time</dt>
         <dd>{seconds(result.queueMs)}</dd>
       </div>
       <div>
         <dt>Processing</dt>
         <dd>
-          {seconds(result.processingMs)} · {pluralize(result.attempts, "attempt")}
+          {seconds(result.processingMs)}
         </dd>
       </div>
       <div>
         <dt>Cost</dt>
         <dd>
-          {result.cost ? `${dollars(result.cost, { full: true })} · successful attempt only` : "Unavailable"}
+          {result.cost ? dollars(result.cost, { full: true }) : "Cost not reported"}
         </dd>
       </div>
       <div>
         <dt>Tokens</dt>
         <dd>
           {result.usage
-            ? `${result.usage.input_tokens ?? "Unavailable"} input · ${result.usage.output_tokens ?? "Unavailable"} output · successful attempt only`
-            : "Unavailable"}
+            ? `${result.usage.input_tokens ?? "Not reported"} input · ${result.usage.output_tokens ?? "Not reported"} output`
+            : "Not reported"}
         </dd>
       </div>
-      {candidate.cleanup !== "complete" && (
-        <div>
-          <dt>Cleanup</dt>
-          <dd>{candidate.cleanup === "pending" ? "Pending" : "Unconfirmed"}</dd>
-        </div>
-      )}
     </dl>
   );
 }
@@ -409,7 +402,7 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
               setEditing(false);
             }}
           >
-            Remove
+            Unverify
           </Button>
         )}
       </div>

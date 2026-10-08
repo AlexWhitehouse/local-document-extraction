@@ -397,7 +397,7 @@ describe("suggested requests", () => {
     act(() => result.current.templatePage.onOpenAssistant());
     await waitFor(() => expect(result.current.templatePage.assistant.suggestions.status).toBe("ready"));
     expect(result.current.templatePage.assistant.suggestions.source).toBe("rules");
-    expect(result.current.templatePage.assistant.suggestions.notice).toContain("No model is configured");
+    expect(result.current.templatePage.assistant.suggestions.notice).toContain("No model is set up for this workspace");
     expect(result.current.templatePage.assistant.suggestions.items.map((item) => item.label)).toContain(
       "Add a Unit of Measure column to Line Items",
     );
@@ -551,7 +551,7 @@ describe("addressable diagnostics", () => {
     const onSubmit = vi.fn();
     render(<TemplateEditorModal initial={initial} onSubmit={onSubmit} onClose={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Object schema builder" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Table columns" })).toBeTruthy());
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Column description")));
     expect(screen.getByLabelText("Column description").getAttribute("aria-invalid")).toBe("true");
     expect(onSubmit).not.toHaveBeenCalled();

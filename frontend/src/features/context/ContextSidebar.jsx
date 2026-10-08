@@ -10,7 +10,6 @@ export function ContextSidebar({ title, children, footer }) {
   return (
     <aside className={drawer?.isOpen ? "context-sidebar is-open" : "context-sidebar"}>
       <div className="context-head">
-        <p className="eyebrow">Control Center</p>
         <h2>{title}</h2>
         {drawer ? (
           <IconButton

@@ -45,7 +45,7 @@ export function DocumentsTab({ request, base, queryString }) {
         <input
           type="search"
           aria-label="Search documents"
-          placeholder="Document or template"
+          placeholder="Search documents or templates"
           maxLength={200}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -112,7 +112,7 @@ function DocumentResults({ request, base, queryString, sort }) {
                   <span className="cp-list-name">
                     {item.name}
                     <small>
-                      {shortDate(item.created_at)} {time(item.created_at)} UTC ·{" "}
+                      {shortDate(item.created_at)} {time(item.created_at)} ·{" "}
                       {plural(item.documentCount, "document")}
                     </small>
                   </span>
@@ -245,7 +245,7 @@ function CostAnatomy({ item }) {
   const figures = [
     { hero: true, label: "Total", value: costLabel(item.costs.total) },
     { label: "Per page", value: costLabel({ ...item.costs.total, amount: perPage(item) }, "—") },
-    { label: "Smart split", value: usedCalls(split) ? costLabel(split) : "Not used" },
+    { label: "Splitting", value: usedCalls(split) ? costLabel(split) : "Not used" },
     { label: multi ? "Documents" : "Pages", value: multi ? String(item.children.length) : String(item.pages) },
   ];
 
@@ -262,7 +262,7 @@ function CostAnatomy({ item }) {
           {item.deleted ? <Badge>Deleted</Badge> : null}
         </h3>
         <p className="cp-anatomy-meta">
-          {shortDate(item.created_at)} {time(item.created_at)} UTC · {statusLabel(item.status)}
+          {shortDate(item.created_at)} {time(item.created_at)} · {statusLabel(item.status)}
         </p>
       </header>
       <FigureStrip compact figures={figures} label={`${item.name} figures`} />
@@ -335,7 +335,7 @@ function CostAnatomy({ item }) {
               <th>Document</th>
               <th className="cp-num">Pages</th>
               <th className="cp-num">Split share</th>
-              <th className="cp-num">Auto template</th>
+              <th className="cp-num">Template generation</th>
               <th className="cp-num">Extraction</th>
               <th className="cp-num">Total</th>
             </tr>
@@ -374,15 +374,10 @@ function CostAnatomy({ item }) {
           </tfoot>
         </DataTable>
       ) : null}
-      {item.deleted || parts.some((part) => part.deleted) ? (
-        <p className="cp-note">
-          Deleted documents keep their cost here. That cost was incurred and still counts in Workspace totals.
-        </p>
-      ) : null}
       {item.costs.total.amount === null ? (
-        <p className="cp-note">This work predates cost tracking, or the endpoint did not report a cost.</p>
+        <p className="cp-note">Cost not reported by the model provider.</p>
       ) : !item.costs.total.complete ? (
-        <p className="cp-note">+ marks a known subtotal. Some calls did not report a cost.</p>
+        <p className="cp-note">Costs marked + are partial. Some costs weren't reported.</p>
       ) : null}
       <ChartTip tip={tip} />
     </section>

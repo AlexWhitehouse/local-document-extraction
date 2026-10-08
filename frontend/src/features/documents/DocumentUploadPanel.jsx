@@ -6,8 +6,10 @@ import { Badge } from "../ui/Status.jsx";
 import { Dropzone } from "../ui/Dropzone.jsx";
 import { statusTone } from "../../lib/status.js";
 
+const QUEUE_LABELS = { pending: "Waiting", processing: "Uploading", success: "Queued", failed: "Failed" };
+
 export function DocumentUploadPanel({
-  label = "Source files",
+  label = "Files",
   multiple = true,
   sourceFiles = [],
   rejections = [],
@@ -48,7 +50,7 @@ export function DocumentUploadPanel({
                 {entry.file.name}
               </span>
               <div className="upload-file-actions">
-                <Badge tone={statusTone(entry.queueStatus)}>{formatQueueStatus(entry.queueStatus)}</Badge>
+                <Badge tone={statusTone(entry.queueStatus)}>{QUEUE_LABELS[entry.queueStatus] ?? "Waiting"}</Badge>
                 {entry.queueStatus === "pending" ? (
                   <Button
                     variant="ghost"
@@ -68,8 +70,4 @@ export function DocumentUploadPanel({
       ) : null}
     </div>
   );
-}
-
-function formatQueueStatus(status) {
-  return status.charAt(0).toUpperCase() + status.slice(1);
 }

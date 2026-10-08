@@ -58,7 +58,7 @@ describe("profile menu feedback", () => {
     act(() => result.current.profileMenu.onDraftNameChange("Ada Byron"));
     await act(async () => result.current.profileMenu.onSaveProfile());
 
-    expect(result.current.profileMenu.saveError).toBe("Profile could not be saved. Please try again.");
+    expect(result.current.profileMenu.saveError).toBe("Couldn't save profile. Try again.");
     expect(result.current.profileMenu.isOpen).toBe(true);
     expect(result.current.profileMenu.draftName).toBe("Ada Byron");
     expect(toast.success).not.toHaveBeenCalled();
@@ -74,7 +74,7 @@ describe("profile menu feedback", () => {
 
     await act(async () => result.current.profileMenu.onSignOut());
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't sign out. Try again.", expect.anything()));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't sign out.", expect.anything()));
     expect(props.onClearSessionWorkspaceData).not.toHaveBeenCalled();
     expect(result.current.profileMenu.isSigningOut).toBe(false);
   });

@@ -412,7 +412,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       const result = await authClient.admin.stopImpersonating();
 
       if (result?.error) {
-        throw new Error(result.error.message || "Unable to stop impersonating.");
+        throw new Error(result.error.message || "Couldn't stop impersonating.");
       }
 
       workspaceController.actions.clearSessionWorkspaceData();
@@ -506,21 +506,21 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       : adminUnavailable
         ? "This page is not available to your account."
         : workspaceUnavailable
-          ? "This Workspace or invitation is unavailable. It may have been removed, or you may no longer have access."
+          ? "This workspace or invitation is unavailable. You may no longer have access."
           : workspaceResolutionFailed
-            ? "Workspace could not be loaded. Try again."
+            ? "Couldn't load workspace. Try again."
             : packetUnavailable
               ? packetUnavailable === "missing"
-                ? "This Document packet is unavailable. It may have been deleted."
-                : "Document packet could not be loaded. Try again."
+                ? "This document is unavailable. It may have been deleted."
+                : "Couldn't load document. Try again."
               : templateUnavailable
                 ? templateLoad.status === "missing"
-                  ? "This Template is unavailable. It may have been deleted."
-                  : "Template could not be loaded. Try again."
+                  ? "This template is unavailable. It may have been deleted."
+                  : "Couldn't load template. Try again."
                 : documentUnavailable
                   ? documentUnavailable === "missing"
-                    ? "This Document is unavailable. It may have been deleted."
-                    : "Document could not be loaded. Try again."
+                    ? "This document is unavailable. It may have been deleted."
+                    : "Couldn't load document. Try again."
                   : "";
 
   const routeTitle = activePage === "not-found" ? "Page not found" : "Page unavailable";
@@ -539,7 +539,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   const selectedDocument = documentController.documentPage.selectedDocument;
 
   const selectedDocumentName = documentController.documentPage.selectedPacketId
-    ? documentController.documentPage.packetPage.packet?.source_name || "Document packet"
+    ? documentController.documentPage.packetPage.packet?.source_name || "Document"
     : selectedDocument?.source_name || "";
 
   const workspaceName = workspaceToolbar.workspaceName;
@@ -562,12 +562,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     visiblePage === "templates"
       ? (templatePage.isEditingTemplate && templatePage.templateDescription?.trim()) || ""
       : visiblePage === "documents"
-        ? documentController.documentPage.selectedDocumentTemplateName ||
-          (documentController.documentPage.selectedPacketId
-            ? documentController.documentPage.isSingleDocument
-              ? "Processing document"
-              : "Smart splitting"
-            : "")
+        ? documentController.documentPage.selectedDocumentTemplateName || ""
         : "";
 
   const workspaceCrumb = workspaceName ? { label: workspaceName, href: pagePath("workspace"), onClick: () => setActivePage("workspace") } : null;
@@ -624,7 +619,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               tone="warning"
               role="status"
               aria-label="Impersonation mode"
-              title={`Impersonating ${sessionUserEmail || sessionUserName || "this user"}`}
+              title={`Viewing as ${sessionUserEmail || sessionUserName || "this user"}`}
               action={
                 <Button
                   variant="secondary"
@@ -680,8 +675,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               ) : !hasApiAccess && ["documents", "templates"].includes(visiblePage) ? (
                 <p className="muted">
                   {workspaceContext.isWorkspaceContextLoading
-                    ? "Loading workspace context…"
-                    : "Choose an accessible Workspace."}
+                    ? "Loading…"
+                    : "Choose a workspace you can access."}
                 </p>
               ) : visiblePage === "documents" ? (
                 <DocumentContextList {...documentController.contextList} workspaceId={workspaceId} />
@@ -963,7 +958,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
         setSubmitAttempted(false);
         onResetComplete();
       } catch {
-        setFormError("Password reset failed. Request a new reset link.");
+        setFormError("Couldn't reset password. Request a new link.");
       } finally {
         setBusy(false);
       }
@@ -976,11 +971,9 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
             <div className="auth-header">
               <p className="eyebrow">Document Extraction</p>
               <h1>Studio</h1>
-              <p>Choose a new password for your account.</p>
             </div>
             <form className="panel auth-panel" onSubmit={submitNewPassword}>
               <h2>Set new password</h2>
-              <p className="muted">Your new password must meet the Account password policy.</p>
               <div className="row auth-form-grid">
                 <Field label="New password" error={fieldErrors.password} className="auth-field">
                   <TextInput
@@ -1049,14 +1042,13 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
           <div className="auth-header">
             <p className="eyebrow">Document Extraction</p>
             <h1>Studio</h1>
-            <p>Use Account password reset to recover access to your account.</p>
           </div>
           <div className="panel auth-verification-prompt" role="status">
             <h2>{isTokenError ? "Reset link has expired or is invalid" : "Reset link is missing or invalid"}</h2>
             <p>
               {isTokenError
-                ? "This Account password reset link can no longer be used."
-                : "Request a new Account password reset link to continue."}
+                ? "This link has expired or was already used."
+                : "Request a new link to continue."}
             </p>
             <Button className="auth-primary-action" disabled={busy} onClick={() => setIsRequestingNewLink(true)}>
               Request a new reset link

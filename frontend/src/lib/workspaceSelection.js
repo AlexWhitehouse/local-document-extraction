@@ -1,4 +1,4 @@
-const UNTITLED_WORKSPACE_NAME = "Untitled Workspace";
+const UNTITLED_WORKSPACE_NAME = "Untitled workspace";
 
 export function getWorkspaceContextDisplay({
   hasApiAccess,
@@ -68,7 +68,7 @@ export function getWorkspaceContextDisplay({
         }
       : {
           type: "workspace",
-          workspaceName: selectedWorkspaceName.trim() || workspaceName.trim() || "Local Workspace",
+          workspaceName: selectedWorkspaceName.trim() || workspaceName.trim() || "Local workspace",
           hasWorkspaceApiAccess: hasApiAccess,
           invitation: null,
         },

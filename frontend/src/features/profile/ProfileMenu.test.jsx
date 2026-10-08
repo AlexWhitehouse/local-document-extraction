@@ -37,9 +37,9 @@ describe("ProfileMenu saving", () => {
   });
 
   it("shows a save failure inline in the profile form", () => {
-    renderMenu({ isDirty: true, saveError: "Profile could not be saved. Please try again." });
+    renderMenu({ isDirty: true, saveError: "Couldn't save profile. Try again." });
 
-    expect(screen.getByRole("alert").textContent).toBe("Profile could not be saved. Please try again.");
+    expect(screen.getByRole("alert").textContent).toBe("Couldn't save profile. Try again.");
   });
 });
 

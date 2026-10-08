@@ -29,7 +29,7 @@ describe("TemplateJsonModal closing", () => {
   it("closes on Escape when the draft is clean", () => {
     const props = renderModal();
 
-    fireEvent.keyDown(screen.getByRole("dialog", { name: "Export / Import Template" }), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Export or import JSON" }), { key: "Escape" });
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -37,7 +37,7 @@ describe("TemplateJsonModal closing", () => {
     const user = userEvent.setup();
     const props = renderModal({ isDirty: true });
 
-    fireEvent.keyDown(screen.getByRole("dialog", { name: "Export / Import Template" }), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Export or import JSON" }), { key: "Escape" });
     await user.click(await screen.findByRole("button", { name: "Keep editing" }));
     expect(props.onClose).not.toHaveBeenCalled();
 
@@ -53,7 +53,6 @@ describe("TemplateJsonModal copy feedback", () => {
 
     expect(screen.getByRole("button", { name: "Copy template JSON" })).toBeTruthy();
     expect(screen.queryByText("Copied JSON to clipboard.")).toBeNull();
-    expect(screen.getByText("Changes are validated and applied when you save.")).toBeTruthy();
   });
 });
 
@@ -66,6 +65,5 @@ describe("TemplateJsonModal validation", () => {
 
     expect(textarea.getAttribute("aria-invalid")).toBe("true");
     expect(textarea.getAttribute("aria-describedby").split(" ")).toContain(error.id);
-    expect(screen.queryByText("Changes are validated and applied when you save.")).toBeNull();
   });
 });

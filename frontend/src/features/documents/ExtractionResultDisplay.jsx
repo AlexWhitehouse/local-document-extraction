@@ -14,28 +14,21 @@ export function ExtractionJobStatusDisplay({ job }) {
   const failureReason = isFailure ? displayableFailureReason(job.error_message) : "";
 
   const statusLabel = isHeld
-    ? "Template selection needs your attention."
+    ? "This document needs a template."
     : job.routing_status === "assessing"
-      ? "Choosing a template from the document"
+      ? "Choosing a template"
       : isFailure
         ? "Extraction failed"
-        : isProcessing
-          ? "The document is processing"
-          : "The document is queued";
+        : job.status === "queued"
+          ? "This document is queued…"
+          : isProcessing
+            ? "This document is processing…"
+            : "This document is queued…";
 
   const isTerminal = isFailure || isHeld;
   const currentAttempt = Number(job.current_attempt || 0);
-  const completedAttempt = Number(job.completed_attempt || 0);
-  const lastFailedAttempt = Number(job.last_failed_attempt || 0);
-
-  const attemptLabel =
-    currentAttempt > 0
-      ? `Current attempt: ${currentAttempt}`
-      : completedAttempt > 0
-        ? `Completed on attempt: ${completedAttempt}`
-        : lastFailedAttempt > 0
-          ? `Last failed attempt: ${lastFailedAttempt}`
-          : "Attempt: pending";
+  // The first attempt is the normal path, so only a retry is worth mentioning.
+  const attemptLabel = currentAttempt > 1 ? `Retrying (attempt ${currentAttempt})` : "";
 
   return (
     <div className="job-status-stack">
@@ -49,7 +42,7 @@ export function ExtractionJobStatusDisplay({ job }) {
           <p>{statusLabel}</p>
           {failureReason ? <p>{failureReason}</p> : null}
           {isFailure ? <p>Try again, choose another template, or check the Model gateway on the Workspace page.</p> : null}
-          <p className="hint">{attemptLabel}</p>
+          {attemptLabel ? <p className="hint">{attemptLabel}</p> : null}
         </div>
       </div>
     </div>
@@ -124,7 +117,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
           <div className="studio-section-heading">
             <div>
               <h2>{result.name || result.field_id}</h2>
-              <p>Structured rows from the source document.</p>
+              <p>Rows from the document.</p>
             </div>
             <ResultConfidence value={result.confidence} />
           </div>
