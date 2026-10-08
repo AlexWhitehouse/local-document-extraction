@@ -26,8 +26,7 @@
 .workspace-model-roles tbody th small { margin-top:2px; }
 .workspace-model-roles td input[type=checkbox] { margin:0 auto; }
 .workspace-model-roles tr.inherited td:nth-child(n+3) { opacity:.5; }
-.workspace-model-role-model { display:grid; grid-template-columns:minmax(0,max-content) minmax(0,1fr); gap:6px; }
-.workspace-model-role-model select:only-child { grid-column:1 / -1; justify-self:start; }
+.workspace-model-role-model { display:grid; gap:6px; }
 /* The editor mirrors the summary: label and value on one row, model names in mono. */
 .workspace-model-settings { display:grid; gap:10px; }
 .workspace-model-settings > .ui-field { grid-template-columns:112px minmax(0,1fr); column-gap:12px; align-items:center; }
@@ -50,7 +49,6 @@
 }
 /* Narrow panes: the role name moves above its model so inputs keep a usable width. */
 @container (max-width:520px) {
-  .workspace-model-role-model { grid-template-columns:minmax(0,1fr); }
   .workspace-model-roles thead th:first-child { display:none; }
   .workspace-model-roles thead th:nth-child(2) { padding-bottom:4px; }
   .workspace-model-roles tbody tr { display:grid; grid-template-columns:1fr 64px 64px; align-items:center; border-bottom:1px solid var(--rule-subtle); }
