@@ -18,7 +18,10 @@ import { pluralize } from "../../lib/text.js";
 import { createNotifier, defaultToast } from "../../lib/notify";
 import { describeError } from "../../lib/describeError";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
-import { validateTemplateJsonPayload } from "../templates/templateFields.js";
+import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "../templates/templateFields.js";
+import { TemplateAssistant } from "../templates/TemplateAssistant.jsx";
+import { useTemplateAssistant } from "../templates/useTemplateAssistant.js";
+import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { templateLabel } from "./evaluationFormat.js";
 import { TemplateVersionDialog } from "./TemplateVersionDialog.jsx";
 import { CandidateTrial } from "./CandidateTrial.jsx";
@@ -73,10 +76,13 @@ export function EvaluationsPage({
   const [accepting, setAccepting] = useState(null);
   // "Test changes": an edited copy of a candidate, run on the original's documents and compared with it.
   const [trial, setTrial] = useState(null);
+  // The candidate the assistant panel works on, and the request it opens with.
+  const [assistantFor, setAssistantFor] = useState(null);
   const lifetime = useRef(0);
   useEffect(() => {
     lifetime.current++;
     setTrial(null);
+    setAssistantFor(null);
     setEditor(null);
     setReplacement(null);
     setUploadOpen(false);
@@ -111,6 +117,7 @@ export function EvaluationsPage({
   useEffect(() => {
     setFilter("all");
     setReplacement(null);
+    setAssistantFor(null);
   }, [state.libraryEditor]);
 
   // One document at a time, as in a single-document Evaluation; Previous/Next move through the rest.
@@ -224,11 +231,10 @@ export function EvaluationsPage({
     }
   };
 
-  const openEditor = (candidate, save = false, assistantIntent = null) =>
+  const openEditor = (candidate, save = false) =>
     setEditor({
       candidateId: candidate.id,
       save,
-      assistantIntent,
       initial: { ...candidate.template, name: save ? `${candidate.template.name} copy` : candidate.template.name },
       notice:
         save &&
@@ -290,7 +296,12 @@ export function EvaluationsPage({
       const next = { ...payload };
 
       evaluation.editLibraryTemplate(next, editor.documentKey);
-    } else if (state.mode === "models") {
+    } else applyToCandidate(editor.candidateId, payload);
+  };
+
+  // A model comparison shares one template, so its edits reach every candidate.
+  const applyToCandidate = (candidateId, payload) => {
+    if (state.mode === "models")
       patch({
         candidates: state.candidates.map((c) => ({
           ...c,
@@ -298,11 +309,11 @@ export function EvaluationsPage({
           revision: c.revision + 1,
         })),
       });
-    } else
-      edit(editor.candidateId, {
+    else
+      edit(candidateId, {
         template: {
           ...payload,
-          source: modifiedSource(state.candidates.find((c) => c.id === editor.candidateId).template.source),
+          source: modifiedSource(state.candidates.find((c) => c.id === candidateId).template.source),
         },
       });
   };
@@ -311,7 +322,120 @@ export function EvaluationsPage({
   const assistRequest = useCallback(async (path, options) => (await api(path, options)).json(), [api]);
   const candidateNumber = (candidate) => state.candidates.findIndex((c) => c.id === candidate.id) + 1;
 
-  // Opens the candidate's template with the assistant, its failing fields and their verified expected answers.
+  const assistantCandidate = assistantFor ? state.candidates.find((c) => c.id === assistantFor.candidateId) || null : null;
+  const assistantTemplate = assistantCandidate?.template;
+
+  // The assistant works on a hydrated copy of the candidate's template, as the template editor does.
+  const assistantDraft = useMemo(
+    () =>
+      assistantTemplate
+        ? {
+            name: assistantTemplate.name,
+            description: assistantTemplate.description || "",
+            fields: assistantTemplate.fields.map(hydrateFieldFromTemplate),
+          }
+        : { name: "", description: "", fields: [] },
+    [assistantTemplate],
+  );
+
+  const assistantIssues = useMemo(() => diagnoseTemplateDraft(assistantDraft), [assistantDraft]);
+  const assistantRevision = assistantCandidate?.revision ?? 0;
+  const assistantRevisionRef = useRef(assistantRevision);
+  assistantRevisionRef.current = assistantRevision;
+  // Applied edits wait here until the user tests them on a copy or applies them to the candidate.
+  const [assistantResult, setAssistantResult] = useState(null);
+
+  const assistant = useTemplateAssistant({
+    request: assistRequest,
+    workspaceId: state.id,
+    sessionId: String(assistantFor?.opened ?? 0),
+    activePage: "evaluations",
+    templateId: assistantFor?.candidateId ?? "",
+    templateVersion: null,
+    hasApiAccess: Boolean(enabled && assistantCandidate),
+    draft: assistantDraft,
+    revision: assistantRevision,
+    getRevision: () => assistantRevisionRef.current,
+    maxSourceFileBytes,
+    onApply: setAssistantResult,
+  });
+
+  const openAssistantWith = assistant.openWith;
+  useEffect(() => {
+    if (assistantFor) openAssistantWith(assistantFor.intent);
+    // Opens once per request to open it; later renders keep the panel's own state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assistantFor?.opened]);
+
+  const cancelAssistant = assistant.cancel;
+
+  // A removed candidate closes the panel that was working on it.
+  useEffect(() => {
+    if (assistantFor && !assistantCandidate) {
+      cancelAssistant();
+      setAssistantFor(null);
+      setAssistantResult(null);
+    }
+  }, [assistantFor, assistantCandidate, cancelAssistant]);
+
+  const openAssistant = (candidate, intent = {}) => {
+    setAssistantResult(null);
+    setAssistantFor({ candidateId: candidate.id, intent, opened: (assistantFor?.opened ?? 0) + 1 });
+  };
+
+  const closeAssistant = () => {
+    assistant.cancel();
+    setAssistantFor(null);
+    setAssistantResult(null);
+  };
+
+  const assistantOpen = Boolean(assistantCandidate && assistant.panel.isOpen);
+
+  // Applied edits are tested on a copy, or applied to the candidate (or, comparing models, the shared template).
+  const finishAssistant = (action) => {
+    if (!assistantResult || !assistantCandidate) return;
+    const target = `Candidate ${candidateNumber(assistantCandidate)}`;
+
+    try {
+      action(assistantCandidate.id, validateTemplateJsonPayload(assistantResult));
+    } catch (error) {
+      notify("evaluation.applyAssistant", "failure", { error });
+
+      return;
+    }
+
+    if (action === applyToCandidate) notify("evaluation.applyAssistant", "success", { targetName: target });
+    closeAssistant();
+  };
+
+  const testLimit =
+    state.candidates.length >= MAX_CANDIDATES
+      ? `You can compare up to ${MAX_CANDIDATES} candidates. Remove one to test these changes on a copy.`
+      : "";
+
+  const assistantApplied =
+    state.mode === "templates"
+      ? {
+          notice:
+            testLimit ||
+            "Ready to test. Test the changes on a copy and compare the results, or apply them to this candidate.",
+          actions: (
+            <>
+              <Button variant="secondary" onClick={() => finishAssistant(applyToCandidate)}>
+                Apply to candidate
+              </Button>
+              <Button disabled={Boolean(testLimit)} onClick={() => finishAssistant(testChanges)}>
+                Test changes
+              </Button>
+            </>
+          ),
+        }
+      : {
+          notice: "Ready. Every candidate shares this template, so the changes apply to all of them. Run again to test.",
+          actions: <Button onClick={() => finishAssistant(applyToCandidate)}>Apply to template</Button>,
+        };
+
+  // Opens the assistant on the candidate's template with its failing fields and their verified expected answers.
   const improveFailingFields = async (candidate) => {
     const owner = lifetime.current;
 
@@ -324,8 +448,7 @@ export function EvaluationsPage({
       );
 
       if (owner !== lifetime.current || !collected) return;
-      openEditor(candidate, false, {
-        action: "edit",
+      openAssistant(candidate, {
         instructions: improvementRequest(collected.fieldNames),
         evaluation: { evidence: collected.evidence, sample: collected.sample },
       });
@@ -336,8 +459,8 @@ export function EvaluationsPage({
   };
 
   // Copies the candidate with the edited template and runs the copy on the documents the original ran on.
-  const testChanges = async (payload) => {
-    const original = state.candidates.find((c) => c.id === editor.candidateId);
+  const testChanges = (candidateId, payload) => {
+    const original = state.candidates.find((c) => c.id === candidateId);
     const copyId = original && evaluation.branch(original.id, { ...payload, source: modifiedSource(original.template.source) });
 
     if (!copyId) throw new Error("The copy couldn’t be created.");
@@ -494,7 +617,8 @@ export function EvaluationsPage({
     onInputChange: (key, value) => setInput(candidate, key, value),
     actions: [
       { label: "Edit template", onClick: () => openEditor(candidate) },
-      failingFieldNames(state, document, candidate).length > 0 && {
+      enabled && { label: "Ask assistant", onClick: () => openAssistant(candidate) },
+      enabled && failingFieldNames(state, document, candidate).length > 0 && {
         label: "Improve failing fields",
         onClick: () => void improveFailingFields(candidate),
       },
@@ -575,6 +699,7 @@ export function EvaluationsPage({
   };
 
   return (
+    <div className={`evaluations-workspace${assistantOpen ? " has-assistant" : ""}`}>
     <section className="evaluations-page" aria-label="Evaluations">
       <PageHeader
         label="Evaluations"
@@ -912,23 +1037,6 @@ export function EvaluationsPage({
           onSubmit={applyTemplate}
           onClose={() => setEditor(null)}
           showActionToast={notify}
-          assistant={
-            editor.save || editor.documentKey
-              ? null
-              : {
-                  request: assistRequest,
-                  scope: `${state.id}:${editor.candidateId}`,
-                  hasApiAccess: enabled,
-                  maxSourceFileBytes,
-                  intent: editor.assistantIntent,
-                }
-          }
-          onTestChanges={editor.save || editor.documentKey || state.mode !== "templates" ? null : testChanges}
-          testLimit={
-            state.candidates.length >= MAX_CANDIDATES
-              ? `You can compare up to ${MAX_CANDIDATES} candidates. Remove one to test these changes on a copy.`
-              : ""
-          }
         />
       )}
       {dialog?.kind === "picker" && (
@@ -966,5 +1074,17 @@ export function EvaluationsPage({
       )}
       {preview && <DocumentPreview evaluation={evaluation} document={preview} onClose={() => setPreview(null)} />}
     </section>
+      {assistantCandidate ? (
+        <TemplateAssistant
+          assistant={{ ...assistant.panel, onClose: closeAssistant }}
+          draft={assistantDraft}
+          issues={assistantIssues}
+          allowJobs={false}
+          eyebrow={`Candidate ${candidateNumber(assistantCandidate)}`}
+          draftStatus={assistantCandidate.template.source?.modified ? "edited in this evaluation" : "as chosen for this evaluation"}
+          applied={assistantApplied}
+        />
+      ) : null}
+    </div>
   );
 }

@@ -13,6 +13,7 @@ import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOp
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 import { getModelPreparationSnapshot } from "./consumer/modelGateway";
+import { REVIEW_REQUEST } from "./consumer/templateAssistance";
 
 const cleanups: (() => void)[] = [];
 
@@ -193,7 +194,7 @@ function fixture(
     application(
       new Request("http://localhost/v1/templates/assist/suggestions", {
         method: "POST",
-        body: JSON.stringify({ draft, action: "edit", ...payload }),
+        body: JSON.stringify({ draft, ...payload }),
         headers: { ...headers, "content-type": "application/json", ...customHeaders },
       }),
     );
@@ -245,6 +246,17 @@ test("text-only explanation accepts an invalid draft, echoes identity, reserves 
   expect(f.store.listTemplates()).toEqual([]);
   expect(f.store.listExtractionJobs()).toEqual([]);
   expect(JSON.parse(textRequestBody(fetch.mock.calls[0][1]!.body)).model).toBe("workspace-model");
+});
+
+test("an empty edit request asks the model to review the draft", async () => {
+  const f = fixture();
+  const gateway = f.mockGateway(responder(output));
+  const response = await f.submit({ action: "edit", instructions: "" });
+  expect(response.status).toBe(200);
+  const modelRequest = JSON.parse(textRequestBody(gateway.mock.calls[0][1]!.body));
+  const message = JSON.parse(modelRequest.messages[1].content[0].text);
+  expect(message).toMatchObject({ action: "edit", userRequest: REVIEW_REQUEST });
+  expect(modelRequest.messages[0].content).toContain("For a question, answer it in the explanation");
 });
 
 test("authorization and configuration are checked before reading samples and errors are no-store", async () => {
@@ -614,7 +626,6 @@ test("suggestions use one text-only call with the draft, its diagnostics and job
   const gateway = f.mockGateway(responder(suggestionOutput));
 
   const response = await f.suggest({
-    action: "explain",
     jobId: "job_a",
     sampleName: "march.pdf",
     draft: { ...draft, name: "" },
@@ -630,7 +641,7 @@ test("suggestions use one text-only call with the draft, its diagnostics and job
   const sent = JSON.parse(textRequestBody(gateway.mock.calls[0][1]!.body));
   expect(sent.model).toBe("workspace-model");
   const context = JSON.parse(sent.messages[1].content);
-  expect(context.action).toBe("explain");
+  expect(context.action).toBeUndefined();
   expect(context.untrustedContext.deterministicDiagnostics.length).toBeGreaterThan(0);
   expect(context.untrustedContext.evidence.job.job_id).toBe("job_a");
   expect(context.untrustedContext.evidence.attachedSampleName).toBe("march.pdf");
@@ -640,57 +651,57 @@ test("suggestions use one text-only call with the draft, its diagnostics and job
   expect(f.store.listExtractionJobs()).toHaveLength(1);
 });
 
-test.each(["explain", "edit"] as const)(
-  "%s suggestions receive only that tab's rules with the full draft context",
-  async (action) => {
-    const f = fixture();
-    const gateway = f.mockGateway(responder({ suggestions: [] }));
+test("one set of suggestion rules mixes possible issues with additions and uses the attached evidence", async () => {
+  const f = fixture();
+  const gateway = f.mockGateway(responder({ suggestions: [] }));
 
-    const currentDraft = {
-      ...draft,
-      description: "Capture invoice totals and currency",
-      fields: [
-        ...draft.fields,
-        {
-          name: "Lines",
-          description: "Items across all pages",
-          data_type: "array<object>",
-          object_schema: {
-            columns: [{ heading: "Quantity", description: "Number of units per row", data_type: "number" }],
-          },
+  const currentDraft = {
+    ...draft,
+    description: "Capture invoice totals and currency",
+    fields: [
+      ...draft.fields,
+      {
+        name: "Lines",
+        description: "Items across all pages",
+        data_type: "array<object>",
+        object_schema: {
+          columns: [{ heading: "Quantity", description: "Number of units per row", data_type: "number" }],
         },
-      ],
-    };
+      },
+    ],
+  };
 
-    const response = await f.suggest({ action, draft: currentDraft, sampleName: "unseen.pdf" });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ source: "model", suggestions: [] });
-    expect(gateway).toHaveBeenCalledTimes(1);
-    const sent = JSON.parse(textRequestBody(gateway.mock.calls[0][1]!.body));
-    const rules = sent.messages[0].content;
-    expect(rules).toContain("contents have NOT been read");
-    expect(rules).toContain("stored results are model output, not verified answers");
-    expect(rules).toContain("empty suggestions array when context is insufficient");
+  const response = await f.suggest({ draft: currentDraft, sampleName: "unseen.pdf" });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ source: "model", suggestions: [] });
+  expect(gateway).toHaveBeenCalledTimes(1);
+  const sent = JSON.parse(textRequestBody(gateway.mock.calls[0][1]!.body));
+  const rules = sent.messages[0].content;
+  expect(rules).toContain("contents have NOT been read");
+  expect(rules).toContain("stored results are model output, not verified answers");
+  expect(rules).toContain("empty suggestions array when context is insufficient");
+  expect(rules).toContain("Mix two kinds of suggestion, problems first");
+  expect(rules).toContain("If diagnostics are empty, do not imply the Template is invalid or cannot save");
+  expect(rules).toContain("equivalent information already captured");
+  expect(rules).toContain("name, supported type, and concrete extraction instructions");
+  expect(rules).toContain("at most 50 fields, one table-shaped field, and 20 columns");
+  expect(rules).toContain("status is not_found, invalid_type, unreadable or error, or whose confidence is below 0.6");
+  expect(rules).not.toMatch(/Explain issues tab|Propose edits tab/);
 
-    if (action === "explain") {
-      expect(rules).toContain("Only supplied deterministic diagnostics are confirmed Template validation errors");
-      expect(rules).toContain("If diagnostics are empty, do not imply the Template is invalid or cannot save");
-      expect(rules).toContain("Do not suggest new fields or columns");
-      expect(rules).not.toContain("Suggest additions only");
-    } else {
-      expect(rules).toContain("Suggest additions only");
-      expect(rules).toContain("equivalent information already captured");
-      expect(rules).toContain("name, supported type, and concrete extraction instructions");
-      expect(rules).toContain("at most 50 fields, one table-shaped field, and 20 columns");
-      expect(rules).not.toContain("Explain issues tab");
-    }
+  const context = JSON.parse(sent.messages[1].content);
+  expect(context.untrustedContext.currentDraft).toEqual(currentDraft);
+  expect(context.untrustedContext.deterministicDiagnostics).toEqual([]);
+  expect(context.untrustedContext.evaluationEvidence).toBeUndefined();
 
-    const context = JSON.parse(sent.messages[1].content);
-    expect(context.action).toBe(action);
-    expect(context.untrustedContext.currentDraft).toEqual(currentDraft);
-    expect(context.untrustedContext.deterministicDiagnostics).toEqual([]);
-  },
-);
+  const withEvaluation = await f.suggest({ evaluation: evaluationEvidence() });
+  expect(withEvaluation.status).toBe(200);
+  const evaluated = JSON.parse(textRequestBody(gateway.mock.calls[1][1]!.body));
+  expect(evaluated.messages[0].content).toContain("When evaluationEvidence is supplied, prioritise its failing fields");
+  expect(JSON.parse(evaluated.messages[1].content).untrustedContext.evaluationEvidence.documents[0].failures[0]).toMatchObject({
+    field_id: "total",
+    expected: 12,
+  });
+});
 
 test("suggestions reject malformed requests and unsupported output, and report a missing model configuration", async () => {
   const f = fixture();
@@ -698,10 +709,13 @@ test("suggestions reject malformed requests and unsupported output, and report a
 
   for (const payload of [
     { instructions: "x" },
-    { action: "save" },
+    { action: "edit" },
     { draft: null },
     { jobId: "../x" },
     { sampleName: "x".repeat(256) },
+    { evaluation: { ...evaluationEvidence(), extra: 1 } },
+    { evaluation: evaluationEvidence(null, false) },
+    { evaluation: evaluationEvidence(), jobId: "job_a" },
   ])
     expect((await f.suggest(payload)).status).toBe(400);
   expect(gateway).not.toHaveBeenCalled();

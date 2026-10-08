@@ -16,3 +16,4 @@ Template assistance previously took only a completed Extraction job and a sample
 - Verified Expected answers and candidate values from the tab are sent to the Workspace's Template assistant model, like a job's stored results. Nothing new is stored: evidence, proposals and comparisons end with the tab, as ADR 0015 requires.
 - A request built from very large batches can omit failures. The panel states how many were left out.
 - Model comparisons share one Template across candidates, so they get the assistant but not **Test changes**.
+- The assistant opens as a panel beside the evaluation, not inside the candidate template editor, and keeps its applied edits until the user tests them on a copy or applies them to the candidate. Suggestions receive the same evaluation evidence.

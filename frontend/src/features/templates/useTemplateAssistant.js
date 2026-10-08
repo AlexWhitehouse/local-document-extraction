@@ -11,6 +11,9 @@ import { suggestTemplateRequests } from "./templateAssistantSuggestions.js";
 
 const SUGGESTION_DELAY_MS = 400;
 
+// One mode: the request asks for a change or a question, and an empty request asks for a review.
+const ACTION = "edit";
+
 // Include extraction guidance; the assistant's request text is separate and never triggers a refetch.
 const suggestionContext = (draft) => [
   draft?.name,
@@ -44,7 +47,6 @@ export function useTemplateAssistant({
   maxSourceFileBytes = 10 * 1024 * 1024,
 }) {
   const [isOpen, setOpen] = useState(false);
-  const [action, setAction] = useState("edit");
   const [instructions, setInstructions] = useState("");
   const [file, setFile] = useState(null);
   const [job, setJob] = useState(null);
@@ -170,13 +172,11 @@ export function useTemplateAssistant({
     cancel();
     lifetime.current.open = true;
     setOpen(true);
-    setAction(diagnoseTemplateDraft(context.current.draft).length ? "explain" : "edit");
   }
 
   // Opens with a prepared request: evaluation evidence, or a completed job and optionally its original.
-  function openWith({ action: nextAction = "edit", instructions: request = "", evaluation: attached = null, jobId = null, useOriginal = false }) {
+  function openWith({ instructions: request = "", evaluation: attached = null, jobId = null, useOriginal = false }) {
     open();
-    setAction(nextAction);
     setInstructions(request);
 
     if (attached) setEvaluation(attached);
@@ -252,12 +252,6 @@ export function useTemplateAssistant({
   async function submit(text = instructions) {
     if (!lifetime.current.open || !hasApiAccess || lifetime.current.controller) return;
 
-    if (action === "edit" && !text.trim()) {
-      setError("Describe the change you want to make.");
-
-      return;
-    }
-
     if (new TextEncoder().encode(text).length > 4096) {
       setError("Keep your request within 4 KB.");
 
@@ -296,7 +290,7 @@ export function useTemplateAssistant({
 
     try {
       const body = new FormData();
-      const payload = { draft: baseDraft, action, instructions: text, base };
+      const payload = { draft: baseDraft, action: ACTION, instructions: text, base };
 
       if (job) Object.assign(payload, { jobId: job.job_id, useRetainedSource });
 
@@ -332,7 +326,7 @@ export function useTemplateAssistant({
       // Validate the model contract again before exposing or applying its operations.
       const output = { explanation: answer.explanation, observations: answer.observations, groups: answer.groups };
       const evidence = answer.evidence?.job || job;
-      validateAssistantOutput(output, baseDraft, action, {
+      validateAssistantOutput(output, baseDraft, ACTION, {
         resultFields: evidence?.fields,
         result: Array.isArray(evidence?.results)
           ? Object.fromEntries(evidence.results.map((row) => [row.field_id, row.answer]))
@@ -361,7 +355,6 @@ export function useTemplateAssistant({
   const suggestionKey = isComposing
     ? JSON.stringify([
         scope,
-        action,
         job?.job_id ?? null,
         file ? [file.name, file.size] : null,
         Boolean(evaluation),
@@ -378,7 +371,7 @@ export function useTemplateAssistant({
         status: "ready",
         source: "rules",
         notice,
-        items: suggestTemplateRequests({ draft: current, issues: diagnoseTemplateDraft(current), action, job, file }),
+        items: suggestTemplateRequests({ draft: current, issues: diagnoseTemplateDraft(current), job, evaluation }),
       });
 
     if (!hasApiAccess) {
@@ -392,11 +385,13 @@ export function useTemplateAssistant({
 
     const timer = setTimeout(async () => {
       try {
-        const payload = { draft: current, action };
+        const payload = { draft: current };
 
         if (job) payload.jobId = job.job_id;
 
         if (file) payload.sampleName = file.name;
+
+        if (evaluation) payload.evaluation = { ...evaluation.evidence, sample_document: null };
 
         const data = await send("/templates/assist/suggestions", {
           method: "POST",
@@ -423,7 +418,7 @@ export function useTemplateAssistant({
       clearTimeout(timer);
       controller.abort();
     };
-    // The key captures the draft structure and guidance, evidence, tab and scope that suggestions depend on.
+    // The key captures the draft structure and guidance, evidence and scope that suggestions depend on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestionKey]);
 
@@ -523,7 +518,6 @@ export function useTemplateAssistant({
     invalidate,
     panel: {
       isOpen,
-      action,
       instructions,
       file,
       job,
@@ -542,7 +536,6 @@ export function useTemplateAssistant({
       stale,
       applied,
       revision,
-      onActionChange: (value) => revise(() => setAction(value)),
       onInstructionsChange: (value) => revise(() => setInstructions(value)),
       // One click fills the request and sends it; the edit control only fills it.
       onSuggestionSubmit: (value) => {

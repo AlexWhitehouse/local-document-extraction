@@ -55,20 +55,24 @@ In a model comparison, Workspace owners and admins can select **Use for extracti
 
 **Save as new Template** opens the candidate’s template in the editor. Select **Save** to create a new template. This action keeps the original template unchanged and excludes expected answers and results.
 
-The candidate template editor includes the [Template assistant](template-assistant.md). Select **Assistant** in its footer. Its edits apply to the candidate’s draft, never to the saved template.
+Select **Ask assistant** in a candidate’s **⋯** menu to open the [Template assistant](template-assistant.md) beside the evaluation. It works on that candidate’s template, never on the saved template. After you apply proposed changes, choose what to do with them:
+
+- **Test changes** runs them on a copy of the candidate. See [Improve failing fields](#improve-failing-fields).
+- **Apply to candidate** changes the candidate’s template. Run the candidate again to test it.
+- In a model comparison every candidate shares one template, so **Apply to template** changes it for all of them.
 
 ## Improve failing fields
 
-When a candidate gets verified fields wrong on the open document, its **⋯** menu offers **Improve failing fields**. It opens the candidate’s template with the Assistant on **Propose edits**. The request names the failing fields, and the candidate’s results on every document are attached as evidence. Only fields with verified expected answers are included. See [Evaluation results](template-assistant.md#evaluation-results) for what is sent.
+When a candidate gets verified fields wrong on the open document, its **⋯** menu offers **Improve failing fields**. It opens the Assistant beside the evaluation, on the candidate’s template. The request names the failing fields, and the candidate’s results on every document are attached as evidence. Only fields with verified expected answers are included. See [Evaluation results](template-assistant.md#evaluation-results) for what is sent.
 
-After you apply proposed changes, select **Test changes**:
+After you apply proposed changes in the Assistant, select **Test changes**:
 
 1. The app adds a copy of the candidate with the edited template, right after the original. The original candidate and its results don’t change.
 2. The copy runs on the documents the original has results for, the same way **Run** does.
 3. **Test changes** above the matrix compares the original with the copy. It shows overall and per-field accuracy before and after, and marks each as **Improved**, **Regressed** or **Unchanged**. Only documents where both have results are compared. Runs that didn’t finish are listed.
 4. Select **Keep copy** to keep both candidates, or **Remove copy** to remove the copy and its results. You can undo the removal from its toast.
 
-**Test changes** is available when comparing template versions. In a model comparison all candidates share one template, so apply the changes and run again instead. A copy needs a free candidate slot. With eight candidates, the editor explains that you need to remove one first.
+**Test changes** is available when comparing template versions. In a model comparison all candidates share one template, so apply the changes and run again instead. A copy needs a free candidate slot. With eight candidates, the Assistant explains that you need to remove one first.
 
 ## Check accuracy
 

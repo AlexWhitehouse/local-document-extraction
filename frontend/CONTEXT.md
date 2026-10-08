@@ -113,7 +113,7 @@ An unsaved **Template** proposed by a model from a sample file. The user reviews
 _Avoid_: automatically saved template, extraction result
 
 **Template assistant**:
-The panel for explanations and focused edits to a draft, on Templates and in the Evaluation candidate Template editor. Evidence, explanations, and proposals are temporary. Opening the panel alone does not call the model. Selecting a suggested request sends it. Shared deterministic diagnostics also work in the Evaluation Template editor without a model.
+The panel that answers questions about a draft and proposes focused edits, docked on Templates and on Evaluations (for one candidate's Template). It has one request box: a question, a change, or empty to review the draft and its evidence. Evidence, explanations, and proposals are temporary. Opening the panel calls the model only for suggested requests, which use the attached evidence; selecting one sends it. Shared deterministic diagnostics also work in the Evaluation Template editor without a model.
 _Avoid_: persistent chat, automatic repair, Evaluation assistant
 
 **Evaluation evidence**:

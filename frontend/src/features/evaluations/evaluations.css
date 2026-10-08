@@ -2,7 +2,15 @@
 .app-frame:has(.studio-main-evaluations) { grid-template-columns: var(--nav-width) minmax(0, 1fr); }
 .studio-main.studio-main-evaluations.main-content { --evaluation-page-gutter: 28px; padding-inline: var(--evaluation-page-gutter); padding-bottom: 0; }
 @media (max-width: 1440px) { .studio-main.studio-main-evaluations.main-content { --evaluation-page-gutter: 22px; } }
-.evaluations-page { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.evaluations-workspace { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.evaluations-page { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; container: evaluations-page / inline-size; }
+/* The assistant docks on the right, as on the Templates page, and runs to the page edge. */
+.evaluations-workspace.has-assistant > .template-assistant { flex: 0 0 clamp(360px, 32%, 480px); margin-right: calc(var(--evaluation-page-gutter) * -1); }
+.evaluations-workspace.has-assistant :is(.evaluation-contextbar, .evaluation-body, .evaluation-setup) { margin-right: 0; }
+@media (width <= 900px) {
+  .evaluations-workspace.has-assistant { flex-direction: column; }
+  .evaluations-workspace.has-assistant > .template-assistant { flex-basis: auto; margin: 16px calc(var(--evaluation-page-gutter) * -1) 0; border-left: 0; border-top: 1px solid var(--rule); }
+}
 .evaluations-page > * { flex-shrink: 0; }
 .evaluations-page > .studio-page-heading { border-bottom: 1px solid var(--rule); }
 .evaluation-contextbar, .evaluation-body, .evaluation-setup { margin-inline: calc(var(--evaluation-page-gutter) * -1); }
@@ -33,7 +41,7 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 .evaluation-context-item:last-child { border-right: 0; padding-right: var(--evaluation-page-gutter); }
 .evaluation-context-item small { font: var(--font-size-1) var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
 .evaluation-context-value { max-width: 100%; font-size: var(--font-size-4); color: var(--text-0); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.evaluation-context-actions { display: flex; gap: 14px; }
+.evaluation-context-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .evaluation-context-actions .studio-text-button { min-height: 0; color: var(--accent-strong); }
 .evaluation-context-progress .evaluation-meter { width: 100%; }
 .evaluation-toolbar-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; }
@@ -402,6 +410,12 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
 .evaluation-matrix tbody .evaluation-omitted-row td { color: var(--text-3); background: var(--pane-context); }
 .evaluation-matrix tbody .evaluation-omitted-row strong { color: inherit; }
 
+/* The docked assistant narrows the page without changing the viewport, so the context bar follows the page width. */
+@container evaluations-page (width <= 860px) {
+  .evaluation-contextbar { grid-template-columns: 1fr 1fr; }
+  .evaluation-context-item { border-bottom: 1px solid var(--rule); }
+  .evaluation-context-item:nth-child(3) { padding-left: var(--evaluation-page-gutter); }
+}
 @media (max-width: 1120px) {
   .evaluation-contextbar { grid-template-columns: 1fr 1fr; }
   .evaluation-context-item { border-bottom: 1px solid var(--rule); }

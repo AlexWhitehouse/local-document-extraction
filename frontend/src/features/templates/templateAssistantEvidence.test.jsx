@@ -1,9 +1,8 @@
 import React from "react";
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useTemplateController } from "./useTemplateController.js";
 import { TemplateAssistant } from "./TemplateAssistant.jsx";
-import { TemplateEditorModal } from "./TemplateEditorModal.jsx";
 
 afterEach(cleanup);
 
@@ -36,21 +35,6 @@ const reply = (options, groups = []) => ({
   groups,
 });
 
-const describeTotal = {
-  id: "total-vat",
-  title: "Describe the VAT-inclusive total",
-  rationale: "The verified answer includes VAT.",
-  dependsOn: [],
-  operations: [
-    {
-      op: "update_field",
-      fieldIndex: 0,
-      expectName: "Total",
-      set: { description: "Total due including VAT" },
-    },
-  ],
-};
-
 const controllerProps = (request, overrides = {}) => ({
   request,
   workspaceId: "workspace_a",
@@ -77,7 +61,6 @@ describe("assistant opened from a document", () => {
     act(() =>
       result.current.actions.prepareAssistant({
         templateId: "invoice",
-        action: "edit",
         instructions: "Improve the instructions for “Total”.",
         jobId: "job_a",
         useOriginal: true,
@@ -87,11 +70,46 @@ describe("assistant opened from a document", () => {
     await waitFor(() => expect(result.current.templatePage.assistant.isOpen).toBe(true));
     await waitFor(() => expect(result.current.templatePage.assistant.job?.job_id).toBe("job_a"));
     const panel = result.current.templatePage.assistant;
-    expect(panel.action).toBe("edit");
     expect(panel.instructions).toBe("Improve the instructions for “Total”.");
     expect(panel.useRetainedSource).toBe(true);
     // The job came from v2; the open Template is v3, so the existing version warning applies.
     expect(panel.templateVersion).toBe(3);
+    // Suggestions take the attached result into account.
+    await waitFor(() =>
+      expect(
+        request.mock.calls.some(
+          ([path, options]) => path === "/templates/assist/suggestions" && JSON.parse(options.body).jobId === "job_a",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("summarises the weak fields of the attached result", () => {
+    const weakJob = { ...job, results: [{ field_id: "total", name: "Total", status: "not_found" }] };
+
+    render(
+      <TemplateAssistant
+        assistant={{
+          isOpen: true,
+          instructions: "",
+          file: null,
+          job: weakJob,
+          evaluation: null,
+          templateId: "invoice",
+          templateVersion: 3,
+          suggestions: { status: "ready", source: "rules", items: [], notice: "" },
+          pending: false,
+          response: null,
+          applied: false,
+          picker: { isOpen: false },
+          onClose: vi.fn(),
+          onSubmit: vi.fn(),
+        }}
+        draft={{ name: "Invoice", fields: savedTemplate.fields }}
+      />,
+    );
+    expect(screen.getByText(/1 field missing, unreadable or low confidence: “Total”/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Review draft" })).toBeTruthy();
   });
 
   it("drops the request when another Template opens instead", async () => {
@@ -111,7 +129,6 @@ describe("one-click suggestions", () => {
 
   const panel = (overrides = {}) => ({
     isOpen: true,
-    action: "edit",
     instructions: "",
     file: null,
     job: null,
@@ -123,7 +140,6 @@ describe("one-click suggestions", () => {
     picker: { isOpen: false },
     onSuggestionSubmit: vi.fn(),
     onInstructionsChange: vi.fn(),
-    onActionChange: vi.fn(),
     onClose: vi.fn(),
     onSubmit: vi.fn(),
     ...overrides,
@@ -152,101 +168,5 @@ describe("one-click suggestions", () => {
     const sent = request.mock.calls.find(([path]) => path === "/templates/assist")[1].body;
     expect(JSON.parse(sent.get("payload")).instructions).toBe(suggestion.request);
     expect(result.current.templatePage.assistant.instructions).toBe(suggestion.request);
-  });
-});
-
-const evaluationEvidence = {
-  candidate: { label: "Candidate 1: Invoice", model: "m", template_name: "Invoice", template_id: null, template_version: null, modified: false },
-  accuracy: { matched: 0, total: 1 },
-  documents: [
-    {
-      name: "march.pdf",
-      accuracy: { matched: 0, total: 1 },
-      failures: [
-        {
-          field_id: "total",
-          field_name: "Total",
-          data_type: "number",
-          verdict: "Mismatch",
-          expected_verified: true,
-          extracted_status: "ok",
-          extracted: 100,
-          expected: 120,
-          expected_absent: false,
-          cells: null,
-        },
-      ],
-    },
-  ],
-  omitted: { documents: 0, failures: 0 },
-  sample_document: null,
-};
-
-describe("assistant in the Evaluation template editor", () => {
-  const original = new File(["%PDF"], "march.pdf", { type: "application/pdf" });
-
-  const renderEditor = (request, props = {}) =>
-    render(
-      <TemplateEditorModal
-        initial={savedTemplate}
-        onSubmit={vi.fn()}
-        onClose={vi.fn()}
-        assistant={{
-          request,
-          scope: "evaluation:a",
-          hasApiAccess: true,
-          intent: {
-            action: "edit",
-            instructions: "Improve the instructions for “Total”.",
-            evaluation: { evidence: evaluationEvidence, sample: { name: "march.pdf", load: async () => original } },
-          },
-        }}
-        {...props}
-      />,
-    );
-
-  it("sends evaluation evidence, applies edits to the draft and offers Test changes", async () => {
-    const request = vi.fn(async (path, options) =>
-      path === "/templates/assist" ? reply(options, [describeTotal]) : { source: "model", suggestions: [] },
-    );
-
-    const onTestChanges = vi.fn(async () => {});
-    renderEditor(request, { onTestChanges });
-    const assistant = screen.getByRole("complementary", { name: "Template assistant" });
-    // The evidence card and the "What will be sent" summary.
-    expect(within(assistant).getAllByText("Evaluation results")).toHaveLength(2);
-    expect(within(assistant).getByText("Only verified expected answers are sent.")).toBeTruthy();
-    expect(within(assistant).getByRole("textbox").value).toBe("Improve the instructions for “Total”.");
-    expect(within(assistant).queryByRole("button", { name: "Choose a completed document…" })).toBeNull();
-
-    fireEvent.click(within(assistant).getByRole("radio", { name: "Original" }));
-    await waitFor(() => expect(within(assistant).getByText(/march\.pdf \(the original\)/)).toBeTruthy());
-    fireEvent.click(within(assistant).getByRole("button", { name: "Propose edits" }));
-    await waitFor(() => expect(within(assistant).getByText("Describe the VAT-inclusive total")).toBeTruthy());
-
-    const sent = request.mock.calls.find(([path]) => path === "/templates/assist")[1].body;
-    const payload = JSON.parse(sent.get("payload"));
-    expect(payload.evaluation).toMatchObject({ ...evaluationEvidence, sample_document: "march.pdf" });
-    expect(payload.jobId).toBeUndefined();
-    expect(sent.get("document").name).toBe("march.pdf");
-
-    fireEvent.click(within(assistant).getByRole("button", { name: "Apply 1 change to draft" }));
-    fireEvent.click(await within(assistant).findByRole("button", { name: "Test changes" }));
-    await waitFor(() => expect(onTestChanges).toHaveBeenCalled());
-    expect(onTestChanges.mock.calls[0][0].fields[0].description).toBe("Total due including VAT");
-  }, 15_000);
-
-  it("explains the candidate limit instead of making a copy", async () => {
-    const request = vi.fn(async (path, options) =>
-      path === "/templates/assist" ? reply(options, [describeTotal]) : { source: "model", suggestions: [] },
-    );
-
-    const onTestChanges = vi.fn();
-    renderEditor(request, { onTestChanges, testLimit: "You can compare up to 8 candidates. Remove one to test these changes on a copy." });
-    const assistant = screen.getByRole("complementary", { name: "Template assistant" });
-    fireEvent.click(within(assistant).getByRole("button", { name: "Propose edits" }));
-    fireEvent.click(await within(assistant).findByRole("button", { name: "Apply 1 change to draft" }));
-    expect(await within(assistant).findByText(/You can compare up to 8 candidates/)).toBeTruthy();
-    expect(within(assistant).getByRole("button", { name: "Test changes" }).disabled).toBe(true);
   });
 });

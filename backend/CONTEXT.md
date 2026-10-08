@@ -217,7 +217,7 @@ A temporary user-provided file used to infer a reusable **Template**, without be
 _Avoid_: extraction job source, retained document
 
 **Template assistance**:
-A model request to explain a captured **Template** draft or propose focused edits. Optional binary evidence is one **Template sample** or an explicitly selected retained **Source file**. Evidence can also include one completed **Extraction job**, with its historical **Template version** and results, or browser-supplied **Evaluation evidence**: failing fields with verified Expected answers, validated strictly and limited to 128 KiB. Only Evaluation evidence treats Expected answers as ground truth; job results remain model output. Assistance neither saves a Template nor creates an Extraction job.
+A model request about a captured **Template** draft: a question, a change, or an empty request that asks for a review. It returns an explanation and optional focused edits. Optional binary evidence is one **Template sample** or an explicitly selected retained **Source file**. Evidence can also include one completed **Extraction job**, with its historical **Template version** and results, or browser-supplied **Evaluation evidence**: failing fields with verified Expected answers, validated strictly and limited to 128 KiB. Only Evaluation evidence treats Expected answers as ground truth; job results remain model output. Assistance neither saves a Template nor creates an Extraction job.
 _Avoid_: automatic template repair, verified answer, persistent assistant conversation
 
 **Template change group**:

@@ -317,7 +317,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       if (!allowed) return;
       templateController.actions.prepareAssistant({
         templateId: job.template_id,
-        action: "edit",
         instructions: templateImprovementRequest(job.results),
         jobId: job.job_id,
         useOriginal: job.source_retained === true,

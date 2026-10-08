@@ -67,19 +67,29 @@ function validateAssistanceDraft(draft: JsonValue | undefined) {
     );
 }
 
+function readEvaluationEvidence(value: JsonValue | undefined): EvaluationEvidence {
+  try {
+    return validateEvaluationEvidence(value);
+  } catch (error) {
+    if (error instanceof EvaluationEvidenceError) throw invalid(error.message);
+    throw error;
+  }
+}
+
 type SuggestionRequest = {
   draft: JsonValue | undefined;
-  action: "explain" | "edit";
   jobId?: string;
   sampleName?: string;
+  evaluation?: EvaluationEvidence;
 };
 
 export function validateSuggestionRequest(value: JsonValue | undefined): SuggestionRequest {
-  if (!object(value) || Object.keys(value).some((key) => !["draft", "action", "jobId", "sampleName"].includes(key)))
+  if (
+    !object(value) ||
+    Object.keys(value).some((key) => !["draft", "jobId", "sampleName", "evaluation"].includes(key))
+  )
     throw invalid("Unsupported suggestion request properties");
   validateAssistanceDraft(value.draft);
-
-  if (value.action !== "explain" && value.action !== "edit") throw invalid("action must be explain or edit");
 
   if (value.jobId !== undefined && !identifier(value.jobId))
     throw invalid("jobId must identify one completed Extraction job");
@@ -87,11 +97,17 @@ export function validateSuggestionRequest(value: JsonValue | undefined): Suggest
   if (value.sampleName !== undefined && (!isString(value.sampleName) || value.sampleName.length > 255))
     throw invalid("sampleName must be at most 255 characters");
 
-  const suggestion: SuggestionRequest = { draft: value.draft, action: value.action };
+  const suggestion: SuggestionRequest = { draft: value.draft };
 
   if (identifier(value.jobId)) suggestion.jobId = value.jobId;
 
   if (isString(value.sampleName)) suggestion.sampleName = value.sampleName;
+
+  if (value.evaluation !== undefined) {
+    if (value.jobId !== undefined)
+      throw invalid("Choose one kind of result evidence: a completed job or evaluation results");
+    suggestion.evaluation = readEvaluationEvidence(value.evaluation);
+  }
 
   return suggestion;
 }
@@ -129,7 +145,6 @@ export function validateAssistanceRequest(raw: string): AssistanceRequest {
   if (!isString(value.instructions) || Buffer.byteLength(value.instructions) > ASSISTANCE_LIMITS.instructionsBytes)
     throw invalid("instructions must be at most 4 KiB");
 
-  if (value.action === "edit" && !value.instructions.trim()) throw invalid("Describe the change you want to make");
   const base = value.base;
 
   if (
@@ -159,12 +174,7 @@ export function validateAssistanceRequest(raw: string): AssistanceRequest {
     if (value.jobId !== undefined)
       throw invalid("Choose one kind of result evidence: a completed job or evaluation results");
 
-    try {
-      evaluation = validateEvaluationEvidence(value.evaluation);
-    } catch (error) {
-      if (error instanceof EvaluationEvidenceError) throw invalid(error.message);
-      throw error;
-    }
+    evaluation = readEvaluationEvidence(value.evaluation);
   }
 
   const assistance: AssistanceRequest = {
@@ -376,12 +386,12 @@ export async function handleTemplateSuggestions({
           }),
           {
             draft: input.draft,
-            action: input.action,
             evidence: {
               job,
               attachedSampleName: input.sampleName ?? null,
               note: "Only the sample's name is supplied, not its contents.",
             },
+            evaluation: input.evaluation,
           },
           signal,
         );

@@ -141,7 +141,7 @@ export function TemplatePage({
             >
               {isEditingTemplate ? "Save changes" : "Save new template"}
             </Button>
-            {/* One entry point: it opens on Explain problems while the draft has problems, otherwise on Propose edits. */}
+            {/* One entry point; the problem count shows what an empty request would review. */}
             <Button
               type="button"
               variant="secondary"

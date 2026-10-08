@@ -6,13 +6,33 @@ import {
   templateColumns,
   templateIdentity,
 } from "../../../../shared/templateAssistant.ts";
+import { weakResultFields } from "../documents/templateImprovement.js";
 
 const named = (field) => String(field?.name || "").trim();
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
-/** Conservative fallback suggestions from the draft and diagnostics; sample contents are unavailable here. */
-export function suggestTemplateRequests({ draft, issues, action, job }) {
+const quoted = (names) => {
+  const shown = names.slice(0, 3).map((name) => `“${name}”`);
+
+  return names.length > shown.length ? `${shown.join(", ")} and ${names.length - shown.length} more` : shown.join(", ");
+};
+
+const clip = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
+
+// Evidence suggestions name fields the user chose, so long names are shortened rather than dropped.
+const evidenceSuggestion = (id, names, what, reason, request) => ({
+  id,
+  label: clip(names.length === 1 ? `Improve “${names[0]}”` : `Improve the ${names.length} ${what} fields`, SUGGESTION_LIMITS.labelCharacters),
+  reason: clip(reason, SUGGESTION_LIMITS.reasonCharacters),
+  request: clip(request, SUGGESTION_LIMITS.requestCharacters),
+});
+
+/**
+ * Conservative fallback suggestions from the draft, diagnostics and attached results; sample contents are
+ * unavailable here. Possible problems come first, then useful additions.
+ */
+export function suggestTemplateRequests({ draft, issues, job, evaluation }) {
   const fields = Array.isArray(draft?.fields) ? draft.fields : [];
   const fieldName = (issue) => named(fields[issue.location.fieldIndex]) || `Field ${issue.location.fieldIndex + 1}`;
 
@@ -23,42 +43,44 @@ export function suggestTemplateRequests({ draft, issues, action, job }) {
   const suggestions = [];
   const add = (id, label, reason, request = label) => suggestions.push({ id, label, request, reason });
 
-  if (action === "explain") {
-    if (issues.length)
-      add("why-save", "Why won’t this template save?", `${plural(issues.length, "problem")} found by the app`);
+  if (issues.length)
+    add(
+      "fix-problems",
+      "Fix the problems that stop this template saving",
+      `${plural(issues.length, "problem")} found by the app`,
+    );
 
-    for (const issue of issues) {
-      if (issue.code === "field.duplicate_identity")
-        add(
-          `explain-${issue.id}`,
-          `Why do two fields clash on “${templateIdentity(fieldName(issue))}”?`,
-          `Fields ${issue.location.relatedFieldIndex + 1} and ${issue.location.fieldIndex + 1} share a key`,
-        );
+  for (const issue of issues) {
+    if (issue.code === "field.duplicate_identity")
+      add(
+        `explain-${issue.id}`,
+        `Why do two fields clash on “${templateIdentity(fieldName(issue))}”?`,
+        `Fields ${issue.location.relatedFieldIndex + 1} and ${issue.location.fieldIndex + 1} share a key`,
+      );
 
-      if (issue.code === "field.type_unsupported")
-        add(
-          `explain-${issue.id}`,
-          `Why isn’t “${fields[issue.location.fieldIndex]?.data_type}” a valid type?`,
-          `Used by “${fieldName(issue)}”`,
-        );
+    if (issue.code === "field.type_unsupported")
+      add(
+        `explain-${issue.id}`,
+        `Why isn’t “${fields[issue.location.fieldIndex]?.data_type}” a valid type?`,
+        `Used by “${fieldName(issue)}”`,
+      );
 
-      if (issue.code === "template.multiple_tables")
-        add(`explain-${issue.id}`, "Why is only one table allowed?", `“${fieldName(issue)}” is a second table`);
+    if (issue.code === "template.multiple_tables")
+      add(`explain-${issue.id}`, "Why is only one table allowed?", `“${fieldName(issue)}” is a second table`);
 
-      if (issue.code === "column.description_required")
-        add(
-          `explain-${issue.id}`,
-          `Why does the ${columnHeading(issue)} column need a description?`,
-          `In “${fieldName(issue)}”`,
-        );
+    if (issue.code === "column.description_required")
+      add(
+        `explain-${issue.id}`,
+        `Why does the ${columnHeading(issue)} column need a description?`,
+        `In “${fieldName(issue)}”`,
+      );
 
-      if (issue.code === "field.description_required" && named(fields[issue.location.fieldIndex]))
-        add(
-          `explain-${issue.id}`,
-          `What should the “${fieldName(issue)}” instructions say?`,
-          "It has no instructions yet",
-        );
-    }
+    if (issue.code === "field.description_required" && named(fields[issue.location.fieldIndex]))
+      add(
+        `explain-${issue.id}`,
+        `What should the “${fieldName(issue)}” instructions say?`,
+        "It has no instructions yet",
+      );
   }
 
   suggestions.splice(4);
@@ -73,50 +95,72 @@ export function suggestTemplateRequests({ draft, issues, action, job }) {
   );
 
   const evidenceName = job ? job.original_filename || job.job_id : null;
+  const weak = job ? weakResultFields(job.results) : [];
 
-  if (action === "explain") {
-    if (job) {
+  const failing = evaluation
+    ? [
+        ...new Set(
+          evaluation.evidence.documents.flatMap((document) => document.failures.map((failure) => failure.field_name)),
+        ),
+      ]
+    : [];
+
+  if (failing.length)
+    suggestions.push(
+      evidenceSuggestion(
+        "evaluation-failures",
+        failing,
+        "failing",
+        `${quoted(failing)} didn’t match verified expected answers`,
+        `Improve the instructions for ${quoted(failing)} so they match the verified expected answers.`,
+      ),
+    );
+
+  if (weak.length)
+    suggestions.push(
+      evidenceSuggestion(
+        "job-weak-fields",
+        weak,
+        "weak",
+        `${quoted(weak)} were missing, unreadable or low confidence in ${evidenceName}`,
+        `Improve the instructions for ${quoted(weak)}. In ${evidenceName} they were missing, unreadable or low confidence.`,
+      ),
+    );
+  else if (job)
+    add(
+      "job-result",
+      `What can ${evidenceName} tell us about existing fields?`,
+      `Review of version ${job.template_version} results, not verified answers`,
+    );
+
+  if (!issues.length) {
+    if (dateField)
       add(
-        "job-result",
-        `What can ${evidenceName} tell us about existing fields?`,
-        `Review of version ${job.template_version} results, not verified answers`,
+        "date-order",
+        `Is “${dateField.name}” clear about day and month order?`,
+        "Review the date instructions for possible ambiguity",
       );
 
-      if (!job.source_available)
-        add(
-          "job-result-only",
-          "What can you tell from the stored result alone?",
-          "The original isn’t available",
-        );
-    }
-
-    if (!issues.length) {
-      if (dateField)
-        add(
-          "date-order",
-          `Is “${dateField.name}” clear about day and month order?`,
-          "Review the date instructions for possible ambiguity",
-        );
-
-      if (table && !/page|continu/i.test(table.description || ""))
-        add(
-          "table-pages",
-          `How will “${table.name}” handle tables that continue onto another page?`,
-          `Review page handling for this ${plural(columns.length, "column")} table`,
-        );
-
-      const vague = fields.find(
-        (field) => named(field) && field !== dateField && String(field.description || "").trim().length < 26,
+    if (table && !/page|continu/i.test(table.description || ""))
+      add(
+        "table-pages",
+        `How will “${table.name}” handle tables that continue onto another page?`,
+        `Review page handling for this ${plural(columns.length, "column")} table`,
       );
 
-      if (vague)
-        add(
-          "vague",
-          `Is “${vague.name}” specific enough to extract reliably?`,
-          "Review its short instructions for possible ambiguity",
-        );
-    }
-  } else if (
+    const vague = fields.find(
+      (field) => named(field) && field !== dateField && String(field.description || "").trim().length < 26,
+    );
+
+    if (vague)
+      add(
+        "vague",
+        `Is “${vague.name}” specific enough to extract reliably?`,
+        "Review its short instructions for possible ambiguity",
+      );
+  }
+
+  if (
     table &&
     columns.length > 0 &&
     columns.length < MAX_TEMPLATE_OBJECT_COLUMNS &&

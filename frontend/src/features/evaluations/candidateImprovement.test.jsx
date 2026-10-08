@@ -199,12 +199,21 @@ describe("Improve failing fields and Test changes", () => {
     const { evaluation, rerender } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
     fireEvent.click(screen.getByRole("button", { name: "Improve failing fields" }));
-    const dialog = await screen.findByRole("dialog", { name: "Edit template" });
-    const assistant = await within(dialog).findByRole("complementary", { name: "Template assistant" });
+    // The assistant docks beside the evaluation; no template editor opens.
+    const assistant = await screen.findByRole("complementary", { name: "Template assistant" });
+    expect(screen.queryByRole("dialog", { name: "Edit template" })).toBeNull();
+    expect(within(assistant).getByText("Candidate 1")).toBeTruthy();
     expect(within(assistant).getByRole("textbox").value).toContain("“Total”");
     expect(within(assistant).getByText(/1 failing field in 1 document/)).toBeTruthy();
 
-    fireEvent.click(within(assistant).getByRole("button", { name: "Propose edits" }));
+    // Suggestions see the same failing fields.
+    await waitFor(() =>
+      expect(evaluation.api.mock.calls.some(([path]) => path === "/templates/assist/suggestions")).toBe(true),
+    );
+    const suggested = JSON.parse(evaluation.api.mock.calls.find(([path]) => path === "/templates/assist/suggestions")[1].body);
+    expect(suggested.evaluation.documents[0].failures.map((failure) => failure.field_id)).toEqual(["total"]);
+
+    fireEvent.click(within(assistant).getByRole("button", { name: "Send" }));
     fireEvent.click(await within(assistant).findByRole("button", { name: "Apply 1 change to draft" }));
     const sent = JSON.parse(evaluation.api.mock.calls.find(([path]) => path === "/templates/assist")[1].body.get("payload"));
     expect(sent.evaluation.documents[0].failures.map((failure) => failure.field_id)).toEqual(["total"]);
@@ -215,7 +224,7 @@ describe("Improve failing fields and Test changes", () => {
     expect(evaluation.branch.mock.calls[0][0]).toBe("a");
     expect(evaluation.branch.mock.calls[0][1].fields[0].description).toBe("Total due including VAT");
     expect(evaluation.edit).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit template" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Template assistant" })).toBeNull());
 
     const copy = { ...evaluation.state.candidates[0], id: "b", template: evaluation.branch.mock.calls[0][1] };
     const candidates = [...evaluation.state.candidates, copy];
@@ -231,8 +240,25 @@ describe("Improve failing fields and Test changes", () => {
 
     fireEvent.click(within(trial).getByRole("button", { name: "Remove copy" }));
     await waitFor(() => expect(evaluation.remove).toHaveBeenCalledWith("b"));
-    // A full journey through the editor, the assistant and the comparison; allow for slow runners.
+    // A full journey through the assistant and the comparison; allow for slow runners.
   }, 20_000);
+
+  it("applies the assistant's edits to the candidate instead of testing a copy", async () => {
+    const { evaluation } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+    const assistant = await screen.findByRole("complementary", { name: "Template assistant" });
+    expect(within(assistant).getByRole("textbox").value).toBe("");
+
+    fireEvent.click(within(assistant).getByRole("button", { name: "Review draft" }));
+    fireEvent.click(await within(assistant).findByRole("button", { name: "Apply 1 change to draft" }));
+    fireEvent.click(await within(assistant).findByRole("button", { name: "Apply to candidate" }));
+    expect(evaluation.edit).toHaveBeenCalledTimes(1);
+    expect(evaluation.edit.mock.calls[0][0]).toBe("a");
+    expect(evaluation.edit.mock.calls[0][1].template.fields[0].description).toBe("Total due including VAT");
+    expect(evaluation.branch).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Template assistant" })).toBeNull());
+  });
 
   it("hides Improve failing fields when every verified field matches", () => {
     const passing = evaluationWith({ details: { "doc-a": { raw: raw(12) } } });

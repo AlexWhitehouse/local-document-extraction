@@ -58,6 +58,7 @@ const successMessages = {
   "draft.removeColumn": ({ target }) => withTarget("Column removed", target),
   "evaluation.removeCandidate": ({ target }) => withTarget("Candidate removed", target),
   "evaluation.testChanges": ({ target }) => withTarget("Copy created to test changes", target),
+  "evaluation.applyAssistant": ({ target }) => withTarget("Changes applied. Run again to test them", target),
   "evaluation.removeDocument": ({ target }) => withTarget("Document removed", target),
   "evaluation.discardChanges": () => "Changes discarded",
   "evaluation.acceptAnswers": ({ count = 0, target }) =>
@@ -107,6 +108,7 @@ const failureMessages = {
   "document.useTemplate": () => "Couldn't use that template for this document.",
   "packet.confirmPlan": () => "Couldn't confirm the split plan.",
   "evaluation.improve": () => "Couldn't load the results for this candidate.",
+  "evaluation.applyAssistant": () => "Couldn't apply the changes. Try again.",
 };
 
 const validationMessages = {
