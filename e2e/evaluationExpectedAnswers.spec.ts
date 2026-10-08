@@ -19,10 +19,10 @@ test("date formats, field errors and table cell statuses survive saving and reus
     await saveModelGateway(page, harness, "browser/expected-answers");
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
-    await page.getByRole("button", { name: "Create Template" }).click();
+    await page.getByRole("button", { name: "Create template" }).click();
     await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "View JSON" }).click();
-    const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
+    const templateDialog = page.getByRole("dialog", { name: "Export or import JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(
       JSON.stringify({
         name: "Expected answer checks",
@@ -56,7 +56,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
         .selectOption({ label: "Expected answer checks" });
       await evaluations.getByRole("textbox", { name: "Candidate 2 model" }).fill("browser/expected-answers-b");
       await evaluations.getByRole("button", { name: "Start and run" }).click();
-      await expect(evaluations.getByRole("status").filter({ hasText: "Completed" })).toHaveCount(2);
+      await expect(evaluations.locator(".evaluation-status", { hasText: "Completed" })).toHaveCount(2);
     };
 
     await evaluations
@@ -71,7 +71,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
     await editor.getByRole("button", { name: "Use as expected answer" }).click();
     await expect(value).toHaveAttribute("aria-invalid", "true");
     await expect(value).toBeFocused();
-    await expect(editor.getByRole("alert")).toContainText("valid calendar date");
+    await expect(value).toHaveAccessibleDescription(/valid calendar date/);
     await page.screenshot({ path: testInfo.outputPath("date-validation.png") });
     await value.fill("08/09/1871");
     await expect(editor.getByRole("alert")).toHaveCount(0);

@@ -9,7 +9,7 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await signUpAndVerify(page, harness, { name: "Tour User", email: "tour@example.test", password: "Strong1!" });
     const invitation = page.getByRole("complementary", { name: "Welcome tour" });
     await expect(invitation).toBeVisible();
-    await invitation.getByRole("button", { name: "Not now" }).click();
+    await invitation.getByRole("button", { name: "Dismiss tour" }).click();
     await page.reload();
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await expect(invitation).toHaveCount(0);
@@ -63,7 +63,7 @@ test("optional tour guides real creation, isolates controls and queues a documen
     await page.screenshot({ path: testInfo.outputPath("tour-schema.png"), animations: "disabled" });
     await page.getByLabel("Column name", { exact: true }).click();
     await page.getByLabel("Column name", { exact: true }).fill("Item");
-    await page.getByLabel("Column Description", { exact: true }).fill("Item name");
+    await page.getByLabel("Column description", { exact: true }).fill("Item name");
     await next();
     await target("schema-done").click();
     let failSave = true;

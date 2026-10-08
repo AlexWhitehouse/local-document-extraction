@@ -42,10 +42,10 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
-    await page.getByRole("button", { name: "Create Template" }).click();
+    await page.getByRole("button", { name: "Create template" }).click();
     await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "View JSON" }).click();
-    const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
+    const templateDialog = page.getByRole("dialog", { name: "Export or import JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));
     await templateDialog.getByRole("button", { name: "Save JSON" }).click();
     await expect(page.getByText(`Template saved: ${TEMPLATE.name}`)).toBeVisible();
@@ -71,7 +71,7 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
 
     const matrix = evaluations.getByRole("region", { name: "Comparison matrix" });
     await expect(matrix).toBeVisible();
-    await expect(matrix.getByRole("status").filter({ hasText: "Completed" })).toHaveCount(2);
+    await expect(matrix.locator(".evaluation-status", { hasText: "Completed" })).toHaveCount(2);
     await expect(matrix.getByText("INV-E2E-001", { exact: true })).toHaveCount(2);
 
     await matrix.getByRole("button", { name: "Add expected Invoice Number" }).click();

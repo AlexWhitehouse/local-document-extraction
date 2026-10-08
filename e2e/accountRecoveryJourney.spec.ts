@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { access } from "node:fs/promises";
 
-import { signIn, signOut, signUpAndVerify } from "./support/journeyHelpers";
+import { confirmInAppDialog, signIn, signOut, signUpAndVerify } from "./support/journeyHelpers";
 import { startRuntimeHarness, type RuntimeHarness } from "./support/runtimeHarnessClient";
 
 const ACCOUNT = {
@@ -20,7 +20,7 @@ test("a user manages local settings and recovers access through the frontend", a
     await signOut(page, updatedAccount);
 
     await page.getByLabel("Email").fill(ACCOUNT.email);
-    await page.getByRole("link", { name: "Forgot password?" }).click();
+    await page.getByRole("button", { name: "Forgot password?", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Reset password" })).toBeVisible();
     await page.getByRole("button", { name: "Send reset link" }).click();
     await expect(page.getByRole("status")).toContainText(
@@ -77,14 +77,14 @@ async function updateLocalSettings(page: Page) {
   await expect(gateway.getByText("browser/assistant-model", { exact: true })).toBeVisible();
   await gateway.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(apiKey).toHaveValue("");
-  await expect(apiKey).toHaveAttribute("placeholder", /Saved/);
+  await expect(apiKey).toHaveAccessibleDescription("Leave blank to keep the saved key.");
   await apiKey.fill("replacement-browser-token");
   await gateway.getByRole("button", { name: "Save configuration" }).click();
   await expect(page.getByText("Model gateway saved", { exact: true }).last()).toBeVisible();
   await gateway.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(apiKey).toHaveValue("");
   await gateway.getByRole("button", { name: "Clear configuration" }).click();
-  await gateway.getByRole("button", { name: "Confirm clear" }).click();
+  await confirmInAppDialog(page, "Clear the Model gateway?", "Clear gateway");
   await expect(gateway.getByText("Not configured", { exact: true })).toBeVisible();
   await expect(gateway.getByRole("table", { name: "Models" })).toBeVisible();
   await expect(gateway.getByLabel("Gateway URL", { exact: true })).toHaveCount(0);

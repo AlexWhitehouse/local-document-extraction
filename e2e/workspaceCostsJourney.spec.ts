@@ -15,7 +15,7 @@ test("Workspace costs report processing spend and retain deleted documents throu
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     const tour = page.getByRole("complementary", { name: "Welcome tour" });
 
-    if (await tour.isVisible()) await tour.getByRole("button", { name: "Not now" }).click();
+    if (await tour.isVisible()) await tour.getByRole("button", { name: "Dismiss tour" }).click();
     await saveModelGateway(page, harness, "browser/cost-dashboard");
     const workspace = new URL(page.url()).pathname.split("/")[2]!;
     const headers = { "x-workspace-id": workspace, origin: harness.origin };
@@ -87,7 +87,7 @@ test("Workspace costs report processing spend and retain deleted documents throu
     await page.screenshot({ path: testInfo.outputPath("costs-deleted-document.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: testInfo.outputPath("costs-mobile.png"), fullPage: true });
-    await page.getByRole("button", { name: "← Workspace", exact: true }).click();
+    await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link").first().click();
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     expect(errors).toEqual([]);
   } finally {

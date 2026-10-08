@@ -13,7 +13,7 @@ test("manage shared template tags in the frontend without creating field version
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("link", { name: /Templates/ })
       .click();
-    await page.getByRole("button", { name: "Create Template", exact: true }).click();
+    await page.getByRole("button", { name: "Create template", exact: true }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Tagged invoice");
 
     const creation = page.waitForResponse(
@@ -72,7 +72,7 @@ test("manage shared template tags in the frontend without creating field version
     };
 
     const closeTags = async () => {
-      await page.getByRole("button", { name: "Template tags", exact: true }).click();
+      if (await dropdown.isVisible()) await page.keyboard.press("Escape");
       await expect(dropdown).toBeHidden();
     };
 
@@ -92,7 +92,7 @@ test("manage shared template tags in the frontend without creating field version
       fields: original.fields,
     });
 
-    await page.getByRole("button", { name: "Create Template", exact: true }).click();
+    await page.getByRole("button", { name: "Create template", exact: true }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Tagged receipt");
     await openTags();
     await dropdown.getByRole("checkbox", { name: "invoice", exact: true }).check();
@@ -152,11 +152,10 @@ test("manage shared template tags in the frontend without creating field version
     await saveChanges(firstId);
     await openTags();
     await dropdown.getByRole("button", { name: "Manage tags", exact: true }).click();
-    page.once("dialog", async (dialog) => {
-      expect(dialog.message()).toContain("2");
-      await dialog.accept();
-    });
     await dropdown.getByRole("button", { name: "Delete finance docs", exact: true }).click();
+    const deleteTag = page.getByRole("alertdialog", { name: 'Delete tag "finance docs"?', exact: true });
+    await expect(deleteTag).toContainText("removed from 2 templates");
+    await deleteTag.getByRole("button", { name: "Delete tag", exact: true }).click();
     await expect(dropdown.getByRole("button", { name: "Delete finance docs", exact: true })).toBeHidden();
     expect(await readTags()).toEqual([]);
     expect(await readTemplate(firstId)).toMatchObject({

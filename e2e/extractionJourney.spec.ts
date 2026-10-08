@@ -3,7 +3,7 @@ import { access, mkdir, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { createBrowserEvidence } from "./support/browserEvidence";
-import { ONE_PIXEL_PNG, saveModelGateway, submitSignUp } from "./support/journeyHelpers";
+import { chooseMoreAction, confirmInAppDialog, ONE_PIXEL_PNG, saveModelGateway, submitSignUp } from "./support/journeyHelpers";
 import { startRuntimeHarness, type RuntimeHarness } from "./support/runtimeHarnessClient";
 
 const ACCOUNT = {
@@ -46,12 +46,12 @@ test("a new user completes a Document Extraction job without email verification 
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
-    await page.getByRole("button", { name: "Create Template" }).click();
+    await page.getByRole("button", { name: "Create template" }).click();
     await expect(page.getByRole("region", { name: "Template editor" })).toBeVisible();
     await expect(page.getByLabel("Template name", { exact: true })).toHaveValue("Invoice Template");
     await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "View JSON" }).click();
-    const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
+    const templateDialog = page.getByRole("dialog", { name: "Export or import JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(TEMPLATE));
 
     const templateCreated = page.waitForResponse(
@@ -77,7 +77,7 @@ test("a new user completes a Document Extraction job without email verification 
     // Creation and editing can leave identical success toasts on screen.
     await expect(page.getByRole("region", { name: "Template editor" }).getByText(/All changes saved$/)).toBeVisible();
 
-    await page.getByRole("button", { name: "Upload Document", exact: true }).first().click();
+    await page.getByRole("button", { name: "Upload documents", exact: true }).first().click();
     const uploadDialog = page.getByRole("dialog", { name: "Upload document" });
     await uploadDialog.getByLabel("Template").selectOption({ label: TEMPLATE.name });
     await uploadDialog.locator('input[type="file"]').setInputFiles({
@@ -94,6 +94,7 @@ test("a new user completes a Document Extraction job without email verification 
     expect((await extractionQueued).status()).toBe(202);
     await expect(uploadDialog.getByText("Queued", { exact: true })).toBeVisible();
     await uploadDialog.getByRole("button", { name: "Cancel" }).click();
+    await confirmInAppDialog(page, "Discard changes?", "Discard");
 
     await navigation.getByRole("link", { name: /Documents/ }).click();
     await expect(page.getByRole("region", { name: "Document results" })).toBeVisible();
@@ -111,15 +112,14 @@ test("a new user completes a Document Extraction job without email verification 
     );
 
     await jobSelection.click();
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
-    await page.getByRole("menuitem", { name: /^Delete/ }).click();
+    await chooseMoreAction(page, /^Delete/);
+    await confirmInAppDialog(page, /^Delete/, "Delete document");
     await expect(page.getByText(/Document deleted:/)).toBeVisible();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toHaveCount(0);
 
     await navigation.getByRole("link", { name: /Templates/ }).click();
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Delete Template" }).click();
+    await chooseMoreAction(page, "Delete template");
+    await confirmInAppDialog(page, /^Delete ".*"\?$/, "Delete template");
     await expect(page.getByText(`Template deleted: ${TEMPLATE.name}`)).toBeVisible();
   } finally {
     try {

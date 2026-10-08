@@ -19,7 +19,7 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("link", { name: /Templates/ })
       .click();
-    await page.getByRole("button", { name: "Create Template", exact: true }).click();
+    await page.getByRole("button", { name: "Create template", exact: true }).click();
     await page.getByLabel("Template name", { exact: true }).fill("VAT invoice");
 
     const creation = page.waitForResponse(
@@ -43,6 +43,10 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
     };
 
     const original = await readSaved();
+    // The save toast sits over the header; close it before opening the assistant.
+
+    for (const close of await page.getByRole("button", { name: "Close toast" }).all()) await close.click();
+    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
     await page.getByRole("button", { name: "Assistant", exact: true }).click();
     const assistant = page.getByRole("complementary", { name: "Template assistant" });
     await assistant.getByRole("tab", { name: "Propose edits", exact: true }).click();
@@ -72,7 +76,7 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
     await assistant.getByRole("button", { name: "Close assistant", exact: true }).click();
     await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "View JSON" }).click();
-    const jsonDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
+    const jsonDialog = page.getByRole("dialog", { name: "Export or import JSON" });
 
     const draft = JSON.parse(
       await jsonDialog.getByRole("textbox", { name: "Template JSON", exact: true }).inputValue(),
