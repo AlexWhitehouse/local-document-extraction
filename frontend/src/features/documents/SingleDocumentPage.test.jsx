@@ -33,7 +33,7 @@ function detail(child) {
 function expectSingleDocument() {
   expect(screen.getByRole("region", { name: "Document results" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "Document packet" })).toBeNull();
-  expect(screen.queryByRole("tab", { name: "Overview" })).toBeNull();
+  expect(screen.queryByRole("tab", { name: /^Overview/ })).toBeNull();
   expect(screen.queryByRole("button", { name: "View parent packet" })).toBeNull();
 }
 
@@ -109,12 +109,12 @@ describe("Single documents produced by smart splitting", () => {
     expect(screen.getByRole("alert").textContent).toBe("Could not load document results");
     expect(screen.queryByText("Loading document results…")).toBeNull();
     expect(screen.queryByText("No result rows available yet.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Retry document" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(onSelectDocument).toHaveBeenCalledWith("job_single");
 
     rerender(<DocumentPage selectedPacketId={packet.packet_id} packetPage={{ ...packetPage, documentError: "" }} />);
     expect(screen.getByText("Loading document results…")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Retry document" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     rerender(
       <DocumentPage
         selectedPacketId={packet.packet_id}
@@ -152,7 +152,7 @@ describe("Single documents produced by smart splitting", () => {
 
     render(<DocumentPage selectedPacketId={packet.packet_id} packetPage={{ packet }} />);
     expect(screen.getByRole("region", { name: "Document packet" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Overview" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^Overview/ })).toBeTruthy();
   });
 
   it("keeps review available even when the unresolved plan contains one group", () => {
@@ -191,5 +191,22 @@ describe("Single documents produced by smart splitting", () => {
     expectSingleDocument();
     expect(screen.getByRole("alert").textContent).toBe("Could not refresh this document");
     expect(screen.getByText("Page 2: Verified blank")).toBeTruthy();
+  });
+});
+
+describe("Document status labels", () => {
+  it("shows the readable status label in the document header instead of the raw status", () => {
+    const packet = { ...singleDocumentPacket(), status: "awaiting_template" };
+    const child = { ...packet.children[0], status: "awaiting_template" };
+
+    render(
+      <DocumentPage
+        selectedPacketId={packet.packet_id}
+        packetPage={{ packet, activeDocument: { ...child, results: [] } }}
+      />,
+    );
+
+    expect(screen.getByText("Needs template")).toBeTruthy();
+    expect(screen.queryByText("Awaiting_template")).toBeNull();
   });
 });

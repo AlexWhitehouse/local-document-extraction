@@ -123,10 +123,10 @@ describe("Document page original viewing", () => {
     render(
       <DocumentPage selectedDocument={retainedDocument} loadOriginal={loadOriginal} viewingLayout="side-by-side" />,
     );
-    expect(await screen.findByText("Original temporarily unavailable")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByText("Original missing from storage")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(await screen.findByText("Original unavailable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Original file not found")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(screen.getByText("751.68")).toBeTruthy();
   });
 
@@ -136,7 +136,7 @@ describe("Document page original viewing", () => {
     render(
       <DocumentPage selectedDocument={retainedDocument} loadOriginal={loadOriginal} viewingLayout="side-by-side" />,
     );
-    expect(await screen.findByText("Original temporarily unavailable")).toBeTruthy();
+    expect(await screen.findByText("Original unavailable")).toBeTruthy();
     expect(screen.queryByTitle("Preview of invoice.pdf")).toBeNull();
   });
 

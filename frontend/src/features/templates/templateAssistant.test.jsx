@@ -141,7 +141,7 @@ describe("Template assistance", () => {
           if (change === "restore") result.current.templatePage.onTemplateNameChange(name);
         }
 
-        if (change === "JSON") result.current.templatePage.onOpenJsonModal();
+        if (change === "JSON") result.current.toolbar.onOpenJsonModal();
 
         if (change === "save") await result.current.templatePage.onSaveTemplate();
 
@@ -322,7 +322,8 @@ describe("Template assistance", () => {
 
   it("keeps evidence failures visible without submitting reduced evidence automatically", async () => {
     const request = vi.fn(async (path) => {
-      if (path.includes("/assist/evidence/")) throw new Error("This job no longer exists");
+      if (path.includes("/assist/evidence/"))
+        throw Object.assign(new Error("This job no longer exists"), { status: 404 });
 
       return { templates: [] };
     });
@@ -396,7 +397,7 @@ describe("suggested requests", () => {
     act(() => result.current.templatePage.onOpenAssistant());
     await waitFor(() => expect(result.current.templatePage.assistant.suggestions.status).toBe("ready"));
     expect(result.current.templatePage.assistant.suggestions.source).toBe("rules");
-    expect(result.current.templatePage.assistant.suggestions.notice).toContain("No model is configured");
+    expect(result.current.templatePage.assistant.suggestions.notice).toContain("No model is set up for this workspace");
     expect(result.current.templatePage.assistant.suggestions.items.map((item) => item.label)).toContain(
       "Add a Unit of Measure column to Line Items",
     );
@@ -550,9 +551,9 @@ describe("addressable diagnostics", () => {
     const onSubmit = vi.fn();
     render(<TemplateEditorModal initial={initial} onSubmit={onSubmit} onClose={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Object schema builder" })).toBeTruthy());
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Column Description")));
-    expect(screen.getByLabelText("Column Description").getAttribute("aria-invalid")).toBe("true");
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Table columns" })).toBeTruthy());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Column description")));
+    expect(screen.getByLabelText("Column description").getAttribute("aria-invalid")).toBe("true");
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });

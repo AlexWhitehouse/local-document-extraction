@@ -1,8 +1,15 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useEvaluations } from "./useEvaluations.js";
 import { createResultCache } from "./resultCache.js";
 import { FakeKeyRange, createFakeIndexedDB } from "../../test/fakeIndexedDB.js";
+
+// Answers the confirmation dialog that the hook opened.
+async function answerDialog(name) {
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name }));
+  });
+}
 
 const template = {
   name: "Invoice",
@@ -254,16 +261,31 @@ it("duplicate inherits edits only; a mode change keeps documents but discards un
   expect(result.current.state.candidates[2]).toMatchObject({ model: "changed", revision: 0 });
   const doc = result.current.state.documents[0].key;
   act(() => result.current.setReference(doc, "total:number", { verified: true, value: "10" }, template.fields[0]));
-  vi.spyOn(window, "confirm").mockReturnValue(false);
-  act(() => result.current.changeMode("templates"));
+  act(() => {
+    void result.current.changeMode("templates");
+  });
+  await answerDialog("Cancel");
   expect(result.current.state.mode).toBe("models");
-  window.confirm.mockReturnValue(true);
-  act(() => result.current.changeMode("templates"));
-  expect(result.current.state.mode).toBe("templates");
+  act(() => {
+    void result.current.changeMode("templates");
+  });
+  await answerDialog("Change mode");
+  await waitFor(() => expect(result.current.state.mode).toBe("templates"));
   expect(result.current.state.candidates).toEqual([]);
   expect(result.current.state.documents.map((d) => d.key)).toEqual([doc]);
   expect(result.current.state.documents[0].reference.references).toEqual({});
-  window.confirm.mockRestore();
+});
+
+it("asks before discarding a temporary Evaluation and keeps it when the prompt is declined", async () => {
+  const { result } = await initialized();
+  let verdict;
+  act(() => {
+    verdict = result.current.confirmDiscard();
+  });
+  expect(verdict).toBeInstanceOf(Promise);
+  await answerDialog("Keep evaluation");
+  await expect(verdict).resolves.toBe(false);
+  expect(result.current.state.documents).toHaveLength(1);
 });
 
 it("ignores an old Workspace denial after switching scope", async () => {
@@ -312,10 +334,140 @@ it("starts the chosen candidates in the chosen mode and removes idle candidates"
     ]);
   });
   expect(hook.result.current.state.candidates.map((c) => c.model)).toEqual(["alpha", "beta"]);
-  act(() => hook.result.current.remove(hook.result.current.state.candidates[0].id));
+  await act(() => hook.result.current.remove(hook.result.current.state.candidates[0].id));
   expect(hook.result.current.state.candidates.map((c) => c.model)).toEqual(["beta"]);
-  act(() => hook.result.current.remove(hook.result.current.state.candidates[0].id));
+  await act(() => hook.result.current.remove(hook.result.current.state.candidates[0].id));
   expect(hook.result.current.state.candidates).toHaveLength(1);
+});
+
+it("removes a candidate with its results at once, and undo restores both", async () => {
+  const { result } = await initialized();
+  act(() => {
+    result.current.run(result.current.state.candidates.map((c) => c.id));
+  });
+  await waitFor(() => expect(streams).toHaveLength(1));
+  await act(async () => {
+    success(streams[0], 0, 10);
+    success(streams[0], 1, 12);
+    streams[0].controller.close();
+  });
+  await waitFor(() =>
+    expect([pairOf(result, 0, 0).detail, pairOf(result, 0, 1).detail]).toEqual(["retained", "retained"]),
+  );
+  const doc = result.current.state.documents[0].key;
+  const [first, second] = result.current.state.candidates;
+  const before = result.current.state.pairs[doc][second.id];
+  const recordId = before.result.recordId;
+
+  let undo;
+  await act(async () => {
+    undo = await result.current.remove(second.id);
+  });
+  expect(result.current.state.candidates.map((c) => c.id)).toEqual([first.id]);
+  expect(result.current.state.pairs[doc][second.id]).toBeUndefined();
+  expect(undo).toEqual(expect.any(Function));
+
+  await act(async () => {
+    undo();
+  });
+  expect(result.current.state.candidates.map((c) => c.id)).toEqual([first.id, second.id]);
+  expect(result.current.state.pairs[doc][second.id]).toEqual(before);
+  act(() => result.current.hydrate([]));
+  act(() => result.current.hydrate([recordId]));
+  await waitFor(() =>
+    expect(result.current.detail(recordId)?.raw).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field_id: "total", answer: 12 })]),
+    ),
+  );
+});
+
+it("removes a document with its results at once, and undo restores it in its position", async () => {
+  const { result } = await initialized({ documents: 3 });
+  act(() => {
+    result.current.run(result.current.state.candidates.map((c) => c.id));
+  });
+  await waitFor(() => expect(streams).toHaveLength(3));
+  await act(async () => {
+    for (const stream of streams) {
+      success(stream, 0, 10);
+      success(stream, 1, 12);
+      stream.controller.close();
+    }
+  });
+  await waitFor(() => expect(pairOf(result, 2, 1).detail).toBe("retained"));
+  const keys = result.current.state.documents.map((d) => d.key);
+  const middle = keys[1];
+  const before = result.current.state.pairs[middle];
+  const recordId = before[result.current.state.candidates[0].id].result.recordId;
+
+  let undo;
+  await act(async () => {
+    undo = await result.current.removeDocument(middle);
+  });
+  expect(result.current.state.documents.map((d) => d.key)).toEqual([keys[0], keys[2]]);
+  expect(result.current.state.pairs[middle]).toBeUndefined();
+  expect(undo).toEqual(expect.any(Function));
+
+  await act(async () => {
+    undo();
+  });
+  expect(result.current.state.documents.map((d) => d.key)).toEqual(keys);
+  expect(result.current.state.pairs[middle]).toEqual(before);
+  act(() => result.current.hydrate([]));
+  act(() => result.current.hydrate([recordId]));
+  await waitFor(() =>
+    expect(result.current.detail(recordId)?.raw).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field_id: "total", answer: 10 })]),
+    ),
+  );
+});
+
+it("discards answer edits at once, and undo restores them unless they changed since", async () => {
+  const reference = {
+    version: 1,
+    definitions: { "total:number": template.fields[0] },
+    references: { "total:number": { verified: true, value: 10 } },
+  };
+
+  overrides["GET /evaluations/documents/evd_a"] = () => Response.json({ document: { id: "evd_a", name: "A", revision: 1 }, reference });
+  const { result } = await initialized({ documents: 0 });
+
+  await act(async () => { await result.current.addSaved([{ id: "evd_a" }]); });
+  const doc = result.current.state.documents[0].key;
+  const current = () => result.current.state.documents[0].reference.references["total:number"];
+
+  act(() => result.current.setReference(doc, "total:number", { verified: true, value: 12 }, template.fields[0]));
+  let undo;
+  act(() => {
+    undo = result.current.discardChanges(doc);
+  });
+  expect(current()).toEqual({ verified: true, value: 10 });
+  expect(undo).toEqual(expect.any(Function));
+
+  act(() => undo());
+  expect(current()).toEqual({ verified: true, value: 12 });
+
+  // Edited again after the discard: undo keeps the newer answer.
+  act(() => {
+    undo = result.current.discardChanges(doc);
+  });
+  act(() => result.current.setReference(doc, "total:number", { verified: true, value: 13 }, template.fields[0]));
+  act(() => undo());
+  expect(current()).toEqual({ verified: true, value: 13 });
+});
+
+it("does not restore a removed candidate after the mode changed", async () => {
+  const { result } = await initialized();
+  let undo;
+  await act(async () => {
+    undo = await result.current.remove(result.current.state.candidates[1].id);
+  });
+  act(() => {
+    result.current.start("templates", [{ template }]);
+  });
+  await act(async () => undo());
+  expect(result.current.state.mode).toBe("templates");
+  expect(result.current.state.candidates).toHaveLength(1);
 });
 
 it("stages one action's document operations within the service concurrency and releases the action", async () => {
@@ -463,7 +615,7 @@ it("sends saved entries by identity and handles deletion and missing originals p
     send(streams[0], {
       type: "failure",
       code: "document_deleted",
-      message: "Deleted from the Evaluation library.",
+      message: "Deleted from the library.",
       candidateId: streams[0].evaluation.candidates[1].id,
       revision: 0,
       attempt: 1,

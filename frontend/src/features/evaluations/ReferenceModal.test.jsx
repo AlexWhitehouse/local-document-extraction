@@ -1,7 +1,15 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
+
 import { ReferenceModal } from "./ReferenceModal.jsx";
+
+// Field errors are linked through aria-describedby rather than announced with role="alert".
+const described = (element) =>
+  (element.getAttribute("aria-describedby") || "")
+    .split(" ")
+    .map((id) => document.getElementById(id)?.textContent || "")
+    .join(" ");
 
 const date = { name: "Date of birth", data_type: "date" };
 
@@ -61,12 +69,11 @@ it("attaches actionable validation to the date input and clears it when correcte
   );
   verify();
   const input = screen.getByRole("textbox", { name: "Expected value" });
-  const alert = screen.getByRole("alert");
-  expect(alert.textContent).toMatch(/date/i);
   expect(input.getAttribute("aria-invalid")).toBe("true");
-  expect(input.getAttribute("aria-describedby").split(" ")).toContain(alert.id);
+  expect(described(input)).toMatch(/date/i);
   fireEvent.change(input, { target: { value: "2026-02-28" } });
-  expect(screen.queryByRole("alert")).toBeNull();
+  expect(input.getAttribute("aria-invalid")).toBeNull();
+  expect(described(input)).toBe("");
 });
 
 it.each(["absent", "ignored"])("lets one table cell be %s while other cells stay verified", (state) => {
@@ -139,9 +146,10 @@ it("selects the failing table row and shows its error beside the invalid cell", 
     />,
   );
   verify();
-  expect(screen.getByRole("alert").textContent).toMatch(/Row 2 · Quantity: Enter a valid number/);
-  expect(screen.getByRole("textbox", { name: "Expected row 2 Quantity" }).getAttribute("aria-invalid")).toBe("true");
-  expect(screen.getByRole("button", { name: "Select row 2" }).getAttribute("aria-pressed")).toBe("true");
+  const quantity = screen.getByRole("textbox", { name: "Expected row 2 Quantity" });
+  expect(described(quantity)).toMatch(/Enter a valid number/);
+  expect(quantity.getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByRole("button", { name: "Select row 2" }).getAttribute("aria-current")).toBe("true");
   expect(onSave).not.toHaveBeenCalled();
 });
 
@@ -182,7 +190,7 @@ it("shows an incompatible previous boolean value until the user chooses an answe
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ value: false, verified: true }));
 });
 
-it("retains separate drafts when choosing between candidate schemas and keeps cancel non-destructive", () => {
+it("retains separate drafts when choosing between candidate schemas and asks before Cancel discards edits", async () => {
   const updated = {
     ...table,
     object_schema: {
@@ -211,19 +219,21 @@ it("retains separate drafts when choosing between candidate schemas and keeps ca
   fireEvent.change(screen.getByRole("textbox", { name: "Expected row 1 SKU" }), {
     target: { value: "Edited" },
   });
-  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer Template" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer template" }), {
     target: { value: "1" },
   });
   expect(screen.getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("A");
   expect(screen.queryByRole("textbox", { name: "Expected row 1 Quantity" })).toBeNull();
   expect(screen.getByText(/Added: Active/)).toBeTruthy();
   expect(screen.getByText(/Removed: Quantity/)).toBeTruthy();
-  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer Template" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Expected answer template" }), {
     target: { value: "0" },
   });
   expect(screen.getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("Edited");
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(onClose).toHaveBeenCalled();
+  expect(onClose).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(onClose).toHaveBeenCalled());
   expect(onSave).not.toHaveBeenCalled();
   expect(initial.value).toEqual([{ sku: "A", qty: 2 }]);
 });
@@ -261,10 +271,10 @@ it("links renamed columns across remaining rows, carrying values, cell states an
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Remove row 1" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Use previous column for Product code" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Reuse previous answers for Product code" }), {
     target: { value: "sku" },
   });
-  fireEvent.change(screen.getByRole("combobox", { name: "Use previous column for Count" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Reuse previous answers for Count" }), {
     target: { value: "qty" },
   });
   expect(screen.getByRole("textbox", { name: "Expected row 1 Product code" }).value).toBe("B");
@@ -280,4 +290,21 @@ it("links renamed columns across remaining rows, carrying values, cell states an
     }),
   );
   expect(initial.value).toHaveLength(2);
+});
+
+it("shows a single compact source line and labelled checkboxes for table answers", () => {
+  render(
+    <ReferenceModal
+      row={{ field: table }}
+      initial={{ value: [{ sku: "", qty: "" }] }}
+      schemas={[{ field: table, label: "Template draft" }]}
+      onSave={() => {}}
+      onClose={() => {}}
+    />,
+  );
+
+  expect(screen.getByText("Using the template draft")).toBeTruthy();
+  const absent = screen.getByRole("checkbox", { name: "Not present in document" });
+  expect(absent.closest(".ui-checkbox-field")).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Exact text match" })).toBeTruthy();
 });

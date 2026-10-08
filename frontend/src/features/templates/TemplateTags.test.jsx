@@ -49,17 +49,18 @@ describe("Template tag dropdown", () => {
 
     const onRename = vi
       .fn()
-      .mockRejectedValueOnce(new Error("A tag with this name already exists"))
+      .mockRejectedValueOnce(
+        Object.assign(new Error("A tag with this name already exists"), { code: "tag_name_conflict" }),
+      )
       .mockResolvedValue(true);
 
     const onDelete = vi.fn().mockResolvedValue(true);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     render(
       <TemplateTags tags={[invoice]} value={["invoice"]} onChange={vi.fn()} onRename={onRename} onDelete={onDelete} />,
     );
     await user.click(screen.getByRole("button", { name: "Template tags" }));
     await user.click(screen.getByRole("button", { name: "Manage tags" }));
-    expect(screen.getByText(/updates all templates immediately/)).toBeTruthy();
+    expect(screen.getByText("Shared across this workspace")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Rename invoice" }));
     await user.clear(screen.getByLabelText("New tag name"));
     await user.type(screen.getByLabelText("New tag name"), "Finance");
@@ -69,9 +70,15 @@ describe("Template tag dropdown", () => {
     expect(onRename).toHaveBeenLastCalledWith(invoice, "Finance");
     expect(screen.queryByLabelText("New tag name")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Delete invoice" }));
+    const dialog = await screen.findByRole("alertdialog", { name: 'Delete tag "invoice"?' });
+    expect(dialog.textContent).toContain("It will be removed from 2 templates.");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onDelete).not.toHaveBeenCalled();
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("removes it from 2 templates across this Workspace"));
+
+    await user.click(screen.getByRole("button", { name: "Template tags" }));
+    await user.click(screen.getByRole("button", { name: "Manage tags" }));
     await user.click(screen.getByRole("button", { name: "Delete invoice" }));
+    await user.click(await screen.findByRole("button", { name: "Delete tag" }));
     expect(onDelete).toHaveBeenCalledWith(invoice);
   });
 
@@ -82,7 +89,7 @@ describe("Template tag dropdown", () => {
 
     render(<TemplateTags onChange={onChange} onReload={onReload} error="Unable to load template tags" />);
     await user.click(screen.getByRole("button", { name: "Template tags" }));
-    await user.click(screen.getByRole("button", { name: "Retry tags" }));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(onReload).toHaveBeenCalledOnce();
     await user.type(screen.getByLabelText("Search or create tags"), "x".repeat(65));
     expect(screen.queryByRole("button", { name: /^Create/ })).toBeNull();

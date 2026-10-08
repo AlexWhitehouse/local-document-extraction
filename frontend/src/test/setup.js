@@ -1,5 +1,6 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
+import { dismissConfirmDialogs } from "../features/ui/confirm.jsx";
 
 function createMemoryStorage() {
   const values = new Map();
@@ -35,6 +36,7 @@ const capturedDescriptors = [
 ];
 
 afterEach(() => {
+  dismissConfirmDialogs();
   cleanup();
   clearStorage(window.localStorage);
   clearStorage(window.sessionStorage);

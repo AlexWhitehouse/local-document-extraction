@@ -1,5 +1,8 @@
 import React, { useState } from "react";
-import { ChartTip, FigureStrip, Segmented, StageLegend, StageTipRows } from "./costShared.jsx";
+import { ChartTip, FigureStrip, StageLegend, StageTipRows } from "./costShared.jsx";
+import { Segmented } from "../../ui/Tabs.jsx";
+import { EmptyState } from "../../ui/States.jsx";
+import { DataTable } from "../../ui/DataTable.jsx";
 import { costLabel, niceMax, percent, plural, shortDate, usd, weightedQuantile } from "./costFormat.js";
 import { useChartTip, useWidth } from "./costHooks.js";
 
@@ -45,12 +48,12 @@ export function OverviewTab({ data }) {
     {
       label: "Per document",
       value: usd(metrics.fullyCostedDocuments ? metrics.fullyCostedAmount / metrics.fullyCostedDocuments : null),
-      detail: "Fully costed documents",
+      detail: "Completed documents with a known cost.",
     },
     {
       label: "Per page",
       value: usd(metrics.fullyCostedPages ? metrics.fullyCostedAmount / metrics.fullyCostedPages : null),
-      detail: "Fully costed document pages",
+      detail: "Pages in completed documents with a known cost.",
     },
     {
       label: range.unit === "hour" ? "Per hour" : "Per day",
@@ -63,7 +66,7 @@ export function OverviewTab({ data }) {
   ];
 
   return (
-    <div className="cp-tab-panel" role="tabpanel" aria-label="Overview">
+    <div className="cp-tab-panel">
       <FigureStrip figures={figures} label="Headline figures" />
       <SpendCharts buckets={buckets} unit={range.unit} totals={totals} />
       <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} />
@@ -75,6 +78,7 @@ function SpendCharts({ buckets, unit, totals }) {
   const [ref, width] = useWidth(720);
   const { tip, show, hide } = useChartTip();
   const [view, setView] = useState("chart");
+  const hasSpend = buckets.some((bucket) => bucket.documents > 0 || bucket.costs.total.amount > 0);
   const plotWidth = Math.max(240, width - PAD.left - PAD.right);
   const band = plotWidth / buckets.length;
   const barWidth = Math.min(24, band * 0.62);
@@ -149,18 +153,22 @@ function SpendCharts({ buckets, unit, totals }) {
           <h2>Spend over time</h2>
           <p>{unit === "hour" ? "Hourly" : "Daily"} model cost, stacked by processing stage.</p>
         </div>
-        <Segmented
-          label="Display"
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "chart", label: "Chart" },
-            { value: "table", label: "Table" },
-          ]}
-        />
+        {hasSpend ? (
+          <Segmented
+            label="Display"
+            value={view}
+            onChange={setView}
+            items={[
+              { value: "chart", label: "Chart" },
+              { value: "table", label: "Table" },
+            ]}
+          />
+        ) : null}
       </div>
-      <StageLegend costs={totals} />
-      {view === "chart" ? (
+      {hasSpend ? <StageLegend costs={totals} /> : null}
+      {!hasSpend ? (
+        <EmptyState message="No costs in this range" variant="panel" />
+      ) : view === "chart" ? (
         <div ref={ref} className="cp-chart">
           <svg width={width} height={columnHeight + 28} role="group" aria-label="Spend by stage">
             {grid(columnHeight, columnMax, [0, 0.5, 1])}
@@ -203,7 +211,7 @@ function SpendCharts({ buckets, unit, totals }) {
           </svg>
           <div className="cp-subchart-head">
             <h3>Average cost per document</h3>
-            <span>Finished, fully costed documents, including their split shares.</span>
+            <span>Completed documents with a known cost, including split shares.</span>
           </div>
           <svg width={width} height={lineHeight + 8} role="group" aria-label="Average cost per document">
             {grid(lineHeight, unitMax, [0, 1])}
@@ -234,13 +242,13 @@ function SpendCharts({ buckets, unit, totals }) {
         </div>
       ) : (
         <div className="cp-table-scroll" ref={ref}>
-          <table className="studio-table cp-table">
+          <DataTable className="cp-table">
             <thead>
               <tr>
                 <th>{unit === "hour" ? "Hour" : "Date"}</th>
                 <th className="cp-num">Documents</th>
-                <th className="cp-num">Smart split</th>
-                <th className="cp-num">Auto template</th>
+                <th className="cp-num">Splitting</th>
+                <th className="cp-num">Template generation</th>
                 <th className="cp-num">Extraction</th>
                 <th className="cp-num">Total</th>
                 <th className="cp-num">Per document</th>
@@ -261,7 +269,7 @@ function SpendCharts({ buckets, unit, totals }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </div>
       )}
       <ChartTip tip={tip} />
@@ -338,8 +346,7 @@ function CostSpread({ documents, sampled, population }) {
         <div>
           <h2>Cost per {metric === "page" ? "page" : "document"}</h2>
           <p>
-            Each dot is one fully costed document, grouped by template. The band is the middle half and the tick is the
-            median.
+            One dot per document. Bands show the middle 50%; ticks show the median.
           </p>
         </div>
         <div className="cp-controls">
@@ -347,7 +354,7 @@ function CostSpread({ documents, sampled, population }) {
             label="Measure"
             value={metric}
             onChange={setMetric}
-            options={[
+            items={[
               { value: "document", label: "Per document" },
               { value: "page", label: "Per page" },
             ]}
@@ -356,8 +363,7 @@ function CostSpread({ documents, sampled, population }) {
       </div>
       {sampled ? (
         <p className="cp-muted">
-          Sample of {documents.length} of {population.toLocaleString()} documents. Percentiles are estimates weighted by
-          upload-period volume.
+          Based on a sample of {documents.length} of {population.toLocaleString()} documents.
         </p>
       ) : null}
       {groups.length ? (
@@ -441,7 +447,7 @@ function CostSpread({ documents, sampled, population }) {
               })}
             </svg>
           </div>
-          <table className="studio-table cp-table cp-spread-table">
+          <DataTable className="cp-table cp-spread-table">
             <thead>
               <tr>
                 <th>Template</th>
@@ -460,10 +466,10 @@ function CostSpread({ documents, sampled, population }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </>
       ) : (
-        <p className="cp-muted">No priced documents in this range.</p>
+        <EmptyState message="No priced documents in this range" variant="inline" />
       )}
       <ChartTip tip={tip} />
     </section>

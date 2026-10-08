@@ -81,11 +81,11 @@ describe("Packet preview request lifetime", () => {
     });
     await openPacket();
     await act(async () => {
-      previews[0].reject(new Error("Document preview is busy; try again shortly"));
+      previews[0].reject(Object.assign(new Error("Document preview is busy; try again shortly"), { status: 429 }));
     });
-    expect(screen.getByText("Document preview is busy; try again shortly")).toBeTruthy();
+    expect(screen.getByText("Studio is busy. Try again in a moment.")).toBeTruthy();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Retry preview" }));
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     });
     expect(previews).toHaveLength(2);
     expect(previews[1].path).toBe(`/packets/${packet.packet_id}/pages/1/preview`);

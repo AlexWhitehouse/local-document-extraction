@@ -1,9 +1,16 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useDocumentController } from "./useDocumentController";
 import { createDocumentRequestAdapter } from "./documentRequestAdapter";
 import { DocumentContextList } from "./DocumentContextList.jsx";
+
+// Answers the confirmation dialog that a delete opened.
+async function answerDialog(name) {
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("button", { name }));
+  await act(async () => {});
+}
 
 describe("useDocumentController Workspace live updates", () => {
   it("shows workspace status totals when only the first 50 documents are loaded", async () => {
@@ -84,7 +91,7 @@ describe("useDocumentController Workspace live updates", () => {
       }),
     );
     expect(getAllByRole("listitem")).toHaveLength(50);
-    fireEvent.click(getByRole("button", { name: /Load more Documents/ }));
+    fireEvent.click(getByRole("button", { name: /Load more documents/ }));
     await waitFor(() => expect(getAllByRole("listitem")).toHaveLength(51));
     expect(request.mock.calls.some(([path]) => path.startsWith("/packets"))).toBe(false);
   });
@@ -702,7 +709,6 @@ describe("useDocumentController Workspace live updates", () => {
   it("does not restore a locally deleted Document when a stale lifecycle message arrives", async () => {
     const WebSocketStub = installWebSocketStub();
     const job = processingJob({ job_id: "job_deleted_1", template_version: 1 });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     const { controller } = renderController({
       documentRequests: { deleteDocument: vi.fn(async () => ({ deleted: true, job_id: "job_deleted_1" })) },
@@ -715,8 +721,13 @@ describe("useDocumentController Workspace live updates", () => {
       expect(controller().contextList.selectedDocumentId).toBe("job_deleted_1");
       expect(controller().toolbar.documentCount).toBe(1);
     });
+    let deletion;
     await act(async () => {
-      await controller().toolbar.onDeleteDocument();
+      deletion = controller().toolbar.onDeleteDocument();
+    });
+    await answerDialog("Delete document");
+    await act(async () => {
+      await deletion;
     });
     expect(controller().contextList.documents).toEqual([]);
     expect(controller().toolbar.documentCount).toBe(0);
@@ -755,7 +766,7 @@ describe("useDocumentController Workspace live updates", () => {
         filters: { dateFrom: "", dateTo: "", model: "" },
         cursor: null,
       });
-      expect(controller().contextList.availableModels).toEqual(["provider/model-a", "provider/model-b"]);
+      expect(controller().contextList.availableModels).toEqual(["provider/model-b", "provider/model-a"]);
       expect(getFilterOptions).toHaveBeenCalledOnce();
     });
 
@@ -786,9 +797,9 @@ describe("useDocumentController Workspace live updates", () => {
       );
     });
     expect(controller().contextList.availableModels).toEqual([
-      "provider/model-a",
-      "provider/model-b",
       "provider/model-c",
+      "provider/model-b",
+      "provider/model-a",
     ]);
     expect(getFilterOptions).toHaveBeenCalledOnce();
   });

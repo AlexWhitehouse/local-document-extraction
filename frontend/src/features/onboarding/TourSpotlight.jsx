@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Button } from "../ui/Button.jsx";
 
 const FOCUSABLE =
   'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]';
@@ -272,7 +273,7 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
         style={{ left: layout?.left ?? 12, top: layout?.top ?? 12 }}
       >
         <div className="tour-progress">
-          <span>STUDIO / GETTING STARTED</span>
+          <span>Getting started</span>
           <span>
             {index + 1} / {total}
           </span>
@@ -282,17 +283,17 @@ export function TourSpotlight({ step, index, total, canContinue, onNext, onExit,
           <h2 id="tour-title">{step.title}</h2>
           <p id="tour-description">{step.text}</p>
           {step.id !== "complete" && !hole ? (
-            <p className="tour-hint">Waiting for this control to appear. You can exit the tour at any time.</p>
+            <p className="tour-hint">Waiting for this step…</p>
           ) : null}
         </div>
         <div className="tour-actions">
-          <button type="button" className="ghost" onClick={onExit}>
+          <Button variant="ghost" onClick={onExit}>
             {step.id === "complete" ? "Finish tour" : "Exit tour"}
-          </button>
+          </Button>
           {step.check ? (
-            <button type="button" disabled={!canContinue} onClick={onNext}>
+            <Button disabled={!canContinue} onClick={onNext}>
               Continue
-            </button>
+            </Button>
           ) : null}
           {step.click || step.action ? <span className="tour-hint">Use the highlighted control</span> : null}
         </div>

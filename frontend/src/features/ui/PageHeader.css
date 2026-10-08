@@ -1,0 +1,62 @@
+.ui-breadcrumbs {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.ui-breadcrumbs ol {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  color: var(--text-2);
+  font: var(--font-size-1) var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ui-breadcrumbs li {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ui-breadcrumbs li + li::before {
+  content: "/";
+  margin-right: 6px;
+  color: var(--text-3);
+}
+
+.ui-breadcrumbs :is(a, button) {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-decoration: none;
+  text-transform: inherit;
+}
+
+.ui-breadcrumbs :is(a, button):hover {
+  background: none;
+  color: var(--text-0);
+  text-decoration: underline;
+}
+
+.ui-page-description {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--font-size-4);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

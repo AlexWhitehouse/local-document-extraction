@@ -2,37 +2,43 @@ import { isJsonObject } from "../../../../shared/json.ts";
 import React, { useMemo, useRef } from "react";
 import { diagnoseTemplateDraft, identityImpacts, previewRows } from "../../../../shared/templateAssistant.ts";
 import { getDataTypeLabel } from "./templateFields.js";
-import { MagicIcon } from "./MagicIcon.jsx";
+import { pluralize } from "../../lib/text.js";
+import { CloseIcon, MagicIcon } from "../layout/Icons.jsx";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import "./TemplateAssistant.css";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { Badge, CountBadge } from "../ui/Status.jsx";
+import { Field, Textarea } from "../ui/Field.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
+import { Pager } from "../ui/Pager.jsx";
+import { Segmented, Tabs } from "../ui/Tabs.jsx";
+import { Callout } from "../ui/Callout.jsx";
 
 const TABS = [
-  { id: "explain", label: "Explain issues" },
-  { id: "edit", label: "Propose edits" },
+  { value: "explain", label: "Explain problems" },
+  { value: "edit", label: "Propose edits" },
 ];
 
 const OBSERVATION_LISTS = [
   {
     kind: "observation",
-    tone: "observed",
+    tone: "info",
     label: "Observed",
     title: "In the evidence",
-    hint: "What the supplied result or sample shows. Results are model output, not verified answers.",
   },
   {
     kind: "hypothesis",
-    tone: "hypothesis",
+    tone: "warning",
     label: "Hypothesis",
     title: "Possible causes",
-    hint: "The model’s inferences. Not verified against the Document.",
   },
   {
     kind: "suggestion",
-    tone: "suggestion",
+    tone: "neutral",
     label: "Suggestion",
     title: "Suggestions",
-    hint: "Advice only. No change promises better accuracy without an Evaluation.",
+    hint: "Test changes with an evaluation.",
   },
 ];
 
@@ -46,7 +52,7 @@ const display = (value) =>
       : String(value);
 
 const formatBytes = (bytes) =>
-  bytes > 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MiB` : `${Math.max(1, Math.round(bytes / 1024))} KiB`;
+  bytes > 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 const formatDate = (value) =>
   value
@@ -68,37 +74,23 @@ export function TemplateAssistant({ assistant, draft, issues = [], isEditing = f
           <p className="studio-eyebrow">Template</p>
           <h2>Assistant</h2>
         </div>
-        <button
-          type="button"
-          className="modal-close"
-          aria-label="Close assistant"
-          title="Close"
-          onClick={assistant.onClose}
-        >
-          ×
-        </button>
+        <IconButton label="Close assistant" icon={CloseIcon} onClick={assistant.onClose} />
       </header>
-      <div className="template-assistant-tabs" role="tablist" aria-label="Assistant mode">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            id={`template-assistant-tab-${tab.id}`}
-            aria-selected={action === tab.id}
-            aria-controls="template-assistant-body"
-            disabled={pending && action !== tab.id}
-            onClick={() => action !== tab.id && assistant.onActionChange(tab.id)}
-          >
-            {tab.label}
-            {tab.id === "explain" && issues.length ? (
-              <span className="template-assistant-count">{issues.length}</span>
-            ) : null}
-          </button>
-        ))}
+      <div className="template-assistant-tabs">
+        <Tabs
+          label="Assistant mode"
+          idPrefix="template-assistant"
+          items={TABS.map((tab) => ({
+            ...tab,
+            disabled: pending && action !== tab.value,
+            meta: tab.value === "explain" && issues.length ? <CountBadge count={issues.length} label={`${issues.length} problems`} tone="danger" /> : undefined,
+          }))}
+          value={action}
+          onChange={(value) => action !== value && assistant.onActionChange(value)}
+        />
       </div>
       <ScrollArea
-        id="template-assistant-body"
+        id={`template-assistant-panel-${action}`}
         className="template-assistant-body"
         role="tabpanel"
         aria-labelledby={`template-assistant-tab-${action}`}
@@ -129,7 +121,7 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
 
   const binaryOptions = [
     { id: "none", label: job ? "Result only" : "No file", enabled: true },
-    ...(job ? [{ id: "job_source", label: "Job’s original", enabled: job.source_available }] : []),
+    ...(job ? [{ id: "job_source", label: "Original", enabled: job.source_available }] : []),
     ...(file ? [{ id: "upload", label: "Uploaded sample", enabled: true }] : []),
   ];
 
@@ -145,38 +137,36 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
   return (
     <div className="template-assistant-stack template-assistant-fade-in">
       {stale ? (
-        <div className="template-assistant-note warn" role="status">
-          <strong>The draft changed while this was running</strong>
-          <p>
-            The response was for an earlier version of the draft, so it was set aside. Nothing was applied. Send the
-            request again to get a proposal for the draft as it is now.
-          </p>
-        </div>
+        <Callout tone="warning" role="status">
+          You edited the draft while this ran, so the response was discarded. Try again.
+        </Callout>
       ) : null}
       {error ? (
-        <div className="template-assistant-note bad" role="alert">
-          <strong>{error}</strong>
-          <p>Your draft wasn’t changed.</p>
-        </div>
+        <Callout tone="danger" role="alert" title={error}>
+          Your draft wasn’t changed.
+        </Callout>
       ) : null}
       <p className="template-assistant-muted">
         {action === "explain"
-          ? "Get a plain-language explanation of what’s wrong or why results look the way they do. Nothing in your draft changes."
-          : "Describe a change. You’ll see each proposed edit before anything changes, and only the ones you pick are applied to the draft."}
+          ? "Ask why something’s wrong. Your draft won’t change."
+          : "Describe a change. You’ll review each edit before it’s applied."}
       </p>
-      <label className="template-assistant-label">
-        {action === "explain" ? "What would you like explained? (optional)" : "Describe your change"}
-        <textarea
+      <Field
+        label={action === "explain" ? "What would you like explained?" : "Describe your change"}
+        hint={action === "explain" ? "Optional." : undefined}
+        className="template-assistant-label"
+      >
+        <Textarea
           rows={3}
           value={instructions}
           placeholder={
             action === "explain"
-              ? "Ask about a field, a problem or a result"
-              : "Describe what to add, rename, remove or clarify"
+              ? "e.g. Why is Total often empty?"
+              : "e.g. Rename Invoice No to Invoice number"
           }
           onChange={(event) => assistant.onInstructionsChange(event.target.value)}
         />
-      </label>
+      </Field>
       <SuggestionCards
         suggestions={assistant.suggestions}
         selected={instructions}
@@ -196,9 +186,9 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                 <strong>{jobName(job)}</strong>
                 <span>{job.job_id}</span>
               </div>
-              <button type="button" className="studio-text-button studio-destructive" onClick={assistant.onRemoveJob}>
+              <Button type="button" variant="danger-text" onClick={assistant.onRemoveJob}>
                 Remove
-              </button>
+              </Button>
             </div>
             <p>
               Extracted with{" "}
@@ -206,35 +196,25 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                 {job.template_name || job.template_id} v{job.template_version}
               </strong>{" "}
               {job.template_id !== assistant.templateId ? (
-                <span className="status-chip warn">Different Template</span>
+                <Badge tone="warning">Different template</Badge>
               ) : assistant.templateVersion && job.template_version !== assistant.templateVersion ? (
-                <span className="status-chip warn">Older version · latest is v{assistant.templateVersion}</span>
+                <Badge tone="warning">Older version · latest is v{assistant.templateVersion}</Badge>
               ) : (
-                <span className="status-chip good">Latest saved version</span>
+                <Badge tone="success">Latest saved version</Badge>
               )}
-            </p>
-            <p className="template-assistant-muted">
-              {job.template_id !== assistant.templateId
-                ? "This result belongs to a different Template than the current draft."
-                : assistant.templateVersion && job.template_version !== assistant.templateVersion
-                  ? `Version difference: this result used version ${job.template_version}; the current editor started from version ${assistant.templateVersion}.`
-                  : `The editor is an unsaved draft${assistant.templateVersion ? ` based on version ${assistant.templateVersion}` : ""}; its current edits may differ from the historical snapshot.`}
             </p>
             <details className="template-assistant-details">
               <summary>Historical fields and results</summary>
               <pre>{JSON.stringify({ fields: job.fields, results: job.results }, null, 2)}</pre>
             </details>
             <p className="template-assistant-muted">
-              {job.source_available
-                ? "Original Source file retained, so it can be sent with the result."
-                : job.source_limitation ||
-                  "The original Source file wasn’t kept. The stored result can still be explained, but the Document itself can’t be checked."}
+              {job.source_available ? "Original available." : "Original not kept. Only the result can be checked."}
             </p>
           </div>
         ) : (
-          <button type="button" className="secondary template-assistant-evidence-add" onClick={assistant.picker.onOpen}>
-            Choose a completed Extraction job…
-          </button>
+          <Button type="button" variant="secondary" className="template-assistant-evidence-add" onClick={assistant.picker.onOpen}>
+            Choose a completed document…
+          </Button>
         )}
 
         {file ? (
@@ -247,13 +227,13 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                   {job ? " · not linked to the selected result" : ""}
                 </span>
               </div>
-              <button
+              <Button
                 type="button"
-                className="studio-text-button studio-destructive"
+                variant="danger-text"
                 onClick={() => assistant.onFileChange(null)}
               >
                 Remove
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -270,34 +250,30 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                 event.target.value = "";
               }}
             />
-            <button
+            <Button
               type="button"
-              className="secondary template-assistant-evidence-add"
+              variant="secondary" className="template-assistant-evidence-add"
               onClick={() => fileInput.current?.click()}
             >
-              Attach a sample file (PDF, PNG, JPEG, WebP)…
-            </button>
+              Attach a sample (PDF, PNG, JPG or WEBP)…
+            </Button>
           </>
         )}
 
         {job || file ? (
           <div className="template-assistant-binary">
-            <span className="template-assistant-label-text">File sent to the model (one at most)</span>
-            <div className="segmented" role="radiogroup" aria-label="File sent to the model">
-              {binaryOptions.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={binary === option.id}
-                  disabled={!option.enabled}
-                  title={option.enabled ? undefined : "The original isn’t available for this job"}
-                  onClick={() => chooseBinary(option.id)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            <span className="template-assistant-label-text">File sent to the model</span>
+            <Segmented
+              label="File sent to the model"
+              value={binary}
+              onChange={chooseBinary}
+              items={binaryOptions.map((option) => ({
+                value: option.id,
+                label: option.label,
+                disabled: !option.enabled,
+                title: option.enabled ? undefined : "The original isn’t available for this document",
+              }))}
+            />
           </div>
         ) : null}
       </section>
@@ -308,8 +284,9 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
         </div>
         <ul>
           <li>
-            <strong>Current draft</strong> {draft.name ? `“${draft.name}”` : "(untitled)"} · {draft.fields.length}{" "}
-            fields · {isEditing ? (isDirty ? "unsaved changes" : "matches saved version") : "new, unsaved"}
+            <strong>Current draft</strong> {draft.name ? `“${draft.name}”` : "(untitled)"} ·{" "}
+            {pluralize(draft.fields.length, "field")} ·{" "}
+            {isEditing ? (isDirty ? "unsaved changes" : "matches saved version") : "new, unsaved"}
             {issues.length ? ` · ${issues.length} problem${issues.length === 1 ? "" : "s"}` : ""}
           </li>
           <li>
@@ -322,14 +299,13 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
           </li>
           {job ? (
             <li>
-              <strong>Stored result</strong> {jobName(job)}, with the v{job.template_version} fields it was extracted
-              with
+              <strong>Stored result</strong> {jobName(job)}, extracted with v{job.template_version}
             </li>
           ) : null}
           <li>
             <strong>File</strong>{" "}
             {binary === "job_source"
-              ? `${jobName(job)} (the job’s original)`
+              ? `${jobName(job)} (the original)`
               : binary === "upload"
                 ? `${file.name} (uploaded sample)`
                 : "None"}
@@ -347,11 +323,11 @@ function SuggestionCards({ suggestions, selected, onPick }) {
   return (
     <section className="template-assistant-suggestions" aria-label="Suggestions" aria-busy={isLoading}>
       <div className="template-assistant-suggestions-head">
-        <span className="template-assistant-label-text">Suggested for this Template</span>
+        <span className="template-assistant-label-text">Suggested for this template</span>
         {!isLoading && source ? (
-          <span className={source === "model" ? "template-assistant-tag observed" : "template-assistant-tag"}>
+          <Badge tone={source === "model" ? "info" : "neutral"} className="template-assistant-tag">
             {source === "model" ? "From the model" : "From the app’s checks"}
-          </span>
+          </Badge>
         ) : null}
       </div>
       {isLoading ? (
@@ -397,11 +373,8 @@ function PendingView({ assistant }) {
       <div className="template-generation-progress" role="status">
         <span className="template-generation-spinner" aria-hidden="true" />
         <div>
-          <strong>{assistant.action === "explain" ? "Reading your draft…" : "Drafting focused edits…"}</strong>
-          <p>
-            Analyzing draft revision {assistant.revision}. If you edit the draft before this finishes, the response will
-            be set aside instead of applied.
-          </p>
+          <strong>Analysing the draft…</strong>
+          <p>Editing the draft now will discard this response.</p>
         </div>
       </div>
     </div>
@@ -415,34 +388,37 @@ function ResultView({ assistant }) {
   return (
     <div className="template-assistant-stack template-assistant-fade-in">
       {stale ? (
-        <div className="template-assistant-note warn" role="alert">
-          <strong>This proposal is out of date</strong>
-          <p>
-            You changed the draft after asking. The proposal below is read-only and can’t be applied, because it might
-            overwrite your newer edits. Regenerate it from the current draft.
-          </p>
-          <div className="template-assistant-note-actions">
-            <button type="button" onClick={assistant.onSubmit}>
+        <Callout
+          tone="warning"
+          role="alert"
+          title="This proposal is out of date"
+          action={
+            <Button type="button" onClick={assistant.onSubmit}>
               Regenerate
-            </button>
-          </div>
-        </div>
+            </Button>
+          }
+        >
+          You edited the draft after asking, so this proposal can’t be applied.
+        </Callout>
       ) : null}
       {assistant.error ? (
-        <p className="template-assistant-note bad" role="alert">
+        <Callout tone="danger" role="alert">
           {assistant.error}
-        </p>
+        </Callout>
       ) : null}
       <RequestRecap assistant={assistant} onRevise={() => assistant.onInstructionsChange(assistant.instructions)} />
 
       <section className="template-assistant-section" aria-label="Explanation">
         <p className="template-assistant-summary">{response.explanation}</p>
+        <Badge tone="warning" className="template-assistant-tag">
+          Not verified
+        </Badge>
         {checked.length ? (
           <EvidenceList
-            tone="checked"
+            kind="checked"
+            tone="neutral"
             label="Checked"
             title="Checked by the app"
-            hint="Validation rules for the draft you sent. These are certain."
             items={checked.map((issue) => ({ text: `${issue.title}. ${issue.remedy}` }))}
           />
         ) : null}
@@ -463,9 +439,7 @@ function ResultView({ assistant }) {
               Proposed changes <span>{response.groups.length}</span>
             </h3>
           </div>
-          <p className="template-assistant-muted">
-            Pick the changes you want. Changes inside one card are applied together.
-          </p>
+          <p className="template-assistant-muted">Changes in one card apply together.</p>
           <div className="template-assistant-groups">
             {response.groups.map((group) => (
               <ChangeGroup
@@ -487,14 +461,16 @@ function ResultView({ assistant }) {
   );
 }
 
-function EvidenceList({ tone, label, title, hint, items }) {
+function EvidenceList({ kind, tone, label, title, hint, items }) {
   return (
-    <div className={`template-assistant-evidence-list ${tone}`}>
+    <div className={`template-assistant-evidence-list ${kind}`}>
       <div className="template-assistant-evidence-list-head">
-        <span className={`template-assistant-tag ${tone}`}>{label}</span>
+        <Badge tone={tone} className="template-assistant-tag">
+          {label}
+        </Badge>
         <strong>{title}</strong>
       </div>
-      <p className="template-assistant-muted">{hint}</p>
+      {hint ? <p className="template-assistant-muted">{hint}</p> : null}
       <ul>
         {items.map((item, index) => (
           <li key={index}>{item.text}</li>
@@ -524,16 +500,16 @@ function ChangeGroup({ base, group, groups, selected, disabled, isConflicting, o
           <strong id={id}>{group.title}</strong>
           <span className="template-assistant-group-tags">
             {group.operations.length > 1 ? (
-              <span className="status-chip">{group.operations.length} changes · applied together</span>
+              <Badge>{group.operations.length} changes · applied together</Badge>
             ) : null}
             {impacts.some((impact) => impact.kind !== "added") ? (
-              <span className="status-chip warn">Changes output keys</span>
+              <Badge tone="warning">Changes output keys</Badge>
             ) : null}
           </span>
         </span>
       </label>
       <p className="template-assistant-rationale">{group.rationale}</p>
-      <table className="template-assistant-diff">
+      <DataTable className="template-assistant-diff">
         <thead>
           <tr>
             <th scope="col">Where</th>
@@ -563,7 +539,7 @@ function ChangeGroup({ base, group, groups, selected, disabled, isConflicting, o
             );
           })}
         </tbody>
-      </table>
+      </DataTable>
       {impacts.length ? <IdentityImpacts impacts={impacts} /> : null}
       {requires.length ? <p className="template-assistant-dependency">Requires “{requires.join("”, “")}”.</p> : null}
       {isConflicting ? (
@@ -607,8 +583,8 @@ function IdentityImpacts({ impacts }) {
       </ul>
       {breaking.length ? (
         <p>
-          Future results use the new keys. Results already extracted are unchanged, and Evaluation Expected answers
-          saved under the old keys won’t be relinked.
+          Future results use the new keys. Earlier results are unchanged, and expected answers saved under the old keys
+          won’t be relinked.
         </p>
       ) : (
         <p>Future results gain these keys. Earlier results won’t have them.</p>
@@ -666,13 +642,9 @@ function SelectionCheck({ selection, baseHadIssues }) {
 function AppliedView() {
   return (
     <div className="template-assistant-stack template-assistant-fade-in">
-      <div className="template-assistant-note good" role="status">
-        <strong>Applied to your draft</strong>
-        <p>
-          Nothing has been saved. Review the draft, then use Save when you’re ready. This proposal is used up and can’t
-          be applied again.
-        </p>
-      </div>
+      <Callout tone="success" role="status">
+        Applied. Save the template to keep these changes.
+      </Callout>
     </div>
   );
 }
@@ -684,66 +656,66 @@ function FooterActions({ assistant, issues }) {
 
   if (pending) {
     actions = (
-      <button type="button" className="secondary" onClick={assistant.onCancelRequest}>
+      <Button type="button" variant="secondary" onClick={assistant.onCancelRequest}>
         Cancel request
-      </button>
+      </Button>
     );
   } else if (response) {
     const count = selection?.selected.length || 0;
     actions = response.groups.length ? (
       <>
-        <button type="button" className="secondary" onClick={revise}>
+        <Button type="button" variant="secondary" onClick={revise}>
           Revise request
-        </button>
-        <button type="button" className="secondary" onClick={assistant.onClose}>
+        </Button>
+        <Button type="button" variant="secondary" onClick={assistant.onClose}>
           Discard
-        </button>
-        <button type="button" disabled={stale || !selection?.canApply} onClick={assistant.onApply}>
+        </Button>
+        <Button type="button" disabled={stale || !selection?.canApply} onClick={assistant.onApply}>
           {count ? `Apply ${count} change${count === 1 ? "" : "s"} to draft` : "Apply to draft"}
-        </button>
+        </Button>
       </>
     ) : (
       <>
-        <button type="button" className="secondary" onClick={revise}>
+        <Button type="button" variant="secondary" onClick={revise}>
           Ask something else
-        </button>
+        </Button>
         {action === "explain" && issues.length ? (
-          <button
+          <Button
             type="button"
-            className="studio-generate-button"
+
             onClick={() => {
               assistant.onActionChange("edit");
-              assistant.onInstructionsChange("Fix the draft’s problems so the Template can save");
+              assistant.onInstructionsChange("Fix the draft’s problems so the template can save");
             }}
           >
             <MagicIcon />
             Propose fixes
-          </button>
+          </Button>
         ) : null}
       </>
     );
   } else if (applied) {
     actions = (
       <>
-        <button type="button" className="secondary" onClick={assistant.onClose}>
+        <Button type="button" variant="secondary" onClick={assistant.onClose}>
           Close
-        </button>
-        <button type="button" onClick={() => assistant.onInstructionsChange("")}>
+        </Button>
+        <Button type="button" onClick={() => assistant.onInstructionsChange("")}>
           New request
-        </button>
+        </Button>
       </>
     );
   } else {
     const canSend = action === "explain" || assistant.instructions.trim();
     actions = (
       <>
-        <button type="button" className="secondary" onClick={assistant.onClose}>
+        <Button type="button" variant="secondary" onClick={assistant.onClose}>
           Cancel
-        </button>
-        <button type="button" className="studio-generate-button" disabled={!canSend} onClick={assistant.onSubmit}>
+        </Button>
+        <Button type="button" disabled={!canSend} onClick={assistant.onSubmit}>
           <MagicIcon />
           {assistant.error || stale ? "Try again" : action === "explain" ? "Explain" : "Propose edits"}
-        </button>
+        </Button>
       </>
     );
   }
@@ -751,9 +723,6 @@ function FooterActions({ assistant, issues }) {
   return (
     <>
       <div className="template-assistant-foot-actions">{actions}</div>
-      {response?.groups.length ? (
-        <p className="template-assistant-foot-hint">Applies to the draft only. Saving stays a separate step.</p>
-      ) : null}
     </>
   );
 }
@@ -768,7 +737,7 @@ function RequestRecap({ assistant, onRevise }) {
 
   const evidence = [
     job ? `Result: ${jobName(job)} (v${job.template_version}${versionNote})` : null,
-    useRetainedSource ? "File: job’s original" : file ? `File: ${file.name}` : job ? "No file sent" : null,
+    useRetainedSource ? "File: original" : file ? `File: ${file.name}` : job ? "No file sent" : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -789,9 +758,9 @@ function RequestRecap({ assistant, onRevise }) {
         <p className="template-assistant-muted">{evidence || "No evidence attached"}</p>
       </div>
       {onRevise ? (
-        <button type="button" className="studio-text-button" onClick={onRevise}>
+        <Button type="button" variant="text" onClick={onRevise}>
           Revise
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -800,15 +769,15 @@ function RequestRecap({ assistant, onRevise }) {
 function JobPicker({ picker, selectedJobId }) {
   return (
     <ModalDialog
-      label="Choose a completed Extraction job"
+      label="Choose a completed document"
       className="template-assistant-picker"
       onClose={picker.onClose}
     >
       <ModalHeader
-        title="Choose a completed Extraction job"
-        description="Its stored result, and the Template version it was extracted with, are sent as evidence. All completed jobs in this Workspace are listed."
+        title="Choose a completed document"
+        description="The result and its template version are sent with your request."
         onClose={picker.onClose}
-        closeLabel="Close job picker"
+        closeLabel="Close document picker"
       />
       {picker.error ? (
         <p role="alert" className="form-error">
@@ -819,7 +788,7 @@ function JobPicker({ picker, selectedJobId }) {
         className={picker.loading ? "template-assistant-job-table is-loading" : "template-assistant-job-table"}
         aria-busy={picker.loading}
       >
-        <table>
+        <DataTable>
           <thead>
             <tr>
               <th scope="col">Document</th>
@@ -841,56 +810,43 @@ function JobPicker({ picker, selectedJobId }) {
                 <td>{formatDate(job.completed_at)}</td>
                 <td>
                   {job.template_name || job.template_id}{" "}
-                  <span className="template-assistant-version">v{job.template_version}</span>
+                  <Badge>v{job.template_version}</Badge>
                 </td>
                 <td>
-                  <span className={job.source_available ? "status-chip good" : "status-chip"}>
+                  <Badge tone={job.source_available ? "success" : "neutral"}>
                     {job.source_available ? "Original kept" : "Results only"}
-                  </span>
+                  </Badge>
                 </td>
                 <td>
-                  <button
+                  <Button
                     type="button"
-                    className="secondary"
+                    variant="secondary"
                     disabled={picker.loading}
                     onClick={() => picker.onChoose(job.job_id)}
                   >
                     {job.job_id === selectedJobId ? "Selected" : "Use"}
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
             {!picker.loading && !picker.jobs.length ? (
               <tr>
                 <td colSpan="5" className="template-assistant-muted">
-                  No completed Extraction jobs on this page.
+                  No completed documents on this page.
                 </td>
               </tr>
             ) : null}
           </tbody>
-        </table>
+        </DataTable>
       </div>
-      <div className="template-assistant-pager">
-        <span>{picker.loading ? "Loading…" : `Page ${picker.page + 1}`}</span>
-        <div className="actions compact">
-          <button
-            type="button"
-            className="secondary"
-            disabled={picker.loading || picker.page === 0}
-            onClick={picker.onPrevious}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            disabled={picker.loading || !picker.nextCursor}
-            onClick={picker.onNext}
-          >
-            Next
-          </button>
-        </div>
-      </div>
+      <Pager
+        label={picker.loading ? "Loading…" : `Page ${picker.page + 1}`}
+        hasPrevious={picker.page > 0}
+        hasNext={Boolean(picker.nextCursor)}
+        onPrevious={picker.onPrevious}
+        onNext={picker.onNext}
+        disabled={picker.loading}
+      />
     </ModalDialog>
   );
 }

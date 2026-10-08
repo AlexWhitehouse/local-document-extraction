@@ -1,8 +1,13 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { candidateBusy } from "./useEvaluations.js";
 import { normalizeReferenceDates, scalarValue, validateReference } from "./evaluationScoring.js";
 import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
 import { display, dollars, seconds } from "./evaluationFormat.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { Badge, StatusDot } from "../ui/Status.jsx";
+import { Field } from "../ui/Field.jsx";
+import { Popover } from "../ui/Popover.jsx";
+import { CheckIcon, CloseIcon, ExternalIcon, MoreIcon } from "../layout/Icons.jsx";
 
 const SCALAR_TYPES = ["string", "number", "date", "boolean"];
 
@@ -12,7 +17,7 @@ const STATUS = {
   queued: "Queued",
   running: "Running",
   retrying: "Retrying",
-  success: "Done",
+  success: "Completed",
   failure: "Failed",
   interrupted: "Interrupted",
 };
@@ -20,64 +25,74 @@ const STATUS = {
 export function StatusLine({ candidate }) {
   const edited = candidate.result && candidate.revision !== candidate.result.revision;
 
-  const tone = candidateBusy(candidate)
-    ? "busy"
-    : edited
-      ? "warn"
-      : candidate.status === "success"
-        ? "good"
-        : ["failure", "interrupted"].includes(candidate.status)
-          ? "bad"
-          : "idle";
+  const busy = candidateBusy(candidate);
 
-  const label = candidateBusy(candidate)
-    ? `${STATUS[candidate.status]}${candidate.attempt > 1 ? ` · attempt ${candidate.attempt}/3` : ""}`
+  const tone = busy
+    ? "info"
     : edited
-      ? "Edited · needs rerun"
+      ? "warning"
+      : candidate.status === "success"
+        ? "success"
+        : ["failure", "interrupted"].includes(candidate.status)
+          ? "danger"
+          : "neutral";
+
+  const label = busy
+    ? `${STATUS[candidate.status]}${candidate.attempt > 1 ? ` · ${candidate.attempt} of 3` : ""}`
+    : edited
+      ? "Edited · run again"
       : STATUS[candidate.status] || candidate.status;
 
   return (
-    <span
-      role="status"
-      className={`evaluation-status evaluation-status-${tone}`}
-      title={candidate.message || undefined}
-    >
-      <i aria-hidden="true" />
+    <Badge tone={tone} busy={busy} className="evaluation-status" title={candidate.message || undefined}>
       {label}
       {candidate.status === "success" && !edited && candidate.result
         ? ` · ${seconds(candidate.result.processingMs)}`
         : ""}
-    </span>
+    </Badge>
   );
 }
 
-const MARKS = { Match: ["match", "✓"], Mismatch: ["mismatch", "✕"], "Needs review": ["review", "!"] };
+const MARKS = {
+  Match: { tone: "success", icon: CheckIcon },
+  Mismatch: { tone: "danger", icon: CloseIcon },
+  "Needs review": { tone: "warning" },
+};
 
+// The score of one field: an icon badge whose meaning is in its shape and its
+// screen-reader text, so the matrix stays dense. Review needs action, so it is spelled out.
 export function Mark({ state }) {
-  const [tone, glyph] = MARKS[state] || ["none", "·"];
+  const mark = MARKS[state];
+
+  if (!mark) return <StatusDot tone="neutral" label="Unscored" srOnlyLabel />;
+
+  const Icon = mark.icon;
 
   return (
-    <span
-      className={`evaluation-mark evaluation-mark-${tone}`}
-      title={state || "Unscored"}
-      aria-label={state || "Unscored"}
-    >
-      {glyph}
-    </span>
+    <Badge tone={mark.tone} className="evaluation-mark" title={state}>
+      {Icon ? (
+        <>
+          <Icon size={10} />
+          <span className="sr-only">{state}</span>
+        </>
+      ) : (
+        "Review"
+      )}
+    </Badge>
   );
 }
 
 export function RunCost({ result }) {
   if (!result) return null;
-  const label = result.cost ? dollars(result.cost) : "Unavailable";
+  const label = result.cost ? dollars(result.cost) : "Cost not reported";
 
   return (
     <span
       className={`evaluation-cost${result.cost?.amount == null ? " evaluation-muted" : ""}`}
       title={
         result.cost?.amount == null
-          ? "The model endpoint did not report a cost for this run."
-          : `${dollars(result.cost, { full: true })} for the successful attempt${result.cost.complete ? "" : " · some calls did not report cost"}`
+          ? "Cost not reported for this run."
+          : `${dollars(result.cost, { full: true })} for the successful run${result.cost.complete ? "" : " · part of the cost not reported"}`
       }
       aria-label={`Run cost: ${label}`}
     >
@@ -102,7 +117,7 @@ function RunDetails({ candidate }) {
   return (
     <dl className="evaluation-details">
       <div>
-        <dt>Tested Template</dt>
+        <dt>Tested template</dt>
         <dd>
           {result.templateName}
           {result.source?.modified ? " · edited fields" : ""}
@@ -115,39 +130,33 @@ function RunDetails({ candidate }) {
       <div>
         <dt>Input</dt>
         <dd>
-          PDF {result.pdf ? "direct" : "rendered"} · Structured {result.structured ? "on" : "off"}
+          {result.pdf ? "Direct PDF input" : "Rendered pages"} · Structured output {result.structured ? "on" : "off"}
         </dd>
       </div>
       <div>
-        <dt>Queue</dt>
+        <dt>Queue time</dt>
         <dd>{seconds(result.queueMs)}</dd>
       </div>
       <div>
         <dt>Processing</dt>
         <dd>
-          {seconds(result.processingMs)} · {result.attempts} attempt(s)
+          {seconds(result.processingMs)}
         </dd>
       </div>
       <div>
         <dt>Cost</dt>
         <dd>
-          {result.cost ? `${dollars(result.cost, { full: true })} · successful attempt only` : "Unavailable"}
+          {result.cost ? dollars(result.cost, { full: true }) : "Cost not reported"}
         </dd>
       </div>
       <div>
         <dt>Tokens</dt>
         <dd>
           {result.usage
-            ? `${result.usage.input_tokens ?? "Unavailable"} input · ${result.usage.output_tokens ?? "Unavailable"} output · successful attempt only`
-            : "Unavailable"}
+            ? `${result.usage.input_tokens ?? "Not reported"} input · ${result.usage.output_tokens ?? "Not reported"} output`
+            : "Not reported"}
         </dd>
       </div>
-      {candidate.cleanup !== "complete" && (
-        <div>
-          <dt>Cleanup</dt>
-          <dd>{candidate.cleanup === "pending" ? "Pending" : "Unconfirmed"}</dd>
-        </div>
-      )}
     </dl>
   );
 }
@@ -155,82 +164,65 @@ function RunDetails({ candidate }) {
 // Rarely used candidate controls live in a popover so the column head stays compact.
 export function CandidateMenu({ label, candidate, inputs, onInputChange, actions }) {
   const [open, setOpen] = useState(false);
-  const root = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-
-    const close = (event) => {
-      if (!root.current?.contains(event.target)) setOpen(false);
-    };
-
-    const key = (event) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("keydown", key);
-
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("keydown", key);
-    };
-  }, [open]);
 
   return (
-    <div className="evaluation-menu" ref={root}>
-      <button
-        type="button"
-        className="icon-action-button"
-        aria-label={`${label} options`}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        ⋯
-      </button>
-      {open && (
-        <div className="evaluation-menu-panel" role="group" aria-label={`${label} options`}>
-          <p className="evaluation-menu-title">Input{inputs.shared ? " · all candidates" : ""}</p>
-          <label>
-            <input
-              type="checkbox"
-              checked={candidate.pdf}
-              onChange={(event) => onInputChange("pdf", event.target.checked)}
-            />
-            Direct PDF input
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={candidate.structured}
-              onChange={(event) => onInputChange("structured", event.target.checked)}
-            />
-            Structured output
-          </label>
-          <p className="evaluation-menu-title">Run details</p>
-          <RunDetails candidate={candidate} />
-          <div className="evaluation-menu-actions">
-            {actions.flatMap((action) =>
-              action
-                ? [
-                    <button
-                      key={action.label}
-                      type="button"
-                      className={`studio-text-button ${action.danger ? "evaluation-danger-text" : ""}`}
-                      disabled={action.disabled}
-                      onClick={() => {
-                        setOpen(false);
-                        action.onClick();
-                      }}
-                    >
-                      {action.label}
-                    </button>,
-                  ]
-                : [],
-            )}
-          </div>
-        </div>
+    <Popover
+      className="evaluation-menu"
+      panelClassName="evaluation-menu-panel"
+      label={`${label} options`}
+      open={open}
+      onClose={() => setOpen(false)}
+      trigger={(triggerProps) => (
+        <IconButton
+          size="sm"
+          label={`${label} options`}
+          icon={MoreIcon}
+          onClick={() => setOpen(!open)}
+          {...triggerProps}
+        />
       )}
-    </div>
+    >
+      <div role="group" aria-label={`${label} options`}>
+        <p className="evaluation-menu-title">Input{inputs.shared ? " · all candidates" : ""}</p>
+        <label>
+          <input
+            type="checkbox"
+            checked={candidate.pdf}
+            onChange={(event) => onInputChange("pdf", event.target.checked)}
+          />
+          Direct PDF input
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={candidate.structured}
+            onChange={(event) => onInputChange("structured", event.target.checked)}
+          />
+          Structured output
+        </label>
+        <p className="evaluation-menu-title">Run details</p>
+        <RunDetails candidate={candidate} />
+        <div className="evaluation-menu-actions">
+          {actions.flatMap((action) =>
+            action
+              ? [
+                  <Button
+                    key={action.label}
+                    variant={action.danger ? "danger-text" : "text"}
+                    disabled={action.disabled}
+                    onClick={() => {
+                      setOpen(false);
+                      action.onClick();
+                    }}
+                  >
+                    {action.label}
+                  </Button>,
+                ]
+              : [],
+          )}
+        </div>
+      </div>
+    </Popover>
   );
 }
 
@@ -242,7 +234,6 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
   const [draft, setDraft] = useState(initial);
   const [error, setError] = useState("");
   const [dateOrder, setDateOrder] = useState("dmy");
-  const errorId = useId();
   const input = useRef(null);
   useEffect(() => {
     if (editing) input.current?.focus();
@@ -257,6 +248,7 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
         className={`evaluation-expected-button ${verified ? "verified" : ""}`}
         onClick={onOpenEditor}
       >
+        {verified ? <CheckIcon size={12} /> : null}
         <span>
           {verified
             ? reference.absent
@@ -264,7 +256,9 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
               : `${reference.value.length} ${reference.value.length === 1 ? "row" : "rows"} verified`
             : "Add expected rows"}
         </span>
-        <em aria-hidden="true">↗</em>
+        <em aria-hidden="true">
+          <ExternalIcon size={12} />
+        </em>
       </button>
     );
   }
@@ -281,6 +275,7 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
           setEditing(true);
         }}
       >
+        {verified ? <CheckIcon size={12} /> : null}
         <span className={verified ? "" : "evaluation-muted"}>
           {verified
             ? reference.absent
@@ -340,37 +335,33 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
       }}
     >
       {field.data_type === "boolean" ? (
-        <select
-          ref={input}
-          aria-label={`Expected ${field.name}`}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          value={draft === "" ? "" : String(draft)}
-          onChange={(event) => {
-            setDraft(event.target.value === "" ? "" : event.target.value === "true");
-            setError("");
-          }}
-        >
-          <option value="">Choose Yes or No</option>
-          <option value="true">Yes</option>
-          <option value="false">No</option>
-        </select>
+        <Field label={`Expected ${field.name}`} labelHidden error={error || undefined}>
+          <select
+            ref={input}
+            value={draft === "" ? "" : String(draft)}
+            onChange={(event) => {
+              setDraft(event.target.value === "" ? "" : event.target.value === "true");
+              setError("");
+            }}
+          >
+            <option value="">Choose Yes or No</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </Field>
       ) : (
-        <input
-          ref={input}
-          aria-label={`Expected ${field.name}`}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          inputMode={field.data_type === "number" ? "decimal" : undefined}
-          placeholder={
-            field.data_type === "date" ? (dateOrder === "dmy" ? "DD/MM/YYYY" : "MM/DD/YYYY") : "Expected value"
-          }
-          value={draft ?? ""}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setError("");
-          }}
-        />
+        <Field label={`Expected ${field.name}`} labelHidden error={error || undefined}>
+          <input
+            ref={input}
+            inputMode={field.data_type === "number" ? "decimal" : undefined}
+            placeholder={field.data_type === "date" ? (dateOrder === "dmy" ? "DD/MM/YYYY" : "MM/DD/YYYY") : undefined}
+            value={draft ?? ""}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setError("");
+            }}
+          />
+        </Field>
       )}
       {field.data_type === "date" && (
         <>
@@ -384,46 +375,35 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
           <DatePreview value={draft} dateOrder={dateOrder} />
         </>
       )}
-      {error && (
-        <p id={errorId} role="alert" className="evaluation-validation-error">
-          {error}
-        </p>
-      )}
       <div className="evaluation-expected-actions">
-        <button type="submit" className="studio-text-button">
+        <Button variant="text" type="submit">
           Verify
-        </button>
-        <button
-          type="button"
-          className="studio-text-button"
+        </Button>
+        <Button variant="text"
           onClick={() => {
             onSave({ verified: true, absent: true, exact: false, value: "" });
             setEditing(false);
           }}
         >
           Not in document
-        </button>
-        <button
-          type="button"
-          className="studio-text-button"
+        </Button>
+        <Button variant="text"
           onClick={() => {
             setEditing(false);
             onOpenEditor();
           }}
         >
           More options
-        </button>
+        </Button>
         {verified && (
-          <button
-            type="button"
-            className="studio-text-button evaluation-danger-text"
+          <Button variant="danger-text"
             onClick={() => {
               onSave({ ...reference, verified: false });
               setEditing(false);
             }}
           >
-            Remove
-          </button>
+            Unverify
+          </Button>
         )}
       </div>
     </form>

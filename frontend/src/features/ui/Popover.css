@@ -1,0 +1,31 @@
+.ui-popover-root {
+  position: relative;
+  display: inline-flex;
+}
+
+.ui-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: var(--z-popover);
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
+  background: var(--pane-raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-1);
+  font-size: var(--font-size-4);
+}
+
+.ui-popover-end {
+  right: 0;
+}
+
+.ui-popover-start {
+  left: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ui-popover {
+    animation: popover-in 120ms ease-out both;
+  }
+}

@@ -1,7 +1,10 @@
+import { pluralize } from "../../lib/text.js";
 import { isJsonObject } from "../../../../shared/json.ts";
-import React, { useId, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
 import { getDataTypeLabel } from "../templates/templateFields.js";
 import {
   normalizeReferenceDates,
@@ -14,52 +17,50 @@ import {
 import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
 import { adaptReferenceDraft, draftValue } from "./referenceDraft.js";
 import { display } from "./evaluationFormat.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { CloseIcon } from "../layout/Icons.jsx";
+import { CheckboxField, Field, Select, TextInput, Textarea } from "../ui/Field.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
+import { Callout } from "../ui/Callout.jsx";
 
-function AnswerInput({ type, value, onChange, label, multiline = false, error, errorId, dateOrder }) {
-  const validation = { "aria-invalid": error ? true : undefined, "aria-describedby": error ? errorId : undefined };
-
+function AnswerInput({ type, value, onChange, label, labelHidden = false, multiline = false, error, dateOrder }) {
   if (type === "boolean") {
     const normalized = scalarValue(value, "boolean");
 
+    const previous =
+      !normalized.valid && value !== "" && value != null ? `Previous value: ${display(value)}. Choose Yes or No.` : undefined;
+
     return (
-      <>
-        <select
-          aria-label={label}
-          {...validation}
+      <Field label={label} labelHidden={labelHidden} error={error} hint={previous}>
+        <Select
           value={normalized.valid ? String(normalized.value) : ""}
           onChange={(event) => onChange(event.target.value === "" ? "" : event.target.value === "true")}
         >
           <option value="">Choose Yes or No</option>
           <option value="true">Yes</option>
           <option value="false">No</option>
-        </select>
-        {!normalized.valid && value !== "" && value != null && (
-          <small className="evaluation-input-hint">Previous value: {display(value)}. Choose Yes or No.</small>
-        )}
-      </>
+        </Select>
+      </Field>
     );
   }
 
   if (multiline && type === "string")
     return (
-      <textarea
-        aria-label={label}
-        {...validation}
-        value={value ?? ""}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      <Field label={label} labelHidden={labelHidden} error={error}>
+        <Textarea value={value ?? ""} onChange={(event) => onChange(event.target.value)} />
+      </Field>
     );
 
   return (
     <>
-      <input
-        aria-label={label}
-        {...validation}
-        inputMode={type === "number" ? "decimal" : undefined}
-        placeholder={type === "date" ? (dateOrder === "dmy" ? "DD/MM/YYYY" : "MM/DD/YYYY") : undefined}
-        value={value ?? ""}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      <Field label={label} labelHidden={labelHidden} error={error}>
+        <TextInput
+          inputMode={type === "number" ? "decimal" : undefined}
+          placeholder={type === "date" ? (dateOrder === "dmy" ? "DD/MM/YYYY" : "MM/DD/YYYY") : undefined}
+          value={value ?? ""}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </Field>
       {type === "date" && <DatePreview value={value} dateOrder={dateOrder} />}
     </>
   );
@@ -77,12 +78,24 @@ export function ReferenceModal({
   onClose,
 }) {
   const [schema, setSchema] = useState(0);
+  const [isDirty, setIsDirty] = useState(false);
+  const dirtySchemas = useRef(new Map());
   const drafts = useRef(new Map());
   const field = schemas[schema].field;
+
+  // A draft parked by switching Template keeps counting as unsaved until it is saved or closed.
+  const reportDirty = useCallback((index, dirty) => {
+    dirtySchemas.current.set(index, dirty);
+    setIsDirty([...dirtySchemas.current.values()].some(Boolean));
+  }, []);
+
+  useUnsavedGuard(isDirty, "Expected answer");
 
   return (
     <ReferenceEditor
       key={schema}
+      isDirty={isDirty}
+      onDirtyChange={reportDirty}
       row={{ ...row, field }}
       initial={drafts.current.get(schema) || adaptReferenceDraft(initial, sourceField, field, true)}
       sourceField={sourceField}
@@ -117,6 +130,8 @@ function ReferenceEditor({
   onSave,
   onRemoveVerification,
   onClose,
+  isDirty,
+  onDirtyChange,
 }) {
   const table = row.field.data_type === "array<object>";
   const columns = tableColumns(row.field);
@@ -143,8 +158,20 @@ function ReferenceEditor({
   const [dateOrder, setDateOrder] = useState(initial.dateOrder || "dmy");
   const [selected, setSelected] = useState(initial.selected || 0);
   const [error, setError] = useState(null);
-  const errorId = useId();
   const clearError = () => setError(null);
+
+  const snapshot = JSON.stringify({ value, absent, exact, rows, cellStates, columnMappings, dateOrder });
+  const [baseline] = useState(() => initial.pristine ?? snapshot);
+  const dirty = snapshot !== baseline;
+
+  useEffect(() => {
+    onDirtyChange?.(schema, dirty);
+  }, [dirty, schema, onDirtyChange]);
+
+  // Cancel and × ask before discarding edits; Escape and the backdrop are handled by ModalDialog.
+  async function requestClose() {
+    if (!isDirty || (await confirmDialog(DISCARD_CHANGES))) onClose();
+  }
 
   const changeCell = (key, answer) => {
     clearError();
@@ -215,13 +242,7 @@ function ReferenceEditor({
       setError(problem);
 
       if (problem.row !== undefined) setSelected(problem.row);
-      requestAnimationFrame(() =>
-        document
-          .getElementById(errorId)
-          ?.closest(".evaluation-reference")
-          ?.querySelector('[aria-invalid="true"]')
-          ?.focus(),
-      );
+      requestAnimationFrame(() => document.querySelector('.evaluation-reference [aria-invalid="true"]')?.focus());
 
       return;
     }
@@ -235,33 +256,29 @@ function ReferenceEditor({
     (!table || error.row === undefined || error.row === selected) &&
     (!column || error.column === column);
 
-  const errorMessage = (
-    <p id={errorId} role="alert" className="evaluation-validation-error">
-      {error?.message}
-    </p>
-  );
+  const errorFor = (control, column) => (showError(control, column) ? error.message : undefined);
 
   return (
     <ModalDialog
       className={`evaluation-reference ${table ? "object-schema-modal evaluation-table-reference" : ""}`}
       label="Verify expected answer"
+      isDirty={isDirty}
       onClose={onClose}
     >
       <div className={table ? "object-schema-modal-head" : "evaluation-heading"}>
         <div>
-          <h2>{row.field.name} · Expected answer</h2>
+          <h2>{row.field.name} · expected answer</h2>
           <p>Review against the document before verifying. Only verified answers affect scores.</p>
         </div>
-        <button type="button" className="modal-close" aria-label="Close expected answer editor" onClick={onClose}>
-          ×
-        </button>
+        <IconButton size="sm" label="Close expected answer editor" icon={CloseIcon} className="modal-close" onClick={requestClose} />
       </div>
       <div className="evaluation-reference-body">
         {schemas.length > 1 ? (
-          <label>
-            Expected answer Template
-            <select
-              aria-label="Expected answer Template"
+          <Field
+            label="Expected answer template"
+            hint="Candidates use different fields. Choose the template to verify against."
+          >
+            <Select
               value={schema}
               onChange={(event) =>
                 onSchemaChange(Number(event.target.value), {
@@ -273,6 +290,7 @@ function ReferenceEditor({
                   dateOrder,
                   selected,
                   columnMappings,
+                  pristine: baseline,
                 })
               }
             >
@@ -281,23 +299,23 @@ function ReferenceEditor({
                   {option.label}
                 </option>
               ))}
-            </select>
-            <small>Candidates use different fields. Choose the Template to verify against.</small>
-          </label>
+            </Select>
+          </Field>
         ) : (
-          <p className="evaluation-muted">Using {schemas[schema].label}</p>
+          <p className="evaluation-muted evaluation-source-note">{sourceNote(schemas[schema].label)}</p>
         )}
         {previousField.data_type !== row.field.data_type && (
-          <div className="evaluation-schema-notice" role="status">
-            <strong>
-              Field type changed: {getDataTypeLabel(previousField.data_type)} → {getDataTypeLabel(row.field.data_type)}
-            </strong>
-            <p>Review the existing answer using the new type before verifying.</p>
-          </div>
+          <Callout
+            tone="warning"
+            role="status"
+            className="evaluation-schema-notice"
+            title={`Field type changed: ${getDataTypeLabel(previousField.data_type)} → ${getDataTypeLabel(row.field.data_type)}`}
+          >
+            Review the existing answer using the new type before verifying.
+          </Callout>
         )}
         {table && changes.hasChanges && (
-          <div className="evaluation-schema-notice" role="status">
-            <strong>Template columns changed</strong>
+          <Callout tone="warning" role="status" className="evaluation-schema-notice" title="Template columns changed">
             <p>Existing answers are carried forward where possible. Review the changes before verifying.</p>
             <ul>
               {changes.changed.map(([column, old]) => (
@@ -321,32 +339,26 @@ function ReferenceEditor({
             {initial.rows?.mode === "key" && !initial.rows.key && (
               <p>The row identifier was removed. Choose how to compare rows below.</p>
             )}
-          </div>
+          </Callout>
         )}
         <div className="evaluation-reference-options">
-          <label>
-            <input
-              type="checkbox"
-              checked={absent}
-              onChange={(event) => {
+          <CheckboxField
+            label="Not present in document"
+            checked={absent}
+            onChange={(checked) => {
+              clearError();
+              setAbsent(checked);
+            }}
+          />
+          {!absent && ["string", "array<object>"].includes(row.field.data_type) && (
+            <CheckboxField
+              label="Exact text match"
+              checked={exact}
+              onChange={(checked) => {
                 clearError();
-                setAbsent(event.target.checked);
+                setExact(checked);
               }}
             />
-            Not present in document
-          </label>
-          {!absent && ["string", "array<object>"].includes(row.field.data_type) && (
-            <label>
-              <input
-                type="checkbox"
-                checked={exact}
-                onChange={(event) => {
-                  clearError();
-                  setExact(event.target.checked);
-                }}
-              />
-              Exact text match
-            </label>
           )}
         </div>
         {!absent && (row.field.data_type === "date" || (table && columns.some((c) => c.data_type === "date"))) && (
@@ -365,16 +377,16 @@ function ReferenceEditor({
                 <div>
                   <strong>Expected rows</strong>
                   <p>
-                    {value.length} {value.length === 1 ? "row" : "rows"} · {columns.length} schema columns
+                    {pluralize(value.length, "row")} · {pluralize(columns.length, "column")}
                   </p>
                 </div>
                 <div className="actions compact">
-                  <button type="button" className="secondary" disabled={!value.length} onClick={removeRow}>
+                  <Button variant="secondary" disabled={!value.length} onClick={removeRow}>
                     Remove row {value.length ? selected + 1 : ""}
-                  </button>
-                  <button type="button" onClick={addRow}>
+                  </Button>
+                  <Button onClick={addRow}>
                     Add row
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div className="evaluation-record-editor">
@@ -385,7 +397,7 @@ function ReferenceEditor({
                       className="secondary"
                       key={i}
                       aria-label={`Select row ${i + 1}`}
-                      aria-pressed={selected === i}
+                      aria-current={selected === i ? "true" : undefined}
                       onClick={() => {
                         clearError();
                         setSelected(i);
@@ -401,9 +413,9 @@ function ReferenceEditor({
                   aria-label="Expected row columns"
                   tabIndex={0}
                 >
-                  <table
+                  <DataTable
                     className="object-schema-table evaluation-schema-values"
-                    aria-label="Expected row schema values"
+                    label="Expected row values"
                   >
                     <thead>
                       <tr>
@@ -417,7 +429,7 @@ function ReferenceEditor({
                       {!value.length ? (
                         <tr>
                           <td colSpan={4} className="object-schema-empty">
-                            No expected rows. Add a row to enter values using this Template’s schema.
+                            No expected rows. Add a row to enter values.
                           </td>
                         </tr>
                       ) : (
@@ -431,10 +443,11 @@ function ReferenceEditor({
                               {column.description && <p>{column.description}</p>}
                               {sourceChanges.added.some((added) => added.key === column.key) &&
                                 sourceChanges.removed.length > 0 && (
-                                  <label className="evaluation-link-field">
-                                    Renamed column? Reuse previous answers
-                                    <select
-                                      aria-label={`Use previous column for ${column.heading}`}
+                                  <Field
+                                    label={`Reuse previous answers for ${column.heading}`}
+                                    className="evaluation-link-field"
+                                  >
+                                    <Select
                                       value={columnMappings[column.key] || ""}
                                       onChange={(event) => linkColumn(column, event.target.value)}
                                     >
@@ -451,33 +464,36 @@ function ReferenceEditor({
                                             {old.heading} · {getDataTypeLabel(old.data_type)}
                                           </option>
                                         ))}
-                                    </select>
-                                  </label>
+                                    </Select>
+                                  </Field>
                                 )}
                             </td>
                             <td>{getDataTypeLabel(column.data_type)}</td>
                             <td>
                               <div className="evaluation-cell-editor">
-                                <select
-                                  aria-label={`Expected row ${selected + 1} ${column.heading} status`}
-                                  value={cellStates[selected]?.[column.key] || "value"}
-                                  aria-invalid={showError("status", column.key) ? true : undefined}
-                                  aria-describedby={showError("status", column.key) ? errorId : undefined}
-                                  onChange={(event) => changeStatus(column.key, event.target.value)}
+                                <Field
+                                  label={`Expected row ${selected + 1} ${column.heading} status`}
+                                  labelHidden
+                                  error={errorFor("status", column.key)}
                                 >
-                                  <option value="value">Expected value</option>
-                                  <option value="absent">Not present in document</option>
-                                  <option value="ignored">Ignore for scoring</option>
-                                </select>
+                                  <Select
+                                    value={cellStates[selected]?.[column.key] || "value"}
+                                    onChange={(event) => changeStatus(column.key, event.target.value)}
+                                  >
+                                    <option value="value">Expected value</option>
+                                    <option value="absent">Not present in document</option>
+                                    <option value="ignored">Ignore for scoring</option>
+                                  </Select>
+                                </Field>
                                 {!cellStates[selected]?.[column.key] ? (
                                   <AnswerInput
                                     type={column.data_type}
                                     label={`Expected row ${selected + 1} ${column.heading}`}
                                     value={value[selected]?.[column.key]}
                                     onChange={(answer) => changeCell(column.key, answer)}
+                                    labelHidden
                                     dateOrder={dateOrder}
-                                    error={showError("value", column.key)}
-                                    errorId={errorId}
+                                    error={errorFor("value", column.key)}
                                   />
                                 ) : (
                                   <small className="evaluation-input-hint">
@@ -486,47 +502,41 @@ function ReferenceEditor({
                                       : "This cell is excluded from accuracy scores."}
                                   </small>
                                 )}
-                                {error?.row === selected && error.column === column.key && errorMessage}
                               </div>
                             </td>
                           </tr>
                         ))
                       )}
                     </tbody>
-                  </table>
+                  </DataTable>
                 </ScrollArea>
               </div>
             </>
           ) : (
             <div className="evaluation-scalar-editor">
-              <label>
-                Expected value
-                <AnswerInput
-                  type={row.field.data_type}
-                  label="Expected value"
-                  value={value}
-                  onChange={(answer) => {
-                    clearError();
-                    setValue(answer);
-                  }}
-                  multiline
-                  dateOrder={dateOrder}
-                  error={showError("value")}
-                  errorId={errorId}
-                />
-              </label>
-              {error && errorMessage}
+              <AnswerInput
+                type={row.field.data_type}
+                label="Expected value"
+                value={value}
+                onChange={(answer) => {
+                  clearError();
+                  setValue(answer);
+                }}
+                multiline
+                dateOrder={dateOrder}
+                error={errorFor("value")}
+              />
             </div>
           ))}
       </div>
       <div className={table ? "object-schema-modal-footer evaluation-reference-footer" : "evaluation-reference-footer"}>
         {table && !absent && (
-          <label>
-            Compare rows
-            <select
-              aria-label="Compare rows"
-              aria-invalid={showError("rows") ? true : undefined}
-              aria-describedby={showError("rows") ? errorId : undefined}
+          <Field
+            label="Compare rows"
+            hint="Match by a unique column, or compare rows in their listed order."
+            error={errorFor("rows")}
+          >
+            <Select
               value={rows.mode === "key" ? rows.key : rows.mode}
               onChange={(event) => {
                 clearError();
@@ -542,25 +552,39 @@ function ReferenceEditor({
                   By {c.heading}
                 </option>
               ))}
-            </select>
-            <small>Match by a unique column, or compare rows in their listed order.</small>
-          </label>
+            </Select>
+          </Field>
         )}
-        {table && error && !error.column && errorMessage}
+        {table && error && !error.column && !showError("rows") && (
+          <p role="alert" className="form-error">
+            {validationText(error)}
+          </p>
+        )}
         <div className="actions">
-          <button type="button" className="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={requestClose}>
             Cancel
-          </button>
-          {onRemoveVerification && (
-            <button type="button" className="secondary" onClick={onRemoveVerification}>
-              Remove verification
-            </button>
-          )}
-          <button type="button" onClick={verify}>
+          </Button>
+          <Button onClick={verify}>
             Use as expected answer
-          </button>
+          </Button>
+          {onRemoveVerification && (
+            <Button variant="danger-text" onClick={onRemoveVerification}>
+              Unverify
+            </Button>
+          )}
         </div>
       </div>
     </ModalDialog>
   );
+}
+
+// One short line naming the template the expected answer is checked against.
+function sourceNote(label) {
+  return label === "Template draft" ? "Using the template draft" : `Using ${label}`;
+}
+
+// Reference problems come from the local validator (referenceProblem), so their
+// text is written for people and safe to show as-is.
+function validationText(problem) {
+  return problem.message;
 }

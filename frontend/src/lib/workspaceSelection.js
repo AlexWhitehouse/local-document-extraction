@@ -1,4 +1,4 @@
-const UNTITLED_WORKSPACE_NAME = "Untitled Workspace";
+const UNTITLED_WORKSPACE_NAME = "Untitled workspace";
 
 export function getWorkspaceContextDisplay({
   hasApiAccess,
@@ -68,7 +68,7 @@ export function getWorkspaceContextDisplay({
         }
       : {
           type: "workspace",
-          workspaceName: selectedWorkspaceName.trim() || workspaceName.trim() || "Local Workspace",
+          workspaceName: selectedWorkspaceName.trim() || workspaceName.trim() || "Local workspace",
           hasWorkspaceApiAccess: hasApiAccess,
           invitation: null,
         },
@@ -96,11 +96,11 @@ export function getWorkspacePrimaryAction(workspaceRole) {
   const role = workspaceRole.trim().toLowerCase();
 
   if (role === "owner") {
-    return { type: "delete", label: "Delete Workspace" };
+    return { type: "delete", label: "Delete workspace" };
   }
 
   if (role === "admin" || role === "member") {
-    return { type: "leave", label: "Leave Workspace" };
+    return { type: "leave", label: "Leave workspace" };
   }
 
   return { type: "none", label: "" };

@@ -1,0 +1,25 @@
+/* Field list rows: the field button fills the row, with the reorder and more-actions controls at the end. */
+.field-nav-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--rule);
+}
+
+.field-nav-row > .field-nav-item {
+  flex: 1;
+  min-width: 0;
+  border-bottom: 0;
+}
+
+.field-nav-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+}
+
+/* Row controls appear on the selected row and on hover or keyboard focus, so field
+   names keep their width in the narrow list. */
+.field-nav-row:not(:hover, :focus-within):not(:has(> .field-nav-item.active)) .field-nav-row-actions {
+  display: none;
+}

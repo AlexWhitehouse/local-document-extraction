@@ -2,19 +2,25 @@ import React, { useMemo, useRef, useState } from "react";
 import "./TemplateEditorModal.css";
 import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { focusDiagnostic } from "./focusDiagnostic.js";
-import { DiagnosticMessages, TemplateProblems } from "./TemplateDiagnostics.jsx";
+import { TemplateProblems } from "./TemplateDiagnostics.jsx";
+import { issueMessage, templateIssues } from "./issueMessages.js";
+import { describeError } from "../../lib/describeError";
+import { CloseIcon } from "../layout/Icons.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "./templateFields.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 
 /** Independent draft; the caller chooses temporary Apply or persistent Save. */
 export function TemplateEditorModal({
   initial,
-  title = "Edit Template",
+  title = "Edit template",
   action = "Apply changes",
   notice,
   onSubmit,
   onClose,
+  showActionToast,
 }) {
   const [draft, setDraft] = useState(() => ({
     ...structuredClone(initial),
@@ -36,15 +42,25 @@ export function TemplateEditorModal({
   };
 
   const submit = async () => {
+    let payload;
+
     try {
-      const payload = validateTemplateJsonPayload(draft);
-      setSaving(true);
-      setError("");
-      await onSubmit(payload);
-      onClose();
+      payload = validateTemplateJsonPayload(draft);
     } catch (failure) {
       setError(failure.message);
       focus(failure.diagnostics?.[0] || issues[0]);
+
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      await onSubmit(payload);
+      onClose();
+    } catch (failure) {
+      setError(describeError(failure, "Couldn't save the template. Try again."));
     } finally {
       setSaving(false);
     }
@@ -52,7 +68,7 @@ export function TemplateEditorModal({
 
   return (
     <ModalDialog
-      className="studio-main template-editor-modal"
+      className="template-editor-modal"
       label={title}
       initialFocus="input"
       onClose={() => {
@@ -64,45 +80,26 @@ export function TemplateEditorModal({
           <h2>{title}</h2>
           {notice && <p>{notice}</p>}
         </div>
-        <button
-          type="button"
-          className="modal-close"
-          aria-label="Close Template editor"
-          disabled={saving}
-          onClick={onClose}
-        >
-          ×
-        </button>
+        <IconButton label="Close template editor" icon={CloseIcon} disabled={saving} onClick={onClose} />
       </header>
       <div ref={rootRef}>
         <div className="studio-template-meta">
-          <div>
-            <label>
-              Template name
-              <input
-                data-diagnostic-location="template:name"
-                aria-describedby="evaluation-template-name-problems"
-                value={draft.name}
-                disabled={saving}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-              />
-            </label>
-            <DiagnosticMessages
-              id="evaluation-template-name-problems"
-              issues={issues.filter(
-                (issue) => issue.location.scope === "template" && issue.location.property === "name",
-              )}
+          <Field label="Template name" error={issueMessage(templateIssues(issues, "name"))}>
+            <TextInput
+              data-diagnostic-location="template:name"
+              value={draft.name}
+              disabled={saving}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
             />
-          </div>
-          <label>
-            Description
-            <input
+          </Field>
+          <Field label="Description">
+            <TextInput
               data-diagnostic-location="template:description"
               value={draft.description || ""}
               disabled={saving}
               onChange={(event) => setDraft({ ...draft, description: event.target.value })}
             />
-          </label>
+          </Field>
         </div>
         <TemplateProblems
           issues={issues}
@@ -117,6 +114,7 @@ export function TemplateEditorModal({
           fields={draft.fields}
           disabled={saving}
           onChange={(next) => setDraft((previous) => ({ ...previous, fields: next(previous.fields) }))}
+          showActionToast={showActionToast}
         />
       </div>
       <footer className="template-editor-modal-footer">
@@ -126,12 +124,12 @@ export function TemplateEditorModal({
           </p>
         )}
         <div className="actions">
-          <button type="button" className="secondary" disabled={saving} onClick={onClose}>
+          <Button type="button" variant="secondary" disabled={saving} onClick={onClose}>
             Cancel
-          </button>
-          <button type="button" disabled={saving} onClick={submit}>
+          </Button>
+          <Button type="button" disabled={saving} onClick={submit}>
             {saving ? "Saving…" : action}
-          </button>
+          </Button>
         </div>
       </footer>
     </ModalDialog>

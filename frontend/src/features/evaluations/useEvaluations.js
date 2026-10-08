@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { validateTemplateJsonPayload } from "../templates/templateFields.js";
+import { confirmDialog } from "../ui/confirm.jsx";
 import { createLibraryClient, documentDirty, emptyReferenceSet, parseReferenceSet } from "./evaluationLibrary.js";
 import { createResultCache } from "./resultCache.js";
+import { describeError } from "../../lib/describeError";
+import { insertAt } from "../../lib/lists";
 
 const id = () => crypto.randomUUID();
 
@@ -66,13 +69,13 @@ const savedDocument = ({ document, reference }) => ({
 
 const SOURCE_FAILURES = {
   source_missing: ["missing", "The saved original is missing, so this document can’t run."],
-  source_unavailable: ["unavailable", "The saved original can’t be read right now. Retry it, then run again."],
-  document_not_found: ["deleted", "Deleted from the Evaluation library."],
+  source_unavailable: ["unavailable", "The saved original can’t be read right now. Try again, then run it."],
+  document_not_found: ["deleted", "Deleted from the library."],
 };
 
 const SAVE_FAILURES = {
   operation_conflict:
-    "An earlier attempt to save this document may have finished with different details. Check the library, or save it as a new entry.",
+    "An earlier save may have finished with different details. Check the library, or save it as a new entry.",
   document_deleted: "This document was saved earlier and then deleted from the library. Save it again as a new entry.",
 };
 
@@ -220,12 +223,13 @@ export function useEvaluations({
           setState((previous) => ({
             ...previous,
             setup,
-            error: setup.configured ? "" : "Configure a model in Workspace settings to run Evaluations.",
+            // A missing Model gateway is shown by EvaluationSetup's callout, not as an error.
+            error: setup.configured ? "" : previous.error,
           }));
       })
       .catch((error) => {
         if (current === generation.current && error.name !== "AbortError")
-          setState((previous) => ({ ...previous, error: error.message }));
+          setState((previous) => ({ ...previous, error: describeError(error, "Evaluations couldn’t be loaded. Try again.") }));
       })
       .finally(() => requests.current.delete(controller));
     library
@@ -293,14 +297,14 @@ export function useEvaluations({
 
       return {
         ...previous,
-        cacheError: previous.cacheError || { message: error.message, code: error.code },
+        cacheError: previous.cacheError || { message: describeError(error, "Results can’t be saved in this browser."), code: error.code },
         pairs: { ...previous.pairs, [docKey]: { ...previous.pairs[docKey], [candidateId]: next } },
       };
     });
 
   const pauseStaging = (error) => {
     staging.current.paused = true;
-    patch({ cacheError: { message: error.message, code: error.code } });
+    patch({ cacheError: { message: describeError(error, "Results can’t be saved in this browser."), code: error.code } });
   };
 
   // ---------- Staged execution ----------
@@ -525,7 +529,7 @@ export function useEvaluations({
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        if (buffer.length > 5 * 1024 * 1024) throw new Error("Evaluation result exceeded the delivery limit.");
+        if (buffer.length > 5 * 1024 * 1024) throw new Error("This result is too large to show.");
         let newline;
 
         while ((newline = buffer.indexOf("\n")) >= 0) {
@@ -588,10 +592,13 @@ export function useEvaluations({
           patchDocument(docKey, { availability: source[0] });
           apply((pair) => (pairBusy(pair) ? { status: "failure", message: source[1] } : {}));
         } else {
-          if (error.code === "configuration_changed") patch({ stale: true, error: error.message });
+          if (error.code === "configuration_changed") patch({
+            stale: true,
+            error: describeError(error, "Settings changed while this ran. Run again to use the current settings."),
+          });
           apply((pair) =>
             pairBusy(pair)
-              ? { status: "interrupted", message: error.message || "Connection lost. Run again manually." }
+              ? { status: "interrupted", message: describeError(error, "Connection lost. Run it again.") }
               : {},
           );
         }
@@ -600,7 +607,7 @@ export function useEvaluations({
       if (generation.current === current) {
         apply((pair) =>
           pairBusy(pair)
-            ? { status: "interrupted", message: "Connection ended before this run finished. Run again manually." }
+            ? { status: "interrupted", message: "Connection ended before this run finished. Run it again." }
             : {},
         );
 
@@ -716,6 +723,27 @@ export function useEvaluations({
       }
   };
 
+  // Reads the cached details of the given pairs before dropPairs deletes them, so an undo can write them back.
+  // A record that can't be read is left out; it stays unavailable, as any cold record does.
+  const snapshotDetails = (pairList) =>
+    Promise.all(
+      pairList
+        .flatMap((pair) => [pair.result, pair.previous])
+        .filter(Boolean)
+        .map((record) =>
+          cacheRef.current.load(record.recordId, { keep: false }).then(
+            (detail) => [record.recordId, detail],
+            () => null,
+          ),
+        ),
+    );
+
+  const restoreDetails = (details) => {
+    for (const [recordId, detail] of details) {
+      if (detail) cacheRef.current.put(recordId, detail).catch(() => {});
+    }
+  };
+
   const anyBusy = (docKey, candidateId) =>
     Object.entries(stateRef.current.pairs).some(
       ([key, byCandidate]) =>
@@ -744,7 +772,7 @@ export function useEvaluations({
     );
 
     // Staged work stops; calls already sent may settle. Results already shown stay visible.
-    stopStaged(keys, "Deleted from the Evaluation library.");
+    stopStaged(keys, "Deleted from the library.");
     setState((previous) => ({
       ...previous,
       libraryVersion: previous.libraryVersion + 1,
@@ -805,7 +833,7 @@ export function useEvaluations({
       try {
         await cacheRef.current.probe();
       } catch (error) {
-        if (current === generation.current) patch({ cacheError: { message: error.message, code: error.code } });
+        if (current === generation.current) patch({ cacheError: { message: describeError(error, "Results can’t be saved in this browser."), code: error.code } });
 
         return false;
       }
@@ -827,7 +855,7 @@ export function useEvaluations({
     },
     // Each entry is one candidate: a loaded Template, plus a model name when comparing models.
     start(mode, entries) {
-      if (!state.setup?.configured) throw new Error("Configure the Workspace model first.");
+      if (!state.setup?.configured) throw new Error("Set up the Model gateway first.");
 
       const candidates = entries
         .slice(0, MAX_CANDIDATES)
@@ -853,9 +881,30 @@ export function useEvaluations({
         return copy.id;
       }
     },
-    remove(candidateId) {
-      if (anyBusy(null, candidateId) || state.candidates.length <= 1) return;
-      dropPairs(stateRef.current, (_, cid) => cid !== candidateId);
+    // Removes the candidate and its results at once. Resolves to an undo function, or null when nothing was removed.
+    // The result details are read before their cache records are deleted, so undo can write them back.
+    async remove(candidateId) {
+      const current = stateRef.current,
+        index = current.candidates.findIndex((c) => c.id === candidateId),
+        generationAtStart = generation.current,
+        modeAtStart = current.mode;
+
+      if (index < 0 || anyBusy(null, candidateId) || current.candidates.length <= 1) return null;
+
+      const removedPairs = Object.entries(current.pairs).flatMap(([docKey, byCandidate]) =>
+        byCandidate[candidateId] ? [[docKey, byCandidate[candidateId]]] : [],
+      );
+
+      const details = await snapshotDetails(removedPairs.map(([, pair]) => pair));
+
+      // Results can change while the details load; leave the candidate alone if anything moved.
+      if (generation.current !== generationAtStart || anyBusy(null, candidateId)) return null;
+
+      const latest = stateRef.current,
+        candidate = latest.candidates[index];
+
+      if (candidate?.id !== candidateId) return null;
+      dropPairs(latest, (_, cid) => cid !== candidateId);
       setState((previous) => ({
         ...previous,
         candidates: previous.candidates.filter((c) => c.id !== candidateId),
@@ -866,24 +915,51 @@ export function useEvaluations({
           ]),
         ),
       }));
+
+      return () => {
+        // Undo does nothing once the evaluation was cleared or its mode changed since the removal.
+        if (generation.current !== generationAtStart || stateRef.current.mode !== modeAtStart) return;
+
+        restoreDetails(details);
+
+        setState((previous) => {
+          if (previous.candidates.some((c) => c.id === candidate.id)) return previous;
+
+          const candidates = insertAt(previous.candidates, index, candidate);
+          const pairs = { ...previous.pairs };
+
+          for (const [docKey, pair] of removedPairs) {
+            if (!previous.documents.some((d) => d.key === docKey)) continue;
+            pairs[docKey] = { ...pairs[docKey], [candidate.id]: pair };
+          }
+
+          return { ...previous, candidates, pairs };
+        });
+      };
     },
     setColumns(candidateId, columns) {
       setState((previous) => ({ ...previous, columns: { ...previous.columns, [candidateId]: columns } }));
     },
     // Mode changes discard candidates, results and unsaved answer edits; the selected documents stay,
     // with saved documents back at the answers they were loaded with.
-    changeMode(mode) {
-      const current = stateRef.current;
+    async changeMode(mode) {
+      const requested = stateRef.current;
 
-      if (anyBusy() || mode === current.mode) return;
+      if (anyBusy() || mode === requested.mode) return;
 
       if (
-        current.candidates.length &&
-        !window.confirm(
-          "Change mode and discard candidate drafts, results and unsaved expected answer changes? Documents are kept; saved documents return to their loaded answers.",
-        )
+        requested.candidates.length &&
+        !(await confirmDialog({
+          title: "Change mode?",
+          body: "Candidates, results and unsaved answer changes are discarded. Documents are kept.",
+          confirmLabel: "Change mode",
+          tone: "default",
+        }))
       )
         return;
+      // Re-read after the prompt so edits made before it answered are not lost.
+      const current = stateRef.current;
+
       dropPairs(current, () => false);
       patch({
         mode,
@@ -904,9 +980,15 @@ export function useEvaluations({
       if (!current.documents.length && !current.candidates.length) return true;
       const unsaved = current.documents.filter((d) => d.kind === "upload" || documentDirty(d)).length;
 
-      return window.confirm(
-        `Discard this temporary Evaluation and switch Workspace?${unsaved ? ` ${unsaved} ${unsaved === 1 ? "document has" : "documents have"} unsaved uploads or answer changes.` : ""}`,
-      );
+      return confirmDialog({
+        title: "Discard this evaluation?",
+        body: unsaved
+          ? `${unsaved} ${unsaved === 1 ? "document has" : "documents have"} unsaved uploads or answer changes. This can't be undone.`
+          : "Its documents, candidates and results are discarded. This can't be undone.",
+        confirmLabel: "Discard",
+        cancelLabel: "Keep evaluation",
+        tone: "default",
+      });
     },
     addUploads(files) {
       const added = files.map(uploadDocument);
@@ -969,7 +1051,7 @@ export function useEvaluations({
                 : { ...previous, documents: [...previous.documents, savedDocument(loaded)] },
             );
           } catch (error) {
-            failed.push({ entry, message: error.message });
+            failed.push({ entry, message: describeError(error, "This document couldn’t be added. Try again.") });
           }
 
           onProgress?.(++done, pending.length);
@@ -980,8 +1062,25 @@ export function useEvaluations({
 
       return { failed };
     },
-    removeDocument(key) {
-      if (anyBusy(key)) return;
+    // Removes the document and its results at once. Resolves to an undo function, or null when nothing was removed.
+    async removeDocument(key) {
+      const current = stateRef.current,
+        index = current.documents.findIndex((d) => d.key === key),
+        generationAtStart = generation.current,
+        modeAtStart = current.mode;
+
+      if (index < 0 || anyBusy(key)) return null;
+
+      const removedDocument = current.documents[index],
+        removedPairs = { ...current.pairs[key] };
+
+      const details = await snapshotDetails(Object.values(removedPairs));
+
+      // Results can change while the details load; leave the document alone if anything moved.
+      if (generation.current !== generationAtStart || anyBusy(key)) return null;
+
+      if (!stateRef.current.documents.some((d) => d.key === key)) return null;
+
       dropPairs(stateRef.current, (docKey) => docKey !== key);
       setState((previous) => {
         const pairs = { ...previous.pairs };
@@ -989,6 +1088,29 @@ export function useEvaluations({
 
         return { ...previous, pairs, documents: previous.documents.filter((d) => d.key !== key) };
       });
+
+      return () => {
+        // Undo does nothing once the evaluation was cleared or its mode changed since the removal.
+        if (generation.current !== generationAtStart || stateRef.current.mode !== modeAtStart) return;
+
+        restoreDetails(details);
+        setState((previous) => {
+          if (previous.documents.some((d) => d.key === key)) return previous;
+
+          // Candidates removed since then took their pairs with them, so only current candidates come back.
+          const candidateIds = new Set(previous.candidates.map((c) => c.id));
+
+          const restoredPairs = Object.fromEntries(
+            Object.entries(removedPairs).filter(([candidateId]) => candidateIds.has(candidateId)),
+          );
+
+          return {
+            ...previous,
+            documents: insertAt(previous.documents, index, removedDocument),
+            pairs: Object.keys(restoredPairs).length ? { ...previous.pairs, [key]: restoredPairs } : previous.pairs,
+          };
+        });
+      };
     },
     setReference(docKey, identity, value, definition) {
       updateDocument(docKey, (d) => ({
@@ -1052,8 +1174,40 @@ export function useEvaluations({
         return { links };
       });
     },
+    // Returns an undo for the discard, or null when there was nothing to discard.
     discardChanges(docKey) {
-      updateDocument(docKey, (d) => (d.base ? { reference: structuredClone(d.base) } : {}));
+      const document = stateRef.current.documents.find((d) => d.key === docKey);
+
+      if (!document?.base) return null;
+
+      const previous = structuredClone(document.reference),
+        base = document.base;
+
+      updateDocument(docKey, () => ({ reference: structuredClone(base) }));
+
+      // Puts back each answer that still matches the discarded base. An answer edited since the discard
+      // keeps the edit, so undo never overwrites newer work.
+      return () =>
+        updateDocument(docKey, (d) => {
+          const references = { ...d.reference.references },
+            definitions = { ...d.reference.definitions };
+
+          for (const identity of new Set([...Object.keys(previous.references), ...Object.keys(previous.definitions)])) {
+            const unchanged =
+              JSON.stringify(references[identity]) === JSON.stringify(base.references[identity]) &&
+              JSON.stringify(definitions[identity]) === JSON.stringify(base.definitions[identity]);
+
+            if (!unchanged) continue;
+
+            if (identity in previous.references) references[identity] = structuredClone(previous.references[identity]);
+            else delete references[identity];
+
+            if (identity in previous.definitions) definitions[identity] = structuredClone(previous.definitions[identity]);
+            else delete definitions[identity];
+          }
+
+          return { reference: { references, definitions } };
+        });
     },
     useSavedVersion: applyEntry,
     async loadLatest(docKey) {
@@ -1111,7 +1265,7 @@ export function useEvaluations({
           saveError:
             SAVE_FAILURES[error.code] ||
             (error.code === "save_unavailable"
-              ? error.message
+              ? describeError(error, "Saving to the library isn’t available right now.")
               : "Couldn’t save. Nothing was added to the library; your document and answers are still in this tab. Try again."),
         });
 
@@ -1151,7 +1305,7 @@ export function useEvaluations({
 
         if (error.code === "document_not_found") entryDeleted(document.entry.id);
 
-        return { error: error.message };
+        return { error: describeError(error, "The saved answers couldn’t be updated. Try again.") };
       }
     },
     // A rename never touches answers, so a working copy loaded at the renamed revision stays current.

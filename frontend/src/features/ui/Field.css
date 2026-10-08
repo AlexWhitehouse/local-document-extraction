@@ -1,0 +1,68 @@
+.ui-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ui-field-label {
+  font-size: var(--font-size-3);
+  color: var(--text-label);
+}
+
+.ui-field-hint,
+.ui-field-error {
+  margin: 0;
+  font-size: var(--font-size-3);
+  line-height: 1.5;
+}
+
+.ui-field-hint {
+  color: var(--text-2);
+}
+
+.ui-field-error {
+  color: var(--tone-danger-text);
+}
+
+.ui-field :is(input, select, textarea)[aria-invalid="true"] {
+  border-color: var(--tone-danger-border);
+}
+
+.ui-checkbox-field {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 3px;
+  align-items: start;
+}
+
+.ui-checkbox-field input {
+  grid-row: 1;
+  align-self: center;
+  margin: 0;
+}
+
+label.ui-checkbox-field-label {
+  display: block;
+  grid-row: 1;
+  grid-column: 2;
+  align-self: center;
+  color: var(--text-0);
+  font-size: var(--font-size-4);
+  line-height: 17px;
+  cursor: pointer;
+}
+
+.ui-checkbox-field-description {
+  grid-column: 2;
+  max-width: 62ch;
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-3);
+  line-height: 1.5;
+}
+
+.ui-checkbox-field.is-disabled label.ui-checkbox-field-label {
+  color: var(--text-2);
+  cursor: default;
+}

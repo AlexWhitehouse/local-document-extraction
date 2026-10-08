@@ -19,9 +19,10 @@ test("date formats, field errors and table cell statuses survive saving and reus
     await saveModelGateway(page, harness, "browser/expected-answers");
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
-    await page.getByRole("button", { name: "Create Template" }).click();
-    await page.getByRole("button", { name: "View JSON" }).click();
-    const templateDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
+    await page.getByRole("button", { name: "Create template" }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
+    const templateDialog = page.getByRole("dialog", { name: "Export or import JSON" });
     await templateDialog.getByRole("textbox", { name: "Template JSON", exact: true }).fill(
       JSON.stringify({
         name: "Expected answer checks",
@@ -44,7 +45,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
         ],
       }),
     );
-    await templateDialog.getByRole("button", { name: "Save Template JSON" }).click();
+    await templateDialog.getByRole("button", { name: "Save JSON" }).click();
     await expect(page.getByText("Template saved: Expected answer checks")).toBeVisible();
     await navigation.getByRole("link", { name: /Evaluations/ }).click();
     const evaluations = page.getByRole("region", { name: "Evaluations" });
@@ -55,7 +56,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
         .selectOption({ label: "Expected answer checks" });
       await evaluations.getByRole("textbox", { name: "Candidate 2 model" }).fill("browser/expected-answers-b");
       await evaluations.getByRole("button", { name: "Start and run" }).click();
-      await expect(evaluations.getByRole("status").filter({ hasText: "Done" })).toHaveCount(2);
+      await expect(evaluations.locator(".evaluation-status", { hasText: "Completed" })).toHaveCount(2);
     };
 
     await evaluations
@@ -70,7 +71,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
     await editor.getByRole("button", { name: "Use as expected answer" }).click();
     await expect(value).toHaveAttribute("aria-invalid", "true");
     await expect(value).toBeFocused();
-    await expect(editor.getByRole("alert")).toContainText("valid calendar date");
+    await expect(value).toHaveAccessibleDescription(/valid calendar date/);
     await page.screenshot({ path: testInfo.outputPath("date-validation.png") });
     await value.fill("08/09/1871");
     await expect(editor.getByRole("alert")).toHaveCount(0);
@@ -101,7 +102,7 @@ test("date formats, field errors and table cell statuses survive saving and reus
     );
 
     await page
-      .getByRole("dialog", { name: "Save to Evaluation library" })
+      .getByRole("dialog", { name: "Save to evaluation library" })
       .getByRole("button", { name: "Save", exact: true })
       .click();
     const saved = await saving;
@@ -112,16 +113,18 @@ test("date formats, field errors and table cell statuses survive saving and reus
       { quantity: "absent" },
       { quantity: "ignored" },
     ]);
-    await expect(page.getByRole("dialog", { name: "Save to Evaluation library" })).toHaveCount(0);
-    await evaluations.getByRole("button", { name: /^Clear Evaluation/ }).click();
+    await expect(page.getByRole("dialog", { name: "Save to evaluation library" })).toHaveCount(0);
+    await evaluations.getByRole("button", { name: /^Clear evaluation/ }).click();
     await page
-      .getByRole("dialog", { name: "Clear Evaluation" })
-      .getByRole("button", { name: "Clear Evaluation", exact: true })
+      .getByRole("dialog", { name: "Clear evaluation" })
+      .getByRole("button", { name: "Clear evaluation", exact: true })
       .click();
     await evaluations.getByRole("button", { name: "Library" }).first().click();
     const picker = page.getByRole("dialog", { name: "Evaluation library" });
     await picker.getByRole("checkbox", { name: "Select expected-answers" }).check();
     await picker.getByRole("button", { name: "Add 1 document" }).click();
+    // The page stays inert until the picker closes, so filling earlier would miss the candidate field.
+    await expect(picker).toBeHidden();
     await start();
     await expect(evaluations.getByText("100%", { exact: true })).toHaveCount(2);
     await evaluations.getByRole("button", { name: "2 rows verified" }).click();

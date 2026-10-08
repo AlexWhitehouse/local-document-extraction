@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DocumentUploadModal } from "./DocumentUploadModal.jsx";
 import { DocumentPage } from "./DocumentPage.jsx";
@@ -36,12 +36,12 @@ describe("Automatic document processing UI", () => {
   it("requires an explicit template or at least one tag", async () => {
     const user = userEvent.setup();
     const { rerender } = render(<DocumentUploadModal {...uploadProps} />);
-    expect(screen.getByRole("button", { name: "Upload Documents" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Upload documents" }).disabled).toBe(true);
     await user.click(screen.getByRole("checkbox", { name: "invoice" }));
     expect(uploadProps.onSelectTags).toHaveBeenCalledWith(["invoice"]);
     expect(screen.queryByRole("checkbox", { name: /splitting/i })).toBeNull();
     rerender(<DocumentUploadModal {...uploadProps} selectedTags={["invoice"]} />);
-    expect(screen.getByRole("button", { name: "Upload Documents" }).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Upload documents" }).disabled).toBe(false);
     expect(screen.queryByRole("button", { name: "Preview and select pages" })).toBeNull();
   });
 
@@ -112,6 +112,26 @@ describe("Automatic document processing UI", () => {
     });
   });
 
+  it("removes a split group at once, and undo puts it back in its row with its pages", async () => {
+    const user = userEvent.setup();
+    const showActionToast = vi.fn();
+    const threeGroups = { ...packet, plan: { groups: [{ pages: [1] }, { pages: [2] }, { pages: [3] }], exclusions: [] } };
+    render(<PacketPage packet={threeGroups} onConfirmPlan={vi.fn()} showActionToast={showActionToast} />);
+    const pageValues = () => screen.getAllByLabelText(/^Document \d+ pages$/).map((input) => input.value);
+    expect(pageValues()).toEqual(["1", "2", "3"]);
+
+    await user.click(screen.getByRole("button", { name: "Remove document group 2" }));
+    expect(pageValues()).toEqual(["1", "3"]);
+    expect(showActionToast).toHaveBeenCalledWith(
+      "packet.removeSplit",
+      "success",
+      expect.objectContaining({ undo: expect.any(Function) }),
+    );
+
+    act(() => showActionToast.mock.calls[0][2].undo());
+    expect(pageValues()).toEqual(["1", "2", "3"]);
+  });
+
   it("shows successful zero-child completion and records all excluded pages", () => {
     render(
       <PacketPage
@@ -174,7 +194,7 @@ describe("Automatic document processing UI", () => {
     };
 
     const { rerender } = render(<PacketPage {...props} />);
-    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^Overview/ }).getAttribute("aria-selected")).toBe("true");
     await userEvent.click(screen.getByRole("tab", { name: /Document 2/ }));
     expect(onSelectDocument).toHaveBeenCalledWith("child_2");
     rerender(<PacketPage {...props} pendingDocumentId="child_2" />);
@@ -187,8 +207,31 @@ describe("Automatic document processing UI", () => {
     rerender(<PacketPage {...props} activeDocumentId="child_2" activeDocument={{ job_id: "child_2" }} />);
     expect(screen.getByText("Results for child_2")).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Document 2/ }).getAttribute("aria-selected")).toBe("true");
-    await userEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Overview/ }));
     expect(onSelectDocument).toHaveBeenCalledWith("");
+  });
+
+  it("moves between packet tabs with the arrow keys", async () => {
+    const onSelectDocument = vi.fn();
+
+    const children = [
+      { job_id: "child_1", status: "completed", source_pages: [1] },
+      { job_id: "child_2", status: "processing", source_pages: [2] },
+    ];
+
+    render(
+      <PacketPage
+        packet={{ ...packet, status: "processing_children", plan_accepted: true, children }}
+        onSelectDocument={onSelectDocument}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Overview/ }));
+    await userEvent.keyboard("{ArrowRight}");
+    expect(onSelectDocument).toHaveBeenLastCalledWith("child_1");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: /Document 1/ }));
+    await userEvent.keyboard("{End}");
+    expect(onSelectDocument).toHaveBeenLastCalledWith("child_2");
   });
 
   it("shows how many templates carry each tag and which templates a selection allows", async () => {
@@ -242,20 +285,20 @@ describe("Automatic document processing UI", () => {
       const { rerender } = render(
         <PacketPage
           {...props}
-          documentError="Document details could not be loaded. Try again."
+          documentError="Couldn't load document details. Try again."
           documentErrorId="child_2"
         />,
       );
 
-      expect(screen.getByRole("alert").textContent).toContain("Document details could not be loaded");
+      expect(screen.getByRole("alert").textContent).toContain("Couldn't load document details");
 
       if (activeDocumentId) expect(screen.getByText("Results for child_1")).toBeTruthy();
       else expect(screen.getByRole("region", { name: "Documents in this packet" })).toBeTruthy();
-      await userEvent.click(screen.getByRole("button", { name: "Retry document" }));
+      await userEvent.click(screen.getByRole("button", { name: "Try again" }));
       expect(onSelectDocument).toHaveBeenCalledWith("child_2");
       rerender(<PacketPage {...props} pendingDocumentId="child_2" />);
       expect(screen.queryByRole("alert")).toBeNull();
-      expect(screen.queryByRole("button", { name: "Retry document" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     },
   );
 
@@ -266,8 +309,8 @@ describe("Automatic document processing UI", () => {
     ];
 
     const { rerender } = render(<PacketPage packet={{ ...packet, status: "processing" }} />);
-    const overview = () => screen.getByRole("tab", { name: "Overview" });
-    expect(overview().getAttribute("aria-describedby")).toBeTruthy();
+    const overview = () => screen.getByRole("tab", { name: /^Overview/ });
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(overview().id);
     expect(overview().textContent).toContain("Finding documents");
     rerender(
       <PacketPage
@@ -275,12 +318,12 @@ describe("Automatic document processing UI", () => {
         templates={uploadProps.templates}
       />,
     );
-    expect(overview().textContent).toContain("Extracting 1/2");
-    expect(screen.getByRole("tab", { name: /Document 1/ }).className).toBe("is-done");
-    expect(screen.getByRole("tab", { name: /Document 2/ }).textContent).toContain("Page 3 · processing");
+    expect(overview().textContent).toContain("Split into 2. 1 of 2 extracted");
+    expect(screen.getByRole("tab", { name: /Document 1/ }).className).toContain("ui-tone-success");
+    expect(screen.getByRole("tab", { name: /Document 2/ }).textContent).toContain("Page 3 · Processing");
     const table = screen.getByRole("region", { name: "Documents in this packet" });
     expect(within(table).getByRole("row", { name: /Document 1 1, 2 Invoice Completed/ })).toBeTruthy();
-    expect(within(table).getByText("Choosing template…")).toBeTruthy();
+    expect(within(table).getByText("Choosing a template…")).toBeTruthy();
     rerender(
       <PacketPage packet={{ ...packet, status: "completed", plan_accepted: true, children: [children[0]] }} />,
     );

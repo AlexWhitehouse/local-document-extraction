@@ -1,6 +1,17 @@
-import React from "react";
-import { Toaster } from "sonner";
+import React, { useEffect } from "react";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
+import { Button } from "../ui/Button.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
+import "./AuthScreen.css";
+
+const FIELD_IDS = {
+  name: "auth-name",
+  email: "auth-email",
+  password: "auth-password",
+  confirmPassword: "auth-confirm-password",
+};
+
+const REQUIREMENTS_ID = "auth-password-requirements";
 
 export function AuthScreen({
   authOptions = DEFAULT_RUNTIME_CONFIGURATION.auth,
@@ -9,8 +20,13 @@ export function AuthScreen({
   email,
   password,
   confirmPassword,
-  busy,
-  hasPasswordMismatch,
+  isSigningIn,
+  isCreatingAccount,
+  isSendingResetLink,
+  isAuthPending,
+  fieldErrors = {},
+  formError,
+  focusRequest,
   shouldShowPasswordRequirements,
   unmetPasswordRequirements,
   accountVerificationPromptEmail,
@@ -21,6 +37,7 @@ export function AuthScreen({
   onPasswordChange,
   onConfirmPasswordChange,
   onPasswordTouched,
+  onFieldBlur,
   onProviderSignIn,
   onSwitchMode,
 }) {
@@ -30,10 +47,21 @@ export function AuthScreen({
   const isSignIn = !isSignUp && !isResetRequest;
   const localMail = mailDelivery === "local";
   const formTitle = isResetRequest ? "Reset password" : isSignIn ? "Sign in" : "Create account";
+  const showRequirements = shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0;
+
+  // Focus the first invalid field after a rejected submit (the controller sets focusRequest).
+  useEffect(() => {
+    if (focusRequest) document.getElementById(FIELD_IDS[focusRequest.field])?.focus();
+  }, [focusRequest]);
+
+  const formAlert = formError ? (
+    <p role="alert" className="auth-form-error">
+      {formError}
+    </p>
+  ) : null;
 
   return (
     <>
-      <Toaster richColors theme="dark" />
       <div className="auth-shell">
         <section className="auth-card">
           <div className="auth-header">
@@ -41,162 +69,145 @@ export function AuthScreen({
             <h1>Studio</h1>
             <p>
               {isSignIn
-                ? "Welcome back. Sign in to continue working in your workspace."
+                ? "Sign in to continue."
                 : isResetRequest
-                  ? "Enter your account email and we will send a password reset link."
-                  : "Create your account to start extracting structured data from documents."}
+                  ? "We'll email you a reset link."
+                  : "Create an account to start extracting data from documents."}
             </p>
-          </div>
-
-          <div className="status-strip auth-status-strip">
-            <span className="status-chip good">Secure auth</span>
-            <span className="status-chip">Workspace-ready</span>
           </div>
 
           {accountVerificationPromptEmail ? (
             <div className="panel auth-verification-prompt" role="status">
-              <h2>{localMail ? "Open your local verification link." : "Check your email to verify your account."}</h2>
+              <h2>{localMail ? "Verify your account" : "Check your email to verify your account"}</h2>
               <p>
                 {localMail ? (
                   <>
-                    A verification link for <b>{accountVerificationPromptEmail}</b> was saved on the computer running
-                    this app. Open the link printed in the server terminal, or run <code>document-extraction mail</code>{" "}
-                    after an installer setup. Manual installs save messages under{" "}
-                    <code>DOCUMENT_EXTRACTION_STATE_DIR/mail</code> (default <code>.local/mail</code>).
+                    We saved a verification link for <b>{accountVerificationPromptEmail}</b> on this computer. Run{" "}
+                    <code>document-extraction mail</code> to open it.
                   </>
                 ) : (
                   <>
-                    We sent an Account verification link to <b>{accountVerificationPromptEmail}</b>. Open it to finish
+                    We sent an account verification link to <b>{accountVerificationPromptEmail}</b>. Open it to finish
                     setting up your account.
                   </>
                 )}
               </p>
-              <button
-                type="button"
-                className="auth-primary-action"
-                disabled={busy}
-                onClick={() => onSwitchMode("signin")}
-              >
+              <Button className="auth-primary-action" disabled={isAuthPending} onClick={() => onSwitchMode("signin")}>
                 Back to sign in
-              </button>
+              </Button>
             </div>
           ) : accountPasswordResetRequestedEmail ? (
             <div className="panel auth-verification-prompt" role="status">
-              <h2>{localMail ? "Check local mail" : "Check your email"}</h2>
+              <h2>{localMail ? "Check your mail" : "Check your email"}</h2>
               <p>
-                If an account exists for <b>{accountPasswordResetRequestedEmail}</b>, a reset link has{" "}
-                {localMail
-                  ? "been saved in the server terminal and local mail capture. Run document-extraction mail after an installer setup, or inspect your state directory's mail folder."
-                  : "been sent."}
+                {localMail ? (
+                  <>
+                    If an account exists for <b>{accountPasswordResetRequestedEmail}</b>, we saved a reset link on this
+                    computer. Run <code>document-extraction mail</code> to open it.
+                  </>
+                ) : (
+                  <>
+                    If an account exists for <b>{accountPasswordResetRequestedEmail}</b>, we sent a reset link.
+                  </>
+                )}
               </p>
-              <button
-                type="button"
-                className="auth-primary-action"
-                disabled={busy}
-                onClick={() => onSwitchMode("signin")}
-              >
+              <Button className="auth-primary-action" disabled={isAuthPending} onClick={() => onSwitchMode("signin")}>
                 Back to sign in
-              </button>
+              </Button>
             </div>
           ) : (
-            <form className="panel auth-panel" onSubmit={onSubmit}>
+            <form className="panel auth-panel" onSubmit={onSubmit} noValidate>
               <h2>{formTitle}</h2>
-              <p className="muted">
-                {!emailPasswordEnabled
-                  ? "Use your identity provider to continue."
-                  : isResetRequest
-                    ? "If an account exists for that email, a reset link will be sent."
-                    : "Sign in first, then create or select a workspace."}
-              </p>
+              {emailPasswordEnabled ? null : <p className="muted">Use your identity provider to continue.</p>}
               {emailPasswordEnabled ? (
                 <>
                   <div className={isSignUp ? "row two-up auth-form-grid" : "row auth-form-grid"}>
                     {isSignUp ? (
-                      <label>
-                        Name
-                        <input
+                      <Field label="Name" error={fieldErrors.name}>
+                        <TextInput
+                          id={FIELD_IDS.name}
                           value={name}
+                          autoComplete="name"
                           onChange={(event) => onNameChange(event.target.value)}
                           placeholder="Jane Doe"
                         />
-                      </label>
+                      </Field>
                     ) : null}
-                    <label>
-                      Email
-                      <input
+                    <Field label="Email" error={fieldErrors.email}>
+                      <TextInput
+                        id={FIELD_IDS.email}
                         type="email"
                         value={email}
+                        autoComplete="email"
                         onChange={(event) => onEmailChange(event.target.value)}
+                        onBlur={() => onFieldBlur("email")}
                         placeholder="jane@example.com"
                       />
-                    </label>
+                    </Field>
                     {isResetRequest ? null : (
                       <div className="auth-field">
-                        <div className="auth-password-label-row">
-                          <label htmlFor="auth-password" className="auth-field-label">
-                            Password
-                          </label>
-                          {isSignIn ? (
-                            <SwitchModeLink
-                              className="auth-forgot-password-link"
-                              mode="reset-request"
-                              busy={busy}
-                              onSwitchMode={onSwitchMode}
-                            >
-                              Forgot password?
-                            </SwitchModeLink>
-                          ) : null}
-                        </div>
-                        <input
-                          id="auth-password"
-                          type="password"
-                          value={password}
-                          aria-invalid={hasPasswordMismatch}
-                          className={hasPasswordMismatch ? "auth-input-error" : ""}
-                          onChange={(event) => {
-                            onPasswordChange(event.target.value);
+                        <Field label="Password" error={fieldErrors.password}>
+                          <TextInput
+                            id={FIELD_IDS.password}
+                            type="password"
+                            value={password}
+                            autoComplete={isSignUp ? "new-password" : "current-password"}
+                            aria-describedby={showRequirements ? REQUIREMENTS_ID : undefined}
+                            placeholder="••••••••"
+                            onChange={(event) => {
+                              onPasswordChange(event.target.value);
 
-                            if (isSignUp) {
-                              onPasswordTouched();
-                            }
-                          }}
-                          placeholder="************"
-                        />
+                              if (isSignUp) {
+                                onPasswordTouched();
+                              }
+                            }}
+                          />
+                        </Field>
+                        {isSignIn ? (
+                          <SwitchModeButton
+                            className="auth-forgot-password-link"
+                            mode="reset-request"
+                            disabled={isAuthPending}
+                            onSwitchMode={onSwitchMode}
+                          >
+                            Forgot password?
+                          </SwitchModeButton>
+                        ) : null}
                       </div>
                     )}
                     {isSignUp ? (
-                      <label>
-                        Confirm Password
-                        <input
+                      <Field label="Confirm password" error={fieldErrors.confirmPassword}>
+                        <TextInput
+                          id={FIELD_IDS.confirmPassword}
                           type="password"
                           value={confirmPassword}
-                          aria-invalid={hasPasswordMismatch}
-                          className={hasPasswordMismatch ? "auth-input-error" : ""}
+                          autoComplete="new-password"
+                          placeholder="••••••••"
                           onChange={(event) => onConfirmPasswordChange(event.target.value)}
-                          placeholder="Repeat password"
+                          onBlur={() => onFieldBlur("confirmPassword")}
                         />
-                      </label>
+                      </Field>
                     ) : null}
                   </div>
-                  {hasPasswordMismatch ? <p className="auth-password-mismatch">Passwords do not match.</p> : null}
                   {shouldShowPasswordRequirements && unmetPasswordRequirements.length > 0 ? (
-                    <ul className="auth-password-requirements">
+                    <ul id={REQUIREMENTS_ID} className="auth-password-requirements">
                       {unmetPasswordRequirements.map((requirement) => (
                         <li key={requirement.label}>{requirement.label}</li>
                       ))}
                     </ul>
                   ) : null}
+                  {formAlert}
                   {isSignIn ? (
                     <>
-                      <button type="submit" className="auth-primary-action" disabled={busy}>
+                      <Button type="submit" className="auth-primary-action" pending={isSigningIn} pendingLabel="Signing in…">
                         Sign in
-                      </button>
+                      </Button>
                       {signupEnabled ? (
                         <p className="auth-switch-copy">
                           Don&apos;t have an account?{" "}
-                          <SwitchModeLink mode="signup" busy={busy} onSwitchMode={onSwitchMode}>
+                          <SwitchModeButton mode="signup" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
                             Sign up
-                          </SwitchModeLink>
+                          </SwitchModeButton>
                         </p>
                       ) : (
                         <p className="muted">Account registration is closed. Contact the administrator for access.</p>
@@ -204,26 +215,26 @@ export function AuthScreen({
                     </>
                   ) : isResetRequest ? (
                     <>
-                      <button type="submit" className="auth-primary-action" disabled={busy}>
+                      <Button type="submit" className="auth-primary-action" pending={isSendingResetLink} pendingLabel="Sending link…">
                         Send reset link
-                      </button>
+                      </Button>
                       <p className="auth-switch-copy">
                         Remember your password?{" "}
-                        <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>
+                        <SwitchModeButton mode="signin" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
                           Sign in
-                        </SwitchModeLink>
+                        </SwitchModeButton>
                       </p>
                     </>
                   ) : (
                     <>
-                      <button type="submit" className="auth-primary-action" disabled={busy}>
-                        Create Account
-                      </button>
+                      <Button type="submit" className="auth-primary-action" pending={isCreatingAccount} pendingLabel="Creating account…">
+                        Create account
+                      </Button>
                       <p className="auth-switch-copy">
                         Already have an account?{" "}
-                        <SwitchModeLink mode="signin" busy={busy} onSwitchMode={onSwitchMode}>
+                        <SwitchModeButton mode="signin" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
                           Sign in
-                        </SwitchModeLink>
+                        </SwitchModeButton>
                       </p>
                     </>
                   )}
@@ -235,15 +246,12 @@ export function AuthScreen({
                     <div className="auth-divider" aria-hidden="true">
                       <span>or continue with</span>
                     </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="secondary auth-provider-action"
-                    disabled={busy}
-                    onClick={onProviderSignIn}
-                  >
+                  ) : (
+                    formAlert
+                  )}
+                  <Button variant="secondary" className="auth-provider-action" disabled={isAuthPending} onClick={onProviderSignIn}>
                     Sign in with Google
-                  </button>
+                  </Button>
                   {!emailPasswordEnabled && !signupEnabled ? (
                     <p className="muted">Account registration is closed. Contact the administrator for access.</p>
                   ) : null}
@@ -257,18 +265,10 @@ export function AuthScreen({
   );
 }
 
-function SwitchModeLink({ className = "auth-switch-link", mode, busy, onSwitchMode, children }) {
+function SwitchModeButton({ className = "", mode, disabled, onSwitchMode, children }) {
   return (
-    <a
-      href="#"
-      className={className}
-      onClick={(event) => {
-        event.preventDefault();
-
-        if (!busy) onSwitchMode(mode);
-      }}
-    >
+    <Button variant="text" className={`auth-text-button ${className}`.trim()} disabled={disabled} onClick={() => onSwitchMode(mode)}>
       {children}
-    </a>
+    </Button>
   );
 }

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { describeError } from "../../lib/describeError";
+import { confirmDialog } from "../ui/confirm.jsx";
 
 const ADMIN_USERS_PAGE_SIZE = 25;
 
@@ -79,7 +81,7 @@ export function useApplicationAdminController({
         }
 
         if (result?.error) {
-          throw new Error(result.error.message || "Unable to load users.");
+          throw new Error(result.error.message || "Couldn't load users.");
         }
 
         const data = result?.data || {};
@@ -92,7 +94,7 @@ export function useApplicationAdminController({
 
         setUsers([]);
         setTotal(0);
-        setListError(error?.message || "Unable to load users.");
+        setListError(describeError(error, "Couldn't load users."));
       } finally {
         if (isCurrent) {
           setIsLoading(false);
@@ -113,8 +115,9 @@ export function useApplicationAdminController({
     setSubmittedSearch({ field: searchField, value: searchInput.trim() });
   }
 
-  // Runs a Better Auth admin mutation for one user, then reloads the list.
-  async function mutateUser(user, toastAction, mutate, fallbackMessage) {
+  // Runs a Better Auth admin mutation for one user, then reloads the list. With `inline`,
+  // failures throw so a confirmation dialog can show them instead of a toast.
+  async function mutateUser(user, toastAction, mutate, fallbackMessage, { inline = false } = {}) {
     const userId = userIdOf(user);
 
     if (!userId) {
@@ -134,7 +137,9 @@ export function useApplicationAdminController({
       setReloadToken((current) => current + 1);
 
       return true;
-    } catch {
+    } catch (error) {
+      if (inline) throw error;
+
       showActionToast(toastAction, "failure");
 
       return false;
@@ -149,22 +154,27 @@ export function useApplicationAdminController({
     }
 
     const email = userLabel(user);
+    const removing = role === "user";
 
-    const message =
-      role === "user"
-        ? `Remove Application admin access from ${email}? This revokes application-wide account management access.`
-        : `Make ${email} an Application admin? This grants application-wide account management access.`;
-
-    if (!window.confirm(message)) {
-      return;
-    }
-
-    await mutateUser(
-      user,
-      "applicationRole.change",
-      (userId) => authClient.admin.setRole({ userId, role }),
-      "Unable to update application role.",
-    );
+    await confirmDialog({
+      title: removing
+        ? `Remove application admin access from ${email}?`
+        : `Make ${email} an application admin?`,
+      body: removing
+        ? "This revokes application-wide account management access."
+        : "This grants application-wide account management access.",
+      confirmLabel: "Change role",
+      pendingLabel: "Changing role…",
+      tone: "default",
+      action: () =>
+        mutateUser(
+          user,
+          "applicationRole.change",
+          (userId) => authClient.admin.setRole({ userId, role }),
+          "Couldn't update application role.",
+          { inline: true },
+        ),
+    });
   }
 
   function openBanDialog(user) {
@@ -193,7 +203,7 @@ export function useApplicationAdminController({
       banDialogUser,
       "applicationUser.ban",
       (userId) => authClient.admin.banUser({ userId, banReason: reason }),
-      "Unable to ban user.",
+      "Couldn't ban user.",
     );
 
     if (banned) closeBanDialog();
@@ -204,7 +214,7 @@ export function useApplicationAdminController({
       unbanDialogUser,
       "applicationUser.unban",
       (userId) => authClient.admin.unbanUser({ userId }),
-      "Unable to unban user.",
+      "Couldn't unban user.",
     );
 
     if (unbanned) setUnbanDialogUser(null);
@@ -217,11 +227,16 @@ export function useApplicationAdminController({
       return;
     }
 
-    if (
-      !window.confirm(
-        `Start impersonating ${userLabel(user)}? You will leave the Admin page and enter this user's normal app experience.`,
-      )
-    ) {
+    const name = userLabel(user);
+
+    const confirmed = await confirmDialog({
+      title: `Impersonate ${name}?`,
+      body: "You'll leave the Admin page and enter this user's normal app experience.",
+      confirmLabel: `Impersonate ${name}`,
+      tone: "default",
+    });
+
+    if (!confirmed) {
       return;
     }
 
@@ -232,7 +247,7 @@ export function useApplicationAdminController({
       const result = await authClient.admin.impersonateUser({ userId });
 
       if (result?.error) {
-        throw new Error(result.error.message || "Unable to start impersonation.");
+        throw new Error(result.error.message || "Couldn't start impersonation.");
       }
 
       onImpersonationStarted?.();

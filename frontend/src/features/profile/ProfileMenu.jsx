@@ -1,5 +1,9 @@
-import React from "react";
-import { createPortal } from "react-dom";
+import React, { useEffect, useRef } from "react";
+import { ModalDialog } from "../layout/ModalDialog.jsx";
+import { ChevronDownIcon, CloseIcon } from "../layout/Icons.jsx";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
 
 export const ProfileMenu = React.forwardRef(function ProfileMenu(
   {
@@ -9,7 +13,9 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
     isOpen,
     isDirty,
     isSavingProfile,
-    busy,
+    canSaveProfile,
+    saveError,
+    isSigningOut,
     onToggle,
     onDraftNameChange,
     onSaveProfile,
@@ -18,6 +24,48 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
   },
   ref,
 ) {
+  // Escape and the backdrop go through ModalDialog's dirty check; the × does too.
+  const requestClose = async () => {
+    if (!isDirty || (await confirmDialog({ ...DISCARD_CHANGES }))) onToggle();
+  };
+
+  const shortcutsRef = useRef(null);
+  const focusShortcutsOnOpen = useRef(false);
+
+  // "?" opens Settings at the keyboard shortcuts section. Like "[" in MainLayout, it is ignored
+  // while typing and while a dialog is already open.
+  useEffect(() => {
+    function openFromShortcut(event) {
+      if (
+        event.key !== "?" ||
+        event.defaultPrevented ||
+        event.altKey ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.target.closest?.('input, textarea, select, [contenteditable], [role="dialog"]') ||
+        document.querySelector('[role="dialog"], [aria-modal="true"]')
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      focusShortcutsOnOpen.current = true;
+      onToggle();
+    }
+
+    window.addEventListener("keydown", openFromShortcut);
+
+    return () => window.removeEventListener("keydown", openFromShortcut);
+  }, [onToggle]);
+
+  useEffect(() => {
+    if (!isOpen || !focusShortcutsOnOpen.current) return;
+
+    focusShortcutsOnOpen.current = false;
+    shortcutsRef.current?.scrollIntoView?.({ block: "start" });
+    shortcutsRef.current?.focus();
+  }, [isOpen]);
+
   return (
     <div className="sidebar-profile" ref={ref}>
       <button
@@ -35,81 +83,110 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
           <span>{displayEmail}</span>
         </span>
         <span className="sidebar-profile-chevron" aria-hidden="true">
-          ⌃
+          <ChevronDownIcon size={14} />
         </span>
       </button>
 
-      {isOpen
-        ? createPortal(
-            <div className="settings-modal-backdrop" onClick={onToggle}>
-              <div
-                className="settings-modal"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="settings-modal-title"
-                onClick={(event) => event.stopPropagation()}
-              >
+      {isOpen ? (
+        <ModalDialog labelledBy="settings-modal-title" className="settings-modal" isDirty={isDirty} onClose={onToggle}>
+          {/* Not a ModalHeader: the × sits in the content column, not a header strip. */}
+          <>
                 <aside className="settings-modal-sidebar">
                   <div className="settings-modal-brand">
-                    <span className="eyebrow">Local Studio</span>
                     <h2 id="settings-modal-title">Settings</h2>
                   </div>
                   {tourAction ? <div className="settings-modal-tour">{tourAction}</div> : null}
-                  <p>Manage your local account.</p>
                 </aside>
 
                 <section className="settings-modal-content">
                   <header className="settings-modal-header">
                     <div>
-                      <span className="eyebrow">Identity</span>
-                      <h3>Account</h3>
+                      <h3>Profile</h3>
                     </div>
-                    <button type="button" className="modal-close" aria-label="Close settings" onClick={onToggle}>
-                      ×
-                    </button>
+                    <IconButton
+                      size="sm"
+                      label="Close settings"
+                      icon={CloseIcon}
+                      className="modal-close"
+                      onClick={requestClose}
+                    />
                   </header>
 
                   <div className="settings-section-body">
-                    <div className="settings-section-intro">
-                      <h4>Your local profile</h4>
-                      <p>Update the name shown throughout Document Extraction.</p>
-                    </div>
                     <div className="settings-form-card">
-                      <label>
-                        Name
-                        <input
+                      <Field label="Name">
+                        <TextInput
                           value={draftName}
                           onChange={(event) => onDraftNameChange(event.target.value)}
-                          placeholder="Jane Doe"
+                          placeholder="e.g. Jane Doe"
                           autoComplete="name"
                         />
-                      </label>
-                      <label>
-                        Email
-                        <input value={displayEmail} readOnly aria-readonly="true" />
-                      </label>
+                      </Field>
+                      <Field label="Email">
+                        <TextInput value={displayEmail} readOnly aria-readonly="true" />
+                      </Field>
+                      {saveError ? (
+                        <p className="form-error" role="alert">
+                          {saveError}
+                        </p>
+                      ) : null}
                       <div className="settings-form-actions">
-                        <button type="button" disabled={isSavingProfile || !isDirty} onClick={onSaveProfile}>
-                          {isSavingProfile ? "Saving…" : "Save profile"}
-                        </button>
+                        <Button
+                          pending={isSavingProfile}
+                          pendingLabel="Saving…"
+                          disabled={!isDirty || !canSaveProfile}
+                          onClick={onSaveProfile}
+                        >
+                          Save profile
+                        </Button>
                       </div>
                     </div>
-                    <div className="settings-danger-row">
-                      <div>
-                        <strong>End this session</strong>
-                        <span>You’ll need to sign in again to access local workspaces.</span>
+                    <section
+                      ref={shortcutsRef}
+                      tabIndex={-1}
+                      className="settings-shortcuts"
+                      aria-labelledby="settings-shortcuts-title"
+                    >
+                      <div className="settings-section-intro">
+                        <h4 id="settings-shortcuts-title">Keyboard shortcuts</h4>
                       </div>
-                      <button type="button" className="danger" disabled={busy || isSavingProfile} onClick={onSignOut}>
+                      <dl className="settings-shortcut-list">
+                        <div>
+                          <dt>
+                            <kbd>[</kbd>
+                          </dt>
+                          <dd>Collapse or expand the sidebar</dd>
+                        </div>
+                        <div>
+                          <dt>
+                            <kbd>?</kbd>
+                          </dt>
+                          <dd>Show keyboard shortcuts</dd>
+                        </div>
+                        <div>
+                          <dt>
+                            <kbd>↑</kbd> <kbd>↓</kbd>
+                          </dt>
+                          <dd>Move between documents in the list. Home and End jump to the first and last.</dd>
+                        </div>
+                      </dl>
+                    </section>
+                    <div className="settings-form-actions">
+                      <Button
+                        variant="secondary"
+                        pending={isSigningOut}
+                        pendingLabel="Signing out…"
+                        disabled={isSavingProfile}
+                        onClick={onSignOut}
+                      >
                         Sign out
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </section>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+          </>
+        </ModalDialog>
+      ) : null}
     </div>
   );
 });

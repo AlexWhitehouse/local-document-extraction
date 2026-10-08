@@ -26,14 +26,22 @@ function setup(overrides = {}) {
   };
 
   const onJobsChanged = vi.fn();
+  const showActionToast = vi.fn();
 
   const hook = renderHook(
     ({ workspaceId }) =>
-      usePacketController({ requests, enabled: true, sessionId: "session", workspaceId, onJobsChanged }),
+      usePacketController({
+        requests,
+        enabled: true,
+        sessionId: "session",
+        workspaceId,
+        onJobsChanged,
+        showActionToast,
+      }),
     { initialProps: { workspaceId: "workspace-a" } },
   );
 
-  return { ...hook, requests, onJobsChanged };
+  return { ...hook, requests, onJobsChanged, showActionToast };
 }
 
 describe("Packet request lifetimes", () => {
@@ -247,7 +255,7 @@ describe("Packet request lifetimes", () => {
   });
 
   it("keeps a revision conflict visible while refreshing the authoritative plan", async () => {
-    const { result, requests, onJobsChanged } = setup({
+    const { result, requests, onJobsChanged, showActionToast } = setup({
       confirmPacketPlan: vi.fn(async () => {
         throw Object.assign(new Error("Plan changed; review the latest version."), { status: 409 });
       }),
@@ -261,9 +269,41 @@ describe("Packet request lifetimes", () => {
       expect(await result.current.confirmPlan("p1", { revision: 1, groups: [], exclusions: [] })).toBe(false);
     });
     expect(result.current.selectedPacket.plan_revision).toBe(2);
-    expect(result.current.error).toContain("Plan changed");
+    expect(result.current.error).toBe(
+      "The split plan changed while you were reviewing. Your edits were replaced. Review the updated plan.",
+    );
     expect(result.current.busy).toBe(false);
     expect(onJobsChanged).not.toHaveBeenCalled();
+    expect(showActionToast).not.toHaveBeenCalled();
+  });
+
+  it("reports a confirmed plan and other confirm failures with one toast each", async () => {
+    const failing = setup({
+      confirmPacketPlan: vi.fn(async () => {
+        throw Object.assign(new Error("Database constraint failed"), { status: 500 });
+      }),
+    });
+
+    await waitFor(() => expect(failing.result.current.packets).toHaveLength(1));
+    act(() => failing.result.current.select("p1"));
+    await waitFor(() => expect(failing.result.current.selectedPacket?.plan_revision).toBe(1));
+    await act(async () => {
+      expect(await failing.result.current.confirmPlan("p1", { revision: 1, groups: [], exclusions: [] })).toBe(false);
+    });
+    expect(failing.showActionToast).toHaveBeenCalledWith("packet.confirmPlan", "failure", {
+      error: expect.objectContaining({ status: 500 }),
+    });
+    expect(failing.result.current.error).toBe("");
+
+    const ok = setup();
+
+    await waitFor(() => expect(ok.result.current.packets).toHaveLength(1));
+    act(() => ok.result.current.select("p1"));
+    await waitFor(() => expect(ok.result.current.selectedPacket?.plan_revision).toBe(1));
+    await act(async () => {
+      await ok.result.current.confirmPlan("p1", { revision: 1, groups: [], exclusions: [] });
+    });
+    expect(ok.showActionToast).toHaveBeenCalledWith("packet.confirmPlan", "success");
   });
 
   it("confirms once, reloads the packet, and refreshes child jobs; delete clears selection", async () => {

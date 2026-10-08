@@ -1,34 +1,42 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { MAX_CANDIDATES, documentRunnable } from "./useEvaluations.js";
-import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 import { Chips } from "./EvaluationLibrary.jsx";
 import { documentChips, kilobytes, saveUnavailableMessage, unavailableText } from "./evaluationLibrary.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { Badge } from "../ui/Status.jsx";
+import { Dropzone } from "../ui/Dropzone.jsx";
+import { Callout } from "../ui/Callout.jsx";
+import { CloseIcon, PlusIcon } from "../layout/Icons.jsx";
+import { createNotifier, defaultToast } from "../../lib/notify";
+import { insertAt } from "../../lib/lists";
+
+const defaultShowActionToast = createNotifier(defaultToast);
 
 const MODES = [
   {
     id: "models",
     title: "Models",
-    summary: "One Template, different models",
+    summary: "One template, different models",
     detail: "Find the most accurate or fastest model for this kind of document.",
     diagram: ["T", ["M1", "M2", "M3"]],
   },
   {
     id: "templates",
     title: "Template versions",
-    summary: "One model, different Templates",
+    summary: "One model, different templates",
     detail: "Check whether edited field instructions improve the results.",
     diagram: ["M", ["v3", "v2", "v1"]],
   },
 ];
 
-const mebibytes = (bytes) =>
+const megabytes = (bytes) =>
   new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(bytes / (1024 * 1024));
 
 function StepNumber({ number, complete }) {
   return (
     <span className={complete ? "evaluation-step-complete" : undefined} title={complete ? "Complete" : "Incomplete"}>
       {number}
-      <span className="evaluation-visually-hidden">{complete ? " complete" : " incomplete"}</span>
+      <span className="sr-only">{complete ? " complete" : " incomplete"}</span>
     </span>
   );
 }
@@ -49,17 +57,18 @@ export function EvaluationSetup({
   onChooseLibrary,
   onManageLibrary,
   onStart,
+  onOpenWorkspace,
+  showActionToast = defaultShowActionToast,
 }) {
   const workspaceModel = state.setup?.model || "";
+  const modelMissing = Boolean(state.setup) && !state.setup.configured;
   const [mode, setMode] = useState(state.mode);
   const [templateId, setTemplateId] = useState("");
   const [version, setVersion] = useState("");
   const [versions, setVersions] = useState([]);
   const [models, setModels] = useState(() => [workspaceModel, ""]);
-  const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState(null);
   const [starting, setStarting] = useState(false);
-  const input = useRef(null);
   const template = templates.find((t) => t.id === templateId);
 
   const allVersions = template
@@ -87,6 +96,24 @@ export function EvaluationSetup({
     };
   }, [template, version, loadTemplate]);
 
+  // Removes the document at once; Undo puts it back at its position with its results.
+  const removeDocument = async (document) => {
+    const undo = await onRemoveDocument(document.key);
+
+    if (undo) showActionToast("evaluation.removeDocument", "success", { targetName: document.name, undo });
+  };
+
+  // Removes the row at once; Undo puts the model back at its position.
+  const removeModel = (index) => {
+    const removed = models[index];
+
+    setModels(models.filter((_, i) => i !== index));
+    showActionToast("evaluation.removeCandidate", "success", {
+      targetName: removed.trim(),
+      undo: () => setModels((current) => insertAt(current, index, removed)),
+    });
+  };
+
   const chooseTemplate = (id) => {
     const next = templates.find((t) => t.id === id);
     setTemplateId(id);
@@ -103,8 +130,7 @@ export function EvaluationSetup({
   });
 
   const problems = [
-    !state.setup?.configured && "Configure a model in Workspace settings",
-    !template && "Choose a Template",
+    !template && "Choose a template",
     mode === "models" ? names.length < 2 && "Add at least two models" : !versions.length && "Choose a version",
   ].filter(Boolean);
 
@@ -113,7 +139,7 @@ export function EvaluationSetup({
 
   const suggestions = [
     ...new Set(
-      [workspaceModel, ...suggestedModels].flatMap((model) => {
+      [...suggestedModels, workspaceModel].flatMap((model) => {
         const name = String(model || "").trim();
 
         return name ? [name] : [];
@@ -150,18 +176,23 @@ export function EvaluationSetup({
   return (
     <div className="evaluation-setup">
       <div className="evaluation-setup-main">
-        <header className="evaluation-setup-head">
-          <p className="studio-eyebrow">New Evaluation</p>
-          <h2>Compare extraction results on your documents</h2>
-          <p>
-            Runs and results aren’t saved and clear when you close this tab. Documents you save to the Evaluation
-            library can be reused.
-          </p>
-        </header>
+        {modelMissing && (
+          <Callout
+            tone="info"
+            title="Evaluations need a Model gateway"
+            action={
+              <Button variant="secondary" onClick={onOpenWorkspace}>
+                Set up Model gateway
+              </Button>
+            }
+          >
+            Every evaluation runs on the workspace model. Set one up on the Workspaces page, then come back here.
+          </Callout>
+        )}
         {error && (
-          <p role="alert" className="evaluation-setup-error">
+          <Callout tone="danger" role="alert">
             {error}
-          </p>
+          </Callout>
         )}
 
         <section className="evaluation-setup-step" aria-labelledby="evaluation-step-document">
@@ -180,8 +211,7 @@ export function EvaluationSetup({
                       key={document.key}
                       className={`evaluation-setup-file ${documentRunnable(document) ? "" : "unrunnable"}`}
                     >
-                      <button
-                        type="button"
+                      <Button
                         className="evaluation-setup-thumb"
                         aria-label={`View ${document.name}`}
                         onClick={() => onPreviewDocument(document)}
@@ -191,19 +221,17 @@ export function EvaluationSetup({
                             ? "IMG"
                             : "PDF"}
                         </span>
-                      </button>
+                      </Button>
                       <div className="evaluation-setup-file-info">
                         <div className="evaluation-setup-file-row">
                           <strong title={document.name}>{document.name}</strong>
                           <Chips list={chips.slice(0, 1)} />
-                          <button
-                            type="button"
-                            className="icon-action-button"
-                            aria-label={`Remove ${document.name}`}
-                            onClick={() => onRemoveDocument(document.key)}
-                          >
-                            ×
-                          </button>
+                          <IconButton
+                            size="sm"
+                            label={`Remove ${document.name}`}
+                            icon={CloseIcon}
+                            onClick={() => removeDocument(document)}
+                          />
                         </div>
                         <div className="evaluation-setup-file-row">
                           <small title={document.file?.name || document.entry?.source_name}>
@@ -222,51 +250,31 @@ export function EvaluationSetup({
                 })}
               </ol>
             )}
-            <div
-              className={`evaluation-dropzone ${dragging ? "is-active" : ""} ${state.documents.length ? "compact" : ""}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(event) => {
-                event.preventDefault();
-                setDragging(false);
-                onSelectDocuments(Array.from(event.dataTransfer.files || []));
-              }}
-            >
-              <span className="evaluation-dropzone-icon" aria-hidden="true">
-                ▤
-              </span>
-              <div>
-                <strong>
-                  {state.documents.length ? "Add more documents" : "Choose saved documents or drop new ones here"}
-                </strong>
-                <small>
-                  PDF, PNG, JPG or WEBP · up to {mebibytes(maxSourceFileBytes)} MiB each · several documents run a Batch
-                  Evaluation
-                </small>
-              </div>
-              <span className="evaluation-actions">
-                <button type="button" onClick={() => onChooseLibrary(fields)}>
-                  Library
-                </button>
-                <button type="button" className="secondary" onClick={() => input.current.click()}>
-                  Upload new
-                </button>
-              </span>
-            </div>
-            <input
-              ref={input}
-              type="file"
-              hidden
-              multiple
-              aria-label="Evaluation document"
-              accept={SOURCE_FILE_MIME_TYPES.join(",")}
-              onChange={(event) => {
-                onSelectDocuments(Array.from(event.target.files || []));
-                event.target.value = "";
-              }}
+            <Dropzone
+              label="Evaluation document"
+              className={`evaluation-dropzone ${state.documents.length ? "compact" : ""}`}
+              onFiles={onSelectDocuments}
+              renderContent={({ browse }) => (
+                <>
+                  <span className="evaluation-dropzone-icon" aria-hidden="true">
+                    ▤
+                  </span>
+                  <div>
+                    <strong>
+                      {state.documents.length ? "Add more documents" : "Choose saved documents or drop new ones here"}
+                    </strong>
+                    <small>
+                      PDF, PNG, JPG or WEBP · up to {megabytes(maxSourceFileBytes)} MB each
+                    </small>
+                  </div>
+                  <span className="evaluation-actions">
+                    <Button onClick={() => onChooseLibrary(fields)}>Library</Button>
+                    <Button variant="secondary" onClick={browse}>
+                      Upload new
+                    </Button>
+                  </span>
+                </>
+              )}
             />
             {saveUnavailable && (
               <p className="evaluation-setup-hint evaluation-warn-text">
@@ -323,7 +331,7 @@ export function EvaluationSetup({
                 Template
                 <select value={templateId} onChange={(event) => chooseTemplate(event.target.value)}>
                   <option value="" disabled>
-                    {templates.length ? "Choose a saved Template" : "No saved Templates available"}
+                    {templates.length ? "Choose a saved template" : "No saved templates available"}
                   </option>
                   {templates.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -334,14 +342,14 @@ export function EvaluationSetup({
               </label>
               {mode === "models" && (
                 <label>
-                  Field version
+                  Version
                   <select value={version} disabled={!template} onChange={(event) => setVersion(event.target.value)}>
                     <option value="">
-                      {template ? `Current · v${template.current_version}` : "Choose a Template first"}
+                      {template ? `Current · v${template.current_version}` : "Choose a template first"}
                     </option>
                     {allVersions.slice(1).map((v) => (
                       <option key={v} value={v}>
-                        Fields v{v}
+                        v{v}
                       </option>
                     ))}
                   </select>
@@ -376,56 +384,51 @@ export function EvaluationSetup({
                       <span className="evaluation-index">{String(index + 1).padStart(2, "0")}</span>
                       <input
                         aria-label={`Candidate ${index + 1} model`}
-                        placeholder="Model name"
+                        placeholder="e.g. gpt-4o-mini"
                         value={model}
                         onChange={(event) =>
                           setModels(models.map((value, i) => (i === index ? event.target.value : value)))
                         }
                       />
                       {model.trim() && model.trim() === workspaceModel && (
-                        <small className="status-chip">Workspace default</small>
+                        <Badge>Default</Badge>
                       )}
-                      <button
-                        type="button"
-                        className="icon-action-button"
-                        aria-label={`Remove candidate ${index + 1}`}
+                      <IconButton
+                        size="sm"
+                        label={`Remove candidate ${index + 1}`}
+                        icon={CloseIcon}
                         disabled={models.length <= 1}
-                        onClick={() => setModels(models.filter((_, i) => i !== index))}
-                      >
-                        ×
-                      </button>
+                        onClick={() => removeModel(index)}
+                      />
                     </li>
                   ))}
                 </ol>
                 <div className="evaluation-setup-add">
-                  <button
-                    type="button"
-                    className="secondary"
+                  <Button variant="secondary"
                     disabled={models.length >= MAX_CANDIDATES}
                     onClick={() => setModels([...models, ""])}
                   >
-                    + Add model
-                  </button>
+                    <PlusIcon size={13} /> Add model
+                  </Button>
                   {suggestions.length > 0 && (
                     <span className="evaluation-setup-suggest">
-                      <small>Used in this Workspace</small>
+                      <small>Used in this workspace</small>
                       {suggestions.map((model) => (
-                        <button
+                        <Button
                           key={model}
-                          type="button"
                           className="evaluation-chip"
                           disabled={names.length >= MAX_CANDIDATES}
                           onClick={() => addSuggestion(model)}
                         >
-                          + {model}
-                        </button>
+                          <PlusIcon size={12} /> {model}
+                        </Button>
                       ))}
                     </span>
                   )}
                 </div>
               </>
             ) : !template ? (
-              <p className="evaluation-setup-hint">Choose a Template to pick the versions to compare.</p>
+              <p className="evaluation-setup-hint">Choose a template to pick the versions to compare.</p>
             ) : (
               <>
                 <div className="evaluation-version-list" role="group" aria-label="Template versions">
@@ -444,7 +447,7 @@ export function EvaluationSetup({
                         }
                       />
                       <span>
-                        <strong>Fields v{v}</strong>
+                        <strong>v{v}</strong>
                         <small>{v === template.current_version ? "Current" : `Version ${v}`}</small>
                       </span>
                     </label>
@@ -452,8 +455,8 @@ export function EvaluationSetup({
                 </div>
                 <p className="evaluation-setup-hint">
                   {versions.length === 1
-                    ? `Starts two copies of Fields v${versions[0]}. Edit one candidate's fields as a draft to compare the change.`
-                    : `Every version runs on the Workspace model${workspaceModel ? `, ${workspaceModel}` : ""}. You can edit a candidate's fields as a draft after starting.`}
+                    ? `Starts two copies of v${versions[0]} so you can edit one and compare.`
+                    : `All versions run on ${workspaceModel || "the workspace model"}.`}
                 </p>
               </>
             )}
@@ -463,35 +466,28 @@ export function EvaluationSetup({
         <footer className="evaluation-setup-foot">
           <div className="evaluation-setup-submit">
             {problems.length > 0 && <small className="evaluation-muted">{problems.join(" · ")}</small>}
-            <button type="button" disabled={!enabled || problems.length > 0 || starting} onClick={start}>
-              {starting ? "Loading…" : willRun ? "Start and run" : "Start Evaluation"}
-            </button>
+            <Button disabled={!enabled || !state.setup?.configured || problems.length > 0 || starting} onClick={start}>
+              {starting ? "Starting…" : willRun ? "Start and run" : "Start evaluation"}
+            </Button>
           </div>
         </footer>
       </div>
 
-      <aside className="evaluation-setup-aside" aria-label="How Evaluations work">
+      <aside className="evaluation-setup-aside" aria-label="How evaluations work">
         <div className="evaluation-setup-model evaluation-library-box">
           <small>Evaluation library</small>
-          <p>Documents with Expected answers, shared with everyone in this Workspace.</p>
-          <button type="button" className="studio-text-button" onClick={() => onManageLibrary(fields)}>
+          <p>Documents with expected answers, shared with everyone in this workspace.</p>
+          <Button variant="text" onClick={() => onManageLibrary(fields)}>
             Manage library
-          </button>
+          </Button>
         </div>
-        {mode === "templates" && (
+        {mode === "templates" && state.setup?.configured && (
           <div className="evaluation-setup-model">
             <small>Workspace model</small>
-            {state.setup?.configured ? (
-              <>
-                <span>
-                  <i aria-hidden="true" />
-                  {workspaceModel}
-                </span>
-                <p>Every Template version runs on this model. Change it for all candidates after starting.</p>
-              </>
-            ) : (
-              <p>No model is configured. Configure one in Workspace settings.</p>
-            )}
+            <span>
+              <i aria-hidden="true" />
+              {workspaceModel}
+            </span>
           </div>
         )}
         <h3>How it works</h3>
@@ -500,35 +496,24 @@ export function EvaluationSetup({
             <span>1</span>
             <div>
               <strong>Choose documents</strong>
-              <p>
-                Pick saved documents, upload new ones, or both. Up to {MAX_CANDIDATES} candidates run on every document.
-              </p>
+              <p>Pick saved or new documents. Up to {MAX_CANDIDATES} candidates run on each.</p>
             </div>
           </li>
           <li>
             <span>2</span>
             <div>
               <strong>Verify expected answers</strong>
-              <p>
-                After a run, confirm the correct value for each field in the results, or use a candidate's answer. Saved
-                documents bring their answers with them. Only verified fields are scored.
-              </p>
+              <p>Verify each field's correct value. Only verified fields are scored.</p>
             </div>
           </li>
           <li>
             <span>3</span>
             <div>
               <strong>Compare</strong>
-              <p>
-                See accuracy, table cells, time and tokens, one document at a time. Use Previous and Next to move
-                between documents.
-              </p>
+              <p>Review accuracy, table cells, time and tokens for each document.</p>
             </div>
           </li>
         </ol>
-        <p className="evaluation-setup-note">
-          After verifying answers, choose Save to library on a new upload to reuse it in later Evaluations.
-        </p>
       </aside>
     </div>
   );

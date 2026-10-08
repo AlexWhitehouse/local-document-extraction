@@ -13,29 +13,56 @@ describe("Extraction job status display", () => {
       <ExtractionJobStatusDisplay job={{ status: "queued" }} />,
     );
 
-    expect(screen.getByText("The document is processing")).toBeTruthy();
-    expect(screen.getByText("Attempt: pending")).toBeTruthy();
+    expect(screen.getByText("This document is queued…")).toBeTruthy();
+    expect(screen.queryByText(/attempt/)).toBeNull();
 
     rerender(
       <ExtractionJobStatusDisplay job={{ status: "processing", current_attempt: 2 }} />,
     );
 
-    expect(screen.getByText("The document is processing")).toBeTruthy();
-    expect(screen.getByText("Current attempt: 2")).toBeTruthy();
+    expect(screen.getByText("This document is processing…")).toBeTruthy();
+    expect(screen.getByText("Retrying (attempt 2)")).toBeTruthy();
 
     rerender(
       <ExtractionJobStatusDisplay job={{ status: "completed", completed_attempt: 3 }} />,
     );
 
-    expect(screen.getByText("This extraction completed successfully.")).toBeTruthy();
-    expect(screen.getByText("Completed on attempt: 3")).toBeTruthy();
-
     rerender(
       <ExtractionJobStatusDisplay job={{ status: "failed", last_failed_attempt: 4 }} />,
     );
 
-    expect(screen.getByText("This extraction finished with a failure status.")).toBeTruthy();
-    expect(screen.getByText("Last failed attempt: 4")).toBeTruthy();
+    expect(screen.getByText("Extraction failed")).toBeTruthy();
+    expect(screen.queryByText(/attempt/)).toBeNull();
+  });
+
+  it("shows the failure reason and a next step for failed Extraction jobs", () => {
+    render(
+      <ExtractionJobStatusDisplay
+        job={{ status: "failed", error_message: "The model returned an empty response.", last_failed_attempt: 2 }}
+      />,
+    );
+
+    expect(screen.getByText("Extraction failed")).toBeTruthy();
+    expect(screen.getByText("The model returned an empty response.")).toBeTruthy();
+    expect(
+      screen.getByText("Try again, choose another template, or check the Model gateway on the Workspace page."),
+    ).toBeTruthy();
+  });
+
+  it("hides HTML and multi-line failure reasons", () => {
+    const { rerender } = render(
+      <ExtractionJobStatusDisplay job={{ status: "failed", error_message: "<html><body>502 Bad Gateway</body></html>" }} />,
+    );
+
+    expect(screen.getByText("Extraction failed")).toBeTruthy();
+    expect(screen.queryByText(/502 Bad Gateway/)).toBeNull();
+
+    rerender(
+      <ExtractionJobStatusDisplay job={{ status: "failed", error_message: "TypeError: boom\n    at run (worker.ts:1:1)" }} />,
+    );
+
+    expect(screen.queryByText(/TypeError/)).toBeNull();
+    expect(screen.getByText("Extraction failed")).toBeTruthy();
   });
 });
 
@@ -62,7 +89,7 @@ describe("Extraction result display", () => {
     expect(screen.getByRole("rowheader", { name: "Patient Name" })).toBeTruthy();
     expect(screen.queryByText("ok")).toBeNull();
     expect(screen.queryByText("completed")).toBeNull();
-    expect(screen.getByLabelText("Confidence 93.2%")).toBeTruthy();
+    expect(screen.getByLabelText("Confidence 93.2%").className).toContain("ui-tone-success");
     expect(screen.getByText("Ada Lovelace")).toBeTruthy();
     expect(screen.getByRole("cell", { name: "Patient: Ada Lovelace" })).toBeTruthy();
   });

@@ -1,65 +1,67 @@
-.workspace-model { border:1px solid var(--line-1); background:var(--bg-1); border-radius:0; margin-bottom:18px; overflow:hidden; }
+.workspace-model { border:1px solid var(--rule-strong); background:var(--pane-raised); margin-bottom:18px; overflow:hidden; }
 .workspace-model-header { display:flex; align-items:center; justify-content:space-between; gap:22px; padding:22px 24px; }
 .workspace-model-title { display:flex; align-items:center; flex-wrap:wrap; gap:18px; }
-.workspace-model h2 { font-family:var(--font-display); font-size:18px; letter-spacing:-.02em; margin:0; }
-.workspace-model p { color:var(--text-2); font-size:12px; line-height:1.6; }
+.workspace-model h2 { font-family:var(--font-body); font-size:var(--font-size-7); letter-spacing:-.02em; margin:0; }
+.workspace-model p { color:var(--text-2); font-size:var(--font-size-4); line-height:1.6; }
 .workspace-model-header p { margin-bottom:0; }
-.workspace-model-status { display:inline-flex; align-items:center; gap:7px; font-size:11px; border:1px solid var(--line-1); border-radius:0; padding:5px 9px; color:var(--text-2); white-space:nowrap; }
-.workspace-model-status i { width:5px; height:5px; background:currentColor; }
-.workspace-model-status.configured { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 25%,transparent); }
-.workspace-model-status.unavailable { color:var(--rose-text); }
-.workspace-model-body { border-top:1px solid var(--line-0); background:color-mix(in srgb,var(--bg-2) 45%,transparent); padding:25px; }
-.workspace-model-body>form { display:grid; gap:18px; max-width:870px; margin:auto; }
+.workspace-model-body { border-top:1px solid var(--rule-subtle); background:color-mix(in srgb,var(--pane-elevated) 45%,transparent); padding:25px; }
 .workspace-model fieldset { border:0; margin:0; padding:0; display:grid; gap:19px; min-width:0; }
-.workspace-model label { min-width:0; gap:8px; font-size:12px; color:var(--text-1); }
-.workspace-model small { display:block; color:var(--text-3); font-size:11px; line-height:1.5; font-weight:400; letter-spacing:0; }
-.workspace-model input:not([type=checkbox]) { height:30px; font-size:13px; border-radius:0; background:var(--bg-2); }
-.workspace-model-fields { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.workspace-model label { min-width:0; gap:8px; font-size:var(--font-size-4); color:var(--text-1); }
+.workspace-model small { display:block; color:var(--text-3); font-size:var(--font-size-3); line-height:1.5; font-weight:400; letter-spacing:0; }
+.workspace-model input:not([type=checkbox]) { height:var(--control-h-md); font-size:var(--font-size-5); background:var(--pane-elevated); }
+.workspace-model-header-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:flex-end; flex-shrink:0; }
 .workspace-model-header button { flex-shrink:0; }
-.workspace-model-group { display:grid; gap:10px; padding-top:12px; border-top:1px solid var(--line-0); }
-.workspace-model-group h3 { margin:0; font:500 9.5px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); }
 .workspace-model-summary { display:grid; gap:14px; }
-.workspace-model-connection { display:flex; flex-wrap:wrap; gap:6px 22px; margin:0; font-size:12px; }
+.workspace-model-connection { display:flex; flex-wrap:wrap; gap:6px 22px; margin:0; font-size:var(--font-size-4); }
 .workspace-model-connection > div { display:flex; gap:8px; align-items:baseline; min-width:0; }
-.workspace-model-connection dt { color:var(--text-3); font-size:11px; }
+.workspace-model-connection dt { color:var(--text-3); font-size:var(--font-size-3); }
 .workspace-model-connection dd { margin:0; min-width:0; color:var(--text-1); }
-.workspace-model-connection dd.unavailable { color:var(--rose-text); }
-.workspace-model code { font:11px var(--font-mono); color:#b1c0d3; overflow-wrap:anywhere; }
-.workspace-model-roles { width:100%; border-collapse:collapse; font-size:12px; }
+.workspace-model code { font:var(--font-size-3) var(--font-mono); color:var(--text-1); overflow-wrap:anywhere; }
+.workspace-model-roles { width:100%; border-collapse:collapse; font-size:var(--font-size-4); }
 .workspace-model-body { container-type:inline-size; }
-.workspace-model-roles th, .workspace-model-roles td { background:transparent; white-space:normal; padding:8px 10px 8px 0; border-bottom:1px solid var(--line-0); text-align:left; vertical-align:middle; }
-.workspace-model-roles thead th { font:500 9.5px var(--font-mono); letter-spacing:.08em; text-transform:uppercase; color:var(--text-3); padding-top:0; }
-.workspace-model-roles thead th:nth-child(n+3), .workspace-model-roles td:nth-child(n+3) { width:76px; text-align:center; padding-right:0; }
+.workspace-model-roles th, .workspace-model-roles td { background:transparent; white-space:normal; padding:8px 10px; border-bottom:1px solid var(--rule-subtle); text-align:left; vertical-align:middle; }
+.workspace-model-roles thead th { font:500 var(--font-size-1) var(--font-mono); letter-spacing:.08em; text-transform:uppercase; color:var(--text-3); padding:6px 10px; }
+.workspace-model-roles thead th:nth-child(n+3), .workspace-model-roles td:nth-child(n+3) { width:92px; text-align:center; padding-inline:0; }
 .workspace-model-roles tbody th { width:34%; font-weight:500; color:var(--text-1); }
 .workspace-model-roles tbody th small { margin-top:2px; }
-.workspace-model-roles td input[type=checkbox] { margin:0; }
+.workspace-model-roles td input[type=checkbox] { margin:0 auto; }
 .workspace-model-roles tr.inherited td:nth-child(n+3) { opacity:.5; }
 .workspace-model-role-model { display:grid; gap:6px; }
+/* The editor mirrors the summary: label and value on one row, model names in mono. */
+.workspace-model-settings { display:grid; gap:10px; }
+.workspace-model-settings > .ui-field { grid-template-columns:112px minmax(0,1fr); column-gap:12px; align-items:center; }
+.workspace-model-settings > .ui-field > .ui-field-label { grid-row:1 / span 2; align-self:start; padding-top:9px; color:var(--text-3); font-size:var(--font-size-3); }
+.workspace-model-settings > .ui-field > :not(.ui-field-label) { grid-column:2; }
+.workspace-model-settings > .ui-field:last-child > .ui-field-label { padding-top:0; }
+.workspace-model input[type=url], .workspace-model-roles input:not([type=checkbox]) { font-family:var(--font-mono); font-size:var(--font-size-3); }
+.workspace-model-footer { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; justify-content:space-between; }
+.workspace-model-footer > div { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .workspace-model-inherited { color:var(--text-2); }
-.workspace-model-flag { display:inline-block; width:7px; height:7px; border:1px solid var(--line-2); vertical-align:middle; }
+.workspace-model-flag { display:inline-block; width:7px; height:7px; border:1px solid var(--rule-subtle); vertical-align:middle; }
 .workspace-model-flag.on { background:var(--accent); border-color:var(--accent); }
-.workspace-model-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
-.workspace-model-toggle { display:flex!important; align-items:flex-start; gap:10px!important; margin:13px 0; cursor:pointer; }
-.workspace-model-toggle input { margin:3px 0 0; }
-.workspace-model-toggle strong { display:block; margin-bottom:3px; font-size:11.5px; }
-.workspace-model-actions,.workspace-model-actions>div { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-.workspace-model-actions { justify-content:space-between; }
-.workspace-model-actions button { font-size:11.5px; min-height:28px; }
-.workspace-model-clear { background:transparent!important; border:0; color:var(--rose-muted); padding:0!important; }
-.workspace-model .workspace-model-footnote { margin:0; font-size:10.5px; color:var(--text-3); }
-.workspace-model-test { margin:0; }
-.workspace-model-test.passed { color:var(--accent); }
 .workspace-model-repair { border-left:2px solid var(--rose); padding-left:12px; }
-.workspace-model-confirm { border:1px solid var(--line-1); background:var(--bg-2); border-radius:0; padding:16px; font-size:13px; }
-.workspace-model-member { border-top:1px solid var(--line-0); padding:8px 24px 16px; }
-@media(max-width:760px) { .workspace-model-header { flex-wrap:wrap; gap:16px; } .workspace-model-fields { grid-template-columns:1fr; } .workspace-model-body { padding:20px; } }
+.workspace-model-member { border-top:1px solid var(--rule-subtle); padding:8px 24px 16px; }
+@media(max-width: 900px) { .workspace-model-header { flex-wrap:wrap; gap:16px; } .workspace-model-body { padding:20px; } }
+@container (max-width:360px) {
+  .workspace-model-settings > .ui-field { grid-template-columns:minmax(0,1fr); }
+  .workspace-model-settings > .ui-field > .ui-field-label { grid-row:auto; padding-top:0; }
+  .workspace-model-settings > .ui-field > :not(.ui-field-label) { grid-column:1; }
+}
 /* Narrow panes: the role name moves above its model so inputs keep a usable width. */
 @container (max-width:520px) {
   .workspace-model-roles thead th:first-child { display:none; }
   .workspace-model-roles thead th:nth-child(2) { padding-bottom:4px; }
-  .workspace-model-roles tbody tr { display:grid; grid-template-columns:1fr 44px 76px; align-items:center; border-bottom:1px solid var(--line-0); }
+  .workspace-model-roles tbody tr { display:grid; grid-template-columns:1fr 64px 64px; align-items:center; border-bottom:1px solid var(--rule-subtle); }
   .workspace-model-roles tbody th { grid-column:1 / -1; width:auto; border:0; padding-bottom:0; }
   .workspace-model-roles tbody td { border:0; }
-  .workspace-model-roles thead tr { display:grid; grid-template-columns:1fr 44px 76px; }
+  .workspace-model-roles thead tr { display:grid; grid-template-columns:1fr 64px 64px; }
   .workspace-model-roles thead th:nth-child(n+3), .workspace-model-roles td:nth-child(n+3) { width:auto; }
 }
+
+.workspace-model-test-result {
+  margin-left: 10px;
+  font-size: var(--font-size-4);
+  color: var(--text-2);
+}
+
+.workspace-model-summary > .workspace-model-test-result { margin-left: 0; }

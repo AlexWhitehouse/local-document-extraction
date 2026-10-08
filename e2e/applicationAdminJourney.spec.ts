@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { access } from "node:fs/promises";
 
-import { signUpAndVerify } from "./support/journeyHelpers";
+import { chooseMoreAction, confirmInAppDialog, signUpAndVerify } from "./support/journeyHelpers";
 import { startRuntimeHarness, type RuntimeHarness } from "./support/runtimeHarnessClient";
 
 const ADMIN = {
@@ -37,32 +37,32 @@ test("an Application admin manages account access through the frontend", async (
     await expect(managedUserRow(adminPage)).toContainText("Regular user");
     await expect(managedUserRow(adminPage)).toContainText("Active");
 
-    adminPage.once("dialog", (dialog) => dialog.accept());
     await chooseUserAction(adminPage, "Make admin");
+    await confirmInAppDialog(adminPage, `Make ${REGULAR_USER.email} an application admin?`, "Change role");
     await expect(managedUserRow(adminPage)).toContainText("Application admin");
 
-    adminPage.once("dialog", (dialog) => dialog.accept());
     await chooseUserAction(adminPage, "Remove admin");
+    await confirmInAppDialog(adminPage, `Remove application admin access from ${REGULAR_USER.email}?`, "Change role");
     await expect(managedUserRow(adminPage)).toContainText("Regular user");
 
     await chooseUserAction(adminPage, "Ban user");
     const banDialog = adminPage.getByRole("dialog", { name: `Ban ${REGULAR_USER.email}` });
-    await banDialog.getByLabel("Ban reason").fill("Repeated access abuse");
-    await banDialog.getByRole("button", { name: "Confirm ban" }).click();
+    await banDialog.getByLabel("Reason", { exact: true }).fill("Repeated access abuse");
+    await banDialog.getByRole("button", { name: "Ban user", exact: true }).click();
     await expect(managedUserRow(adminPage)).toContainText("Banned");
     await expect(managedUserRow(adminPage)).toContainText("Repeated access abuse");
 
     await chooseUserAction(adminPage, "Unban user");
     const unbanDialog = adminPage.getByRole("dialog", { name: `Unban ${REGULAR_USER.email}` });
     await expect(unbanDialog).toContainText("Repeated access abuse");
-    await unbanDialog.getByRole("button", { name: "Confirm unban" }).click();
+    await unbanDialog.getByRole("button", { name: "Unban user", exact: true }).click();
     await expect(managedUserRow(adminPage)).toContainText("Active");
     await expect(managedUserRow(adminPage)).toContainText("Not banned");
 
-    adminPage.once("dialog", (dialog) => dialog.accept());
     await chooseUserAction(adminPage, "Impersonate user");
+    await confirmInAppDialog(adminPage, `Impersonate ${REGULAR_USER.email}?`, `Impersonate ${REGULAR_USER.email}`);
     const impersonation = adminPage.getByRole("status", { name: "Impersonation mode" });
-    await expect(impersonation).toContainText(`Impersonating ${REGULAR_USER.email}`);
+    await expect(impersonation).toContainText(`Viewing as ${REGULAR_USER.email}`);
     await expect(adminPage.getByRole("heading", { name: "Workspace details" })).toBeVisible();
 
     await impersonation.getByRole("button", { name: "Stop impersonating" }).click();
@@ -93,7 +93,17 @@ function managedUserListItem(page: Page) {
     .getByRole("button", { name: new RegExp(`^${REGULAR_USER.name}`) });
 }
 
+// Rare or destructive actions sit in the page header's More actions menu.
 async function chooseUserAction(page: Page, action: string): Promise<void> {
   await managedUserListItem(page).click();
-  await managedUserRow(page).getByRole("button", { name: action, exact: true }).click();
+  // Selecting the row reloads the account details; act only once they have settled.
+  await page.waitForLoadState("networkidle");
+  await expect(managedUserRow(page).getByRole("heading", { name: REGULAR_USER.name })).toBeVisible();
+  const inline = managedUserRow(page).getByRole("button", { name: action, exact: true });
+
+  if (await inline.count()) {
+    await inline.click();
+  } else {
+    await chooseMoreAction(page, action);
+  }
 }

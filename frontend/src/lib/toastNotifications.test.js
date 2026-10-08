@@ -5,10 +5,18 @@ import { getActionToast, getDocumentUploadToast } from "./toastNotifications.js"
 describe("app action toast notifications", () => {
   it("reports Workspace setting changes and model gateway results", () => {
     expect(getActionToast("workspace.documentProcessing", "success", { setting: "Smart splitting", enabled: true }).message).toBe("Smart splitting turned on");
-    expect(getActionToast("workspace.sourceRetention", "success", { enabled: false }).message).toBe("New uploads will keep only their extraction results");
+    expect(getActionToast("workspace.sourceRetention", "success", { enabled: false }).message).toBe("New uploads keep only results");
     expect(getActionToast("workspace.modelGateway.save", "success")).toEqual({ severity: "success", message: "Model gateway saved" });
-    expect(getActionToast("workspace.modelGateway.test", "failure", { message: "Connection test failed. Check the credential." }))
-      .toEqual({ severity: "error", message: "Connection test failed. Check the credential." });
+  });
+
+  it("names removed draft items and says what was discarded", () => {
+    expect(getActionToast("draft.removeField", "success", { targetName: "Total" }).message).toBe("Field removed: Total");
+    expect(getActionToast("draft.removeColumn", "success", { targetName: "SKU" }).message).toBe("Column removed: SKU");
+    expect(getActionToast("evaluation.removeCandidate", "success", { targetName: "gpt-4o" }).message).toBe("Candidate removed: gpt-4o");
+    expect(getActionToast("evaluation.removeCandidate", "success").message).toBe("Candidate removed");
+    expect(getActionToast("evaluation.removeDocument", "success", { targetName: "a.pdf" }).message).toBe("Document removed: a.pdf");
+    expect(getActionToast("evaluation.discardChanges", "success").message).toBe("Changes discarded");
+    expect(getActionToast("packet.removeSplit", "success").message).toBe("Document removed from the split plan");
   });
 
   it("confirms Workspace creation with a human-readable target name", () => {
@@ -33,12 +41,12 @@ describe("app action toast notifications", () => {
     const secret = "imgx_live_new-secret-key";
 
     expect(
-      getActionToast("workspace.apiKey.rotate.copied", "success", {
+      getActionToast("workspace.apiKey.rotate", "success", {
         apiKey: secret,
       }),
     ).toEqual({
       severity: "success",
-      message: "Workspace API key rotated and copied",
+      message: "API key rotated",
     });
     expect(
       getActionToast("workspace.apiKey.rotate", "failure", {
@@ -55,7 +63,7 @@ describe("app action toast notifications", () => {
 
     expect(notification).toEqual({
       severity: "error",
-      message: "Workspace name could not be saved. Please try again.",
+      message: "Couldn't rename workspace.",
     });
     expect(notification.message).not.toContain("Database");
   });
@@ -63,46 +71,50 @@ describe("app action toast notifications", () => {
   it("returns validation blockers as error notifications", () => {
     expect(getActionToast("document.upload", "validation", { reason: "template" })).toEqual({
       severity: "error",
-      message: "Choose a template before uploading documents.",
+      message: "Choose a template before uploading.",
     });
     expect(getActionToast("template.save", "validation", { reason: "json" })).toEqual({
       severity: "error",
       message: "Template JSON is invalid. Fix it before saving.",
-    });
-    expect(getActionToast("workspaceInvitation.create", "validation", { reason: "email" })).toEqual({
-      severity: "error",
-      message: "Enter an email address before inviting a teammate.",
     });
   });
 
   it("provides friendly failure copy for each app action group", () => {
     expect(getActionToast("workspace.create", "failure")).toEqual({
       severity: "error",
-      message: "Workspace could not be created. Please try again.",
+      message: "Couldn't create workspace.",
     });
     expect(getActionToast("workspace.leave", "failure")).toEqual({
       severity: "error",
-      message: "Workspace could not be left. Please try again.",
+      message: "Couldn't leave workspace.",
     });
     expect(getActionToast("workspace.delete", "failure")).toEqual({
       severity: "error",
-      message: "Workspace could not be deleted. Please try again.",
+      message: "Couldn't delete workspace.",
     });
     expect(getActionToast("template.save", "failure")).toEqual({
       severity: "error",
-      message: "Template could not be saved. Please try again.",
+      message: "Couldn't save template.",
     });
     expect(getActionToast("workspaceInvitation.create", "failure")).toEqual({
       severity: "error",
-      message: "Workspace invitation could not be created. Please try again.",
+      message: "Couldn't send invitation.",
     });
-    expect(getActionToast("workspaceMember.remove", "failure")).toEqual({
+    expect(getActionToast("workspaceMember.remove", "failure", { targetName: "Grace Hopper" })).toEqual({
       severity: "error",
-      message: "Workspace member action failed. Please try again.",
+      message: "Couldn't remove Grace Hopper.",
+    });
+    expect(getActionToast("workspaceMember.makeAdmin", "failure", { targetEmail: "linus@example.com" })).toEqual({
+      severity: "error",
+      message: "Couldn't make linus@example.com an admin.",
+    });
+    expect(getActionToast("workspaceMember.transferOwnership", "failure")).toEqual({
+      severity: "error",
+      message: "Couldn't transfer ownership.",
     });
     expect(getActionToast("document.delete", "failure")).toEqual({
       severity: "error",
-      message: "Document could not be deleted. Please try again.",
+      message: "Couldn't delete document.",
     });
   });
 
@@ -113,7 +125,7 @@ describe("app action toast notifications", () => {
       }),
     ).toEqual({
       severity: "success",
-      message: "Successfully invited ada@example.com",
+      message: "Invitation sent: ada@example.com",
     });
     expect(
       getActionToast("workspaceInvitation.cancel", "success", {
@@ -121,11 +133,11 @@ describe("app action toast notifications", () => {
       }),
     ).toEqual({
       severity: "success",
-      message: "Invitation cancelled for grace@example.com",
+      message: "Invitation cancelled: grace@example.com",
     });
     expect(getActionToast("workspaceInvitation.accept", "success")).toEqual({
       severity: "success",
-      message: "Workspace invitation accepted",
+      message: "Invitation accepted",
     });
     expect(getActionToast("workspaceInvitation.decline", "success")).toEqual({
       severity: "success",
@@ -140,7 +152,7 @@ describe("app action toast notifications", () => {
       }),
     ).toEqual({
       severity: "success",
-      message: "Removed Grace Hopper from workspace",
+      message: "Member removed: Grace Hopper",
     });
     expect(
       getActionToast("workspaceMember.makeAdmin", "success", {
@@ -148,7 +160,7 @@ describe("app action toast notifications", () => {
       }),
     ).toEqual({
       severity: "success",
-      message: "Made linus@example.com an admin",
+      message: "Member made admin: linus@example.com",
     });
     expect(
       getActionToast("workspaceMember.transferOwnership", "success", {
@@ -156,7 +168,7 @@ describe("app action toast notifications", () => {
       }),
     ).toEqual({
       severity: "success",
-      message: "Workspace ownership transferred to Katherine Johnson",
+      message: "Ownership transferred: Katherine Johnson",
     });
   });
 
@@ -175,19 +187,19 @@ describe("app action toast notifications", () => {
       }),
     ).toEqual({
       severity: "success",
-      message: "Document already removed: invoice.pdf",
+      message: "Document already deleted: invoice.pdf",
     });
-    expect(
-      getActionToast("document.bulkDelete", "success", {
-        targetName: "3 documents",
-      }),
-    ).toEqual({
+    expect(getActionToast("document.bulkDelete", "success", { removed: 1, total: 1 })).toEqual({
       severity: "success",
-      message: "3 documents deleted",
+      message: "Deleted 1 document",
     });
-    expect(getActionToast("document.bulkDelete", "failure")).toEqual({
+    expect(getActionToast("document.bulkDelete", "success", { removed: 3, total: 3 })).toEqual({
+      severity: "success",
+      message: "Deleted 3 documents",
+    });
+    expect(getActionToast("document.bulkDelete", "failure", { removed: 7, total: 9 })).toEqual({
       severity: "error",
-      message: "Some selected documents could not be deleted. Try again.",
+      message: "Deleted 7 of 9. Couldn't delete 2.",
     });
     expect(
       getActionToast("document.export", "success", {
@@ -196,19 +208,42 @@ describe("app action toast notifications", () => {
       }),
     ).toEqual({
       severity: "success",
-      message: "Exported 2 documents; skipped 1 unavailable or in-progress document",
+      message: "Exported 2 documents. Skipped 1 that can't be exported.",
     });
     expect(getActionToast("document.export", "failure")).toEqual({
       severity: "error",
-      message: "Selected documents could not be exported. Please try again.",
+      message: "Couldn't export selected documents.",
     });
-    expect(getActionToast("clipboard.copyTemplateJson", "success")).toEqual({
+  });
+
+  it("names tag, template use and split plan outcomes", () => {
+    expect(getActionToast("tag.rename", "success", { targetName: "finance" })).toEqual({
       severity: "success",
-      message: "Template JSON copied",
+      message: "Tag renamed: finance",
     });
-    expect(getActionToast("clipboard.copyTemplateJson", "failure")).toEqual({
+    expect(getActionToast("tag.delete", "success", { targetName: "invoice" })).toEqual({
+      severity: "success",
+      message: "Tag deleted: invoice",
+    });
+    expect(getActionToast("tag.delete", "failure")).toEqual({
       severity: "error",
-      message: "Template JSON could not be copied. Please try again.",
+      message: "Couldn't delete the tag.",
+    });
+    expect(
+      getActionToast("document.useTemplate", "success", { targetName: "invoice.pdf", templateName: "Invoice" }),
+    ).toEqual({ severity: "success", message: "Processing invoice.pdf with Invoice" });
+    expect(getActionToast("document.useTemplate", "failure", { error: new TypeError("x") })).toEqual({
+      severity: "error",
+      message:
+        "Couldn't use that template for this document. Studio can't be reached. Check your connection and try again.",
+    });
+    expect(getActionToast("packet.confirmPlan", "success")).toEqual({
+      severity: "success",
+      message: "Split plan confirmed",
+    });
+    expect(getActionToast("packet.confirmPlan", "failure")).toEqual({
+      severity: "error",
+      message: "Couldn't confirm the split plan.",
     });
   });
 
@@ -219,11 +254,11 @@ describe("app action toast notifications", () => {
     });
     expect(getDocumentUploadToast({ queued: 2, failed: 1 })).toEqual({
       severity: "error",
-      message: "2 documents queued, 1 failed",
+      message: "2 documents queued. Couldn't queue 1.",
     });
     expect(getDocumentUploadToast({ queued: 0, failed: 4 })).toEqual({
       severity: "error",
-      message: "4 documents failed to queue",
+      message: "Couldn't queue 4 documents.",
     });
   });
 });

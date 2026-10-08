@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 
@@ -39,10 +39,10 @@ describe("Template field editor", () => {
     expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
-    expect(screen.queryByRole("dialog", { name: "Object schema builder" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Table columns" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Edit schema" }));
-    expect(screen.getByRole("table", { name: "Object schema columns" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
+    expect(screen.getByRole("table", { name: "Table columns" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Add column" }));
     expect(screen.queryByText(/^Table Field Limit /)).toBeNull();
   });
@@ -76,13 +76,13 @@ describe("Template field editor", () => {
     render(<TemplateFieldHarness />);
 
     await user.selectOptions(screen.getByLabelText("Type"), "array<object>");
-    await user.click(screen.getByRole("button", { name: "Edit schema" }));
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
     await user.click(screen.getByRole("button", { name: "Add column" }));
 
     const columnCard = screen.getByText("Column 1").closest(".object-column-card");
     await user.type(within(columnCard).getByLabelText("Column name"), "Dose #1");
     await user.selectOptions(within(columnCard).getByLabelText("Type"), "number");
-    await user.type(within(columnCard).getByLabelText("Column Description"), "Dose amount");
+    await user.type(within(columnCard).getByLabelText("Column description"), "Dose amount");
 
     expect(latestFields[0]).toMatchObject({
       data_type: "array<object>",
@@ -130,7 +130,7 @@ describe("Template field editor", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Edit schema" }));
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
     expect(screen.getByRole("button", { name: "Add column" }).disabled).toBe(true);
   });
 
@@ -166,22 +166,179 @@ describe("Template field editor", () => {
 
     render(<TemplateFieldHarness />);
 
-    await user.click(screen.getByRole("button", { name: "Edit schema" }));
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" }));
+    // Focus wraps to the last focusable element, the scrollable column table.
     await user.tab({ shift: true });
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Done" }));
+    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Table columns" }));
     await user.tab();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" }));
     await user.click(screen.getByRole("button", { name: "Add column" }));
     await user.type(screen.getByLabelText("Column name"), "Quantity");
     await user.click(screen.getByRole("button", { name: "Done" }));
 
-    expect(screen.queryByRole("dialog", { name: "Object schema builder" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Table columns" })).toBeNull();
     expect(screen.getByText("1 column defined")).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit schema" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit columns" }));
     expect(latestFields[0].object_schema.columns[0]).toMatchObject({
       heading: "Quantity",
       key: "quantity",
     });
+  });
+
+  it("moves, duplicates and removes fields from the field list rows", async () => {
+    const user = userEvent.setup();
+    let latestFields = [];
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([
+        { id: "first", name: "First", description: "First value", data_type: "string" },
+        { id: "second", name: "Second", description: "Second value", data_type: "string" },
+      ]);
+
+      latestFields = fields;
+
+      return <TemplateFieldEditor fields={fields} onChange={setFields} />;
+    }
+
+    render(<TemplateFieldHarness />);
+
+    expect(screen.getByRole("button", { name: "Move First up" }).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Move Second up" }));
+    expect(latestFields.map((field) => field.name)).toEqual(["Second", "First"]);
+
+    await user.click(screen.getByRole("button", { name: "More actions for First" }));
+    const menu = screen.getByRole("menu", { name: "More actions for First" });
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["Duplicate", "Remove field"]);
+    await user.click(within(menu).getByRole("menuitem", { name: "Duplicate" }));
+    expect(latestFields.map((field) => field.name)).toEqual(["Second", "First", "First Copy"]);
+
+    await user.click(screen.getByRole("button", { name: "More actions for Second" }));
+    await user.click(screen.getByRole("menuitem", { name: "Remove field" }));
+    expect(latestFields.map((field) => field.name)).toEqual(["First", "First Copy"]);
+  });
+
+  it("removes a field at once, and undo puts it back in its place", async () => {
+    const user = userEvent.setup();
+    const showActionToast = vi.fn();
+    let latestFields = [];
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([
+        { id: "first", name: "First", description: "First value", data_type: "string" },
+        { id: "second", name: "Second", description: "Second value", data_type: "string" },
+        { id: "third", name: "Third", description: "Third value", data_type: "string" },
+      ]);
+
+      latestFields = fields;
+
+      return <TemplateFieldEditor fields={fields} onChange={setFields} showActionToast={showActionToast} />;
+    }
+
+    render(<TemplateFieldHarness />);
+    await user.click(screen.getByRole("button", { name: "More actions for Third" }));
+    await user.click(screen.getByRole("menuitem", { name: "Remove field" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(latestFields.map((field) => field.name)).toEqual(["First", "Second"]);
+    expect(showActionToast).toHaveBeenCalledWith(
+      "draft.removeField",
+      "success",
+      expect.objectContaining({ targetName: "Third", undo: expect.any(Function) }),
+    );
+
+    act(() => showActionToast.mock.calls[0][2].undo());
+    expect(latestFields.map((field) => field.name)).toEqual(["First", "Second", "Third"]);
+  });
+
+  it("removes a table column at once, and undo puts it back at its position", async () => {
+    const user = userEvent.setup();
+    const showActionToast = vi.fn();
+    let latestFields = [];
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([
+        {
+          id: "line_items",
+          name: "Line Items",
+          description: "Invoice line items",
+          data_type: "array<object>",
+          object_schema: {
+            mode: "table",
+            columns: [
+              { heading: "SKU", key: "sku", data_type: "string" },
+              { heading: "Quantity", key: "quantity", data_type: "number" },
+              { heading: "Price", key: "price", data_type: "number" },
+            ],
+          },
+        },
+      ]);
+
+      latestFields = fields;
+
+      return <TemplateFieldEditor fields={fields} onChange={setFields} showActionToast={showActionToast} />;
+    }
+
+    render(<TemplateFieldHarness />);
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
+    await user.click(screen.getByRole("button", { name: "Remove column 2" }));
+    expect(latestFields[0].object_schema.columns.map((column) => column.heading)).toEqual(["SKU", "Price"]);
+    expect(showActionToast).toHaveBeenCalledWith(
+      "draft.removeColumn",
+      "success",
+      expect.objectContaining({ targetName: "Quantity", undo: expect.any(Function) }),
+    );
+
+    act(() => showActionToast.mock.calls[0][2].undo());
+    expect(latestFields[0].object_schema.columns.map((column) => column.heading)).toEqual(["SKU", "Quantity", "Price"]);
+  });
+
+  it("closes the field actions menu on Escape and returns focus to its trigger", async () => {
+    const user = userEvent.setup();
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([{ id: "only", name: "Only", description: "Only value", data_type: "string" }]);
+
+      return <TemplateFieldEditor fields={fields} onChange={setFields} />;
+    }
+
+    render(<TemplateFieldHarness />);
+
+    const trigger = screen.getByRole("button", { name: "More actions for Only" });
+    await user.click(trigger);
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Duplicate" }));
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("shows a field problem as that field's error, linked to its input", () => {
+    const diagnostics = [
+      {
+        id: "field.name_required@field:0:name",
+        code: "field.name_required",
+        severity: "error",
+        location: { scope: "field", fieldIndex: 0, property: "name" },
+        title: "Field name is required",
+        explanation: "Every field needs a name.",
+        remedy: "Enter a short name.",
+      },
+    ];
+
+    render(
+      <TemplateFieldEditor
+        fields={[{ id: "", name: "", description: "Total", data_type: "string" }]}
+        onChange={() => {}}
+        diagnostics={diagnostics}
+      />,
+    );
+
+    const input = screen.getByLabelText("Name");
+    const error = screen.getByText("Field name is required. Enter a short name.");
+
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby").split(" ")).toContain(error.id);
   });
 });

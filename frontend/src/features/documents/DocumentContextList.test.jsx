@@ -57,10 +57,10 @@ describe("DocumentContextList", () => {
       const rows = within(container).getAllByRole("listitem");
       expect(rows).toHaveLength(1);
       expect(rows[0].classList.contains("context-item-packet")).toBe(false);
-      expect(rows[0].classList.contains("status-completed")).toBe(true);
+      expect(rows[0].classList.contains("status-success")).toBe(true);
       expect(rows[0].classList.contains("active")).toBe(true);
       expect(rows[0].querySelector(".context-packet-mark")).toBeNull();
-      expect(within(rows[0]).getByText("child_single")).toBeTruthy();
+      expect(within(rows[0]).getByText("child_single · Completed")).toBeTruthy();
       expect(within(rows[0]).queryByText("1 document · Completed")).toBeNull();
       expect(within(rows[0]).getByRole("button", { name: "Copy document ID child_single" })).toBeTruthy();
       const checkbox = within(rows[0]).getByRole("checkbox", { name: "Select document child_single" });
@@ -94,7 +94,7 @@ describe("DocumentContextList", () => {
 
     const row = within(container).getByRole("listitem");
     expect(row.classList.contains("context-item-packet")).toBe(false);
-    expect(row.classList.contains("status-progress")).toBe(true);
+    expect(row.classList.contains("status-info")).toBe(true);
     expect(within(row).getByText("Processing")).toBeTruthy();
   });
 
@@ -120,7 +120,7 @@ describe("DocumentContextList", () => {
 
     const row = within(container).getByRole("listitem");
     expect(row.classList.contains("context-item-packet")).toBe(false);
-    expect(row.classList.contains("status-failed")).toBe(true);
+    expect(row.classList.contains("status-warning")).toBe(true);
   });
 
   it("flags a split packet whose child is waiting for a template while siblings still extract", () => {
@@ -148,8 +148,8 @@ describe("DocumentContextList", () => {
 
     const row = within(container).getByRole("listitem");
     expect(row.classList.contains("context-item-packet")).toBe(true);
-    expect(row.classList.contains("status-failed")).toBe(true);
-    expect(within(row).getByText("2 documents · Template needed")).toBeTruthy();
+    expect(row.classList.contains("status-warning")).toBe(true);
+    expect(within(row).getByText("2 documents · Needs template")).toBeTruthy();
   });
 
   it("keeps virtualised rows at the natural row height", () => {
@@ -307,11 +307,13 @@ describe("DocumentContextList", () => {
         .getByRole("button", { name: new RegExp(name) })
         .closest(".context-item-document");
 
-    expect(rowFor("completed.pdf").classList.contains("status-completed")).toBe(true);
-    expect(rowFor("queued.pdf").classList.contains("status-progress")).toBe(true);
-    expect(rowFor("processing.pdf").classList.contains("status-progress")).toBe(true);
-    expect(rowFor("failed.pdf").classList.contains("status-failed")).toBe(true);
+    expect(rowFor("completed.pdf").classList.contains("status-success")).toBe(true);
+    expect(rowFor("queued.pdf").classList.contains("status-neutral")).toBe(true);
+    expect(rowFor("processing.pdf").classList.contains("status-info")).toBe(true);
+    expect(rowFor("failed.pdf").classList.contains("status-danger")).toBe(true);
     expect(rowFor("failed.pdf").classList.contains("active")).toBe(true);
+    expect(rowFor("failed.pdf").querySelector("a, button.context-item-main")?.getAttribute("aria-current")).toBe("true");
+    expect(rowFor("completed.pdf").querySelector("[aria-current]")).toBeNull();
   });
 
   it("shows a packet as one dated row in place of its child documents", () => {
@@ -548,7 +550,8 @@ describe("DocumentContextList", () => {
       target: { value: "2026-08-15" },
     });
 
-    expect(view.getByRole("alert").textContent).toContain("Date from must be on or before date to");
+    expect(view.getByText("Date from must be on or before date to.")).toBeTruthy();
+    expect(view.getByLabelText("Date to").getAttribute("aria-invalid")).toBe("true");
     expect(view.getByRole("button", { name: "Apply filters" }).disabled).toBe(true);
   });
 });

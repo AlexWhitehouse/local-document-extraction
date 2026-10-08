@@ -1,0 +1,44 @@
+button.button-sm {
+  min-height: var(--control-h-sm);
+  padding: 0 8px;
+  font-size: var(--font-size-3);
+}
+
+button.icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+
+button.icon-button:hover:not(:disabled) {
+  background: var(--row-hover);
+  color: var(--text-0);
+}
+
+button.icon-button-sm {
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  min-height: 0;
+}
+
+button.icon-button-md {
+  width: var(--control-h-md);
+  height: var(--control-h-md);
+  min-height: 0;
+}
+
+button.icon-button-danger:hover:not(:disabled) {
+  color: var(--tone-danger-text);
+}
+
+/* Buttons that hold an icon centre it with the label. */
+button:has(> svg) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}

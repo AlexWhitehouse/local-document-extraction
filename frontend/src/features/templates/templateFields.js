@@ -347,3 +347,16 @@ export function validateTemplateJsonPayload(input, options = {}) {
 export function serializeTemplatePayload(payload) {
   return JSON.stringify(validateTemplateJsonPayload(payload));
 }
+
+// Names the line of a JSON syntax error when the engine reports one. Engines word
+// positions differently, so a message without a line or position gets the generic copy.
+export function describeJsonSyntaxError(error, text) {
+  const message = isString(error?.message) ? error.message : "";
+  const line = /\bline (\d+)/i.exec(message)?.[1];
+  const position = /\bposition (\d+)/i.exec(message)?.[1];
+
+  const lineNumber =
+    Number(line) || (position === undefined ? 0 : String(text).slice(0, Number(position)).split("\n").length);
+
+  return lineNumber ? `This isn't valid JSON (line ${lineNumber}).` : "This isn't valid JSON.";
+}

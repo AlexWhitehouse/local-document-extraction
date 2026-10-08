@@ -1,5 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useTemplateController } from "./useTemplateController";
 
 function deferred() {
@@ -10,6 +10,14 @@ function deferred() {
   });
 
   return { promise, resolve };
+}
+
+// Confirms or cancels the in-app dialog that delete flows open.
+async function answerDialog(name) {
+  const button = await screen.findByRole("button", { name });
+  await act(async () => {
+    fireEvent.click(button);
+  });
 }
 
 const template = (id) => ({ id, name: id, fields: [{ id: "total", name: "Total", data_type: "number" }] });
@@ -38,7 +46,7 @@ describe("template request scope", () => {
       "currency",
       "line_items",
     ]);
-    act(() => result.current.templatePage.onOpenJsonModal());
+    act(() => result.current.toolbar.onOpenJsonModal());
     const payload = JSON.parse(result.current.jsonModal.draft);
     expect(payload.name).toBe("Invoice Template");
     expect(payload.fields.at(-1)).toMatchObject({
@@ -82,7 +90,7 @@ describe("template request scope", () => {
     await waitFor(() => expect(result.current.templates).toHaveLength(1));
     act(() => result.current.contextList.onSelectTemplate("old"));
     act(() => result.current.templatePage.onTemplateNameChange("Old workspace draft"));
-    act(() => result.current.templatePage.onOpenJsonModal());
+    act(() => result.current.toolbar.onOpenJsonModal());
     rerender({ ...props, workspaceId: "workspace_b", request: vi.fn(async () => ({ templates: [] })) });
     await act(async () => pending.resolve(template("old")));
     expect(result.current.templatePage.isEditingTemplate).toBe(false);
@@ -130,5 +138,52 @@ describe("template request scope", () => {
     expect(result.current.templatePage.isEditingTemplate).toBe(false);
     expect(result.current.selectedUploadTemplateId).toBe("");
     expect(props.showActionToast).not.toHaveBeenCalled();
+  });
+});
+
+describe("template deletion", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("names the template and keeps the assistant open when the confirmation is cancelled", async () => {
+    const internal = { ...template("t_internal"), name: "Invoice Pack" };
+    const request = vi.fn(async (path) => (path === "/templates" ? { templates: [internal] } : internal));
+    const props = propsFor(request);
+    const { result } = renderHook(useTemplateController, { initialProps: props });
+    await waitFor(() => expect(result.current.templates).toHaveLength(1));
+    act(() => result.current.contextList.onSelectTemplate("t_internal"));
+    await waitFor(() => expect(result.current.templatePage.isEditingTemplate).toBe(true));
+    act(() => result.current.templatePage.onOpenAssistant());
+    expect(result.current.templatePage.assistant.isOpen).toBe(true);
+    const deleting = result.current.toolbar.onDeleteTemplate();
+    const dialog = await screen.findByRole("alertdialog", { name: 'Delete "Invoice Pack"?' });
+    expect(dialog.textContent).not.toContain("t_internal");
+    await answerDialog("Cancel");
+    await act(() => deleting);
+    expect(result.current.templatePage.assistant.isOpen).toBe(true);
+    expect(request.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false);
+  });
+
+  it("cancels the assistant only after the deletion is confirmed", async () => {
+    const request = vi.fn(async (path, options) => {
+      if (options?.method === "DELETE") return {};
+
+      return path === "/templates" ? { templates: [template("t_internal")] } : template("t_internal");
+    });
+
+    const props = propsFor(request);
+    const { result } = renderHook(useTemplateController, { initialProps: props });
+    await waitFor(() => expect(result.current.templates).toHaveLength(1));
+    act(() => result.current.contextList.onSelectTemplate("t_internal"));
+    await waitFor(() => expect(result.current.templatePage.isEditingTemplate).toBe(true));
+    act(() => result.current.templatePage.onOpenAssistant());
+    const deleting = result.current.toolbar.onDeleteTemplate();
+    expect(result.current.templatePage.assistant.isOpen).toBe(true);
+    await answerDialog("Delete template");
+    await act(() => deleting);
+
+    expect(request.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(true);
+    expect(result.current.templatePage.assistant.isOpen).toBe(false);
   });
 });

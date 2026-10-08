@@ -1,13 +1,24 @@
+import { describeError } from "../../lib/describeError";
+import { isBusyStatus, statusLabel, statusTone } from "../../lib/status.js";
 import { isString } from "../../../../shared/json.ts";
 import React, { useEffect, useId, useState } from "react";
 import { formatPages, parsePageSelection, validateSplitPlan } from "./documentProcessing.js";
 import { PACKET_STATUS_LABELS } from "./packetListing.js";
 import "./DocumentProcessing.css";
 import { ProcessingCost } from "./ProcessingCost.jsx";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { StatusDot } from "../ui/Status.jsx";
+import { Tabs } from "../ui/Tabs.jsx";
+import { ListAddButton } from "../ui/ListAddButton.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
+import { Field, TextInput } from "../ui/Field.jsx";
+import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
+import { insertAt } from "../../lib/lists";
+import { createNotifier, defaultToast } from "../../lib/notify";
 
 const LIVE_CHILD_STATUSES = new Set(["queued", "processing"]);
 
-const ATTENTION_CHILD_STATUSES = new Set(["failed", "error", "awaiting_template", "awaiting_review"]);
+const OVERVIEW_TAB = "overview";
 
 export function PacketPage({
   packet,
@@ -19,8 +30,11 @@ export function PacketPage({
   documentErrorId = "",
   renderDocument,
   onSelectDocument,
+  showActionToast,
   ...overview
 }) {
+  const tabsId = useId();
+
   if (!packet)
     return (
       <p role="status" className="studio-empty-state">
@@ -35,50 +49,60 @@ export function PacketPage({
     ? pendingDocumentId
     : activeChild?.job_id || "";
 
+  const stage = packetStage(packet, children);
+  const selectedValue = selectedTabId || OVERVIEW_TAB;
+  // The panel is labelled by the tab that owns it: the opening document, the active document, or the Overview.
+  const panelValue = activeChild ? activeChild.job_id : isOpeningDocument ? selectedValue : OVERVIEW_TAB;
+
+  const tabItems = [
+    { value: OVERVIEW_TAB, label: "Overview", meta: stage.text, tone: stage.tone, busy: stage.busy },
+    ...children.map((child, index) => {
+      const status = String(child.status || "queued");
+
+      return {
+        value: child.job_id,
+        label: `Document ${index + 1}`,
+        meta: `${pagesLabel(child.source_pages)} · ${statusLabel(status)}`,
+        tone: statusTone(status),
+        busy: isBusyStatus(status),
+        loading: pendingDocumentId === child.job_id,
+      };
+    }),
+  ];
+
+  const panelId = `${tabsId}-panel-${panelValue}`;
+  const panelLabelledBy = `${tabsId}-tab-${panelValue}`;
+
   return (
     <section className="packet-page" aria-label="Document packet">
-      <div className="packet-tabs" role="tablist" aria-label="Documents in this packet">
-        <OverviewTab
-          packet={packet}
-          documents={children}
-          selected={!selectedTabId}
-          onSelect={() => onSelectDocument?.("")}
-        />
-        {children.map((child, index) => {
-          const status = String(child.status || "queued");
-
-          return (
-            <button
-              key={child.job_id}
-              type="button"
-              role="tab"
-              className={childTone(status)}
-              aria-selected={selectedTabId === child.job_id}
-              aria-busy={pendingDocumentId === child.job_id || undefined}
-              onClick={() => onSelectDocument?.(child.job_id)}
-            >
-              Document {index + 1}
-              <small>
-                {pagesLabel(child.source_pages)} · {status.replaceAll("_", " ")}
-              </small>
-            </button>
-          );
-        })}
-      </div>
+      <Tabs
+        label="Documents in this packet"
+        variant="progress"
+        idPrefix={tabsId}
+        items={tabItems}
+        value={selectedValue}
+        onChange={(value) => onSelectDocument?.(value === OVERVIEW_TAB ? "" : value)}
+      />
       {documentError ? (
         <div className="packet-message is-error">
           <p role="alert">{documentError}</p>
           {children.some((child) => child.job_id === documentErrorId) ? (
-            <button type="button" className="secondary" onClick={() => onSelectDocument?.(documentErrorId)}>
-              Retry document
-            </button>
+            <Button variant="secondary" onClick={() => onSelectDocument?.(documentErrorId)}>
+              Try again
+            </Button>
           ) : null}
         </div>
       ) : null}
       {isOpeningDocument && !activeChild ? (
-        <div role="tabpanel" aria-busy="true" className="packet-panel-pending" />
+        <div
+          id={panelId}
+          role="tabpanel"
+          aria-labelledby={panelLabelledBy}
+          aria-busy="true"
+          className="packet-panel-pending"
+        />
       ) : activeChild ? (
-        <div role="tabpanel" aria-label={`Document ${children.indexOf(activeChild) + 1}`}>
+        <div id={panelId} role="tabpanel" aria-labelledby={panelLabelledBy}>
           {activeDocument?.job_id === activeChild.job_id && renderDocument ? (
             renderDocument(activeDocument)
           ) : (
@@ -88,7 +112,15 @@ export function PacketPage({
           )}
         </div>
       ) : (
-        <PacketOverview key={packet.packet_id} packet={packet} onSelectDocument={onSelectDocument} {...overview} />
+        <div id={panelId} role="tabpanel" aria-labelledby={panelLabelledBy}>
+          <PacketOverview
+            key={packet.packet_id}
+            packet={packet}
+            onSelectDocument={onSelectDocument}
+            showActionToast={showActionToast}
+            {...overview}
+          />
+        </div>
       )}
     </section>
   );
@@ -102,10 +134,11 @@ function PacketSummary({ packet, documents }) {
 
   return (
     <div className="studio-document-summary">
-      <span className={`studio-document-status ${packet.status}`}>
-        <i aria-hidden="true" />
-        {PACKET_STATUS_LABELS[packet.status] || packet.status}
-      </span>
+      <StatusDot
+        tone={statusTone(packet.status)}
+        pulse={isBusyStatus(packet.status)}
+        label={PACKET_STATUS_LABELS[packet.status] || statusLabel(packet.status)}
+      />
       {pages.length ? (
         <span>
           <strong>{pages.length}</strong> {pages.length === 1 ? "page" : "pages"}
@@ -137,78 +170,65 @@ function PacketSummary({ packet, documents }) {
   );
 }
 
-/** The Overview tab carries the packet's stage; its underline is the packet's progress. */
-function OverviewTab({ packet, documents, selected, onSelect }) {
-  const stageId = useId();
-  const stage = packetStage(packet, documents);
-
-  return (
-    <button
-      type="button"
-      role="tab"
-      className={`packet-tab-overview ${stage.tone}`}
-      aria-label="Overview"
-      aria-describedby={stageId}
-      aria-selected={selected}
-      onClick={onSelect}
-    >
-      Overview
-      {/* Keyed by its text so each new stage or count fades in. */}
-      <small key={stage.text} id={stageId}>
-        {stage.text}
-      </small>
-    </button>
-  );
-}
-
+// The Overview tab's stage: its meta line and tone, shared with the other status displays.
 function packetStage(packet, documents) {
   const done = documents.filter((child) => child.status === "completed").length;
   const failed = documents.filter((child) => child.status === "failed" || child.status === "error").length;
   const splitDone = packet.plan_accepted || documents.length > 0 || packet.outcome === "no_documents";
 
-  if (packet.status === "awaiting_review") return { text: "Split needs your review", tone: "is-attention" };
+  if (packet.status === "awaiting_review") return { text: "Review the split plan", tone: "warning" };
 
   if (!splitDone) {
-    if (packet.status === "failed") return { text: "Split failed", tone: "is-attention" };
+    if (packet.status === "failed") return { text: "Split failed", tone: "danger" };
 
     return packet.status === "queued"
-      ? { text: "Queued", tone: "" }
-      : { text: "Finding documents", tone: "is-working" };
+      ? { text: "Queued", tone: "neutral" }
+      : { text: "Finding documents", tone: "info", busy: true };
   }
 
-  if (packet.outcome === "no_documents") return { text: "No documents found", tone: "is-done" };
+  if (packet.outcome === "no_documents") return { text: "No documents found", tone: "success" };
 
-  if (packet.status === "materializing" || !documents.length) return { text: "Preparing documents", tone: "is-working" };
+  if (packet.status === "materializing" || !documents.length)
+    return { text: "Preparing documents", tone: "info", busy: true };
 
   if (packet.status === "completed")
     return failed
-      ? { text: `Finished · ${failed} failed`, tone: "is-attention" }
-      : { text: "All documents extracted", tone: "is-done" };
+      ? { text: `Finished, ${failed} failed`, tone: "danger" }
+      : { text: "All documents extracted", tone: "success" };
 
-  if (packet.status === "failed") return { text: `Failed · ${done} of ${documents.length} extracted`, tone: "is-attention" };
+  if (packet.status === "failed")
+    return { text: `Failed after ${done} of ${documents.length} extracted`, tone: "danger" };
 
   return {
-    text: `Split ✓ · Extracting ${done}/${documents.length}${failed ? ` · ${failed} failed` : ""}`,
-    tone: failed ? "is-attention" : "is-working",
+    text: `Split into ${documents.length}. ${done} of ${documents.length} extracted${failed ? `, ${failed} failed` : ""}`,
+    tone: failed ? "danger" : "info",
+    busy: !failed,
   };
 }
 
-function childTone(status) {
-  if (status === "completed") return "is-done";
-
-  if (ATTENTION_CHILD_STATUSES.has(status)) return "is-attention";
-
-  return status === "processing" ? "is-working" : "";
-}
-
-function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, onSelectDocument, loadPagePreview }) {
+function PacketOverview({
+  packet,
+  templates = [],
+  busy,
+  error,
+  onConfirmPlan,
+  onSelectDocument,
+  loadPagePreview,
+  showActionToast = defaultShowActionToast,
+}) {
   const documents = Array.isArray(packet.children) ? packet.children : [];
   const exclusions = packet.plan?.exclusions || [];
   const pages = packet.selected_pages || [];
 
   const failure =
     packet.status === "failed"
-      ? packet.error_message || (isString(packet.error) ? packet.error : packet.error?.message)
+      ? describeError(
+          {
+            code: packet.error_code || packet.error?.code,
+            message: packet.error_message || (isString(packet.error) ? packet.error : packet.error?.message),
+          },
+          "This packet couldn't be processed. Try again.",
+        )
       : "";
 
   return (
@@ -220,7 +240,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
         </p>
       ) : null}
       {failure ? (
-        <p role="status" className="packet-message is-error">
+        <p className="packet-message is-error">
           {failure}
         </p>
       ) : null}
@@ -231,9 +251,10 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
           busy={busy}
           onConfirm={onConfirmPlan}
           loadPagePreview={loadPagePreview}
+          showActionToast={showActionToast}
         />
       ) : packet.outcome === "no_documents" ? (
-        <section className="packet-section" role="status">
+        <section className="packet-section">
           <h3 className="packet-section-title">No documents to extract</h3>
           <p className="studio-empty-state">Every page was verified blank, so no documents were created.</p>
         </section>
@@ -245,7 +266,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
           <p className="studio-empty-state">
             {packet.status === "materializing"
               ? "Preparing documents from the split…"
-              : `Finding where each document starts across ${pages.length || "all"} ${pages.length === 1 ? "page" : "pages"}. Documents appear here once the split is decided.`}
+              : `Finding where each document starts across ${pages.length || "all"} ${pages.length === 1 ? "page" : "pages"}.`}
           </p>
         </section>
       ) : null}
@@ -253,7 +274,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
         <section className="packet-section" aria-label="Excluded pages">
           <h3 className="packet-section-title">Excluded pages</h3>
           <div className="packet-table-scroll">
-            <table className="studio-table packet-table">
+            <DataTable className="packet-table">
               <thead>
                 <tr>
                   <th scope="col">Page</th>
@@ -268,7 +289,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           </div>
         </section>
       ) : null}
@@ -281,7 +302,7 @@ function PacketDocuments({ documents, templates, onSelectDocument }) {
     <section className="packet-section" aria-label="Documents in this packet">
       <h3 className="packet-section-title">Documents</h3>
       <div className="packet-table-scroll">
-        <table className="studio-table packet-table packet-documents">
+        <DataTable className="packet-table packet-documents">
           <thead>
             <tr>
               <th scope="col">Document</th>
@@ -298,39 +319,37 @@ function PacketDocuments({ documents, templates, onSelectDocument }) {
               return (
                 <tr key={child.job_id}>
                   <th scope="row">
-                    <button
-                      type="button"
-                      className="studio-text-button"
+                    <Button
+                      variant="text"
                       aria-label={`Open document ${index + 1} · ${pagesLabel(child.source_pages)}`}
                       onClick={() => onSelectDocument?.(child.job_id)}
                     >
                       Document {index + 1}
-                    </button>
+                    </Button>
                   </th>
                   <td>{formatPages(child.source_pages)}</td>
                   <td>
                     {template?.name ||
                       child.template_name ||
                       child.template_id ||
-                      (LIVE_CHILD_STATUSES.has(status) ? "Choosing template…" : "—")}
+                      (LIVE_CHILD_STATUSES.has(status) ? "Choosing a template…" : "—")}
                   </td>
                   <td>
-                    <span className={`studio-document-status ${status}`}>
-                      <i aria-hidden="true" />
-                      {status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ")}
-                    </span>
+                    <StatusDot tone={statusTone(status)} pulse={isBusyStatus(status)} label={statusLabel(status)} />
                   </td>
                 </tr>
               );
             })}
           </tbody>
-        </table>
+        </DataTable>
       </div>
     </section>
   );
 }
 
-function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
+const defaultShowActionToast = createNotifier(defaultToast);
+
+function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview, showActionToast }) {
   const pages = packet.selected_pages || [];
 
   const [groups, setGroups] = useState(() =>
@@ -338,6 +357,17 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
   );
 
   const [exclusions, setExclusions] = useState(() => (packet.plan?.exclusions || []).map((entry) => ({ ...entry })));
+
+  // Removes the group at once; Undo puts it back at its row and keeps what was typed in it.
+  const removeGroup = (index) => {
+    const removed = groups[index];
+
+    setGroups((current) => current.filter((_, position) => position !== index));
+    showActionToast("packet.removeSplit", "success", {
+      undo: () => setGroups((current) => insertAt(current, index, removed)),
+    });
+  };
+
   const [error, setError] = useState("");
   const [page, setPage] = useState(pages[0] || 1);
   const unassigned = unassignedPages(pages, groups, exclusions);
@@ -366,8 +396,8 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
         <div>
           <h2>Review document boundaries</h2>
           <p>
-            Automatic splitting couldn&apos;t settle where each document starts. Assign every page to a document, or
-            exclude it with a reason. Pages keep their original order.
+            Automatic splitting couldn&apos;t settle where each document starts. Assign every page, or exclude it with
+            a reason.
           </p>
         </div>
       </div>
@@ -378,29 +408,27 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
             {groups.map((value, index) => (
               <div className="split-plan-row" key={index}>
                 <span className="split-plan-label">Document {index + 1}</span>
-                <input
-                  aria-label={`Document ${index + 1} pages`}
-                  value={value}
-                  placeholder="1-3, 5"
-                  onChange={(event) =>
-                    setGroups((current) =>
-                      current.map((item, position) => (position === index ? event.target.value : item)),
-                    )
-                  }
-                />
-                <button
-                  type="button"
-                  className="studio-text-button studio-destructive"
+                <Field label={`Document ${index + 1} pages`} labelHidden>
+                  <TextInput
+                    value={value}
+                    placeholder="e.g. 1-3, 5"
+                    onChange={(event) =>
+                      setGroups((current) =>
+                        current.map((item, position) => (position === index ? event.target.value : item)),
+                      )
+                    }
+                  />
+                </Field>
+                <Button
+                  variant="danger-text"
                   aria-label={`Remove document group ${index + 1}`}
-                  onClick={() => setGroups((current) => current.filter((_, position) => position !== index))}
+                  onClick={() => removeGroup(index)}
                 >
                   Remove
-                </button>
+                </Button>
               </div>
             ))}
-            <button type="button" className="split-plan-add" onClick={() => setGroups((current) => [...current, ""])}>
-              <span aria-hidden="true">+ </span>Add document group
-            </button>
+            <ListAddButton onClick={() => setGroups((current) => [...current, ""])}>Add document group</ListAddButton>
           </fieldset>
           <fieldset disabled={busy}>
             <legend className="packet-section-title">Excluded pages</legend>
@@ -423,35 +451,31 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
                     </option>
                   ))}
                 </select>
-                <input
-                  aria-label={`Reason for exclusion ${index + 1}`}
-                  value={entry.reason}
-                  placeholder="Reason, e.g. blank cover"
-                  onChange={(event) =>
-                    setExclusions((current) =>
-                      current.map((item, position) =>
-                        position === index ? { ...item, reason: event.target.value } : item,
-                      ),
-                    )
-                  }
-                />
-                <button
-                  type="button"
-                  className="studio-text-button studio-destructive"
+                <Field label={`Reason for exclusion ${index + 1}`} labelHidden>
+                  <TextInput
+                    value={entry.reason}
+                    placeholder="e.g. blank cover"
+                    onChange={(event) =>
+                      setExclusions((current) =>
+                        current.map((item, position) =>
+                          position === index ? { ...item, reason: event.target.value } : item,
+                        ),
+                      )
+                    }
+                  />
+                </Field>
+                <Button
+                  variant="danger-text"
                   aria-label={`Remove exclusion ${index + 1}`}
                   onClick={() => setExclusions((current) => current.filter((_, position) => position !== index))}
                 >
                   Remove
-                </button>
+                </Button>
               </div>
             ))}
-            <button
-              type="button"
-              className="split-plan-add"
-              onClick={() => setExclusions((current) => [...current, { page: pages[0], reason: "" }])}
-            >
-              <span aria-hidden="true">+ </span>Exclude a page
-            </button>
+            <ListAddButton onClick={() => setExclusions((current) => [...current, { page: pages[0], reason: "" }])}>
+              Exclude a page
+            </ListAddButton>
           </fieldset>
           {error ? (
             <p className="packet-message is-error" role="alert">
@@ -466,23 +490,21 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
                   ? `Unassigned pages: ${formatPages(unassigned)}`
                   : "Every page is assigned"}
             </span>
-            <button type="submit" disabled={busy}>
-              {busy ? "Confirming…" : "Confirm plan and extract"}
-            </button>
+            <Button type="submit" pending={busy} pendingLabel="Confirming…">
+              Confirm plan and extract
+            </Button>
           </div>
         </form>
         {loadPagePreview ? (
           <div className="split-page-preview">
             <div className="split-page-preview-bar">
-              <button
-                type="button"
-                className="studio-text-button"
-                aria-label="Previous page"
+              <IconButton
+                label="Previous page"
+                icon={ChevronLeftIcon}
+                size="sm"
                 disabled={pageIndex <= 0}
                 onClick={() => setPage(pages[pageIndex - 1])}
-              >
-                ‹
-              </button>
+              />
               <label>
                 Original page
                 <select value={page} onChange={(event) => setPage(Number(event.target.value))}>
@@ -494,15 +516,13 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
                 </select>
               </label>
               <span>of {pages.length}</span>
-              <button
-                type="button"
-                className="studio-text-button"
-                aria-label="Next page"
+              <IconButton
+                label="Next page"
+                icon={ChevronRightIcon}
+                size="sm"
                 disabled={pageIndex >= pages.length - 1}
                 onClick={() => setPage(pages[pageIndex + 1])}
-              >
-                ›
-              </button>
+              />
             </div>
             <div className="split-page-preview-body">
               <PacketPagePreview packetId={packet.packet_id} page={page} loadPreview={loadPagePreview} />
@@ -546,7 +566,8 @@ function PacketPagePreview({ packetId, page, loadPreview }) {
         setState({ url, error: "" });
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setState({ url: "", error: error.message || "Page preview is unavailable." });
+        if (!controller.signal.aborted)
+          setState({ url: "", error: describeError(error, "Page preview is unavailable.") });
       });
 
     return () => {
@@ -559,9 +580,9 @@ function PacketPagePreview({ packetId, page, loadPreview }) {
   return state.error ? (
     <div role="status" className="source-preview-state">
       <p>{state.error}</p>
-      <button type="button" className="studio-text-button" onClick={() => setRetry((value) => value + 1)}>
-        Retry preview
-      </button>
+      <Button variant="text" onClick={() => setRetry((value) => value + 1)}>
+        Try again
+      </Button>
     </div>
   ) : state.url ? (
     <img src={state.url} alt={`Original page ${page}`} />

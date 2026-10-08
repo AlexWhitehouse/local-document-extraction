@@ -1,5 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
+import { describeError } from "../../lib/describeError";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { CloseIcon } from "../layout/Icons.jsx";
+import { Field, Select } from "../ui/Field.jsx";
 
 export function TemplateVersionDialog({
   templates,
@@ -34,7 +38,7 @@ export function TemplateVersionDialog({
       onSelect(selected);
       onClose();
     } catch (failure) {
-      if (!controller.signal.aborted) setError(failure.message);
+      if (!controller.signal.aborted) setError(describeError(failure, "This version couldn’t be loaded. Try again."));
     } finally {
       if (!controller.signal.aborted) {
         request.current = null;
@@ -50,14 +54,11 @@ export function TemplateVersionDialog({
           <h2>{title}</h2>
           {description && <p>{description}</p>}
         </div>
-        <button type="button" className="modal-close" aria-label="Close" title="Close" onClick={onClose}>
-          ×
-        </button>
+        <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
-      {!templates.length && <p>Create a Template in Templates first, then choose its version here.</p>}
-      <label>
-        Template
-        <select
+      {!templates.length && <p>Create a template first, then choose its version here.</p>}
+      <Field label="Template">
+        <Select
           value={templateId}
           disabled={loading || !templates.length}
           onChange={(event) => {
@@ -67,44 +68,43 @@ export function TemplateVersionDialog({
           }}
         >
           <option value="" disabled>
-            Choose a Template
+            Choose a template
           </option>
           {templates.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
             </option>
           ))}
-        </select>
-      </label>
-      <label>
-        Field version
-        <select
+        </Select>
+      </Field>
+      <Field label="Version">
+        <Select
           value={version}
           disabled={!template || loading}
           onChange={(event) => setVersion(event.target.value)}
         >
           <option value="">
-            {template ? `Current · v${template.current_version}` : "Select a Template first"}
+            {template ? `Current · v${template.current_version}` : "Select a template first"}
           </option>
           {Array.from({ length: Math.max(0, (template?.current_version || 1) - 1) }, (_, index) => (
             <option key={index} value={index + 1}>
-              Fields v{index + 1}
+              v{index + 1}
             </option>
           ))}
-        </select>
-      </label>
+        </Select>
+      </Field>
       {error && (
         <p role="alert" className="form-error">
           {error}
         </p>
       )}
       <div className="actions">
-        <button type="button" className="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           Cancel
-        </button>
-        <button type="button" disabled={!template || loading} onClick={select}>
+        </Button>
+        <Button disabled={!template || loading} onClick={select}>
           {loading ? "Loading…" : action}
-        </button>
+        </Button>
       </div>
     </ModalDialog>
   );

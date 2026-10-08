@@ -1,4 +1,5 @@
 import { createCompletedDocumentCache } from "../../lib/completedDocumentCache";
+import { describeError } from "../../lib/describeError";
 
 const LIVE_STATUSES = new Set(["queued", "processing"]);
 
@@ -11,16 +12,15 @@ const normalizeId = (value) => String(value || "").trim();
 const sortDocuments = (a, b) =>
   Date.parse(b.created_at || b.queued_at || "") - Date.parse(a.created_at || a.queued_at || "");
 
-const normalizeModels = (models) =>
-  [
-    ...new Set(
-      (models || []).flatMap((model) => {
-        const id = normalizeId(model);
+const normalizeModels = (models) => [
+  ...new Set(
+    (models || []).flatMap((model) => {
+      const id = normalizeId(model);
 
-        return id ? [id] : [];
-      }),
-    ),
-  ].sort((a, b) => a.localeCompare(b));
+      return id ? [id] : [];
+    }),
+  ),
+];
 
 export function documentScopeKey(sessionId, workspaceId, enabled) {
   return enabled && sessionId && workspaceId ? `${sessionId}\0${workspaceId}` : "";
@@ -42,6 +42,10 @@ function emptySnapshot(scopeKey = "") {
     nextCursor: null,
     hasMore: false,
     loadingMore: false,
+    // "loading" until the first Document list read settles; errors keep their cause for Try again.
+    listStatus: "loading",
+    listError: null,
+    loadMoreError: null,
     statusCounts: { queued: 0, processing: 0, completed: 0, failed: 0 },
     loadingDocumentId: "",
     selectedDocumentError: "",
@@ -253,8 +257,8 @@ export function createDocumentReconciliation({
   }
 
   function rememberModel(ctx, name) {
-    if (!name) return;
-    const models = normalizeModels([...snapshot.availableModels, name]);
+    if (!name || snapshot.availableModels.includes(name)) return;
+    const models = normalizeModels([name, ...snapshot.availableModels]);
     modelOptions.set(ctx.workspaceId, models);
     snapshot = { ...snapshot, availableModels: models };
   }
@@ -341,7 +345,7 @@ export function createDocumentReconciliation({
     const countsRequestId = ++ctx.countsRequest;
     const revision = ctx.revision;
     const { debouncedSearch: search, filters, nextCursor } = snapshot;
-    publish(ctx, { loadingMore: append });
+    publish(ctx, append ? { loadingMore: true, loadMoreError: null } : { loadingMore: false });
 
     try {
       const jobs = [],
@@ -438,6 +442,9 @@ export function createDocumentReconciliation({
             : snapshot.statusCounts,
         nextCursor: data?.next_cursor || null,
         hasMore: Boolean(data?.has_more),
+        // A settled first page clears the list error; a load-more page leaves the list state alone.
+        listStatus: append ? snapshot.listStatus : "ready",
+        listError: append ? snapshot.listError : null,
       });
 
       // Partial/filtered lists cannot disprove a deep link. A complete list
@@ -458,6 +465,8 @@ export function createDocumentReconciliation({
       }
     } catch (error) {
       if (isCurrent(ctx) && queryRevision === ctx.queryRevision && requestId === ctx.listRequest) {
+        publish(ctx, append ? { loadMoreError: error } : { listStatus: "error", listError: error });
+
         if (error.status === 403) emit(ctx, "onAccessDenied");
       }
     } finally {
@@ -764,7 +773,7 @@ export function createDocumentReconciliation({
           if (!acceptsBatch()) continue;
 
           if (preview) revokePreview(preview);
-          onProgress?.(entry.id, "failed", error.message || "Queue failed");
+          onProgress?.(entry.id, "failed", describeError(error, "Couldn't queue this document. Try again."));
 
           if (error.status === 403) emit(ctx, "onAccessDenied");
         }

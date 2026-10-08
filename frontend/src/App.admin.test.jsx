@@ -60,9 +60,31 @@ function actionButton(name) {
   return accountDetails().queryByRole("button", { name });
 }
 
+// Destructive and rare actions sit in the "More actions" menu; this returns whichever control holds the action.
+async function userActionItem(user, actionName) {
+  const inline = actionButton(actionName);
+
+  if (inline) return inline;
+
+  const more = accountDetails().queryByRole("button", { name: "More actions" });
+
+  if (!more) return null;
+
+  await user.click(more);
+
+  return screen.queryByRole("menuitem", { name: actionName });
+}
+
 async function clickUserAction(user, email, actionName) {
   await selectAccount(user, email);
-  await user.click(actionButton(actionName));
+  await user.click(await userActionItem(user, actionName));
+}
+
+// Confirmations render as an in-app alertdialog; the action button is scoped to it.
+async function confirmInDialog(user, buttonName) {
+  const dialog = await screen.findByRole("alertdialog");
+
+  await user.click(within(dialog).getByRole("button", { name: buttonName }));
 }
 
 describe("Application admin page gate", () => {
@@ -109,7 +131,7 @@ describe("Application admin page gate", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
     });
-    expect(screen.queryByRole("heading", { name: "Application admin" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Admin" })).toBeNull();
     expect(screen.queryByRole("link", { name: /^Admin$/ })).toBeNull();
   });
 
@@ -164,8 +186,8 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
     await screen.findByText("Total users 0");
 
-    expect(screen.getByLabelText("Search field").value).toBe("email");
-    await user.selectOptions(screen.getByLabelText("Search field"), "name");
+    expect(screen.getByLabelText("Search by").value).toBe("email");
+    await user.selectOptions(screen.getByLabelText("Search by"), "name");
     await user.type(screen.getByLabelText("Search users"), "Grace");
 
     await waitFor(() => {
@@ -223,13 +245,12 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
 
     const inlineError = await screen.findByRole("alert");
-    expect(within(inlineError).getByText("Admin list unavailable")).toBeTruthy();
-    expect(within(inlineError).getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(within(inlineError).getByText("Couldn't load users.")).toBeTruthy();
+    expect(within(inlineError).getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("removes another admin after stronger confirmation but prevents self-demotion", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
     listUsersReturns(currentAdmin(), adminUser());
     authClientMock.setRole.mockResolvedValue({ data: {}, error: null });
@@ -238,13 +259,14 @@ describe("Application admin page gate", () => {
 
     await selectAccount(user, "ada@example.com");
     expect(accountDetails().getByText("Your account")).toBeTruthy();
-    expect(actionButton("Remove admin")).toBeNull();
-    expect(actionButton("Ban user")).toBeNull();
+    expect(await userActionItem(user, "Remove admin")).toBeNull();
+    expect(await userActionItem(user, "Ban user")).toBeNull();
     await clickUserAction(user, "grace@example.com", "Remove admin");
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Remove Application admin access from grace@example.com? This revokes application-wide account management access.",
-    );
+    expect(
+      await screen.findByRole("alertdialog", { name: "Remove application admin access from grace@example.com?" }),
+    ).toBeTruthy();
+    await confirmInDialog(user, "Change role");
     await waitFor(() => {
       expect(authClientMock.setRole).toHaveBeenCalledWith({
         userId: "user_admin_2",
@@ -256,7 +278,6 @@ describe("Application admin page gate", () => {
 
   it("shows a failure Action toast without reloading when a role change fails", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
     listUsersReturns(alan());
     authClientMock.setRole.mockResolvedValue({
@@ -266,14 +287,19 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Make admin");
+    await confirmInDialog(user, "Change role");
 
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Application role could not be updated. Please try again.");
-    });
+    expect(await within(screen.getByRole("alertdialog")).findByText("Something went wrong. Try again.")).toBeTruthy();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
     expect(accountList().getByText("alan@example.com")).toBeTruthy();
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
     expect(authClientMock.refetchSession).not.toHaveBeenCalled();
     expect(authClientMock.signOut).not.toHaveBeenCalled();
+
+    // Leave the confirmation closed so it doesn't leak into later tests.
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 
   it("shows inline validation and does not call Better Auth when a ban reason is missing", async () => {
@@ -283,7 +309,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Ban user");
-    await user.click(screen.getByRole("button", { name: "Confirm ban" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Ban alan@example.com" })).getByRole("button", { name: "Ban user" }));
 
     expect(await screen.findByText("Enter a ban reason before banning this user.")).toBeTruthy();
     expect(authClientMock.banUser).not.toHaveBeenCalled();
@@ -298,11 +324,35 @@ describe("Application admin page gate", () => {
     await openAdminPage(user);
 
     await selectAccount(user, "ada@example.com");
-    expect(actionButton("Ban user")).toBeNull();
+    expect(await userActionItem(user, "Ban user")).toBeNull();
     await clickUserAction(user, "grace@example.com", "Ban user");
 
     expect(screen.getByRole("dialog", { name: "Ban grace@example.com" })).toBeTruthy();
-    expect(screen.getByText("You are banning another Application admin."));
+    expect(screen.getByText("You're banning another application admin."));
+  });
+
+  it("asks before discarding a typed ban reason and keeps the dialog on Keep editing", async () => {
+    const user = userEvent.setup();
+    currentSession = sessionForRole("admin");
+    listUsersReturns(alan());
+
+    await openAdminPage(user);
+    await clickUserAction(user, "alan@example.com", "Ban user");
+    await user.type(screen.getByLabelText("Reason"), "Compromised account");
+    await user.keyboard("{Escape}");
+
+    const prompt = await screen.findByRole("alertdialog", { name: "Discard changes?" });
+    await user.click(within(prompt).getByRole("button", { name: "Keep editing" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Ban alan@example.com" })).toBeTruthy();
+    expect(authClientMock.banUser).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Ban alan@example.com" })).toBeNull());
+    expect(authClientMock.banUser).not.toHaveBeenCalled();
   });
 
   it("shows failure Action toasts without reloading when ban and unban operations fail", async () => {
@@ -317,20 +367,20 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Ban user");
-    await user.type(screen.getByLabelText("Ban reason"), "Compromised account");
-    await user.click(screen.getByRole("button", { name: "Confirm ban" }));
+    await user.type(screen.getByLabelText("Reason"), "Compromised account");
+    await user.click(within(screen.getByRole("dialog", { name: "Ban alan@example.com" })).getByRole("button", { name: "Ban user" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("User could not be banned. Please try again.");
+      expect(toast.error).toHaveBeenCalledWith("Couldn't ban user.", expect.anything());
     });
     expect(screen.getByRole("dialog", { name: "Ban alan@example.com" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await clickUserAction(user, "grace@example.com", "Unban user");
-    await user.click(screen.getByRole("button", { name: "Confirm unban" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Unban grace@example.com" })).getByRole("button", { name: "Unban user" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("User could not be unbanned. Please try again.");
+      expect(toast.error).toHaveBeenCalledWith("Couldn't unban user.", expect.anything());
     });
     expect(screen.getByRole("dialog", { name: "Unban grace@example.com" })).toBeTruthy();
     expect(authClientMock.listUsers).toHaveBeenCalledTimes(1);
@@ -368,7 +418,6 @@ describe("Application admin page gate", () => {
 
   it("clears session-scoped UI state, refetches the session, and moves to Workspace after impersonation", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
     listUsersReturns(alan());
     authClientMock.impersonateUser.mockResolvedValue({ data: {}, error: null });
@@ -380,13 +429,14 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Impersonate user");
+    await confirmInDialog(user, "Impersonate alan@example.com");
 
     await waitFor(() => {
       expect(authClientMock.refetchSession).toHaveBeenCalled();
     });
     expect(window.localStorage.removeItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
     expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Application admin" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Admin" })).toBeNull();
     expect(screen.getByRole("status", { name: "Impersonation mode" })).toBeTruthy();
     await waitFor(() => {
       expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(2);
@@ -396,7 +446,6 @@ describe("Application admin page gate", () => {
 
   it("shows recoverable failure feedback without losing admin list state when impersonation fails", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     currentSession = sessionForRole("admin");
     listUsersReturns(alan());
     authClientMock.impersonateUser.mockResolvedValue({
@@ -406,9 +455,10 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
     await clickUserAction(user, "alan@example.com", "Impersonate user");
+    await confirmInDialog(user, "Impersonate alan@example.com");
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be started. Please try again.");
+      expect(toast.error).toHaveBeenCalledWith("Couldn't start impersonation.", expect.anything());
     });
     expect(accountDetails().getByRole("heading", { name: "Alan Turing" })).toBeTruthy();
     expect(accountList().getByText("alan@example.com")).toBeTruthy();
@@ -423,13 +473,12 @@ describe("Application admin page gate", () => {
     render(<App createAuthClient={createAuthClient} notifications={toast} />);
 
     const indicator = await screen.findByRole("status", { name: "Impersonation mode" });
-    expect(within(indicator).getByText("Impersonating alan@example.com")).toBeTruthy();
+    expect(within(indicator).getByText("Viewing as alan@example.com")).toBeTruthy();
     expect(within(indicator).queryByText("admin_internal_1")).toBeNull();
   });
 
   it("stops impersonating immediately through Better Auth and disables the action while in flight", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm");
     currentSession = impersonatedSession();
     const stopRequest = deferred();
     authClientMock.stopImpersonating.mockReturnValue(stopRequest.promise);
@@ -439,7 +488,7 @@ describe("Application admin page gate", () => {
     const stopButton = await screen.findByRole("button", { name: "Stop impersonating" });
     await user.click(stopButton);
 
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(authClientMock.stopImpersonating).toHaveBeenCalledWith();
     expect(stopButton.disabled).toBe(true);
 
@@ -466,8 +515,8 @@ describe("Application admin page gate", () => {
       expect(authClientMock.refetchSession).toHaveBeenCalled();
     });
     expect(window.localStorage.removeItem).toHaveBeenCalledWith("documentextraction.workspace.v1");
-    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
-    expect(toast.success).toHaveBeenCalledWith("Impersonation stopped");
+    expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
+    expect(toast.success).toHaveBeenCalledWith("Impersonation stopped", expect.anything());
     await waitFor(() => {
       expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(3);
     });
@@ -485,10 +534,10 @@ describe("Application admin page gate", () => {
     await user.click(await screen.findByRole("button", { name: "Stop impersonating" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Impersonation could not be stopped. Please try again.");
+      expect(toast.error).toHaveBeenCalledWith("Couldn't stop impersonation.", expect.anything());
     });
     expect(screen.getByRole("status", { name: "Impersonation mode" })).toBeTruthy();
-    expect(screen.getByText("Impersonating alan@example.com")).toBeTruthy();
+    expect(screen.getByText("Viewing as alan@example.com")).toBeTruthy();
     expect(authClientMock.refetchSession).not.toHaveBeenCalled();
     expect(window.localStorage.removeItem).not.toHaveBeenCalledWith("documentextraction.workspace.v1");
   });
@@ -502,7 +551,7 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
 
-    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
     expect(await screen.findByText("Total users 0")).toBeTruthy();
   });
 
@@ -516,10 +565,10 @@ describe("Application admin page gate", () => {
     );
 
     render(<App createAuthClient={createAuthClient} notifications={toast} />);
-    expect(await screen.findByRole("heading", { name: "Workspace resolution error" })).toBeTruthy();
+    expect(await screen.findByText("Workspaces couldn't be loaded.")).toBeTruthy();
     await user.click(await screen.findByRole("link", { name: /^Admin$/ }));
 
-    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
     expect(await screen.findByText("Total users 0")).toBeTruthy();
   });
 
@@ -529,11 +578,11 @@ describe("Application admin page gate", () => {
 
     await openAdminPage(user);
 
-    expect(await screen.findByRole("heading", { name: "Application admin" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Accounts" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Admin" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Account list" })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Workspace toolbar" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Create Workspace" })).toBeNull();
+    expect(screen.queryByRole("banner", { name: "Workspace overview" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Create user" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete user" })).toBeNull();
     expect(screen.queryByRole("button", { name: /password/i })).toBeNull();

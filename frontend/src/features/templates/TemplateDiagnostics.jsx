@@ -1,22 +1,8 @@
 import React from "react";
 import { describeLocation } from "../../../../shared/templateAssistant.ts";
 import "./TemplateAssistant.css";
-
-export function DiagnosticMessages({ issues = [], id, compact = false }) {
-  if (!issues.length) return null;
-
-  return (
-    <div id={id} className={compact ? "template-problem-messages compact" : "template-problem-messages"}>
-      {issues.map((issue) => (
-        <p key={issue.id} className="template-problem-message">
-          <strong>{issue.title}</strong>
-          {compact ? null : <span>{issue.explanation}</span>}
-          <em>{issue.remedy}</em>
-        </p>
-      ))}
-    </div>
-  );
-}
+import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
+import { Button } from "../ui/Button.jsx";
 
 export function TemplateProblems({ issues, draft, onFocus, activeIndex = 0, onIndexChange, blocked = null }) {
   if (!issues.length) return null;
@@ -40,7 +26,7 @@ export function TemplateProblems({ issues, draft, onFocus, activeIndex = 0, onIn
       <span className="template-problems-count">
         {blocked
           ? "Fix these to save"
-          : `${issues.length} problem${issues.length === 1 ? "" : "s"} stop${issues.length === 1 ? "s" : ""} this Template saving`}
+          : `${issues.length} problem${issues.length === 1 ? "" : "s"} stop${issues.length === 1 ? "s" : ""} this template saving`}
       </span>
       <button
         type="button"
@@ -55,24 +41,26 @@ export function TemplateProblems({ issues, draft, onFocus, activeIndex = 0, onIn
         <em>{current.title}</em>
       </button>
       <span className="template-problems-nav">
-        <button
+        <Button
           type="button"
-          className="studio-text-button"
+          variant="text"
           aria-label="Previous problem"
           disabled={issues.length < 2}
           onClick={() => focus(index - 1)}
         >
-          ‹ Prev
-        </button>
-        <button
+          <ChevronLeftIcon />
+          Prev
+        </Button>
+        <Button
           type="button"
-          className="studio-text-button"
+          variant="text"
           aria-label="Next problem"
           disabled={issues.length < 2}
           onClick={() => focus(index + 1)}
         >
-          Next ›
-        </button>
+          Next
+          <ChevronRightIcon />
+        </Button>
       </span>
     </div>
   );

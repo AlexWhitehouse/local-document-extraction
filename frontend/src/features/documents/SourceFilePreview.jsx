@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Button } from "../ui/Button.jsx";
 import { useDocumentOriginal } from "./documentViewing";
 
 // Only these types reach the viewer. A PDF iframe must never receive another type, because an
@@ -11,14 +12,14 @@ const PDF_VIEW_FRAGMENT = "#pagemode=none&navpanes=0&view=FitH";
 
 const AVAILABILITY_COPY = {
   unavailable: [
-    "Original temporarily unavailable",
-    "Storage can't be reached right now. The extraction results are unaffected.",
+    "Original unavailable",
+    "The original file can't be opened right now. Your results aren't affected.",
   ],
   missing: [
-    "Original missing from storage",
-    "The retained file could not be found in storage. The extraction results are unaffected.",
+    "Original file not found",
+    "The original file is no longer available. Your results aren't affected.",
   ],
-  not_retained: ["Original not retained", "Only the extraction results are available for this document."],
+  not_retained: ["Original not retained", "Only the results are available for this document."],
 };
 
 export function SourceFilePreview({ document: job, loadOriginal }) {
@@ -102,9 +103,9 @@ function AvailabilityNotice({ status, onRetry }) {
         <p>{message}</p>
       </div>
       {status === "unavailable" && onRetry ? (
-        <button type="button" className="secondary" onClick={onRetry}>
-          Retry
-        </button>
+        <Button variant="secondary" onClick={onRetry}>
+          Try again
+        </Button>
       ) : null}
     </div>
   );

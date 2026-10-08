@@ -1,40 +1,34 @@
 import { isJsonObject, isString } from "../../../../shared/json.ts";
 import React from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
+const MAX_FAILURE_REASON_LENGTH = 300;
+
 export function ExtractionJobStatusDisplay({ job }) {
   const isFailure = job.status === "failed";
-  const isCompleted = job.status === "completed";
   const isProcessing = LIVE_DOCUMENT_STATUSES.has(job.status);
   const isHeld = job.status === "awaiting_template";
+  const failureReason = isFailure ? displayableFailureReason(job.error_message) : "";
 
   const statusLabel = isHeld
-    ? "Template selection needs your attention."
+    ? "This document needs a template."
     : job.routing_status === "assessing"
-      ? "Choosing a template from the document"
+      ? "Choosing a template"
       : isFailure
-        ? "This extraction finished with a failure status."
-        : isCompleted
-          ? "This extraction completed successfully."
+        ? "Extraction failed"
+        : job.status === "queued"
+          ? "This document is queued…"
           : isProcessing
-            ? "The document is processing"
-            : "The document is queued";
+            ? "This document is processing…"
+            : "This document is queued…";
 
-  const isTerminal = isCompleted || isFailure || isHeld;
+  const isTerminal = isFailure || isHeld;
   const currentAttempt = Number(job.current_attempt || 0);
-  const completedAttempt = Number(job.completed_attempt || 0);
-  const lastFailedAttempt = Number(job.last_failed_attempt || 0);
-
-  const attemptLabel =
-    currentAttempt > 0
-      ? `Current attempt: ${currentAttempt}`
-      : completedAttempt > 0
-        ? `Completed on attempt: ${completedAttempt}`
-        : lastFailedAttempt > 0
-          ? `Last failed attempt: ${lastFailedAttempt}`
-          : "Attempt: pending";
+  // The first attempt is the normal path, so only a retry is worth mentioning.
+  const attemptLabel = currentAttempt > 1 ? `Retrying (attempt ${currentAttempt})` : "";
 
   return (
     <div className="job-status-stack">
@@ -46,11 +40,24 @@ export function ExtractionJobStatusDisplay({ job }) {
         <span className="job-status-spinner" aria-hidden="true" />
         <div>
           <p>{statusLabel}</p>
-          <p className="hint">{attemptLabel}</p>
+          {failureReason ? <p>{failureReason}</p> : null}
+          {isFailure ? <p>Try again, choose another template, or check the Model gateway on the Workspace page.</p> : null}
+          {attemptLabel ? <p className="hint">{attemptLabel}</p> : null}
         </div>
       </div>
     </div>
   );
+}
+
+// Only plain, short reasons are shown. HTML from a proxy or a stack trace is hidden.
+function displayableFailureReason(message) {
+  if (!isString(message)) return "";
+
+  const reason = message.trim();
+
+  if (!reason || reason.includes("<") || reason.includes("\n") || reason.length > MAX_FAILURE_REASON_LENGTH) return "";
+
+  return reason;
 }
 
 export function ExtractionResultDisplay({ job, isLoading = false }) {
@@ -78,7 +85,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
           aria-label="Extracted fields scroll area"
           tabIndex={0}
         >
-          <table className="studio-table studio-results-table" aria-label="Extracted fields">
+          <DataTable label="Extracted fields" className="studio-results-table">
             <thead>
               <tr>
                 <th scope="col">Field</th>
@@ -102,7 +109,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </ScrollArea>
       ) : null}
       {structured.map((result) => (
@@ -110,7 +117,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
           <div className="studio-section-heading">
             <div>
               <h2>{result.name || result.field_id}</h2>
-              <p>Structured rows from the source document.</p>
+              <p>Rows from the document.</p>
             </div>
             <ResultConfidence value={result.confidence} />
           </div>
@@ -147,7 +154,7 @@ function ResultConfidence({ value }) {
   const percent = Math.min(100, Math.max(0, value * 100));
 
   return (
-    <span className={`studio-confidence ${confidenceTone(value)}`} aria-label={`Confidence ${percent.toFixed(1)}%`}>
+    <span className={`studio-confidence ui-tone-${confidenceTone(value)}`} aria-label={`Confidence ${percent.toFixed(1)}%`}>
       <span className="studio-confidence-track" aria-hidden="true">
         <i style={{ width: `${percent}%` }} />
       </span>
@@ -222,7 +229,7 @@ function renderAnswer(answer) {
 function StructuredTable({ columns, rows }) {
   return (
     <ScrollArea className="table-scroll" role="region" aria-label="Structured result scroll area" tabIndex={0}>
-      <table className="studio-table">
+      <DataTable>
         <thead>
           <tr>
             {columns.map((column) => (
@@ -239,7 +246,7 @@ function StructuredTable({ columns, rows }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </DataTable>
     </ScrollArea>
   );
 }
@@ -265,8 +272,9 @@ function isTableAnswer(value) {
   );
 }
 
+// Confidence bands on the shared tone vocabulary: above 90% success, 80 to 90% warning, below 80% danger.
 function confidenceTone(confidence) {
   const percent = confidence * 100;
 
-  return percent > 90 ? "good" : percent >= 80 ? "pending" : "bad";
+  return percent > 90 ? "success" : percent >= 80 ? "warning" : "danger";
 }

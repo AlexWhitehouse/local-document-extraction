@@ -177,7 +177,7 @@ it("edits saved answers from Manage library without configuring or running a mod
   const manager = await screen.findByRole("dialog", { name: "Manage library" });
   fireEvent.click(await within(manager).findByRole("button", { name: "Edit Harbour invoice" }));
   const matrix = await screen.findByRole("region", { name: "Comparison matrix" });
-  expect(within(matrix).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Field", "Expected"]);
+  expect(within(matrix).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Field", "Expected answer"]);
   expect(screen.queryByRole("textbox", { name: /model/ })).toBeNull();
   expect(screen.queryByRole("button", { name: /Run all/ })).toBeNull();
   expect(screen.queryByText(/Configure a model/)).toBeNull();
@@ -188,7 +188,7 @@ it("edits saved answers from Manage library without configuring or running a mod
   expect(library.evd_a.reference.references["total:number"].value).toBe("3420");
 
   // Leaving and reopening keeps the private working copy and unrelated uploads.
-  fireEvent.click(screen.getByRole("button", { name: "Back to Evaluation" }));
+  fireEvent.click(screen.getByRole("button", { name: "Back to evaluation" }));
   expect(screen.getByText("keep.pdf", { selector: "strong" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
@@ -197,7 +197,7 @@ it("edits saved answers from Manage library without configuring or running a mod
   const review = screen.getByRole("dialog", { name: "Review saved answer update" });
   expect(within(review).getByText("3500 ✓")).toBeTruthy();
   fireEvent.click(within(review).getByRole("button", { name: "Update saved answers" }));
-  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated for the Workspace."));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated: Harbour invoice", expect.anything()));
   expect(library.evd_a.reference.references["total:number"].value).toBe("3500");
   expect(streams).toHaveLength(0);
   expect(fetch.mock.calls.some(([url]) => url === "/v1/evaluations/actions")).toBe(false);
@@ -207,11 +207,11 @@ it("edits the saved field Template before reviewing an answer without any candid
   render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Edit Template" }));
-  const editor = screen.getByRole("dialog", { name: "Edit Template" });
+  fireEvent.click(await screen.findByRole("button", { name: "Edit template" }));
+  const editor = screen.getByRole("dialog", { name: "Edit template" });
   fireEvent.change(within(editor).getByRole("combobox", { name: "Type" }), { target: { value: "string" } });
   fireEvent.click(within(editor).getByRole("button", { name: "Apply changes" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Template" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit template" })).toBeNull());
   fireEvent.click(screen.getByRole("button", { name: "Review as Text" }));
   const answer = screen.getByRole("dialog", { name: "Verify expected answer" });
   expect(within(answer).getByRole("textbox", { name: "Expected value" }).value).toBe("3420");
@@ -227,7 +227,7 @@ it("keeps Manage library open with a retryable error if the saved entry cannot l
   render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
-  await screen.findByText("Try opening again.");
+  await screen.findByText("This document couldn’t be opened. Try again.");
   expect(screen.getByRole("button", { name: "Edit Harbour invoice" }).disabled).toBe(false);
   expect(screen.queryByRole("region", { name: "Comparison matrix" })).toBeNull();
 });
@@ -258,30 +258,30 @@ it("loads the latest Template into the library editor and saves reviewed changes
   render(<Harness templates={[{ id: "invoice", name: "Invoice", current_version: 3 }]} />);
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Choose Template/version" }));
-  const picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Choose template version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
   expect(picker.getByRole("option", { name: "Current · v3" }).selected).toBe(true);
-  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose Template/version" })).toBeNull());
-  expect(screen.getByTitle("Invoice · fields v3")).toBeTruthy();
+  fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose template version" })).toBeNull());
+  expect(screen.getByTitle("Invoice · v3")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Edit expected Total" }).textContent).toContain("3420");
   expect(screen.getByRole("button", { name: "Add expected Supplier" })).toBeTruthy();
-  expect(screen.getByText("Removed from the Template draft · saved answer kept")).toBeTruthy();
+  expect(screen.getByText("Removed from the template draft · saved answer kept")).toBeTruthy();
   expect(library.evd_a.reference).toEqual(saved);
 
   fireEvent.click(screen.getByRole("button", { name: "Review updated table" }));
   const answer = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
   expect(answer.getByRole("textbox", { name: "Expected row 1 Quantity" }).value).toBe("7");
   fireEvent.click(answer.getByRole("button", { name: "Use as expected answer" }));
-  fireEvent.click(screen.getByRole("button", { name: "Remove expected answer for Old code" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete expected answer for Old code" }));
   fireEvent.click(screen.getByRole("button", { name: "Add expected Supplier" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Supplier" }), { target: { value: "Harbour" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
   expect(library.evd_a.reference).toEqual(saved);
   fireEvent.click(screen.getByRole("button", { name: "Update saved answers…" }));
   fireEvent.click(within(screen.getByRole("dialog", { name: "Review saved answer update" })).getByRole("button", { name: "Update saved answers" }));
-  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated for the Workspace."));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Saved answers updated: Harbour invoice", expect.anything()));
   expect(library.evd_a.reference.references["total:number"]).toEqual(saved.references["total:number"]);
   expect(library.evd_a.reference.references["items:array<object>"].value).toEqual([{ quantity: 7 }]);
   expect(library.evd_a.reference.definitions["items:array<object>"].object_schema.columns[0].data_type).toBe("number");
@@ -296,23 +296,23 @@ it("chooses a historical library Template version and ignores a later load after
   render(<Harness templates={[{ id: "invoice", name: "Invoice", current_version: 3 }]} />);
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Choose Template/version" }));
-  let picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Choose template version" }));
+  let picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
-  fireEvent.change(picker.getByRole("combobox", { name: "Field version" }), { target: { value: "1" } });
-  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
-  await screen.findByTitle("Invoice · fields v1");
+  fireEvent.change(picker.getByRole("combobox", { name: "Version" }), { target: { value: "1" } });
+  fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
+  await screen.findByTitle("Invoice · v1");
   expect(screen.queryByRole("button", { name: "Add expected Supplier" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Choose Template/version" }));
-  picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  fireEvent.click(screen.getByRole("button", { name: "Choose template version" }));
+  picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
   expect(picker.getByRole("combobox", { name: "Template", exact: true }).value).toBe("invoice");
   expect(picker.getByRole("option", { name: "Current · v3" }).selected).toBe(true);
   let finish;
   overrides["GET /evaluations/templates/invoice"] = () => new Promise((resolve) => { finish = resolve; });
-  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
+  fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
   fireEvent.click(picker.getByRole("button", { name: "Cancel" }));
   await act(async () => finish(Response.json({ name: "Invoice", current_version: 3, fields })));
-  expect(screen.getByTitle("Invoice · fields v1")).toBeTruthy();
+  expect(screen.getByTitle("Invoice · v1")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Add expected Supplier" })).toBeNull();
   expect(streams).toHaveLength(0);
 });
@@ -334,54 +334,54 @@ it.each(["", "1"])("saves edits to the selected library Template version '%s', w
   render(<Harness templates={[{ id: "invoice", name: "Invoice", current_version: 3 }]} onTemplateSaved={onTemplateSaved} />);
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Choose Template/version" }));
-  const picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Choose template version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
-  fireEvent.change(picker.getByRole("combobox", { name: "Field version" }), { target: { value: version } });
-  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
-  await screen.findByTitle(`Invoice · fields v${version || 3}`);
+  fireEvent.change(picker.getByRole("combobox", { name: "Version" }), { target: { value: version } });
+  fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
+  await screen.findByTitle(`Invoice · v${version || 3}`);
 
-  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
-  let editor = within(screen.getByRole("dialog", { name: "Edit Template" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit template" }));
+  let editor = within(screen.getByRole("dialog", { name: "Edit template" }));
   expect(editor.getByRole("textbox", { name: "Template name" }).value).toBe("Invoice");
   fireEvent.change(editor.getByRole("combobox", { name: "Type" }), { target: { value: "string" } });
   fireEvent.click(editor.getByRole("button", { name: "Cancel" }));
   expect(updates).toEqual([]);
   expect(screen.getByRole("button", { name: "Edit expected Total" })).toBeTruthy();
 
-  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
-  editor = within(screen.getByRole("dialog", { name: "Edit Template" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit template" }));
+  editor = within(screen.getByRole("dialog", { name: "Edit template" }));
   fireEvent.change(editor.getByRole("combobox", { name: "Type" }), { target: { value: "string" } });
-  fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
-  await editor.findByText("Could not save Template. Try again.");
-  expect(screen.getByTitle(`Invoice · fields v${version || 3}`)).toBeTruthy();
+  fireEvent.click(editor.getByRole("button", { name: "Save template" }));
+  await editor.findByText("Couldn't save the template. Try again.");
+  expect(screen.getByTitle(`Invoice · v${version || 3}`)).toBeTruthy();
   expect(library.evd_a.reference).toEqual(savedAnswers);
-  fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
-  await screen.findByTitle("Invoice · fields v4");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Template" })).toBeNull());
+  fireEvent.click(editor.getByRole("button", { name: "Save template" }));
+  await screen.findByTitle("Invoice · v4");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit template" })).toBeNull());
   expect(updates).toEqual([
     { fields: [{ name: "Total", description: "Amount payable", data_type: "string" }, { name: "Supplier", description: "Issuer", data_type: "string" }] },
     { fields: [{ name: "Total", description: "Amount payable", data_type: "string" }, { name: "Supplier", description: "Issuer", data_type: "string" }] },
   ]);
   expect(onTemplateSaved).toHaveBeenCalledTimes(1);
-  expect(toast.success).toHaveBeenCalledWith("Template saved: Invoice");
+  expect(toast.success).toHaveBeenCalledWith("Template saved: Invoice", expect.anything());
   expect(screen.getAllByRole("rowheader", { name: /^Total/ })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Review as Text" })).toBeTruthy();
   expect(library.evd_a.reference).toEqual(savedAnswers);
   expect(screen.queryByRole("button", { name: "Update saved answers…" })).toBeNull();
 
   // An unchanged save creates no version; a name edit updates metadata only.
-  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
-  editor = within(screen.getByRole("dialog", { name: "Edit Template" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit template" }));
+  editor = within(screen.getByRole("dialog", { name: "Edit template" }));
   expect(editor.getByRole("textbox", { name: "Template name" }).value).toBe("Invoice");
-  fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Template" })).toBeNull());
+  fireEvent.click(editor.getByRole("button", { name: "Save template" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit template" })).toBeNull());
   expect(updates).toHaveLength(2);
-  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
-  editor = within(screen.getByRole("dialog", { name: "Edit Template" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit template" }));
+  editor = within(screen.getByRole("dialog", { name: "Edit template" }));
   fireEvent.change(editor.getByRole("textbox", { name: "Template name" }), { target: { value: "Updated invoice" } });
-  fireEvent.click(editor.getByRole("button", { name: "Save Template" }));
-  await screen.findByTitle("Updated invoice · fields v4");
+  fireEvent.click(editor.getByRole("button", { name: "Save template" }));
+  await screen.findByTitle("Updated invoice · v4");
   expect(updates[2]).toEqual({ name: "Updated invoice" });
   expect(onTemplateSaved).toHaveBeenCalledTimes(2);
   expect(library.evd_a.reference).toEqual(savedAnswers);
@@ -394,16 +394,16 @@ it("keeps the library draft after a Template load failure and allows retry", asy
   render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Choose Template/version" }));
-  const picker = within(screen.getByRole("dialog", { name: "Choose Template/version" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Choose template version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
-  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
-  expect(await picker.findByRole("alert")).toHaveProperty("textContent", "Template field version not found.");
+  fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
+  expect(await picker.findByRole("alert")).toHaveProperty("textContent", "This item no longer exists.");
   expect(screen.getByRole("button", { name: "Edit expected Total" }).textContent).toContain("3420");
   delete overrides["GET /evaluations/templates/invoice"];
-  fireEvent.click(picker.getByRole("button", { name: "Use Template version" }));
-  await screen.findByTitle("Invoice · fields v1");
-  expect(screen.queryByRole("dialog", { name: "Choose Template/version" })).toBeNull();
+  fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
+  await screen.findByTitle("Invoice · v1");
+  expect(screen.queryByRole("dialog", { name: "Choose template version" })).toBeNull();
 });
 
 it("mixes saved entries with a fresh upload and moves between documents with Previous and Next", async () => {
@@ -429,7 +429,7 @@ it("mixes saved entries with a fresh upload and moves between documents with Pre
   // The matrix shows one document at a time, with no batch summary.
   expect(screen.queryByRole("tablist")).toBeNull();
   expect(screen.queryByText(/Batch summary/)).toBeNull();
-  const nav = screen.getByRole("navigation", { name: "Documents in this Evaluation" });
+  const nav = screen.getByRole("navigation", { name: "Documents in this evaluation" });
   expect(within(nav).getByText("Document 1 of 3")).toBeTruthy();
   expect(await screen.findByTitle("Harbour invoice")).toBeTruthy();
   await waitFor(() => expect(screen.getByText("100%")).toBeTruthy());
@@ -452,8 +452,8 @@ it("keeps the single-document Evaluation unchanged: no tabs or summary", async (
   await startModels();
   fireEvent.click(screen.getByRole("button", { name: "Start and run" }));
   await waitFor(() => expect(streams).toHaveLength(1));
-  expect(screen.queryByRole("navigation", { name: "Documents in this Evaluation" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Run all 2" }).disabled).toBe(true);
+  expect(screen.queryByRole("navigation", { name: "Documents in this evaluation" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Run all (2 candidates)" }).disabled).toBe(true);
   await act(async () => {
     success(streams[0], 0, 5);
     success(streams[0], 1, 6);
@@ -499,22 +499,22 @@ it("saves an upload from the results after running, retries a lost response with
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Total" }), { target: { value: "3420" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
   fireEvent.click(screen.getByRole("button", { name: "Save to library…" }));
-  const dialog = screen.getByRole("dialog", { name: "Save to Evaluation library" });
+  const dialog = screen.getByRole("dialog", { name: "Save to evaluation library" });
   expect(within(dialog).getByText(/1 of 2 answers verified/)).toBeTruthy();
-  fireEvent.change(within(dialog).getByRole("textbox", { name: "Name" }), { target: { value: "Fenwick print" } });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "Name in library" }), { target: { value: "Fenwick print" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
   expect(await within(dialog).findByRole("alert")).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Save to Evaluation library" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Save to evaluation library" })).toBeNull());
   expect(operations.map((o) => o.operation_id)).toEqual([operations[0].operation_id, operations[0].operation_id]);
   expect(operations[1].reference.references["total:number"]).toMatchObject({ verified: true, value: "3420" });
   expect(screen.getByTitle("Fenwick print")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Save to library…" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: /Clear Evaluation/ }));
-  const guard = screen.getByRole("dialog", { name: "Clear Evaluation" });
+  fireEvent.click(screen.getByRole("button", { name: /Clear evaluation/ }));
+  const guard = screen.getByRole("dialog", { name: "Clear evaluation" });
   expect(within(guard).getByText("other.pdf")).toBeTruthy();
   expect(within(guard).queryByText("Fenwick print")).toBeNull();
-  fireEvent.click(within(guard).getByRole("button", { name: "Clear Evaluation" }));
+  fireEvent.click(within(guard).getByRole("button", { name: "Clear evaluation" }));
   await waitFor(() => expect(screen.queryByText("other.pdf", { selector: "strong" })).toBeNull());
 });
 
@@ -592,7 +592,7 @@ it("links a renamed field to its saved answer for this Evaluation only, without 
   const matrix = await screen.findByRole("region", { name: "Comparison matrix" });
   await within(matrix).findByRole("button", { name: "Inspect Total for Candidate 1" });
   // Nothing is inferred from the rename: Total stays unscored until the user links it.
-  expect(within(matrix).getByText("Saved answer not requested by any candidate · shown in coverage")).toBeTruthy();
+  expect(within(matrix).getByText("Not requested by any candidate · saved answer kept")).toBeTruthy();
   expect(within(matrix).queryByText("100%")).toBeNull();
   fireEvent.change(within(matrix).getByRole("combobox", { name: "Link saved Amount due to a field" }), {
     target: { value: "total:number" },
@@ -600,10 +600,41 @@ it("links a renamed field to its saved answer for this Evaluation only, without 
   expect(await within(matrix).findByText(/Linked to saved “Amount due”/)).toBeTruthy();
   await waitFor(() => expect(within(matrix).getByText("100%")).toBeTruthy());
   expect(within(matrix).getByText("0%")).toBeTruthy();
-  expect(within(matrix).queryByText("Saved answer not requested by any candidate · shown in coverage")).toBeNull();
+  expect(within(matrix).queryByText("Not requested by any candidate · saved answer kept")).toBeNull();
   // A link is a temporary comparison setting, not a change to the saved answers.
   expect(screen.queryByText("Working copy.")).toBeNull();
   fireEvent.click(within(matrix).getByRole("button", { name: "Unlink Total from saved Amount due" }));
   await waitFor(() => expect(within(matrix).queryByText("100%")).toBeNull());
   expect(within(matrix).getByRole("combobox", { name: "Link saved Amount due to a field" })).toBeTruthy();
+});
+
+it("confirms a library rename and reports a failed rename with a toast", async () => {
+  overrides["PATCH /evaluations/documents/evd_a"] = (options) => {
+    const body = JSON.parse(options.body);
+
+    if (body.name === "Broken name") return Response.json({ error: { message: "Unexpected" } }, { status: 500 });
+
+    library.evd_a = { ...library.evd_a, document: summary("evd_a", body.name, 2) };
+
+    return Response.json({ document: library.evd_a.document });
+  };
+
+  render(<Harness />);
+  fireEvent.change(screen.getByLabelText("Evaluation document"), { target: { files: [upload("keep.pdf")] } });
+  fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
+  const manager = await screen.findByRole("dialog", { name: "Manage library" });
+
+  fireEvent.click(await within(manager).findByRole("button", { name: "Rename Harbour invoice" }));
+  let input = within(manager).getByRole("textbox", { name: "New name for Harbour invoice" });
+  fireEvent.change(input, { target: { value: "Renamed invoice" } });
+  fireEvent.submit(input.closest("form"));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Library item renamed: Renamed invoice", expect.anything()));
+
+  fireEvent.click(within(manager).getByRole("button", { name: "Rename Renamed invoice" }));
+  input = within(manager).getByRole("textbox", { name: "New name for Renamed invoice" });
+  fireEvent.change(input, { target: { value: "Broken name" } });
+  fireEvent.submit(input.closest("form"));
+  await waitFor(() =>
+    expect(toast.error).toHaveBeenCalledWith("Couldn't rename Renamed invoice.", expect.anything()),
+  );
 });

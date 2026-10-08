@@ -1,21 +1,21 @@
 .processing-cost { display: inline-flex; }
 .studio-main button.processing-cost-trigger {
-  display: inline; min-height: 0; height: auto; padding: 0; border: 0; border-radius: 0;
-  background: transparent; color: inherit; font: inherit; box-shadow: none; transform: none;
+  display: inline; min-height: 0; height: auto; padding: 0; border: 0;
+  background: transparent; color: inherit; font: inherit; box-shadow: none;
   cursor: help; text-decoration: underline dotted var(--rule-strong); text-underline-offset: 4px;
 }
-.studio-main button.processing-cost-trigger:hover { background: transparent; color: var(--text-1); transform: none; }
-.studio-main button.processing-cost-trigger:focus-visible { outline: 1px solid var(--accent); outline-offset: 4px; }
-.processing-cost-tooltip {
-  position: fixed; z-index: 1000; width: 292px; max-width: calc(100vw - 16px); box-sizing: border-box;
-  padding: 14px; border: 1px solid var(--rule-strong); border-radius: 4px;
-  background: var(--panel, #101a28); color: var(--text-1, #c1d0e3);
-  box-shadow: 0 8px 24px #0005; font: 12px/1.5 var(--font-body, sans-serif);
+.studio-main button.processing-cost-trigger:hover { background: transparent; color: var(--text-1); }
+/* Chrome and placement come from .ui-tooltip; this sets the breakdown's size and type. */
+.ui-tooltip.processing-cost-tooltip {
+  width: max-content; max-width: calc(100vw - 16px); box-sizing: border-box;
+  padding: 14px; font: var(--font-size-4)/1.5 var(--font-body);
 }
-.processing-cost-heading { display: flex; justify-content: space-between; font-weight: 600; }
-.processing-cost-heading span { color: var(--text-3); font: 10px/1.8 var(--font-mono); }
-.processing-cost-tooltip dl { margin: 10px 0 0; }
-.processing-cost-tooltip dl > div { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; }
+.processing-cost-heading { display: flex; justify-content: space-between; gap: 16px; font-weight: 600; }
+.processing-cost-heading span { color: var(--text-3); font: var(--font-size-2)/1.8 var(--font-mono); }
+/* Amounts share one left-aligned column. */
+.processing-cost-tooltip dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 24px; margin: 10px 0 0; }
+.processing-cost-tooltip dl > div { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; padding: 3px 0; }
 .processing-cost-tooltip dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .processing-cost-tooltip .processing-cost-total { margin-top: 6px; padding-top: 9px; border-top: 1px solid var(--rule); font-weight: 600; }
-.processing-cost-tooltip p { margin: 10px 0 0; color: var(--text-2); font-size: 11px; }
+/* Notes wrap to the width the amounts set instead of widening the tooltip. */
+.processing-cost-tooltip p { width: 0; min-width: 100%; margin: 10px 0 0; color: var(--text-2); font-size: var(--font-size-3); }

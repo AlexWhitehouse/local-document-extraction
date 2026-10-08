@@ -55,7 +55,7 @@ describe("suggestTemplateRequests", () => {
 
     const explain = suggest(broken, "explain");
     const edit = suggest(broken, "edit");
-    expect(explain[0].label).toBe("Why won’t this Template save?");
+    expect(explain[0].label).toBe("Why won’t this template save?");
     expect(explain.some((suggestion) => suggestion.label === "What should the “Total” instructions say?")).toBe(true);
     expect(explain.every((suggestion) => suggestion.label.endsWith("?"))).toBe(true);
     expect(edit).toEqual(suggest(invoice, "edit"));

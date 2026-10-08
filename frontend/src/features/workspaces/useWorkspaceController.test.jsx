@@ -33,7 +33,6 @@ function setup(contextRequest) {
     sessionUserId: "user_1",
     sessionId: "session_1",
     showActionToast: vi.fn(),
-    setBusy: vi.fn(),
     onActivePageChange: vi.fn(),
     onClearWorkspaceScopedData: vi.fn(),
   };

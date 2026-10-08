@@ -1,35 +1,43 @@
 import React from "react";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
+import { Button } from "../ui/Button.jsx";
+import { PageHeader } from "../ui/PageHeader.jsx";
+import { Badge } from "../ui/Status.jsx";
+import { Field, Textarea } from "../ui/Field.jsx";
 import { displayName, isApplicationAdmin, isEmailVerified, safeText, userIdOf } from "./adminAccounts.js";
 
-export function ApplicationAdminPage({ admin }) {
+export function ApplicationAdminPage({ admin, breadcrumbs = [] }) {
   const user = admin.selectedUser;
   const isCurrentUser = Boolean(user) && userIdOf(user) === String(admin.sessionUserId || "").trim();
   const actions = user ? getUserActions(admin, user) : [];
+  const visibleActions = actions.filter((action) => !action.rare);
+  const overflowActions = actions.filter((action) => action.rare);
 
   return (
     <>
-      <header className="studio-page-heading">
-        <p className="studio-eyebrow">Admin / Accounts</p>
-        <h1>{user ? displayName(user) : "Application admin"}</h1>
-        <div className="studio-heading-actions">
-          {isCurrentUser ? <span className="status-chip good">Your account</span> : null}
-          {actions.map((action) => (
-            <button
-              key={action.label}
-              type="button"
-              className={action.className}
-              disabled={action.disabled}
-              onClick={action.onClick}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-        <p className="studio-page-description">
-          {user ? safeText(user.email) : "Application-wide accounts, managed separately from Workspace access."}
-        </p>
-      </header>
+      <PageHeader
+        label="Admin"
+        breadcrumbs={breadcrumbs}
+        title={user ? displayName(user) : "Admin"}
+        description={user ? safeText(user.email) : "Manage accounts across every workspace."}
+        actions={
+          <>
+            {isCurrentUser ? <Badge tone="success">Your account</Badge> : null}
+            {visibleActions.map((action) => (
+              <Button key={action.label} variant={action.variant} disabled={action.disabled} onClick={action.onClick}>
+                {action.label}
+              </Button>
+            ))}
+          </>
+        }
+        overflowActions={overflowActions.map((action) => ({
+          key: action.label,
+          label: action.label,
+          danger: action.variant === "danger",
+          disabled: action.disabled,
+          onSelect: action.onClick,
+        }))}
+      />
 
       {user ? (
         <div className="studio-workspace-settings admin-account-settings">
@@ -37,7 +45,6 @@ export function ApplicationAdminPage({ admin }) {
             <div className="studio-section-heading">
               <div>
                 <h2>Account details</h2>
-                <p>How this person signs in to Studio.</p>
               </div>
             </div>
             <dl className="studio-workspace-facts">
@@ -52,9 +59,9 @@ export function ApplicationAdminPage({ admin }) {
               <div>
                 <dt>Email status</dt>
                 <dd>
-                  <span className={isEmailVerified(user) ? "status-chip good" : "status-chip warn"}>
+                  <Badge tone={isEmailVerified(user) ? "success" : "warning"}>
                     {isEmailVerified(user) ? "Verified" : "Unverified"}
-                  </span>
+                  </Badge>
                 </dd>
               </div>
               <div>
@@ -77,7 +84,7 @@ export function ApplicationAdminPage({ admin }) {
                 <dt>Application role</dt>
                 <dd>
                   {isApplicationAdmin(user) ? (
-                    <span className="status-chip busy">Application admin</span>
+                    <Badge tone="info">Application admin</Badge>
                   ) : (
                     "Regular user"
                   )}
@@ -86,9 +93,7 @@ export function ApplicationAdminPage({ admin }) {
               <div>
                 <dt>Access</dt>
                 <dd>
-                  <span className={user.banned ? "status-chip bad" : "status-chip"}>
-                    {user.banned ? "Banned" : "Active"}
-                  </span>
+                  <Badge tone={user.banned ? "danger" : "neutral"}>{user.banned ? "Banned" : "Active"}</Badge>
                 </dd>
               </div>
               <div>
@@ -120,10 +125,12 @@ function getUserActions(admin, user) {
   const isCurrentUser = userId && userId === String(admin.sessionUserId || "").trim();
   const disabled = admin.isLoading || admin.mutatingUserId === userId;
 
-  const action = (label, run, className) => ({
+  // Rare or destructive actions go in the overflow menu; see PageHeader.
+  const action = (label, run, variant, rare = variant === "danger") => ({
     label,
-    className,
+    variant,
     disabled,
+    rare,
     onClick: () => run(user),
   });
 
@@ -134,7 +141,7 @@ function getUserActions(admin, user) {
   }
 
   if (isApplicationAdmin(user)) {
-    if (!isCurrentUser) actions.push(action("Remove admin", admin.onRemoveAdmin, "secondary"));
+    if (!isCurrentUser) actions.push(action("Remove admin", admin.onRemoveAdmin, "secondary", true));
   } else {
     actions.push(action("Make admin", admin.onMakeAdmin, "secondary"));
   }
@@ -150,18 +157,21 @@ function getUserActions(admin, user) {
 
 function UnbanUserDialog({ admin, user }) {
   const email = safeText(user.email);
+  const pending = admin.mutatingUserId === String(user.id || "").trim();
 
   return (
     <ModalDialog
       className="admin-user-action-modal"
       label={`Unban ${email}`}
       initialFocus=".actions button"
+      closeDisabled={pending}
       onClose={admin.onCloseUnbanDialog}
     >
       <ModalHeader
         title={`Unban ${email}`}
-        description="Restoring access allows this Better Auth account to sign in again."
+        description="They'll be able to sign in again."
         onClose={admin.onCloseUnbanDialog}
+        closeDisabled={pending}
       />
       <dl className="admin-user-action-details">
         <div>
@@ -174,16 +184,12 @@ function UnbanUserDialog({ admin, user }) {
         </div>
       </dl>
       <div className="actions">
-        <button type="button" className="secondary" onClick={admin.onCloseUnbanDialog}>
+        <Button variant="secondary" onClick={admin.onCloseUnbanDialog}>
           Cancel
-        </button>
-        <button
-          type="button"
-          disabled={admin.mutatingUserId === String(user.id || "").trim()}
-          onClick={admin.onConfirmUnban}
-        >
-          Confirm unban
-        </button>
+        </Button>
+        <Button pending={pending} pendingLabel="Unbanning…" onClick={admin.onConfirmUnban}>
+          Unban user
+        </Button>
       </div>
     </ModalDialog>
   );
@@ -191,41 +197,40 @@ function UnbanUserDialog({ admin, user }) {
 
 function BanUserDialog({ admin, user }) {
   const email = safeText(user.email);
+  const pending = admin.mutatingUserId === String(user.id || "").trim();
 
   return (
     <ModalDialog
       className="admin-user-action-modal"
       label={`Ban ${email}`}
       initialFocus="textarea"
+      isDirty={Boolean(admin.banReason.trim())}
+      closeDisabled={pending}
       onClose={admin.onCloseBanDialog}
     >
       <ModalHeader
         title={`Ban ${email}`}
-        description="This permanently blocks Better Auth account access. Workspace data is unchanged."
+        description="They won't be able to sign in until you unban them. Their workspace data is kept."
         onClose={admin.onCloseBanDialog}
+        closeDisabled={pending}
       />
       <form className="admin-user-action-form" onSubmit={admin.onConfirmBan}>
-        {isApplicationAdmin(user) ? <p className="form-warning">You are banning another Application admin.</p> : null}
-        <label>
-          Ban reason
-          <textarea
+        {isApplicationAdmin(user) ? <p className="form-warning">You're banning another application admin.</p> : null}
+        <Field label="Reason" error={admin.banReasonError}>
+          <Textarea
             value={admin.banReason}
             onChange={(event) => admin.onBanReasonChange(event.target.value)}
+            placeholder="e.g. Spam account"
             rows={4}
           />
-        </label>
-        {admin.banReasonError ? (
-          <p className="form-error" role="alert">
-            {admin.banReasonError}
-          </p>
-        ) : null}
+        </Field>
         <div className="actions">
-          <button type="button" className="secondary" onClick={admin.onCloseBanDialog}>
+          <Button variant="secondary" onClick={admin.onCloseBanDialog}>
             Cancel
-          </button>
-          <button type="submit" className="danger" disabled={admin.mutatingUserId === String(user.id || "").trim()}>
-            Confirm ban
-          </button>
+          </Button>
+          <Button type="submit" variant="danger" pending={pending} pendingLabel="Banning…">
+            Ban user
+          </Button>
         </div>
       </form>
     </ModalDialog>

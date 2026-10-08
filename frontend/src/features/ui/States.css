@@ -1,0 +1,90 @@
+.ui-state {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: var(--font-size-4);
+}
+
+.ui-state p {
+  margin: 0;
+}
+
+.ui-state-inline {
+  padding: 10px 12px;
+}
+
+.ui-state-panel {
+  min-height: 160px;
+  place-content: center;
+  justify-items: center;
+  padding: 24px;
+  text-align: center;
+  font-size: var(--font-size-5);
+}
+
+.ui-state-tableRow td {
+  padding: 16px 12px;
+  color: var(--text-2);
+}
+
+.ui-error-state p {
+  color: var(--tone-danger-text);
+}
+
+.ui-loading-state {
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: start;
+}
+
+.ui-state-panel.ui-loading-state {
+  justify-content: center;
+}
+
+.ui-spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border: 2px solid var(--rule-strong);
+  border-top-color: var(--accent);
+  animation: status-spin 0.85s linear infinite;
+}
+
+.ui-spinner-sm {
+  width: 14px;
+  height: 14px;
+}
+
+.ui-spinner-md {
+  width: 24px;
+  height: 24px;
+}
+
+.ui-skeleton {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.ui-skeleton-row {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: var(--pane-raised);
+}
+
+.ui-skeleton-row::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--wash-2), transparent);
+  transform: translateX(-100%);
+  animation: status-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-spinner,
+  .ui-skeleton-row::before {
+    animation: none;
+  }
+}

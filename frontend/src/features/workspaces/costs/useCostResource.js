@@ -31,7 +31,7 @@ export function useCostResource(request, path) {
             error:
               error.status === 401 || error.status === 403
                 ? "Costs are available only to signed-in Workspace owners and admins."
-                : "Cost history could not be loaded. Please retry.",
+                : "Couldn't load cost history.",
           });
       } finally {
         pending = false;

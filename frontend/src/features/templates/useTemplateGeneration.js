@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { validateTemplateJsonPayload } from "./templateFields.js";
-import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import { describeError } from "../../lib/describeError";
+import { validateSourceFiles } from "../documents/sourceFileValidation.js";
 
 export function useTemplateGeneration({
   request,
@@ -60,26 +61,22 @@ export function useTemplateGeneration({
       return;
     }
 
-    if (!SOURCE_FILE_MIME_TYPES.includes(file.type)) {
-      setError("Choose a PDF, PNG, JPEG, or WebP file.");
+    const [rejection] = validateSourceFiles([file], maxSourceFileBytes).rejections;
 
-      return;
-    }
-
-    if (!file.size || file.size > maxSourceFileBytes) {
-      setError(`Choose a nonempty file no larger than ${maxSourceFileBytes / (1024 * 1024)} MiB.`);
+    if (rejection || !file.size) {
+      setError(rejection || `${file.name} is empty.`);
 
       return;
     }
 
     if (new TextEncoder().encode(instructions).length > 8192) {
-      setError("Instructions must be at most 8 KiB. Please shorten them.");
+      setError("Keep your instructions within 8 KB.");
 
       return;
     }
 
     if (hasUnsavedChanges && !confirmed) {
-      setError("Confirm replacement of your unsaved edits before generating.");
+      setError("Confirm that generating can replace your unsaved changes.");
 
       return;
     }
@@ -109,7 +106,7 @@ export function useTemplateGeneration({
       onApply(payload, { createNew });
       cancel();
     } catch (failure) {
-      if (isCurrent()) setError(failure.message || "Template generation failed. Please try again.");
+      if (isCurrent()) setError(describeError(failure, "Template generation failed. Try again."));
     } finally {
       if (isCurrent()) {
         pending.current = null;

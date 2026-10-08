@@ -1,6 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { DocumentUploadPanel } from "../documents/DocumentUploadPanel.jsx";
-import { ModalHeader } from "../layout/ModalDialog.jsx";
+import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { Button } from "../ui/Button.jsx";
+import { CheckboxField, Field, Textarea } from "../ui/Field.jsx";
 
 export function TemplateGenerationModal({
   isOpen,
@@ -18,20 +21,20 @@ export function TemplateGenerationModal({
   onClose,
   onGenerate,
 }) {
-  const dialog = useRef(null);
-  const [isDragActive, setIsDragActive] = useState(false);
   const [uploadError, setUploadError] = useState("");
   useEffect(() => {
     if (!isOpen) return;
-    setIsDragActive(false);
     setUploadError("");
-    const previous = document.activeElement;
-    dialog.current?.querySelector(".upload-dropzone")?.focus();
-
-    return () => previous?.focus();
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  // The sample and instructions are a draft, so closing asks first.
+  const isDirty = Boolean(file) || Boolean(instructions?.trim());
+
+  const requestClose = async () => {
+    if (!isDirty || (await confirmDialog({ ...DISCARD_CHANGES }))) onClose();
+  };
 
   function selectFiles(files) {
     if (files.length > 1) {
@@ -45,47 +48,18 @@ export function TemplateGenerationModal({
     if (files[0]) onFileChange(files[0]);
   }
 
-  function onKeyDown(event) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-    }
-
-    if (event.key !== "Tab") return;
-
-    const controls = [
-      ...dialog.current.querySelectorAll(
-        'input:not(:disabled):not([tabindex="-1"]), textarea:not(:disabled), button:not(:disabled)',
-      ),
-    ];
-
-    const first = controls[0];
-    const last = controls.at(-1);
-
-    if (event.shiftKey && (document.activeElement === first || !controls.includes(document.activeElement))) {
-      event.preventDefault();
-      last?.focus();
-    } else if (!event.shiftKey && (document.activeElement === last || !controls.includes(document.activeElement))) {
-      event.preventDefault();
-      first?.focus();
-    }
-  }
-
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        ref={dialog}
-        className="modal-card template-generation-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="template-generation-title"
-        onKeyDown={onKeyDown}
-        onClick={(event) => event.stopPropagation()}
-      >
+    <ModalDialog
+      labelledBy="template-generation-title"
+      className="template-generation-modal"
+      initialFocus=".ui-dropzone-browse"
+      isDirty={isDirty}
+      onClose={onClose}
+    >
         <ModalHeader
-          title="Auto generate template"
+          title="Auto-generate template"
           titleId="template-generation-title"
-          description="Upload a sample for this workspace’s model to propose a template. Review and edit it before saving."
+          description="Upload a sample document and we’ll draft a template for you to review."
           onClose={onClose}
         />
         {!isGenerating && (
@@ -94,43 +68,28 @@ export function TemplateGenerationModal({
               label="Sample file"
               multiple={false}
               sourceFiles={file ? [{ id: "sample", file, queueStatus: "pending" }] : []}
-              isDragActive={isDragActive}
               maxSourceFileBytes={maxSourceFileBytes}
               onSelectSourceFiles={selectFiles}
-              onDragOver={() => setIsDragActive(true)}
-              onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) setIsDragActive(false);
-              }}
-              onDrop={(event) => {
-                setIsDragActive(false);
-                selectFiles(Array.from(event.dataTransfer?.files || []));
-              }}
               onRemoveSourceFile={() => {
                 setUploadError("");
                 onFileChange(null);
               }}
             />
-            <label>
-              What should this template capture? (optional)
-              <textarea
+            <Field label="What should this template capture?" hint="Optional. Leave blank to infer fields from the sample.">
+              <Textarea
                 rows={3}
                 maxLength={8192}
                 value={instructions}
-                placeholder="For example, supplier details and line items, excluding payment information."
+                placeholder="e.g. Supplier details and line items, excluding payment information."
                 onChange={(event) => onInstructionsChange(event.target.value)}
               />
-            </label>
+            </Field>
             {hasUnsavedChanges && (
-              <label className="template-generation-confirm">
-                <input
-                  type="checkbox"
-                  checked={confirmed}
-                  onChange={(event) => onConfirmedChange(event.target.checked)}
-                />
-                <span>
-                  I understand that successful generation will replace my unsaved name, description, and fields.
-                </span>
-              </label>
+              <CheckboxField
+                label="Generating will replace my unsaved name, description and fields."
+                checked={confirmed}
+                onChange={onConfirmedChange}
+              />
             )}
           </>
         )}
@@ -141,54 +100,26 @@ export function TemplateGenerationModal({
           </p>
         )}
         <div className="actions">
-          <button type="button" className="secondary" onClick={onClose}>
+          <Button type="button" variant="secondary" onClick={requestClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={isGenerating || !hasApiAccess || !file || (hasUnsavedChanges && !confirmed)}
             onClick={onGenerate}
           >
             {isGenerating ? "Generating…" : error ? "Try again" : "Generate template"}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+    </ModalDialog>
   );
 }
 
-const GENERATION_PHRASES = [
-  "Combobulating response…",
-  "Consulting the schema sprites…",
-  "Untangling the JSON spaghetti…",
-  "Teaching columns to line up…",
-  "Polishing the curly brackets…",
-  "Asking the pixels politely…",
-  "Putting the data ducks in a row…",
-  "Applying a little template magic…",
-];
-
 function GenerationProgress() {
-  const [phraseIndex, setPhraseIndex] = useState(0);
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setPhraseIndex((current) => (current + 1) % GENERATION_PHRASES.length);
-    }, 2800);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
   return (
-    <div
-      className="template-generation-progress"
-      role="status"
-      aria-label="Generating template. You can cancel at any time."
-    >
+    <div className="template-generation-progress" role="status">
       <span className="template-generation-spinner" aria-hidden="true" />
-      <div aria-hidden="true">
-        <strong>{GENERATION_PHRASES[phraseIndex]}</strong>
-        <p>Working on your template. You can cancel at any time.</p>
-      </div>
+      <strong>Generating template…</strong>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { WorkspaceToolbar } from "../layout/MainLayout.jsx";
+import { PageHeader } from "../ui/PageHeader.jsx";
 import { DocumentUploadPanel } from "../documents/DocumentUploadPanel.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { EvaluationSetup } from "./EvaluationSetup.jsx";
@@ -13,8 +13,10 @@ import {
   UpdateReview,
 } from "./EvaluationLibrary.jsx";
 import { Meter } from "./EvaluationParts.jsx";
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { toast as defaultToast } from "sonner";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { pluralize } from "../../lib/text.js";
+import { createNotifier, defaultToast } from "../../lib/notify";
+import { describeError } from "../../lib/describeError";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
 import { validateTemplateJsonPayload } from "../templates/templateFields.js";
 import { templateLabel } from "./evaluationFormat.js";
@@ -23,26 +25,33 @@ import { MAX_CANDIDATES, documentRunnable, pairBusy } from "./useEvaluations.js"
 import { documentCompatibility } from "./evaluationScoring.js";
 import { documentDirty, saveUnavailableMessage } from "./evaluationLibrary.js";
 import "./evaluations.css";
-import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
+import { validateSourceFiles } from "../documents/sourceFileValidation.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { Segmented } from "../ui/Tabs.jsx";
+import { Dropzone } from "../ui/Dropzone.jsx";
+import { Callout } from "../ui/Callout.jsx";
+import { CloseIcon, ExternalIcon } from "../layout/Icons.jsx";
 
 export function EvaluationsPage({
   evaluation,
   templates,
-  workspaceLabel = "Workspace",
+  workspaceCrumb = null,
   enabled,
   maxSourceFileBytes,
   suggestedModels,
   onTemplateSaved,
+  onOpenWorkspace,
   toast = defaultToast,
 }) {
   const { state, patch, edit, api } = evaluation;
   const [editor, setEditor] = useState(null);
   const [preview, setPreview] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [isDragActive, setDragActive] = useState(false);
   const [autoRun, setAutoRun] = useState(null);
   const [replacement, setReplacement] = useState(null);
   const [localError, setLocalError] = useState("");
+  const notify = useMemo(() => createNotifier(toast), [toast]);
   const [dialog, setDialog] = useState(null);
   const [view, setView] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -133,21 +142,14 @@ export function EvaluationsPage({
   const unsaved = state.documents.filter((d) => d.kind === "upload" || documentDirty(d)).length;
 
   const selectDocuments = (files) => {
-    setDragActive(false);
-
     if (!files.length) return;
-    const valid = files.filter((file) => SOURCE_FILE_MIME_TYPES.includes(file.type) && file.size <= maxSourceFileBytes);
+    const { accepted, rejections } = validateSourceFiles(files, maxSourceFileBytes);
+    const problem = rejections.join(" ");
 
-    const problem = files.some((file) => !SOURCE_FILE_MIME_TYPES.includes(file.type))
-      ? "Choose a PDF, PNG, JPG or WEBP document."
-      : files.some((file) => file.size > maxSourceFileBytes)
-        ? "Document exceeds the Workspace file limit."
-        : "";
-
-    if (valid.length) evaluation.addUploads(valid);
+    if (accepted.length) evaluation.addUploads(accepted);
     setLocalError(
       problem
-        ? `${problem}${valid.length ? ` Added ${valid.length} other ${valid.length === 1 ? "document" : "documents"}.` : ""}`
+        ? `${problem}${accepted.length ? ` Added ${accepted.length} other ${accepted.length === 1 ? "document" : "documents"}.` : ""}`
         : "",
     );
 
@@ -186,7 +188,7 @@ export function EvaluationsPage({
 
       if (runNow) setAutoRun(ids);
     } catch (error) {
-      if (owner === lifetime.current) setLocalError(error.message);
+      if (owner === lifetime.current) setLocalError(describeError(error, "Couldn’t start the evaluation. Try again."));
     }
   };
 
@@ -202,9 +204,9 @@ export function EvaluationsPage({
 
           return tested && tested.revision !== candidate.revision;
         })
-          ? "These current edits have not been tested. Saving creates a new Template."
+          ? "These edits haven’t been run yet. Saving creates a new template."
           : save
-            ? "Creates a new Template from the current draft."
+            ? "Creates a new template from the current draft."
             : "Changes apply to the draft. Run again to test them.",
     });
 
@@ -219,7 +221,7 @@ export function EvaluationsPage({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      toast.success(`Template saved: ${payload.name}`);
+      notify("evaluation.templateSave", "success", { targetName: payload.name });
       await onTemplateSaved?.();
     } else if (editor.documentKey && editor.initial.source) {
       const initial = editor.initial;
@@ -249,7 +251,7 @@ export function EvaluationsPage({
         current_version: saved.version,
         source: { id: initial.source.id, version: changes.fields ? saved.version : initial.source.version },
       }, editor.documentKey);
-      toast.success(`Template saved: ${payload.name}`);
+      notify("evaluation.templateSave", "success", { targetName: payload.name });
       await onTemplateSaved?.();
     } else if (editor.documentKey) {
       const next = { ...payload };
@@ -278,16 +280,33 @@ export function EvaluationsPage({
       ? edit(candidate.id, { [key]: value })
       : patch({ candidates: state.candidates.map((c) => ({ ...c, [key]: value, revision: c.revision + 1 })) });
 
+  // Removes at once; the toast's Undo restores the candidate with its results.
+  const removeCandidate = async (candidate) => {
+    const undo = await evaluation.remove(candidate.id);
+
+    if (undo)
+      notify("evaluation.removeCandidate", "success", {
+        targetName: candidate.model || candidate.template?.name,
+        undo,
+      });
+  };
+
+  const discardChanges = (document) => {
+    const undo = evaluation.discardChanges(document.key);
+
+    if (undo) notify("evaluation.discardChanges", "success", { undo });
+  };
+
   const menuFor = (candidate) => ({
     inputs: { shared: state.mode === "templates" },
     onInputChange: (key, value) => setInput(candidate, key, value),
     actions: [
-      { label: "Edit Template", onClick: () => openEditor(candidate) },
+      { label: "Edit template", onClick: () => openEditor(candidate) },
       state.mode === "templates" && {
-        label: "Choose another Template/version",
+        label: "Choose another template version",
         onClick: () => setReplacement({ candidateId: candidate.id, source: candidate.template.source }),
       },
-      { label: "Save as new Template", onClick: () => openEditor(candidate, true) },
+      { label: "Save as new template", onClick: () => openEditor(candidate, true) },
       {
         label: "Duplicate candidate",
         disabled: state.candidates.length >= MAX_CANDIDATES,
@@ -297,13 +316,13 @@ export function EvaluationsPage({
         label: "Remove candidate",
         danger: true,
         disabled: state.candidates.length <= 1 || busyFor(candidate.id),
-        onClick: () => evaluation.remove(candidate.id),
+        onClick: () => removeCandidate(candidate),
       },
     ],
   });
 
   const runFor = (candidate, index) => ({
-    label: `Run Candidate ${index + 1}`,
+    label: `Run candidate ${index + 1}`,
     title: batch ? "Run candidate on this document" : "Run candidate",
     disabled:
       pairBusy(state.pairs[document.key]?.[candidate.id]) ||
@@ -324,54 +343,64 @@ export function EvaluationsPage({
   const open = (kind, extra = {}) => setDialog({ kind, ...extra });
   const dialogDocument = dialog?.key && state.documents.find((d) => d.key === dialog.key);
   const dialogFields = dialog?.fields || fields;
+
+  // The template editor and library save dialogs hold unapplied edits.
+  useUnsavedGuard(
+    Boolean(editor || (dialog?.kind === "save" && dialogDocument) || (dialog?.kind === "update" && dialogDocument?.entry)),
+    "Evaluation dialog",
+  );
   const compatibility = document && documentCompatibility(document, fields);
   const saveUnavailable = saveUnavailableMessage(state.library);
 
   return (
     <section className="evaluations-page" aria-label="Evaluations">
-      <WorkspaceToolbar
-        activePage="evaluations"
-        workspaceLabel={workspaceLabel}
-        pageTitle="Evaluations"
-        pageDescription="Compare candidates on one or more documents. Runs and results are temporary and clear when you close this tab; saved documents and their answers stay in the Workspace library."
+      <PageHeader
+        label="Evaluations"
+        breadcrumbs={[workspaceCrumb, { label: "Evaluations" }].filter(Boolean)}
+        title="Evaluations"
+        description="Compare models or template versions on your documents."
         actions={
           <>
             {editingLibrary && (
               <>
-                <button type="button" className="secondary" onClick={() => patch({ libraryEditor: null })}>
-                  Back to Evaluation
-                </button>
-                <button type="button" className="secondary" onClick={() => open("manage")}>
+                <Button variant="secondary" onClick={() => patch({ libraryEditor: null })}>
+                  Back to evaluation
+                </Button>
+                <Button variant="secondary" onClick={() => open("manage")}>
                   Manage library
-                </button>
+                </Button>
               </>
             )}
-            <button type="button" className="secondary" onClick={() => open("clear")}>
-              Clear Evaluation{unsaved ? ` · ${unsaved} unsaved` : ""}
-            </button>
+            <Button variant="secondary" onClick={() => open("clear")}>
+              Clear evaluation{unsaved ? ` · ${unsaved} unsaved` : ""}
+            </Button>
             {!editingLibrary && (
-              <button
-                type="button"
+              <Button
                 disabled={runDisabled}
                 onClick={() => evaluation.run(state.candidates.map((c) => c.id))}
-              >{`Run all${state.candidates.length ? ` ${state.candidates.length}` : ""}${batch && state.candidates.length ? ` × ${runnable.length}` : ""}`}</button>
+              >{`Run all${state.candidates.length ? ` (${pluralize(state.candidates.length, "candidate")}${batch ? `, ${pluralize(runnable.length, "document")}` : ""})` : ""}`}</Button>
             )}
           </>
         }
       />
       {state.cacheError && (
-        <div role="alert" className="evaluation-banner bad evaluation-cache-error">
-          <span>
-            <strong>Result details couldn’t be kept in this browser.</strong> {state.cacheError.message} New runs are
-            paused; results already shown are kept, and results whose details are missing can’t be scored.
-          </span>
-          <button type="button" className="studio-text-button" onClick={() => evaluation.retryCache()}>
-            Retry storage
-          </button>
-          <button type="button" className="studio-text-button" onClick={() => open("clear")}>
-            Clear Evaluation
-          </button>
-        </div>
+        <Callout
+          tone="danger"
+          role="alert"
+          title="Results can’t be saved in this browser."
+          action={
+            <>
+              <Button variant="text" onClick={() => evaluation.retryCache()}>
+                Try again
+              </Button>
+              <Button variant="danger-text" onClick={() => open("clear")}>
+                Clear evaluation
+              </Button>
+            </>
+          }
+        >
+          Runs are paused. Results already shown are kept.
+        </Callout>
       )}
       {!state.candidates.length && !editingLibrary ? (
         <EvaluationSetup
@@ -386,15 +415,17 @@ export function EvaluationsPage({
           onRemoveDocument={evaluation.removeDocument}
           onPreviewDocument={setPreview}
           onStart={startEvaluation}
+          showActionToast={notify}
           onChooseLibrary={(setupFields) => open("picker", { fields: setupFields })}
           onManageLibrary={(setupFields) => open("manage", { fields: setupFields })}
+          onOpenWorkspace={onOpenWorkspace}
         />
       ) : (
         <>
           {((!editingLibrary && state.error) || localError) && !uploadOpen && (
-            <p role="alert" className="evaluation-page-alert">
+            <Callout tone="danger" role="alert">
               {(!editingLibrary && state.error) || localError}
-            </p>
+            </Callout>
           )}
           <div className="evaluation-contextbar">
             <div className="evaluation-context-item">
@@ -409,47 +440,39 @@ export function EvaluationsPage({
               </span>
               <span className="evaluation-context-actions">
                 {document && (
-                  <button type="button" className="studio-text-button" onClick={() => setPreview(document)}>
-                    View ↗
-                  </button>
+                  <Button variant="text" onClick={() => setPreview(document)}>
+                    View <ExternalIcon size={12} />
+                  </Button>
                 )}
                 {document?.kind === "upload" && (
-                  <button
-                    type="button"
-                    className="studio-text-button"
+                  <Button variant="text"
                     disabled={!!saveUnavailable || document.save === "saving"}
                     title={saveUnavailable || undefined}
                     onClick={() => open("save", { key: document.key })}
                   >
                     {document.save === "saving" ? "Saving…" : "Save to library…"}
-                  </button>
+                  </Button>
                 )}
                 {document && documentDirty(document) && (
                   <>
-                    <button
-                      type="button"
-                      className="studio-text-button"
+                    <Button variant="text"
                       onClick={() => open("update", { key: document.key })}
                     >
                       Update saved answers…
-                    </button>
-                    <button
-                      type="button"
-                      className="studio-text-button"
-                      onClick={() => evaluation.discardChanges(document.key)}
-                    >
+                    </Button>
+                    <Button variant="danger-text" onClick={() => discardChanges(document)}>
                       Discard changes
-                    </button>
+                    </Button>
                   </>
                 )}
                 {!editingLibrary && (
                   <>
-                    <button type="button" className="studio-text-button" onClick={() => open("picker")}>
+                    <Button variant="text" onClick={() => open("picker")}>
                       Add from library
-                    </button>
-                    <button type="button" className="studio-text-button" onClick={() => setUploadOpen(true)}>
+                    </Button>
+                    <Button variant="text" onClick={() => setUploadOpen(true)}>
                       Upload document
-                    </button>
+                    </Button>
                   </>
                 )}
               </span>
@@ -457,22 +480,15 @@ export function EvaluationsPage({
             {!editingLibrary && (
               <div className="evaluation-context-item">
                 <small>Comparing</small>
-                <div className="segmented" role="group" aria-label="Comparison mode">
-                  {[
-                    ["models", "Models"],
-                    ["templates", "Templates"],
-                  ].map(([mode, label]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      disabled={anyBusy}
-                      aria-pressed={state.mode === mode}
-                      onClick={() => evaluation.changeMode(mode)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  label="Comparison mode"
+                  value={state.mode}
+                  onChange={(mode) => void evaluation.changeMode(mode)}
+                  items={[
+                    { value: "models", label: "Models", disabled: anyBusy },
+                    { value: "templates", label: "Templates", disabled: anyBusy },
+                  ]}
+                />
               </div>
             )}
             {editingLibrary ? (
@@ -483,41 +499,37 @@ export function EvaluationsPage({
                   {" · "}{fields.length} {fields.length === 1 ? "field" : "fields"}
                 </span>
                 <span className="evaluation-context-actions">
-                  <button
-                    type="button"
-                    className="studio-text-button"
+                  <Button variant="text"
                     onClick={() => setReplacement({ documentKey: document.key, source: template.source })}
                   >
-                    Choose Template/version
-                  </button>
-                  <button
-                    type="button"
-                    className="studio-text-button"
+                    Choose template version
+                  </Button>
+                  <Button variant="text"
                     onClick={() =>
                       setEditor({
                         candidateId: "library-template",
                         documentKey: document.key,
                         initial: template,
                         notice: template.source
-                          ? "Saves changes to the selected Workspace Template. Changed fields become its latest version and are used here immediately. Review the Expected answers, then use Update saved answers to save them."
-                          : "Changes apply to this document’s draft. Choose a Template/version to edit a saved Workspace Template. Review the Expected answers, then use Update saved answers to save them.",
+                          ? "Saves a new version of this template."
+                          : "Changes apply to this document’s draft. Choose a template version to edit a saved template.",
                       })
                     }
                   >
-                    Edit Template
-                  </button>
+                    Edit template
+                  </Button>
                 </span>
               </div>
             ) : state.mode === "models" ? (
               <div className="evaluation-context-item">
-                <small>Shared Template</small>
+                <small>Shared template</small>
                 <span className="evaluation-context-value" title={templateLabel(template)}>
                   {templateLabel(template)} · {fields.length} {fields.length === 1 ? "field" : "fields"}
                 </span>
                 <span className="evaluation-context-actions">
-                  <button type="button" className="studio-text-button" onClick={() => openEditor(state.candidates[0])}>
-                    Edit shared Template
-                  </button>
+                  <Button variant="text" onClick={() => openEditor(state.candidates[0])}>
+                    Edit shared template
+                  </Button>
                 </span>
               </div>
             ) : (
@@ -544,7 +556,7 @@ export function EvaluationsPage({
                 <>
                   <span className="evaluation-context-value">
                     {compatibility.verified} of {compatibility.total} verified
-                    {compatibility.review ? ` · ${compatibility.review} review` : ""}
+                    {compatibility.review ? `, ${compatibility.review} to review` : ""}
                   </span>
                   <Meter value={compatibility.total ? compatibility.verified / compatibility.total : 0} best />
                 </>
@@ -553,21 +565,21 @@ export function EvaluationsPage({
               )}
             </div>
           </div>
-          {document && <DocumentBanner evaluation={evaluation} document={document} toast={toast} />}
+          {document && <DocumentBanner evaluation={evaluation} document={document} notify={notify} />}
           {document && (
             <div className="evaluation-toolbar-row">
               <FieldFilters value={filter} onChange={setFilter} editing={editingLibrary} />
               {batch && (
-                <nav className="evaluation-doc-nav" aria-label="Documents in this Evaluation">
-                  <button type="button" className="secondary" onClick={() => step(-1)}>
+                <nav className="evaluation-doc-nav" aria-label="Documents in this evaluation">
+                  <Button variant="secondary" onClick={() => step(-1)}>
                     Previous
-                  </button>
+                  </Button>
                   <span className="evaluation-muted">
                     Document {position + 1} of {state.documents.length}
                   </span>
-                  <button type="button" className="secondary" onClick={() => step(1)}>
+                  <Button variant="secondary" onClick={() => step(1)}>
                     Next
-                  </button>
+                  </Button>
                 </nav>
               )}
             </div>
@@ -588,23 +600,27 @@ export function EvaluationsPage({
               onFilterChange={setFilter}
             />
           ) : (
-            <div className="evaluation-dropzone">
-              <span className="evaluation-dropzone-icon" aria-hidden="true">
-                ▤
-              </span>
-              <div>
-                <strong>Add a document to compare</strong>
-                <small>Choose saved documents or upload new ones. Candidates run on every document.</small>
-              </div>
-              <span className="evaluation-actions">
-                <button type="button" onClick={() => open("picker")}>
-                  Library
-                </button>
-                <button type="button" className="secondary" onClick={() => setUploadOpen(true)}>
-                  Upload new
-                </button>
-              </span>
-            </div>
+            <Dropzone
+              label="Evaluation document"
+              className="evaluation-dropzone"
+              onFiles={selectDocuments}
+              renderContent={() => (
+                <>
+                <span className="evaluation-dropzone-icon" aria-hidden="true">
+                  ▤
+                </span>
+                <div>
+                  <strong>Add a document to compare</strong>
+                </div>
+                <span className="evaluation-actions">
+                  <Button onClick={() => open("picker")}>Library</Button>
+                  <Button variant="secondary" onClick={() => setUploadOpen(true)}>
+                    Upload new
+                  </Button>
+                </span>
+                </>
+              )}
+            />
           )}
         </>
       )}
@@ -618,28 +634,16 @@ export function EvaluationsPage({
         >
           <div className="evaluation-heading">
             <h2>Upload documents</h2>
-            <button
-              type="button"
-              className="modal-close"
-              aria-label="Close"
-              title="Close"
-              onClick={() => {
+            <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={() => {
                 setUploadOpen(false);
                 setLocalError("");
-              }}
-            >
-              ×
-            </button>
+              }} />
           </div>
           <DocumentUploadPanel
             label="Document"
             multiple
             maxSourceFileBytes={maxSourceFileBytes}
-            isDragActive={isDragActive}
             onSelectSourceFiles={selectDocuments}
-            onDragOver={() => setDragActive(true)}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(event) => selectDocuments(Array.from(event.dataTransfer.files || []))}
           />
           {localError && (
             <p role="alert" className="form-error">
@@ -653,13 +657,8 @@ export function EvaluationsPage({
           key={`${state.id}:${replacement.documentKey || replacement.candidateId}`}
           templates={templates}
           source={replacement.source}
-          title={replacement.documentKey ? "Choose Template/version" : "Choose candidate Template"}
-          description={
-            replacement.documentKey
-              ? "Load fields into this document’s draft and review changes against its Expected answers. Use Update saved answers to save your reviewed answers to the library."
-              : undefined
-          }
-          action={replacement.documentKey ? "Use Template version" : "Replace candidate Template"}
+          title={replacement.documentKey ? "Choose template version" : "Choose candidate template"}
+          action={replacement.documentKey ? "Use template version" : "Replace candidate template"}
           loadTemplate={loadTemplate}
           onSelect={(selected) => {
             if (replacement.documentKey) {
@@ -674,17 +673,18 @@ export function EvaluationsPage({
         <TemplateEditorModal
           key={`${editor.candidateId}:${editor.save}`}
           {...editor}
-          title={editor.save ? "Save as new Template" : "Edit Template"}
-          action={editor.save ? "Save new Template" : editor.documentKey && editor.initial.source ? "Save Template" : "Apply changes"}
+          title={editor.save ? "Save as new template" : "Edit template"}
+          action={editor.save ? "Save new template" : editor.documentKey && editor.initial.source ? "Save template" : "Apply changes"}
           onSubmit={applyTemplate}
           onClose={() => setEditor(null)}
+          showActionToast={notify}
         />
       )}
       {dialog?.kind === "picker" && (
         <LibraryPicker evaluation={evaluation} fields={dialogFields} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === "manage" && (
-        <ManageLibrary evaluation={evaluation} fields={dialogFields} onClose={() => setDialog(null)} />
+        <ManageLibrary evaluation={evaluation} fields={dialogFields} onClose={() => setDialog(null)} notify={notify} />
       )}
       {dialog?.kind === "clear" && <ClearDialog evaluation={evaluation} onClose={() => setDialog(null)} />}
       {dialog?.kind === "save" && dialogDocument && (
@@ -692,7 +692,7 @@ export function EvaluationsPage({
           evaluation={evaluation}
           document={dialogDocument}
           fields={dialogFields}
-          onSaved={toast.success}
+          onSaved={(name) => notify("library.save", "success", { targetName: name })}
           onClose={() => setDialog(null)}
         />
       )}
@@ -700,7 +700,7 @@ export function EvaluationsPage({
         <UpdateReview
           evaluation={evaluation}
           document={dialogDocument}
-          onDone={toast.success}
+          onDone={(action) => notify(action, "success", { targetName: dialogDocument.name })}
           onClose={() => setDialog(null)}
         />
       )}

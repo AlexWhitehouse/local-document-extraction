@@ -1,0 +1,22 @@
+.ui-pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ui-pager-label {
+  color: var(--text-2);
+  font: var(--font-size-2) var(--font-mono);
+}
+
+.ui-load-more {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.ui-load-more-error {
+  margin: 0;
+  color: var(--tone-danger-text);
+  font-size: var(--font-size-3);
+}

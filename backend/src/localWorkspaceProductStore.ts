@@ -1572,10 +1572,11 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     listExtractionJobModels: () =>
       database
         .query<{ model_name: string }, SQLQueryBindings[]>(
-          `SELECT DISTINCT model_name
+          `SELECT model_name
        FROM jobs
        WHERE model_name IS NOT NULL AND TRIM(model_name) != ''
-       ORDER BY model_name COLLATE NOCASE ASC`,
+       GROUP BY model_name
+       ORDER BY MAX(created_at) DESC, model_name COLLATE NOCASE ASC`,
         )
         .all()
         .map((row) => row.model_name),

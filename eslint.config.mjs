@@ -101,4 +101,43 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Native dialogs can't be labelled or styled; use confirmDialog from features/ui/confirm.jsx.
+    files: ["frontend/src/**/*.{js,jsx}"],
+    ignores: ["frontend/src/**/*.test.{js,jsx}", "frontend/src/test/**"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        { name: "confirm", message: "Use confirmDialog from features/ui/confirm.jsx." },
+        { name: "alert", message: "Use a toast or an inline message." },
+        { name: "prompt", message: "Use a form in a ModalDialog." },
+      ],
+      "no-restricted-properties": [
+        "error",
+        { object: "window", property: "confirm", message: "Use confirmDialog from features/ui/confirm.jsx." },
+        { object: "window", property: "alert", message: "Use a toast or an inline message." },
+        { object: "window", property: "prompt", message: "Use a form in a ModalDialog." },
+      ],
+      "no-restricted-imports": [
+        "error",
+        { name: "sonner", message: "Report outcomes through lib/notify.js so every toast uses the shared messages." },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXExpressionContainer > MemberExpression[property.name='message'][object.name=/^(error|err|e|failure|reason)$/]",
+          message: "Don't render raw error messages; use describeError from lib/describeError.js.",
+        },
+        {
+          selector: "JSXExpressionContainer > ChainExpression > MemberExpression[property.name='message'][object.name=/^(error|err|e|failure|reason)$/]",
+          message: "Don't render raw error messages; use describeError from lib/describeError.js.",
+        },
+      ],
+    },
+  },
+  {
+    // The toast library is wired up in exactly two places: the notifier and the root Toaster.
+    files: ["frontend/src/lib/notify.js", "frontend/src/App.jsx"],
+    rules: { "no-restricted-imports": "off" },
+  },
 );

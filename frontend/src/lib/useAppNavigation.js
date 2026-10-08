@@ -5,6 +5,8 @@ const HISTORY_KEY = "studioNavigationIndex";
 
 const currentLocation = () => window.location.pathname + window.location.search + window.location.hash;
 
+const isPending = (value) => value instanceof Promise;
+
 // Keep a rejected Back/Forward traversal on its original entry, preserving both
 // directions of the browser's history instead of pushing a replacement entry.
 export function useAppNavigation() {
@@ -13,6 +15,8 @@ export function useAppNavigation() {
   const restoring = useRef(false);
   const guard = useRef(null);
   const hasUnsavedChanges = useRef(false);
+  const navigateRef = useRef(null);
+  const approved = useRef(false);
 
   useEffect(() => {
     window.history.replaceState({ ...window.history.state, [HISTORY_KEY]: accepted.current.index }, "");
@@ -27,8 +31,33 @@ export function useAppNavigation() {
       const next = currentLocation();
       const index = event.state?.[HISTORY_KEY];
 
-      if (guard.current?.(parseAppRoute(window.location.pathname)) === false) {
-        if (Number.isInteger(index) && index !== accepted.current.index) {
+      const verdict = approved.current ? true : guard.current?.(parseAppRoute(window.location.pathname));
+      approved.current = false;
+
+      // An asynchronous guard (an in-app confirmation) first returns to the accepted
+      // entry, then navigates forward again once the user agrees.
+      if (verdict === false || isPending(verdict)) {
+        const traversal = Number.isInteger(index) && index !== accepted.current.index;
+
+        if (isPending(verdict)) {
+          const delta = traversal ? index - accepted.current.index : 0;
+
+          verdict.then((allowed) => {
+            if (!allowed) return;
+
+            if (!delta) {
+              navigateRef.current?.(next, { force: true });
+
+              return;
+            }
+
+            // Repeat the original traversal so Back/Forward history stays intact.
+            approved.current = true;
+            window.history.go(delta);
+          });
+        }
+
+        if (traversal) {
           restoring.current = true;
           window.history.go(accepted.current.index - index);
         } else {
@@ -70,7 +99,20 @@ export function useAppNavigation() {
 
     if (next === accepted.current.location) return true;
 
-    if (!force && guard.current?.(parseAppRoute(url.pathname)) === false) return false;
+    if (!force) {
+      const verdict = guard.current?.(parseAppRoute(url.pathname));
+
+      if (isPending(verdict)) {
+        verdict.then((allowed) => {
+          if (allowed) navigateRef.current?.(next, { replace, force: true });
+        });
+
+        return false;
+      }
+
+      if (verdict === false) return false;
+    }
+
     const index = accepted.current.index + (replace ? 0 : 1);
     window.history[replace ? "replaceState" : "pushState"]({ ...window.history.state, [HISTORY_KEY]: index }, "", next);
     accepted.current = { location: next, index };
@@ -78,6 +120,8 @@ export function useAppNavigation() {
 
     return true;
   }, []);
+
+  navigateRef.current = navigate;
 
   return {
     route: parseAppRoute(new URL(location, window.location.origin).pathname),

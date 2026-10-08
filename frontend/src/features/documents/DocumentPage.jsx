@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
+import { isBusyStatus, statusLabel, statusTone } from "../../lib/status.js";
 import { ExtractionJobStatusDisplay, ExtractionResultDisplay } from "./ExtractionResultDisplay.jsx";
 import { SourceFilePreview } from "./SourceFilePreview.jsx";
 import "./DocumentViewing.css";
@@ -6,10 +7,13 @@ import { PacketPage } from "./PacketPage.jsx";
 import { formatPages } from "./documentProcessing.js";
 import { isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
 import { ProcessingCost } from "./ProcessingCost.jsx";
+import { Button } from "../ui/Button.jsx";
+import { Segmented, Tabs } from "../ui/Tabs.jsx";
+import { StatusDot } from "../ui/Status.jsx";
 
 const NARROW_SPLIT_WIDTH = 600;
 
-export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, ...detail }) {
+export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, hasDocuments = false, ...detail }) {
   if (selectedPacketId) {
     if (isSingleDocumentPacket(packetPage?.packet)) {
       return <SinglePacketDocument {...detail} packetPage={packetPage} />;
@@ -23,8 +27,9 @@ export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, .
     );
   }
 
+  // An empty Workspace is explained by the list's own empty state, so the body stays blank.
   if (!selectedDocument)
-    return <p className="studio-empty-state">Select an uploaded document, or upload one to get started.</p>;
+    return hasDocuments ? <p className="studio-empty-state">Select or upload a document.</p> : null;
 
   return <DocumentDetail {...detail} selectedDocument={selectedDocument} />;
 }
@@ -53,10 +58,11 @@ function SinglePacketDocument({ packetPage, ...detail }) {
       ) : (
         <section className="studio-document-page document-layout-results" aria-label="Document results">
           <div className="studio-document-summary">
-            <span className={`studio-document-status ${packet.status === "queued" ? "queued" : "processing"}`}>
-              <i aria-hidden="true" />
-              {packet.status === "queued" ? "Queued" : "Processing"}
-            </span>
+            <StatusDot
+              tone={packet.status === "queued" ? "neutral" : "info"}
+              pulse={packet.status !== "queued"}
+              label={packet.status === "queued" ? "Queued" : "Processing"}
+            />
           </div>
           <div className="job-status-stack">
             <div className="job-status-skeleton is-processing" role="status">
@@ -85,7 +91,6 @@ function DocumentDetail({
   templates = [],
   onResolveTemplate,
   isResolvingTemplate,
-  templateResolutionError,
   loadingDocumentDetailsId,
   documentError,
   onRetryDocument,
@@ -126,9 +131,9 @@ function DocumentDetail({
       {documentError ? (
         <div className="packet-message is-error">
           <p role="alert">{documentError}</p>
-          <button type="button" className="secondary" onClick={onRetryDocument}>
-            Retry document
-          </button>
+          <Button variant="secondary" onClick={onRetryDocument}>
+            Try again
+          </Button>
         </div>
       ) : (
         <ExtractionResultDisplay
@@ -142,10 +147,7 @@ function DocumentDetail({
   return (
     <section className={`studio-document-page document-layout-${layout}`} aria-label="Document results">
       <div className="studio-document-summary">
-        <span className={`studio-document-status ${status}`}>
-          <i aria-hidden="true" />
-          {status.charAt(0).toUpperCase() + status.slice(1)}
-        </span>
+        <StatusDot tone={statusTone(status)} pulse={isBusyStatus(status)} label={statusLabel(status)} />
         {results.length ? (
           <span>
             {results.length} {results.length === 1 ? "field" : "fields"} extracted
@@ -171,7 +173,6 @@ function DocumentDetail({
           templates={templates}
           onResolve={onResolveTemplate}
           busy={isResolvingTemplate}
-          error={templateResolutionError}
         />
       ) : null}
       {layout === "side-by-side" ? (
@@ -187,27 +188,22 @@ function DocumentDetail({
 
 function DocumentLayoutToggle({ layout, onChange }) {
   return (
-    <span className="segmented document-layout-toggle" role="radiogroup" aria-label="Document view">
-      {[
-        ["results", "Results"],
-        ["side-by-side", "Side by side"],
-      ].map(([value, label]) => (
-        <button
-          key={value}
-          type="button"
-          role="radio"
-          aria-checked={layout === value}
-          onClick={() => onChange?.(value)}
-        >
-          {label}
-        </button>
-      ))}
-    </span>
+    <Segmented
+      label="Document view"
+      className="document-layout-toggle"
+      items={[
+        { value: "results", label: "Results" },
+        { value: "side-by-side", label: "Side by side" },
+      ]}
+      value={layout}
+      onChange={(value) => onChange?.(value)}
+    />
   );
 }
 
 function SideBySide({ document, loadOriginal, children }) {
   const host = useRef(null);
+  const tabsId = useId();
   const [split, setSplit] = useState(50);
   const [isNarrow, setIsNarrow] = useState(false);
   // Narrow screens open on Results; the tab resets per Document and is never stored.
@@ -271,6 +267,12 @@ function SideBySide({ document, loadOriginal, children }) {
   const showDocument = !isNarrow || narrowTab === "document";
   const showResults = !isNarrow || narrowTab === "results";
 
+  // The narrow view's two panes are tab panels; the wide view has no tabs.
+  const paneProps = (value) =>
+    isNarrow
+      ? { role: "tabpanel", id: `${tabsId}-panel-${value}`, "aria-labelledby": `${tabsId}-tab-${value}` }
+      : {};
+
   return (
     <div
       ref={host}
@@ -278,25 +280,20 @@ function SideBySide({ document, loadOriginal, children }) {
       style={{ "--document-split": `${split}%` }}
     >
       {isNarrow ? (
-        <div className="document-split-tabs" role="tablist" aria-label="Document view">
-          {[
-            ["results", "Results"],
-            ["document", "Document"],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={narrowTab === value}
-              onClick={() => setNarrowTab(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          label="Document view"
+          idPrefix={tabsId}
+          className="document-split-tabs"
+          items={[
+            { value: "results", label: "Results" },
+            { value: "document", label: "Document" },
+          ]}
+          value={narrowTab}
+          onChange={setNarrowTab}
+        />
       ) : null}
       {showDocument ? (
-        <section className="document-split-source" aria-label="Original document">
+        <section className="document-split-source" aria-label="Original document" {...paneProps("document")}>
           <SourceFilePreview document={document} loadOriginal={loadOriginal} />
         </section>
       ) : null}
@@ -314,12 +311,16 @@ function SideBySide({ document, loadOriginal, children }) {
           onKeyDown={nudge}
         />
       ) : null}
-      {showResults ? <div className="document-split-results">{children}</div> : null}
+      {showResults ? (
+        <div className="document-split-results" {...paneProps("results")}>
+          {children}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function TemplateHold({ job, templates, onResolve, busy, error }) {
+function TemplateHold({ job, templates, onResolve, busy }) {
   const [templateId, setTemplateId] = useState("");
   useEffect(() => setTemplateId(""), [job.job_id]);
 
@@ -328,7 +329,7 @@ function TemplateHold({ job, templates, onResolve, busy, error }) {
       <h3>Choose a template to continue</h3>
       <p>
         {job.selection_reason ||
-          "Automatic selection could not identify a suitable template. Select a template to continue with the uploaded document."}
+          "Automatic selection couldn't find a matching template. Select one to continue."}
       </p>
       {job.template_tags?.length ? <p>Requested tags: {job.template_tags.join(", ")}</p> : null}
       <form
@@ -349,15 +350,10 @@ function TemplateHold({ job, templates, onResolve, busy, error }) {
             ))}
           </select>
         </label>
-        <button type="submit" disabled={busy || !templateId}>
-          {busy ? "Continuing…" : "Use template and continue"}
-        </button>
+        <Button type="submit" disabled={!templateId} pending={busy} pendingLabel="Continuing…">
+          Use template and continue
+        </Button>
       </form>
-      {error ? (
-        <p role="alert" className="processing-error">
-          {error}
-        </p>
-      ) : null}
     </section>
   );
 }

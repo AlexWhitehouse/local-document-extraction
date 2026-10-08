@@ -4,6 +4,8 @@ import { documentScopeKey } from "./documentReconciliation";
 import { usePacketController } from "./usePacketController.js";
 import { isPacketListed, isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
 import { useDocumentReconciliation } from "./useDocumentReconciliation";
+import { confirmDialog } from "../ui/confirm.jsx";
+import { validateSourceFiles } from "./sourceFileValidation.js";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
@@ -33,7 +35,6 @@ export function useDocumentController({
   showDocumentUploadToast,
   hasApiAccess,
   hasWorkspaceApiAccess,
-  isAppBusy,
   isWorkspaceDeletionInProgress = false,
   sessionId,
   workspaceId,
@@ -51,16 +52,21 @@ export function useDocumentController({
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadTemplateId, setUploadTemplateId] = useState("");
   const [uploadFiles, setUploadFiles] = useState([]);
+  // Reasons the last picked files were refused, shown inline in the drop zone.
+  const [uploadRejections, setUploadRejections] = useState([]);
   const [uploadTags, setUploadTags] = useState([]);
+  // Bumped each time the modal opens so a finished batch never closes a newer modal.
+  const uploadSessionRef = useRef(0);
   const [isResolvingTemplate, setIsResolvingTemplate] = useState(false);
-  const [templateResolutionError, setTemplateResolutionError] = useState("");
   const actionScopeRef = useRef(null);
   const actionScope = useMemo(() => ({ sessionId, workspaceId, hasApiAccess }), [sessionId, workspaceId, hasApiAccess]);
   actionScopeRef.current = actionScope;
   const documentRequestsRef = useRef(documentRequests);
   documentRequestsRef.current = documentRequests;
-  const [isUploadDragActive, setIsUploadDragActive] = useState(false);
   const [liveUpdatesUnavailable, setLiveUpdatesUnavailable] = useState(false);
+  // Stays set from a dropped connection until a socket opens again, so a reconnect
+  // loop reads as one outage rather than a flicker.
+  const [liveUpdatesDisconnected, setLiveUpdatesDisconnected] = useState(false);
   const [isDownloadingOriginal, setIsDownloadingOriginal] = useState(false);
   // The packet tab showing a child document; empty shows the packet overview.
   const [packetChildId, setPacketChildId] = useState("");
@@ -191,6 +197,7 @@ export function useDocumentController({
     enabled: hasApiAccess,
     onAccessDenied: revalidateWorkspaceAccessNow,
     onJobsChanged: () => reconciliation.refresh(),
+    showActionToast,
     listing: documentRequests.listDocumentEntries
       ? {
           packets: snapshot.packets,
@@ -224,10 +231,9 @@ export function useDocumentController({
   useEffect(() => {
     setShowUploadModal(false);
     setUploadFiles([]);
+    setUploadRejections([]);
     setUploadTags([]);
     setIsResolvingTemplate(false);
-    setTemplateResolutionError("");
-    setIsUploadDragActive(false);
     packetTabRequestRef.current += 1;
     setPacketChildId("");
     setPendingPacketTab(null);
@@ -251,7 +257,6 @@ export function useDocumentController({
     loadingDocumentDetailsId,
   ]);
   useEffect(() => () => clearWorkspaceCapacityRefreshTimer(), [clearWorkspaceCapacityRefreshTimer]);
-  useEffect(() => setTemplateResolutionError(""), [selectedDocumentId]);
   useEffect(() => {
     if (hasApiAccess && routeDocumentId) void reconciliation.loadDetails(routeDocumentId, { showLoading: true });
   }, [reconciliation, hasApiAccess, normalizedWorkspaceId, sessionId, routeDocumentId]);
@@ -265,31 +270,25 @@ export function useDocumentController({
   }, [hasApiAccess, normalizedWorkspaceId, sessionId, routePacketId, routeDocumentId, onDocumentNavigation]);
 
   function openUploadModal() {
-    if (!modelReady || isAppBusy) {
+    if (!modelReady) {
       return;
     }
 
     void onProcessingPolicyRefresh?.();
     void onTagsRefresh?.();
+    uploadSessionRef.current += 1;
     setUploadTags([]);
     setUploadTemplateId(selectedUploadTemplateId || templates[0]?.id || "");
     setUploadFiles([]);
-    setIsUploadDragActive(false);
+    setUploadRejections([]);
     setShowUploadModal(true);
   }
 
+  // Closing during an upload only hides the modal; the upload keeps running and reports
+  // through its toast.
   function closeUploadModal() {
-    if (isUploadingDocuments) {
-      return;
-    }
-
-    setIsUploadDragActive(false);
+    setUploadRejections([]);
     setShowUploadModal(false);
-  }
-
-  function handleUploadDrop(event) {
-    setIsUploadDragActive(false);
-    appendUploadFiles(Array.from(event.dataTransfer?.files || []));
   }
 
   function appendUploadFiles(nextFiles) {
@@ -297,11 +296,18 @@ export function useDocumentController({
       return;
     }
 
+    const { accepted, rejections } = validateSourceFiles(nextFiles, maxSourceFileBytes);
+    setUploadRejections(rejections);
+
+    if (!accepted.length) {
+      return;
+    }
+
     setUploadFiles((prev) => {
       const existingKeys = new Set(prev.map((entry) => fileDedupKey(entry.file)));
       const additions = [];
 
-      for (const file of nextFiles) {
+      for (const file of accepted) {
         const key = fileDedupKey(file);
 
         if (existingKeys.has(key)) {
@@ -334,18 +340,22 @@ export function useDocumentController({
       return;
     }
 
-    if (!uploadFiles.length) {
+    // Files already queued by an earlier partial attempt are not sent again.
+    const pendingFiles = uploadFiles.filter((entry) => entry.queueStatus !== "success");
+
+    if (!pendingFiles.length) {
       showActionToast("document.upload", "validation", { reason: "files" });
 
       return;
     }
 
+    const session = uploadSessionRef.current;
     onSelectedUploadTemplateChange(uploadTemplateId.trim());
     let lastSelection;
     await reconciliation.submitBatch({
       templateId: uploadTemplateId === "automatic" ? "" : uploadTemplateId.trim(),
       templateTags: uploadTemplateId === "automatic" ? uploadTags : undefined,
-      entries: uploadFiles,
+      entries: pendingFiles,
       onPacket: (packet) => {
         lastSelection = { packetId: packet.packet_id };
         packetController.admitted(packet);
@@ -360,6 +370,9 @@ export function useDocumentController({
 
         if (lastSelection && onDocumentNavigation) onDocumentNavigation(lastSelection);
         else onActivePageChange("documents");
+
+        // A full success is done, so the modal closes. Partial failures stay open with the failed rows listed.
+        if (outcome.failed === 0 && session === uploadSessionRef.current) closeUploadModal();
       },
     });
   }
@@ -367,19 +380,21 @@ export function useDocumentController({
   async function resolveTemplate(documentId, templateId) {
     if (isResolvingTemplate) return;
     const scope = actionScopeRef.current;
+    const targetName = selectedDocument?.job_id === documentId ? selectedDocument.source_name : "";
+    const templateName = templates.find((template) => String(template.id) === String(templateId))?.name || "";
     setIsResolvingTemplate(true);
-    setTemplateResolutionError("");
 
     try {
       const result = await documentRequests.resolveTemplate(documentId, templateId);
 
       if (scope !== actionScopeRef.current) return;
       reconciliation.receiveLiveUpdates([result], documentScopeKey(sessionId, normalizedWorkspaceId, hasApiAccess));
+      showActionToast("document.useTemplate", "success", { targetName, templateName });
       await reconciliation.loadDetails(documentId);
       void reconciliation.refresh();
     } catch (error) {
       if (scope !== actionScopeRef.current) return;
-      setTemplateResolutionError(error.message || "Template selection could not be saved.");
+      showActionToast("document.useTemplate", "failure", { error, targetName });
 
       if (error.status === 403) revalidateWorkspaceAccessNow();
 
@@ -432,7 +447,7 @@ export function useDocumentController({
       setPendingPacketTab(null);
 
       if (!job) {
-        setPacketChildError({ id, message: "Document details could not be loaded. Try again." });
+        setPacketChildError({ id, message: "Couldn't load document details. Try again." });
 
         return;
       }
@@ -545,25 +560,28 @@ export function useDocumentController({
     );
   }
 
-  function deleteSelectedPacket() {
+  async function deleteSelectedPacket() {
     const id = packetController.selectedId;
     const scope = actionScopeRef.current;
+    const name = openPacket?.source_name;
 
     if (!id || packetController.busy) return;
 
-    if (
-      !window.confirm(
-        `Delete packet ${id} and all its child documents? This permanently removes their results and available originals.`,
-      )
-    )
-      return;
-    setPacketChildId("");
-    void packetController.removeMany([id]).then((removed) => {
-      if (scope !== actionScopeRef.current) return;
-      setSelectedPacketIds((current) => current.filter((value) => !removed.includes(value)));
-      showActionToast("document.delete", removed.length ? "success" : "failure", {
-        targetName: openPacket?.source_name || id,
-      });
+    await confirmDialog({
+      title: name ? `Delete "${name}"?` : "Delete this packet?",
+      body: "Its documents and their results are deleted too. This can't be undone.",
+      confirmLabel: "Delete packet",
+      pendingLabel: "Deleting…",
+      action: async () => {
+        setPacketChildId("");
+        const removed = await packetController.removeMany([id]);
+
+        if (!removed.length) throw new Error("Packet could not be deleted.");
+
+        if (scope !== actionScopeRef.current) return;
+        setSelectedPacketIds((current) => current.filter((value) => !removed.includes(value)));
+        showActionToast("document.delete", "success", { targetName: name || id });
+      },
     });
   }
 
@@ -574,7 +592,7 @@ export function useDocumentController({
       // A normal-looking single document owns a hidden packet and its original too.
       if (isSingleDocument && openPacket) await deleteDocuments([], [openPacket]);
       else if (actionDocument) await deleteDocuments([actionDocument], []);
-      else if (openPacket) deleteSelectedPacket();
+      else if (openPacket) await deleteSelectedPacket();
 
       return;
     }
@@ -595,7 +613,6 @@ export function useDocumentController({
     const target = targetDocuments[0] || targetPackets[0];
 
     if (!target) return;
-    const childCount = visiblePackets.reduce((total, packet) => total + packetChildren(packet).length, 0);
 
     const parts = [
       documentCount ? `${documentCount} document${documentCount === 1 ? "" : "s"}` : "",
@@ -604,11 +621,29 @@ export function useDocumentController({
       .filter(Boolean)
       .join(" and ");
 
-    const message = isBulkDelete
-      ? `Delete ${parts.replace(/^(\d+) /, "$1 selected ")}${childCount ? `, including ${childCount} document${childCount === 1 ? "" : "s"} split from ${visiblePackets.length === 1 ? "the packet" : "the packets"}` : ""}? This will permanently remove ${targetDocuments.length + targetPackets.length === 1 ? "it" : "them"} from the workspace.`
-      : `Delete document ${target.job_id || singlePacketDocument(target)?.job_id || target.packet_id}? This will permanently remove it from the workspace.`;
+    const title = isBulkDelete
+      ? `Delete ${parts.replace(/^(\d+) /, "$1 selected ")}?`
+      : target.source_name
+        ? `Delete "${target.source_name}"?`
+        : "Delete this document?";
 
-    if (!window.confirm(message)) return;
+    const body = `${isBulkDelete ? "Their" : "Its"} ${visiblePackets.length ? "documents and " : ""}results are deleted too. This can't be undone.`;
+    let confirmLabel = "Delete document";
+
+    if (isBulkDelete) confirmLabel = visiblePackets.length ? `Delete ${parts}` : `Delete ${documentCount} documents`;
+
+    await confirmDialog({
+      title,
+      body,
+      confirmLabel,
+      pendingLabel: "Deleting…",
+      action: () => removeSelection(targetDocuments, targetPackets, { scope, packetId, isBulkDelete, target }),
+    });
+  }
+
+  // Runs the confirmed removal. Partial failures are reported by toast; a removal that
+  // removed nothing throws so the confirmation shows the error inline instead.
+  async function removeSelection(targetDocuments, targetPackets, { scope, packetId, isBulkDelete, target }) {
     let removedPackets = [];
 
     if (targetPackets.length) {
@@ -623,52 +658,52 @@ export function useDocumentController({
     const report = (removedDocuments, documentTotal) => {
       if (isBulkDelete) {
         const removedTotal = removedDocuments + removedPackets.length;
-        showActionToast(
-          "document.bulkDelete",
-          removedTotal === documentTotal + targetPackets.length ? "success" : "failure",
-          {
-            targetName: parts,
-          },
-        );
+        const total = documentTotal + targetPackets.length;
+
+        showActionToast("document.bulkDelete", removedTotal === total ? "success" : "failure", {
+          removed: removedTotal,
+          total,
+        });
       }
     };
 
     if (!targetDocuments.length) {
+      if (!removedPackets.length) throw new Error("Could not be deleted.");
+
       if (isBulkDelete) report(0, 0);
-      else
-        showActionToast("document.delete", removedPackets.length ? "success" : "failure", {
-          targetName: target.source_name || target.packet_id,
-        });
+      else showActionToast("document.delete", "success", { targetName: target.source_name || target.packet_id });
 
       return;
     }
 
+    let results = [];
+
     await reconciliation.deleteDocuments(
       targetDocuments.map((job) => job.job_id),
       {
-        onComplete: (results) => {
-          if (scope !== actionScopeRef.current) return;
-
-          if (packetId && !removedPackets.includes(packetId)) {
-            setPacketChildId("");
-            packetController.select(packetId);
-          }
-
-          const removed = results.filter((result) => result.removed);
-
-          if (isBulkDelete) report(removed.length, results.length);
-          else {
-            showActionToast(
-              "document.delete",
-              results[0].removed ? (results[0].alreadyRemoved ? "alreadyRemoved" : "success") : "failure",
-              {
-                targetName: target.source_name || target.job_id,
-              },
-            );
-          }
+        onComplete: (outcome) => {
+          results = outcome;
         },
       },
     );
+
+    if (scope !== actionScopeRef.current) return;
+
+    const removed = results.filter((result) => result.removed);
+
+    if (!removed.length && !removedPackets.length) throw new Error("Could not be deleted.");
+
+    if (packetId && !removedPackets.includes(packetId)) {
+      setPacketChildId("");
+      packetController.select(packetId);
+    }
+
+    if (isBulkDelete) report(removed.length, results.length);
+    else {
+      showActionToast("document.delete", results[0].alreadyRemoved ? "alreadyRemoved" : "success", {
+        targetName: target.source_name || target.job_id,
+      });
+    }
   }
 
   async function exportSelectedDocuments() {
@@ -740,6 +775,7 @@ export function useDocumentController({
 
       if (!canOpenLiveUpdates) {
         setLiveUpdatesUnavailable(false);
+        setLiveUpdatesDisconnected(false);
       }
 
       return;
@@ -752,6 +788,7 @@ export function useDocumentController({
     socket.onopen = () => {
       if (liveUpdateSocketRef.current === socket) {
         setLiveUpdatesUnavailable(false);
+        setLiveUpdatesDisconnected(false);
         void onModelConfigurationInvalidationRef.current?.();
       }
     };
@@ -760,6 +797,7 @@ export function useDocumentController({
       if (liveUpdateSocketRef.current === socket) {
         liveUpdateSocketRef.current = null;
         setLiveUpdatesUnavailable(true);
+        setLiveUpdatesDisconnected(true);
         clearLiveUpdateReconnectTimer();
         liveUpdateReconnectTimerRef.current = window.setTimeout(() => {
           liveUpdateReconnectTimerRef.current = null;
@@ -925,6 +963,12 @@ export function useDocumentController({
       hasActiveFilters: Object.values(snapshot.filters).some(Boolean),
       hasMoreDocuments: snapshot.hasMore,
       isLoadingMoreDocuments: snapshot.loadingMore,
+      listStatus: snapshot.listStatus,
+      listError: snapshot.listError,
+      loadMoreError: snapshot.loadMoreError,
+      onRetryDocumentList: () => reconciliation.refresh(),
+      canUploadDocuments: hasWorkspaceApiAccess && modelReady,
+      onUploadDocument: openUploadModal,
       isDeletingDocuments: isDeletingDocument,
       isExportingDocuments,
       onSearchChange: reconciliation.setSearch,
@@ -948,15 +992,12 @@ export function useDocumentController({
       ].sort(),
       onSelectTags: setUploadTags,
       sourceFiles: uploadFiles,
-      isDragActive: isUploadDragActive,
+      uploadRejections,
       isUploadingDocuments,
       hasApiAccess: hasWorkspaceApiAccess && modelReady,
       onClose: closeUploadModal,
       onSelectTemplate: setUploadTemplateId,
       onSelectSourceFiles: appendUploadFiles,
-      onDragOver: () => setIsUploadDragActive(true),
-      onDragLeave: () => setIsUploadDragActive(false),
-      onDrop: handleUploadDrop,
       onRemoveSourceFile: removeUploadFile,
       onSubmit: uploadFromModal,
     },
@@ -983,7 +1024,6 @@ export function useDocumentController({
       templates,
       onResolveTemplate: resolveTemplate,
       isResolvingTemplate,
-      templateResolutionError,
       packetPage: {
         packet: packetController.selectedPacket,
         busy: packetController.busy,
@@ -1000,11 +1040,15 @@ export function useDocumentController({
           ? (id) => onDocumentNavigation({ packetId: packetController.selectedId, documentId: id })
           : selectPacketChild,
         loadPagePreview: packetController.loadPagePreview,
+        showActionToast,
       },
+      hasDocuments: documents.length > 0 || packetController.packets.length > 0,
       selectedDocumentTemplateName,
       loadingDocumentDetailsId,
       loadOriginal,
     },
+    // True while the live-update socket is down and reconnecting (the polling fallback).
+    liveUpdatesPaused: canOpenLiveUpdates && liveUpdatesDisconnected,
     statusCounts: snapshot.statusCounts,
     actions: {
       cancelPendingSubmissions: reconciliation.cancelPendingSubmissions,

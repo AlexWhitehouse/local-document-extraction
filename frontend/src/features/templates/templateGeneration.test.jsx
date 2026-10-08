@@ -1,5 +1,6 @@
 import React from "react";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { useTemplateController } from "./useTemplateController.js";
 import { TemplateGenerationModal } from "./TemplateGenerationModal.jsx";
@@ -105,7 +106,7 @@ describe("Template generation", () => {
     expect(result.current.generationModal).toMatchObject({
       isOpen: true,
       isGenerating: false,
-      error: "Gateway timed out",
+      error: "Template generation failed. Try again.",
       file,
     });
   });
@@ -151,7 +152,8 @@ describe("Template generation", () => {
     function Harness() {
       const controller = useTemplateController(
         propsFor(async (path) => {
-          if (path === "/templates/generate") throw new Error("Model is not configured");
+          if (path === "/templates/generate")
+            throw Object.assign(new Error("Model is not configured"), { code: "workspace_model_not_configured" });
 
           return { templates: [] };
         }),
@@ -172,36 +174,30 @@ describe("Template generation", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Model is not configured"));
     expect(screen.getByText("Try again")).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // The sample is a draft, so Escape asks before discarding it.
+    await userEvent.click(await screen.findByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("dialog", { name: "Auto-generate template" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await userEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
 
-it("rotates generation messages and clears the timer when generation stops", () => {
-  vi.useFakeTimers();
+it("shows one generating status while generation runs and removes it when generation stops", () => {
   const props = { isOpen: true, file, instructions: "", isGenerating: true, hasApiAccess: true, onClose: vi.fn() };
   const view = render(<TemplateGenerationModal {...props} />);
 
-  try {
-    expect(screen.getByText("Combobulating response…")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(2800));
-    expect(screen.getByText("Consulting the schema sprites…")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Cancel" }).disabled).toBe(false);
-    view.rerender(<TemplateGenerationModal {...props} isGenerating={false} />);
-    expect(screen.queryByRole("status")).toBeNull();
-    expect(vi.getTimerCount()).toBe(0);
-    view.rerender(<TemplateGenerationModal {...props} />);
-    expect(screen.getByText("Combobulating response…")).toBeTruthy();
-  } finally {
-    view.unmount();
-    vi.useRealTimers();
-  }
+  expect(screen.getByRole("status").textContent).toBe("Generating template…");
+  expect(screen.getByRole("button", { name: "Cancel" }).disabled).toBe(false);
+  view.rerender(<TemplateGenerationModal {...props} isGenerating={false} />);
+  expect(screen.queryByRole("status")).toBeNull();
 });
 
 it("accepts a dropped sample, rejects multiple samples, and locks uploads during generation", () => {
   const onFileChange = vi.fn();
   const props = { isOpen: true, instructions: "", hasApiAccess: true, onFileChange, onClose: vi.fn() };
   const view = render(<TemplateGenerationModal {...props} />);
-  const dropzone = screen.getByRole("button", { name: /Drag and drop a sample document/ });
+  const dropzone = screen.getByRole("button", { name: /Drop a sample document or click to browse/ });
   fireEvent.drop(dropzone, { dataTransfer: { files: [file, file] } });
   expect(screen.getByRole("alert").textContent).toContain("one sample");
   expect(onFileChange).not.toHaveBeenCalled();
@@ -209,7 +205,7 @@ it("accepts a dropped sample, rejects multiple samples, and locks uploads during
   expect(onFileChange).toHaveBeenCalledWith(file);
   expect(screen.queryByRole("alert")).toBeNull();
   view.rerender(<TemplateGenerationModal {...props} file={file} isGenerating />);
-  expect(screen.queryByRole("button", { name: /Drag and drop a sample document/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Drop a sample document or click to browse/ })).toBeNull();
   expect(onFileChange).toHaveBeenCalledTimes(1);
 });
 

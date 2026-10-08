@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { ONE_PIXEL_PNG, saveModelGateway, submitSignUp } from "./support/journeyHelpers";
@@ -19,10 +19,10 @@ test("generate a template from a sample, review the draft, then explicitly save"
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("link", { name: /Templates/ })
       .click();
-    await page.getByRole("button", { name: "Create Template" }).click();
+    await page.getByRole("button", { name: "Create template" }).click();
     await page.getByLabel("Template name", { exact: true }).fill("Unsaved work");
-    await page.getByRole("button", { name: "Auto generate new template", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Auto generate template" });
+    await openAutoGenerate(page);
+    const dialog = page.getByRole("dialog", { name: "Auto-generate template" });
 
     const sample = {
       name: "Purchase order with a very long document name that should truncate without moving the Pending pill or Remove button.png",
@@ -31,13 +31,13 @@ test("generate a template from a sample, review the draft, then explicitly save"
     };
 
     await dialog.getByLabel("Sample file").setInputFiles(sample);
-    await expect(dialog.getByRole("button", { name: /Drag and drop a sample document/ })).toBeHidden();
-    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
-    await expect(dialog.getByRole("button", { name: /Drag and drop a sample document/ })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /Drop a sample document/ })).toBeHidden();
+    await dialog.getByRole("button", { name: `Remove ${sample.name}`, exact: true }).click();
+    await expect(dialog.getByRole("button", { name: /Drop a sample document/ })).toBeVisible();
     await dialog.getByLabel("Sample file").setInputFiles(sample);
-    await expect(dialog.getByRole("button", { name: /Drag and drop a sample document/ })).toBeHidden();
+    await expect(dialog.getByRole("button", { name: /Drop a sample document/ })).toBeHidden();
     await dialog
-      .getByLabel("What should this template capture? (optional)")
+      .getByLabel("What should this template capture?", { exact: true })
       .fill("Capture totals and purchased items.");
     await expect(dialog.getByRole("button", { name: "Generate template", exact: true })).toBeDisabled();
     await dialog.getByRole("checkbox").check();
@@ -56,8 +56,7 @@ test("generate a template from a sample, review the draft, then explicitly save"
     await dialog.getByRole("button", { name: "Generate template", exact: true }).click();
 
     try {
-      await expect(dialog.getByText("Combobulating response…", { exact: true })).toBeVisible();
-      await expect(dialog.getByText("Consulting the schema sprites…", { exact: true })).toBeVisible();
+      await expect(dialog.getByText("Generating template…", { exact: true })).toBeVisible();
       await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
       await page.screenshot({ path: testInfo.outputPath("generation-progress.png"), fullPage: true });
     } finally {
@@ -87,10 +86,11 @@ test("generate a template from a sample, review the draft, then explicitly save"
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatch(/^go-processing-\d+-pages-[a-zA-Z0-9]+$/);
     expect(await readdir(join(submissions, entries[0]!))).toEqual([]);
-    await page.getByRole("button", { name: "View JSON" }).scrollIntoViewIfNeeded();
+    await page.locator(".ui-page-header").scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("template-field-actions.png"), fullPage: true });
-    await page.getByRole("button", { name: "View JSON" }).click();
-    const jsonDialog = page.getByRole("dialog", { name: "Export or import template JSON" });
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
+    const jsonDialog = page.getByRole("dialog", { name: "Export or import JSON" });
     const json = JSON.parse(await jsonDialog.getByRole("textbox", { name: "Template JSON", exact: true }).inputValue());
     expect(json.fields[1].object_schema.columns).toHaveLength(2);
     await jsonDialog.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -103,11 +103,11 @@ test("generate a template from a sample, review the draft, then explicitly save"
     expect((await creation).status()).toBe(201);
     await expect(page.getByText("2 fields · All changes saved", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("create-template-split-button.png"), fullPage: true });
-    await page.getByRole("button", { name: "Auto generate new template", exact: true }).click();
+    await openAutoGenerate(page);
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page.getByText("2 fields · All changes saved", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Auto generate new template", exact: true }).click();
+    await openAutoGenerate(page);
     await dialog.getByLabel("Sample file").setInputFiles(sample);
     await dialog.getByRole("button", { name: "Generate template", exact: true }).click();
     await expect(dialog).toBeHidden();
@@ -124,3 +124,7 @@ test("generate a template from a sample, review the draft, then explicitly save"
     await harness.stop();
   }
 });
+
+async function openAutoGenerate(page: Page) {
+  await page.getByRole("button", { name: "Auto-generate template", exact: true }).click();
+}

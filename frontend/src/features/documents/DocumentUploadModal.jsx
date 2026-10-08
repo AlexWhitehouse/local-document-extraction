@@ -1,7 +1,10 @@
-import React from "react";
+import React, { useId } from "react";
 import "./DocumentProcessing.css";
 import { DocumentUploadPanel } from "./DocumentUploadPanel.jsx";
-import { ModalHeader } from "../layout/ModalDialog.jsx";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { ModalDialog, ModalFooter, ModalHeader } from "../layout/ModalDialog.jsx";
+import { Button } from "../ui/Button.jsx";
+import { Field, Select } from "../ui/Field.jsx";
 
 export function DocumentUploadModal({
   isOpen,
@@ -11,97 +14,101 @@ export function DocumentUploadModal({
   availableTags = [],
   onSelectTags,
   sourceFiles,
-  isDragActive,
+  uploadRejections = [],
   isUploadingDocuments,
   hasApiAccess,
   maxSourceFileBytes = 10 * 1024 * 1024,
   onClose,
   onSelectTemplate,
   onSelectSourceFiles,
-  onDragOver,
-  onDragLeave,
-  onDrop,
   onRemoveSourceFile,
   onSubmit,
 }) {
+  const titleId = useId();
+
   if (!isOpen) {
     return null;
   }
 
+  // Only files still waiting to be uploaded count as unsaved. Queued and failed rows do not.
+  const isDirty = !isUploadingDocuments && sourceFiles.some((entry) => entry.queueStatus === "pending");
+  const hintId = `${titleId}-submit-hint`;
+  // The hint names what is missing; a template chosen without tags is explained by the tag picker.
+  const submitBlocked = !isUploadingDocuments && (!selectedTemplateId || !sourceFiles.length);
+
+  // Cancel asks before discarding picked files; the upload itself is never aborted.
+  async function requestClose() {
+    if (!isDirty || (await confirmDialog(DISCARD_CHANGES))) onClose();
+  }
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Upload document"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <ModalHeader
-          title="Upload Document"
-          description="Choose a template or tags for automatic selection, then add your source files."
-          onClose={onClose}
-        />
-        <div className="row">
-          <label>
-            Template
-            <select
-              data-tour="upload-template"
-              value={selectedTemplateId}
-              onChange={(event) => onSelectTemplate(event.target.value)}
-            >
-              <option value="">Select template</option>
-              <option value="automatic">Automatic — select by tags</option>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {selectedTemplateId === "automatic" ? (
-            <UploadTagPicker
-              tags={availableTags}
-              templates={templates}
-              selectedTags={selectedTags}
-              disabled={isUploadingDocuments}
-              onChange={onSelectTags}
-            />
-          ) : null}
-          <DocumentUploadPanel
-            sourceFiles={sourceFiles}
-            isDragActive={isDragActive}
-            disabled={isUploadingDocuments}
-            maxSourceFileBytes={maxSourceFileBytes}
-            onSelectSourceFiles={onSelectSourceFiles}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-            onRemoveSourceFile={onRemoveSourceFile}
-            tourTarget="upload-files"
-          />
-        </div>
-        <div className="actions">
-          <button type="button" className="secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            data-tour="upload-submit"
-            disabled={
-              isUploadingDocuments ||
-              !hasApiAccess ||
-              !sourceFiles.length ||
-              !selectedTemplateId ||
-              (selectedTemplateId === "automatic" && !selectedTags.length)
-            }
-            onClick={onSubmit}
+    <ModalDialog labelledBy={titleId} isDirty={isDirty} onClose={onClose}>
+      <ModalHeader
+        titleId={titleId}
+        title="Upload documents"
+        description="Choose a template, then add files."
+        onClose={onClose}
+      />
+      <div className="row">
+        <Field label="Template">
+          <Select
+            data-tour="upload-template"
+            value={selectedTemplateId}
+            onChange={(event) => onSelectTemplate(event.target.value)}
           >
-            {isUploadingDocuments ? "Uploading…" : "Upload Documents"}
-          </button>
-        </div>
+            <option value="">Select template</option>
+            <option value="automatic">Automatic (by tags)</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {selectedTemplateId === "automatic" ? (
+          <UploadTagPicker
+            tags={availableTags}
+            templates={templates}
+            selectedTags={selectedTags}
+            disabled={isUploadingDocuments}
+            onChange={onSelectTags}
+          />
+        ) : null}
+        <DocumentUploadPanel
+          sourceFiles={sourceFiles}
+          rejections={uploadRejections}
+          disabled={isUploadingDocuments}
+          maxSourceFileBytes={maxSourceFileBytes}
+          onSelectSourceFiles={onSelectSourceFiles}
+          onRemoveSourceFile={onRemoveSourceFile}
+          tourTarget="upload-files"
+        />
       </div>
-    </div>
+      <ModalFooter>
+        {submitBlocked ? (
+          <p className="hint upload-submit-hint" id={hintId}>
+            Choose a template and at least one file
+          </p>
+        ) : null}
+        <Button variant="secondary" onClick={requestClose}>
+          Cancel
+        </Button>
+        <Button
+          data-tour="upload-submit"
+          aria-describedby={submitBlocked ? hintId : undefined}
+          disabled={
+            !hasApiAccess ||
+            submitBlocked ||
+            (selectedTemplateId === "automatic" && !selectedTags.length)
+          }
+          pending={isUploadingDocuments}
+          pendingLabel="Uploading…"
+          onClick={onSubmit}
+        >
+          Upload documents
+        </Button>
+      </ModalFooter>
+    </ModalDialog>
   );
 }
 
@@ -117,9 +124,9 @@ function UploadTagPicker({ tags, templates, selectedTags, disabled, onChange }) 
         {selectedTags.length ? (
           <span className="upload-tag-picker-count">
             {selectedTags.length} selected
-            <button type="button" className="studio-text-button" onClick={() => onChange([])}>
+            <Button variant="text" onClick={() => onChange([])}>
               Clear
-            </button>
+            </Button>
           </span>
         ) : null}
       </legend>
@@ -168,7 +175,7 @@ function UploadTagPicker({ tags, templates, selectedTags, disabled, onChange }) 
             "No templates carry the selected tags."
           )
         ) : (
-          "Choose at least one tag. Each document is matched to a template carrying any selected tag."
+          "Choose at least one tag to match each document to a template."
         )}
       </p>
     </fieldset>

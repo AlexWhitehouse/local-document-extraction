@@ -1,12 +1,22 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { statusLabel, statusTone } from "../../lib/status.js";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
 import { NavigationLink } from "../context/NavigationLink.jsx";
 import { appPath } from "../../lib/appRoutes";
 import { isPacketListed, isSingleDocumentPacket, singlePacketDocument, PACKET_STATUS_LABELS } from "./packetListing.js";
+import { EmptyState, ErrorState, Skeleton } from "../ui/States.jsx";
+import { Button } from "../ui/Button.jsx";
+import { Field, Select, TextInput } from "../ui/Field.jsx";
+import { Popover } from "../ui/Popover.jsx";
+import { LoadMore } from "../ui/Pager.jsx";
+import { describeError } from "../../lib/describeError";
+import { FilterIcon, PacketIcon } from "../layout/Icons.jsx";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
+
+const MODEL_SETUP_MESSAGE = "Set up a Model gateway on the Workspace page to upload";
 
 export function DocumentContextList({
   workspaceId,
@@ -29,6 +39,12 @@ export function DocumentContextList({
   hasActiveFilters = false,
   hasMoreDocuments,
   isLoadingMoreDocuments,
+  listStatus = "ready",
+  listError = null,
+  loadMoreError = null,
+  onRetryDocumentList,
+  canUploadDocuments = false,
+  onUploadDocument,
   isDeletingDocuments = false,
   isExportingDocuments = false,
   onSearchChange,
@@ -131,7 +147,6 @@ export function DocumentContextList({
   return (
     <>
       <div className="context-search-field">
-        <label htmlFor="document-job-search">Search Documents</label>
         <div className="context-search-row">
           <label className="context-select-all-control" title={selectAllLabel}>
             <input
@@ -152,12 +167,13 @@ export function DocumentContextList({
             />
           </label>
           <div className="context-search-shell">
-            <input
-              id="document-job-search"
-              value={search}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Document ID or Source file"
-            />
+            <Field label="Search documents" labelHidden>
+              <TextInput
+                value={search}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder="e.g. invoice.pdf"
+              />
+            </Field>
             <AdvancedJobFilters filters={filters} availableModels={availableModels} onFiltersChange={onFiltersChange} />
           </div>
         </div>
@@ -210,7 +226,7 @@ export function DocumentContextList({
                 >
                   {item.displayKind === "packet" ? (
                     <span className="context-packet-mark" aria-hidden="true">
-                      <PacketIcon />
+                      <PacketIcon size={13} />
                     </span>
                   ) : null}
                   <input
@@ -236,6 +252,7 @@ export function DocumentContextList({
                       : undefined
                   }
                   data-selected-document={isActive ? "true" : undefined}
+                  data-context-select aria-current={isActive ? "true" : undefined}
                   className={isActive ? "context-item-main active" : "context-item-main"}
                   onClick={() => select(item)}
                   onKeyDown={(event) => {
@@ -260,27 +277,40 @@ export function DocumentContextList({
             );
           })}
         </div>
-        {!items.length ? (
-          <p className="muted">
-            {debouncedSearch || hasActiveFilters ? "No documents match these filters." : "No documents uploaded yet."}
-          </p>
+        {listStatus === "error" ? (
+          <ErrorState variant="inline" error={listError} onRetry={onRetryDocumentList} />
         ) : null}
-        {hasMoreDocuments || hasMorePackets ? (
-          <button
-            type="button"
-            className="context-item"
-            disabled={isLoadingMoreDocuments || loadingPackets}
-            onClick={() => {
+        {!items.length && listStatus === "loading" ? <Skeleton rows={4} height={44} /> : null}
+        {!items.length && listStatus === "ready" && (debouncedSearch || hasActiveFilters) ? (
+          <p className="muted">No documents match these filters.</p>
+        ) : null}
+        {!items.length && listStatus === "ready" && !(debouncedSearch || hasActiveFilters) ? (
+          <EmptyState
+            variant="inline"
+            message="No documents yet"
+            action={
+              <Button
+                variant="secondary"
+                disabled={!canUploadDocuments}
+                title={canUploadDocuments ? undefined : MODEL_SETUP_MESSAGE}
+                onClick={onUploadDocument}
+              >
+                Upload documents
+              </Button>
+            }
+          />
+        ) : null}
+        {hasMoreDocuments || hasMorePackets || loadMoreError ? (
+          <LoadMore
+            label="Load more documents"
+            pending={isLoadingMoreDocuments || loadingPackets}
+            error={loadMoreError ? describeError(loadMoreError, "This couldn't be loaded.") : ""}
+            onLoadMore={() => {
               if (hasMoreDocuments) onLoadMoreDocuments();
 
               if (hasMorePackets) onLoadMorePackets?.();
             }}
-          >
-            <strong>{isLoadingMoreDocuments || loadingPackets ? "Loading…" : "Load more Documents"}</strong>
-            <span>
-              {debouncedSearch || hasActiveFilters ? "Continue searching older documents" : "Show older documents"}
-            </span>
-          </button>
+          />
         ) : null}
       </ScrollArea>
     </>
@@ -314,8 +344,8 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
       packet.outcome === "no_documents"
         ? "No documents to extract"
         : isAwaitingTemplate
-          ? "Template needed"
-          : PACKET_STATUS_LABELS[packet.status] || String(packet.status || "queued").replaceAll("_", " ");
+          ? "Needs template"
+          : PACKET_STATUS_LABELS[packet.status] || statusLabel(packet.status || "queued");
 
     items.push({
       kind: "packet",
@@ -326,15 +356,13 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
       displayId: child?.job_id || packet.packet_id,
       title: packet.source_name || packet.packet_id,
       detail: single
-        ? child?.job_id || (packet.status === "queued" ? "Queued" : "Processing")
+        ? [child?.job_id, document ? statusLabel(document.status) : packet.status === "queued" ? "Queued" : "Processing"]
+            .filter(Boolean)
+            .join(" · ")
         : childCount
           ? `${childCount} ${childCount === 1 ? "document" : "documents"} · ${status}`
           : status,
-      tone: document
-        ? documentStatusTone(document.status)
-        : childStatuses.some((childStatus) => documentStatusTone(childStatus) === "failed")
-          ? "failed"
-          : packetStatusTone(packet.status),
+      tone: document ? statusTone(document.status) : packetTone(packet.status, childStatuses),
     });
   }
 
@@ -348,49 +376,28 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
       displayKind: "document",
       displayId: job.job_id,
       title: job.source_name || defaultUploadedName(job.source_mime_type),
-      detail: job.job_id,
-      tone: documentStatusTone(job.status),
+      detail: `${job.job_id} · ${statusLabel(job.status || "queued")}`,
+      tone: statusTone(job.status),
     });
   }
 
   return items.sort((a, b) => (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0));
 }
 
-function packetStatusTone(status) {
-  switch (status) {
-    case "completed":
-      return "completed";
-    case "awaiting_review":
-    case "failed":
-      return "failed";
-    default:
-      return "progress";
-  }
-}
+// A packet's row takes the most urgent tone among its documents, then its own status.
+function packetTone(status, childStatuses) {
+  const childTones = childStatuses.map(statusTone);
 
-function documentStatusTone(status) {
-  switch (String(status || "").toLowerCase()) {
-    case "completed":
-      return "completed";
-    case "queued":
-    case "processing":
-      return "progress";
-    case "awaiting_template":
-      return "failed";
-    case "error":
-    case "failed":
-      return "failed";
-    default:
-      return "";
-  }
+  if (childTones.includes("danger")) return "danger";
+
+  if (childTones.includes("warning")) return "warning";
+
+  return statusTone(status);
 }
 
 function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState(() => ({ ...filters }));
-  const containerRef = useRef(null);
-  const popoverId = useId();
-  const headingId = useId();
 
   const activeFilterCount = [filters.dateFrom, filters.dateTo, filters.model].filter(Boolean).length;
 
@@ -409,32 +416,6 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
   useEffect(() => {
     setDraftFilters(toDraftFilters(filters));
   }, [filters]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-
-    function closeOnOutsidePointer(event) {
-      if (!containerRef.current?.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-
-    function closeOnEscape(event) {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    document.addEventListener("keydown", closeOnEscape);
-
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen]);
 
   function updateDraftFilter(name, value) {
     setDraftFilters((current) => ({ ...current, [name]: value }));
@@ -466,98 +447,83 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
   }
 
   return (
-    <div className="context-filter-control" ref={containerRef}>
-      <button
-        type="button"
-        className={`context-filter-trigger${activeFilterCount ? " active" : ""}`}
-        aria-controls={popoverId}
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        aria-label={`Advanced document filters${activeFilterCount ? `, ${activeFilterCount} active` : ""}`}
-        title="Advanced document filters"
-        onClick={toggleFilters}
-      >
-        <FilterIcon />
-        {activeFilterCount ? (
-          <span className="context-filter-count" aria-hidden="true">
-            {activeFilterCount}
-          </span>
-        ) : null}
-      </button>
-
-      {isOpen ? (
-        <form
-          id={popoverId}
-          className="context-filter-popover"
-          role="dialog"
-          aria-labelledby={headingId}
-          onSubmit={applyFilters}
+    <Popover
+      className="context-filter-control"
+      panelClassName="context-filter-popover"
+      label="Advanced filters"
+      open={isOpen}
+      onClose={() => setIsOpen(false)}
+      trigger={(triggerProps) => (
+        <button
+          type="button"
+          className={`context-filter-trigger${activeFilterCount ? " active" : ""}`}
+          aria-haspopup="dialog"
+          aria-label={`Advanced document filters${activeFilterCount ? `, ${activeFilterCount} active` : ""}`}
+          title="Advanced document filters"
+          onClick={toggleFilters}
+          {...triggerProps}
         >
-          <div className="context-filter-popover-head">
-            <div>
-              <span className="eyebrow">Narrow the queue</span>
-              <strong id={headingId}>Advanced filters</strong>
-            </div>
-            {activeFilterCount ? <span className="context-filter-active-label">{activeFilterCount} active</span> : null}
-          </div>
-
-          <div className="context-filter-date-grid">
-            <label>
-              Date from
-              <input
-                type="date"
-                value={draftFilters.dateFrom}
-                max={draftFilters.dateTo || undefined}
-                aria-invalid={hasInvalidDateRange || undefined}
-                onChange={(event) => updateDraftFilter("dateFrom", event.target.value)}
-              />
-            </label>
-            <label>
-              Date to
-              <input
-                type="date"
-                value={draftFilters.dateTo}
-                min={draftFilters.dateFrom || undefined}
-                aria-invalid={hasInvalidDateRange || undefined}
-                onChange={(event) => updateDraftFilter("dateTo", event.target.value)}
-              />
-            </label>
-          </div>
-
-          <label>
-            Model used
-            <select value={draftFilters.model} onChange={(event) => updateDraftFilter("model", event.target.value)}>
-              <option value="">Any model</option>
-              {modelOptions.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {hasInvalidDateRange ? (
-            <p className="context-filter-error" role="alert">
-              Date from must be on or before date to.
-            </p>
+          <FilterIcon />
+          {activeFilterCount ? (
+            <span className="context-filter-count" aria-hidden="true">
+              {activeFilterCount}
+            </span>
           ) : null}
-
-          <div className="context-filter-actions">
-            <button
-              type="button"
-              className="secondary"
-              disabled={!activeFilterCount && !draftFilters.dateFrom && !draftFilters.dateTo && !draftFilters.model}
-              onClick={clearFilters}
-            >
-              Clear
-            </button>
-            <button type="submit" disabled={hasInvalidDateRange}>
-              Apply filters
-            </button>
+        </button>
+      )}
+    >
+      <form className="context-filter-form" onSubmit={applyFilters}>
+        <div className="context-filter-popover-head">
+          <div>
+            <strong>Advanced filters</strong>
           </div>
-        </form>
-      ) : null}
-    </div>
+          {activeFilterCount ? <span className="context-filter-active-label">{activeFilterCount} active</span> : null}
+        </div>
+
+        <div className="context-filter-date-grid">
+          <Field label="Date from">
+            <TextInput
+              type="date"
+              value={draftFilters.dateFrom}
+              max={draftFilters.dateTo || undefined}
+              onChange={(event) => updateDraftFilter("dateFrom", event.target.value)}
+            />
+          </Field>
+          <Field label="Date to" error={hasInvalidDateRange ? "Date from must be on or before date to." : ""}>
+            <TextInput
+              type="date"
+              value={draftFilters.dateTo}
+              min={draftFilters.dateFrom || undefined}
+              onChange={(event) => updateDraftFilter("dateTo", event.target.value)}
+            />
+          </Field>
+        </div>
+
+        <Field label="Model used">
+          <Select value={draftFilters.model} onChange={(event) => updateDraftFilter("model", event.target.value)}>
+            <option value="">Any model</option>
+            {modelOptions.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <div className="context-filter-actions">
+          <Button
+            variant="secondary"
+            disabled={!activeFilterCount && !draftFilters.dateFrom && !draftFilters.dateTo && !draftFilters.model}
+            onClick={clearFilters}
+          >
+            Clear
+          </Button>
+          <Button type="submit" disabled={hasInvalidDateRange}>
+            Apply filters
+          </Button>
+        </div>
+      </form>
+    </Popover>
   );
 }
 
@@ -569,47 +535,8 @@ function toDraftFilters(filters) {
   };
 }
 
-function PacketIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="13"
-      height="13"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M8 3h9a2 2 0 0 1 2 2v12" />
-      <rect x="5" y="7" width="11" height="14" rx="2" />
-    </svg>
-  );
-}
-
-function FilterIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 5h16" />
-      <path d="M7 12h10" />
-      <path d="M10 19h4" />
-    </svg>
-  );
-}
-
 function defaultUploadedName(sourceMimeType) {
   const mimeType = String(sourceMimeType || "");
 
-  return mimeType.startsWith("image/") || mimeType === "application/pdf" ? "Uploaded Document" : "Uploaded Source file";
+  return mimeType.startsWith("image/") || mimeType === "application/pdf" ? "Uploaded document" : "Uploaded file";
 }

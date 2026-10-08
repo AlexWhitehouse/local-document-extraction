@@ -1,77 +1,47 @@
-import React, { useId, useRef } from "react";
-import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import React from "react";
+import { formatUploadLimit } from "./sourceFileValidation.js";
+import { pluralize } from "../../lib/text";
+import { Button } from "../ui/Button.jsx";
+import { Badge } from "../ui/Status.jsx";
+import { Dropzone } from "../ui/Dropzone.jsx";
+import { statusTone } from "../../lib/status.js";
+
+const QUEUE_LABELS = { pending: "Waiting", processing: "Uploading", success: "Queued", failed: "Failed" };
 
 export function DocumentUploadPanel({
-  label = "Source files",
+  label = "Files",
   multiple = true,
   sourceFiles = [],
-  isDragActive = false,
+  rejections = [],
   disabled = false,
   maxSourceFileBytes = 10 * 1024 * 1024,
   onSelectSourceFiles,
-  onDragOver,
-  onDragLeave,
-  onDrop,
   onRemoveSourceFile,
   tourTarget,
 }) {
-  const uploadInputRef = useRef(null);
-  const inputId = useId();
   const showDropzone = multiple || sourceFiles.length === 0;
 
   return (
     <div className="document-upload-panel" data-tour={tourTarget}>
-      <label htmlFor={inputId}>{label}</label>
-      <input
-        ref={uploadInputRef}
-        id={inputId}
-        tabIndex={-1}
-        disabled={disabled || !showDropzone}
-        type="file"
-        accept={SOURCE_FILE_MIME_TYPES.join(",")}
-        className="upload-input-hidden"
-        multiple={multiple}
-        onChange={(event) => {
-          onSelectSourceFiles(Array.from(event.target.files || []));
-          event.target.value = "";
-        }}
-      />
+      <span className="document-upload-label">{label}</span>
       {showDropzone && (
-        <button
-          type="button"
+        <Dropzone
+          label={label}
+          hint={`PDF, PNG, JPG or WEBP · up to ${formatUploadLimit(maxSourceFileBytes)}`}
+          multiple={multiple}
           disabled={disabled}
-          className={isDragActive ? "upload-dropzone is-active" : "upload-dropzone"}
-          onClick={() => uploadInputRef.current?.click()}
-          onDragOver={(event) => {
-            event.preventDefault();
-
-            if (!disabled) onDragOver?.(event);
-          }}
-          onDragLeave={(event) => {
-            event.preventDefault();
-
-            if (!disabled) onDragLeave?.(event);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-
-            if (!disabled) onDrop?.(event);
-          }}
+          onFiles={onSelectSourceFiles}
         >
-          <strong>{multiple ? "Drag and drop source files here" : "Drag and drop a sample document here"}</strong>
-          <span>or click to browse Documents (PNG, JPG, WEBP, PDF)</span>
-          <span>
-            Maximum file size:{" "}
-            {new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(maxSourceFileBytes / (1024 * 1024))}{" "}
-            MiB
-          </span>
-          <em>
-            {sourceFiles.length
-              ? `${sourceFiles.length} Source file${sourceFiles.length === 1 ? "" : "s"} selected`
-              : "No Source files selected"}
-          </em>
-        </button>
+          {sourceFiles.length ? <em>{pluralize(sourceFiles.length, "file")} selected</em> : null}
+        </Dropzone>
       )}
+      {rejections.length ? (
+        <ul className="upload-rejections" role="alert">
+          {rejections.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      ) : null}
       {sourceFiles.length ? (
         <div className="upload-file-list" role="list">
           {sourceFiles.map((entry) => (
@@ -80,18 +50,17 @@ export function DocumentUploadPanel({
                 {entry.file.name}
               </span>
               <div className="upload-file-actions">
-                <span className={`status-pill ${queueStatusTone(entry.queueStatus)}`}>
-                  {formatQueueStatus(entry.queueStatus)}
-                </span>
+                <Badge tone={statusTone(entry.queueStatus)}>{QUEUE_LABELS[entry.queueStatus] ?? "Waiting"}</Badge>
                 {entry.queueStatus === "pending" ? (
-                  <button
-                    type="button"
-                    className="ghost"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={disabled}
+                    aria-label={`Remove ${entry.file.name}`}
                     onClick={() => onRemoveSourceFile(entry.id)}
                   >
                     Remove
-                  </button>
+                  </Button>
                 ) : null}
               </div>
               {entry.queueError ? <p className="hint upload-file-error">{entry.queueError}</p> : null}
@@ -101,16 +70,4 @@ export function DocumentUploadPanel({
       ) : null}
     </div>
   );
-}
-
-function queueStatusTone(status) {
-  if (status === "success") return "good";
-
-  if (status === "failed") return "bad";
-
-  return "pending";
-}
-
-function formatQueueStatus(status) {
-  return status.charAt(0).toUpperCase() + status.slice(1);
 }

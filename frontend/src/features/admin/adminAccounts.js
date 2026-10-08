@@ -23,8 +23,8 @@ export function isApplicationAdmin(user) {
 // Short markers for the account list; an active, verified regular user carries none.
 export function accountFlags(user) {
   return [
-    isApplicationAdmin(user) ? { label: "Admin", tone: "busy" } : null,
-    user.banned ? { label: "Banned", tone: "bad" } : null,
-    isEmailVerified(user) ? null : { label: "Unverified", tone: "warn" },
+    isApplicationAdmin(user) ? { label: "Admin", tone: "info" } : null,
+    user.banned ? { label: "Banned", tone: "danger" } : null,
+    isEmailVerified(user) ? null : { label: "Unverified", tone: "warning" },
   ].filter(Boolean);
 }

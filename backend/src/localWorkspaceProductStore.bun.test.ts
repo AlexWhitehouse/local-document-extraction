@@ -928,3 +928,44 @@ async function withProductStore(
     await rm(stateDirectory, { recursive: true, force: true });
   }
 }
+
+test("local Workspace product data lists extraction models by most recent job use", async () => {
+  await withProductStore(async (store) => {
+    store.createTemplate(INVOICE_TEMPLATE);
+
+    const runs = [
+      { jobId: "job_old", modelName: "provider/model-old", submittedAt: "2026-07-01T12:00:00.000Z" },
+      { jobId: "job_mid", modelName: "provider/model-mid", submittedAt: "2026-07-02T12:00:00.000Z" },
+      { jobId: "job_new", modelName: "provider/model-new", submittedAt: "2026-07-03T12:00:00.000Z" },
+      { jobId: "job_reused", modelName: "provider/model-old", submittedAt: "2026-07-04T12:00:00.000Z" },
+    ];
+
+    for (const run of runs) {
+      store.createQueuedExtractionJob({
+        jobId: run.jobId,
+        templateId: INVOICE_TEMPLATE.templateId,
+        templateVersion: 1,
+        sourceFileKey: `workspaces/workspace_research/jobs/${run.jobId}/source.png`,
+        sourceMimeType: "image/png",
+        sourceName: `${run.jobId}.png`,
+        sourceFilePageCount: null,
+        submittedAt: run.submittedAt,
+      });
+      store.claimExtractionJobForProcessing({ jobId: run.jobId, attempt: 1, claimedAt: run.submittedAt });
+      store.completeExtractionJob({
+        jobId: run.jobId,
+        attempt: 1,
+        completedAt: run.submittedAt,
+        modelName: run.modelName,
+        route: "test",
+        results: [],
+      });
+    }
+
+    expect(store.listExtractionJobModels()).toEqual([
+      "provider/model-old",
+      "provider/model-new",
+      "provider/model-mid",
+    ]);
+  });
+});

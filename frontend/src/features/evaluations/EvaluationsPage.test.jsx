@@ -1,7 +1,15 @@
 import React from "react";
-import { fireEvent, render, screen, within, waitFor, cleanup } from "@testing-library/react";
+import { act, fireEvent, render, screen, within, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+
 import { EvaluationsPage } from "./EvaluationsPage.jsx";
+
+// Field errors are linked through aria-describedby rather than announced with role="alert".
+const described = (element) =>
+  (element.getAttribute("aria-describedby") || "")
+    .split(" ")
+    .map((id) => document.getElementById(id)?.textContent || "")
+    .join(" ");
 
 const template = {
   name: "Invoice",
@@ -134,13 +142,14 @@ function setup(overrides = {}, templates = [], props = {}) {
     start: vi.fn(() => []),
     changeMode: vi.fn(),
     duplicate: vi.fn(),
-    remove: vi.fn(),
+    remove: vi.fn(async () => null),
     setReference: vi.fn(),
     removeReference: vi.fn(),
     reviewReference: vi.fn(),
     setColumns: vi.fn(),
     addUploads: vi.fn(),
-    removeDocument: vi.fn(),
+    removeDocument: vi.fn(async () => null),
+    discardChanges: vi.fn(() => null),
     detail: (id) => details[id] || null,
     hydrate: vi.fn(),
   };
@@ -149,7 +158,7 @@ function setup(overrides = {}, templates = [], props = {}) {
     <EvaluationsPage
       evaluation={next}
       templates={templates}
-      workspaceLabel="Test Workspace"
+      workspaceCrumb={{ label: "Test Workspace", href: "/workspaces/ws_1" }}
       enabled
       maxSourceFileBytes={1000}
       {...props}
@@ -179,11 +188,11 @@ it("replaces a comparison candidate with a historical Template without running i
   const evaluation = setup({ mode: "templates" }, [{ id: "saved", name: "Saved Invoice", current_version: 3 }]);
   evaluation.api.mockImplementation(async () => Response.json(savedTemplate()));
   openMenu();
-  fireEvent.click(screen.getByRole("button", { name: "Choose another Template/version" }));
-  const picker = within(screen.getByRole("dialog", { name: "Choose candidate Template" }));
+  fireEvent.click(screen.getByRole("button", { name: "Choose another template version" }));
+  const picker = within(screen.getByRole("dialog", { name: "Choose candidate template" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "saved" } });
-  fireEvent.change(picker.getByRole("combobox", { name: "Field version" }), { target: { value: "2" } });
-  fireEvent.click(picker.getByRole("button", { name: "Replace candidate Template" }));
+  fireEvent.change(picker.getByRole("combobox", { name: "Version" }), { target: { value: "2" } });
+  fireEvent.click(picker.getByRole("button", { name: "Replace candidate template" }));
   await waitFor(() => expect(evaluation.edit).toHaveBeenCalledWith("a", {
     template: expect.objectContaining({ source: { id: "saved", version: 2 }, name: "Invoice" }),
   }));
@@ -192,10 +201,10 @@ it("replaces a comparison candidate with a historical Template without running i
 
 it("keeps editing available during processing and applies full editor changes only to the candidate", async () => {
   const evaluation = setup();
-  expect(screen.getByRole("button", { name: "Run all 1" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Run all (1 candidate)" }).disabled).toBe(true);
   openMenu();
-  fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
-  const dialog = screen.getByRole("dialog", { name: "Edit Template" });
+  fireEvent.click(screen.getByRole("button", { name: "Edit template" }));
+  const dialog = screen.getByRole("dialog", { name: "Edit template" });
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Extraction instructions" }), {
     target: { value: "Revised instruction" },
   });
@@ -206,16 +215,16 @@ it("keeps editing available during processing and applies full editor changes on
   expect(evaluation.api).not.toHaveBeenCalled();
 });
 
-it("Save as new Template warns for untested edits and saves an independent current draft", async () => {
+it("Save as new template warns for untested edits and saves an independent current draft", async () => {
   const evaluation = setup();
   openMenu();
-  fireEvent.click(screen.getByRole("button", { name: "Save as new Template" }));
-  const dialog = screen.getByRole("dialog", { name: "Save as new Template" });
-  expect(within(dialog).getByText(/current edits have not been tested/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Save as new template" }));
+  const dialog = screen.getByRole("dialog", { name: "Save as new template" });
+  expect(within(dialog).getByText(/These edits haven’t been run yet/)).toBeTruthy();
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Template name" }), {
     target: { value: "New Invoice" },
   });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Save new Template" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save new template" }));
   await waitFor(() => expect(evaluation.api).toHaveBeenCalled());
   expect(evaluation.api.mock.calls[0][0]).toBe("/templates");
   expect(JSON.parse(evaluation.api.mock.calls[0][1].body)).toMatchObject({
@@ -229,7 +238,7 @@ it("Save as new Template warns for untested edits and saves an independent curre
 it("candidate values stay unverified until an explicit reference confirmation", () => {
   const evaluation = setup();
   fireEvent.click(screen.getByRole("button", { name: "Inspect Total for Candidate 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
   expect(evaluation.setReference).not.toHaveBeenCalled();
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
   fireEvent.change(within(dialog).getByRole("textbox", { name: "Expected value" }), { target: { value: "12" } });
@@ -252,7 +261,7 @@ it("verifies expected answers inline, including explicit absence", () => {
   fireEvent.click(screen.getByRole("button", { name: "Add expected Total" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Total" }), { target: { value: "twelve" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
-  expect(screen.getByRole("alert").textContent).toMatch(/valid number/);
+  expect(described(screen.getByRole("textbox", { name: "Expected Total" }))).toMatch(/valid number/);
   expect(evaluation.setReference).not.toHaveBeenCalled();
   fireEvent.change(screen.getByRole("textbox", { name: "Expected Total" }), { target: { value: "£1,200.50" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify" }));
@@ -356,15 +365,17 @@ it("starts a model comparison from a saved historical field version with the cho
     { suggestedModels: ["other-model"] },
   );
 
-  expect(screen.getByText("Test Workspace / Evaluations")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Start Evaluation" }).disabled).toBe(true);
+  const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
+  expect(breadcrumb.getByRole("link", { name: "Test Workspace" }).getAttribute("href")).toBe("/workspaces/ws_1");
+  expect(breadcrumb.getByText("Evaluations").getAttribute("aria-current")).toBe("page");
+  expect(screen.getByRole("button", { name: "Start evaluation" }).disabled).toBe(true);
   evaluation.api.mockImplementation(async () => Response.json(savedTemplate()));
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "Field version" }), { target: { value: "2" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Version" }), { target: { value: "2" } });
   expect(screen.getByRole("textbox", { name: "Candidate 1 model" }).value).toBe("model");
-  fireEvent.click(screen.getByRole("button", { name: "+ other-model" }));
+  fireEvent.click(screen.getByRole("button", { name: "other-model" }));
   await waitFor(() => expect(screen.getByText(/1 field/)).toBeTruthy());
-  fireEvent.click(screen.getByRole("button", { name: "Start Evaluation" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start evaluation" }));
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
   const [mode, entries] = evaluation.start.mock.calls[0];
   expect(mode).toBe("models");
@@ -384,10 +395,10 @@ it("shows the Workspace model only when comparing Template versions and loads ea
   fireEvent.click(screen.getByRole("radio", { name: /Template versions/ }));
   expect(screen.getByText("Workspace model")).toBeTruthy();
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });
-  expect(screen.getByRole("checkbox", { name: /Fields v3/ }).checked).toBe(true);
-  expect(screen.getByRole("checkbox", { name: /Fields v2/ }).checked).toBe(true);
-  fireEvent.click(screen.getByRole("checkbox", { name: /Fields v1/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Start Evaluation" }));
+  expect(screen.getByRole("checkbox", { name: /^v3/ }).checked).toBe(true);
+  expect(screen.getByRole("checkbox", { name: /^v2/ }).checked).toBe(true);
+  fireEvent.click(screen.getByRole("checkbox", { name: /^v1/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Start evaluation" }));
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
   const [mode, entries] = evaluation.start.mock.calls[0];
   expect(mode).toBe("templates");
@@ -404,8 +415,8 @@ it("starts two copies of a single Template version so one can be edited as a dra
 
   evaluation.api.mockImplementation(async () => Response.json({ ...template, current_version: 1 }));
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "saved" } });
-  expect(screen.getByText(/Starts two copies of Fields v1/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Start Evaluation" }));
+  expect(screen.getByText(/Starts two copies of v1/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Start evaluation" }));
   await waitFor(() => expect(evaluation.start).toHaveBeenCalled());
   expect(evaluation.start.mock.calls[0][1].map((entry) => entry.template.source.version)).toEqual([1, 1]);
   expect(evaluation.api).toHaveBeenCalledTimes(2);
@@ -438,7 +449,7 @@ it("validates setup documents before keeping them", () => {
   fireEvent.change(input, {
     target: { files: [new File(["x".repeat(1001)], "large.pdf", { type: "application/pdf" })] },
   });
-  expect(screen.getByRole("alert").textContent).toMatch(/file limit/);
+  expect(screen.getByRole("alert").textContent).toMatch(/larger than/);
   fireEvent.change(input, { target: { files: [new File(["x"], "notes.txt", { type: "text/plain" })] } });
   expect(screen.getByRole("alert").textContent).toMatch(/PDF, PNG, JPG or WEBP/);
   expect(evaluation.addUploads).not.toHaveBeenCalled();
@@ -451,13 +462,13 @@ it("uses the shared uploader to add documents and keeps invalid uploads in the d
   const evaluation = setup({ document: null });
   fireEvent.click(screen.getByRole("button", { name: "Upload document" }));
   const dialog = screen.getByRole("dialog", { name: "Upload evaluation document" });
-  expect(within(dialog).getByRole("button", { name: /Drag and drop source files/ })).toBeTruthy();
+  expect(within(dialog).getByRole("button", { name: /Drop files or click to browse/ })).toBeTruthy();
   const input = within(dialog).getByLabelText("Document");
   expect(input.multiple).toBe(true);
   fireEvent.change(input, {
     target: { files: [new File(["x".repeat(1001)], "large.pdf", { type: "application/pdf" })] },
   });
-  expect(within(dialog).getByRole("alert").textContent).toMatch(/file limit/);
+  expect(within(dialog).getByRole("alert").textContent).toMatch(/larger than/);
   expect(evaluation.addUploads).not.toHaveBeenCalled();
   const file = new File(["sample"], "invoice.pdf", { type: "application/pdf" });
   fireEvent.change(input, { target: { files: [file] } });
@@ -468,21 +479,119 @@ it("uses the shared uploader to add documents and keeps invalid uploads in the d
 it("adds a candidate from the last candidate, or duplicates a chosen one", () => {
   const candidate = { id: "a", revision: 0, model: "alpha", status: "idle", template };
   const evaluation = setup({ mode: "models", candidates: [candidate, { ...candidate, id: "b", model: "beta" }] });
-  fireEvent.click(screen.getByRole("button", { name: "+ Add candidate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add candidate" }));
   expect(evaluation.duplicate).toHaveBeenCalledWith("b");
   openMenu(1);
   fireEvent.click(screen.getByRole("button", { name: "Duplicate candidate" }));
   expect(evaluation.duplicate).toHaveBeenLastCalledWith("a");
+});
+
+it("removes a candidate at once and offers undo that restores it", async () => {
+  const toast = { success: vi.fn(), error: vi.fn() };
+  const undo = vi.fn();
+  const candidate = { id: "a", revision: 0, model: "alpha", status: "idle", template };
+
+  const evaluation = setup(
+    { mode: "models", candidates: [candidate, { ...candidate, id: "b", model: "beta" }] },
+    [],
+    { toast },
+  );
+
+  evaluation.remove.mockResolvedValue(undo);
+
   openMenu(2);
   fireEvent.click(screen.getByRole("button", { name: "Remove candidate" }));
   expect(evaluation.remove).toHaveBeenCalledWith("b");
+  await waitFor(() =>
+    expect(toast.success).toHaveBeenCalledWith(
+      "Candidate removed: beta",
+      expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }),
+    ),
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  toast.success.mock.calls[0][1].action.onClick();
+  expect(undo).toHaveBeenCalledTimes(1);
+});
+
+it("removes a setup candidate row at once, and undo puts the model back in its row", async () => {
+  const toast = { success: vi.fn(), error: vi.fn() };
+  setup({ mode: "models", candidates: [] }, [], { toast });
+
+  fireEvent.change(screen.getByLabelText("Candidate 2 model"), { target: { value: "beta" } });
+  fireEvent.click(screen.getByRole("button", { name: "Remove candidate 1" }));
+  expect(screen.getByLabelText("Candidate 1 model").value).toBe("beta");
+  expect(screen.queryByLabelText("Candidate 2 model")).toBeNull();
+  await waitFor(() =>
+    expect(toast.success).toHaveBeenCalledWith(
+      "Candidate removed: model",
+      expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }),
+    ),
+  );
+
+  act(() => toast.success.mock.calls[0][1].action.onClick());
+  expect(screen.getByLabelText("Candidate 1 model").value).toBe("model");
+  expect(screen.getByLabelText("Candidate 2 model").value).toBe("beta");
+});
+
+it("removes a setup document at once and offers undo", async () => {
+  const toast = { success: vi.fn(), error: vi.fn() };
+  const undo = vi.fn();
+  const evaluation = setup({ mode: "models", candidates: [] }, [], { toast });
+  evaluation.removeDocument.mockResolvedValue(undo);
+
+  fireEvent.click(screen.getByRole("button", { name: "Remove invoice.pdf" }));
+  expect(evaluation.removeDocument).toHaveBeenCalledWith("doc");
+  await waitFor(() =>
+    expect(toast.success).toHaveBeenCalledWith(
+      "Document removed: invoice.pdf",
+      expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }),
+    ),
+  );
+
+  toast.success.mock.calls[0][1].action.onClick();
+  expect(undo).toHaveBeenCalledTimes(1);
+});
+
+it("discards answer edits at once and offers undo", () => {
+  const toast = { success: vi.fn(), error: vi.fn() };
+  const undo = vi.fn();
+
+  const reference = {
+    definitions: { "total:number": template.fields[0] },
+    references: { "total:number": { verified: true, value: 10 } },
+  };
+
+  const edited = { definitions: reference.definitions, references: { "total:number": { verified: true, value: 12 } } };
+
+  const evaluation = setup(
+    {
+      documents: [
+        { key: "doc", kind: "saved", savedId: "saved-doc", name: "Saved invoice", loadedRevision: 1, reference: edited, base: reference, availability: "ok" },
+      ],
+    },
+    [],
+    { toast },
+  );
+
+  evaluation.discardChanges.mockReturnValue(undo);
+
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(evaluation.discardChanges).toHaveBeenCalledWith("doc");
+  expect(toast.success).toHaveBeenCalledWith(
+    "Changes discarded",
+    expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }),
+  );
+
+  toast.success.mock.calls[0][1].action.onClick();
+  expect(undo).toHaveBeenCalledTimes(1);
 });
 
 it("disables adding candidates at the eight candidate limit", () => {
   setup({
     candidates: Array.from({ length: 8 }, (_, i) => ({ id: String(i), model: "alpha", status: "idle", template })),
   });
-  expect(screen.getByRole("button", { name: "+ Add candidate" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Add candidate" }).disabled).toBe(true);
   expect(screen.getByText("8/8")).toBeTruthy();
 });
 
@@ -513,13 +622,13 @@ it("scores candidates, marks the leader and filters fields by disagreement and m
   expect(screen.getByText("0%")).toBeTruthy();
   expect(screen.getAllByText("Best")).toHaveLength(1);
   const matrix = screen.getByRole("region", { name: "Comparison matrix" });
-  fireEvent.click(screen.getByRole("button", { name: "Candidates differ" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Candidates differ" }));
   expect(within(matrix).getByText("Total")).toBeTruthy();
   expect(within(matrix).queryByText("Reference")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Unverified" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Unverified" }));
   expect(within(matrix).queryByText("Total")).toBeNull();
   expect(within(matrix).getByText("Reference")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Has mismatch" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Mismatches" }));
   expect(within(matrix).getByText("Total")).toBeTruthy();
   expect(within(matrix).queryByText("Reference")).toBeNull();
 });
@@ -554,13 +663,13 @@ it("compares every candidate's table rows against the expected rows in one view"
   fireEvent.click(within(dialog).getByRole("checkbox", { name: "Only rows with differences" }));
   expect(within(rows).getAllByText("alpha")).toHaveLength(2);
   expect(within(dialog).queryByRole("button", { name: /Review as expected/ })).toBeNull();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Stacked" }));
+  fireEvent.click(within(dialog).getByRole("radio", { name: "Stacked" }));
   const betaTable = within(dialog).getByRole("table", { name: "beta table" });
   expect(within(dialog).getAllByRole("table", { name: /table$/ })).toHaveLength(3);
   expect(within(betaTable).getByText("Row missing")).toBeTruthy();
   expect(within(betaTable).getByTitle("Expected: 2").textContent).toBe("3");
   expect(within(within(dialog).getByRole("table", { name: "alpha table" })).queryByText("Row missing")).toBeNull();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Side by side" }));
+  fireEvent.click(within(dialog).getByRole("radio", { name: "Side by side" }));
   const side = within(dialog).getByRole("table", { name: "Candidates side by side" });
   expect(within(side).getAllByRole("columnheader", { name: "SKU" })).toHaveLength(3);
 });
@@ -600,7 +709,7 @@ it("uses explicit Yes/No answers and preserves false when verifying", () => {
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
   expect(within(dialog).queryByRole("textbox")).toBeNull();
   fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
-  expect(within(dialog).getByRole("alert")).toBeTruthy();
+  expect(within(dialog).getByRole("combobox", { name: "Expected value" }).getAttribute("aria-invalid")).toBe("true");
   expect(evaluation.setReference).toHaveBeenCalledTimes(1);
 });
 
@@ -626,7 +735,7 @@ it("edits table records against ordered schema columns with typed cells", () => 
   fireEvent.click(screen.getByRole("button", { name: /Add expected rows/ }));
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
   expect(within(dialog).getByRole("button", { name: "Select row 1" })).toBeTruthy();
-  const table = within(dialog).getByRole("table", { name: "Expected row schema values" });
+  const table = within(dialog).getByRole("table", { name: "Expected row values" });
   expect(within(table).getByRole("columnheader", { name: "Column name" })).toBeTruthy();
   expect(within(table).getByText("Medicine as printed")).toBeTruthy();
   fireEvent.change(within(table).getByRole("textbox", { name: "Expected row 1 Drug name" }), {
@@ -677,7 +786,7 @@ it.each(["array", "table object"])(
 
     fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
     expect(screen.queryByRole("button", { name: "Use as expected answer" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
     const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
     expect(within(dialog).getByRole("textbox", { name: "Expected row 1 SKU" }).value).toBe("A");
     expect(within(dialog).getByRole("textbox", { name: "Expected row 1 Quantity" }).value).toBe("0");
@@ -689,7 +798,9 @@ it.each(["array", "table object"])(
     expect(records[1].sku).toBe("B");
     expect(evaluation.setReference).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
-    expect(within(dialog).getByRole("alert").textContent).toMatch(/Choose how to match rows/);
+    const compareRows = within(dialog).getByRole("combobox", { name: "Compare rows" });
+  expect(compareRows.getAttribute("aria-invalid")).toBe("true");
+  expect(described(compareRows)).toMatch(/Choose how to match rows/);
     expect(evaluation.setReference).not.toHaveBeenCalled();
     fireEvent.change(within(dialog).getByRole("combobox", { name: "Compare rows" }), { target: { value: "position" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
@@ -730,7 +841,7 @@ it("preserves row matching when reviewing another result for an existing expecte
   });
 
   fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
   const dialog = screen.getByRole("dialog", { name: "Verify expected answer" });
   expect(within(dialog).getByRole("combobox", { name: "Compare rows" }).value).toBe("sku");
   fireEvent.click(within(dialog).getByRole("button", { name: "Use as expected answer" }));
@@ -788,21 +899,21 @@ it.each(["explicit", "embedded"])("reuses saved answers after instruction-only e
     })),
   });
 
-  expect(screen.getAllByLabelText("Match")).toHaveLength(4);
+  expect(screen.getAllByText("Match")).toHaveLength(4);
   expect(screen.queryByRole("button", { name: "Review template changes" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Review field changes" })).toBeNull();
   expect(screen.queryByText(/Needs review/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Edit expected Total" }));
   fireEvent.click(screen.getByRole("button", { name: "More options" }));
   let editor = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
-  expect(editor.queryByRole("combobox", { name: "Expected answer Template" })).toBeNull();
+  expect(editor.queryByRole("combobox", { name: "Expected answer template" })).toBeNull();
   expect(editor.queryByText("Field instructions changed")).toBeNull();
   expect(editor.getByRole("textbox", { name: "Expected value" }).value).toBe("10");
   fireEvent.click(editor.getByRole("button", { name: "Cancel" }));
   fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 2" }));
-  fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
   editor = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
-  expect(editor.queryByRole("combobox", { name: "Expected answer Template" })).toBeNull();
+  expect(editor.queryByRole("combobox", { name: "Expected answer template" })).toBeNull();
   expect(editor.queryByText("Field instructions changed")).toBeNull();
   expect(editor.queryByText("Template columns changed")).toBeNull();
   expect(editor.getAllByText("Revised column instructions")).toHaveLength(2);
@@ -814,7 +925,7 @@ it.each(["explicit", "embedded"])("reuses saved answers after instruction-only e
   expect(editor.getByRole("combobox", { name: "Expected row 2 Quantity status" }).value).toBe("ignored");
   expect(editor.getByRole("combobox", { name: "Compare rows" }).value).toBe("sku");
   fireEvent.click(editor.getByRole("button", { name: "Cancel" }));
-  fireEvent.click(screen.getByRole("button", { name: "Template changes", exact: true }));
+  fireEvent.click(screen.getByRole("radio", { name: "Template changes", exact: true }));
   expect(screen.getByText("No fields match this filter.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Update saved answers…" })).toBeNull();
   expect(evaluation.setReference).not.toHaveBeenCalled();
@@ -865,11 +976,11 @@ it.each(["saved answer", "candidate result"])(
       ],
     });
 
-    expect(screen.getByText("Needs review · Template columns changed")).toBeTruthy();
+    expect(screen.getByText("Needs review · template columns changed")).toBeTruthy();
 
     if (source === "candidate result") {
       fireEvent.click(screen.getByRole("button", { name: "Inspect Items for Candidate 1" }));
-      fireEvent.click(screen.getByRole("button", { name: "Review as expected answer" }));
+      fireEvent.click(screen.getByRole("button", { name: "Review before using" }));
     } else fireEvent.click(screen.getByRole("button", { name: "Review updated table" }));
     const dialog = within(screen.getByRole("dialog", { name: "Verify expected answer" }));
     expect(dialog.getByText("Initiation Dose: Text → Yes / No")).toBeTruthy();
@@ -924,8 +1035,8 @@ it("finds added, removed and retyped fields together and preserves unchanged ans
   expect(matrix.queryByRole("button", { name: "Edit expected Name" })).toBeNull();
   expect(matrix.getByText("Text → Number")).toBeTruthy();
   expect(matrix.getByText("No saved answer · verify this field")).toBeTruthy();
-  expect(matrix.getByText("Saved answer not requested by any candidate · shown in coverage")).toBeTruthy();
-  fireEvent.click(matrix.getByRole("button", { name: "Remove expected answer for Old code" }));
+  expect(matrix.getByText("Not requested by any candidate · saved answer kept")).toBeTruthy();
+  fireEvent.click(matrix.getByRole("button", { name: "Delete expected answer for Old code" }));
   expect(evaluation.removeReference).toHaveBeenCalledWith("doc", "old code:string");
   fireEvent.click(matrix.getByRole("button", { name: "Review as Number" }));
   expect(screen.getByRole("textbox", { name: "Expected value" }).value).toBe("123");
@@ -967,7 +1078,21 @@ it("shows each candidate's run cost in its column head and marks partial or miss
     ],
   });
 
-  expect(screen.getByLabelText("Run cost: $0.0037").title).toBe("$0.00369663 for the successful attempt");
+  expect(screen.getByLabelText("Run cost: $0.0037").title).toBe("$0.00369663 for the successful run");
   expect(screen.getByLabelText("Run cost: $0.0012+")).toBeTruthy();
-  expect(screen.getByLabelText("Run cost: Unavailable").classList.contains("evaluation-muted")).toBe(true);
+  expect(screen.getByLabelText("Run cost: Cost not reported").classList.contains("evaluation-muted")).toBe(true);
+});
+
+it("shows a missing Model gateway as one info callout that opens the Workspace page", () => {
+  const onOpenWorkspace = vi.fn();
+  setup({ candidates: [], document: null, setup: { configured: false, model: "" } }, [], { onOpenWorkspace });
+
+  const callout = screen.getByText("Evaluations need a Model gateway").closest(".ui-callout");
+  expect(callout.className).toContain("ui-tone-info");
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText(/Configure a model/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Start evaluation" }).disabled).toBe(true);
+
+  fireEvent.click(within(callout).getByRole("button", { name: "Set up Model gateway" }));
+  expect(onOpenWorkspace).toHaveBeenCalledTimes(1);
 });

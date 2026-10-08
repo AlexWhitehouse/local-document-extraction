@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { describeError } from "../../lib/describeError";
+
+const SPLIT_PLAN_CHANGED =
+  "The split plan changed while you were reviewing. Your edits were replaced. Review the updated plan.";
+
+const noToast = () => {};
 
 const TERMINAL = new Set(["completed", "failed"]);
 
@@ -41,6 +47,7 @@ export function usePacketController({
   enabled,
   onAccessDenied,
   onJobsChanged,
+  showActionToast = noToast,
   listing,
 }) {
   const [state, setState] = useState(emptyState);
@@ -67,7 +74,7 @@ export function usePacketController({
       if (context.current !== ctx || !ctx?.active) return;
 
       if (error.status === 403) callbacks.current.onAccessDenied?.();
-      apply(ctx, { error: error.message || "Packet could not be loaded." });
+      apply(ctx, { error: describeError(error, "The packet couldn't be loaded. Try again.") });
     },
     [apply],
   );
@@ -255,6 +262,7 @@ export function usePacketController({
 
       try {
         await ctx.requests.confirmPacketPlan(id, plan);
+        showActionToast("packet.confirmPlan", "success");
 
         if (context.current !== ctx || !ctx.active) return false;
         await loadPacket(id);
@@ -264,15 +272,25 @@ export function usePacketController({
 
         return true;
       } catch (error) {
-        if (error.status === 409) await loadPacket(id);
-        fail(ctx, error);
+        if (context.current !== ctx || !ctx.active) return false;
+
+        // A conflict replaces the editor's draft, so the reason stays inline above it.
+        if (error.status === 409) {
+          await loadPacket(id);
+          apply(ctx, { error: SPLIT_PLAN_CHANGED });
+
+          return false;
+        }
+
+        if (error.status === 403) callbacks.current.onAccessDenied?.();
+        showActionToast("packet.confirmPlan", "failure", { error });
 
         return false;
       } finally {
         apply(ctx, { busy: false });
       }
     },
-    [apply, fail, loadPacket, refresh],
+    [apply, loadPacket, refresh, showActionToast],
   );
 
   /** Deletes each packet with its children; resolves to the ids that were removed. */

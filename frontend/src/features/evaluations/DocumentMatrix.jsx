@@ -1,3 +1,5 @@
+import { pluralize } from "../../lib/text.js";
+import { statusLabel } from "../../lib/status.js";
 import { isJsonObject } from "../../../../shared/json.ts";
 import React, { useState } from "react";
 import { getDataTypeLabel } from "../templates/templateFields.js";
@@ -11,6 +13,12 @@ import { display, percent, templateLabel } from "./evaluationFormat.js";
 import { MAX_CANDIDATES, candidateBusy } from "./useEvaluations.js";
 import { linkableFields, refText } from "./evaluationLibrary.js";
 import { adaptReferenceDraft } from "./referenceDraft.js";
+import { Button, IconButton } from "../ui/Button.jsx";
+import { Badge } from "../ui/Status.jsx";
+import { Segmented } from "../ui/Tabs.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
+import { Callout } from "../ui/Callout.jsx";
+import { CloseIcon, ExternalIcon, PlayIcon, PlusIcon } from "../layout/Icons.jsx";
 import {
   answerSignature,
   bestCandidateId,
@@ -30,7 +38,7 @@ const COMPARABLE_TYPES = ["array<object>", "object", "array"];
 const FILTERS = [
   ["all", "All fields"],
   ["differ", "Candidates differ"],
-  ["mismatch", "Has mismatch"],
+  ["mismatch", "Mismatches"],
   ["unverified", "Unverified"],
   ["changes", "Template changes"],
 ];
@@ -38,16 +46,18 @@ const FILTERS = [
 const baseName = (identity) => identity.slice(0, identity.lastIndexOf(":"));
 
 export function FieldFilters({ value, onChange, editing = false }) {
+  const items = FILTERS.flatMap(([id, label]) =>
+    editing && ["differ", "mismatch"].includes(id) ? [] : [{ value: id, label }],
+  );
+
   return (
-    <div className="segmented evaluation-filter" role="group" aria-label="Filter fields">
-      {FILTERS.map(([id, label]) =>
-        editing && ["differ", "mismatch"].includes(id) ? null : (
-          <button key={id} type="button" aria-pressed={value === id} onClick={() => onChange(id)}>
-            {label}
-          </button>
-        ),
-      )}
-    </div>
+    <Segmented
+      label="Filter fields"
+      className="evaluation-filter"
+      items={items}
+      value={value}
+      onChange={onChange}
+    />
   );
 }
 
@@ -72,7 +82,7 @@ export function CandidateHead({
         {mode === "models" ? (
           <input
             aria-label={`${label} model`}
-            placeholder="Model name"
+            placeholder="e.g. gpt-4o-mini"
             value={candidate.model}
             onChange={(event) => onModelChange(event.target.value)}
           />
@@ -84,16 +94,14 @@ export function CandidateHead({
       {children}
       <div className="evaluation-candidate-foot">
         {foot}
-        <button
-          type="button"
-          className="secondary"
-          aria-label={run.label}
+        <IconButton
+          size="sm"
+          label={run.label}
           title={run.title}
+          icon={PlayIcon}
           disabled={run.disabled}
           onClick={run.onClick}
-        >
-          ▶
-        </button>
+        />
       </div>
     </th>
   );
@@ -256,7 +264,7 @@ export function DocumentMatrix({
       });
     }
 
-    if (!schemas.length) schemas.push({ field: row.field, label: "saved answer fields" });
+    if (!schemas.length) schemas.push({ field: row.field, label: "Saved answer fields" });
     setReferenceEditor({
       row,
       from,
@@ -337,18 +345,14 @@ export function DocumentMatrix({
 
     return (
       <div className="evaluation-value">
-        <span
-          className={`evaluation-score ${score?.state === "Match" ? "match" : score?.state === "Mismatch" ? "mismatch" : ""}`}
-        >
-          {score?.state || "Unscored"}
-        </span>
+        <Mark state={score?.state} />
         {!["ok", "found"].includes(raw?.status) && (
-          <small>{raw?.status === "not_found" || !raw ? "Not found in document" : raw.status}</small>
+          <small>{raw?.status === "not_found" || !raw ? "Not found in document" : statusLabel(raw.status)}</small>
         )}
         {field.data_type === "array<object>" && tableRows !== null && columns.length ? (
           <>
             <div className="evaluation-table-scroll">
-              <table>
+              <DataTable compact>
                 <thead>
                   <tr>
                     {columns.map((c) => (
@@ -365,10 +369,10 @@ export function DocumentMatrix({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </DataTable>
             </div>
             <small>
-              {tableRows.length} rows{!full && tableRows.length > 3 ? " · showing first 3" : ""}
+              {pluralize(tableRows.length, "row")}{!full && tableRows.length > 3 ? " · showing first 3" : ""}
             </small>
           </>
         ) : (
@@ -388,7 +392,7 @@ export function DocumentMatrix({
               if (!cell.match)
                 paragraphs.push(
                   <p key={paragraphs.length}>
-                    Row {cell.row} · {cell.column}: {display(cell.actual)} → Expected {display(cell.expected)}
+                    Row {cell.row} · {cell.column}: {display(cell.actual)} → expected {display(cell.expected)}
                   </p>,
                 );
 
@@ -440,7 +444,7 @@ export function DocumentMatrix({
     candidate.detailState === "loading"
       ? "Loading result…"
       : candidate.detailState === "unavailable"
-        ? "Details unavailable · rerun"
+        ? "Details unavailable · run again"
         : candidateBusy(candidate)
           ? "Running…"
           : "Run to compare";
@@ -448,29 +452,27 @@ export function DocumentMatrix({
   return (
     <>
       {changes.size > 0 && (
-        <div className="evaluation-banner warn">
-          <span>
-            {changes.size} {changes.size === 1 ? "field differs" : "fields differ"} from the saved answers. Review
-            changed fields, enter new answers, or link renamed fields.
-          </span>
-          {onFilterChange && (
-            <button
-              type="button"
-              className="studio-text-button"
-              onClick={() => onFilterChange(filter === "changes" ? "all" : "changes")}
-            >
-              {filter === "changes" ? "Show all fields" : "Review template changes"}
-            </button>
-          )}
-        </div>
+        <Callout
+          tone="warning"
+          action={
+            onFilterChange && (
+              <Button variant="text" onClick={() => onFilterChange(filter === "changes" ? "all" : "changes")}>
+                {filter === "changes" ? "Show all fields" : "Review template changes"}
+              </Button>
+            )
+          }
+        >
+          {changes.size} {changes.size === 1 ? "field differs" : "fields differ"} from the saved answers. Review changed
+          fields, enter new answers, or link renamed fields.
+        </Callout>
       )}
       <div className={`evaluation-body ${inspected ? "inspecting" : ""}`}>
         <ScrollArea className="evaluation-comparison-scroll" tabIndex={0} role="region" aria-label="Comparison matrix">
-          <table className="evaluation-matrix" style={{ minWidth: template ? 550 : 390 + candidates.length * 220 + 160 }}>
+          <DataTable matrix className="evaluation-matrix" style={{ minWidth: template ? 550 : 390 + candidates.length * 220 + 160 }}>
             <thead>
               <tr>
                 <th className="evaluation-field-col">Field</th>
-                <th className="evaluation-expected-col">Expected</th>
+                <th className="evaluation-expected-col">Expected answer</th>
                 {candidates.map((candidate, index) => {
                   const score = scores[candidate.id];
                   const accuracy = candidateAccuracy(score);
@@ -512,7 +514,7 @@ export function DocumentMatrix({
                     >
                       <div className="evaluation-candidate-score">
                         <strong>{accuracy ? percent(accuracy.ratio) : "—"}</strong>
-                        {best && <span className="status-chip good">Best</span>}
+                        {best && <Badge tone="success">Best</Badge>}
                         <RunCost result={candidate.result} />
                         <Meter value={accuracy?.ratio} best={best} />
                       </div>
@@ -526,14 +528,12 @@ export function DocumentMatrix({
                 })}
                 {!template && (
                   <th className="evaluation-add-col">
-                    <button
-                      type="button"
-                      className="secondary"
+                    <Button variant="secondary"
                       disabled={candidates.length >= MAX_CANDIDATES}
                       onClick={onAddCandidate}
                     >
-                      + Add candidate
-                    </button>
+                      <PlusIcon size={13} /> Add candidate
+                    </Button>
                     <small>
                       {candidates.length}/{MAX_CANDIDATES}
                     </small>
@@ -565,8 +565,8 @@ export function DocumentMatrix({
                       {row.omitted && references[row.identity]?.verified && (
                         <small className="evaluation-muted evaluation-block">
                           {template
-                            ? "Removed from the Template draft · saved answer kept"
-                            : "Saved answer not requested by any candidate · shown in coverage"}
+                            ? "Removed from the template draft · saved answer kept"
+                            : "Not requested by any candidate · saved answer kept"}
                         </small>
                       )}
                       {row.omitted && references[row.identity]?.verified && (
@@ -577,27 +577,26 @@ export function DocumentMatrix({
                         />
                       )}
                       {row.omitted && (
-                        <button type="button" className="studio-text-button evaluation-compare-link"
-                          aria-label={`Remove expected answer for ${row.field.name}`}
+                        <Button variant="danger-text" className="evaluation-compare-link"
+                          aria-label={`Delete expected answer for ${row.field.name}`}
                           onClick={() => evaluation.removeReference(document.key, row.identity)}>
-                          Remove expected answer
-                        </button>
+                          Delete answer
+                        </Button>
                       )}
                       {!row.omitted && !from && saved[row.identity] && changes.has(row.identity) && (
-                        <button type="button" className="studio-text-button evaluation-compare-link" onClick={() => reference(row)}>
+                        <Button variant="text" className="evaluation-compare-link" onClick={() => reference(row)}>
                           Review field changes
-                        </button>
+                        </Button>
                       )}
                       {COMPARABLE_TYPES.includes(row.field.data_type) && answered > 0 && (
-                        <button
-                          type="button"
-                          className="studio-text-button evaluation-compare-link"
+                        <Button variant="text"
+                          className="evaluation-compare-link"
                           onClick={() => openComparison(row)}
                         >
                           Compare all {answered}{" "}
                           {row.field.data_type === "array<object>" ? (answered === 1 ? "table" : "tables") : "answers"}{" "}
-                          ↗
-                        </button>
+                          <ExternalIcon size={12} />
+                        </Button>
                       )}
                     </th>
                     <td className="evaluation-expected-col">
@@ -662,13 +661,13 @@ export function DocumentMatrix({
                 <tr>
                   <td colSpan={template ? 2 : 3 + candidates.length} className="evaluation-empty-row">
                     {template && !allRows.length
-                      ? "No saved fields. Use Edit Template to add fields."
+                      ? "No saved fields. Use Edit template to add fields."
                       : "No fields match this filter."}
                   </td>
                 </tr>
               )}
             </tbody>
-          </table>
+          </DataTable>
         </ScrollArea>
         {inspected && (
           <aside className="evaluation-inspector" aria-label="Answer inspector">
@@ -680,14 +679,7 @@ export function DocumentMatrix({
                 </small>
                 <h2>{inspected.row.field.name}</h2>
               </div>
-              <button
-                type="button"
-                className="icon-action-button"
-                aria-label="Close inspector"
-                onClick={() => setInspect(null)}
-              >
-                ×
-              </button>
+              <IconButton size="sm" label="Close inspector" icon={CloseIcon} onClick={() => setInspect(null)} />
             </div>
             <ScrollArea className="evaluation-inspector-body">
               <section>
@@ -697,23 +689,19 @@ export function DocumentMatrix({
                   {!COMPARABLE_TYPES.includes(inspected.row.field.data_type) &&
                     scores[inspected.candidate.id].byField[inspected.row.candidates[inspected.candidate.id].id]
                       ?.state !== "Match" && (
-                      <button type="button" onClick={() => acceptAnswer(inspected.row, inspected.candidate)}>
-                        {references[inspected.row.identity]?.verified
-                          ? "Replace expected with this answer"
-                          : "Use as expected answer"}
-                      </button>
+                      <Button onClick={() => acceptAnswer(inspected.row, inspected.candidate)}>
+                        Use as expected answer
+                      </Button>
                     )}
-                  <button
-                    type="button"
-                    className="secondary"
+                  <Button variant="secondary"
                     onClick={() => reference(inspected.row, inspected.candidate)}
                   >
-                    Review as expected answer
-                  </button>
+                    Review before using
+                  </Button>
                 </div>
               </section>
               <section>
-                <h3>Expected</h3>
+                <h3>Expected answer</h3>
                 <p className="evaluation-inspector-value">
                   {references[inspected.row.identity]?.verified ? (
                     references[inspected.row.identity].absent ? (
@@ -744,9 +732,9 @@ export function DocumentMatrix({
                   )}
                 </ul>
                 {COMPARABLE_TYPES.includes(inspected.row.field.data_type) && (
-                  <button type="button" className="studio-text-button" onClick={() => openComparison(inspected.row)}>
-                    Compare all candidates ↗
-                  </button>
+                  <Button variant="text" onClick={() => openComparison(inspected.row)}>
+                    Compare all candidates <ExternalIcon size={12} />
+                  </Button>
                 )}
               </section>
             </ScrollArea>
@@ -797,15 +785,7 @@ export function DocumentMatrix({
         <ModalDialog className="evaluation-expanded" label="Expanded comparison" onClose={() => setExpanded(null)}>
           <div className="evaluation-heading">
             <h2>{rows.get(expanded.identity).field.name}</h2>
-            <button
-              type="button"
-              className="modal-close"
-              aria-label="Close"
-              title="Close"
-              onClick={() => setExpanded(null)}
-            >
-              ×
-            </button>
+            <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={() => setExpanded(null)} />
           </div>
           <div className="evaluation-expanded-grid">
             {candidates.map((c, i) => (

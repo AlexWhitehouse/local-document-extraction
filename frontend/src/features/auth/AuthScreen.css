@@ -1,0 +1,39 @@
+/* Sits under the password field, aligned with the end of the input. */
+.auth-field .auth-forgot-password-link {
+  justify-self: end;
+}
+
+.auth-form-error {
+  margin: 12px 0 0;
+  color: var(--tone-danger-text);
+  font-size: var(--font-size-4);
+}
+
+/* Mode switches are buttons, styled as the inline links they replace. */
+button.auth-text-button {
+  background: transparent;
+  border: 0;
+  height: auto;
+  padding: 0;
+  color: var(--accent-strong);
+  font-size: var(--font-size-4);
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+button.auth-text-button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text-0);
+}
+
+button.auth-text-button.auth-forgot-password-link {
+  color: inherit;
+  font-size: var(--font-size-3);
+  text-decoration: none;
+}
+
+button.auth-text-button.auth-forgot-password-link:hover:not(:disabled) {
+  color: var(--text-1);
+  text-decoration: underline;
+}

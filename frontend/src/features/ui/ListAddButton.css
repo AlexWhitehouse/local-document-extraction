@@ -1,0 +1,25 @@
+button.list-add-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--font-size-3);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+button.list-add-button:hover:not(:disabled) {
+  background: var(--row-hover);
+  color: var(--accent-strong);
+}
+
+.list-add-button-icon {
+  flex: none;
+}

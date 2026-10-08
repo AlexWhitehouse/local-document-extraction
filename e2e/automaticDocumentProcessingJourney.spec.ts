@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ONE_PIXEL_PNG, saveModelGateway, submitSignUp } from "./support/journeyHelpers";
+import { chooseMoreAction, confirmInAppDialog, ONE_PIXEL_PNG, saveModelGateway, submitSignUp } from "./support/journeyHelpers";
 import { startRuntimeHarness } from "./support/runtimeHarnessClient";
 
 const template = {
@@ -54,7 +54,7 @@ test("tag routing, split review, page preview and all-blank completion work thro
     });
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await saveModelGateway(page, harness, "browser/model");
-    const model = page.getByRole("article", { name: "Workspace Model gateway" });
+    const model = page.getByRole("article", { name: "Model gateway" });
     await model.getByRole("button", { name: "Edit", exact: true }).click();
     await model.getByLabel("Document classification & splitting model source").selectOption("custom");
     await model
@@ -66,28 +66,29 @@ test("tag routing, split review, page preview and all-blank completion work thro
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
-    await page.getByRole("button", { name: "Create Template", exact: true }).click();
-    await page.getByRole("button", { name: "View JSON", exact: true }).click();
-    const json = page.getByRole("dialog", { name: "Export or import template JSON" });
+    await page.getByRole("button", { name: "Create template", exact: true }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
+    const json = page.getByRole("dialog", { name: "Export or import JSON" });
     await json.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(template));
 
     const createdPromise = page.waitForResponse(
       (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
     );
 
-    await json.getByRole("button", { name: "Save Template JSON", exact: true }).click();
+    await json.getByRole("button", { name: "Save JSON", exact: true }).click();
     const created = await createdPromise;
     expect(created.status()).toBe(201);
     const headers = { "x-workspace-id": created.request().headers()["x-workspace-id"]! };
     const templateId = (await created.json()).template_id;
 
     async function openUpload() {
-      const trigger = page.getByRole("button", { name: "Upload Document", exact: true }).first();
-      await expect(trigger).toHaveAttribute("aria-disabled", "false");
+      const trigger = page.getByRole("button", { name: "Upload documents", exact: true }).first();
+      await expect(trigger).toBeEnabled();
       await trigger.click();
-      await expect(page.getByRole("dialog", { name: "Upload document", exact: true })).toBeVisible();
+      await expect(page.getByRole("dialog", { name: "Upload documents", exact: true })).toBeVisible();
 
-      return page.getByRole("dialog", { name: "Upload document", exact: true });
+      return page.getByRole("dialog", { name: "Upload documents", exact: true });
     }
 
     let upload = await openUpload();
@@ -95,12 +96,11 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await upload
       .locator('input[type="file"]')
       .setInputFiles({ name: "invoice.png", mimeType: "image/png", buffer: ONE_PIXEL_PNG });
-    await expect(upload.getByRole("button", { name: "Upload Documents", exact: true })).toBeDisabled();
+    await expect(upload.getByRole("button", { name: "Upload documents", exact: true })).toBeDisabled();
     await upload.getByRole("checkbox", { name: "finance", exact: true }).check();
     await upload.screenshot({ path: testInfo.outputPath("upload-tag-picker.png") });
-    await upload.getByRole("button", { name: "Upload Documents", exact: true }).click();
-    await expect(upload.getByText("Success", { exact: true })).toBeVisible();
-    await upload.getByRole("button", { name: "Cancel", exact: true }).click();
+    await upload.getByRole("button", { name: "Upload documents", exact: true }).click();
+    await expect(upload).toBeHidden();
     await expect(page.getByText("Tagged invoice · version 1 · selected automatically", { exact: true })).toBeVisible();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("automatic-template-selection.png"), fullPage: true });
@@ -150,12 +150,11 @@ test("tag routing, split review, page preview and all-blank completion work thro
       (response) => new URL(response.url()).pathname === "/v1/extract" && response.request().method() === "POST",
     );
 
-    await upload.getByRole("button", { name: "Upload Documents", exact: true }).click();
+    await upload.getByRole("button", { name: "Upload documents", exact: true }).click();
     const queued = await queuedPromise;
     expect(queued.status()).toBe(202);
     const packetId = (await queued.json()).packet_id;
-    await expect(upload.getByText("Success", { exact: true })).toBeVisible();
-    await upload.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(upload).toBeHidden();
     await expect(page.getByRole("heading", { name: "Review document boundaries" })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByAltText("Original page 1")).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("split-review-original-pages.png"), fullPage: true });
@@ -168,12 +167,9 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await page.reload();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("packet-document-tab.png"), fullPage: true });
-    await page.getByRole("tab", { name: "Overview", exact: true }).click();
-    page.once("dialog", (dialog) => dialog.accept());
-    await page
-      .locator('header[aria-label="Workspace toolbar"]')
-      .getByRole("button", { name: "Delete", exact: true })
-      .click();
+    await page.getByRole("tab", { name: /^Overview/ }).click();
+    await chooseMoreAction(page, /^Delete/);
+    await confirmInAppDialog(page, /^Delete/, "Delete packet");
     await expect
       .poll(async () => (await page.request.get(`${harness.origin}/v1/packets/${packetId}`, { headers })).status())
       .toBe(404);
@@ -190,9 +186,8 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await upload
       .locator('input[type="file"]')
       .setInputFiles({ name: "blank.pdf", mimeType: "application/pdf", buffer: await pdfFixture(true) });
-    await upload.getByRole("button", { name: "Upload Documents", exact: true }).click();
-    await expect(upload.getByText("Success", { exact: true })).toBeVisible();
-    await upload.getByRole("button", { name: "Cancel", exact: true }).click();
+    await upload.getByRole("button", { name: "Upload documents", exact: true }).click();
+    await expect(upload).toBeHidden();
     await expect(page.getByRole("heading", { name: "No documents to extract", exact: true })).toBeVisible({
       timeout: 30_000,
     });
@@ -221,7 +216,7 @@ test("single-page uploads and one-document split plans display as ordinary docum
     });
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await saveModelGateway(page, harness, "browser/model");
-    const model = page.getByRole("article", { name: "Workspace Model gateway" });
+    const model = page.getByRole("article", { name: "Model gateway" });
     await model.getByRole("button", { name: "Edit", exact: true }).click();
     await model.getByLabel("Document classification & splitting model source").selectOption("custom");
     await model.getByLabel("Document classification & splitting model", { exact: true }).fill("browser/split-single");
@@ -234,16 +229,17 @@ test("single-page uploads and one-document split plans display as ordinary docum
 
     const navigation = page.getByRole("navigation", { name: "Main navigation" });
     await navigation.getByRole("link", { name: /Templates/ }).click();
-    await page.getByRole("button", { name: "Create Template", exact: true }).click();
-    await page.getByRole("button", { name: "View JSON", exact: true }).click();
-    const json = page.getByRole("dialog", { name: "Export or import template JSON" });
+    await page.getByRole("button", { name: "Create template", exact: true }).click();
+    await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View JSON" }).click();
+    const json = page.getByRole("dialog", { name: "Export or import JSON" });
     await json.getByRole("textbox", { name: "Template JSON", exact: true }).fill(JSON.stringify(template));
 
     const createdPromise = page.waitForResponse(
       (response) => new URL(response.url()).pathname === "/v1/templates" && response.request().method() === "POST",
     );
 
-    await json.getByRole("button", { name: "Save Template JSON", exact: true }).click();
+    await json.getByRole("button", { name: "Save JSON", exact: true }).click();
     const created = await createdPromise;
     expect(created.status()).toBe(201);
     const headers = { "x-workspace-id": created.request().headers()["x-workspace-id"]! };
@@ -251,8 +247,8 @@ test("single-page uploads and one-document split plans display as ordinary docum
 
     for (const pageCount of [1, 3]) {
       const sourceName = `single-document-${pageCount}-pages.pdf`;
-      await page.getByRole("button", { name: "Upload Document", exact: true }).first().click();
-      const upload = page.getByRole("dialog", { name: "Upload document", exact: true });
+      await page.getByRole("button", { name: "Upload documents", exact: true }).first().click();
+      const upload = page.getByRole("dialog", { name: "Upload documents", exact: true });
       await upload.getByRole("combobox", { name: "Template", exact: true }).selectOption(templateId);
       await upload
         .locator('input[type="file"]')
@@ -262,7 +258,7 @@ test("single-page uploads and one-document split plans display as ordinary docum
         (response) => new URL(response.url()).pathname === "/v1/extract" && response.request().method() === "POST",
       );
 
-      await upload.getByRole("button", { name: "Upload Documents", exact: true }).click();
+      await upload.getByRole("button", { name: "Upload documents", exact: true }).click();
       const queued = await queuedPromise;
       expect(queued.status()).toBe(202);
       const admission = await queued.json();
@@ -271,15 +267,14 @@ test("single-page uploads and one-document split plans display as ordinary docum
         expect(admission.job_id).toBeTruthy();
         expect(admission).not.toHaveProperty("packet_id");
       } else expect(admission.packet_id).toBeTruthy();
-      await expect(upload.getByText("Success", { exact: true })).toBeVisible();
-      await upload.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(upload).toBeHidden();
 
       await expect(page.getByRole("region", { name: "Document results", exact: true })).toBeVisible({
         timeout: 30_000,
       });
       await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
       await expect(page.getByText("Tagged invoice · version 1", { exact: true })).toBeVisible();
-      await expect(page.getByRole("tab", { name: "Overview", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("tab", { name: /^Overview/ })).toHaveCount(0);
       await expect(page.getByRole("region", { name: "Documents in this packet" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "View parent packet", exact: true })).toHaveCount(0);
       let documentId = admission.job_id;
@@ -306,12 +301,9 @@ test("single-page uploads and one-document split plans display as ordinary docum
       await expect(row).toBeVisible();
       await row.click();
       await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
-      await expect(page.getByRole("tab", { name: "Overview", exact: true })).toHaveCount(0);
-      page.once("dialog", (dialog) => dialog.accept());
-      await page
-        .locator('header[aria-label="Workspace toolbar"]')
-        .getByRole("button", { name: "Delete", exact: true })
-        .click();
+      await expect(page.getByRole("tab", { name: /^Overview/ })).toHaveCount(0);
+      await chooseMoreAction(page, /^Delete/);
+      await confirmInAppDialog(page, /^Delete/, /^Delete (document|packet)$/);
 
       if (pageCount > 1)
         await expect
@@ -330,3 +322,4 @@ test("single-page uploads and one-document split plans display as ordinary docum
     await harness.stop();
   }
 });
+

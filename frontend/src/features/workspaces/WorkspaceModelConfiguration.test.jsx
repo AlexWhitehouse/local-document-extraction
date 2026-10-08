@@ -248,14 +248,14 @@ describe("Workspace Model gateway", () => {
     const coreRequest = apiFixture({ ...configured, credential_status: "unavailable" });
     coreRequest.mockRejectedValueOnce(new Error("unavailable"));
     const { result } = renderHook(() => useWorkspaceModelConfiguration({ ...props, coreRequest }));
-    await waitFor(() => expect(result.current.error).toContain("could not be loaded"));
+    await waitFor(() => expect(result.current.error).toContain("Couldn't load the model gateway"));
     await act(() => result.current.reload());
     expect(result.current.ready).toBe(false);
     await act(() => result.current.save());
-    expect(result.current.error).toContain("new credential");
+    expect(result.current.error).toContain("API key");
     fill(result, { gateway_url: "https://user:secret@example.com", credential: "repair" });
     await act(() => result.current.testConnection());
-    expect(result.current.error).toContain("valid HTTP(S)");
+    expect(result.current.error).toContain("valid gateway URL");
     fill(result, { gateway_url: draft.gateway_url });
     await act(() => result.current.save());
     expect(result.current.ready).toBe(true);
@@ -368,16 +368,45 @@ describe("Workspace Model gateway", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByLabelText("Extraction model").value).toBe(draft.model_name);
     fireEvent.click(screen.getByRole("button", { name: "Clear configuration" }));
-    expect(screen.getByRole("alertdialog")).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" }).at(-1));
+    const dialog = await screen.findByRole("alertdialog", { name: "Clear the Model gateway?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(screen.getByLabelText("Extraction model").value).toBe(draft.model_name);
     fireEvent.click(screen.getByRole("button", { name: "Clear configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm clear" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Clear gateway" }));
     await waitFor(() => expect(showActionToast).toHaveBeenCalledWith("workspace.modelGateway.clear", "success"));
     expect(screen.getByText("Not configured")).toBeTruthy();
     expect(screen.queryByLabelText("Gateway URL")).toBeNull();
     expect(screen.getByRole("button", { name: "Test connection" }).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByLabelText("Gateway URL").value).toBe("");
+  });
+
+  it("keeps the gateway dialog open with the error inline when clearing fails, and does not toast", async () => {
+    const baseRequest = apiFixture(configured);
+
+    const coreRequest = vi.fn(async (path, options) => {
+      if (options.method === "DELETE") throw Object.assign(new Error("boom"), { status: 500 });
+
+      return baseRequest(path, options);
+    });
+
+    const showActionToast = vi.fn();
+
+    function Editor() {
+      const controller = useWorkspaceModelConfiguration({ ...props, coreRequest, showActionToast });
+
+      return <WorkspaceModelConfiguration controller={controller} />;
+    }
+
+    render(<Editor />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear configuration" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Clear gateway" }));
+
+    expect(await within(screen.getByRole("alertdialog")).findByText("Something went wrong. Try again.")).toBeTruthy();
+    expect(showActionToast).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Gateway URL")).toBeTruthy();
   });
 
   it("saves a different Template assistant model with its own capabilities and shows it in the summary", async () => {

@@ -2,10 +2,15 @@ import { normalizeTemplateTagName, normalizeTemplateTags } from "../../../../sha
 import { useTemplateAssistant } from "./useTemplateAssistant.js";
 import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { useTemplateGeneration } from "./useTemplateGeneration.js";
+import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
+import { copyWithFeedback } from "../../lib/copyWithFeedback";
+import { describeError } from "../../lib/describeError";
+import { defaultToast } from "../../lib/notify";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   EMPTY_FIELD,
+  describeJsonSyntaxError,
   hydrateFieldFromTemplate,
   serializeTemplatePayload,
   validateTemplateJsonPayload,
@@ -87,7 +92,7 @@ const DEFAULT_FIELDS = [
 
 const DEFAULT_TEMPLATE_NAME = "Invoice Template";
 
-const DEFAULT_TEMPLATE_DESCRIPTION = "Extract invoice details and line items from a Document";
+const DEFAULT_TEMPLATE_DESCRIPTION = "Extract invoice details and line items from a document";
 
 const DRAFT_TEMPLATE_NAV_ID = "__draft_template__";
 
@@ -102,6 +107,7 @@ export function useTemplateController({
   initialWorkspace = {},
   request,
   showActionToast,
+  toast = defaultToast,
   hasApiAccess,
   workspaceId,
   sessionId = "",
@@ -119,6 +125,9 @@ export function useTemplateController({
   const [templates, setTemplates] = useState(
     Array.isArray(initialWorkspace.templates) ? initialWorkspace.templates : [],
   );
+
+  const [listStatus, setListStatus] = useState("loading");
+  const [listError, setListError] = useState(null);
 
   const [templateName, setTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
 
@@ -278,7 +287,7 @@ export function useTemplateController({
   const contextTemplates = useMemo(() => {
     const hasDraft = showDraftTemplateNav && activePage === "templates";
 
-    const draftItem = hasDraft ? [{ id: DRAFT_TEMPLATE_NAV_ID, name: "New Template", is_draft: true }] : [];
+    const draftItem = hasDraft ? [{ id: DRAFT_TEMPLATE_NAV_ID, name: "New template", is_draft: true }] : [];
 
     return [...draftItem, ...filteredTemplates];
   }, [activePage, filteredTemplates, showDraftTemplateNav]);
@@ -337,12 +346,19 @@ export function useTemplateController({
       if (!isCurrent()) return [];
       const list = Array.isArray(data?.templates) ? data.templates : [];
       setTemplates(list);
+      setListError(null);
+      setListStatus("ready");
       setSelectedUploadTemplateId((currentTemplateId) =>
         currentTemplateId || !list[0]?.id ? currentTemplateId : list[0].id,
       );
 
       return list;
-    } catch {
+    } catch (error) {
+      if (isCurrent()) {
+        setListError(error);
+        setListStatus("error");
+      }
+
       return [];
     }
   }, []);
@@ -364,7 +380,7 @@ export function useTemplateController({
 
       if (isCurrent()) setWorkspaceTags(Array.isArray(data?.tags) ? data.tags : []);
     } catch (error) {
-      if (isCurrent()) setTagListError(error.message || "Unable to load template tags.");
+      if (isCurrent()) setTagListError(describeError(error, "Couldn't load tags. Try again."));
     } finally {
       if (isCurrent()) setIsLoadingTags(false);
     }
@@ -422,6 +438,8 @@ export function useTemplateController({
           .flatMap((item) => (item.id === tag.id ? (nextName === null ? [] : [{ ...item, ...data }]) : [item]))
           .sort((a, b) => a.name.localeCompare(b.name)),
       );
+      const actionKey = normalizedName === undefined ? "tag.delete" : "tag.rename";
+      showActionToast(actionKey, "success", { targetName: nextName ?? tag.name });
       // A list started before the mutation must not restore the old shared name.
       tagListRequestRef.current?.abort();
       listRequestRef.current += 1;
@@ -430,7 +448,13 @@ export function useTemplateController({
       return isCurrent();
     } catch (error) {
       if (!isCurrent()) return false;
-      throw error;
+
+      // A duplicate name is a field problem, so the tag popover shows it inline.
+      if (error.code === "tag_name_conflict") throw error;
+
+      showActionToast(normalizedName === undefined ? "tag.delete" : "tag.rename", "failure", { error });
+
+      return false;
     } finally {
       if (isCurrent()) {
         tagMutationRef.current = null;
@@ -561,15 +585,12 @@ export function useTemplateController({
   }
 
   async function copyTemplateJson() {
-    try {
-      await navigator.clipboard.writeText(templateJsonDraft);
-      setTemplateJsonCopied(true);
-      showActionToast("clipboard.copyTemplateJson", "success");
-      window.setTimeout(() => setTemplateJsonCopied(false), 1600);
-    } catch (error) {
-      setTemplateJsonError(`Copy failed: ${error.message}`);
-      showActionToast("clipboard.copyTemplateJson", "failure", { error });
-    }
+    // copyWithFeedback owns the only message; the button's check mark is the in-place cue.
+    const copied = await copyWithFeedback(toast, templateJsonDraft, "Template JSON");
+
+    setTemplateJsonCopied(copied);
+
+    if (copied) window.setTimeout(() => setTemplateJsonCopied(false), 1600);
   }
 
   async function saveTemplateJsonDraft() {
@@ -584,8 +605,8 @@ export function useTemplateController({
     try {
       parsed = JSON.parse(templateJsonDraft);
     } catch (error) {
-      setTemplateJsonError(`Request body must be valid JSON: ${error.message}`);
-      showActionToast("template.save", "validation", { reason: "json" });
+      // Errors inside the open modal are inline only; no toast repeats them.
+      setTemplateJsonError(describeJsonSyntaxError(error, templateJsonDraft));
 
       return;
     }
@@ -600,7 +621,6 @@ export function useTemplateController({
     } catch (error) {
       setTemplateJsonError(error.message);
       setTemplateJsonDiagnostics(error.diagnostics || []);
-      showActionToast("template.save", "validation", { reason: "json" });
 
       return;
     }
@@ -666,18 +686,14 @@ export function useTemplateController({
       await Promise.all([listTemplates(), listTemplateTags()]);
     } catch (error) {
       if (!isCurrent()) return;
-      setTemplateJsonError(error.message);
+      setTemplateJsonError(describeError(error, "Couldn't save the template. Try again."));
       setTemplateJsonDiagnostics(error.diagnostics || []);
-      showActionToast("template.save", "failure", { error });
     } finally {
       if (isCurrent()) setIsSavingTemplate(false);
     }
   }
 
   async function deleteTemplate() {
-    touchDraft();
-    cancelAssistant();
-    cancelGeneration();
     const deletedTemplateId = updateTemplateId.trim();
 
     if (!deletedTemplateId) {
@@ -688,22 +704,39 @@ export function useTemplateController({
       return;
     }
 
-    if (!window.confirm(`Delete template ${deletedTemplateId}? This action cannot be undone.`)) {
+    const deletedTemplateName =
+      templates.find((template) => String(template.id || "") === deletedTemplateId)?.name || templateName;
+
+    let generation = null;
+
+    const confirmed = await confirmDialog({
+      title: `Delete "${deletedTemplateName}"?`,
+      body: "Documents already extracted with it keep their results. This can't be undone.",
+      confirmLabel: "Delete template",
+      pendingLabel: "Deleting…",
+      // Runs only once the user confirms; a failure stays inline in the dialog.
+      action: async () => {
+        touchDraft();
+        cancelAssistant();
+        cancelGeneration();
+        generation = generationRef.current;
+        setIsDeletingTemplate(true);
+
+        await request(`/templates/${encodeURIComponent(deletedTemplateId)}`, {
+          method: "DELETE",
+        });
+      },
+    });
+
+    if (!confirmed) {
+      setIsDeletingTemplate(false);
+
       return;
     }
 
-    const generation = generationRef.current;
     const isCurrent = () => generation === generationRef.current;
-    setIsDeletingTemplate(true);
 
     try {
-      const deletedTemplateName =
-        templates.find((template) => String(template.id || "") === deletedTemplateId)?.name || templateName;
-
-      await request(`/templates/${encodeURIComponent(deletedTemplateId)}`, {
-        method: "DELETE",
-      });
-
       if (!isCurrent()) return;
       showActionToast("template.delete", "success", {
         targetName: deletedTemplateName,
@@ -844,8 +877,11 @@ export function useTemplateController({
     clearWorkspaceScopedTemplates();
 
     if (hasApiAccess) {
+      setListStatus("loading");
       void listTemplates();
       void listTemplateTags();
+    } else {
+      setListStatus("ready");
     }
 
     return () => {
@@ -883,13 +919,35 @@ export function useTemplateController({
     };
   }, [hasApiAccess, workspaceId, sessionId, routeTemplateId]);
 
+  function createTemplate(options) {
+    const startDraft = () => {
+      if (onTemplateNavigation && !onTemplateNavigation("new")) return;
+      startNewTemplateDraft(options);
+    };
+
+    // Stays synchronous unless the discard prompt has to ask.
+    if (onTemplateNavigation && !updateTemplateId && hasUnsavedChanges) {
+      return confirmDialog({ ...DISCARD_CHANGES }).then((discard) => {
+        if (discard) startDraft();
+      });
+    }
+
+    startDraft();
+  }
+
+  function autoGenerateTemplate() {
+    touchDraft();
+    cancelAssistant();
+    templateGeneration.open({ createNew: true });
+  }
+
   return {
     navigation: {
       hasUnsavedChanges,
       isDraft: showDraftTemplateNav,
       load: routeLoad,
       retry: () => loadTemplateForEditing(routeTemplateId),
-      confirmDiscard: () => !hasUnsavedChanges || window.confirm("Discard unsaved Template changes?"),
+      confirmDiscard: () => !hasUnsavedChanges || confirmDialog({ ...DISCARD_CHANGES }),
       invalidatePendingLoad: () => {
         editorRequestRef.current += 1;
       },
@@ -900,9 +958,14 @@ export function useTemplateController({
     contextList: {
       search: templateSearch,
       templates: contextTemplates,
+      status: listStatus,
+      error: listError,
+      onRetry: () => listTemplates(),
       selectedTemplateId: updateTemplateId,
       isEditingTemplate,
       onSearchChange: setTemplateSearch,
+      onCreateTemplate: () => createTemplate(),
+      onAutoGenerateTemplate: () => autoGenerateTemplate(),
       onSelectDraftTemplate: onTemplateNavigation ? () => onTemplateNavigation("new") : startNewTemplateDraft,
       onSelectTemplate: (templateId) => {
         if (onTemplateNavigation) {
@@ -964,12 +1027,13 @@ export function useTemplateController({
         cancelAssistant();
         templateGeneration.open();
       },
-      onOpenJsonModal: openTemplateJsonModal,
       onSaveTemplate: saveTemplate,
+      showActionToast,
     },
     generationModal: templateGeneration.modal,
     jsonModal: {
       isOpen: showTemplateJsonModal,
+      isDirty: isJsonDraftDirty,
       draft: templateJsonDraft,
       error: templateJsonError,
       diagnostics: templateJsonDiagnostics,
@@ -991,24 +1055,10 @@ export function useTemplateController({
     toolbar: {
       isDeletingTemplate,
       selectedTemplateId: updateTemplateId,
-      onCreateTemplate: (options) => {
-        if (
-          onTemplateNavigation &&
-          !updateTemplateId &&
-          hasUnsavedChanges &&
-          !window.confirm("Discard unsaved Template changes?")
-        )
-          return;
-
-        if (onTemplateNavigation && !onTemplateNavigation("new")) return;
-        startNewTemplateDraft(options);
-      },
-      onAutoGenerateTemplate: () => {
-        touchDraft();
-        cancelAssistant();
-        templateGeneration.open({ createNew: true });
-      },
+      onCreateTemplate: createTemplate,
+      onAutoGenerateTemplate: autoGenerateTemplate,
       onDeleteTemplate: deleteTemplate,
+      onOpenJsonModal: openTemplateJsonModal,
     },
     actions: {
       clearWorkspaceScopedTemplates,

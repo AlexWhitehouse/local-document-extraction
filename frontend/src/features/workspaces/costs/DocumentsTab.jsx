@@ -1,10 +1,16 @@
+import { statusLabel } from "../../../lib/status.js";
 import React, { useEffect, useState } from "react";
 import { allocateCost, costAmount } from "../../../../../shared/processingCosts.ts";
-import { ChartTip, FigureStrip, Segmented, StageBar, StageLegend, StageTipRows } from "./costShared.jsx";
+import { ChartTip, FigureStrip, StageBar, StageLegend, StageTipRows } from "./costShared.jsx";
 import { costLabel, percent, plural, shortDate } from "./costFormat.js";
 import { useChartTip } from "./costHooks.js";
 import { useCostResource } from "./useCostResource.js";
 import { CostResourceStatus } from "./WorkspaceCosts.jsx";
+import { EmptyState } from "../../ui/States.jsx";
+import { Pager } from "../../ui/Pager.jsx";
+import { Badge } from "../../ui/Status.jsx";
+import { DataTable } from "../../ui/DataTable.jsx";
+import { Segmented } from "../../ui/Tabs.jsx";
 
 const STACK = ["split", "auto_template", "extraction"];
 
@@ -34,12 +40,12 @@ export function DocumentsTab({ request, base, queryString }) {
   const filter = new URLSearchParams({ sort, kind, search }).toString();
 
   return (
-    <div className="cp-tab-panel" role="tabpanel" aria-label="Documents">
+    <div className="cp-tab-panel">
       <div className="cp-document-filters">
         <input
           type="search"
           aria-label="Search documents"
-          placeholder="Document or template"
+          placeholder="Search documents or templates"
           maxLength={200}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -48,10 +54,10 @@ export function DocumentsTab({ request, base, queryString }) {
           label="Document type"
           value={kind}
           onChange={setKind}
-          options={[
+          items={[
             { value: "all", label: "All" },
-            { value: "multi", label: "Multi" },
-            { value: "single", label: "Single" },
+            { value: "multi", label: "Split PDFs" },
+            { value: "single", label: "Single documents" },
           ]}
         />
         <label className="cp-sort-select">
@@ -100,13 +106,13 @@ function DocumentResults({ request, base, queryString, sort }) {
                 <button
                   type="button"
                   className={item.id === selected?.id ? "cp-list-item active" : "cp-list-item"}
-                  aria-pressed={item.id === selected?.id}
+                  aria-current={item.id === selected?.id ? "true" : undefined}
                   onClick={() => setSelectedId(item.id)}
                 >
                   <span className="cp-list-name">
                     {item.name}
                     <small>
-                      {shortDate(item.created_at)} {time(item.created_at)} UTC ·{" "}
+                      {shortDate(item.created_at)} {time(item.created_at)} ·{" "}
                       {plural(item.documentCount, "document")}
                     </small>
                   </span>
@@ -116,37 +122,30 @@ function DocumentResults({ request, base, queryString, sort }) {
                       : costLabel(item.costs.total)}
                   </strong>
                   <StageBar costs={item.costs} max={max} label={item.name} />
-                  {item.deleted ? <span className="status-chip cp-list-deleted">Deleted</span> : null}
+                  {item.deleted ? <Badge className="cp-list-deleted">Deleted</Badge> : null}
                 </button>
               </li>
             ))}
           </ul>
           {!items.length && resource.data ? (
-            <p className="cp-muted">
-              {resource.data.cursor
-                ? "No matches in this batch. Continue searching for more results."
-                : "Nothing matches this range and filter."}
-            </p>
+            <EmptyState
+              variant="inline"
+              message={
+                resource.data.cursor
+                  ? "No matches yet. Load more to keep searching."
+                  : "Nothing matches this range and filter."
+              }
+            />
           ) : null}
-          <div className="cp-pagination">
-            <button
-              type="button"
-              className="secondary"
-              disabled={cursors.length === 1 || resource.loading}
-              onClick={() => setCursors((value) => value.slice(0, -1))}
-            >
-              Previous
-            </button>
-            <span className="cp-muted">Page {cursors.length}</span>
-            <button
-              type="button"
-              className="secondary"
-              disabled={!resource.data?.cursor || resource.loading}
-              onClick={() => setCursors((value) => [...value, resource.data.cursor])}
-            >
-              {resource.data?.searchContinuing ? "Continue search" : "Next"}
-            </button>
-          </div>
+          <Pager
+            className="cp-pagination"
+            label={`Page ${cursors.length}`}
+            hasPrevious={cursors.length > 1}
+            hasNext={Boolean(resource.data?.cursor)}
+            onPrevious={() => setCursors((value) => value.slice(0, -1))}
+            onNext={() => setCursors((value) => [...value, resource.data.cursor])}
+            disabled={resource.loading}
+          />
         </section>
         <div>
           <CostResourceStatus resource={detail} />
@@ -246,7 +245,7 @@ function CostAnatomy({ item }) {
   const figures = [
     { hero: true, label: "Total", value: costLabel(item.costs.total) },
     { label: "Per page", value: costLabel({ ...item.costs.total, amount: perPage(item) }, "—") },
-    { label: "Smart split", value: usedCalls(split) ? costLabel(split) : "Not used" },
+    { label: "Splitting", value: usedCalls(split) ? costLabel(split) : "Not used" },
     { label: multi ? "Documents" : "Pages", value: multi ? String(item.children.length) : String(item.pages) },
   ];
 
@@ -260,10 +259,10 @@ function CostAnatomy({ item }) {
         </p>
         <h3 title={item.name}>
           {item.name}
-          {item.deleted ? <span className="status-chip">Deleted</span> : null}
+          {item.deleted ? <Badge>Deleted</Badge> : null}
         </h3>
         <p className="cp-anatomy-meta">
-          {shortDate(item.created_at)} {time(item.created_at)} UTC · {item.status}
+          {shortDate(item.created_at)} {time(item.created_at)} · {statusLabel(item.status)}
         </p>
       </header>
       <FigureStrip compact figures={figures} label={`${item.name} figures`} />
@@ -330,13 +329,13 @@ function CostAnatomy({ item }) {
       ) : null}
 
       {parts.length > 1 ? (
-        <table className="studio-table cp-table cp-anatomy-table">
+        <DataTable className="cp-table cp-anatomy-table">
           <thead>
             <tr>
               <th>Document</th>
               <th className="cp-num">Pages</th>
               <th className="cp-num">Split share</th>
-              <th className="cp-num">Auto template</th>
+              <th className="cp-num">Template generation</th>
               <th className="cp-num">Extraction</th>
               <th className="cp-num">Total</th>
             </tr>
@@ -351,7 +350,7 @@ function CostAnatomy({ item }) {
               >
                 <td>
                   {part.label} <span className="cp-muted">{part.sub}</span>
-                  {part.deleted ? <span className="status-chip cp-row-chip">Deleted</span> : null}
+                  {part.deleted ? <Badge className="cp-row-chip">Deleted</Badge> : null}
                 </td>
                 <td className="cp-num">
                   {part.pages} <span className="cp-muted">/ {item.pages}</span>
@@ -373,17 +372,12 @@ function CostAnatomy({ item }) {
               <td className="cp-num cp-strong">{costLabel(item.costs.total)}</td>
             </tr>
           </tfoot>
-        </table>
-      ) : null}
-      {item.deleted || parts.some((part) => part.deleted) ? (
-        <p className="cp-note">
-          Deleted documents keep their cost here. That cost was incurred and still counts in Workspace totals.
-        </p>
+        </DataTable>
       ) : null}
       {item.costs.total.amount === null ? (
-        <p className="cp-note">This work predates cost tracking, or the endpoint did not report a cost.</p>
+        <p className="cp-note">Cost not reported by the model provider.</p>
       ) : !item.costs.total.complete ? (
-        <p className="cp-note">+ marks a known subtotal. Some calls did not report a cost.</p>
+        <p className="cp-note">Costs marked + are partial. Some costs weren't reported.</p>
       ) : null}
       <ChartTip tip={tip} />
     </section>

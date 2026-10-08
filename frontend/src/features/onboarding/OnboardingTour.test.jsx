@@ -24,13 +24,27 @@ function props(overrides = {}) {
 describe("first-use tour", () => {
   it("waits for workspace resolution and remembers dismissal separately for each account", () => {
     const { rerender } = render(<OnboardingTour {...props({ ready: false })} />);
-    expect(screen.queryByText("New to Studio?")).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Welcome tour" })).toBeNull();
     rerender(<OnboardingTour {...props()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss tour" }));
+    expect(screen.queryByRole("complementary", { name: "Welcome tour" })).toBeNull();
     rerender(<OnboardingTour key="remount" {...props()} />);
-    expect(screen.queryByText("New to Studio?")).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Welcome tour" })).toBeNull();
     rerender(<OnboardingTour key="second-user" {...props({ userId: "second-user" })} />);
-    expect(screen.getByText("New to Studio?")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Welcome tour" })).toBeTruthy();
+  });
+
+  it("shows the compact tour card in one row and keeps the dismissal after a remount", () => {
+    const { rerender } = render(<OnboardingTour {...props()} />);
+    const card = screen.getByRole("complementary", { name: "Welcome tour" });
+
+    expect(card.textContent).not.toContain("extraction");
+    expect(screen.getByRole("button", { name: "Take the tour" })).toBeTruthy();
+    expect(card.querySelectorAll("button")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss tour" }));
+    rerender(<OnboardingTour key="remount" {...props()} />);
+    expect(screen.queryByRole("complementary", { name: "Welcome tour" })).toBeNull();
   });
 
   it("supports unavailable local storage and restores interaction on Escape", () => {
@@ -42,7 +56,7 @@ describe("first-use tour", () => {
     });
     const options = props();
     render(<OnboardingTour {...options} />);
-    fireEvent.click(screen.getByRole("button", { name: /Take a tour/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Take the tour/ }));
     expect(screen.getByRole("dialog").textContent).toContain("A space for your documents");
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -53,7 +67,7 @@ describe("first-use tour", () => {
   it("does not advance on a failed or pending workspace creation", async () => {
     const options = props();
     const { rerender } = render(<OnboardingTour {...options} />);
-    fireEvent.click(screen.getByRole("button", { name: /Take a tour/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Take the tour/ }));
     rerender(<OnboardingTour {...options} busy />);
     expect(screen.getByRole("dialog").textContent).toContain("A space for your documents");
     rerender(<OnboardingTour {...options} />);

@@ -16,7 +16,7 @@ export const ONE_PIXEL_PNG = Buffer.from(
 /** Submits the sign-up form; the caller asserts what happens next. */
 export async function submitSignUp(page: Page, harness: RuntimeHarness, account: BrowserAccount): Promise<void> {
   await page.goto(harness.origin);
-  await page.getByRole("link", { name: "Sign up" }).click();
+  await page.getByRole("button", { name: "Sign up", exact: true }).click();
   await page.getByLabel("Name").fill(account.name);
   await page.getByLabel("Email").fill(account.email);
   await page.getByLabel("Password", { exact: true }).fill(account.password);
@@ -26,17 +26,16 @@ export async function submitSignUp(page: Page, harness: RuntimeHarness, account:
 
 export async function signUpAndVerify(page: Page, harness: RuntimeHarness, account: BrowserAccount): Promise<void> {
   await submitSignUp(page, harness, account);
-  await expect(page.getByRole("status")).toContainText("Open your local verification link");
+  await expect(page.getByRole("status")).toContainText("We saved a verification link");
 
   const verificationMail = await harness.waitForVerificationMail(account.email);
   await page.goto(verificationMail.actionUrl);
   await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
-  await expect(page.getByText("API Ready", { exact: true }).first()).toBeVisible();
 }
 
 export async function saveModelGateway(page: Page, harness: RuntimeHarness, modelName: string): Promise<void> {
   await page
-    .getByRole("article", { name: "Workspace Model gateway" })
+    .getByRole("article", { name: "Model gateway" })
     .getByRole("button", { name: "Edit", exact: true })
     .click();
   await page.getByLabel("Gateway URL", { exact: true }).fill(harness.gatewayOrigin);
@@ -76,4 +75,21 @@ export async function signOut(page: Page, account: BrowserAccount): Promise<void
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Confirms an in-app ConfirmDialog by its title and confirm label; the dialog must close afterwards. */
+export async function confirmInAppDialog(
+  page: Page,
+  title: string | RegExp,
+  confirmLabel: string | RegExp,
+): Promise<void> {
+  const dialog = page.getByRole("alertdialog", { name: title });
+  await dialog.getByRole("button", { name: confirmLabel, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+}
+
+/** Opens the page header's "More actions" menu and picks one item. */
+export async function chooseMoreAction(page: Page, label: string | RegExp): Promise<void> {
+  await page.getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: label, exact: true }).click();
 }

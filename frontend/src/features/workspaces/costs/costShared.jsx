@@ -1,9 +1,15 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { STAGES } from "./costConstants.js";
 import { costLabel, percent } from "./costFormat.js";
 import { PRESETS, todayUTC, validCustomRange } from "./costRange.js";
+import { PlusIcon } from "../../layout/Icons.jsx";
+import { Button } from "../../ui/Button.jsx";
+import { Segmented } from "../../ui/Tabs.jsx";
+import { Popover } from "../../ui/Popover.jsx";
+import { Badge } from "../../ui/Status.jsx";
 
+/** Follows the pointer over a chart. It is visual only: the Table view carries the same values. */
 export function ChartTip({ tip }) {
   const ref = useRef(null);
   const [position, setPosition] = useState(null);
@@ -21,7 +27,7 @@ export function ChartTip({ tip }) {
     <div
       ref={ref}
       role="tooltip"
-      className="cp-tip"
+      className="ui-tooltip ui-tooltip-pointer is-open cp-tip"
       style={position || { left: tip.x + 14, top: tip.y + 14, visibility: "hidden" }}
     >
       {tip.content}
@@ -115,28 +121,10 @@ export function StageBar({ costs, max, height = 8, label }) {
       </span>
       {!costs.total.complete ? (
         <span className="cp-stagebar-partial" title="Some calls did not report cost" aria-hidden="true">
-          +
+          <PlusIcon size={10} />
         </span>
       ) : null}
     </span>
-  );
-}
-
-export function Segmented({ label, value, options, onChange }) {
-  return (
-    <div className="cp-segmented" role="radiogroup" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={option.value === value}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -152,7 +140,7 @@ export function FigureStrip({ figures, compact = false, label }) {
           <dt>{figure.label}</dt>
           <dd>
             <strong>{figure.value}</strong>
-            {figure.chip ? <span className="status-chip">{figure.chip}</span> : null}
+            {figure.chip ? <Badge>{figure.chip}</Badge> : null}
           </dd>
           {figure.trend ? <Sparkline values={figure.trend} label={`${figure.label} trend`} /> : null}
           {figure.detail ? <small title={figure.detail}>{figure.detail}</small> : null}
@@ -187,62 +175,42 @@ export function RangePicker({ range, onChange }) {
   const TODAY = todayUTC();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState({ from: range.from || TODAY, to: range.to || TODAY });
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-
-    const close = (event) => {
-      if (event.key === "Escape" || (event.type === "mousedown" && !ref.current?.contains(event.target)))
-        setOpen(false);
-    };
-
-    window.addEventListener("keydown", close);
-    window.addEventListener("mousedown", close);
-
-    return () => {
-      window.removeEventListener("keydown", close);
-      window.removeEventListener("mousedown", close);
-    };
-  }, [open]);
   const valid = validCustomRange(draft.from, draft.to, TODAY);
 
   return (
-    <div className="cp-range" ref={ref}>
-      <div className="cp-segmented" role="radiogroup" aria-label="Date range">
-        {PRESETS.map((preset) => (
+    <Segmented
+      label="Date range"
+      value={range.preset}
+      items={PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}
+      onChange={(value) => {
+        onChange({ preset: value });
+        setOpen(false);
+      }}
+    >
+      {/* Custom opens a form, so it is a popover trigger rather than a radio option. */}
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        label="Custom date range"
+        panelClassName="cp-range-popover"
+        trigger={(triggerProps) => (
           <button
-            key={preset.value}
             type="button"
-            role="radio"
-            aria-checked={range.preset === preset.value}
-            onClick={() => {
-              onChange({ preset: preset.value });
-              setOpen(false);
-            }}
+            aria-pressed={range.preset === "custom"}
+            aria-haspopup="dialog"
+            onClick={() => setOpen((current) => !current)}
+            {...triggerProps}
           >
-            {preset.label}
+            {range.preset === "custom"
+              ? range.from === range.to
+                ? range.from.slice(5)
+                : `${range.from.slice(5)} – ${range.to.slice(5)}`
+              : "Custom…"}
           </button>
-        ))}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={range.preset === "custom"}
-          aria-expanded={open}
-          aria-haspopup="dialog"
-          onClick={() => setOpen(!open)}
-        >
-          {range.preset === "custom"
-            ? range.from === range.to
-              ? range.from.slice(5)
-              : `${range.from.slice(5)} – ${range.to.slice(5)}`
-            : "Custom"}
-        </button>
-      </div>
-      {open ? (
+        )}
+      >
         <form
-          className="cp-range-popover"
-          role="dialog"
-          aria-label="Custom date range"
+          className="cp-range-form"
           onSubmit={(event) => {
             event.preventDefault();
 
@@ -273,20 +241,20 @@ export function RangePicker({ range, onChange }) {
           <p className="cp-muted">
             {valid
               ? draft.from === draft.to
-                ? "One day is shown by hour, in UTC."
-                : "Shown by day, in UTC."
+                ? "One day is shown by hour."
+                : "Shown by day."
               : "Choose past dates spanning no more than 366 days."}
           </p>
           <div className="cp-range-actions">
-            <button type="button" className="secondary" onClick={() => setOpen(false)}>
+            <Button variant="secondary" onClick={() => setOpen(false)}>
               Cancel
-            </button>
-            <button type="submit" disabled={!valid}>
+            </Button>
+            <Button type="submit" disabled={!valid}>
               Apply
-            </button>
+            </Button>
           </div>
         </form>
-      ) : null}
-    </div>
+      </Popover>
+    </Segmented>
   );
 }

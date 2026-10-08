@@ -1,0 +1,92 @@
+/* Dashed drop target. Layout comes from the feature that places it; this sets the surface and drag state. */
+.ui-dropzone {
+  min-width: 0;
+  margin-top: 2px;
+  border: 1px dashed var(--rule-dashed);
+  background: var(--field-bg);
+  transition: border-color 120ms, background 120ms;
+}
+
+.ui-dropzone:hover:not(.is-disabled),
+.ui-dropzone.is-active {
+  border-color: var(--accent);
+}
+
+.ui-dropzone.is-active {
+  background: var(--row-selected);
+}
+
+input.ui-dropzone-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* The whole zone is the browse button when the caller doesn't place its own. */
+.ui-dropzone-browse {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 112px;
+  height: auto;
+  padding: 18px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-weight: 400;
+  text-align: center;
+  cursor: pointer;
+}
+
+.ui-dropzone-browse:hover:not(:disabled) {
+  background: var(--row-hover);
+}
+
+.ui-dropzone-browse:disabled {
+  cursor: default;
+}
+
+/* Upload glyph in a bordered tile, the same treatment as the sidebar brand mark. */
+.ui-dropzone-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 4px;
+  border: 1px solid var(--tone-success-border);
+  background: var(--tone-success-bg);
+  color: var(--accent-strong);
+}
+
+.ui-dropzone-browse strong {
+  font-size: var(--font-size-5);
+  font-weight: 500;
+  color: var(--text-0);
+}
+
+.ui-dropzone-hint {
+  font-size: var(--font-size-3);
+  color: var(--text-2);
+}
+
+/* Sits in the flow below the hint. Full width so the rule spans the zone, and no overflow clip. */
+.ui-dropzone-browse em {
+  align-self: stretch;
+  max-width: 100%;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-subtle);
+  font-style: normal;
+  font-size: var(--font-size-4);
+  font-weight: 500;
+  color: var(--accent-strong);
+  overflow-wrap: anywhere;
+}
